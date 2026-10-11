@@ -110,3 +110,93 @@
     outline-color: var(--accent);
   }
 }
+
+/* Dense ERP table scroll and sticky headers with full grid lines (All Borders) */
+.erp-table-container {
+  overflow-x: auto;
+  max-width: 100%;
+  container-type: inline-size;
+}
+
+.erp-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 12px;
+}
+
+.erp-table th {
+  position: sticky;
+  top: 0;
+  background-color: #dbeafe;
+  z-index: 10;
+  font-weight: 700;
+  color: #1e3a8a;
+  text-transform: uppercase;
+  letter-spacing: 0.025em;
+  padding: 8px 10px;
+  border-top: 1px solid #93c5fd;
+  border-right: 1px solid #93c5fd;
+  border-bottom: 2px solid #60a5fa;
+  white-space: nowrap;
+}
+
+.erp-table th:first-child {
+  border-left: 1px solid #93c5fd;
+}
+
+.erp-table td {
+  padding: 8px 10px;
+  border-right: 1px solid #cbd5e1;
+  border-bottom: 1px solid #cbd5e1;
+  color: #1e293b;
+  white-space: nowrap;
+}
+
+.erp-table td:first-child {
+  border-left: 1px solid #cbd5e1;
+}
+
+.erp-table tr:hover td {
+  background-color: #f1f5f9;
+}
+
+@keyframes toastHoverSlideIn {
+  0% {
+    opacity: 0;
+    transform: translateY(-20px) scale(0.95);
+  }
+  60% {
+    transform: translateY(3px) scale(1.01);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* Recharts Tooltip Text Color Override for Dark Tooltips */
+.recharts-default-tooltip {
+  background-color: #0f172a !important;
+  border: 1px solid #334155 !important;
+  border-radius: 6px !important;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.35) !important;
+  padding: 8px 12px !important;
+}
+
+.recharts-tooltip-item,
+.recharts-tooltip-item-name,
+.recharts-tooltip-item-value,
+.recharts-tooltip-item-unit,
+.recharts-tooltip-item-separator {
+  color: #ffffff !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+}
+
+.recharts-tooltip-label {
+  color: #94a3b8 !important;
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  margin-bottom: 2px !important;
+}

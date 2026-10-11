@@ -19,7 +19,9 @@
       }
     ],
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "@bridgeone/contracts": ["./src/contracts"],
+      "@bridgeone/purchase-calculations": ["./src/lib/calculations"]
     }
   },
   "include": [
