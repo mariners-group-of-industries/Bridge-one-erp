@@ -39,3 +39,12 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# allow the documented env template
+!.env.example
+
+# prisma generated client (run `npm run db:generate`)
+/src/generated/
+
+# local object storage (STORAGE_DRIVER=local)
+/.storage/
