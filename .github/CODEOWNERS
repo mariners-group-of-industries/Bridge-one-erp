@@ -1,0 +1,20 @@
+# Reviews are requested automatically from the owners below.
+# Replace the handles with each developer's GitHub username (see CONTRIBUTING.md
+# for who owns what). Later matches take precedence.
+
+# Default: any change needs a review from the repository owner.
+*                                   @arifarman22
+
+# Platform (Dev A): design system, shell, shared libraries, CI, database schema.
+/frontend/src/components/           @arifarman22
+/frontend/src/app/globals.css       @arifarman22
+/frontend/src/app/layout.tsx        @arifarman22
+/frontend/src/lib/                  @arifarman22
+/frontend/src/hooks/                @arifarman22
+/frontend/prisma/                   @arifarman22
+/frontend/package.json              @arifarman22
+/.github/                           @arifarman22
+
+# Modules: each module's owner (Dev B / Dev C).
+/frontend/src/features/configuration/     @arifarman22
+/frontend/src/app/(erp)/configuration/    @arifarman22
