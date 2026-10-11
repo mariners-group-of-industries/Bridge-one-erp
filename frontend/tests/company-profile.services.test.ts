@@ -1,4 +1,9 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("@/lib/prisma/client", async () => {
+  const { testPrisma } = await import("./helpers/test-db");
+  return { db: testPrisma };
+});
 import { AppError } from "@/lib/api/errors";
 import { setStorage } from "@/lib/storage";
 import {

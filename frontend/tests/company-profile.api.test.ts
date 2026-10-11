@@ -1,4 +1,9 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("@/lib/prisma/client", async () => {
+  const { testPrisma } = await import("./helpers/test-db");
+  return { db: testPrisma };
+});
 import * as companyRoute from "@/app/api/configuration/company/route";
 import * as unitsRoute from "@/app/api/configuration/business-units/route";
 import * as unitRoute from "@/app/api/configuration/business-units/[businessUnitId]/route";

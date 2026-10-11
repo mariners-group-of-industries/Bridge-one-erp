@@ -29,7 +29,7 @@
   "devDependencies": {
     "@electric-sql/pglite": "^0.4.3",
     "@tailwindcss/turbopack": "^4",
-    "@types/node": "^20",
+    "@types/node": "^20.19.43",
     "@types/pg": "^8.23.1",
     "@types/react": "^19",
     "@types/react-dom": "^19",
@@ -39,6 +39,7 @@
     "prisma": "^7.10.0",
     "tailwindcss": "^4",
     "typescript": "^5",
-    "vitest": "^4.1.11"
+    "vitest": "^4.1.11",
+    "vite": "^6.0.0"
   }
 }
