@@ -3,7 +3,7 @@ import type { ObjectStorage } from "@/lib/storage";
 
 export const adminActor: Actor = {
   id: "test-admin",
-  permissions: new Set<Permission>(["configuration:read", "configuration:write"]),
+  permissions: new Set<Permission>(["configuration:read", "configuration:write", "sales:read", "sales:write", "sales:approve"]),
   companyScope: "ALL",
 };
 

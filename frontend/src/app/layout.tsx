@@ -20,7 +20,11 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         {/* Applies the saved theme before first paint (no light→dark flash). */}
         <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
       </head>
-      <body className="min-h-full font-sans">{children}</body>
+      {/* Browser extensions (dark mode, screen filters) add attributes such as
+          style="filter: none" to <body> before hydration; ignore those. */}
+      <body suppressHydrationWarning className="min-h-full font-sans">
+        {children}
+      </body>
     </html>
   );
 }

@@ -71,6 +71,21 @@ model BusinessUnit {
   offices Office[]
   terms   TermsCondition[]
 
+  salesPersons     SalesPerson[]
+  customers        Customer[]
+  items            Item[]
+  salesDeliveries  SalesDelivery[]
+  salesReturns     SalesReturn[]
+  salesCollections SalesCollection[]
+  salesTargets     SalesTarget[]
+  salesQuotations  SalesQuotation[]
+  sequences        DocumentSequence[]
+  salesAreas       SalesArea[]
+  customerGroups   CustomerGroup[]
+  itemCategories   ItemCategory[]
+  priceLists       PriceList[]
+  salesOrders      SalesOrder[]
+
   @@unique([companyId, name])
   @@map("business_units")
 }
@@ -86,9 +101,11 @@ model Office {
   createdAt      DateTime @default(now()) @db.Timestamptz(3)
   updatedAt      DateTime @updatedAt @db.Timestamptz(3)
 
-  businessUnit BusinessUnit  @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  businessUnit BusinessUnit     @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
   warehouses   Warehouse[]
   assets       OfficeAsset[]
+  quotations   SalesQuotation[]
+  salesOrders  SalesOrder[]
 
   @@unique([businessUnitId, name])
   @@map("offices")
@@ -153,4 +170,615 @@ model TermApplicability {
   @@id([termId, documentType])
   @@index([documentType])
   @@map("term_applicability")
+}
+
+// ─── Sales ───────────────────────────────────────────────────────────────────
+// Every sales record belongs to a business unit, so company scoping follows
+// BusinessUnit.companyId.
+
+/// Lifecycle of a sales document (ERPNext docstatus). Only SUBMITTED documents
+/// count in balances, reports and the dashboard.
+enum SalesDocStatus {
+  DRAFT
+  SUBMITTED
+  CANCELLED
+}
+
+enum CollectionMethod {
+  CASH
+  BANK
+  CHEQUE
+  MOBILE_BANKING
+}
+
+model SalesPerson {
+  id             String   @id @default(uuid()) @db.Uuid
+  businessUnitId String   @db.Uuid
+  code           String   @db.VarChar(30)
+  name           String   @db.VarChar(150)
+  designation    String?  @db.VarChar(100)
+  phone          String?  @db.VarChar(30)
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime @updatedAt @db.Timestamptz(3)
+
+  businessUnit BusinessUnit      @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  customers    Customer[]
+  deliveries   SalesDelivery[]
+  returns      SalesReturn[]
+  collections  SalesCollection[]
+  targets      SalesTarget[]
+  quotations   SalesQuotation[]
+  salesOrders  SalesOrder[]
+
+  @@unique([businessUnitId, code])
+  @@map("sales_persons")
+}
+
+model Customer {
+  id              String       @id @default(uuid()) @db.Uuid
+  businessUnitId  String       @db.Uuid
+  code            String       @db.VarChar(30)
+  name            String       @db.VarChar(150)
+  address         String?      @db.VarChar(500)
+  phone           String?      @db.VarChar(30)
+  email           String?      @db.VarChar(254)
+  contactPerson   String?      @db.VarChar(150)
+  binNumber       String?      @db.VarChar(30)
+  customerType    CustomerType @default(GENERAL)
+  customerGroupId String?      @db.Uuid
+  zoneId          String?      @db.Uuid
+  territoryId     String?      @db.Uuid
+  routeId         String?      @db.Uuid
+  sectionId       String?      @db.Uuid
+  /// Days after delivery before an unpaid amount becomes overdue.
+  creditDays      Int          @default(0)
+  creditLimit     Decimal?     @db.Decimal(14, 2)
+  /// Default sales person for new documents.
+  salesPersonId   String?      @db.Uuid
+  isActive        Boolean      @default(true)
+  createdAt       DateTime     @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime     @updatedAt @db.Timestamptz(3)
+
+  businessUnit  BusinessUnit      @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  salesPerson   SalesPerson?      @relation(fields: [salesPersonId], references: [id], onDelete: SetNull)
+  deliveries    SalesDelivery[]
+  returns       SalesReturn[]
+  collections   SalesCollection[]
+  quotations    SalesQuotation[]
+  salesOrders   SalesOrder[]
+  addresses     CustomerAddress[]
+  customerGroup CustomerGroup?    @relation(fields: [customerGroupId], references: [id], onDelete: Restrict)
+  zone          SalesArea?        @relation("CustomerZone", fields: [zoneId], references: [id], onDelete: Restrict)
+  territory     SalesArea?        @relation("CustomerTerritory", fields: [territoryId], references: [id], onDelete: Restrict)
+  route         SalesArea?        @relation("CustomerRoute", fields: [routeId], references: [id], onDelete: Restrict)
+  section       SalesArea?        @relation("CustomerSection", fields: [sectionId], references: [id], onDelete: Restrict)
+
+  @@unique([businessUnitId, code])
+  @@index([businessUnitId, name])
+  @@map("customers")
+}
+
+/// Sellable product. Owned by Sales until the Stock module takes over item masters.
+model Item {
+  id             String   @id @default(uuid()) @db.Uuid
+  businessUnitId String   @db.Uuid
+  code           String   @db.VarChar(30)
+  name           String   @db.VarChar(200)
+  uom            String   @default("Pcs") @db.VarChar(20)
+  salesRate      Decimal  @default(0) @db.Decimal(14, 2)
+  mrp            Decimal? @db.Decimal(14, 2)
+  vatPercent     Decimal  @default(0) @db.Decimal(5, 2)
+  /// Larger packing unit (Ctn, Bag …) and how many base units it holds.
+  altUom         String?  @db.VarChar(20)
+  altUomFactor   Decimal? @db.Decimal(14, 3)
+  categoryId     String?  @db.Uuid
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime @updatedAt @db.Timestamptz(3)
+
+  businessUnit   BusinessUnit         @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  category       ItemCategory?        @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  prices         ItemPrice[]
+  orderLines     SalesOrderLine[]
+  deliveryLines  SalesDeliveryLine[]
+  returnLines    SalesReturnLine[]
+  quotationLines SalesQuotationLine[]
+
+  @@unique([businessUnitId, code])
+  @@map("items")
+}
+
+/// Goods delivered to a customer; the amount becomes overdue after `dueDate`.
+model SalesDelivery {
+  id             String         @id @default(uuid()) @db.Uuid
+  businessUnitId String         @db.Uuid
+  number         String         @db.VarChar(30)
+  customerId     String         @db.Uuid
+  salesPersonId  String?        @db.Uuid
+  deliveryDate   DateTime       @db.Date
+  /// deliveryDate + the customer's credit days, fixed when the delivery is created.
+  dueDate        DateTime       @db.Date
+  status         SalesDocStatus @default(DRAFT)
+  totalQty       Decimal        @default(0) @db.Decimal(14, 3)
+  totalAmount    Decimal        @default(0) @db.Decimal(14, 2)
+  remarks        String?        @db.VarChar(500)
+  createdAt      DateTime       @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime       @updatedAt @db.Timestamptz(3)
+
+  businessUnit BusinessUnit        @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  customer     Customer            @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  salesPerson  SalesPerson?        @relation(fields: [salesPersonId], references: [id], onDelete: Restrict)
+  lines        SalesDeliveryLine[]
+  returns      SalesReturn[]
+
+  @@unique([businessUnitId, number])
+  @@index([businessUnitId, status, deliveryDate])
+  @@index([customerId, status, dueDate])
+  @@map("sales_deliveries")
+}
+
+model SalesDeliveryLine {
+  id         String  @id @default(uuid()) @db.Uuid
+  deliveryId String  @db.Uuid
+  lineNo     Int
+  itemId     String  @db.Uuid
+  qty        Decimal @db.Decimal(14, 3)
+  rate       Decimal @db.Decimal(14, 2)
+  amount     Decimal @db.Decimal(14, 2)
+
+  delivery SalesDelivery @relation(fields: [deliveryId], references: [id], onDelete: Cascade)
+  item     Item          @relation(fields: [itemId], references: [id], onDelete: Restrict)
+
+  @@unique([deliveryId, lineNo])
+  @@index([itemId])
+  @@map("sales_delivery_lines")
+}
+
+/// Goods returned by a customer; reduces sales and the customer's receivable.
+model SalesReturn {
+  id             String         @id @default(uuid()) @db.Uuid
+  businessUnitId String         @db.Uuid
+  number         String         @db.VarChar(30)
+  customerId     String         @db.Uuid
+  salesPersonId  String?        @db.Uuid
+  deliveryId     String?        @db.Uuid
+  returnDate     DateTime       @db.Date
+  status         SalesDocStatus @default(DRAFT)
+  totalQty       Decimal        @default(0) @db.Decimal(14, 3)
+  totalAmount    Decimal        @default(0) @db.Decimal(14, 2)
+  reason         String?        @db.VarChar(500)
+  createdAt      DateTime       @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime       @updatedAt @db.Timestamptz(3)
+
+  businessUnit BusinessUnit      @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  customer     Customer          @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  salesPerson  SalesPerson?      @relation(fields: [salesPersonId], references: [id], onDelete: Restrict)
+  delivery     SalesDelivery?    @relation(fields: [deliveryId], references: [id], onDelete: Restrict)
+  lines        SalesReturnLine[]
+
+  @@unique([businessUnitId, number])
+  @@index([businessUnitId, status, returnDate])
+  @@index([customerId, status])
+  @@map("sales_returns")
+}
+
+model SalesReturnLine {
+  id       String  @id @default(uuid()) @db.Uuid
+  returnId String  @db.Uuid
+  lineNo   Int
+  itemId   String  @db.Uuid
+  qty      Decimal @db.Decimal(14, 3)
+  rate     Decimal @db.Decimal(14, 2)
+  amount   Decimal @db.Decimal(14, 2)
+
+  salesReturn SalesReturn @relation(fields: [returnId], references: [id], onDelete: Cascade)
+  item        Item        @relation(fields: [itemId], references: [id], onDelete: Restrict)
+
+  @@unique([returnId, lineNo])
+  @@index([itemId])
+  @@map("sales_return_lines")
+}
+
+/// Payment received from a customer against their receivable.
+model SalesCollection {
+  id             String           @id @default(uuid()) @db.Uuid
+  businessUnitId String           @db.Uuid
+  number         String           @db.VarChar(30)
+  customerId     String           @db.Uuid
+  salesPersonId  String?          @db.Uuid
+  collectionDate DateTime         @db.Date
+  method         CollectionMethod @default(CASH)
+  amount         Decimal          @db.Decimal(14, 2)
+  reference      String?          @db.VarChar(100)
+  status         SalesDocStatus   @default(DRAFT)
+  remarks        String?          @db.VarChar(500)
+  createdAt      DateTime         @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime         @updatedAt @db.Timestamptz(3)
+
+  businessUnit BusinessUnit @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  customer     Customer     @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  salesPerson  SalesPerson? @relation(fields: [salesPersonId], references: [id], onDelete: Restrict)
+
+  @@unique([businessUnitId, number])
+  @@index([businessUnitId, status, collectionDate])
+  @@index([customerId, status])
+  @@map("sales_collections")
+}
+
+/// Monthly sales target for one sales person.
+model SalesTarget {
+  id             String   @id @default(uuid()) @db.Uuid
+  businessUnitId String   @db.Uuid
+  salesPersonId  String   @db.Uuid
+  /// First day of the target month.
+  month          DateTime @db.Date
+  amount         Decimal  @db.Decimal(14, 2)
+  createdAt      DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime @updatedAt @db.Timestamptz(3)
+
+  businessUnit BusinessUnit @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  salesPerson  SalesPerson  @relation(fields: [salesPersonId], references: [id], onDelete: Cascade)
+
+  @@unique([salesPersonId, month])
+  @@index([businessUnitId, month])
+  @@map("sales_targets")
+}
+
+/// Last number issued per business unit, document type and year. Incremented
+/// atomically when a document is created, so numbers never repeat.
+model DocumentSequence {
+  businessUnitId String   @db.Uuid
+  /// e.g. "SALES_QUOTATION", "CUSTOMER".
+  docType        String   @db.VarChar(40)
+  /// Calendar year, or 0 for sequences that never reset (masters).
+  year           Int
+  lastNumber     Int
+  updatedAt      DateTime @updatedAt @db.Timestamptz(3)
+
+  businessUnit BusinessUnit @relation(fields: [businessUnitId], references: [id], onDelete: Cascade)
+
+  @@id([businessUnitId, docType, year])
+  @@map("document_sequences")
+}
+
+/// ERPNext quotation statuses. "Expired" is derived (SUBMITTED past validTill).
+enum QuotationStatus {
+  DRAFT
+  SUBMITTED
+  ORDERED
+  LOST
+  CANCELLED
+}
+
+/// Price offer to a customer. Amounts are computed by the server from the lines.
+model SalesQuotation {
+  id             String          @id @default(uuid()) @db.Uuid
+  businessUnitId String          @db.Uuid
+  officeId       String          @db.Uuid
+  number         String          @db.VarChar(30)
+  customerId     String          @db.Uuid
+  salesPersonId  String?         @db.Uuid
+  quotationDate  DateTime        @db.Date
+  validTill      DateTime        @db.Date
+  status         QuotationStatus @default(DRAFT)
+  /// Customer's mobile at the time of the quotation (editable per document).
+  contactMobile  String?         @db.VarChar(30)
+  remarks        String?         @db.VarChar(500)
+  terms          String?         @db.VarChar(4000)
+  totalQty       Decimal         @default(0) @db.Decimal(14, 3)
+  subTotal       Decimal         @default(0) @db.Decimal(14, 2)
+  discountAmount Decimal         @default(0) @db.Decimal(14, 2)
+  vatPercent     Decimal         @default(0) @db.Decimal(5, 2)
+  vatAmount      Decimal         @default(0) @db.Decimal(14, 2)
+  grandTotal     Decimal         @default(0) @db.Decimal(14, 2)
+  lostReason     String?         @db.VarChar(500)
+  submittedAt    DateTime?       @db.Timestamptz(3)
+  cancelledAt    DateTime?       @db.Timestamptz(3)
+  createdBy      String          @db.VarChar(100)
+  createdAt      DateTime        @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime        @updatedAt @db.Timestamptz(3)
+
+  businessUnit BusinessUnit         @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  office       Office               @relation(fields: [officeId], references: [id], onDelete: Restrict)
+  customer     Customer             @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  salesPerson  SalesPerson?         @relation(fields: [salesPersonId], references: [id], onDelete: Restrict)
+  lines        SalesQuotationLine[]
+  salesOrders  SalesOrder[]
+
+  @@unique([businessUnitId, number])
+  @@index([businessUnitId, quotationDate])
+  @@index([officeId, status, quotationDate])
+  @@index([customerId])
+  @@map("sales_quotations")
+}
+
+model SalesQuotationLine {
+  id              String  @id @default(uuid()) @db.Uuid
+  quotationId     String  @db.Uuid
+  lineNo          Int
+  itemId          String  @db.Uuid
+  description     String? @db.VarChar(500)
+  uom             String  @db.VarChar(20)
+  qty             Decimal @db.Decimal(14, 3)
+  rate            Decimal @db.Decimal(14, 2)
+  discountPercent Decimal @default(0) @db.Decimal(5, 2)
+  amount          Decimal @db.Decimal(14, 2)
+
+  quotation SalesQuotation @relation(fields: [quotationId], references: [id], onDelete: Cascade)
+  item      Item           @relation(fields: [itemId], references: [id], onDelete: Restrict)
+
+  @@unique([quotationId, lineNo])
+  @@index([itemId])
+  @@map("sales_quotation_lines")
+}
+
+// ─── Sales › Setup masters ───────────────────────────────────────────────────
+
+enum CustomerType {
+  GENERAL
+  DEALER
+  DISTRIBUTOR
+  RETAILER
+  CORPORATE
+}
+
+/// Geographic sales areas. One table for all four levels keeps setup simple.
+enum SalesAreaKind {
+  ZONE
+  TERRITORY
+  ROUTE
+  SECTION
+}
+
+model SalesArea {
+  id             String        @id @default(uuid()) @db.Uuid
+  businessUnitId String        @db.Uuid
+  kind           SalesAreaKind
+  name           String        @db.VarChar(100)
+  isActive       Boolean       @default(true)
+  createdAt      DateTime      @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime      @updatedAt @db.Timestamptz(3)
+
+  businessUnit       BusinessUnit @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  zoneCustomers      Customer[]   @relation("CustomerZone")
+  territoryCustomers Customer[]   @relation("CustomerTerritory")
+  routeCustomers     Customer[]   @relation("CustomerRoute")
+  sectionCustomers   Customer[]   @relation("CustomerSection")
+
+  @@unique([businessUnitId, kind, name])
+  @@map("sales_areas")
+}
+
+model CustomerGroup {
+  id             String   @id @default(uuid()) @db.Uuid
+  businessUnitId String   @db.Uuid
+  name           String   @db.VarChar(100)
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime @updatedAt @db.Timestamptz(3)
+
+  businessUnit BusinessUnit @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  customers    Customer[]
+
+  @@unique([businessUnitId, name])
+  @@map("customer_groups")
+}
+
+/// Ship-to / billing addresses of a customer.
+model CustomerAddress {
+  id         String   @id @default(uuid()) @db.Uuid
+  customerId String   @db.Uuid
+  label      String   @db.VarChar(60)
+  address    String   @db.VarChar(500)
+  isDefault  Boolean  @default(false)
+  createdAt  DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt  DateTime @updatedAt @db.Timestamptz(3)
+
+  customer    Customer     @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  salesOrders SalesOrder[]
+
+  @@index([customerId])
+  @@map("customer_addresses")
+}
+
+/// Item category tree: level 1 Category › 2 Sub Category › 3 Minor Category.
+model ItemCategory {
+  id             String   @id @default(uuid()) @db.Uuid
+  businessUnitId String   @db.Uuid
+  parentId       String?  @db.Uuid
+  level          Int
+  name           String   @db.VarChar(100)
+  createdAt      DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime @updatedAt @db.Timestamptz(3)
+
+  businessUnit BusinessUnit   @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  parent       ItemCategory?  @relation("CategoryTree", fields: [parentId], references: [id], onDelete: Restrict)
+  children     ItemCategory[] @relation("CategoryTree")
+  items        Item[]
+
+  @@unique([businessUnitId, parentId, name])
+  @@map("item_categories")
+}
+
+/// Price type (Dealer Price, Retail Price …) with a rate per item.
+model PriceList {
+  id             String   @id @default(uuid()) @db.Uuid
+  businessUnitId String   @db.Uuid
+  name           String   @db.VarChar(100)
+  isDefault      Boolean  @default(false)
+  createdAt      DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime @updatedAt @db.Timestamptz(3)
+
+  businessUnit BusinessUnit @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  prices       ItemPrice[]
+  salesOrders  SalesOrder[]
+
+  @@unique([businessUnitId, name])
+  @@map("price_lists")
+}
+
+model ItemPrice {
+  priceListId String   @db.Uuid
+  itemId      String   @db.Uuid
+  rate        Decimal  @db.Decimal(14, 2)
+  updatedAt   DateTime @updatedAt @db.Timestamptz(3)
+
+  priceList PriceList @relation(fields: [priceListId], references: [id], onDelete: Cascade)
+  item      Item      @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@id([priceListId, itemId])
+  @@index([itemId])
+  @@map("item_prices")
+}
+
+// ─── Sales › Sales Order ─────────────────────────────────────────────────────
+
+/// DRAFT → (submit) → APPROVED, or PENDING_APPROVAL when a credit rule holds it.
+/// APPROVED orders wait for delivery ("Pending" in the list) until COMPLETED.
+enum SalesOrderStatus {
+  DRAFT
+  PENDING_APPROVAL
+  APPROVED
+  COMPLETED
+  CANCELLED
+}
+
+enum SalesOrderType {
+  SALES
+  SAMPLE
+  EXPORT
+}
+
+enum PaymentMethod {
+  CASH
+  CREDIT
+  BANK
+  CHEQUE
+  MOBILE_BANKING
+}
+
+/// Why a submitted order waits for approval.
+enum OrderHoldReason {
+  CREDIT_LIMIT_EXCEEDED
+  OVERDUE_BALANCE
+}
+
+model SalesOrder {
+  id                   String           @id @default(uuid()) @db.Uuid
+  businessUnitId       String           @db.Uuid
+  officeId             String           @db.Uuid
+  number               String           @db.VarChar(30)
+  customerId           String           @db.Uuid
+  salesPersonId        String?          @db.Uuid
+  quotationId          String?          @db.Uuid
+  priceListId          String?          @db.Uuid
+  shipToAddressId      String?          @db.Uuid
+  orderType            SalesOrderType   @default(SALES)
+  paymentMethod        PaymentMethod    @default(CASH)
+  status               SalesOrderStatus @default(DRAFT)
+  holdReason           OrderHoldReason?
+  orderDate            DateTime         @db.Date
+  expectedDeliveryDate DateTime         @db.Date
+  priceIncludesVat     Boolean          @default(true)
+  isForeign            Boolean          @default(false)
+  /// Address text as it was when the order was saved.
+  shippingAddress      String?          @db.VarChar(500)
+  billingAddress       String?          @db.VarChar(500)
+  contactPerson        String?          @db.VarChar(150)
+  referredBy           String?          @db.VarChar(150)
+  refCustomerPo        String?          @db.VarChar(60)
+  refCustomerPoDate    DateTime?        @db.Date
+  refCustomerPoAmount  Decimal?         @db.Decimal(14, 2)
+  refInvoice           String?          @db.VarChar(60)
+  refProjectOutlet     String?          @db.VarChar(150)
+  paymentTermDays      Int              @default(0)
+  dueLimit             Decimal          @default(0) @db.Decimal(14, 2)
+  remarks              String?          @db.VarChar(500)
+  terms                String?          @db.VarChar(4000)
+  totalQty             Decimal          @default(0) @db.Decimal(14, 3)
+  /// Sum of line totals (after line discounts, VAT/AIT included).
+  itemsTotal           Decimal          @default(0) @db.Decimal(14, 2)
+  /// Item value without VAT/AIT.
+  itemsBase            Decimal          @default(0) @db.Decimal(14, 2)
+  vatAmount            Decimal          @default(0) @db.Decimal(14, 2)
+  aitAmount            Decimal          @default(0) @db.Decimal(14, 2)
+  discountAmount       Decimal          @default(0) @db.Decimal(14, 2)
+  deliveryCharge       Decimal          @default(0) @db.Decimal(14, 2)
+  unloadingCharge      Decimal          @default(0) @db.Decimal(14, 2)
+  salesTotal           Decimal          @default(0) @db.Decimal(14, 2)
+  createdBy            String           @db.VarChar(100)
+  updatedBy            String           @db.VarChar(100)
+  submittedAt          DateTime?        @db.Timestamptz(3)
+  approvedAt           DateTime?        @db.Timestamptz(3)
+  closedAt             DateTime?        @db.Timestamptz(3)
+  createdAt            DateTime         @default(now()) @db.Timestamptz(3)
+  updatedAt            DateTime         @updatedAt @db.Timestamptz(3)
+
+  businessUnit BusinessUnit      @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  office       Office            @relation(fields: [officeId], references: [id], onDelete: Restrict)
+  customer     Customer          @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  salesPerson  SalesPerson?      @relation(fields: [salesPersonId], references: [id], onDelete: Restrict)
+  quotation    SalesQuotation?   @relation(fields: [quotationId], references: [id], onDelete: Restrict)
+  priceList    PriceList?        @relation(fields: [priceListId], references: [id], onDelete: Restrict)
+  shipTo       CustomerAddress?  @relation(fields: [shipToAddressId], references: [id], onDelete: SetNull)
+  lines        SalesOrderLine[]
+  events       SalesOrderEvent[]
+
+  @@unique([businessUnitId, number])
+  @@index([businessUnitId, orderDate])
+  @@index([officeId, status, orderDate])
+  @@index([customerId, status])
+  @@index([quotationId])
+  @@map("sales_orders")
+}
+
+model SalesOrderLine {
+  id              String   @id @default(uuid()) @db.Uuid
+  orderId         String   @db.Uuid
+  lineNo          Int
+  itemId          String   @db.Uuid
+  uom             String   @db.VarChar(20)
+  altUom          String?  @db.VarChar(20)
+  altUomFactor    Decimal? @db.Decimal(14, 3)
+  qty             Decimal  @db.Decimal(14, 3)
+  /// Price as entered (VAT-inclusive when the order says so).
+  unitPrice       Decimal  @db.Decimal(14, 4)
+  mrp             Decimal? @db.Decimal(14, 2)
+  discountPercent Decimal  @default(0) @db.Decimal(5, 2)
+  vatPercent      Decimal  @default(0) @db.Decimal(5, 2)
+  aitPercent      Decimal  @default(0) @db.Decimal(5, 2)
+  /// qty × unitPrice.
+  grossAmount     Decimal  @db.Decimal(14, 2)
+  /// After line discount, VAT/AIT included.
+  lineTotal       Decimal  @db.Decimal(14, 2)
+  baseAmount      Decimal  @db.Decimal(14, 2)
+  vatAmount       Decimal  @db.Decimal(14, 2)
+  aitAmount       Decimal  @db.Decimal(14, 2)
+  /// Updated by Sales Delivery; remaining = qty − deliveredQty.
+  deliveredQty    Decimal  @default(0) @db.Decimal(14, 3)
+
+  order SalesOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  item  Item       @relation(fields: [itemId], references: [id], onDelete: Restrict)
+
+  @@unique([orderId, lineNo])
+  @@index([itemId])
+  @@map("sales_order_lines")
+}
+
+/// Audit trail and approval history of an order (the "Approval Status" tab).
+model SalesOrderEvent {
+  id         String            @id @default(uuid()) @db.Uuid
+  orderId    String            @db.Uuid
+  action     String            @db.VarChar(30)
+  fromStatus SalesOrderStatus?
+  toStatus   SalesOrderStatus
+  remarks    String?           @db.VarChar(500)
+  actorId    String            @db.VarChar(100)
+  createdAt  DateTime          @default(now()) @db.Timestamptz(3)
+
+  order SalesOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId, createdAt])
+  @@map("sales_order_events")
 }

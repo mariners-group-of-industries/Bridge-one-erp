@@ -1,6 +1,6 @@
 import { AppError } from "@/lib/api/errors";
 
-export type Permission = "configuration:read" | "configuration:write";
+export type Permission = "configuration:read" | "configuration:write" | "sales:read" | "sales:write" | "sales:approve";
 
 export interface Actor {
   id: string;
@@ -11,7 +11,7 @@ export interface Actor {
 
 const DEV_ACTOR: Actor = {
   id: "dev-bypass",
-  permissions: new Set<Permission>(["configuration:read", "configuration:write"]),
+  permissions: new Set<Permission>(["configuration:read", "configuration:write", "sales:read", "sales:write", "sales:approve"]),
   companyScope: "ALL",
 };
 
