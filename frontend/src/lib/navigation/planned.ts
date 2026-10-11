@@ -1,4 +1,4 @@
-import { Boxes, Calculator, ShoppingBag, ShoppingCart, Users } from "lucide-react";
+import { Boxes, Calculator, ShoppingCart, Users } from "lucide-react";
 import type { Workspace } from "./types";
 
 /**
@@ -13,14 +13,6 @@ export const plannedWorkspaces: Workspace[] = [
     icon: ShoppingCart,
     href: "/selling",
     description: "Customers, quotations, sales orders and deliveries.",
-    status: "planned",
-  },
-  {
-    id: "buying",
-    label: "Buying",
-    icon: ShoppingBag,
-    href: "/buying",
-    description: "Suppliers, requests for quotation, purchase orders and receipts.",
     status: "planned",
   },
   {
