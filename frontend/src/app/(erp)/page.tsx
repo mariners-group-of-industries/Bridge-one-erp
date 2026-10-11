@@ -3,6 +3,8 @@ import Link from "next/link";
 import { PageContainer, PageHead } from "@/components/layout/page";
 import { workspaces } from "@/lib/navigation/registry";
 
+export const instant = false;
+
 export default function HomePage() {
   const active = workspaces.filter((workspace) => workspace.status === "active");
   const shortcuts = active.flatMap((workspace) =>

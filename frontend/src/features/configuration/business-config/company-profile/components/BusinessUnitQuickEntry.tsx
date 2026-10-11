@@ -56,7 +56,7 @@ export function BusinessUnitQuickEntry({ onClose, onCreated }: BusinessUnitQuick
           <Button onClick={onClose} disabled={saving}>
             Cancel
           </Button>
-          <Button type="submit" variant="primary" loading={saving}>
+          <Button type="submit" variant="accent" loading={saving}>
             Save
           </Button>
         </>

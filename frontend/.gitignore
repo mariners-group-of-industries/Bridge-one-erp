@@ -1,6 +1,5 @@
 # Next.js
 .next/
-!.next/types/routes.d.ts
 out/
 
 # Dependencies
@@ -15,6 +14,11 @@ dist/
 
 # Generated
 src/generated/
+
+# Prisma scratch files
+prisma/add_auth.sql
+prisma/pending_auth.sql
+prisma/check.ts
 
 # Misc
 *.tsbuildinfo

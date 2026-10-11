@@ -3,6 +3,8 @@ import { CompanyProfileView } from "@/features/configuration/business-config/com
 
 export const metadata: Metadata = { title: "Company Profile" };
 
+export const instant = false;
+
 export default function CompanyProfilePage() {
   return <CompanyProfileView />;
 }

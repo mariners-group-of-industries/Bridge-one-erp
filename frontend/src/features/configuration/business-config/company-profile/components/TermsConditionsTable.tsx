@@ -170,16 +170,16 @@ export function TermsConditionsTable({ businessUnitId, domain }: TermsConditions
 
   const list = terms.data;
   const domainLabel = domain === "SALES" ? "sales" : "purchase";
-  const headerCell = "px-2 py-2 text-center font-normal whitespace-nowrap";
+  const headerCell = "px-2 py-2 text-center font-medium whitespace-nowrap";
 
   return (
     <div className="flex flex-col gap-2">
       <div className="overflow-x-auto rounded-lg border border-line">
           <table className="w-full min-w-[820px] text-sm">
-            <thead className="bg-canvas text-xs text-ink-faint">
-              <tr className="border-b border-line">
-                <th scope="col" className="w-12 px-3 py-2 text-left font-normal">No.</th>
-                <th scope="col" className="px-2 py-2 text-left font-normal">Terms &amp; Conditions</th>
+            <thead className="bg-accent-soft text-xs font-medium text-accent-strong dark:text-accent">
+              <tr className="border-b border-accent-line">
+                <th scope="col" className="w-12 px-3 py-2 text-left font-medium">No.</th>
+                <th scope="col" className="px-2 py-2 text-left font-medium">Terms &amp; Conditions</th>
                 <th scope="col" className={headerCell}>Default</th>
                 {documentTypes.map((type) => (
                   <th key={type} scope="col" className={headerCell}>
@@ -204,7 +204,7 @@ export function TermsConditionsTable({ businessUnitId, domain }: TermsConditions
                 const isEditing = editing?.id === term.id;
                 const sl = index + 1;
                 return (
-                  <tr key={term.id} className={cn("border-b border-line align-top last:border-b-0", isEditing && "bg-canvas")}>
+                  <tr key={term.id} className={cn("border-b border-line align-top last:border-b-0", isEditing && "bg-accent-soft/40")}>
                     <td className="px-3 py-2.5 text-ink-faint tabular-nums">{sl}</td>
                     <td className="px-2 py-2.5">
                       {isEditing ? (
@@ -219,7 +219,7 @@ export function TermsConditionsTable({ businessUnitId, domain }: TermsConditions
                             onChange={(event) => setEditing({ id: term.id, content: event.target.value })}
                           />
                           <div className="flex gap-1">
-                            <Button size="sm" variant="primary" loading={busy} onClick={() => saveEdit(term)}>
+                            <Button size="sm" variant="accent" loading={busy} onClick={() => saveEdit(term)}>
                               Save
                             </Button>
                             <Button size="sm" variant="ghost" disabled={busy} onClick={() => setEditing(null)}>
@@ -299,7 +299,7 @@ export function TermsConditionsTable({ businessUnitId, domain }: TermsConditions
               })}
 
               {draft && (
-                <tr className="bg-canvas align-top">
+                <tr className="bg-accent-soft/40 align-top">
                   <td className="px-3 py-2.5 text-ink-faint tabular-nums">{list.length + 1}</td>
                   <td className="px-2 py-2.5">
                     <TextAreaField
@@ -339,7 +339,7 @@ export function TermsConditionsTable({ businessUnitId, domain }: TermsConditions
                   ))}
                   <td className="px-2 py-2.5">
                     <div className="flex justify-end gap-1">
-                      <Button size="sm" variant="primary" loading={savingDraft} onClick={saveDraft}>
+                      <Button size="sm" variant="accent" loading={savingDraft} onClick={saveDraft}>
                         Save
                       </Button>
                       <Button size="sm" variant="ghost" disabled={savingDraft} onClick={() => setDraft(null)}>
@@ -357,6 +357,7 @@ export function TermsConditionsTable({ businessUnitId, domain }: TermsConditions
         <div>
           <Button
             size="sm"
+            variant="accent-soft"
             onClick={() => {
               setDraft(EMPTY_DRAFT);
               setDraftError(undefined);
@@ -392,6 +393,7 @@ function Checkbox({
 }) {
   return (
     <BaseCheckbox
+      tone="accent"
       aria-label={label}
       checked={checked}
       disabled={disabled}

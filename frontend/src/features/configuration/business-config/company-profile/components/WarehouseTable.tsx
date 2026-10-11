@@ -58,12 +58,12 @@ export function WarehouseTable({ officeId, onCountChange }: WarehouseTableProps)
     <div className="flex flex-col gap-2">
       <div className="overflow-hidden rounded-lg border border-line">
         <table className="w-full text-sm">
-          <thead className="bg-canvas text-xs text-ink-faint">
-            <tr className="border-b border-line">
-              <th scope="col" className="w-14 px-3 py-2 text-left font-normal">
+          <thead className="bg-accent-soft text-xs font-medium text-accent-strong dark:text-accent">
+            <tr className="border-b border-accent-line">
+              <th scope="col" className="w-14 px-3 py-2 text-left font-medium">
                 No.
               </th>
-              <th scope="col" className="px-3 py-2 text-left font-normal">
+              <th scope="col" className="px-3 py-2 text-left font-medium">
                 Warehouse Name
               </th>
               <th scope="col" className="w-36 px-3 py-2">
@@ -136,7 +136,7 @@ export function WarehouseTable({ officeId, onCountChange }: WarehouseTableProps)
       </div>
       {!adding && (
         <div>
-          <Button size="sm" onClick={() => setAdding(true)}>
+          <Button size="sm" variant="accent-soft" onClick={() => setAdding(true)}>
             <Plus /> Add Row
           </Button>
         </div>
@@ -192,7 +192,7 @@ function WarehouseRow({ index, officeId, warehouse, onSaved, onCancel }: Warehou
   }
 
   return (
-    <tr className="border-b border-line bg-canvas last:border-b-0">
+    <tr className="border-b border-line bg-accent-soft/40 last:border-b-0">
       <td className="px-3 py-2 align-top text-ink-faint tabular-nums">{index + 1}</td>
       <td className="px-3 py-1.5">
         <input
@@ -218,7 +218,7 @@ function WarehouseRow({ index, officeId, warehouse, onSaved, onCancel }: Warehou
       </td>
       <td className="px-2 py-1.5 align-top">
         <div className="flex justify-end gap-1">
-          <Button size="sm" variant="primary" loading={saving} onClick={save}>
+          <Button size="sm" variant="accent" loading={saving} onClick={save}>
             Save
           </Button>
           <Button size="sm" variant="ghost" disabled={saving} onClick={onCancel}>

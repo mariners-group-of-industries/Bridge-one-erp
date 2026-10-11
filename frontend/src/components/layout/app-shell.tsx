@@ -1,91 +1,69 @@
 "use client";
 
-import { Menu, PanelLeft, Search, X } from "lucide-react";
-import Link from "next/link";
+import { Menu, X } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { Suspense, useEffect, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
-import { Kbd } from "@/components/ui/kbd";
 import { ToastProvider } from "@/components/ui/toast";
+import { SessionProvider, useSession } from "@/lib/auth/session";
 import { cn } from "@/lib/cn";
 import { Awesomebar } from "./awesomebar";
-import { Breadcrumbs } from "./breadcrumbs";
+import { Navbar } from "./navbar";
 import { Sidebar, SidebarNav } from "./sidebar";
-import { UserMenu } from "./user-menu";
 
-/**
- * ERPNext desk layout: sticky navbar (logo, breadcrumbs, awesomebar, avatar),
- * workspace sidebar and the page area. Wraps every page in the (erp) group.
- */
 export function AppShell({ children }: { children: ReactNode }) {
+  return (
+    <SessionProvider>
+      <ToastProvider>
+        <ShellInner>{children}</ShellInner>
+      </ToastProvider>
+    </SessionProvider>
+  );
+}
+
+function ShellInner({ children }: { children: ReactNode }) {
+  const { user, loading } = useSession();
+  const router = useRouter();
   const [sidebarHidden, setSidebarHidden] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
+
+  // Redirect to login if not authenticated
+  useEffect(() => {
+    if (!loading && user === null) router.replace("/login");
+  }, [user, loading, router]);
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
       if (!(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey) return;
       const key = event.key.toLowerCase();
-      if (key === "k" || key === "g") {
-        event.preventDefault();
-        setSearchOpen(true);
-      } else if (key === "b") {
-        event.preventDefault();
-        setSidebarHidden((value) => !value);
-      }
+      if (key === "k" || key === "g") { event.preventDefault(); setSearchOpen(true); }
+      else if (key === "b") { event.preventDefault(); setSidebarHidden((v) => !v); }
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
 
+  if (loading || user === null) return null;
+
   return (
-    <ToastProvider>
-      <a
-        href="#main"
-        className="sr-only z-50 rounded bg-surface px-3 py-2 focus:not-sr-only focus:fixed focus:top-2 focus:left-2"
-      >
+    <>
+      <a href="#main" className="sr-only z-50 rounded bg-surface px-3 py-2 focus:not-sr-only focus:fixed focus:top-2 focus:left-2">
         Skip to content
       </a>
-      <header className="sticky top-0 z-30 flex h-12 items-center gap-3 border-b border-line bg-surface px-3 sm:px-4">
-        <Button variant="ghost" size="icon" className="lg:hidden" aria-label="Open menu" onClick={() => setDrawerOpen(true)}>
+
+      <Navbar
+        sidebarHidden={sidebarHidden}
+        onToggleSidebar={() => setSidebarHidden((v) => !v)}
+        onOpenSearch={() => setSearchOpen(true)}
+      />
+
+      {/* Mobile drawer toggle */}
+      <div className="fixed bottom-4 left-4 z-40 lg:hidden">
+        <Button variant="ghost" size="icon" aria-label="Open menu" onClick={() => setDrawerOpen(true)}>
           <Menu />
         </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="hidden lg:inline-flex"
-          aria-label={sidebarHidden ? "Show sidebar" : "Hide sidebar"}
-          aria-pressed={!sidebarHidden}
-          onClick={() => setSidebarHidden((value) => !value)}
-        >
-          <PanelLeft />
-        </Button>
-        <Link href="/" className="flex shrink-0 items-center gap-2 rounded-lg focus-visible:outline-2">
-          <span
-            aria-hidden="true"
-            className="flex size-7 items-center justify-center rounded-lg bg-primary text-sm font-bold text-primary-fg"
-          >
-            B
-          </span>
-          <span className="hidden text-base font-semibold text-ink sm:inline">BridgeOne</span>
-        </Link>
-        {/* URL-dependent parts stream in after the prerendered shell. */}
-        <Suspense fallback={null}>
-          <Breadcrumbs />
-        </Suspense>
-        <button
-          type="button"
-          onClick={() => setSearchOpen(true)}
-          className="ml-auto flex h-7 w-9 items-center gap-2 rounded-lg bg-control px-2 text-sm text-ink-faint hover:bg-hover focus-visible:outline-2 sm:w-72"
-        >
-          <Search aria-hidden="true" className="size-4 shrink-0" />
-          <span className="hidden flex-1 text-left sm:inline">Search or type a command</span>
-          <span className="sr-only sm:hidden">Search</span>
-          <span className="hidden sm:inline-flex">
-            <Kbd>Ctrl K</Kbd>
-          </span>
-        </button>
-        <UserMenu />
-      </header>
+      </div>
 
       <div className="flex">
         <aside
@@ -101,12 +79,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
         {drawerOpen && (
           <div className="fixed inset-0 z-40 lg:hidden">
-            <button
-              type="button"
-              aria-label="Close menu"
-              className="absolute inset-0 bg-black/30"
-              onClick={() => setDrawerOpen(false)}
-            />
+            <button type="button" aria-label="Close menu" className="absolute inset-0 bg-black/30" onClick={() => setDrawerOpen(false)} />
             <div className="absolute inset-y-0 left-0 w-64 overflow-y-auto bg-canvas shadow-dropdown">
               <div className="flex h-12 items-center justify-between border-b border-line px-3">
                 <span className="text-base font-semibold">BridgeOne</span>
@@ -127,6 +100,6 @@ export function AppShell({ children }: { children: ReactNode }) {
       </div>
 
       <Awesomebar open={searchOpen} onClose={() => setSearchOpen(false)} />
-    </ToastProvider>
+    </>
   );
 }

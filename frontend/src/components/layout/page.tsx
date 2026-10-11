@@ -14,12 +14,13 @@ interface PageHeadProps {
   subtitle?: ReactNode;
   /** Buttons on the right; the primary action goes last. */
   actions?: ReactNode;
+  className?: string;
 }
 
 /** ERPNext page head: sticky title bar with status indicator and actions. */
-export function PageHead({ title, indicator, subtitle, actions }: PageHeadProps) {
+export function PageHead({ title, indicator, subtitle, actions, className }: PageHeadProps) {
   return (
-    <div className="sticky top-12 z-20 -mx-4 mb-4 bg-canvas/95 px-4 py-3 backdrop-blur sm:-mx-6 sm:px-6">
+    <div className={cn("sticky top-12 z-20 -mx-4 mb-4 bg-canvas/95 px-4 py-3 backdrop-blur sm:-mx-6 sm:px-6", className)}>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
         <div className="flex min-w-0 flex-1 flex-col">
           <div className="flex min-w-0 items-center gap-2.5">

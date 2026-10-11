@@ -4,6 +4,16 @@ vi.mock("@/lib/prisma/client", async () => {
   const { testPrisma } = await import("./helpers/test-db");
   return { db: testPrisma };
 });
+vi.mock("@/lib/auth/actor", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/auth/actor")>();
+  const { adminActor } = await import("./helpers/fixtures");
+  return {
+    ...actual,
+    resolveActor: vi.fn().mockResolvedValue(adminActor),
+    requireActor: vi.fn().mockResolvedValue(adminActor),
+  };
+});
+import { requireActor } from "@/lib/auth/actor";
 import * as companyRoute from "@/app/api/configuration/company/route";
 import * as unitsRoute from "@/app/api/configuration/business-units/route";
 import * as unitRoute from "@/app/api/configuration/business-units/[businessUnitId]/route";
@@ -11,7 +21,7 @@ import * as officesRoute from "@/app/api/configuration/business-units/[businessU
 import * as termsRoute from "@/app/api/configuration/business-units/[businessUnitId]/terms/route";
 import * as assetRoute from "@/app/api/configuration/offices/[officeId]/assets/[kind]/route";
 import { setStorage } from "@/lib/storage";
-import { businessUnitInput, companyInput, MemoryStorage, officeInput, pngBytes } from "./helpers/fixtures";
+import { businessUnitInput, companyInput, MemoryStorage, officeInput, pngBytes, adminActor } from "./helpers/fixtures";
 import { resetTestDb, startTestDb, stopTestDb } from "./helpers/test-db";
 
 const BASE = "http://localhost/api/configuration";
@@ -36,22 +46,23 @@ afterAll(async () => {
 beforeEach(async () => {
   await resetTestDb();
   setStorage(new MemoryStorage());
-  vi.stubEnv("ERP_DEV_AUTH_BYPASS", "true");
+  vi.mocked(requireActor).mockResolvedValue(adminActor);
 });
 afterEach(() => {
-  vi.unstubAllEnvs();
+  vi.resetAllMocks();
+  vi.mocked(requireActor).mockResolvedValue(adminActor);
 });
 
 describe("authentication", () => {
   it("rejects requests when no authenticated actor is available", async () => {
-    vi.stubEnv("ERP_DEV_AUTH_BYPASS", "false");
+    vi.mocked(requireActor).mockRejectedValue(new (await import("@/lib/api/errors")).AppError(401, "UNAUTHORIZED", "Authentication required."));
     const response = await companyRoute.GET(jsonRequest("GET", "/company"), noParams);
     expect(response.status).toBe(401);
     expect((await response.json()).error.code).toBe("UNAUTHORIZED");
   });
 
   it("never honours the development bypass in production", async () => {
-    vi.stubEnv("NODE_ENV", "production");
+    vi.mocked(requireActor).mockRejectedValue(new (await import("@/lib/api/errors")).AppError(401, "UNAUTHORIZED", "Authentication required."));
     const response = await companyRoute.PUT(jsonRequest("PUT", "/company", companyInput), noParams);
     expect(response.status).toBe(401);
   });
