@@ -8,7 +8,7 @@ import {
 } from "@/features/configuration/business-config/company-profile/server/terms.service";
 import { apiHandler, ok, parseId, parseJson } from "@/lib/api/handler";
 
-type Context = RouteContext<"/api/configuration/business-units/[businessUnitId]/terms">;
+type Context = { params: Promise<{ businessUnitId: string }> };
 
 /** GET ?domain=SALES|PURCHASE */
 export const GET = apiHandler("configuration:read", async (request, context: Context, actor) => {

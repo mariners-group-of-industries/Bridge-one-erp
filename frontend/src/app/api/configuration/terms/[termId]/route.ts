@@ -5,7 +5,7 @@ import {
 } from "@/features/configuration/business-config/company-profile/server/terms.service";
 import { apiHandler, noContent, ok, parseId, parseJson } from "@/lib/api/handler";
 
-type Context = RouteContext<"/api/configuration/terms/[termId]">;
+type Context = { params: Promise<{ termId: string }> };
 
 /** Partial update: content, default flag and/or applicable document types. */
 export const PATCH = apiHandler("configuration:write", async (request, context: Context, actor) => {

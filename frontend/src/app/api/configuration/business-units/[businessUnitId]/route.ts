@@ -5,7 +5,7 @@ import {
 } from "@/features/configuration/business-config/company-profile/server/business-unit.service";
 import { apiHandler, noContent, ok, parseId, parseJson } from "@/lib/api/handler";
 
-type Context = RouteContext<"/api/configuration/business-units/[businessUnitId]">;
+type Context = { params: Promise<{ businessUnitId: string }> };
 
 export const PUT = apiHandler("configuration:write", async (request, context: Context, actor) => {
   const id = parseId((await context.params).businessUnitId, "Business unit");

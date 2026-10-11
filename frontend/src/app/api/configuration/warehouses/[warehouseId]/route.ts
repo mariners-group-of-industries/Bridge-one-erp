@@ -5,7 +5,7 @@ import {
 } from "@/features/configuration/business-config/company-profile/server/warehouse.service";
 import { apiHandler, noContent, ok, parseId, parseJson } from "@/lib/api/handler";
 
-type Context = RouteContext<"/api/configuration/warehouses/[warehouseId]">;
+type Context = { params: Promise<{ warehouseId: string }> };
 
 export const PUT = apiHandler("configuration:write", async (request, context: Context, actor) => {
   const id = parseId((await context.params).warehouseId, "Warehouse");

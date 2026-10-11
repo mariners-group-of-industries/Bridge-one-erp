@@ -7,7 +7,9 @@ export const metadata: Metadata = { title: "Business Unit" };
 
 export default function BusinessUnitPage({
   params,
-}: PageProps<"/configuration/business-config/business-units/[businessUnitId]">) {
+}: {
+  params: Promise<{ businessUnitId: string }>;
+}) {
   // Params are request-time data under Cache Components, so read them inside Suspense.
   return (
     <Suspense fallback={<LoadingState />}>

@@ -8,7 +8,7 @@ import {
 import { badRequest, notFound } from "@/lib/api/errors";
 import { apiHandler, noContent, ok, parseId } from "@/lib/api/handler";
 
-type Context = RouteContext<"/api/configuration/offices/[officeId]/assets/[kind]">;
+type Context = { params: Promise<{ officeId: string; kind: string }> };
 
 async function resolveParams(context: Context) {
   const params = await context.params;
