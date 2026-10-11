@@ -11,7 +11,13 @@ function createPrismaClient(): PrismaClient {
   if (!connectionString) {
     throw new Error("DATABASE_URL is not configured. See .env.example.");
   }
-  return new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
+  return new PrismaClient({
+    adapter: new PrismaPg({ connectionString }),
+    // Prisma's defaults (2s to start, 5s to run) are too tight for a remote
+    // serverless database: a cold Neon compute plus TLS handshake can take
+    // several seconds before the first statement runs.
+    transactionOptions: { maxWait: 10_000, timeout: 20_000 },
+  });
 }
 
 /**

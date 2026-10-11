@@ -37,18 +37,29 @@ function assertDocumentTypes(domain: TermsDomain, types: readonly TermsDocumentT
   }
 }
 
+// Ordering updates are single statements: one round trip regardless of how
+// many terms there are (matters with a remote database).
+
 /** Rewrites sortOrder as 1..n, preserving the current order. */
 async function renumber(tx: Prisma.TransactionClient, businessUnitId: string, domain: TermsDomain) {
-  const terms = await tx.termsCondition.findMany({
-    where: { businessUnitId, domain },
-    orderBy: termOrder,
-    select: { id: true, sortOrder: true },
-  });
-  for (const [index, term] of terms.entries()) {
-    if (term.sortOrder !== index + 1) {
-      await tx.termsCondition.update({ where: { id: term.id }, data: { sortOrder: index + 1 } });
-    }
-  }
+  await tx.$executeRaw`
+    UPDATE terms_conditions AS t
+    SET "sortOrder" = r.position, "updatedAt" = now()
+    FROM (
+      SELECT id, (row_number() OVER (ORDER BY "sortOrder", "createdAt"))::int AS position
+      FROM terms_conditions
+      WHERE "businessUnitId" = ${businessUnitId}::uuid AND domain = ${domain}::"TermsDomain"
+    ) AS r
+    WHERE t.id = r.id AND t."sortOrder" <> r.position`;
+}
+
+/** Sets sortOrder to each id's 1-based position in `orderedIds`. */
+async function applyOrder(tx: Prisma.TransactionClient, orderedIds: string[]) {
+  await tx.$executeRaw`
+    UPDATE terms_conditions AS t
+    SET "sortOrder" = v.position::int, "updatedAt" = now()
+    FROM unnest(${orderedIds}::uuid[]) WITH ORDINALITY AS v(id, position)
+    WHERE t.id = v.id`;
 }
 
 export async function listTerms(
@@ -144,9 +155,7 @@ export async function reorderTerms(
     ) {
       throw badRequest("The term list has changed. Reload the page and try again.");
     }
-    for (const [index, termId] of input.orderedIds.entries()) {
-      await tx.termsCondition.update({ where: { id: termId }, data: { sortOrder: index + 1 } });
-    }
+    await applyOrder(tx, input.orderedIds);
   });
   return listTerms(actor, businessUnitId, input.domain);
 }
