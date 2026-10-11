@@ -3,11 +3,11 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "cross-env NEXT_TURBOPACK=0 next dev",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "typecheck": "next typegen && tsc --noEmit",
+    "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
     "postinstall": "prisma generate",
@@ -19,6 +19,8 @@
   "dependencies": {
     "@prisma/adapter-pg": "^7.10.0",
     "@prisma/client": "^7.10.0",
+    "argon2": "^0.45.1",
+    "jose": "^6.2.12",
     "lucide-react": "^1.55.0",
     "next": "16.4.0",
     "pg": "^8.23.1",
@@ -28,17 +30,20 @@
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.4.3",
-    "@tailwindcss/turbopack": "^4",
-    "@types/node": "^20",
+    "@tailwindcss/postcss": "^4",
+    "@types/argon2": "^0.14.1",
+    "@types/node": "^20.19.43",
     "@types/pg": "^8.23.1",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "cross-env": "^10.1.0",
     "eslint": "^9",
     "eslint-config-next": "16.4.0",
     "pglite-prisma-adapter": "^0.7.2",
     "prisma": "^7.10.0",
     "tailwindcss": "^4",
     "typescript": "^5",
+    "vite": "^6.0.0",
     "vitest": "^4.1.11"
   }
 }

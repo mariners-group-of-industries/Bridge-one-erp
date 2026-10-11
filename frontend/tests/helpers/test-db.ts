@@ -31,7 +31,7 @@ export async function startTestDb(): Promise<PrismaClient> {
 
 export async function resetTestDb(): Promise<void> {
   await current?.pg.exec(
-    `TRUNCATE term_applicability, terms_conditions, office_assets, warehouses, offices, business_units, companies CASCADE`,
+    `TRUNCATE user_sessions, users, term_applicability, terms_conditions, office_assets, warehouses, offices, business_units, companies CASCADE`,
   );
 }
 
