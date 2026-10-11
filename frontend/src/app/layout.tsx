@@ -13,7 +13,7 @@ export const metadata: Metadata = {
   description: "BridgeOne enterprise resource planning",
 };
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" data-theme="light" suppressHydrationWarning className={`${inter.variable} h-full antialiased`}>
       <head>
