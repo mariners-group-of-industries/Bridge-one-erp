@@ -1,36 +1,70 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# BridgeOne ERP — Frontend & API
 
-## Getting Started
+Next.js 16 (App Router) + TypeScript, Prisma 7 on Neon PostgreSQL, Zod validation, Tailwind CSS 4.
 
-First, run the development server:
+## Setup
 
 ```bash
+npm install                 # also runs `prisma generate`
+cp .env.example .env        # fill in Neon DATABASE_URL (pooled) and DIRECT_URL (direct)
+npm run db:deploy           # apply migrations (use `npm run db:migrate` while developing schema changes)
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open <http://localhost:3000/configuration/business-config/company-profile>.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+> **Authentication is not implemented yet.** All `/api/configuration/*` endpoints return
+> `401` unless `ERP_DEV_AUTH_BYPASS=true` is set in a non-production environment.
+> Integrate a real provider in `src/lib/auth/actor.ts` before production use.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+### Local database without Neon
 
-## Learn More
+`npx prisma dev -n bridgeone-erp -d` starts a local Postgres-compatible server and prints its
+URL; use it for both `DATABASE_URL` and `DIRECT_URL`.
 
-To learn more about Next.js, take a look at the following resources:
+## Scripts
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+| Script | Purpose |
+| --- | --- |
+| `npm run dev` / `build` / `start` | Next.js |
+| `npm run typecheck` | Generate route types and run `tsc --noEmit` |
+| `npm run lint` | ESLint |
+| `npm test` | Vitest (services + route handlers against in-process PGlite with the real migrations) |
+| `npm run db:validate` / `db:generate` / `db:migrate` / `db:deploy` | Prisma |
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Structure
 
-## Deploy on Vercel
+```text
+prisma/                         schema.prisma + migrations
+src/app/configuration/...       pages
+src/app/api/configuration/...   REST route handlers (thin: auth → validate → service)
+src/features/<module>/<area>/<feature>/
+  components/  hooks/  services/ (browser API client)  schemas/ (Zod, shared)  server/ (business logic + Prisma)  types/
+src/components/ui/              reusable UI primitives
+src/lib/                        prisma client, API error handling, auth seam, object storage, validation helpers
+tests/                          Vitest suites
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Company Profile API
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+All responses use `{ "data": ... }` or `{ "error": { "code", "message", "fieldErrors?" } }`.
+
+| Method & path | Description |
+| --- | --- |
+| `GET/PUT /api/configuration/company` | Read / create-or-update the company profile |
+| `GET/POST /api/configuration/business-units` | List / create business units |
+| `PUT/DELETE /api/configuration/business-units/:id` | Update / delete (409 `IN_USE` while offices exist) |
+| `GET/POST /api/configuration/business-units/:id/offices` | List / create offices |
+| `GET/PUT/DELETE /api/configuration/offices/:id` | Office details / update / delete (409 while warehouses exist) |
+| `GET/POST /api/configuration/offices/:id/warehouses` | List / create warehouses |
+| `PUT/DELETE /api/configuration/warehouses/:id` | Update / delete warehouse |
+| `GET/PUT/DELETE /api/configuration/offices/:id/assets/:kind` | Serve / upload-or-replace (multipart `file`) / remove; `kind` = `brand-logo`, `header`, `footer` |
+| `GET /api/configuration/business-units/:id/terms?domain=SALES\|PURCHASE` | List terms in display order |
+| `POST /api/configuration/business-units/:id/terms` | Create term |
+| `PATCH/DELETE /api/configuration/terms/:id` | Update content / default / applicable document types; delete |
+| `PUT /api/configuration/business-units/:id/terms/order` | Persist display order `{ domain, orderedIds }` |
+
+Branding files: PNG, JPEG or WebP up to 2 MB, verified by file signature. Binaries are stored via
+`src/lib/storage` (currently a local-disk driver); only metadata and the storage key are kept in
+PostgreSQL. Serverless hosts do not persist local disk, so add an S3-compatible driver before
+deploying to such platforms.
