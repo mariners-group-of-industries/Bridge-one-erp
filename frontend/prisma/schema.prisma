@@ -1,0 +1,156 @@
+// BridgeOne ERP — Prisma schema
+// Connection URLs live in prisma.config.ts (Prisma 7); never hardcode credentials here.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─── Configuration › Business Configuration › Company Profile ───────────────
+
+enum DateFormat {
+  DD_MM_YYYY_SLASH // DD/MM/YYYY
+  MM_DD_YYYY_SLASH // MM/DD/YYYY
+  YYYY_MM_DD_DASH // YYYY-MM-DD
+  DD_MM_YYYY_DASH // DD-MM-YYYY
+}
+
+enum OfficeAssetKind {
+  BRAND_LOGO
+  HEADER
+  FOOTER
+}
+
+enum TermsDomain {
+  SALES
+  PURCHASE
+}
+
+/// Document types a term can apply to. Each value belongs to exactly one
+/// TermsDomain (enforced in the service layer); add new values here to support
+/// new documents without new tables.
+enum TermsDocumentType {
+  SALES_QUOTATION
+  SALES_ORDER
+  SALES_DELIVERY
+  PROFORMA_INVOICE
+  REQUEST_FOR_QUOTATION
+  PURCHASE_ORDER
+  PURCHASE_RECEIVE
+}
+
+model Company {
+  id        String   @id @default(uuid()) @db.Uuid
+  name      String   @unique @db.VarChar(150)
+  address   String   @db.VarChar(500)
+  email     String   @db.VarChar(254)
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  businessUnits BusinessUnit[]
+
+  @@map("companies")
+}
+
+model BusinessUnit {
+  id            String     @id @default(uuid()) @db.Uuid
+  companyId     String     @db.Uuid
+  name          String     @db.VarChar(150)
+  address       String     @db.VarChar(500)
+  contactNumber String     @db.VarChar(30)
+  email         String     @db.VarChar(254)
+  dateFormat    DateFormat @default(DD_MM_YYYY_SLASH)
+  createdAt     DateTime   @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime   @updatedAt @db.Timestamptz(3)
+
+  company Company          @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  offices Office[]
+  terms   TermsCondition[]
+
+  @@unique([companyId, name])
+  @@map("business_units")
+}
+
+model Office {
+  id             String   @id @default(uuid()) @db.Uuid
+  businessUnitId String   @db.Uuid
+  name           String   @db.VarChar(150)
+  address        String   @db.VarChar(500)
+  email          String?  @db.VarChar(254)
+  phone          String?  @db.VarChar(30)
+  binNumber      String?  @db.VarChar(30)
+  createdAt      DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime @updatedAt @db.Timestamptz(3)
+
+  businessUnit BusinessUnit  @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  warehouses   Warehouse[]
+  assets       OfficeAsset[]
+
+  @@unique([businessUnitId, name])
+  @@map("offices")
+}
+
+model Warehouse {
+  id        String   @id @default(uuid()) @db.Uuid
+  officeId  String   @db.Uuid
+  name      String   @db.VarChar(150)
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  office Office @relation(fields: [officeId], references: [id], onDelete: Restrict)
+
+  @@unique([officeId, name])
+  @@map("warehouses")
+}
+
+/// Metadata for an office branding file. The binary lives in object storage;
+/// only the storage key is kept here.
+model OfficeAsset {
+  id           String          @id @default(uuid()) @db.Uuid
+  officeId     String          @db.Uuid
+  kind         OfficeAssetKind
+  storageKey   String          @unique @db.VarChar(300)
+  originalName String          @db.VarChar(255)
+  mimeType     String          @db.VarChar(100)
+  sizeBytes    Int
+  createdAt    DateTime        @default(now()) @db.Timestamptz(3)
+  updatedAt    DateTime        @updatedAt @db.Timestamptz(3)
+
+  office Office @relation(fields: [officeId], references: [id], onDelete: Cascade)
+
+  @@unique([officeId, kind])
+  @@map("office_assets")
+}
+
+model TermsCondition {
+  id             String      @id @default(uuid()) @db.Uuid
+  businessUnitId String      @db.Uuid
+  domain         TermsDomain
+  content        String      @db.VarChar(2000)
+  isDefault      Boolean     @default(false)
+  sortOrder      Int
+  createdAt      DateTime    @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime    @updatedAt @db.Timestamptz(3)
+
+  businessUnit  BusinessUnit        @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  applicability TermApplicability[]
+
+  @@index([businessUnitId, domain, sortOrder])
+  @@map("terms_conditions")
+}
+
+model TermApplicability {
+  termId       String            @db.Uuid
+  documentType TermsDocumentType
+  createdAt    DateTime          @default(now()) @db.Timestamptz(3)
+
+  term TermsCondition @relation(fields: [termId], references: [id], onDelete: Cascade)
+
+  @@id([termId, documentType])
+  @@index([documentType])
+  @@map("term_applicability")
+}

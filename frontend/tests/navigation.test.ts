@@ -1,0 +1,91 @@
+import { Settings } from "lucide-react";
+import { describe, expect, it } from "vitest";
+import {
+  findWorkspace,
+  matchesPattern,
+  resolveBreadcrumbs,
+  searchEntries,
+  workspaces,
+} from "@/lib/navigation/registry";
+import { filterEntries } from "@/lib/navigation/search";
+import type { Workspace } from "@/lib/navigation/types";
+
+const sales: Workspace = {
+  id: "sales",
+  label: "Sales",
+  icon: Settings,
+  href: "/sales",
+  description: "Sales module",
+  status: "active",
+  shortcuts: [{ label: "Customers", href: "/sales/customers", keywords: ["client"] }],
+  cards: [{ label: "Masters", links: [{ label: "Customers", href: "/sales/customers" }] }],
+  routes: [{ pattern: "/sales/customers/[customerId]", label: "Customer", parent: "/sales/customers" }],
+};
+const planned: Workspace = { ...sales, id: "hr", label: "HR", href: "/hr", status: "planned" };
+const list = [sales, planned];
+
+describe("matchesPattern", () => {
+  it("matches dynamic segments of the same depth only", () => {
+    expect(matchesPattern("/sales/customers/[customerId]", "/sales/customers/42")).toBe(true);
+    expect(matchesPattern("/sales/customers/[customerId]", "/sales/customers")).toBe(false);
+    expect(matchesPattern("/sales/customers/[customerId]", "/sales/orders/42")).toBe(false);
+  });
+});
+
+describe("findWorkspace", () => {
+  it("finds the owning active workspace by path prefix", () => {
+    expect(findWorkspace("/sales/customers/1", list)?.id).toBe("sales");
+    expect(findWorkspace("/salesforce", list)).toBeUndefined();
+    expect(findWorkspace("/hr", list)).toBeUndefined();
+    expect(findWorkspace("/", list)).toBeUndefined();
+  });
+});
+
+describe("resolveBreadcrumbs", () => {
+  it("builds workspace › list › record crumbs", () => {
+    expect(resolveBreadcrumbs("/sales", list)).toEqual([{ label: "Sales", href: "/sales" }]);
+    expect(resolveBreadcrumbs("/sales/customers", list)).toEqual([
+      { label: "Sales", href: "/sales" },
+      { label: "Customers", href: "/sales/customers" },
+    ]);
+    expect(resolveBreadcrumbs("/sales/customers/7", list)).toEqual([
+      { label: "Sales", href: "/sales" },
+      { label: "Customers", href: "/sales/customers" },
+      { label: "Customer", href: "/sales/customers/7" },
+    ]);
+    expect(resolveBreadcrumbs("/", list)).toEqual([]);
+  });
+
+  it("resolves the real configuration routes", () => {
+    expect(resolveBreadcrumbs("/configuration/business-config/offices/abc").map((crumb) => crumb.label)).toEqual([
+      "Configuration",
+      "Business Units",
+      "Office",
+    ]);
+  });
+});
+
+describe("searchEntries / filterEntries", () => {
+  it("lists Home, active workspaces and their unique pages", () => {
+    const entries = searchEntries(list);
+    expect(entries.map((entry) => entry.href)).toEqual(["/", "/sales", "/sales/customers"]);
+  });
+
+  it("matches every word against label, group, description and keywords", () => {
+    const entries = searchEntries(list);
+    expect(filterEntries(entries, "client").map((entry) => entry.label)).toEqual(["Customers"]);
+    expect(filterEntries(entries, "sales cust").map((entry) => entry.label)).toEqual(["Customers"]);
+    expect(filterEntries(entries, "nothing-matches")).toEqual([]);
+    expect(filterEntries(entries, "  ")).toHaveLength(entries.length);
+  });
+
+  it("ranks label-prefix matches first", () => {
+    const entries = searchEntries(list);
+    expect(filterEntries(entries, "sales")[0].label).toBe("Sales");
+  });
+
+  it("every registered workspace has a unique id and href", () => {
+    expect(new Set(workspaces.map((workspace) => workspace.id)).size).toBe(workspaces.length);
+    expect(new Set(workspaces.map((workspace) => workspace.href)).size).toBe(workspaces.length);
+  });
+});

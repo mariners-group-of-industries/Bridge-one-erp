@@ -1,0 +1,103 @@
+@import "tailwindcss";
+
+/*
+ * BridgeOne design tokens (ERPNext / Frappe "Espresso" look).
+ *
+ * Feature code must use the semantic utilities generated from these tokens
+ * (bg-surface, text-ink-muted, border-line, bg-primary …) instead of raw palette
+ * colours, so the theme and dark mode can change in one place.
+ */
+
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+:root,
+[data-theme="light"] {
+  --canvas: #f8f8f8;
+  --surface: #ffffff;
+  --control: #f3f3f3;
+  --hover: #ededed;
+  --line: #ededed;
+  --line-strong: #e2e2e2;
+  --ink: #171717;
+  --ink-muted: #525252;
+  --ink-faint: #7c7c7c;
+  --primary: #171717;
+  --primary-hover: #383838;
+  --primary-fg: #ffffff;
+  --accent: #0289f7;
+  --danger: #e03636;
+  --success: #278f5e;
+  --warning: #db7706;
+  color-scheme: light;
+}
+
+[data-theme="dark"] {
+  --canvas: #0f0f0f;
+  --surface: #171717;
+  --control: #242424;
+  --hover: #2e2e2e;
+  --line: #2a2a2a;
+  --line-strong: #383838;
+  --ink: #f3f3f3;
+  --ink-muted: #c7c7c7;
+  --ink-faint: #999999;
+  --primary: #f3f3f3;
+  --primary-hover: #dadada;
+  --primary-fg: #171717;
+  --accent: #3ba4ff;
+  --danger: #f56b6b;
+  --success: #4fbf87;
+  --warning: #f2a33a;
+  color-scheme: dark;
+}
+
+@theme inline {
+  --color-canvas: var(--canvas);
+  --color-surface: var(--surface);
+  --color-control: var(--control);
+  --color-hover: var(--hover);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-ink: var(--ink);
+  --color-ink-muted: var(--ink-muted);
+  --color-ink-faint: var(--ink-faint);
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-fg: var(--primary-fg);
+  --color-accent: var(--accent);
+  --color-danger: var(--danger);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+/* Dense ERP type scale: 13px body text, like ERPNext desk. */
+@theme {
+  --text-xs: 0.6875rem;
+  --text-xs--line-height: 1rem;
+  --text-sm: 0.8125rem;
+  --text-sm--line-height: 1.25rem;
+  --text-base: 0.875rem;
+  --text-base--line-height: 1.375rem;
+  --text-lg: 1rem;
+  --text-lg--line-height: 1.5rem;
+  --text-xl: 1.25rem;
+  --text-xl--line-height: 1.75rem;
+
+  --shadow-dropdown: 0 0 1px rgb(0 0 0 / 0.2), 0 8px 24px -4px rgb(0 0 0 / 0.16);
+}
+
+@layer base {
+  body {
+    background: var(--canvas);
+    color: var(--ink);
+    font-size: var(--text-sm);
+    line-height: var(--text-sm--line-height);
+  }
+
+  :focus-visible {
+    outline-color: var(--accent);
+  }
+}
