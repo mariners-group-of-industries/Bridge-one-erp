@@ -1,4 +1,4 @@
-import { Boxes, Calculator, Users } from "lucide-react";
+import { Boxes, Users } from "lucide-react";
 import type { Workspace } from "./types";
 
 /**
@@ -15,14 +15,7 @@ export const plannedWorkspaces: Workspace[] = [
     description: "Items, stock levels and stock movements.",
     status: "planned",
   },
-  {
-    id: "accounting",
-    label: "Accounting",
-    icon: Calculator,
-    href: "/accounting",
-    description: "Chart of accounts, invoices, payments and ledgers.",
-    status: "planned",
-  },
+
   {
     id: "hr",
     label: "HR",

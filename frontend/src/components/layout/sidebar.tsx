@@ -51,13 +51,26 @@ export function SidebarNav({ pathname, onNavigate }: { pathname: string | null; 
           >
             {hasCards && (
               <ul className="flex flex-col gap-0.5">
-                {(workspace.cards ?? []).map((card) => {
+                {(workspace.cards ?? []).map((card, idx) => {
+                  if (!card.label) {
+                    return card.links.map((link) => (
+                      <li key={link.href}>
+                        <SidebarLink
+                          href={link.href}
+                          active={pathname === link.href || !!pathname?.startsWith(`${link.href}/`)}
+                          onNavigate={onNavigate}
+                        >
+                          {link.label}
+                        </SidebarLink>
+                      </li>
+                    ));
+                  }
                   const anyLinkActive = card.links.some(
                     (link) => pathname === link.href || !!pathname?.startsWith(`${link.href}/`),
                   );
                   return (
                     <CollapsibleGroup
-                      key={card.label}
+                      key={card.label || `card-${idx}`}
                       label={card.label}
                       defaultOpen={anyLinkActive}
                     >
