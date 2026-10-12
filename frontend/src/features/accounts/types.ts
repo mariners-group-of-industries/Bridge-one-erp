@@ -8,6 +8,7 @@ export interface AccountItem {
   parentCode?: string | null;
   accountType: AccountType;
   accountSubtype: string;
+  tierLevel?: "Group" | "Class" | "Category" | "GL";
   normalBalance: NormalBalance;
   description?: string;
   openingBalance: number;
@@ -18,6 +19,17 @@ export interface AccountItem {
   officeId?: string;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface CoaPermissionItem {
+  id: string;
+  employeeName: string;
+  employeeId: string;
+  voucherType: string;
+  accountHeadCode: string;
+  accountHeadName: string;
+  status: "ACTIVE" | "INACTIVE";
+  createdAt: string;
 }
 
 export type VoucherStatus = "DRAFT" | "PENDING" | "POSTED" | "REVERSED" | "CANCELLED";

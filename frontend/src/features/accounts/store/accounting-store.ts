@@ -8,6 +8,7 @@ import type {
   BudgetItem,
   ChequeBookItem,
   ChequeIssueItem,
+  CoaPermissionItem,
   CostCenterItem,
   DepositItem,
   ExpenseRecord,
@@ -56,11 +57,15 @@ export interface AccountingState {
   cheques: ChequeIssueItem[];
   budgets: BudgetItem[];
   costCenters: CostCenterItem[];
+  coaPermissions: CoaPermissionItem[];
 
   // Actions - COA
   addAccount: (account: Omit<AccountItem, "id" | "currentBalance" | "createdAt" | "updatedAt">) => void;
   updateAccount: (id: string, updates: Partial<AccountItem>) => void;
   toggleAccountStatus: (id: string) => void;
+  addCoaPermission: (perm: Omit<CoaPermissionItem, "id" | "createdAt">) => void;
+  deleteCoaPermission: (id: string) => void;
+  toggleCoaPermission: (id: string) => void;
 
   // Actions - Vouchers
   createVoucher: (voucher: Omit<JournalVoucher, "id" | "voucherNumber" | "totalDebit" | "totalCredit" | "createdAt">) => { success: boolean; message: string; voucher?: JournalVoucher };
@@ -105,41 +110,98 @@ export interface AccountingState {
 }
 
 const initialAccounts: AccountItem[] = [
-  // 1000 Assets
-  { id: "acc-1000", code: "1000", name: "Assets", accountType: "ASSET", accountSubtype: "Group", normalBalance: "DEBIT", openingBalance: 0, currentBalance: 0, currency: "BDT", isGroup: true, status: "ACTIVE", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
-  { id: "acc-1100", code: "1100", name: "Current Assets", parentCode: "1000", accountType: "ASSET", accountSubtype: "Group", normalBalance: "DEBIT", openingBalance: 0, currentBalance: 0, currency: "BDT", isGroup: true, status: "ACTIVE", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
-  { id: "acc-1110", code: "1110", name: "Cash in Hand", parentCode: "1100", accountType: "ASSET", accountSubtype: "Cash", normalBalance: "DEBIT", openingBalance: 150000, currentBalance: 150000, currency: "BDT", isGroup: false, status: "ACTIVE", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
-  { id: "acc-1120", code: "1120", name: "Cash at Bank - Sonali Bank", parentCode: "1100", accountType: "ASSET", accountSubtype: "Bank", normalBalance: "DEBIT", openingBalance: 1250000, currentBalance: 1250000, currency: "BDT", isGroup: false, status: "ACTIVE", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
-  { id: "acc-1121", code: "1121", name: "Cash at Bank - BRAC Bank", parentCode: "1100", accountType: "ASSET", accountSubtype: "Bank", normalBalance: "DEBIT", openingBalance: 820000, currentBalance: 820000, currency: "BDT", isGroup: false, status: "ACTIVE", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
-  { id: "acc-1130", code: "1130", name: "Accounts Receivable", parentCode: "1100", accountType: "ASSET", accountSubtype: "Receivable", normalBalance: "DEBIT", openingBalance: 650000, currentBalance: 650000, currency: "BDT", isGroup: false, status: "ACTIVE", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
-  { id: "acc-1140", code: "1140", name: "Advances & Prepayments", parentCode: "1100", accountType: "ASSET", accountSubtype: "Prepayment", normalBalance: "DEBIT", openingBalance: 45000, currentBalance: 45000, currency: "BDT", isGroup: false, status: "ACTIVE", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
-  { id: "acc-1150", code: "1150", name: "Fund in Transit", parentCode: "1100", accountType: "ASSET", accountSubtype: "Transit", normalBalance: "DEBIT", openingBalance: 0, currentBalance: 0, currency: "BDT", isGroup: false, status: "ACTIVE", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
-  { id: "acc-1200", code: "1200", name: "Non-Current Assets", parentCode: "1000", accountType: "ASSET", accountSubtype: "Group", normalBalance: "DEBIT", openingBalance: 0, currentBalance: 0, currency: "BDT", isGroup: true, status: "ACTIVE", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
-  { id: "acc-1210", code: "1210", name: "Office Furniture & Fixtures", parentCode: "1200", accountType: "ASSET", accountSubtype: "Fixed Asset", normalBalance: "DEBIT", openingBalance: 320000, currentBalance: 320000, currency: "BDT", isGroup: false, status: "ACTIVE", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
+  // 1: Current Assets (Group)
+  { id: "acc-1", code: "1", name: "Current Assets", accountType: "ASSET", accountSubtype: "Group", tierLevel: "Group", normalBalance: "DEBIT", openingBalance: 30364410.09, currentBalance: 30364410.09, currency: "BDT", isGroup: true, status: "ACTIVE", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
 
-  // 2000 Liabilities
-  { id: "acc-2000", code: "2000", name: "Liabilities", accountType: "LIABILITY", accountSubtype: "Group", normalBalance: "CREDIT", openingBalance: 0, currentBalance: 0, currency: "BDT", isGroup: true, status: "ACTIVE", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
-  { id: "acc-2100", code: "2100", name: "Current Liabilities", parentCode: "2000", accountType: "LIABILITY", accountSubtype: "Group", normalBalance: "CREDIT", openingBalance: 0, currentBalance: 0, currency: "BDT", isGroup: true, status: "ACTIVE", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
-  { id: "acc-2110", code: "2110", name: "Accounts Payable", parentCode: "2100", accountType: "LIABILITY", accountSubtype: "Payable", normalBalance: "CREDIT", openingBalance: 420000, currentBalance: 420000, currency: "BDT", isGroup: false, status: "ACTIVE", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
-  { id: "acc-2120", code: "2120", name: "Accrued Expenses & Provisions", parentCode: "2100", accountType: "LIABILITY", accountSubtype: "Accrual", normalBalance: "CREDIT", openingBalance: 65000, currentBalance: 65000, currency: "BDT", isGroup: false, status: "ACTIVE", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
-  { id: "acc-2130", code: "2130", name: "VAT & Tax Withholding Payable", parentCode: "2100", accountType: "LIABILITY", accountSubtype: "Tax Payable", normalBalance: "CREDIT", openingBalance: 50000, currentBalance: 50000, currency: "BDT", isGroup: false, status: "ACTIVE", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
+  // 1450: Cash And Cash Equivalent (Class)
+  { id: "acc-1450", code: "1450", name: "Cash And Cash Equivalent", parentCode: "1", accountType: "ASSET", accountSubtype: "Class", tierLevel: "Class", normalBalance: "DEBIT", openingBalance: 2978453.04, currentBalance: 2978453.04, currency: "BDT", isGroup: true, status: "ACTIVE", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
 
-  // 3000 Equity
-  { id: "acc-3000", code: "3000", name: "Equity", accountType: "EQUITY", accountSubtype: "Group", normalBalance: "CREDIT", openingBalance: 0, currentBalance: 0, currency: "BDT", isGroup: true, status: "ACTIVE", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
-  { id: "acc-3100", code: "3100", name: "Share Capital", parentCode: "3000", accountType: "EQUITY", accountSubtype: "Equity", normalBalance: "CREDIT", openingBalance: 2000000, currentBalance: 2000000, currency: "BDT", isGroup: false, status: "ACTIVE", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
-  { id: "acc-3200", code: "3200", name: "Retained Earnings", parentCode: "3000", accountType: "EQUITY", accountSubtype: "Equity", normalBalance: "CREDIT", openingBalance: 700000, currentBalance: 700000, currency: "BDT", isGroup: false, status: "ACTIVE", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
+  // 1460: Cash Account (Category)
+  { id: "acc-1460", code: "1460", name: "Cash Account", parentCode: "1450", accountType: "ASSET", accountSubtype: "Category", tierLevel: "Category", normalBalance: "DEBIT", openingBalance: 2128852.08, currentBalance: 2128852.08, currency: "BDT", isGroup: true, status: "ACTIVE", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
 
-  // 4000 Revenue
-  { id: "acc-4000", code: "4000", name: "Revenue", accountType: "REVENUE", accountSubtype: "Group", normalBalance: "CREDIT", openingBalance: 0, currentBalance: 0, currency: "BDT", isGroup: true, status: "ACTIVE", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
-  { id: "acc-4100", code: "4100", name: "Sales Income", parentCode: "4000", accountType: "REVENUE", accountSubtype: "Operating Revenue", normalBalance: "CREDIT", openingBalance: 0, currentBalance: 0, currency: "BDT", isGroup: false, status: "ACTIVE", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
-  { id: "acc-4200", code: "4200", name: "Service & Consultancy Income", parentCode: "4000", accountType: "REVENUE", accountSubtype: "Operating Revenue", normalBalance: "CREDIT", openingBalance: 0, currentBalance: 0, currency: "BDT", isGroup: false, status: "ACTIVE", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
+  // GL Accounts under Cash Account
+  { id: "acc-1461", code: "1461", name: "Cash In Hand", parentCode: "1460", accountType: "ASSET", accountSubtype: "GL", tierLevel: "GL", normalBalance: "DEBIT", openingBalance: 0, currentBalance: 0, currency: "BDT", isGroup: false, status: "ACTIVE", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
+  { id: "acc-10101003", code: "10101003", name: "Cash in Hand - Marinozz PLC", parentCode: "1460", accountType: "ASSET", accountSubtype: "GL", tierLevel: "GL", normalBalance: "DEBIT", openingBalance: 0, currentBalance: 0, currency: "BDT", isGroup: false, status: "ACTIVE", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
+  { id: "acc-10101004", code: "10101004", name: "Cash in Hand - MOHS ECO", parentCode: "1460", accountType: "ASSET", accountSubtype: "GL", tierLevel: "GL", normalBalance: "DEBIT", openingBalance: 3229, currentBalance: 3229, currency: "BDT", isGroup: false, status: "ACTIVE", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
+  { id: "acc-10101005", code: "10101005", name: "Cash in Hand - Factory", parentCode: "1460", accountType: "ASSET", accountSubtype: "GL", tierLevel: "GL", normalBalance: "DEBIT", openingBalance: 890631, currentBalance: 890631, currency: "BDT", isGroup: false, status: "ACTIVE", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
+  { id: "acc-10101006", code: "10101006", name: "Cash in Hand - MGV PLC", parentCode: "1460", accountType: "ASSET", accountSubtype: "GL", tierLevel: "GL", normalBalance: "DEBIT", openingBalance: 2062, currentBalance: 2062, currency: "BDT", isGroup: false, status: "ACTIVE", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
+  { id: "acc-10101007", code: "10101007", name: "Cash in Hand - MBBL", parentCode: "1460", accountType: "ASSET", accountSubtype: "GL", tierLevel: "GL", normalBalance: "DEBIT", openingBalance: 0, currentBalance: 0, currency: "BDT", isGroup: false, status: "ACTIVE", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
+  { id: "acc-10101010", code: "10101010", name: "Cash in Hand - CFF HO", parentCode: "1460", accountType: "ASSET", accountSubtype: "GL", tierLevel: "GL", normalBalance: "DEBIT", openingBalance: 0, currentBalance: 0, currency: "BDT", isGroup: false, status: "ACTIVE", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
+  { id: "acc-10101011", code: "10101011", name: "Cash in Hand - CFF Chapai", parentCode: "1460", accountType: "ASSET", accountSubtype: "GL", tierLevel: "GL", normalBalance: "DEBIT", openingBalance: 0, currentBalance: 0, currency: "BDT", isGroup: false, status: "ACTIVE", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
+  { id: "acc-10101013", code: "10101013", name: "Cash in Hand - MFIL HO", parentCode: "1460", accountType: "ASSET", accountSubtype: "GL", tierLevel: "GL", normalBalance: "DEBIT", openingBalance: 19184, currentBalance: 19184, currency: "BDT", isGroup: false, status: "ACTIVE", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
+  { id: "acc-10101014", code: "10101014", name: "Cash in Hand - CAT Chapai", parentCode: "1460", accountType: "ASSET", accountSubtype: "GL", tierLevel: "GL", normalBalance: "DEBIT", openingBalance: 0, currentBalance: 0, currency: "BDT", isGroup: false, status: "ACTIVE", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
+  { id: "acc-10101015", code: "10101015", name: "Cash in Hand - MOHS Unity Venture", parentCode: "1460", accountType: "ASSET", accountSubtype: "GL", tierLevel: "GL", normalBalance: "DEBIT", openingBalance: 1205746, currentBalance: 1205746, currency: "BDT", isGroup: false, status: "ACTIVE", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
 
-  // 5000 Expense
-  { id: "acc-5000", code: "5000", name: "Expenses", accountType: "EXPENSE", accountSubtype: "Group", normalBalance: "DEBIT", openingBalance: 0, currentBalance: 0, currency: "BDT", isGroup: true, status: "ACTIVE", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
-  { id: "acc-5100", code: "5100", name: "Office Rent & Utilities", parentCode: "5000", accountType: "EXPENSE", accountSubtype: "Operating Expense", normalBalance: "DEBIT", openingBalance: 0, currentBalance: 0, currency: "BDT", isGroup: false, status: "ACTIVE", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
-  { id: "acc-5200", code: "5200", name: "Salaries & Allowances", parentCode: "5000", accountType: "EXPENSE", accountSubtype: "Payroll", normalBalance: "DEBIT", openingBalance: 0, currentBalance: 0, currency: "BDT", isGroup: false, status: "ACTIVE", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
-  { id: "acc-5300", code: "5300", name: "Travelling & Conveyance", parentCode: "5000", accountType: "EXPENSE", accountSubtype: "Travel", normalBalance: "DEBIT", openingBalance: 0, currentBalance: 0, currency: "BDT", isGroup: false, status: "ACTIVE", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
-  { id: "acc-5400", code: "5400", name: "Printing, Stationery & Postage", parentCode: "5000", accountType: "EXPENSE", accountSubtype: "General Admin", normalBalance: "DEBIT", openingBalance: 0, currentBalance: 0, currency: "BDT", isGroup: false, status: "ACTIVE", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
+  // 10102: Cash At Bank (Category)
+  { id: "acc-10102", code: "10102", name: "Cash At Bank", parentCode: "1450", accountType: "ASSET", accountSubtype: "Category", tierLevel: "Category", normalBalance: "DEBIT", openingBalance: 849600.96, currentBalance: 849600.96, currency: "BDT", isGroup: true, status: "ACTIVE", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
+
+  // GL Accounts under Cash At Bank
+  { id: "acc-00001", code: "00001", name: "UCBL PABNA: 1872101000001011", parentCode: "10102", accountType: "ASSET", accountSubtype: "GL", tierLevel: "GL", normalBalance: "DEBIT", openingBalance: 0, currentBalance: 0, currency: "BDT", isGroup: false, status: "ACTIVE", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
+  { id: "acc-b2", code: "2", name: "DBBLMFAL P: 2331100024316", parentCode: "10102", accountType: "ASSET", accountSubtype: "GL", tierLevel: "GL", normalBalance: "DEBIT", openingBalance: 0, currentBalance: 0, currency: "BDT", isGroup: false, status: "ACTIVE", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
+  { id: "acc-b3", code: "3", name: "IBBLMFAMO: 20501450100552413", parentCode: "10102", accountType: "ASSET", accountSubtype: "GL", tierLevel: "GL", normalBalance: "DEBIT", openingBalance: 0, currentBalance: 0, currency: "BDT", isGroup: false, status: "ACTIVE", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
+  { id: "acc-b4", code: "4", name: "DBBL: 2861200000492", parentCode: "10102", accountType: "ASSET", accountSubtype: "GL", tierLevel: "GL", normalBalance: "DEBIT", openingBalance: 0, currentBalance: 0, currency: "BDT", isGroup: false, status: "ACTIVE", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
+  { id: "acc-b5", code: "5", name: "Feed DBBL: 2861100073676", parentCode: "10102", accountType: "ASSET", accountSubtype: "GL", tierLevel: "GL", normalBalance: "DEBIT", openingBalance: 26016, currentBalance: 26016, currency: "BDT", isGroup: false, status: "ACTIVE", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
+  { id: "acc-b6", code: "6", name: "MOHS DBBL: 2861100088709", parentCode: "10102", accountType: "ASSET", accountSubtype: "GL", tierLevel: "GL", normalBalance: "DEBIT", openingBalance: 1998, currentBalance: 1998, currency: "BDT", isGroup: false, status: "ACTIVE", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
+  { id: "acc-b7", code: "7", name: "BlueWave DBBL: 2861100028682", parentCode: "10102", accountType: "ASSET", accountSubtype: "GL", tierLevel: "GL", normalBalance: "DEBIT", openingBalance: 7042, currentBalance: 7042, currency: "BDT", isGroup: false, status: "ACTIVE", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
+  { id: "acc-b8", code: "8", name: "MBBL DBBL: 2861200015657", parentCode: "10102", accountType: "ASSET", accountSubtype: "GL", tierLevel: "GL", normalBalance: "DEBIT", openingBalance: 4083.09, currentBalance: 4083.09, currency: "BDT", isGroup: false, status: "ACTIVE", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
+
+  // 102: Receivables (Class)
+  { id: "acc-102", code: "102", name: "Receivables", parentCode: "1", accountType: "ASSET", accountSubtype: "Class", tierLevel: "Class", normalBalance: "DEBIT", openingBalance: 14850220, currentBalance: 14850220, currency: "BDT", isGroup: true, status: "ACTIVE", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
+  { id: "acc-10201", code: "10201", name: "Accounts Receivable", parentCode: "102", accountType: "ASSET", accountSubtype: "GL", tierLevel: "GL", normalBalance: "DEBIT", openingBalance: 14850220, currentBalance: 14850220, currency: "BDT", isGroup: false, status: "ACTIVE", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
+
+  // 103: Inventory (Class)
+  { id: "acc-103", code: "103", name: "Inventory", parentCode: "1", accountType: "ASSET", accountSubtype: "Class", tierLevel: "Class", normalBalance: "DEBIT", openingBalance: 8535737.05, currentBalance: 8535737.05, currency: "BDT", isGroup: true, status: "ACTIVE", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
+  { id: "acc-10301", code: "10301", name: "Raw Materials Inventory", parentCode: "103", accountType: "ASSET", accountSubtype: "GL", tierLevel: "GL", normalBalance: "DEBIT", openingBalance: 5240000, currentBalance: 5240000, currency: "BDT", isGroup: false, status: "ACTIVE", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
+  { id: "acc-10302", code: "10302", name: "Finished Goods Inventory", parentCode: "103", accountType: "ASSET", accountSubtype: "GL", tierLevel: "GL", normalBalance: "DEBIT", openingBalance: 3295737.05, currentBalance: 3295737.05, currency: "BDT", isGroup: false, status: "ACTIVE", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
+
+  // 104 - 108: Current Assets classes
+  { id: "acc-104", code: "104", name: "Other Current Assets", parentCode: "1", accountType: "ASSET", accountSubtype: "Class", tierLevel: "Class", normalBalance: "DEBIT", openingBalance: 1500000, currentBalance: 1500000, currency: "BDT", isGroup: false, status: "ACTIVE", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
+  { id: "acc-105", code: "105", name: "Advance, Deposits & Pre-Payments", parentCode: "1", accountType: "ASSET", accountSubtype: "Class", tierLevel: "Class", normalBalance: "DEBIT", openingBalance: 2500000, currentBalance: 2500000, currency: "BDT", isGroup: false, status: "ACTIVE", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
+  { id: "acc-106", code: "106", name: "Income Tax Assets", parentCode: "1", accountType: "ASSET", accountSubtype: "Class", tierLevel: "Class", normalBalance: "DEBIT", openingBalance: 0, currentBalance: 0, currency: "BDT", isGroup: false, status: "ACTIVE", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
+  { id: "acc-107", code: "107", name: "Investment And Financial Receivable", parentCode: "1", accountType: "ASSET", accountSubtype: "Class", tierLevel: "Class", normalBalance: "DEBIT", openingBalance: 0, currentBalance: 0, currency: "BDT", isGroup: false, status: "ACTIVE", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
+  { id: "acc-108", code: "108", name: "Equipment", parentCode: "1", accountType: "ASSET", accountSubtype: "Class", tierLevel: "Class", normalBalance: "DEBIT", openingBalance: 0, currentBalance: 0, currency: "BDT", isGroup: false, status: "ACTIVE", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
+
+  // 2: Non-Current Assets (Group)
+  { id: "acc-2", code: "2", name: "Non-Current Assets", accountType: "ASSET", accountSubtype: "Group", tierLevel: "Group", normalBalance: "DEBIT", openingBalance: 45200000, currentBalance: 45200000, currency: "BDT", isGroup: true, status: "ACTIVE", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
+  { id: "acc-201", code: "201", name: "Property, Plant And Equipment", parentCode: "2", accountType: "ASSET", accountSubtype: "Class", tierLevel: "Class", normalBalance: "DEBIT", openingBalance: 38000000, currentBalance: 38000000, currency: "BDT", isGroup: false, status: "ACTIVE", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
+  { id: "acc-202", code: "202", name: "Goodwill", parentCode: "2", accountType: "ASSET", accountSubtype: "Class", tierLevel: "Class", normalBalance: "DEBIT", openingBalance: 2000000, currentBalance: 2000000, currency: "BDT", isGroup: false, status: "ACTIVE", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
+  { id: "acc-203", code: "203", name: "Advance For Capital Assets", parentCode: "2", accountType: "ASSET", accountSubtype: "Class", tierLevel: "Class", normalBalance: "DEBIT", openingBalance: 3500000, currentBalance: 3500000, currency: "BDT", isGroup: false, status: "ACTIVE", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
+  { id: "acc-204", code: "204", name: "Intangible Assets", parentCode: "2", accountType: "ASSET", accountSubtype: "Class", tierLevel: "Class", normalBalance: "DEBIT", openingBalance: 1700000, currentBalance: 1700000, currency: "BDT", isGroup: false, status: "ACTIVE", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
+  { id: "acc-205", code: "205", name: "Long Term Investments", parentCode: "2", accountType: "ASSET", accountSubtype: "Class", tierLevel: "Class", normalBalance: "DEBIT", openingBalance: 0, currentBalance: 0, currency: "BDT", isGroup: false, status: "ACTIVE", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
+  { id: "acc-206", code: "206", name: "Other Non Current Assets", parentCode: "2", accountType: "ASSET", accountSubtype: "Class", tierLevel: "Class", normalBalance: "DEBIT", openingBalance: 0, currentBalance: 0, currency: "BDT", isGroup: false, status: "ACTIVE", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
+  { id: "acc-207", code: "207", name: "Deffered Tax Assets", parentCode: "2", accountType: "ASSET", accountSubtype: "Class", tierLevel: "Class", normalBalance: "DEBIT", openingBalance: 0, currentBalance: 0, currency: "BDT", isGroup: false, status: "ACTIVE", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
+
+  // 3: Current Liabilities (Group)
+  { id: "acc-3", code: "3", name: "Current Liabilities", accountType: "LIABILITY", accountSubtype: "Group", tierLevel: "Group", normalBalance: "CREDIT", openingBalance: 18450000, currentBalance: 18450000, currency: "BDT", isGroup: true, status: "ACTIVE", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
+  { id: "acc-301", code: "301", name: "Accounts Payable", parentCode: "3", accountType: "LIABILITY", accountSubtype: "Class", tierLevel: "Class", normalBalance: "CREDIT", openingBalance: 12300000, currentBalance: 12300000, currency: "BDT", isGroup: false, status: "ACTIVE", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
+  { id: "acc-302", code: "302", name: "Other Current Liabilities", parentCode: "3", accountType: "LIABILITY", accountSubtype: "Class", tierLevel: "Class", normalBalance: "CREDIT", openingBalance: 3150000, currentBalance: 3150000, currency: "BDT", isGroup: false, status: "ACTIVE", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
+  { id: "acc-303", code: "303", name: "Payables, Provision And Accruals", parentCode: "3", accountType: "LIABILITY", accountSubtype: "Class", tierLevel: "Class", normalBalance: "CREDIT", openingBalance: 3000000, currentBalance: 3000000, currency: "BDT", isGroup: false, status: "ACTIVE", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
+
+  // 4: Non-Current Liabilities (Group)
+  { id: "acc-4", code: "4", name: "Non-Current Liabilities", accountType: "LIABILITY", accountSubtype: "Group", tierLevel: "Group", normalBalance: "CREDIT", openingBalance: 15000000, currentBalance: 15000000, currency: "BDT", isGroup: true, status: "ACTIVE", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
+  { id: "acc-401", code: "401", name: "Long Term Bank Borrowings", parentCode: "4", accountType: "LIABILITY", accountSubtype: "Class", tierLevel: "Class", normalBalance: "CREDIT", openingBalance: 15000000, currentBalance: 15000000, currency: "BDT", isGroup: false, status: "ACTIVE", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
+
+  // 5: Equity (Group)
+  { id: "acc-5", code: "5", name: "Equity", accountType: "EQUITY", accountSubtype: "Group", tierLevel: "Group", normalBalance: "CREDIT", openingBalance: 42114410.09, currentBalance: 42114410.09, currency: "BDT", isGroup: true, status: "ACTIVE", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
+  { id: "acc-501", code: "501", name: "Paid-Up Share Capital", parentCode: "5", accountType: "EQUITY", accountSubtype: "Class", tierLevel: "Class", normalBalance: "CREDIT", openingBalance: 30000000, currentBalance: 30000000, currency: "BDT", isGroup: false, status: "ACTIVE", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
+  { id: "acc-502", code: "502", name: "Retained Earnings", parentCode: "5", accountType: "EQUITY", accountSubtype: "Class", tierLevel: "Class", normalBalance: "CREDIT", openingBalance: 12114410.09, currentBalance: 12114410.09, currency: "BDT", isGroup: false, status: "ACTIVE", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
+
+  // 6: Revenue
+  { id: "acc-6", code: "6", name: "Revenue / Operating Income", accountType: "REVENUE", accountSubtype: "Group", tierLevel: "Group", normalBalance: "CREDIT", openingBalance: 65000000, currentBalance: 65000000, currency: "BDT", isGroup: true, status: "ACTIVE", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
+  { id: "acc-601", code: "601", name: "Sales Income", parentCode: "6", accountType: "REVENUE", accountSubtype: "Class", tierLevel: "Class", normalBalance: "CREDIT", openingBalance: 62000000, currentBalance: 62000000, currency: "BDT", isGroup: false, status: "ACTIVE", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
+  { id: "acc-602", code: "602", name: "Service & Consultancy Income", parentCode: "6", accountType: "REVENUE", accountSubtype: "Class", tierLevel: "Class", normalBalance: "CREDIT", openingBalance: 3000000, currentBalance: 3000000, currency: "BDT", isGroup: false, status: "ACTIVE", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
+
+  // 7: Expenses
+  { id: "acc-7", code: "7", name: "Expenses", accountType: "EXPENSE", accountSubtype: "Group", tierLevel: "Group", normalBalance: "DEBIT", openingBalance: 48000000, currentBalance: 48000000, currency: "BDT", isGroup: true, status: "ACTIVE", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
+  { id: "acc-701", code: "701", name: "Cost of Goods Sold (COGS)", parentCode: "7", accountType: "EXPENSE", accountSubtype: "Class", tierLevel: "Class", normalBalance: "DEBIT", openingBalance: 35000000, currentBalance: 35000000, currency: "BDT", isGroup: false, status: "ACTIVE", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
+  { id: "acc-702", code: "702", name: "Administrative & Operating Expenses", parentCode: "7", accountType: "EXPENSE", accountSubtype: "Class", tierLevel: "Class", normalBalance: "DEBIT", openingBalance: 13000000, currentBalance: 13000000, currency: "BDT", isGroup: false, status: "ACTIVE", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
+];
+
+const initialCoaPermissions: CoaPermissionItem[] = [
+  { id: "perm-1", employeeName: "Mohammad Arif", employeeId: "EMP-101", voucherType: "Payment", accountHeadCode: "10101005", accountHeadName: "Cash in Hand - Factory", status: "ACTIVE", createdAt: "2026-02-01" },
+  { id: "perm-2", employeeName: "Tanvir Ahmed", employeeId: "EMP-102", voucherType: "General", accountHeadCode: "301", accountHeadName: "Accounts Payable", status: "ACTIVE", createdAt: "2026-02-10" },
+  { id: "perm-3", employeeName: "Nasir Hossain", employeeId: "EMP-103", voucherType: "Receipt", accountHeadCode: "10102", accountHeadName: "Cash At Bank", status: "ACTIVE", createdAt: "2026-02-15" },
+  { id: "perm-4", employeeName: "Kamrul Islam", employeeId: "EMP-104", voucherType: "Adjustment", accountHeadCode: "702", accountHeadName: "Administrative & Operating Expenses", status: "ACTIVE", createdAt: "2026-03-01" },
 ];
 
 const initialBankAccounts: BankAccountItem[] = [
@@ -250,6 +312,9 @@ type StateData = Omit<
   | "createBudget"
   | "updateBudgetRevision"
   | "addCostCenter"
+  | "addCoaPermission"
+  | "deleteCoaPermission"
+  | "toggleCoaPermission"
   | "getDashboardKPIs"
   | "getGeneralLedger"
   | "getTrialBalance"
@@ -257,7 +322,7 @@ type StateData = Omit<
   | "getBalanceSheet"
 >;
 
-const STORAGE_KEY = "bridgeone_accounting_v1";
+const STORAGE_KEY = "bridgeone_accounting_v2";
 
 let internalData: StateData = {
   accounts: initialAccounts,
@@ -274,6 +339,7 @@ let internalData: StateData = {
   cheques: [],
   budgets: [],
   costCenters: initialCostCenters,
+  coaPermissions: initialCoaPermissions,
 };
 
 // Try loading persisted data on client
@@ -339,6 +405,32 @@ function getFullState(): AccountingState {
         ...prev,
         accounts: prev.accounts.map((acc) =>
           acc.id === id ? { ...acc, status: acc.status === "ACTIVE" ? "INACTIVE" : "ACTIVE" } : acc,
+        ),
+      }));
+    },
+
+    addCoaPermission: (perm) => {
+      const id = `perm-${Date.now()}`;
+      const newPerm: CoaPermissionItem = {
+        ...perm,
+        id,
+        createdAt: new Date().toISOString().split("T")[0],
+      };
+      updateData((prev) => ({ ...prev, coaPermissions: [...prev.coaPermissions, newPerm] }));
+    },
+
+    deleteCoaPermission: (id) => {
+      updateData((prev) => ({
+        ...prev,
+        coaPermissions: prev.coaPermissions.filter((p) => p.id !== id),
+      }));
+    },
+
+    toggleCoaPermission: (id) => {
+      updateData((prev) => ({
+        ...prev,
+        coaPermissions: prev.coaPermissions.map((p) =>
+          p.id === id ? { ...p, status: p.status === "ACTIVE" ? "INACTIVE" : "ACTIVE" } : p,
         ),
       }));
     },
