@@ -37,8 +37,13 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ phone, password }),
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error ?? "Login failed.");
+    let data;
+    try {
+      data = await res.json();
+    } catch {
+      throw new Error(`Server error (${res.status}). Please check server logs.`);
+    }
+    if (!res.ok) throw new Error(data?.error ?? "Login failed.");
     setUser(data as SessionUser);
   }
 

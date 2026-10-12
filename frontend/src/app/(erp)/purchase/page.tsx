@@ -66,8 +66,6 @@ export default function PurchaseDashboardPage() {
     <div className="space-y-4">
       <PageHeader
         title="Purchase Dashboard"
-        subtitle="Real-time procurement cycle metrics, document statuses, expenditure & pending approvals"
-        breadcrumbs={[{ label: "Dashboard" }]}
       />
 
       {/* Filter Toolbar */}

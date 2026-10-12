@@ -215,9 +215,6 @@ export default function PurchaseAnalyticsPage() {
               FY 2026-27 Live
             </span>
           </div>
-          <p className="text-xs text-slate-500 mt-0.5">
-            Real-time enterprise procurement metrics, vendor volume concentration, cycle velocity, and fulfillment ratios
-          </p>
         </div>
 
         <div className="flex items-center gap-2">

@@ -194,8 +194,6 @@ export default function PurchaseReportsPage() {
       <div className="print:hidden">
         <PageHeader
           title="Procurement Reports & Corporate Ledgers"
-          subtitle="Generate verifiable audit trails, operational metrics, and financial reconciliations"
-          breadcrumbs={[{ label: "Purchase Reports" }]}
           actions={
             <div className="flex items-center gap-2">
               <button
