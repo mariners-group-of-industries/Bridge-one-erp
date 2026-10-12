@@ -5,6 +5,7 @@ import {
   matchesPattern,
   resolveBreadcrumbs,
   searchEntries,
+  workspaceLinks,
   workspaces,
 } from "@/lib/navigation/registry";
 import { filterEntries } from "@/lib/navigation/search";
@@ -87,5 +88,27 @@ describe("searchEntries / filterEntries", () => {
   it("every registered workspace has a unique id and href", () => {
     expect(new Set(workspaces.map((workspace) => workspace.id)).size).toBe(workspaces.length);
     expect(new Set(workspaces.map((workspace) => workspace.href)).size).toBe(workspaces.length);
+  });
+});
+
+describe("sales workspace", () => {
+  it("lists the nine sales pages in sidebar order", () => {
+    const salesWorkspace = workspaces.find((workspace) => workspace.id === "sales");
+    expect(salesWorkspace?.status).toBe("active");
+    expect(salesWorkspace && workspaceLinks(salesWorkspace).slice(0, 9).map((link) => link.label)).toEqual([
+      "Sales Dashboard",
+      "Sales Quotation",
+      "Sales Order",
+      "Sales Delivery",
+      "Sales Return",
+      "Sales Collection",
+      "Sales Target",
+      "Sales Report",
+      "Sales Analytics",
+    ]);
+  });
+
+  it("resolves breadcrumbs for a sales page", () => {
+    expect(resolveBreadcrumbs("/sales/orders").map((crumb) => crumb.label)).toEqual(["Sales", "Sales Order"]);
   });
 });

@@ -1,4 +1,5 @@
 import { configurationWorkspace } from "@/features/configuration/navigation";
+import { salesWorkspace } from "@/features/sales/navigation";
 import { plannedWorkspaces } from "./planned";
 import type { Breadcrumb, NavLink, NavRoute, Workspace } from "./types";
 
@@ -7,7 +8,7 @@ import type { Breadcrumb, NavLink, NavRoute, Workspace } from "./types";
  * `src/features/<module>/navigation.ts`; adding a module is one import + one
  * entry here.
  */
-export const workspaces: readonly Workspace[] = [configurationWorkspace, ...plannedWorkspaces];
+export const workspaces: readonly Workspace[] = [configurationWorkspace, salesWorkspace, ...plannedWorkspaces];
 
 export interface SearchEntry extends NavLink {
   group: string;

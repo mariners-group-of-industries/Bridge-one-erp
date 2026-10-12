@@ -1,4 +1,4 @@
-import { Boxes, Calculator, ShoppingBag, ShoppingCart, Users } from "lucide-react";
+import { Boxes, Calculator, ShoppingBag, Users } from "lucide-react";
 import type { Workspace } from "./types";
 
 /**
@@ -7,14 +7,6 @@ import type { Workspace } from "./types";
  * `status: "active"` and register it in `registry.ts`.
  */
 export const plannedWorkspaces: Workspace[] = [
-  {
-    id: "selling",
-    label: "Selling",
-    icon: ShoppingCart,
-    href: "/selling",
-    description: "Customers, quotations, sales orders and deliveries.",
-    status: "planned",
-  },
   {
     id: "buying",
     label: "Buying",

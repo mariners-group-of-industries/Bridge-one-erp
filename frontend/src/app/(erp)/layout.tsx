@@ -1,5 +1,7 @@
+import type { ReactNode } from "react";
 import { AppShell } from "@/components/layout/app-shell";
 
-export default function ErpLayout({ children }: { children: React.ReactNode }) {
+/** Desk shell (navbar, sidebar, toasts) around every ERP page. */
+export default function ErpLayout({ children }: { children: ReactNode }) {
   return <AppShell>{children}</AppShell>;
 }
