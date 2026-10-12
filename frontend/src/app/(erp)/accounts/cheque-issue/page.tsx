@@ -3,21 +3,22 @@
 import React, { useMemo, useState } from "react";
 import Link from "next/link";
 import {
-  AlertCircle,
   Banknote,
+  Check,
   CheckCircle2,
+  ChevronLeft,
   ChevronRight,
-  Clock,
-  Download,
-  Filter,
+  Eye,
+  FileSpreadsheet,
+  FolderOpen,
+  Pencil,
   Plus,
   Printer,
   RotateCcw,
   Search,
-  ShieldAlert,
-  XCircle,
+  Trash2,
+  X,
 } from "lucide-react";
-import { SummaryCard } from "@/components/purchase/SummaryCard";
 import { ModalDialog } from "@/components/purchase/ModalDialog";
 import { useAccountingStore } from "@/features/accounts/store/accounting-store";
 import type { ChequeIssueItem, ChequeStatus } from "@/features/accounts/types";
@@ -29,90 +30,135 @@ export default function ChequeIssuePage() {
   const issueCheque = useAccountingStore((s) => s.issueCheque);
   const updateChequeStatus = useAccountingStore((s) => s.updateChequeStatus);
 
-  const [activeTab, setActiveTab] = useState<"ALL" | "ISSUED" | "POST_DATED" | "CLEARED" | "BOUNCED" | "CANCELLED">("ALL");
+  // -------------------------------------------------------------
+  // Filter States (Matching Screenshot)
+  // -------------------------------------------------------------
+  const [selectedBank, setSelectedBank] = useState("All");
+  const [selectedTransactionNo, setSelectedTransactionNo] = useState("All");
   const [searchQuery, setSearchQuery] = useState("");
 
-  const [isIssueOpen, setIsIssueOpen] = useState(false);
+  // Pagination states
+  const [rowsPerPage, setRowsPerPage] = useState<number>(50);
+  const [currentPage, setCurrentPage] = useState<number>(1);
+
+  // Modal States
+  const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [viewCheque, setViewCheque] = useState<ChequeIssueItem | null>(null);
   const [cancelTarget, setCancelTarget] = useState<ChequeIssueItem | null>(null);
   const [cancelReason, setCancelReason] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
-  const [successMessage, setSuccessMessage] = useState("");
 
-  // Printable Cheque preview
-  const [printingCheque, setPrintingCheque] = useState<ChequeIssueItem | null>(null);
-
+  // Create Form State
   const [form, setForm] = useState({
-    bankAccountId: "bank-1",
-    bankName: "Sonali Bank PLC",
+    bankAccountId: "ba-1",
+    bankName: "PRIME BANK LTD PLC",
     chequeBookId: "cb-1",
-    chequeNumber: "SB-1001",
+    chequeNumber: "",
+    transactionNumber: `TXN-CHQ-${Date.now().toString().slice(-6)}`,
     payeeName: "",
     issueDate: new Date().toISOString().split("T")[0],
     chequeDate: new Date().toISOString().split("T")[0],
     amount: 0,
     purpose: "",
-    referenceVoucher: "",
+    referenceVoucher: "JV-2026-CHQ",
     status: "ISSUED" as ChequeStatus,
   });
 
+  // Extract unique bank names and transaction numbers for filters
+  const bankOptions = useMemo(() => {
+    const names = Array.from(new Set(bankAccounts.map((b) => b.bankName)));
+    return names;
+  }, [bankAccounts]);
+
+  const transactionOptions = useMemo(() => {
+    const txns = Array.from(new Set(cheques.map((c) => c.transactionNumber)));
+    return txns;
+  }, [cheques]);
+
+  // Filtered Cheques
   const filteredCheques = useMemo(() => {
     return cheques.filter((c) => {
-      const matchSearch =
-        c.chequeNumber.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        c.payeeName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        c.bankName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        c.purpose.toLowerCase().includes(searchQuery.toLowerCase());
-      const matchTab = activeTab === "ALL" ? true : c.status === activeTab;
-      return matchSearch && matchTab;
+      if (selectedBank !== "All") {
+        if (c.bankName.toLowerCase() !== selectedBank.toLowerCase()) return false;
+      }
+      if (selectedTransactionNo !== "All") {
+        if (c.transactionNumber.toLowerCase() !== selectedTransactionNo.toLowerCase()) return false;
+      }
+      if (searchQuery) {
+        const q = searchQuery.toLowerCase();
+        const m =
+          c.bankName.toLowerCase().includes(q) ||
+          c.transactionNumber.toLowerCase().includes(q) ||
+          c.payeeName.toLowerCase().includes(q) ||
+          c.chequeNumber.toLowerCase().includes(q) ||
+          c.purpose.toLowerCase().includes(q);
+        if (!m) return false;
+      }
+      return true;
     });
-  }, [cheques, searchQuery, activeTab]);
+  }, [cheques, selectedBank, selectedTransactionNo, searchQuery]);
 
-  const handleBankChange = (bankId: string) => {
-    const bank = bankAccounts.find((b) => b.id === bankId);
-    const books = chequeBooks.filter((b) => b.bankAccountId === bankId && b.remainingLeaves > 0);
-    const firstBook = books[0] || chequeBooks[0];
+  // Paginated records
+  const paginatedCheques = useMemo(() => {
+    const start = (currentPage - 1) * rowsPerPage;
+    return filteredCheques.slice(start, start + rowsPerPage);
+  }, [filteredCheques, currentPage, rowsPerPage]);
 
-    if (bank) {
-      setForm({
-        ...form,
-        bankAccountId: bank.id,
-        bankName: bank.bankName,
-        chequeBookId: firstBook?.id || "",
-        chequeNumber: firstBook ? `${firstBook.startChequeNumber}` : "",
-      });
-    }
+  const handleBankSelect = (bankName: string) => {
+    const bank = bankAccounts.find((b) => b.bankName === bankName) || bankAccounts[0];
+    const book = chequeBooks.find((cb) => cb.bankAccountId === bank?.id) || chequeBooks[0];
+    setForm({
+      ...form,
+      bankAccountId: bank?.id || "",
+      bankName: bank?.bankName || bankName,
+      chequeBookId: book?.id || "",
+      chequeNumber: book ? `${book.startChequeNumber.slice(0, 3)}${Date.now().toString().slice(-4)}` : "",
+    });
   };
 
-  const handleSaveIssue = (e: React.FormEvent) => {
+  const handleCreateCheque = (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage("");
-    setSuccessMessage("");
 
-    if (!form.payeeName.trim() || form.amount <= 0 || !form.chequeNumber.trim()) {
-      setErrorMessage("Payee name, valid cheque number, and amount are required.");
+    if (!form.payeeName.trim()) {
+      setErrorMessage("Payee name is required.");
       return;
     }
+    if (form.amount <= 0) {
+      setErrorMessage("Cheque amount must be greater than zero.");
+      return;
+    }
+
+    const chequeNo = form.chequeNumber.trim() || `CHQ-${Date.now().toString().slice(-5)}`;
 
     issueCheque({
       bankAccountId: form.bankAccountId,
       bankName: form.bankName,
       chequeBookId: form.chequeBookId,
-      chequeNumber: form.chequeNumber.trim(),
+      chequeNumber: chequeNo,
       payeeName: form.payeeName.trim(),
       issueDate: form.issueDate,
       chequeDate: form.chequeDate,
-      amount: form.amount,
-      purpose: form.purpose,
+      amount: Number(form.amount),
+      purpose: form.purpose || "Supplier & vendor settlement",
       referenceVoucher: form.referenceVoucher || "JV-2026-CHQ",
-      status: new Date(form.chequeDate) > new Date() ? "POST_DATED" : "ISSUED",
+      status: new Date(form.chequeDate) > new Date() ? "POST_DATED" : form.status,
     });
 
-    setIsIssueOpen(false);
+    setIsCreateOpen(false);
     setForm({
-      ...form,
+      bankAccountId: "ba-1",
+      bankName: "PRIME BANK LTD PLC",
+      chequeBookId: "cb-1",
+      chequeNumber: "",
+      transactionNumber: `TXN-CHQ-${Date.now().toString().slice(-6)}`,
       payeeName: "",
+      issueDate: new Date().toISOString().split("T")[0],
+      chequeDate: new Date().toISOString().split("T")[0],
       amount: 0,
       purpose: "",
+      referenceVoucher: "JV-2026-CHQ",
+      status: "ISSUED",
     });
   };
 
@@ -123,248 +169,221 @@ export default function ChequeIssuePage() {
     setCancelReason("");
   };
 
-  const handleExportCSV = () => {
-    const headers = "Cheque No,Bank,Payee,Issue Date,Cheque Date,Amount,Purpose,Status\n";
-    const rows = filteredCheques
-      .map(
-        (c) =>
-          `"${c.chequeNumber}","${c.bankName}","${c.payeeName}","${c.issueDate}","${c.chequeDate}",${c.amount},"${c.purpose}","${c.status}"`,
-      )
-      .join("\n");
-    const blob = new Blob([headers + rows], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `cheque_issue_register_${new Date().toISOString().split("T")[0]}.csv`;
-    link.click();
-    URL.revokeObjectURL(url);
-  };
-
-  const issuedTotal = useMemo(
-    () => cheques.filter((c) => c.status === "ISSUED").reduce((sum, c) => sum + c.amount, 0),
-    [cheques],
-  );
-  const clearedTotal = useMemo(
-    () => cheques.filter((c) => c.status === "CLEARED").reduce((sum, c) => sum + c.amount, 0),
-    [cheques],
-  );
-  const postDatedTotal = useMemo(
-    () => cheques.filter((c) => c.status === "POST_DATED").reduce((sum, c) => sum + c.amount, 0),
-    [cheques],
-  );
-  const bouncedTotal = useMemo(
-    () => cheques.filter((c) => c.status === "BOUNCED").reduce((sum, c) => sum + c.amount, 0),
-    [cheques],
-  );
-
   return (
-    <div className="space-y-3 font-sans pb-12">
+    <div className="space-y-2.5 font-sans pb-16 bg-[#f8fafc] min-h-screen">
       {/* ------------------------------------------------------------- */}
-      {/* 1. TOP HEADER */}
+      {/* 1. TOP TAB ROW WITH SEARCH & + CREATE (Matching Screenshot) */}
       {/* ------------------------------------------------------------- */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-3 rounded border border-slate-200/90 shadow-2xs">
-        <div>
-          <nav className="flex items-center gap-1.5 text-[11px] text-slate-400 mb-0.5">
-            <Link href="/accounts" className="hover:text-slate-600 transition">
-              Account
-            </Link>
-            <ChevronRight className="w-3 h-3 text-slate-300" />
-            <span className="text-slate-600 font-medium">Cheque Issue</span>
-          </nav>
-          <h1 className="text-xl font-bold text-slate-900 tracking-tight">Cheque Issue & Clearance Register</h1>
-          <p className="text-xs text-slate-500 mt-0.5">
-            Issue bank cheques, monitor post-dated leaves, clearance settlement, and bounce handling
-          </p>
+      <div className="bg-white px-4 pt-2 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs">
+        {/* Tab */}
+        <div className="flex items-center gap-6">
+          <button
+            type="button"
+            className="pb-2.5 text-xs font-bold tracking-wide text-blue-600 border-b-2 border-blue-600 -mb-[1px] uppercase whitespace-nowrap"
+          >
+            Cheque Issue
+          </button>
         </div>
 
-        <div className="flex items-center gap-2 flex-wrap">
+        {/* Right side search + Create button */}
+        <div className="flex items-center gap-2 pb-2 self-end sm:self-auto">
           <div className="relative">
             <input
               type="text"
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search cheque #, payee, bank..."
-              className="w-56 sm:w-64 h-9 pl-3 pr-8 text-xs border border-slate-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 bg-white placeholder-slate-400"
+              onChange={(e) => {
+                setSearchQuery(e.target.value);
+                setCurrentPage(1);
+              }}
+              placeholder="Search bank / transaction / pay..."
+              className="w-56 sm:w-64 h-8 pl-3 pr-7 text-xs border border-slate-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 bg-white placeholder-slate-400"
             />
             <Search className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
           </div>
 
           <button
             type="button"
-            onClick={handleExportCSV}
-            className="h-9 px-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs rounded flex items-center gap-1.5 shadow-xs transition"
+            onClick={() => {
+              handleBankSelect(bankAccounts[0]?.bankName || "PRIME BANK LTD PLC");
+              setIsCreateOpen(true);
+            }}
+            className="h-8 px-4 bg-[#2563eb] hover:bg-blue-700 text-white font-semibold text-xs rounded flex items-center gap-1.5 shadow-xs transition"
           >
-            <Download className="w-3.5 h-3.5" />
-            <span>Excel</span>
+            <Plus className="w-3.5 h-3.5" />
+            <span>Create</span>
           </button>
+        </div>
+      </div>
 
+      {/* ------------------------------------------------------------- */}
+      {/* 2. FILTER TOOLBAR (Matching Screenshot) */}
+      {/* ------------------------------------------------------------- */}
+      <div className="bg-white border-t border-b border-slate-200 px-4 py-3 flex flex-wrap items-center gap-4 shadow-2xs">
+        {/* Bank Dropdown */}
+        <div className="flex flex-col gap-1">
+          <label className="text-[11px] font-semibold text-slate-600">
+            <span className="text-red-500 mr-0.5">*</span>Bank
+          </label>
+          <select
+            value={selectedBank}
+            onChange={(e) => {
+              setSelectedBank(e.target.value);
+              setCurrentPage(1);
+            }}
+            className="h-8 w-60 border border-slate-300 rounded px-2.5 text-xs bg-white text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500"
+          >
+            <option value="All">All</option>
+            {bankOptions.map((name) => (
+              <option key={name} value={name}>
+                {name}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {/* Transaction NO Dropdown */}
+        <div className="flex flex-col gap-1">
+          <label className="text-[11px] font-semibold text-slate-600">Transaction NO</label>
+          <select
+            value={selectedTransactionNo}
+            onChange={(e) => {
+              setSelectedTransactionNo(e.target.value);
+              setCurrentPage(1);
+            }}
+            className="h-8 w-60 border border-slate-300 rounded px-2.5 text-xs bg-white text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500"
+          >
+            <option value="All">All</option>
+            {transactionOptions.map((tx) => (
+              <option key={tx} value={tx}>
+                {tx}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {/* View Button */}
+        <div className="flex items-end self-end">
           <button
             type="button"
-            onClick={() => {
-              setErrorMessage("");
-              setSuccessMessage("");
-              setIsIssueOpen(true);
-            }}
-            className="h-9 px-4 bg-[#2563eb] hover:bg-blue-700 text-white font-semibold text-xs rounded flex items-center gap-1.5 shadow-xs transition"
+            onClick={() => {}}
+            className="h-8 px-4 bg-[#2563eb] hover:bg-blue-700 text-white font-semibold text-xs rounded transition shadow-xs"
           >
-            <Plus className="w-4 h-4" />
-            <span>Issue Cheque</span>
+            View
           </button>
         </div>
-      </div>
 
-      {/* ------------------------------------------------------------- */}
-      {/* 2. SUMMARY KPI CARDS */}
-      {/* ------------------------------------------------------------- */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <SummaryCard
-          title="Active Issued Cheques"
-          value={`৳${issuedTotal.toLocaleString()}`}
-          subtitle={`${cheques.filter((c) => c.status === "ISSUED").length} cheques awaiting clearance`}
-          icon={Banknote}
-          variant="info"
-        />
-        <SummaryCard
-          title="Post-Dated Cheques"
-          value={`৳${postDatedTotal.toLocaleString()}`}
-          subtitle={`${cheques.filter((c) => c.status === "POST_DATED").length} future maturity leaves`}
-          icon={Clock}
-          variant="info"
-        />
-        <SummaryCard
-          title="Cleared Disbursements"
-          value={`৳${clearedTotal.toLocaleString()}`}
-          subtitle={`${cheques.filter((c) => c.status === "CLEARED").length} verified bank debits`}
-          icon={CheckCircle2}
-          variant="success"
-        />
-        <SummaryCard
-          title="Bounced / Returned"
-          value={`৳${bouncedTotal.toLocaleString()}`}
-          subtitle={`${cheques.filter((c) => c.status === "BOUNCED").length} dishonored leaves`}
-          icon={ShieldAlert}
-          variant="danger"
-        />
-      </div>
-
-      {/* ------------------------------------------------------------- */}
-      {/* 3. TABS NAVIGATION */}
-      {/* ------------------------------------------------------------- */}
-      <div className="bg-white rounded border border-slate-200/90 shadow-2xs">
-        <div className="flex items-center gap-1 px-3 border-b border-slate-200 overflow-x-auto text-xs font-medium">
-          {[
-            { id: "ALL", label: `CHEQUE REGISTER (${cheques.length})` },
-            { id: "ISSUED", label: `OUTGOING / ISSUED (${cheques.filter((c) => c.status === "ISSUED").length})` },
-            { id: "POST_DATED", label: `POST-DATED (${cheques.filter((c) => c.status === "POST_DATED").length})` },
-            { id: "CLEARED", label: `CLEARED (${cheques.filter((c) => c.status === "CLEARED").length})` },
-            { id: "BOUNCED", label: `BOUNCED (${cheques.filter((c) => c.status === "BOUNCED").length})` },
-            { id: "CANCELLED", label: `CANCELLED (${cheques.filter((c) => c.status === "CANCELLED").length})` },
-          ].map((tab) => (
+        {/* Reset filter button */}
+        {(selectedBank !== "All" || selectedTransactionNo !== "All" || searchQuery) && (
+          <div className="flex items-end self-end">
             <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id as any)}
-              className={`py-2.5 px-3 whitespace-nowrap transition-colors border-b-2 -mb-[1px] ${
-                activeTab === tab.id
-                  ? "text-blue-600 border-blue-600 font-semibold"
-                  : "text-slate-500 border-transparent hover:text-slate-700"
-              }`}
+              type="button"
+              onClick={() => {
+                setSelectedBank("All");
+                setSelectedTransactionNo("All");
+                setSearchQuery("");
+                setCurrentPage(1);
+              }}
+              className="h-8 px-3 border border-slate-200 hover:bg-slate-50 text-slate-600 text-xs rounded transition flex items-center gap-1"
+              title="Reset Filters"
             >
-              {tab.label}
+              <RotateCcw className="w-3 h-3 text-slate-400" />
+              <span>Reset</span>
             </button>
-          ))}
-        </div>
+          </div>
+        )}
+      </div>
 
-        {/* ------------------------------------------------------------- */}
-        {/* 4. HIGH DENSITY DATA TABLE */}
-        {/* ------------------------------------------------------------- */}
+      {/* ------------------------------------------------------------- */}
+      {/* 3. TABLE / EMPTY STATE (Matching Screenshot Columns Order) */}
+      {/* SL | Action | Bank Name | Transaction NO | Payee | Cheque Date | Amount */}
+      {/* ------------------------------------------------------------- */}
+      <div className="bg-white border-t border-b border-slate-200 overflow-hidden shadow-2xs">
         <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs border-collapse">
-            <thead className="bg-slate-50 border-b border-slate-200 text-[11px] font-bold text-slate-700 uppercase tracking-wider">
+          <table className="w-full text-left text-xs">
+            <thead className="bg-[#e8f2fe] border-b border-blue-200/80 text-[11px] font-bold text-slate-800 uppercase tracking-wide">
               <tr>
-                <th className="px-3.5 py-2.5">Cheque #</th>
-                <th className="px-3.5 py-2.5">Bank Account</th>
-                <th className="px-3.5 py-2.5">Payee Beneficiary</th>
-                <th className="px-3.5 py-2.5">Issue Date</th>
+                <th className="px-3.5 py-2.5 w-12 text-center">SL</th>
+                <th className="px-3.5 py-2.5 text-center w-24">Action</th>
+                <th className="px-3.5 py-2.5">Bank Name</th>
+                <th className="px-3.5 py-2.5 font-mono">Transaction NO</th>
+                <th className="px-3.5 py-2.5">Payee</th>
                 <th className="px-3.5 py-2.5">Cheque Date</th>
-                <th className="px-3.5 py-2.5 text-right">Amount (৳)</th>
-                <th className="px-3.5 py-2.5">Purpose / Ref</th>
-                <th className="px-3.5 py-2.5 text-center">Status</th>
-                <th className="px-3.5 py-2.5 text-right">Actions</th>
+                <th className="px-3.5 py-2.5 text-right font-bold text-slate-900">Amount</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100">
+            <tbody className="divide-y divide-slate-100 text-slate-700">
               {filteredCheques.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="py-12 text-center text-slate-400">
-                    No cheque records found matching the criteria. Click &quot;Issue Cheque&quot; to disburse a new leaf.
+                  <td colSpan={7} className="py-24 text-center">
+                    <div className="flex flex-col items-center justify-center text-slate-400 select-none">
+                      <div className="w-14 h-14 rounded-lg bg-slate-50 border border-slate-200/60 flex items-center justify-center mb-2">
+                        <FolderOpen className="w-7 h-7 text-slate-300" />
+                      </div>
+                      <span className="text-xs font-medium text-slate-400">No data</span>
+                    </div>
                   </td>
                 </tr>
               ) : (
-                filteredCheques.map((c) => (
-                  <tr key={c.id} className="hover:bg-slate-50/70 transition">
-                    <td className="px-3.5 py-2.5 font-mono font-semibold text-blue-600">{c.chequeNumber}</td>
-                    <td className="px-3.5 py-2.5 font-medium text-slate-800">{c.bankName}</td>
-                    <td className="px-3.5 py-2.5 font-medium text-slate-900">{c.payeeName}</td>
-                    <td className="px-3.5 py-2.5 text-slate-500">{c.issueDate}</td>
-                    <td className="px-3.5 py-2.5 text-slate-600 font-medium">{c.chequeDate}</td>
-                    <td className="px-3.5 py-2.5 text-right font-bold text-slate-900">৳{c.amount.toLocaleString()}</td>
-                    <td className="max-w-xs truncate px-3.5 py-2.5 text-slate-500" title={c.purpose}>
-                      {c.purpose || "—"}
+                paginatedCheques.map((c, idx) => (
+                  <tr key={c.id} className="hover:bg-blue-50/40 transition-colors">
+                    {/* SL */}
+                    <td className="px-3.5 py-2.5 text-center text-slate-500 font-medium">
+                      {(currentPage - 1) * rowsPerPage + idx + 1}
                     </td>
+
+                    {/* Action */}
                     <td className="px-3.5 py-2.5 text-center">
-                      <span
-                        className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold ${
-                          c.status === "CLEARED"
-                            ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
-                            : c.status === "POST_DATED"
-                            ? "bg-sky-50 text-sky-700 border border-sky-200"
-                            : c.status === "BOUNCED" || c.status === "CANCELLED"
-                            ? "bg-rose-50 text-rose-700 border border-rose-200"
-                            : "bg-amber-50 text-amber-700 border border-amber-200"
-                        }`}
-                      >
-                        {c.status.replace("_", " ")}
-                      </span>
-                    </td>
-                    <td className="px-3.5 py-2.5 text-right">
-                      <div className="flex items-center justify-end gap-1.5">
+                      <div className="flex items-center justify-center gap-2 text-slate-400">
                         <button
                           type="button"
-                          onClick={() => setPrintingCheque(c)}
-                          title="Print Cheque Layout"
-                          className="p-1 rounded text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition"
+                          onClick={() => setViewCheque(c)}
+                          className="hover:text-blue-600 transition"
+                          title="View Cheque Leaf"
+                        >
+                          <Eye className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setViewCheque(c);
+                            setTimeout(() => window.print(), 300);
+                          }}
+                          className="hover:text-emerald-600 transition"
+                          title="Print Cheque"
                         >
                           <Printer className="w-3.5 h-3.5" />
                         </button>
-                        {(c.status === "ISSUED" || c.status === "POST_DATED") && (
-                          <>
-                            <button
-                              type="button"
-                              onClick={() => updateChequeStatus(c.id, "CLEARED")}
-                              className="px-2 py-1 rounded bg-emerald-50 text-emerald-700 hover:bg-emerald-100 font-semibold text-[11px] transition"
-                            >
-                              Clear
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => updateChequeStatus(c.id, "BOUNCED", "Insufficient funds / signature")}
-                              className="px-2 py-1 rounded bg-amber-50 text-amber-700 hover:bg-amber-100 font-semibold text-[11px] transition"
-                            >
-                              Bounce
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setCancelTarget(c);
-                                setCancelReason("");
-                              }}
-                              className="px-2 py-1 rounded bg-rose-50 text-rose-700 hover:bg-rose-100 font-semibold text-[11px] transition"
-                            >
-                              Cancel
-                            </button>
-                          </>
+                        {c.status !== "CANCELLED" && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setCancelTarget(c);
+                              setCancelReason("");
+                            }}
+                            className="hover:text-rose-600 transition"
+                            title="Cancel Cheque"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
                         )}
                       </div>
+                    </td>
+
+                    {/* Bank Name */}
+                    <td className="px-3.5 py-2.5 font-semibold text-slate-900">{c.bankName}</td>
+
+                    {/* Transaction NO */}
+                    <td className="px-3.5 py-2.5 font-mono text-slate-800">{c.transactionNumber}</td>
+
+                    {/* Payee */}
+                    <td className="px-3.5 py-2.5 text-slate-700 font-medium">{c.payeeName}</td>
+
+                    {/* Cheque Date */}
+                    <td className="px-3.5 py-2.5 text-slate-600">{c.chequeDate}</td>
+
+                    {/* Amount */}
+                    <td className="px-3.5 py-2.5 text-right font-mono font-bold text-slate-900 text-xs">
+                      ৳{c.amount.toLocaleString()}
                     </td>
                   </tr>
                 ))
@@ -372,266 +391,319 @@ export default function ChequeIssuePage() {
             </tbody>
           </table>
         </div>
-      </div>
 
-      {/* ------------------------------------------------------------- */}
-      {/* 5. MODALS & DIALOGS */}
-      {/* ------------------------------------------------------------- */}
-      <ModalDialog
-        isOpen={isIssueOpen}
-        onClose={() => setIsIssueOpen(false)}
-        title="Issue Bank Cheque Leaf"
-        maxWidth="lg"
-      >
-        {errorMessage && (
-          <div className="flex items-center gap-2 rounded bg-rose-50 border border-rose-200 p-2 text-xs font-medium text-rose-700 mb-3">
-            <AlertCircle className="w-4 h-4 shrink-0" /> {errorMessage}
-          </div>
-        )}
-
-        <form onSubmit={handleSaveIssue} className="space-y-3 text-xs">
-          <div>
-            <label className="block text-[11px] font-semibold text-slate-700 uppercase tracking-wider mb-1">
-              Bank Account *
-            </label>
+        {/* ------------------------------------------------------------- */}
+        {/* 4. FOOTER PAGINATION (Matching Screenshot) */}
+        {/* Showing 0–0 of 0 Rows [50 v] < [1] > */}
+        {/* ------------------------------------------------------------- */}
+        <div className="px-4 py-2.5 border-t border-slate-200 flex flex-wrap items-center justify-between gap-4 text-xs text-slate-500">
+          <div className="flex items-center gap-2">
+            <span>
+              Showing{" "}
+              <strong className="text-slate-700 font-semibold">
+                {filteredCheques.length === 0 ? "0–0" : `1–${filteredCheques.length}`}
+              </strong>{" "}
+              of <strong className="text-slate-700 font-semibold">{filteredCheques.length}</strong> Rows
+            </span>
             <select
-              value={form.bankAccountId}
-              onChange={(e) => handleBankChange(e.target.value)}
-              className="w-full h-8 px-2.5 border border-slate-300 rounded text-xs focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+              value={rowsPerPage}
+              onChange={(e) => {
+                setRowsPerPage(Number(e.target.value));
+                setCurrentPage(1);
+              }}
+              className="border border-slate-300 rounded px-2 py-0.5 text-xs bg-white text-slate-700 focus:outline-none"
             >
-              {bankAccounts.map((b) => (
-                <option key={b.id} value={b.id}>
-                  {b.bankName} - {b.accountNumber}
-                </option>
-              ))}
+              <option value={10}>10</option>
+              <option value={20}>20</option>
+              <option value={50}>50</option>
+              <option value={100}>100</option>
             </select>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+              disabled={currentPage <= 1}
+              className="p-1 rounded hover:bg-slate-100 disabled:opacity-30 disabled:pointer-events-none text-slate-400"
+            >
+              <ChevronLeft className="w-4 h-4" />
+            </button>
+            <span className="w-6 h-6 flex items-center justify-center rounded bg-blue-600 text-white font-bold text-xs">
+              {currentPage}
+            </span>
+            <button
+              type="button"
+              onClick={() => setCurrentPage((p) => p + 1)}
+              disabled={currentPage * rowsPerPage >= filteredCheques.length}
+              className="p-1 rounded hover:bg-slate-100 disabled:opacity-30 disabled:pointer-events-none text-slate-400"
+            >
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* ------------------------------------------------------------- */}
+      {/* MODAL 1: CREATE CHEQUE ISSUE */}
+      {/* ------------------------------------------------------------- */}
+      <ModalDialog
+        isOpen={isCreateOpen}
+        onClose={() => setIsCreateOpen(false)}
+        title="Issue Bank Cheque"
+        subtitle="Create and issue corporate bank cheque voucher under BridgeOne ERP"
+        maxWidth="lg"
+      >
+        <form onSubmit={handleCreateCheque} className="space-y-4">
+          {errorMessage && (
+            <div className="p-3 bg-red-50 border border-red-200 text-red-700 text-xs rounded">
+              {errorMessage}
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="block text-[11px] font-semibold text-slate-700 uppercase tracking-wider mb-1">
-                Cheque Book *
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Bank Name <span className="text-red-500">*</span>
               </label>
               <select
-                value={form.chequeBookId}
-                onChange={(e) => setForm({ ...form, chequeBookId: e.target.value })}
-                className="w-full h-8 px-2.5 border border-slate-300 rounded text-xs focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                value={form.bankName}
+                onChange={(e) => handleBankSelect(e.target.value)}
+                className="w-full h-9 px-3 text-xs border border-slate-300 rounded bg-white focus:ring-1 focus:ring-blue-500 focus:outline-none"
               >
-                {chequeBooks
-                  .filter((b) => b.bankAccountId === form.bankAccountId)
-                  .map((b) => (
-                    <option key={b.id} value={b.id}>
-                      {b.bookName} ({b.remainingLeaves} leaves)
-                    </option>
-                  ))}
+                {bankAccounts.map((b) => (
+                  <option key={b.id} value={b.bankName}>
+                    {b.bankName} ({b.branchName})
+                  </option>
+                ))}
               </select>
             </div>
 
             <div>
-              <label className="block text-[11px] font-semibold text-slate-700 uppercase tracking-wider mb-1">
-                Cheque Number *
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Transaction NO <span className="text-red-500">*</span>
               </label>
               <input
                 type="text"
                 required
-                placeholder="e.g. SB-1002"
-                value={form.chequeNumber}
-                onChange={(e) => setForm({ ...form, chequeNumber: e.target.value })}
-                className="w-full h-8 px-2.5 border border-slate-300 rounded text-xs font-mono font-semibold focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                value={form.transactionNumber}
+                onChange={(e) => setForm({ ...form, transactionNumber: e.target.value })}
+                className="w-full h-9 px-3 text-xs border border-slate-300 rounded font-mono focus:ring-1 focus:ring-blue-500 focus:outline-none"
               />
             </div>
-          </div>
 
-          <div>
-            <label className="block text-[11px] font-semibold text-slate-700 uppercase tracking-wider mb-1">
-              Payee Name *
-            </label>
-            <input
-              type="text"
-              required
-              placeholder="e.g. Meghna Petroleum Limited"
-              value={form.payeeName}
-              onChange={(e) => setForm({ ...form, payeeName: e.target.value })}
-              className="w-full h-8 px-2.5 border border-slate-300 rounded text-xs focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
-            />
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-[11px] font-semibold text-slate-700 uppercase tracking-wider mb-1">
-                Amount (৳) *
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Payee (Party / Vendor) <span className="text-red-500">*</span>
               </label>
               <input
-                type="number"
+                type="text"
                 required
-                min="1"
-                value={form.amount || ""}
-                onChange={(e) => setForm({ ...form, amount: Number(e.target.value) || 0 })}
-                className="w-full h-8 px-2.5 border border-slate-300 rounded text-xs font-bold text-slate-900 focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                value={form.payeeName}
+                onChange={(e) => setForm({ ...form, payeeName: e.target.value })}
+                placeholder="e.g. Padma Oil Company Ltd"
+                className="w-full h-9 px-3 text-xs border border-slate-300 rounded focus:ring-1 focus:ring-blue-500 focus:outline-none"
               />
             </div>
 
             <div>
-              <label className="block text-[11px] font-semibold text-slate-700 uppercase tracking-wider mb-1">
-                Cheque Date (Maturity) *
+              <label className="block text-xs font-semibold text-slate-700 mb-1">Cheque Number</label>
+              <input
+                type="text"
+                value={form.chequeNumber}
+                onChange={(e) => setForm({ ...form, chequeNumber: e.target.value })}
+                placeholder="e.g. PB-31012"
+                className="w-full h-9 px-3 text-xs border border-slate-300 rounded font-mono focus:ring-1 focus:ring-blue-500 focus:outline-none"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Cheque Date <span className="text-red-500">*</span>
               </label>
               <input
                 type="date"
                 required
                 value={form.chequeDate}
                 onChange={(e) => setForm({ ...form, chequeDate: e.target.value })}
-                className="w-full h-8 px-2.5 border border-slate-300 rounded text-xs focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                className="w-full h-9 px-3 text-xs border border-slate-300 rounded focus:ring-1 focus:ring-blue-500 focus:outline-none"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Amount (৳) <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="number"
+                min="1"
+                required
+                value={form.amount}
+                onChange={(e) => setForm({ ...form, amount: Number(e.target.value) })}
+                className="w-full h-9 px-3 text-xs border border-slate-300 rounded font-mono focus:ring-1 focus:ring-blue-500 focus:outline-none"
+              />
+            </div>
+
+            <div className="sm:col-span-2">
+              <label className="block text-xs font-semibold text-slate-700 mb-1">Purpose / Narration</label>
+              <input
+                type="text"
+                value={form.purpose}
+                onChange={(e) => setForm({ ...form, purpose: e.target.value })}
+                placeholder="e.g. Fuel procurement for generator"
+                className="w-full h-9 px-3 text-xs border border-slate-300 rounded focus:ring-1 focus:ring-blue-500 focus:outline-none"
               />
             </div>
           </div>
 
-          <div>
-            <label className="block text-[11px] font-semibold text-slate-700 uppercase tracking-wider mb-1">
-              Purpose & Reference Voucher
-            </label>
-            <input
-              type="text"
-              placeholder="e.g. Vendor settlement for Purchase Order PO-2026-004"
-              value={form.purpose}
-              onChange={(e) => setForm({ ...form, purpose: e.target.value })}
-              className="w-full h-8 px-2.5 border border-slate-300 rounded text-xs focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
-            />
-          </div>
-
-          <div className="flex justify-end gap-2 pt-2 border-t border-slate-200">
+          <div className="flex justify-end gap-2 pt-3 border-t border-slate-200">
             <button
               type="button"
-              onClick={() => setIsIssueOpen(false)}
-              className="px-3 py-1.5 text-xs text-slate-600 hover:text-slate-800"
+              onClick={() => setIsCreateOpen(false)}
+              className="px-4 py-2 border border-slate-300 text-slate-600 hover:bg-slate-50 text-xs font-semibold rounded"
             >
               Cancel
             </button>
             <button
               type="submit"
-              className="px-4 py-1.5 bg-[#2563eb] hover:bg-blue-700 text-white font-semibold text-xs rounded transition"
+              className="px-4 py-2 bg-[#2563eb] hover:bg-blue-700 text-white text-xs font-semibold rounded"
             >
-              Issue Cheque Leaf
+              Issue Cheque
             </button>
           </div>
         </form>
       </ModalDialog>
 
-      {/* Cheque Cancellation Modal */}
-      <ModalDialog
-        isOpen={!!cancelTarget}
-        onClose={() => setCancelTarget(null)}
-        title="Cancel Issued Cheque"
-        maxWidth="md"
-      >
-        <p className="text-xs text-slate-600 mb-3">
-          Cancel leaf <span className="font-mono font-bold text-slate-900">{cancelTarget?.chequeNumber}</span> issued to{" "}
-          <span className="font-semibold text-slate-900">{cancelTarget?.payeeName}</span>.
-        </p>
-
-        <div className="space-y-3 text-xs">
-          <div>
-            <label className="block text-[11px] font-semibold text-slate-700 uppercase tracking-wider mb-1">
-              Cancellation Reason *
-            </label>
-            <textarea
-              required
-              rows={3}
-              placeholder="e.g. Incorrect amount printed or payee requested electronic bank transfer..."
-              value={cancelReason}
-              onChange={(e) => setCancelReason(e.target.value)}
-              className="w-full p-2.5 border border-slate-300 rounded text-xs focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
-            />
-          </div>
-
-          <div className="flex justify-end gap-2 pt-2 border-t border-slate-200">
-            <button
-              type="button"
-              onClick={() => setCancelTarget(null)}
-              className="px-3 py-1.5 text-xs text-slate-600 hover:text-slate-800"
-            >
-              Abort
-            </button>
-            <button
-              type="button"
-              onClick={handleConfirmCancel}
-              className="px-4 py-1.5 bg-rose-600 hover:bg-rose-700 text-white font-semibold text-xs rounded transition"
-            >
-              Confirm Cancellation
-            </button>
-          </div>
-        </div>
-      </ModalDialog>
-
-      {/* Realistic Cheque Print Preview */}
-      <ModalDialog
-        isOpen={!!printingCheque}
-        onClose={() => setPrintingCheque(null)}
-        title="Cheque Print Preview"
-        maxWidth="xl"
-      >
-        {printingCheque && (
-          <div className="space-y-4 text-xs">
-            <div className="relative rounded-xl border-2 border-emerald-700/60 bg-emerald-50/50 p-5 shadow-xs">
-              <div className="flex items-start justify-between">
+      {/* ------------------------------------------------------------- */}
+      {/* MODAL 2: VIEW / PRINT CHEQUE LEAF */}
+      {/* ------------------------------------------------------------- */}
+      {viewCheque && (
+        <ModalDialog
+          isOpen={!!viewCheque}
+          onClose={() => setViewCheque(null)}
+          title="Bank Cheque Voucher"
+          subtitle={`Cheque #${viewCheque.chequeNumber} • ${viewCheque.bankName}`}
+          maxWidth="lg"
+        >
+          <div className="space-y-4">
+            {/* Visual Cheque Leaf Design */}
+            <div className="p-6 rounded-lg bg-gradient-to-r from-slate-50 to-blue-50/50 border-2 border-slate-300/80 shadow-xs text-xs font-sans relative">
+              <div className="flex justify-between items-start border-b border-slate-200 pb-3 mb-4">
                 <div>
-                  <h3 className="font-bold text-slate-900 text-sm">{printingCheque.bankName}</h3>
-                  <p className="text-[10px] text-slate-500">Principal Corporate Branch, Motijheel C/A</p>
+                  <h3 className="text-base font-black tracking-tight text-slate-900">{viewCheque.bankName}</h3>
+                  <p className="text-[11px] text-slate-500 font-medium">BridgeOne Corporate Account</p>
                 </div>
-                <div className="rounded border border-emerald-300 bg-white px-2 py-0.5 font-mono text-[11px] font-semibold text-slate-900">
-                  DATE: {printingCheque.chequeDate}
+                <div className="text-right">
+                  <span className="text-[11px] text-slate-400 block">Date</span>
+                  <span className="font-mono font-bold text-sm text-slate-800">{viewCheque.chequeDate}</span>
                 </div>
               </div>
 
-              <div className="mt-4 space-y-2 border-b border-dashed border-emerald-300 pb-3">
-                <div className="flex items-baseline gap-2">
-                  <span className="font-semibold text-slate-500 text-[11px]">PAY TO:</span>
-                  <span className="flex-1 border-b border-emerald-400 pb-0.5 font-bold text-slate-900 text-sm">
-                    {printingCheque.payeeName}
-                  </span>
-                  <span className="font-semibold text-slate-400 text-[10px]">OR BEARER</span>
+              <div className="space-y-3">
+                <div className="flex items-center gap-3 border-b border-slate-200/90 pb-2">
+                  <span className="text-slate-400 font-semibold w-16">Pay to:</span>
+                  <span className="font-bold text-slate-900 text-sm flex-1">{viewCheque.payeeName}</span>
+                  <span className="text-slate-400 font-medium text-[11px]">or Bearer</span>
                 </div>
 
-                <div className="flex items-baseline gap-2">
-                  <span className="font-semibold text-slate-500 text-[11px]">TAKA:</span>
-                  <span className="flex-1 border-b border-emerald-400 pb-0.5 font-medium text-slate-800">
-                    (Taka {printingCheque.amount.toLocaleString()} Only)
-                  </span>
-                  <div className="rounded border-2 border-slate-900 bg-white px-3 py-1 font-mono font-bold text-slate-900 text-sm">
-                    ৳{printingCheque.amount.toLocaleString()}/=
+                <div className="flex items-center justify-between border-b border-slate-200/90 pb-2">
+                  <div className="flex items-center gap-3 flex-1">
+                    <span className="text-slate-400 font-semibold w-16">The sum of:</span>
+                    <span className="font-medium text-slate-700 italic">
+                      Taka {viewCheque.amount.toLocaleString()} Only
+                    </span>
+                  </div>
+                  <div className="border border-slate-400 bg-white px-3 py-1 rounded font-mono font-black text-base text-blue-700">
+                    ৳{viewCheque.amount.toLocaleString()}/-
                   </div>
                 </div>
+
+                <div className="flex items-center gap-3 pt-1 text-[11px] text-slate-500">
+                  <span>Purpose:</span>
+                  <span className="font-medium text-slate-700">{viewCheque.purpose}</span>
+                </div>
               </div>
 
-              <div className="mt-6 flex items-end justify-between font-mono text-[11px] text-slate-600">
-                <span>CHEQUE NO: {printingCheque.chequeNumber}</span>
-                <div className="text-right">
-                  <p className="border-t border-slate-700 px-6 pt-1 font-sans text-xs font-semibold text-slate-900">
-                    Authorised Signature
-                  </p>
+              <div className="flex justify-between items-end pt-8 mt-4 border-t border-slate-200/60">
+                <div className="font-mono text-xs text-slate-400">
+                  || {viewCheque.chequeNumber} || 000102 || {viewCheque.transactionNumber} ||
+                </div>
+                <div className="text-center">
+                  <div className="w-40 border-b border-slate-400 mb-1" />
+                  <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">
+                    Authorised Signatory
+                  </span>
                 </div>
               </div>
             </div>
 
-            <div className="flex justify-end gap-2 pt-2 border-t border-slate-200">
+            <div className="flex justify-end gap-2 pt-3 border-t border-slate-200">
               <button
                 type="button"
-                onClick={() => window.print()}
-                className="px-3.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 font-semibold text-xs rounded flex items-center gap-1.5 transition"
-              >
-                <Printer className="w-3.5 h-3.5" />
-                <span>Print Leaf</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setPrintingCheque(null)}
-                className="px-4 py-1.5 bg-[#2563eb] hover:bg-blue-700 text-white font-semibold text-xs rounded transition"
+                onClick={() => setViewCheque(null)}
+                className="px-4 py-2 border border-slate-300 text-slate-600 hover:bg-slate-50 text-xs font-semibold rounded"
               >
                 Close
               </button>
+              <button
+                type="button"
+                onClick={() => window.print()}
+                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded flex items-center gap-1.5"
+              >
+                <Printer className="w-3.5 h-3.5" />
+                <span>Print Cheque</span>
+              </button>
             </div>
           </div>
-        )}
-      </ModalDialog>
+        </ModalDialog>
+      )}
+
+      {/* ------------------------------------------------------------- */}
+      {/* MODAL 3: CANCEL CHEQUE */}
+      {/* ------------------------------------------------------------- */}
+      {cancelTarget && (
+        <ModalDialog
+          isOpen={!!cancelTarget}
+          onClose={() => setCancelTarget(null)}
+          title="Cancel Cheque"
+          subtitle={`Are you sure you want to cancel cheque #${cancelTarget.chequeNumber}?`}
+          maxWidth="sm"
+        >
+          <div className="space-y-4 text-xs">
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Cancellation Reason <span className="text-red-500">*</span>
+              </label>
+              <textarea
+                required
+                rows={3}
+                value={cancelReason}
+                onChange={(e) => setCancelReason(e.target.value)}
+                placeholder="e.g. Issued with incorrect payee or expired leave"
+                className="w-full p-2 border border-slate-300 rounded text-xs focus:ring-1 focus:ring-blue-500 focus:outline-none"
+              />
+            </div>
+
+            <div className="flex justify-end gap-2 pt-3 border-t border-slate-200">
+              <button
+                type="button"
+                onClick={() => setCancelTarget(null)}
+                className="px-4 py-2 border border-slate-300 text-slate-600 hover:bg-slate-50 text-xs font-semibold rounded"
+              >
+                Keep Active
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmCancel}
+                disabled={!cancelReason.trim()}
+                className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold rounded disabled:opacity-50"
+              >
+                Confirm Cancel
+              </button>
+            </div>
+          </div>
+        </ModalDialog>
+      )}
     </div>
   );
 }
