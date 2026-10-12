@@ -37,6 +37,8 @@ export interface Workspace {
   status: "active" | "planned";
   shortcuts?: readonly NavLink[];
   cards?: readonly NavCard[];
+  /** When set, the sidebar lists these links flat instead of the card groups. */
+  sidebarLinks?: readonly NavLink[];
   routes?: readonly NavRoute[];
 }
 

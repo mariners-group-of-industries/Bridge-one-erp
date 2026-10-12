@@ -49,7 +49,19 @@ export function SidebarNav({ pathname, onNavigate }: { pathname: string | null; 
             defaultOpen={isCurrent}
             active={isCurrent}
           >
-            {hasCards && (
+            {workspace.sidebarLinks ? (
+              workspace.sidebarLinks.map((link) => (
+                <li key={link.href}>
+                  <SidebarLink
+                    href={link.href}
+                    active={pathname === link.href || !!pathname?.startsWith(`${link.href}/`)}
+                    onNavigate={onNavigate}
+                  >
+                    {link.label}
+                  </SidebarLink>
+                </li>
+              ))
+            ) : hasCards && (
               <ul className="flex flex-col gap-0.5">
                 {(workspace.cards ?? []).map((card) => {
                   const anyLinkActive = card.links.some(

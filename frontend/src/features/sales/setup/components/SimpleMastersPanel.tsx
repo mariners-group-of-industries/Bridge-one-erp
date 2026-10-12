@@ -48,6 +48,8 @@ const TITLES: Record<SetupKind, { title: string; singular: string; description: 
   areas: { title: "Zones, Territories, Routes & Sections", singular: "Area", description: "Where customers are; used for filters and reports." },
   categories: { title: "Item Categories", singular: "Category", description: "Category › Sub Category › Minor Category." },
   "price-lists": { title: "Price Types", singular: "Price Type", description: "Dealer, retail … prices. The default one fills new orders." },
+  "delivery-reasons": { title: "Delivery Pending Reasons", singular: "Reason", description: "Why an approved order is not delivered yet (stock short, vehicle not available …)." },
+  "return-reasons": { title: "Return Reasons", singular: "Reason", description: "Why goods come back (damaged, expired, good product …)." },
 };
 
 /** Rows for a kind, ordered for display (category tree flattened depth-first). */
@@ -61,6 +63,10 @@ function rowsFor(kind: SetupKind, lookups: SetupLookups, businessUnitId: string)
         .map((row) => ({ ...row, badge: AREA_KIND_LABELS[row.kind] }));
     case "price-lists":
       return lookups.priceLists.filter((row) => row.businessUnitId === businessUnitId);
+    case "delivery-reasons":
+      return lookups.deliveryReasons.filter((row) => row.businessUnitId === businessUnitId);
+    case "return-reasons":
+      return lookups.returnReasons.filter((row) => row.businessUnitId === businessUnitId);
     case "categories": {
       const categories = lookups.categories.filter((row) => row.businessUnitId === businessUnitId);
       const rows: Row[] = [];

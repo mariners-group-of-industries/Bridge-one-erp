@@ -13,7 +13,8 @@ import { EmptyState } from "./section";
 export interface Column<T> {
   id: string;
   header: string;
-  cell: (row: T) => ReactNode;
+  /** `index` is the row's 0-based position in the shown (sorted, searched) rows. */
+  cell: (row: T, index: number) => ReactNode;
   /** Makes the column sortable. */
   sortValue?: (row: T) => string | number;
   className?: string;
@@ -35,6 +36,8 @@ interface DataTableProps<T> {
   /** Actions for the selected rows (shown when any row is checked). */
   bulkActions?: (selected: T[], clearSelection: () => void) => MenuItem[];
   emptyState?: ReactNode;
+  /** Total row under the table: content per column id, computed from the searched rows. */
+  footer?: (rows: readonly T[]) => Partial<Record<string, ReactNode>>;
 }
 
 const PAGE_SIZES = [20, 100, 500] as const;
@@ -60,6 +63,7 @@ export function DataTable<T>({
   modifiedAt,
   bulkActions,
   emptyState,
+  footer,
 }: DataTableProps<T>) {
   const router = useRouter();
   const [query, setQuery] = useState("");
@@ -92,6 +96,7 @@ export function DataTable<T>({
   }, [rows, query, search, sortBy, descending, sortable, modifiedAt]);
 
   const shown = filtered.slice(0, visible);
+  const footerCells = footer?.(filtered);
   const ids = new Set(rows.map(getRowId));
   const selectedRows = rows.filter((row) => selected.has(getRowId(row)));
   // Derived from `rows`, so deleted or reloaded-away rows drop out of the selection.
@@ -223,7 +228,7 @@ export function DataTable<T>({
               </tr>
             </thead>
             <tbody>
-              {shown.map((row) => {
+              {shown.map((row, rowIndex) => {
                 const id = getRowId(row);
                 const isSelected = selected.has(id);
                 return (
@@ -252,7 +257,7 @@ export function DataTable<T>({
                           column.className,
                         )}
                       >
-                        {column.cell(row)}
+                        {column.cell(row, rowIndex)}
                       </td>
                     ))}
                     {modifiedAt && (
@@ -266,6 +271,19 @@ export function DataTable<T>({
                 );
               })}
             </tbody>
+            {footerCells && (
+              <tfoot className="border-t border-line-strong bg-canvas font-medium text-ink">
+                <tr>
+                  <td className="py-2.5 pl-4" />
+                  {columns.map((column) => (
+                    <td key={column.id} className={cn("py-2.5 pr-4", column.hideBelow && HIDE[column.hideBelow], column.className)}>
+                      {footerCells[column.id]}
+                    </td>
+                  ))}
+                  {modifiedAt && <td />}
+                </tr>
+              </tfoot>
+            )}
           </table>
         </div>
       )}

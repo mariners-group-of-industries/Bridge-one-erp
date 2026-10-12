@@ -33,14 +33,14 @@ export const salesDelivery: NavLink = {
 export const salesReturn: NavLink = {
   label: "Sales Return",
   href: paths.returns,
-  description: "Goods returned by customers.",
-  keywords: ["return", "credit note"],
+  description: "Goods returned by customers: full, partial, without reference and market returns.",
+  keywords: ["return", "credit note", "market return", "damaged", "expired"],
 };
 
 export const salesCollection: NavLink = {
   label: "Sales Collection",
   href: paths.collections,
-  description: "Payments received from customers.",
+  description: "Dues, bills, collections by invoice and advances from customers.",
   keywords: ["collection", "payment", "receipt", "receivable"],
 };
 
@@ -94,6 +94,8 @@ export const salesWorkspace: Workspace = {
   description: "Quotations, orders, deliveries, returns, collections, targets and reports.",
   status: "active",
   shortcuts: salesLinks,
+  // Flat list in the sidebar, as in Managerium.
+  sidebarLinks: salesLinks,
   cards: [
     { label: "Transactions", links: [salesQuotation, salesOrder, salesDelivery, salesReturn, salesCollection] },
     { label: "Planning", links: [salesTarget] },
@@ -106,5 +108,17 @@ export const salesWorkspace: Workspace = {
     { pattern: patterns.newOrder, label: "Create Sales Order", parent: paths.orders },
     { pattern: patterns.editOrder, label: "Edit", parent: paths.orders },
     { pattern: patterns.order, label: "Order", parent: paths.orders },
+    { pattern: patterns.newDelivery, label: "New Delivery", parent: paths.deliveries },
+    { pattern: patterns.exchange, label: "Exchange", parent: paths.deliveries },
+    { pattern: patterns.editDelivery, label: "Edit Delivery", parent: paths.deliveries },
+    { pattern: patterns.delivery, label: "Challan Details", parent: paths.deliveries },
+    { pattern: patterns.newReturn, label: "New Return", parent: paths.returns },
+    { pattern: patterns.editReturn, label: "Edit Return", parent: paths.returns },
+    { pattern: patterns.salesReturn, label: "Return Details", parent: paths.returns },
+    { pattern: patterns.collectByInvoice, label: "Collection By Invoice", parent: paths.collections },
+    { pattern: patterns.newAdvance, label: "Advance Collection", parent: paths.collections },
+    { pattern: patterns.newBill, label: "Create Bill", parent: paths.collections },
+    { pattern: patterns.bill, label: "Bill", parent: paths.collections },
+    { pattern: patterns.collection, label: "Money Receipt", parent: paths.collections },
   ],
 };
