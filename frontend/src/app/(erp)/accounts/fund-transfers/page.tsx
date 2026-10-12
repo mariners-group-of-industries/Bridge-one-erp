@@ -1,18 +1,19 @@
 "use client";
 
 import React, { useMemo, useState } from "react";
-import Link from "next/link";
 import {
   AlertTriangle,
   ArrowRight,
   ArrowRightLeft,
   CheckCircle2,
+  ChevronLeft,
   ChevronRight,
   Clock,
   DollarSign,
   Download,
   Eye,
   Filter,
+  Pencil,
   Plus,
   Printer,
   RotateCcw,
@@ -22,7 +23,6 @@ import {
   Truck,
   X,
 } from "lucide-react";
-import { SummaryCard } from "@/components/purchase/SummaryCard";
 import { ModalDialog } from "@/components/purchase/ModalDialog";
 import { useAccountingStore } from "@/features/accounts/store/accounting-store";
 import type { FundTransferRecord, FundTransferStatus } from "@/features/accounts/types";
@@ -36,396 +36,740 @@ export default function FundTransferPage() {
   const receiveTransfer = useAccountingStore((s) => s.receiveTransfer);
   const returnTransfer = useAccountingStore((s) => s.returnTransfer);
 
+  // Tabs: REQUEST | OUT | IN_TRANSIT | IN_RECEIVED | RETURN
   const [activeTab, setActiveTab] = useState<
-    "ALL" | "REQUESTS" | "DISPATCHED" | "IN_TRANSIT" | "RECEIVED" | "RETURNED"
-  >("ALL");
+    "REQUEST" | "OUT" | "IN_TRANSIT" | "IN_RECEIVED" | "RETURN"
+  >("REQUEST");
+
+  // Filter states
   const [search, setSearch] = useState("");
-  const [fromOfficeFilter, setFromOfficeFilter] = useState("ALL");
+  const [reqOfficeFilter, setReqOfficeFilter] = useState("ALL");
+  const [sendingOfficeFilter, setSendingOfficeFilter] = useState("ALL");
+  const [fromDate, setFromDate] = useState("2026-10-06");
+  const [toDate, setToDate] = useState("2026-10-12");
 
-  const [isNewOpen, setIsNewOpen] = useState(false);
-  const [returnTarget, setReturnTarget] = useState<FundTransferRecord | null>(null);
-  const [returnReason, setReturnReason] = useState("");
+  // Pagination
+  const [rowsPerPage, setRowsPerPage] = useState(50);
+  const [currentPage, setCurrentPage] = useState(1);
 
+  // Modals
+  const [isRequestModalOpen, setIsRequestModalOpen] = useState(false);
+  const [isDirectModalOpen, setIsDirectModalOpen] = useState(false);
+  const [viewingTransfer, setViewingTransfer] = useState<FundTransferRecord | null>(null);
+  const [receiveTarget, setReceiveTarget] = useState<FundTransferRecord | null>(null);
+
+  // Create Form State
   const [form, setForm] = useState({
     requestDate: new Date().toISOString().split("T")[0],
     expectedDate: new Date(Date.now() + 86400000).toISOString().split("T")[0],
-    fromOfficeId: "office-main",
-    fromOfficeName: "Dhaka Corporate HQ",
-    toOfficeId: "office-ctg",
-    toOfficeName: "Chittagong Heavy Plant",
-    fromAccountId: "acc-1120",
-    fromAccountName: "Cash at Bank - Sonali Bank",
-    toAccountId: "acc-1121",
-    toAccountName: "Cash at Bank - BRAC Bank",
+    fromOfficeId: "office-mgv",
+    fromOfficeName: "MGV-PLC",
+    toOfficeId: "office-sirajganj",
+    toOfficeName: "MG Sirajganj Factory",
+    fromAccountId: "acc-10102",
+    fromAccountName: "Cash At Bank",
+    toAccountId: "acc-1460",
+    toAccountName: "Cash Account",
     requestedAmount: 0,
-    responsiblePerson: "Mohammad Arif",
-    purpose: "Working capital replenishment for factory payroll",
+    responsiblePerson: "Md. Roni Mridha",
+    purpose: "Operational liquidity and factory support",
     referenceNumber: "",
-    status: "PENDING_APPROVAL" as FundTransferStatus,
   });
 
+  const officeList = [
+    { id: "ALL", name: "All Offices" },
+    { id: "MG Sirajganj Factory", name: "MG Sirajganj Factory" },
+    { id: "MGV-PLC", name: "MGV-PLC" },
+    { id: "Dhaka Head Office", name: "Dhaka Head Office" },
+    { id: "MBBL-HO", name: "MBBL-HO" },
+    { id: "MOHS-Eco", name: "MOHS-Eco" },
+    { id: "CFF-Chapai", name: "CFF-Chapai" },
+    { id: "MFIL-HO", name: "MFIL-HO" },
+    { id: "Marinozz", name: "Marinozz" },
+  ];
+
+  // Tab Dataset Filtering
   const filteredTransfers = useMemo(() => {
     return transfers.filter((t) => {
-      if (search) {
+      // Tab 1: FUND TRANSFER REQUEST
+      if (activeTab === "REQUEST") {
+        if (t.status !== "Approved" && t.status !== "PENDING_APPROVAL" && t.status !== "DRAFT" && t.status !== "SUBMITTED")
+          return false;
+      }
+      // Tab 2: FUND TRANSFER OUT
+      else if (activeTab === "OUT") {
+        // Dispatched or Completed or Approved out
+        if (t.status !== "Approved" && t.status !== "Completed" && t.status !== "DISPATCHED")
+          return false;
+      }
+      // Tab 3: FUND TRANSFER IN TRANSIT
+      else if (activeTab === "IN_TRANSIT") {
+        if (t.status !== "IN_TRANSIT") return false;
+      }
+      // Tab 4: FUND TRANSFER IN/RECEIVED
+      else if (activeTab === "IN_RECEIVED") {
+        if (t.status !== "RECEIVED") return false;
+      }
+      // Tab 5: FUND TRANSFER RETURN
+      else if (activeTab === "RETURN") {
+        if (t.status !== "RETURNED") return false;
+      }
+
+      // Office filters
+      if (reqOfficeFilter !== "ALL" && t.toOfficeName !== reqOfficeFilter) return false;
+      if (sendingOfficeFilter !== "ALL" && t.fromOfficeName !== sendingOfficeFilter) return false;
+
+      // Search Query
+      if (search.trim()) {
         const q = search.toLowerCase();
         const m =
+          (t.outCode && t.outCode.toLowerCase().includes(q)) ||
+          (t.reqCode && t.reqCode.toLowerCase().includes(q)) ||
           t.transferNumber.toLowerCase().includes(q) ||
-          t.requestCode.toLowerCase().includes(q) ||
           t.fromOfficeName.toLowerCase().includes(q) ||
           t.toOfficeName.toLowerCase().includes(q) ||
-          t.purpose.toLowerCase().includes(q);
+          (t.responsiblePerson && t.responsiblePerson.toLowerCase().includes(q));
         if (!m) return false;
       }
-      if (fromOfficeFilter !== "ALL" && t.fromOfficeId !== fromOfficeFilter) return false;
 
-      if (activeTab === "REQUESTS") return t.status === "DRAFT" || t.status === "SUBMITTED" || t.status === "PENDING_APPROVAL";
-      if (activeTab === "DISPATCHED") return t.status === "APPROVED" || t.status === "DISPATCHED";
-      if (activeTab === "IN_TRANSIT") return t.status === "IN_TRANSIT";
-      if (activeTab === "RECEIVED") return t.status === "RECEIVED";
-      if (activeTab === "RETURNED") return t.status === "RETURNED";
       return true;
     });
-  }, [transfers, search, fromOfficeFilter, activeTab]);
+  }, [transfers, activeTab, reqOfficeFilter, sendingOfficeFilter, search]);
 
-  const handleSaveTransfer = (e: React.FormEvent) => {
+  // Paginated Slicing
+  const totalRows = filteredTransfers.length;
+  const totalPages = Math.ceil(totalRows / rowsPerPage) || 1;
+  const paginatedTransfers = useMemo(() => {
+    const start = (currentPage - 1) * rowsPerPage;
+    return filteredTransfers.slice(start, start + rowsPerPage);
+  }, [filteredTransfers, currentPage, rowsPerPage]);
+
+  const handleCreateRequestSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (form.requestedAmount <= 0) return;
-    createTransfer(form);
-    setIsNewOpen(false);
-  };
-
-  const handleConfirmReturn = () => {
-    if (!returnTarget) return;
-    if (!returnReason.trim()) {
-      alert("Please specify the reason for transfer return.");
-      return;
-    }
-    returnTransfer(returnTarget.id, returnReason);
-    setReturnTarget(null);
-    setReturnReason("");
-  };
-
-  const handleExportCSV = () => {
-    let csv = "SL,Transfer #,Request Code,Date,From Office,To Office,Source Account,Destination Account,Amount,Status\n";
-    filteredTransfers.forEach((t, i) => {
-      csv += `"${i + 1}","${t.transferNumber}","${t.requestCode}","${t.requestDate}","${t.fromOfficeName}","${t.toOfficeName}","${t.fromAccountName}","${t.toAccountName}","${t.approvedAmount || t.requestedAmount}","${t.status}"\n`;
+    const count = transfers.length + 1;
+    const outCode = `FTO-MG260500${(10 + count).toString()}`;
+    createTransfer({
+      ...form,
+      status: "Approved",
+      outCode,
     });
-    const link = document.createElement("a");
-    link.href = encodeURI("data:text/csv;charset=utf-8," + csv);
-    link.download = `BridgeOne_Fund_Transfers.csv`;
-    link.click();
+    setIsRequestModalOpen(false);
+  };
+
+  const handleDirectTransferSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (form.requestedAmount <= 0) return;
+    const count = transfers.length + 1;
+    const outCode = `FTO-MG260500${(10 + count).toString()}`;
+    createTransfer({
+      ...form,
+      status: "Completed",
+      outCode,
+    });
+    setIsDirectModalOpen(false);
+  };
+
+  const handleConfirmReceive = () => {
+    if (!receiveTarget) return;
+    receiveTransfer(receiveTarget.id);
+    setReceiveTarget(null);
   };
 
   return (
-    <div className="space-y-3 font-sans pb-12">
+    <div className="space-y-2.5 font-sans pb-12">
       {/* ------------------------------------------------------------- */}
-      {/* 1. TOP HEADER */}
+      {/* 1. TOP HEADER: TITLE + SEARCH + CONTEXTUAL ACTIONS */}
       {/* ------------------------------------------------------------- */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-3 rounded border border-slate-200/90 shadow-2xs">
-        <div>
-          <nav className="flex items-center gap-1.5 text-[11px] text-slate-400 mb-0.5">
-            <Link href="/accounts" className="hover:text-slate-600 transition">
-              Account
-            </Link>
-            <ChevronRight className="w-3 h-3 text-slate-300" />
-            <span className="text-slate-600 font-medium">Fund Transfer</span>
-          </nav>
-          <h1 className="text-xl font-bold text-slate-900 tracking-tight">Fund Transfer Management</h1>
-          <p className="text-xs text-slate-500 mt-0.5">
-            Inter-branch and inter-bank fund transfers with in-transit reconciliation and zero double-counting
-          </p>
+      <div className="bg-white rounded border border-slate-200/90 shadow-2xs p-3">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <h1 className="text-base font-semibold text-slate-800">Fund Transfer</h1>
+
+          <div className="flex items-center gap-2">
+            {/* Search Box */}
+            <div className="relative min-w-[200px]">
+              <input
+                type="text"
+                placeholder="Search...."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="w-full pr-8 pl-2.5 py-1 text-xs border border-slate-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
+              />
+              <Search className="w-3.5 h-3.5 absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+            </div>
+
+            {/* Top Right Action Buttons */}
+            {activeTab === "REQUEST" && (
+              <button
+                onClick={() => setIsRequestModalOpen(true)}
+                className="px-3 py-1 bg-white hover:bg-blue-50 border border-blue-600 text-blue-600 rounded text-xs font-semibold transition-colors shadow-2xs"
+              >
+                CREATE FUND TRANSFER REQUEST
+              </button>
+            )}
+
+            {activeTab === "OUT" && (
+              <button
+                onClick={() => setIsDirectModalOpen(true)}
+                className="px-3 py-1 bg-white hover:bg-blue-50 border border-blue-600 text-blue-600 rounded text-xs font-semibold transition-colors shadow-2xs"
+              >
+                DIRECT FUND TRANSFER
+              </button>
+            )}
+          </div>
         </div>
 
-        <div className="flex items-center gap-2 flex-wrap">
-          <div className="relative">
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search transfer #, office..."
-              className="w-56 sm:w-64 h-9 pl-3 pr-8 text-xs border border-slate-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 bg-white placeholder-slate-400"
-            />
-            <Search className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-          </div>
-
+        {/* ------------------------------------------------------------- */}
+        {/* 2. MAIN 5 TABS: EXACT SCREENSHOT DESIGN */}
+        {/* ------------------------------------------------------------- */}
+        <div className="flex items-center gap-6 border-b border-slate-200 mt-3 pt-1 text-xs font-medium overflow-x-auto">
           <button
-            type="button"
-            onClick={handleExportCSV}
-            className="h-9 px-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs rounded flex items-center gap-1.5 shadow-xs transition"
-          >
-            <Download className="w-3.5 h-3.5" />
-            <span>Excel</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setIsNewOpen(true)}
-            className="h-9 px-4 bg-[#2563eb] hover:bg-blue-700 text-white font-semibold text-xs rounded flex items-center gap-1.5 shadow-xs transition"
-          >
-            <Plus className="w-4 h-4" />
-            <span>New Transfer Request</span>
-          </button>
-        </div>
-      </div>
-
-      {/* ------------------------------------------------------------- */}
-      {/* 2. SUMMARY KPI CARDS ROW */}
-      {/* ------------------------------------------------------------- */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <SummaryCard
-          title="Funds in Transit"
-          value={`৳${transfers.filter((t) => t.status === "IN_TRANSIT").reduce((s, t) => s + t.transferredAmount, 0).toLocaleString()}`}
-          subtitle={`${transfers.filter((t) => t.status === "IN_TRANSIT").length} shipments in route`}
-          icon={Truck}
-          variant="warning"
-        />
-        <SummaryCard
-          title="Completed Receipts"
-          value={`৳${transfers.filter((t) => t.status === "RECEIVED").reduce((s, t) => s + t.receivedAmount, 0).toLocaleString()}`}
-          subtitle={`${transfers.filter((t) => t.status === "RECEIVED").length} settled transfers`}
-          icon={CheckCircle2}
-          variant="success"
-        />
-        <SummaryCard
-          title="Pending Approval"
-          value={transfers.filter((t) => t.status === "PENDING_APPROVAL").length}
-          subtitle="Awaiting treasury sign-off"
-          icon={Clock}
-          variant="info"
-        />
-        <SummaryCard
-          title="Returned Discrepancies"
-          value={transfers.filter((t) => t.status === "RETURNED").length}
-          subtitle="Reversed to source account"
-          icon={AlertTriangle}
-          variant="danger"
-        />
-      </div>
-
-      {/* ------------------------------------------------------------- */}
-      {/* 3. NAVIGATION TABS */}
-      {/* ------------------------------------------------------------- */}
-      <div className="flex items-center gap-8 border-b border-slate-200 mb-3 bg-white px-3 pt-2 rounded-t border-t border-x border-slate-200/90 overflow-x-auto select-none">
-        <button
-          type="button"
-          onClick={() => setActiveTab("ALL")}
-          className={`pb-2.5 text-xs font-bold tracking-wide transition-colors relative flex items-center gap-2 uppercase whitespace-nowrap ${
-            activeTab === "ALL"
-              ? "text-blue-600 border-b-2 border-blue-600 -mb-[1px]"
-              : "text-slate-500 hover:text-slate-800"
-          }`}
-        >
-          <span>ALL TRANSFERS ({transfers.length})</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setActiveTab("REQUESTS")}
-          className={`pb-2.5 text-xs font-bold tracking-wide transition-colors relative flex items-center gap-2 uppercase whitespace-nowrap ${
-            activeTab === "REQUESTS"
-              ? "text-blue-600 border-b-2 border-blue-600 -mb-[1px]"
-              : "text-slate-500 hover:text-slate-800"
-          }`}
-        >
-          <span>TRANSFER REQUESTS ({transfers.filter((t) => t.status === "PENDING_APPROVAL").length})</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setActiveTab("DISPATCHED")}
-          className={`pb-2.5 text-xs font-bold tracking-wide transition-colors relative flex items-center gap-2 uppercase whitespace-nowrap ${
-            activeTab === "DISPATCHED"
-              ? "text-blue-600 border-b-2 border-blue-600 -mb-[1px]"
-              : "text-slate-500 hover:text-slate-800"
-          }`}
-        >
-          <span>APPROVED OUT ({transfers.filter((t) => t.status === "APPROVED").length})</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setActiveTab("IN_TRANSIT")}
-          className={`pb-2.5 text-xs font-bold tracking-wide transition-colors relative flex items-center gap-2 uppercase whitespace-nowrap ${
-            activeTab === "IN_TRANSIT"
-              ? "text-blue-600 border-b-2 border-blue-600 -mb-[1px]"
-              : "text-slate-500 hover:text-slate-800"
-          }`}
-        >
-          <span>IN TRANSIT ({transfers.filter((t) => t.status === "IN_TRANSIT").length})</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setActiveTab("RECEIVED")}
-          className={`pb-2.5 text-xs font-bold tracking-wide transition-colors relative flex items-center gap-2 uppercase whitespace-nowrap ${
-            activeTab === "RECEIVED"
-              ? "text-blue-600 border-b-2 border-blue-600 -mb-[1px]"
-              : "text-slate-500 hover:text-slate-800"
-          }`}
-        >
-          <span>RECEIVED ({transfers.filter((t) => t.status === "RECEIVED").length})</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setActiveTab("RETURNED")}
-          className={`pb-2.5 text-xs font-bold tracking-wide transition-colors relative flex items-center gap-2 uppercase whitespace-nowrap ${
-            activeTab === "RETURNED"
-              ? "text-blue-600 border-b-2 border-blue-600 -mb-[1px]"
-              : "text-slate-500 hover:text-slate-800"
-          }`}
-        >
-          <span>RETURNED ({transfers.filter((t) => t.status === "RETURNED").length})</span>
-        </button>
-      </div>
-
-      {/* ------------------------------------------------------------- */}
-      {/* 4. FILTER TOOLBAR */}
-      {/* ------------------------------------------------------------- */}
-      <div className="bg-white rounded border border-slate-200/90 p-3 shadow-2xs">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-1.5 text-xs text-slate-600">
-            <span className="font-medium text-[11px] text-slate-500">Source Office:</span>
-            <select
-              value={fromOfficeFilter}
-              onChange={(e) => setFromOfficeFilter(e.target.value)}
-              className="border border-slate-200 rounded px-2.5 py-1 text-xs bg-slate-50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
-            >
-              <option value="ALL">All Source Branches</option>
-              <option value="office-main">Dhaka Corporate HQ</option>
-              <option value="office-ctg">Chittagong Heavy Plant</option>
-            </select>
-          </div>
-
-          <button
-            type="button"
             onClick={() => {
-              setSearch("");
-              setFromOfficeFilter("ALL");
+              setActiveTab("REQUEST");
+              setCurrentPage(1);
             }}
-            className="flex items-center gap-1 px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded text-xs font-medium transition"
+            className={`pb-2 tracking-wide uppercase transition-colors whitespace-nowrap ${
+              activeTab === "REQUEST"
+                ? "text-blue-600 border-b-2 border-blue-600 font-semibold"
+                : "text-slate-600 hover:text-slate-900"
+            }`}
           >
-            <RotateCcw className="w-3.5 h-3.5" />
-            <span>Reset</span>
+            FUND TRANSFER REQUEST
           </button>
+          <button
+            onClick={() => {
+              setActiveTab("OUT");
+              setCurrentPage(1);
+            }}
+            className={`pb-2 tracking-wide uppercase transition-colors whitespace-nowrap ${
+              activeTab === "OUT"
+                ? "text-blue-600 border-b-2 border-blue-600 font-semibold"
+                : "text-slate-600 hover:text-slate-900"
+            }`}
+          >
+            FUND TRANSFER OUT
+          </button>
+          <button
+            onClick={() => {
+              setActiveTab("IN_TRANSIT");
+              setCurrentPage(1);
+            }}
+            className={`pb-2 tracking-wide uppercase transition-colors whitespace-nowrap ${
+              activeTab === "IN_TRANSIT"
+                ? "text-blue-600 border-b-2 border-blue-600 font-semibold"
+                : "text-slate-600 hover:text-slate-900"
+            }`}
+          >
+            FUND TRANSFER IN TRANSIT
+          </button>
+          <button
+            onClick={() => {
+              setActiveTab("IN_RECEIVED");
+              setCurrentPage(1);
+            }}
+            className={`pb-2 tracking-wide uppercase transition-colors whitespace-nowrap ${
+              activeTab === "IN_RECEIVED"
+                ? "text-blue-600 border-b-2 border-blue-600 font-semibold"
+                : "text-slate-600 hover:text-slate-900"
+            }`}
+          >
+            FUND TRANSFER IN/RECEIVED
+          </button>
+          <button
+            onClick={() => {
+              setActiveTab("RETURN");
+              setCurrentPage(1);
+            }}
+            className={`pb-2 tracking-wide uppercase transition-colors whitespace-nowrap ${
+              activeTab === "RETURN"
+                ? "text-blue-600 border-b-2 border-blue-600 font-semibold"
+                : "text-slate-600 hover:text-slate-900"
+            }`}
+          >
+            FUND TRANSFER RETURN
+          </button>
+        </div>
+
+        {/* ------------------------------------------------------------- */}
+        {/* 3. FILTER TOOLBAR PER TAB */}
+        {/* ------------------------------------------------------------- */}
+        <div className="mt-3">
+          {/* TAB 1, 3, 5: Req./Receive Office Filter */}
+          {(activeTab === "REQUEST" || activeTab === "IN_TRANSIT" || activeTab === "RETURN") && (
+            <div className="flex items-end gap-2.5 max-w-sm">
+              <div className="flex-1">
+                <label className="block text-[11px] font-medium text-slate-500 mb-0.5">Req./Receive Office</label>
+                <select
+                  value={reqOfficeFilter}
+                  onChange={(e) => setReqOfficeFilter(e.target.value)}
+                  className="w-full text-xs border border-slate-300 rounded px-2.5 py-1 focus:ring-1 focus:ring-blue-500 bg-white text-slate-700"
+                >
+                  <option value="ALL">Req./Receive Office</option>
+                  {officeList.filter((o) => o.id !== "ALL").map((o) => (
+                    <option key={o.id} value={o.name}>
+                      {o.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <button
+                type="button"
+                onClick={() => setCurrentPage(1)}
+                className="px-5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-semibold shadow-2xs transition-colors"
+              >
+                View
+              </button>
+            </div>
+          )}
+
+          {/* TAB 2: From/Sending Office Filter */}
+          {activeTab === "OUT" && (
+            <div className="flex items-end gap-2.5 max-w-sm">
+              <div className="flex-1">
+                <label className="block text-[11px] font-medium text-slate-500 mb-0.5">From/Sending Office</label>
+                <select
+                  value={sendingOfficeFilter}
+                  onChange={(e) => setSendingOfficeFilter(e.target.value)}
+                  className="w-full text-xs border border-slate-300 rounded px-2.5 py-1 focus:ring-1 focus:ring-blue-500 bg-white text-slate-700"
+                >
+                  <option value="ALL">From/Sending Office</option>
+                  {officeList.filter((o) => o.id !== "ALL").map((o) => (
+                    <option key={o.id} value={o.name}>
+                      {o.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <button
+                type="button"
+                onClick={() => setCurrentPage(1)}
+                className="px-5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-semibold shadow-2xs transition-colors"
+              >
+                View
+              </button>
+            </div>
+          )}
+
+          {/* TAB 4: Both Offices + Date Range */}
+          {activeTab === "IN_RECEIVED" && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-2.5 items-end">
+              <div>
+                <label className="block text-[11px] font-medium text-slate-500 mb-0.5">From/Sending Office</label>
+                <select
+                  value={sendingOfficeFilter}
+                  onChange={(e) => setSendingOfficeFilter(e.target.value)}
+                  className="w-full text-xs border border-slate-300 rounded px-2.5 py-1 focus:ring-1 focus:ring-blue-500 bg-white text-slate-700"
+                >
+                  <option value="ALL">From/Sending Office</option>
+                  {officeList.filter((o) => o.id !== "ALL").map((o) => (
+                    <option key={o.id} value={o.name}>
+                      {o.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-[11px] font-medium text-slate-500 mb-0.5">Req./Receive Office</label>
+                <select
+                  value={reqOfficeFilter}
+                  onChange={(e) => setReqOfficeFilter(e.target.value)}
+                  className="w-full text-xs border border-slate-300 rounded px-2.5 py-1 focus:ring-1 focus:ring-blue-500 bg-white text-slate-700"
+                >
+                  <option value="ALL">Req./Receive Office</option>
+                  {officeList.filter((o) => o.id !== "ALL").map((o) => (
+                    <option key={o.id} value={o.name}>
+                      {o.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-[11px] font-medium text-slate-500 mb-0.5">From Date</label>
+                <input
+                  type="date"
+                  value={fromDate}
+                  onChange={(e) => setFromDate(e.target.value)}
+                  className="w-full text-xs border border-slate-300 rounded px-2.5 py-1 focus:ring-1 focus:ring-blue-500 bg-white text-slate-700"
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] font-medium text-slate-500 mb-0.5">To Date</label>
+                <input
+                  type="date"
+                  value={toDate}
+                  onChange={(e) => setToDate(e.target.value)}
+                  className="w-full text-xs border border-slate-300 rounded px-2.5 py-1 focus:ring-1 focus:ring-blue-500 bg-white text-slate-700"
+                />
+              </div>
+              <div>
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage(1)}
+                  className="px-5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-semibold shadow-2xs transition-colors"
+                >
+                  View
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
       {/* ------------------------------------------------------------- */}
-      {/* 5. FUND TRANSFER REGISTER TABLE */}
+      {/* 4. MAIN DATA TABLES PER TAB */}
       {/* ------------------------------------------------------------- */}
       <div className="bg-white rounded border border-slate-200/90 shadow-2xs overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs">
-            <thead className="bg-slate-50 border-y border-slate-200 text-[11px] font-bold text-slate-700 uppercase tracking-wider">
-              <tr>
-                <th className="px-3.5 py-2.5">SL</th>
-                <th className="px-3.5 py-2.5">Transfer #</th>
-                <th className="px-3.5 py-2.5">Date</th>
-                <th className="px-3.5 py-2.5">From Branch & Account</th>
-                <th className="px-3.5 py-2.5">To Branch & Account</th>
-                <th className="px-3.5 py-2.5">Responsible</th>
-                <th className="px-3.5 py-2.5 text-right font-bold text-slate-900">Amount (৳)</th>
-                <th className="px-3.5 py-2.5 text-center">Status</th>
-                <th className="px-3.5 py-2.5 text-center">Workflow Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {filteredTransfers.length === 0 ? (
-                <tr>
-                  <td colSpan={9} className="py-8 text-center text-xs text-slate-400">
-                    No fund transfers found matching criteria.
-                  </td>
+          {/* TAB 1: FUND TRANSFER REQUEST TABLE (Screenshot 1) */}
+          {activeTab === "REQUEST" && (
+            <table className="w-full text-left border-collapse text-xs">
+              <thead>
+                <tr className="bg-[#f0f4f8] text-slate-700 font-semibold border-b border-slate-200 uppercase text-[11px] tracking-wider">
+                  <th className="py-2 px-3 w-10 text-center">SL</th>
+                  <th className="py-2 px-3 w-24">Request Date</th>
+                  <th className="py-2 px-3 w-24">Expect Date</th>
+                  <th className="py-2 px-3 w-24">Req Code</th>
+                  <th className="py-2 px-3 w-36">Out Code</th>
+                  <th className="py-2 px-3 w-40">Req Office</th>
+                  <th className="py-2 px-3 w-40">Responsible Person</th>
+                  <th className="py-2 px-3 text-right w-28">Req Amount</th>
+                  <th className="py-2 px-3 text-right w-28">Approve Amount</th>
+                  <th className="py-2 px-3 text-center w-24">Status</th>
+                  <th className="py-2 px-3 text-center w-20">Action</th>
                 </tr>
-              ) : (
-                filteredTransfers.map((t, index) => (
-                  <tr key={t.id} className="hover:bg-slate-50/80 transition-colors">
-                    <td className="px-3.5 py-2.5 font-medium text-slate-500">{index + 1}</td>
-                    <td className="px-3.5 py-2.5">
-                      <div className="font-mono font-bold text-blue-600">{t.transferNumber}</div>
-                      <div className="text-[10px] text-slate-400 font-mono">{t.requestCode}</div>
-                    </td>
-                    <td className="px-3.5 py-2.5 text-slate-600">{t.requestDate}</td>
-                    <td className="px-3.5 py-2.5">
-                      <div className="font-semibold text-slate-800">{t.fromOfficeName}</div>
-                      <div className="text-[11px] text-slate-500">{t.fromAccountName}</div>
-                    </td>
-                    <td className="px-3.5 py-2.5">
-                      <div className="font-semibold text-slate-800">{t.toOfficeName}</div>
-                      <div className="text-[11px] text-slate-500">{t.toAccountName}</div>
-                    </td>
-                    <td className="px-3.5 py-2.5 text-slate-600">{t.responsiblePerson}</td>
-                    <td className="px-3.5 py-2.5 text-right font-mono font-bold text-blue-700 text-sm">
-                      ৳{(t.approvedAmount || t.requestedAmount).toLocaleString()}
-                    </td>
-                    <td className="px-3.5 py-2.5 text-center">
-                      <span
-                        className={`px-2 py-0.5 rounded-full text-[10px] font-semibold border ${
-                          t.status === "RECEIVED"
-                            ? "bg-emerald-50 text-emerald-700 border-emerald-200"
-                            : t.status === "IN_TRANSIT"
-                            ? "bg-amber-50 text-amber-700 border-amber-200"
-                            : t.status === "RETURNED"
-                            ? "bg-rose-50 text-rose-700 border-rose-200"
-                            : "bg-blue-50 text-blue-700 border-blue-200"
-                        }`}
-                      >
-                        {t.status}
-                      </span>
-                    </td>
-                    <td className="px-3.5 py-2.5 text-center">
-                      <div className="flex items-center justify-center gap-1.5">
-                        {t.status === "PENDING_APPROVAL" && (
-                          <button
-                            type="button"
-                            onClick={() => approveTransfer(t.id, t.requestedAmount)}
-                            className="px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-600 hover:bg-emerald-700 text-white transition"
-                          >
-                            Approve
-                          </button>
-                        )}
-                        {t.status === "APPROVED" && (
-                          <button
-                            type="button"
-                            onClick={() => dispatchTransfer(t.id)}
-                            className="px-2 py-0.5 rounded text-[10px] font-semibold bg-blue-600 hover:bg-blue-700 text-white transition flex items-center gap-1"
-                          >
-                            <Send className="w-3 h-3" /> Dispatch
-                          </button>
-                        )}
-                        {t.status === "IN_TRANSIT" && (
-                          <>
-                            <button
-                              type="button"
-                              onClick={() => receiveTransfer(t.id)}
-                              className="px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-600 hover:bg-emerald-700 text-white transition"
-                            >
-                              Confirm Receipt
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setReturnTarget(t);
-                                setReturnReason("");
-                              }}
-                              className="px-2 py-0.5 rounded text-[10px] font-semibold bg-rose-600 hover:bg-rose-700 text-white transition"
-                            >
-                              Return
-                            </button>
-                          </>
-                        )}
-                        {t.status === "RECEIVED" && (
-                          <span className="text-[11px] font-medium text-emerald-600 flex items-center gap-1 justify-center">
-                            <CheckCircle2 className="w-3 h-3" /> Received
-                          </span>
-                        )}
-                      </div>
+              </thead>
+              <tbody className="divide-y divide-slate-100 text-slate-700">
+                {paginatedTransfers.length === 0 ? (
+                  <tr>
+                    <td colSpan={11} className="py-8 text-center text-slate-400">
+                      No fund transfer requests found.
                     </td>
                   </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+                ) : (
+                  paginatedTransfers.map((t, index) => {
+                    const sl = (currentPage - 1) * rowsPerPage + index + 1;
+                    return (
+                      <tr key={t.id} className="hover:bg-blue-50/40 transition-colors">
+                        <td className="py-2 px-3 text-center text-slate-500">{sl}</td>
+                        <td className="py-2 px-3 whitespace-nowrap text-slate-600">{t.requestDate}</td>
+                        <td className="py-2 px-3 whitespace-nowrap text-slate-600">{t.expectedDate}</td>
+                        <td className="py-2 px-3 font-mono text-slate-500">{t.reqCode || ""}</td>
+                        <td className="py-2 px-3 font-mono text-slate-700 whitespace-nowrap">{t.outCode || t.transferNumber}</td>
+                        <td className="py-2 px-3 whitespace-nowrap font-medium text-slate-800">{t.toOfficeName}</td>
+                        <td className="py-2 px-3 whitespace-nowrap text-slate-700">{t.responsiblePerson}</td>
+                        <td className="py-2 px-3 text-right font-mono text-slate-800 whitespace-nowrap">
+                          {t.requestedAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </td>
+                        <td className="py-2 px-3 text-right font-mono font-medium text-slate-900 whitespace-nowrap">
+                          {t.approvedAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </td>
+                        <td className="py-2 px-3 text-center whitespace-nowrap">
+                          <span className="font-semibold text-emerald-600">Approved</span>
+                        </td>
+                        <td className="py-2 px-3 text-center">
+                          <div className="flex items-center justify-center gap-1.5 text-slate-400">
+                            <button
+                              onClick={() => setViewingTransfer(t)}
+                              title="View"
+                              className="hover:text-blue-600 transition"
+                            >
+                              <Eye className="w-3.5 h-3.5" />
+                            </button>
+                            <button title="Edit" className="hover:text-blue-600 transition">
+                              <Pencil className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          )}
+
+          {/* TAB 2: FUND TRANSFER OUT TABLE (Screenshot 2) */}
+          {activeTab === "OUT" && (
+            <table className="w-full text-left border-collapse text-xs">
+              <thead>
+                <tr className="bg-[#f0f4f8] text-slate-700 font-semibold border-b border-slate-200 uppercase text-[11px] tracking-wider">
+                  <th className="py-2 px-3 w-10 text-center">SL</th>
+                  <th className="py-2 px-3 w-24">Date</th>
+                  <th className="py-2 px-3 w-24">Req Code</th>
+                  <th className="py-2 px-3 w-36">Out Code</th>
+                  <th className="py-2 px-3 w-36">From/Sending Office</th>
+                  <th className="py-2 px-3 w-40">Req./Receive Office</th>
+                  <th className="py-2 px-3 w-36">Responsible Person</th>
+                  <th className="py-2 px-3 text-right w-28">Amount</th>
+                  <th className="py-2 px-3 text-center w-24">Status</th>
+                  <th className="py-2 px-3 text-center w-24">Action</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 text-slate-700">
+                {paginatedTransfers.length === 0 ? (
+                  <tr>
+                    <td colSpan={10} className="py-8 text-center text-slate-400">
+                      No fund transfer out records found.
+                    </td>
+                  </tr>
+                ) : (
+                  paginatedTransfers.map((t, index) => {
+                    const sl = (currentPage - 1) * rowsPerPage + index + 1;
+                    return (
+                      <tr key={t.id} className="hover:bg-blue-50/40 transition-colors">
+                        <td className="py-2 px-3 text-center text-slate-500">{sl}</td>
+                        <td className="py-2 px-3 whitespace-nowrap text-slate-600">{t.date || t.requestDate}</td>
+                        <td className="py-2 px-3 font-mono text-slate-500">{t.reqCode || ""}</td>
+                        <td className="py-2 px-3 font-mono text-slate-700 whitespace-nowrap">{t.outCode || t.transferNumber}</td>
+                        <td className="py-2 px-3 whitespace-nowrap font-medium text-slate-800">{t.fromOfficeName}</td>
+                        <td className="py-2 px-3 whitespace-nowrap font-medium text-slate-800">{t.toOfficeName}</td>
+                        <td className="py-2 px-3 whitespace-nowrap text-slate-700">{t.responsiblePerson}</td>
+                        <td className="py-2 px-3 text-right font-mono font-medium text-slate-900 whitespace-nowrap">
+                          {t.transferredAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </td>
+                        <td className="py-2 px-3 text-center whitespace-nowrap">
+                          <span className="font-semibold text-blue-600">Completed</span>
+                        </td>
+                        <td className="py-2 px-3 text-center">
+                          <div className="flex items-center justify-center gap-1.5 text-slate-400">
+                            <button title="Payment" className="hover:text-emerald-600 transition">
+                              <DollarSign className="w-3.5 h-3.5" />
+                            </button>
+                            <button title="Cancel" className="hover:text-rose-600 transition">
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={() => setViewingTransfer(t)}
+                              title="View"
+                              className="hover:text-blue-600 transition"
+                            >
+                              <Eye className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          )}
+
+          {/* TAB 3: FUND TRANSFER IN TRANSIT TABLE (Screenshot 3) */}
+          {activeTab === "IN_TRANSIT" && (
+            <table className="w-full text-left border-collapse text-xs">
+              <thead>
+                <tr className="bg-[#f0f4f8] text-slate-700 font-semibold border-b border-slate-200 uppercase text-[11px] tracking-wider">
+                  <th className="py-2 px-3 w-10 text-center">SL</th>
+                  <th className="py-2 px-3 w-28">Pay Date</th>
+                  <th className="py-2 px-3 w-24">Req Code</th>
+                  <th className="py-2 px-3 w-36">Out Code</th>
+                  <th className="py-2 px-3 w-36">From/Sending Office</th>
+                  <th className="py-2 px-3 w-40">Req./Receive Office</th>
+                  <th className="py-2 px-3 w-36">Responsible Person</th>
+                  <th className="py-2 px-3 text-right w-28">Sent Amount</th>
+                  <th className="py-2 px-3 text-right w-28">Received Amount</th>
+                  <th className="py-2 px-3 text-right w-28">Remaining Amount</th>
+                  <th className="py-2 px-3 text-center w-24">In/Receive</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 text-slate-700">
+                {paginatedTransfers.length === 0 ? (
+                  <tr>
+                    <td colSpan={11} className="py-8 text-center text-slate-400">
+                      No fund transfers currently in transit.
+                    </td>
+                  </tr>
+                ) : (
+                  paginatedTransfers.map((t, index) => {
+                    const sl = (currentPage - 1) * rowsPerPage + index + 1;
+                    return (
+                      <tr key={t.id} className="hover:bg-blue-50/40 transition-colors">
+                        <td className="py-2 px-3 text-center text-slate-500">{sl}</td>
+                        <td className="py-2 px-3 whitespace-nowrap text-slate-600">{t.payDate || t.requestDate}</td>
+                        <td className="py-2 px-3 font-mono text-slate-500">{t.reqCode || ""}</td>
+                        <td className="py-2 px-3 font-mono text-slate-700 whitespace-nowrap">{t.outCode}</td>
+                        <td className="py-2 px-3 whitespace-nowrap font-medium text-slate-800">{t.fromOfficeName}</td>
+                        <td className="py-2 px-3 whitespace-nowrap font-medium text-slate-800">{t.toOfficeName}</td>
+                        <td className="py-2 px-3 whitespace-nowrap text-slate-700">{t.responsiblePerson}</td>
+                        <td className="py-2 px-3 text-right font-mono font-medium text-slate-900 whitespace-nowrap">
+                          {(t.sentAmount || t.transferredAmount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </td>
+                        <td className="py-2 px-3 text-right font-mono text-slate-500 whitespace-nowrap">
+                          {t.receivedAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </td>
+                        <td className="py-2 px-3 text-right font-mono font-medium text-blue-600 whitespace-nowrap">
+                          {(t.remainingAmount || t.transferredAmount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </td>
+                        <td className="py-2 px-3 text-center">
+                          <button
+                            onClick={() => setReceiveTarget(t)}
+                            title="Receive Fund"
+                            className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-800 font-medium"
+                          >
+                            <DollarSign className="w-3.5 h-3.5" />
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          )}
+
+          {/* TAB 4: FUND TRANSFER IN/RECEIVED TABLE (Screenshot 4) */}
+          {activeTab === "IN_RECEIVED" && (
+            <table className="w-full text-left border-collapse text-xs">
+              <thead>
+                <tr className="bg-[#f0f4f8] text-slate-700 font-semibold border-b border-slate-200 uppercase text-[11px] tracking-wider">
+                  <th className="py-2 px-3 w-10 text-center">SL</th>
+                  <th className="py-2 px-3 w-24">Receive Date</th>
+                  <th className="py-2 px-3 w-20">Req Code</th>
+                  <th className="py-2 px-3 w-32">Out Code</th>
+                  <th className="py-2 px-3 w-32">Receive Code</th>
+                  <th className="py-2 px-3 w-36">From/Sending Office</th>
+                  <th className="py-2 px-3 w-40">Req./Receive Office</th>
+                  <th className="py-2 px-3 w-32">Responsible Person</th>
+                  <th className="py-2 px-3 w-32">Received Person</th>
+                  <th className="py-2 px-3 w-32">Transaction Type</th>
+                  <th className="py-2 px-3 text-right w-28">Receive Amount</th>
+                  <th className="py-2 px-3 text-center w-16">Action</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 text-slate-700">
+                {paginatedTransfers.length === 0 ? (
+                  <tr>
+                    <td colSpan={12} className="py-8 text-center text-slate-400">
+                      No received fund transfers found.
+                    </td>
+                  </tr>
+                ) : (
+                  paginatedTransfers.map((t, index) => {
+                    const sl = (currentPage - 1) * rowsPerPage + index + 1;
+                    return (
+                      <tr key={t.id} className="hover:bg-blue-50/40 transition-colors">
+                        <td className="py-2 px-3 text-center text-slate-500">{sl}</td>
+                        <td className="py-2 px-3 whitespace-nowrap text-slate-600">{t.receiveDate || "10/12/2026"}</td>
+                        <td className="py-2 px-3 font-mono text-slate-500">{t.reqCode || ""}</td>
+                        <td className="py-2 px-3 font-mono text-slate-700 whitespace-nowrap">{t.outCode}</td>
+                        <td className="py-2 px-3 font-mono text-blue-600 whitespace-nowrap">{t.receiveCode || "FTR-MG261000001"}</td>
+                        <td className="py-2 px-3 whitespace-nowrap font-medium text-slate-800">{t.fromOfficeName}</td>
+                        <td className="py-2 px-3 whitespace-nowrap font-medium text-slate-800">{t.toOfficeName}</td>
+                        <td className="py-2 px-3 whitespace-nowrap text-slate-700">{t.responsiblePerson}</td>
+                        <td className="py-2 px-3 whitespace-nowrap text-slate-700">{t.receivedPerson || "MD. Tofajjol Hossin"}</td>
+                        <td className="py-2 px-3 whitespace-nowrap text-slate-600">{t.transactionType || "Bank Transfer"}</td>
+                        <td className="py-2 px-3 text-right font-mono font-medium text-slate-900 whitespace-nowrap">
+                          {(t.receiveAmount || t.receivedAmount || t.transferredAmount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </td>
+                        <td className="py-2 px-3 text-center">
+                          <button
+                            onClick={() => setViewingTransfer(t)}
+                            title="View"
+                            className="text-slate-400 hover:text-blue-600 transition"
+                          >
+                            <Eye className="w-3.5 h-3.5" />
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          )}
+
+          {/* TAB 5: FUND TRANSFER RETURN TABLE (Screenshot 5) */}
+          {activeTab === "RETURN" && (
+            <table className="w-full text-left border-collapse text-xs">
+              <thead>
+                <tr className="bg-[#f0f4f8] text-slate-700 font-semibold border-b border-slate-200 uppercase text-[11px] tracking-wider">
+                  <th className="py-2 px-3 w-10 text-center">SL</th>
+                  <th className="py-2 px-3 w-28">Date</th>
+                  <th className="py-2 px-3 w-32">Return Code</th>
+                  <th className="py-2 px-3 w-24">Req Code</th>
+                  <th className="py-2 px-3 w-32">Out Code</th>
+                  <th className="py-2 px-3 w-36">From/Sending Office</th>
+                  <th className="py-2 px-3 w-40">Req./Receive Office</th>
+                  <th className="py-2 px-3 w-36">Responsible Person</th>
+                  <th className="py-2 px-3 text-right w-28">Amount</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 text-slate-700">
+                {paginatedTransfers.length === 0 ? (
+                  <tr>
+                    <td colSpan={9} className="py-8 text-center text-slate-400">
+                      No returned fund transfers recorded.
+                    </td>
+                  </tr>
+                ) : (
+                  paginatedTransfers.map((t, index) => {
+                    const sl = (currentPage - 1) * rowsPerPage + index + 1;
+                    return (
+                      <tr key={t.id} className="hover:bg-blue-50/40 transition-colors">
+                        <td className="py-2 px-3 text-center text-slate-500">{sl}</td>
+                        <td className="py-2 px-3 whitespace-nowrap text-slate-600">{t.date || t.requestDate}</td>
+                        <td className="py-2 px-3 font-mono text-rose-600 font-medium whitespace-nowrap">{t.returnCode || "RET-MG261000001"}</td>
+                        <td className="py-2 px-3 font-mono text-slate-500">{t.reqCode || ""}</td>
+                        <td className="py-2 px-3 font-mono text-slate-700 whitespace-nowrap">{t.outCode}</td>
+                        <td className="py-2 px-3 whitespace-nowrap font-medium text-slate-800">{t.fromOfficeName}</td>
+                        <td className="py-2 px-3 whitespace-nowrap font-medium text-slate-800">{t.toOfficeName}</td>
+                        <td className="py-2 px-3 whitespace-nowrap text-slate-700">{t.responsiblePerson}</td>
+                        <td className="py-2 px-3 text-right font-mono font-medium text-slate-900 whitespace-nowrap">
+                          {t.requestedAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          )}
+        </div>
+
+        {/* ------------------------------------------------------------- */}
+        {/* 5. TABLE FOOTER / PAGINATION (Matches Screenshots) */}
+        {/* ------------------------------------------------------------- */}
+        <div className="p-3 border-t border-slate-200 bg-slate-50/50 flex flex-col sm:flex-row items-center justify-end gap-4 text-xs text-slate-600">
+          <div className="flex items-center gap-2">
+            <span>Rows per page:</span>
+            <select
+              value={rowsPerPage}
+              onChange={(e) => {
+                setRowsPerPage(Number(e.target.value));
+                setCurrentPage(1);
+              }}
+              className="text-xs border border-slate-300 rounded px-2 py-0.5 bg-white text-slate-700 focus:outline-none"
+            >
+              <option value={10}>10</option>
+              <option value={25}>25</option>
+              <option value={50}>50</option>
+              <option value={100}>100</option>
+            </select>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <span>
+              {totalRows === 0 ? "0-0 of 0" : `${(currentPage - 1) * rowsPerPage + 1}-${Math.min(currentPage * rowsPerPage, totalRows)} of ${totalRows}`}
+            </span>
+
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                disabled={currentPage <= 1}
+                className="w-6 h-6 flex items-center justify-center rounded border border-slate-200 bg-white hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed text-slate-600 transition"
+              >
+                <ChevronLeft className="w-3.5 h-3.5" />
+              </button>
+              <button
+                onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                disabled={currentPage >= totalPages}
+                className="w-6 h-6 flex items-center justify-center rounded border border-slate-200 bg-white hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed text-slate-600 transition"
+              >
+                <ChevronRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -433,196 +777,319 @@ export default function FundTransferPage() {
       {/* 6. MODAL: CREATE FUND TRANSFER REQUEST */}
       {/* ------------------------------------------------------------- */}
       <ModalDialog
-        isOpen={isNewOpen}
-        onClose={() => setIsNewOpen(false)}
+        isOpen={isRequestModalOpen}
+        onClose={() => setIsRequestModalOpen(false)}
         title="Create Fund Transfer Request"
-        subtitle="Initiate inter-branch cash/bank transfer workflow with automated transit posting"
-        maxWidth="xl"
+        maxWidth="lg"
       >
-        <form onSubmit={handleSaveTransfer} className="space-y-4 text-xs">
+        <form onSubmit={handleCreateRequestSubmit} className="space-y-3.5 text-xs">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <label className="block font-semibold text-slate-700 mb-1">Request Date *</label>
+              <label className="block font-medium text-slate-700 mb-1">From / Sending Office *</label>
+              <select
+                value={form.fromOfficeName}
+                onChange={(e) => setForm({ ...form, fromOfficeName: e.target.value })}
+                className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white focus:ring-1 focus:ring-blue-500"
+              >
+                {officeList.filter((o) => o.id !== "ALL").map((o) => (
+                  <option key={o.id} value={o.name}>
+                    {o.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block font-medium text-slate-700 mb-1">Req. / Receiving Office *</label>
+              <select
+                value={form.toOfficeName}
+                onChange={(e) => setForm({ ...form, toOfficeName: e.target.value })}
+                className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white focus:ring-1 focus:ring-blue-500"
+              >
+                {officeList.filter((o) => o.id !== "ALL").map((o) => (
+                  <option key={o.id} value={o.name}>
+                    {o.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block font-medium text-slate-700 mb-1">Request Date *</label>
               <input
                 type="date"
                 required
                 value={form.requestDate}
                 onChange={(e) => setForm({ ...form, requestDate: e.target.value })}
-                className="w-full h-8 border border-slate-300 rounded px-2 text-xs"
+                className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white focus:ring-1 focus:ring-blue-500"
               />
             </div>
             <div>
-              <label className="block font-semibold text-slate-700 mb-1">Expected Delivery Date *</label>
+              <label className="block font-medium text-slate-700 mb-1">Expected Date *</label>
               <input
                 type="date"
                 required
                 value={form.expectedDate}
                 onChange={(e) => setForm({ ...form, expectedDate: e.target.value })}
-                className="w-full h-8 border border-slate-300 rounded px-2 text-xs"
+                className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white focus:ring-1 focus:ring-blue-500"
               />
             </div>
             <div>
-              <label className="block font-semibold text-slate-700 mb-1">From Office (Origin) *</label>
-              <select
-                value={form.fromOfficeId}
-                onChange={(e) =>
-                  setForm({
-                    ...form,
-                    fromOfficeId: e.target.value,
-                    fromOfficeName: e.target.value === "office-main" ? "Dhaka Corporate HQ" : "Chittagong Heavy Plant",
-                  })
-                }
-                className="w-full h-8 border border-slate-300 rounded px-2 text-xs bg-white"
-              >
-                <option value="office-main">Dhaka Corporate HQ</option>
-                <option value="office-ctg">Chittagong Heavy Plant</option>
-              </select>
-            </div>
-            <div>
-              <label className="block font-semibold text-slate-700 mb-1">To Office (Destination) *</label>
-              <select
-                value={form.toOfficeId}
-                onChange={(e) =>
-                  setForm({
-                    ...form,
-                    toOfficeId: e.target.value,
-                    toOfficeName: e.target.value === "office-ctg" ? "Chittagong Heavy Plant" : "Dhaka Corporate HQ",
-                  })
-                }
-                className="w-full h-8 border border-slate-300 rounded px-2 text-xs bg-white"
-              >
-                <option value="office-ctg">Chittagong Heavy Plant</option>
-                <option value="office-main">Dhaka Corporate HQ</option>
-              </select>
-            </div>
-            <div>
-              <label className="block font-semibold text-slate-700 mb-1">Source Cash/Bank Account *</label>
-              <select
-                value={form.fromAccountId}
-                onChange={(e) => {
-                  const acc = accounts.find((a) => a.id === e.target.value);
-                  setForm({ ...form, fromAccountId: e.target.value, fromAccountName: acc?.name || "Bank" });
-                }}
-                className="w-full h-8 border border-slate-300 rounded px-2 text-xs bg-white"
-              >
-                {accounts
-                  .filter((a) => a.accountSubtype === "Bank" || a.accountSubtype === "Cash")
-                  .map((a) => (
-                    <option key={a.id} value={a.id}>
-                      [{a.code}] {a.name}
-                    </option>
-                  ))}
-              </select>
-            </div>
-            <div>
-              <label className="block font-semibold text-slate-700 mb-1">Destination Cash/Bank Account *</label>
-              <select
-                value={form.toAccountId}
-                onChange={(e) => {
-                  const acc = accounts.find((a) => a.id === e.target.value);
-                  setForm({ ...form, toAccountId: e.target.value, toAccountName: acc?.name || "Bank" });
-                }}
-                className="w-full h-8 border border-slate-300 rounded px-2 text-xs bg-white"
-              >
-                {accounts
-                  .filter((a) => a.accountSubtype === "Bank" || a.accountSubtype === "Cash")
-                  .map((a) => (
-                    <option key={a.id} value={a.id}>
-                      [{a.code}] {a.name}
-                    </option>
-                  ))}
-              </select>
-            </div>
-            <div>
-              <label className="block font-semibold text-slate-700 mb-1">Transfer Amount (৳) *</label>
+              <label className="block font-medium text-slate-700 mb-1">Transfer Amount (৳) *</label>
               <input
                 type="number"
                 required
-                min="100"
+                min="1"
+                step="0.01"
+                placeholder="0.00"
                 value={form.requestedAmount || ""}
                 onChange={(e) => setForm({ ...form, requestedAmount: parseFloat(e.target.value) || 0 })}
-                className="w-full h-8 border border-slate-300 rounded px-2.5 text-xs font-mono text-slate-800"
+                className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white font-mono focus:ring-1 focus:ring-blue-500"
               />
             </div>
             <div>
-              <label className="block font-semibold text-slate-700 mb-1">Responsible Person *</label>
+              <label className="block font-medium text-slate-700 mb-1">Responsible Person *</label>
               <input
                 type="text"
                 required
                 value={form.responsiblePerson}
                 onChange={(e) => setForm({ ...form, responsiblePerson: e.target.value })}
-                className="w-full h-8 border border-slate-300 rounded px-2.5 text-xs text-slate-800"
-              />
-            </div>
-            <div className="sm:col-span-2">
-              <label className="block font-semibold text-slate-700 mb-1">Business Purpose *</label>
-              <input
-                type="text"
-                required
-                value={form.purpose}
-                onChange={(e) => setForm({ ...form, purpose: e.target.value })}
-                className="w-full h-8 border border-slate-300 rounded px-2.5 text-xs text-slate-800"
+                className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white focus:ring-1 focus:ring-blue-500"
               />
             </div>
           </div>
-
-          <div className="flex justify-end gap-2 pt-3 border-t border-slate-200">
+          <div>
+            <label className="block font-medium text-slate-700 mb-1">Purpose / Justification *</label>
+            <textarea
+              required
+              rows={2}
+              placeholder="State purpose of this inter-office transfer..."
+              value={form.purpose}
+              onChange={(e) => setForm({ ...form, purpose: e.target.value })}
+              className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white focus:ring-1 focus:ring-blue-500"
+            />
+          </div>
+          <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
             <button
               type="button"
-              onClick={() => setIsNewOpen(false)}
-              className="px-3.5 py-1.5 border border-slate-300 hover:bg-slate-50 text-slate-700 rounded text-xs font-semibold"
+              onClick={() => setIsRequestModalOpen(false)}
+              className="px-4 py-1.5 border border-slate-300 rounded text-xs font-medium text-slate-700 hover:bg-slate-50"
             >
               Cancel
             </button>
             <button
               type="submit"
-              className="px-4 py-1.5 bg-[#2563eb] hover:bg-blue-700 text-white rounded text-xs font-semibold shadow-xs"
+              className="px-5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-semibold shadow-2xs transition-colors"
             >
-              Submit Transfer Request
+              Submit Request
             </button>
           </div>
         </form>
       </ModalDialog>
 
       {/* ------------------------------------------------------------- */}
-      {/* 7. MODAL: RETURN IN-TRANSIT TRANSFER */}
+      {/* 7. MODAL: DIRECT FUND TRANSFER */}
       {/* ------------------------------------------------------------- */}
       <ModalDialog
-        isOpen={!!returnTarget}
-        onClose={() => setReturnTarget(null)}
-        title={`Return In-Transit Transfer — ${returnTarget?.transferNumber}`}
-        subtitle="This will reverse the Fund in Transit entry back into the originating source account"
-        maxWidth="md"
+        isOpen={isDirectModalOpen}
+        onClose={() => setIsDirectModalOpen(false)}
+        title="Direct Fund Transfer"
+        maxWidth="lg"
       >
-        <div className="space-y-4 text-xs">
+        <form onSubmit={handleDirectTransferSubmit} className="space-y-3.5 text-xs">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block font-medium text-slate-700 mb-1">Source Office *</label>
+              <select
+                value={form.fromOfficeName}
+                onChange={(e) => setForm({ ...form, fromOfficeName: e.target.value })}
+                className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white focus:ring-1 focus:ring-blue-500"
+              >
+                {officeList.filter((o) => o.id !== "ALL").map((o) => (
+                  <option key={o.id} value={o.name}>
+                    {o.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block font-medium text-slate-700 mb-1">Destination Office *</label>
+              <select
+                value={form.toOfficeName}
+                onChange={(e) => setForm({ ...form, toOfficeName: e.target.value })}
+                className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white focus:ring-1 focus:ring-blue-500"
+              >
+                {officeList.filter((o) => o.id !== "ALL").map((o) => (
+                  <option key={o.id} value={o.name}>
+                    {o.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block font-medium text-slate-700 mb-1">Source Bank/Cash Head *</label>
+              <select
+                value={form.fromAccountId}
+                onChange={(e) => setForm({ ...form, fromAccountId: e.target.value })}
+                className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white focus:ring-1 focus:ring-blue-500"
+              >
+                <option value="acc-10102">10102 - Cash At Bank</option>
+                <option value="acc-1460">1460 - Cash Account</option>
+              </select>
+            </div>
+            <div>
+              <label className="block font-medium text-slate-700 mb-1">Destination Head *</label>
+              <select
+                value={form.toAccountId}
+                onChange={(e) => setForm({ ...form, toAccountId: e.target.value })}
+                className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white focus:ring-1 focus:ring-blue-500"
+              >
+                <option value="acc-1460">1460 - Cash Account</option>
+                <option value="acc-10102">10102 - Cash At Bank</option>
+              </select>
+            </div>
+            <div>
+              <label className="block font-medium text-slate-700 mb-1">Direct Transfer Amount (৳) *</label>
+              <input
+                type="number"
+                required
+                min="1"
+                step="0.01"
+                placeholder="0.00"
+                value={form.requestedAmount || ""}
+                onChange={(e) => setForm({ ...form, requestedAmount: parseFloat(e.target.value) || 0 })}
+                className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white font-mono focus:ring-1 focus:ring-blue-500"
+              />
+            </div>
+            <div>
+              <label className="block font-medium text-slate-700 mb-1">Responsible Officer *</label>
+              <input
+                type="text"
+                required
+                value={form.responsiblePerson}
+                onChange={(e) => setForm({ ...form, responsiblePerson: e.target.value })}
+                className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white focus:ring-1 focus:ring-blue-500"
+              />
+            </div>
+          </div>
           <div>
-            <label className="block font-semibold text-slate-700 mb-1">Reason for Return / Discrepancy *</label>
+            <label className="block font-medium text-slate-700 mb-1">Transfer Remarks *</label>
             <textarea
-              rows={3}
               required
-              placeholder="e.g. Branch courier intercepted, incorrect destination account, rejected by branch controller..."
-              value={returnReason}
-              onChange={(e) => setReturnReason(e.target.value)}
-              className="w-full border border-slate-300 rounded p-2 text-xs text-slate-800"
+              rows={2}
+              placeholder="Immediate inter-unit direct fund dispatch..."
+              value={form.purpose}
+              onChange={(e) => setForm({ ...form, purpose: e.target.value })}
+              className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white focus:ring-1 focus:ring-blue-500"
             />
           </div>
-          <div className="flex justify-end gap-2 pt-2 border-t border-slate-200">
+          <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
             <button
               type="button"
-              onClick={() => setReturnTarget(null)}
-              className="px-3.5 py-1.5 border border-slate-300 hover:bg-slate-50 text-slate-700 rounded text-xs font-semibold"
+              onClick={() => setIsDirectModalOpen(false)}
+              className="px-4 py-1.5 border border-slate-300 rounded text-xs font-medium text-slate-700 hover:bg-slate-50"
             >
               Cancel
             </button>
             <button
-              type="button"
-              onClick={handleConfirmReturn}
-              className="px-4 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded text-xs font-semibold shadow-xs"
+              type="submit"
+              className="px-5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-semibold shadow-2xs transition-colors"
             >
-              Confirm Return to Source
+              Execute Direct Transfer
             </button>
           </div>
-        </div>
+        </form>
+      </ModalDialog>
+
+      {/* ------------------------------------------------------------- */}
+      {/* 8. MODAL: VIEW TRANSFER DETAILS */}
+      {/* ------------------------------------------------------------- */}
+      <ModalDialog
+        isOpen={Boolean(viewingTransfer)}
+        onClose={() => setViewingTransfer(null)}
+        title={viewingTransfer ? `Transfer Voucher: ${viewingTransfer.outCode || viewingTransfer.transferNumber}` : ""}
+        maxWidth="md"
+      >
+        {viewingTransfer && (
+          <div className="space-y-3 text-xs">
+            <div className="p-3 bg-slate-50 rounded border border-slate-200 space-y-1.5">
+              <div className="flex justify-between">
+                <span className="text-slate-500">From Sending Office:</span>
+                <span className="font-semibold text-slate-800">{viewingTransfer.fromOfficeName}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">To Receiving Office:</span>
+                <span className="font-semibold text-slate-800">{viewingTransfer.toOfficeName}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">Date:</span>
+                <span className="font-medium text-slate-800">{viewingTransfer.date || viewingTransfer.requestDate}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">Responsible Person:</span>
+                <span className="font-medium text-slate-800">{viewingTransfer.responsiblePerson}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">Status:</span>
+                <span className="font-semibold text-blue-600">{viewingTransfer.status}</span>
+              </div>
+              <div className="flex justify-between border-t border-slate-200 pt-1.5">
+                <span className="font-semibold text-slate-700">Amount:</span>
+                <span className="font-mono font-bold text-slate-900 text-sm">
+                  ৳{(viewingTransfer.transferredAmount || viewingTransfer.requestedAmount).toLocaleString()}
+                </span>
+              </div>
+            </div>
+            <div>
+              <span className="font-semibold text-slate-700 block mb-0.5">Remarks / Purpose:</span>
+              <p className="p-2 bg-white rounded border border-slate-200 text-slate-600">
+                {viewingTransfer.purpose}
+              </p>
+            </div>
+            <div className="flex justify-end pt-2">
+              <button
+                type="button"
+                onClick={() => setViewingTransfer(null)}
+                className="px-4 py-1.5 border border-slate-300 rounded text-xs font-medium text-slate-700 hover:bg-slate-50"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        )}
+      </ModalDialog>
+
+      {/* ------------------------------------------------------------- */}
+      {/* 9. MODAL: RECEIVE IN-TRANSIT FUND */}
+      {/* ------------------------------------------------------------- */}
+      <ModalDialog
+        isOpen={Boolean(receiveTarget)}
+        onClose={() => setReceiveTarget(null)}
+        title="Receive In-Transit Fund"
+        maxWidth="sm"
+      >
+        {receiveTarget && (
+          <div className="space-y-3 text-xs">
+            <p className="text-slate-700">
+              Confirm receiving <strong>৳{(receiveTarget.remainingAmount || receiveTarget.transferredAmount).toLocaleString()}</strong> dispatched from{" "}
+              <strong>{receiveTarget.fromOfficeName}</strong>?
+            </p>
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setReceiveTarget(null)}
+                className="px-4 py-1.5 border border-slate-300 rounded text-xs font-medium text-slate-700 hover:bg-slate-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmReceive}
+                className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-xs font-semibold shadow-2xs transition"
+              >
+                Confirm Receive
+              </button>
+            </div>
+          </div>
+        )}
       </ModalDialog>
     </div>
   );

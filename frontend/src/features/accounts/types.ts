@@ -151,6 +151,8 @@ export type FundTransferStatus =
   | "SUBMITTED"
   | "PENDING_APPROVAL"
   | "APPROVED"
+  | "Approved"
+  | "Completed"
   | "DISPATCHED"
   | "IN_TRANSIT"
   | "RECEIVED"
@@ -161,8 +163,15 @@ export interface FundTransferRecord {
   id: string;
   transferNumber: string;
   requestCode: string;
+  reqCode?: string;
+  outCode?: string;
+  receiveCode?: string;
+  returnCode?: string;
   requestDate: string;
   expectedDate: string;
+  date?: string;
+  payDate?: string;
+  receiveDate?: string;
   fromOfficeId: string;
   fromOfficeName: string;
   toOfficeId: string;
@@ -175,10 +184,15 @@ export interface FundTransferRecord {
   approvedAmount: number;
   transferredAmount: number;
   receivedAmount: number;
+  sentAmount?: number;
+  remainingAmount?: number;
+  receiveAmount?: number;
   responsiblePerson: string;
+  receivedPerson?: string;
+  transactionType?: string;
   purpose: string;
   referenceNumber?: string;
-  status: FundTransferStatus;
+  status: FundTransferStatus | "Completed";
   dispatchedAt?: string;
   receivedAt?: string;
   approvalHistory?: Array<{ action: string; by: string; at: string; remarks?: string }>;
