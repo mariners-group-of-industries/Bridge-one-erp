@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import React, { useMemo, useState } from "react";
 import Link from "next/link";
 import {
   ArrowDownRight,
@@ -9,33 +9,59 @@ import {
   BookOpen,
   Calendar,
   CheckCircle2,
+  ChevronRight,
   Clock,
   DollarSign,
+  FileSpreadsheet,
   FileText,
   Filter,
   Layers,
-  PieChart,
+  PieChart as PieChartIcon,
+  Plus,
   RefreshCw,
   Scale,
+  ShieldCheck,
   TrendingDown,
   TrendingUp,
   Wallet,
 } from "lucide-react";
-import { PageContainer, PageHead } from "@/components/layout/page";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
+import {
+  Area,
+  AreaChart,
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  Legend,
+  Pie,
+  PieChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
+import { SummaryCard } from "@/components/purchase/SummaryCard";
+import { FilterToolbar } from "@/components/purchase/FilterToolbar";
 import { useAccountingStore } from "@/features/accounts/store/accounting-store";
 
+const MONTHLY_CASH_FLOW = [
+  { month: "May 2026", income: 1450000, expense: 980000, netFlow: 470000 },
+  { month: "Jun 2026", income: 1680000, expense: 1120000, netFlow: 560000 },
+  { month: "Jul 2026", income: 1520000, expense: 1040000, netFlow: 480000 },
+  { month: "Aug 2026", income: 1890000, expense: 1250000, netFlow: 640000 },
+  { month: "Sep 2026", income: 1740000, expense: 1180000, netFlow: 560000 },
+  { month: "Oct 2026", income: 1980000, expense: 1320000, netFlow: 660000 },
+];
+
 export default function AccountDashboardPage() {
-  const [dateRange, setDateRange] = useState({ from: "2026-07-01", to: "2027-06-30" });
-  const [selectedOffice, setSelectedOffice] = useState("all");
+  const [fromDate, setFromDate] = useState("2026-07-01");
+  const [toDate, setToDate] = useState("2027-06-30");
+  const [selectedOffice, setSelectedOffice] = useState("ALL");
 
   const getDashboardKPIs = useAccountingStore((s) => s.getDashboardKPIs);
   const vouchers = useAccountingStore((s) => s.vouchers);
   const expenses = useAccountingStore((s) => s.expenses);
   const transfers = useAccountingStore((s) => s.transfers);
-  const cheques = useAccountingStore((s) => s.cheques);
   const costCenters = useAccountingStore((s) => s.costCenters);
 
   const kpis = useMemo(() => getDashboardKPIs(), [getDashboardKPIs]);
@@ -47,449 +73,406 @@ export default function AccountDashboardPage() {
   const quickRatio = ((kpis.cashInHand + kpis.cashAtBank + kpis.accountsReceivable * 0.9) / currentLiabilities).toFixed(2);
   const profitMargin = kpis.totalIncome > 0 ? ((kpis.currentPeriodProfitLoss / kpis.totalIncome) * 100).toFixed(1) : "0.0";
 
-  const recentVouchers = useMemo(() => {
-    return vouchers.slice(0, 6);
-  }, [vouchers]);
+  const recentVouchers = useMemo(() => vouchers.slice(0, 6), [vouchers]);
 
   const pendingApprovals = useMemo(() => {
-    const pendingV = vouchers.filter((v) => v.status === "PENDING" || v.status === "DRAFT").map((v) => ({
-      id: v.id,
-      title: `Voucher ${v.voucherNumber}`,
-      subtitle: `${v.journalType} • ${v.officeName}`,
-      amount: v.totalDebit,
-      href: "/accounts/journal",
-      type: "Voucher",
-    }));
-    const pendingE = expenses.filter((e) => e.status === "PENDING").map((e) => ({
-      id: e.id,
-      title: `Expense ${e.expenseNumber}`,
-      subtitle: `${e.expenseType} • ${e.payeeName}`,
-      amount: e.amount,
-      href: "/accounts/expenses",
-      type: "Expense",
-    }));
-    const pendingT = transfers.filter((t) => t.status === "PENDING_APPROVAL" || t.status === "IN_TRANSIT").map((t) => ({
-      id: t.id,
-      title: `Transfer ${t.transferNumber}`,
-      subtitle: `${t.fromOfficeName} → ${t.toOfficeName}`,
-      amount: t.requestedAmount,
-      href: "/accounts/fund-transfers",
-      type: "Transfer",
-    }));
-    return [...pendingV, ...pendingE, ...pendingT].slice(0, 5);
+    const pendingV = vouchers
+      .filter((v) => v.status === "PENDING" || v.status === "DRAFT")
+      .map((v) => ({
+        id: v.id,
+        title: `Voucher ${v.voucherNumber}`,
+        subtitle: `${v.journalType} • ${v.officeName}`,
+        amount: v.totalDebit,
+        href: "/accounts/journal",
+        type: "Voucher",
+      }));
+    const pendingE = expenses
+      .filter((e) => e.status === "PENDING")
+      .map((e) => ({
+        id: e.id,
+        title: `Expense ${e.expenseNumber}`,
+        subtitle: `${e.expenseType} • ${e.payeeName}`,
+        amount: e.amount,
+        href: "/accounts/expenses",
+        type: "Expense",
+      }));
+    const pendingT = transfers
+      .filter((t) => t.status === "PENDING_APPROVAL" || t.status === "IN_TRANSIT")
+      .map((t) => ({
+        id: t.id,
+        title: `Transfer ${t.transferNumber}`,
+        subtitle: `${t.fromOfficeName} → ${t.toOfficeName}`,
+        amount: t.requestedAmount,
+        href: "/accounts/fund-transfers",
+        type: "Transfer",
+      }));
+    return [...pendingV, ...pendingE, ...pendingT].slice(0, 6);
   }, [vouchers, expenses, transfers]);
 
   return (
-    <PageContainer>
-      <PageHead
-        title="Account Dashboard"
-        subtitle="Real-time financial status, double-entry KPIs, cash flows, and approval workflows"
-        actions={
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="flex items-center gap-1.5 rounded-lg border border-line bg-surface px-2.5 py-1 text-xs text-ink-muted">
-              <Calendar className="size-3.5" />
-              <span>FY 2026–2027</span>
+    <div className="space-y-3 font-sans pb-12">
+      {/* ------------------------------------------------------------- */}
+      {/* 1. TOP HEADER (Exact Managerium / Purchase Layout) */}
+      {/* ------------------------------------------------------------- */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-3 rounded border border-slate-200/90 shadow-2xs">
+        <div>
+          <nav className="flex items-center gap-1.5 text-[11px] text-slate-400 mb-0.5">
+            <Link href="/accounts" className="hover:text-slate-600 transition">
+              Account
+            </Link>
+            <ChevronRight className="w-3 h-3 text-slate-300" />
+            <span className="text-slate-600 font-medium">Dashboard</span>
+          </nav>
+          <h1 className="text-xl font-bold text-slate-900 tracking-tight">Account Dashboard</h1>
+          <p className="text-xs text-slate-500 mt-0.5">
+            Executive financial status, double-entry ledger KPIs, liquidity analysis, and pending workflows
+          </p>
+        </div>
+
+        <div className="flex items-center gap-2 flex-wrap">
+          <Link
+            href="/accounts/journal"
+            className="h-9 px-4 bg-[#2563eb] hover:bg-blue-700 text-white font-semibold text-xs rounded flex items-center gap-1.5 shadow-xs transition"
+          >
+            <Plus className="w-4 h-4" />
+            <span>New Journal Voucher</span>
+          </Link>
+          <Link
+            href="/accounts/financial-reports"
+            className="h-9 px-3.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs rounded flex items-center gap-1.5 transition"
+          >
+            <FileText className="w-3.5 h-3.5" />
+            <span>Financial Statements</span>
+          </Link>
+        </div>
+      </div>
+
+      {/* ------------------------------------------------------------- */}
+      {/* 2. FILTER TOOLBAR (Managerium Filter Design) */}
+      {/* ------------------------------------------------------------- */}
+      <FilterToolbar
+        onApply={() => {}}
+        onReset={() => {
+          setFromDate("2026-07-01");
+          setToDate("2027-06-30");
+          setSelectedOffice("ALL");
+        }}
+        showExport={false}
+      >
+        <div className="flex items-center gap-1.5 text-xs text-slate-600">
+          <span className="font-medium text-[11px] text-slate-500">From:</span>
+          <input
+            type="date"
+            value={fromDate}
+            onChange={(e) => setFromDate(e.target.value)}
+            className="border border-slate-200 rounded px-2 py-1 text-xs bg-slate-50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+          />
+        </div>
+        <div className="flex items-center gap-1.5 text-xs text-slate-600">
+          <span className="font-medium text-[11px] text-slate-500">To:</span>
+          <input
+            type="date"
+            value={toDate}
+            onChange={(e) => setToDate(e.target.value)}
+            className="border border-slate-200 rounded px-2 py-1 text-xs bg-slate-50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+          />
+        </div>
+        <div className="flex items-center gap-1.5 text-xs text-slate-600">
+          <span className="font-medium text-[11px] text-slate-500">Office / Unit:</span>
+          <select
+            value={selectedOffice}
+            onChange={(e) => setSelectedOffice(e.target.value)}
+            className="border border-slate-200 rounded px-2 py-1 text-xs bg-slate-50 focus:bg-white max-w-[200px] focus:outline-none focus:ring-1 focus:ring-blue-500"
+          >
+            <option value="ALL">All Branches & Plants</option>
+            <option value="office-main">Corporate Head Office (Dhaka)</option>
+            <option value="office-ctg">Chittagong Heavy Plant</option>
+          </select>
+        </div>
+      </FilterToolbar>
+
+      {/* ------------------------------------------------------------- */}
+      {/* 3. PRIMARY FINANCIAL KPI CARDS ROW (Exact SummaryCard Design) */}
+      {/* ------------------------------------------------------------- */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+        <SummaryCard
+          title="Cash in Hand"
+          value={`৳${kpis.cashInHand.toLocaleString()}`}
+          subtitle="Vault & petty cash"
+          icon={Wallet}
+          variant="info"
+        />
+        <SummaryCard
+          title="Cash at Bank"
+          value={`৳${kpis.cashAtBank.toLocaleString()}`}
+          subtitle="Reconciled balances"
+          icon={Banknote}
+          variant="info"
+        />
+        <SummaryCard
+          title="Accounts Receivable"
+          value={`৳${kpis.accountsReceivable.toLocaleString()}`}
+          subtitle="Outstanding customer dues"
+          icon={TrendingUp}
+          variant="success"
+        />
+        <SummaryCard
+          title="Accounts Payable"
+          value={`৳${kpis.accountsPayable.toLocaleString()}`}
+          subtitle="Outstanding supplier dues"
+          icon={TrendingDown}
+          variant="danger"
+        />
+        <SummaryCard
+          title="Total Income"
+          value={`৳${kpis.totalIncome.toLocaleString()}`}
+          subtitle="Gross sales & revenue"
+          icon={DollarSign}
+          variant="success"
+        />
+        <SummaryCard
+          title="Total Expenses"
+          value={`৳${kpis.totalExpenses.toLocaleString()}`}
+          subtitle="OpEx & admin charges"
+          icon={Clock}
+          variant="warning"
+        />
+      </div>
+
+      {/* ------------------------------------------------------------- */}
+      {/* 4. SECONDARY LIQUIDITY & WORKFLOW KPIS */}
+      {/* ------------------------------------------------------------- */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+        <SummaryCard
+          title="Opening Cash & Bank"
+          value={`৳${kpis.openingCashAndBank.toLocaleString()}`}
+          subtitle="Start of fiscal period"
+          icon={Scale}
+          variant="default"
+        />
+        <SummaryCard
+          title="Closing Cash & Bank"
+          value={`৳${kpis.closingCashAndBank.toLocaleString()}`}
+          subtitle="Net available liquidity"
+          icon={ShieldCheck}
+          variant="info"
+        />
+        <SummaryCard
+          title="Net Profit / (Loss)"
+          value={`৳${kpis.currentPeriodProfitLoss.toLocaleString()}`}
+          subtitle={kpis.currentPeriodProfitLoss >= 0 ? "Operating surplus" : "Net deficit"}
+          icon={CheckCircle2}
+          variant={kpis.currentPeriodProfitLoss >= 0 ? "success" : "danger"}
+        />
+        <SummaryCard
+          title="Pending Vouchers"
+          value={kpis.pendingJournalVouchers}
+          subtitle="Awaiting posting"
+          icon={BookOpen}
+          variant="warning"
+        />
+        <SummaryCard
+          title="Pending Expenses"
+          value={kpis.pendingExpenseApprovals}
+          subtitle="Awaiting approval"
+          icon={Clock}
+          variant="warning"
+        />
+        <SummaryCard
+          title="Budget Utilization"
+          value={`${kpis.budgetUtilization.toFixed(1)}%`}
+          subtitle="CapEx & OpEx pace"
+          icon={PieChartIcon}
+          variant="info"
+        />
+      </div>
+
+      {/* ------------------------------------------------------------- */}
+      {/* 5. VISUAL CHARTS ROW (Income vs Expense & Monthly Cash Flow) */}
+      {/* ------------------------------------------------------------- */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+        {/* Cash Flow Area Chart */}
+        <div className="bg-white rounded border border-slate-200/90 p-4 shadow-2xs">
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <h3 className="text-sm font-bold text-slate-900 tracking-tight">Monthly Income vs. Expense Trend</h3>
+              <p className="text-[11px] text-slate-500">Historical inflows and operational disbursements</p>
             </div>
-            <select
-              value={selectedOffice}
-              onChange={(e) => setSelectedOffice(e.target.value)}
-              className="rounded-lg border border-line bg-surface px-3 py-1.5 text-xs font-medium text-ink outline-none transition focus:border-primary"
+            <span className="text-[11px] font-semibold text-blue-600 bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
+              FY 2026-27
+            </span>
+          </div>
+          <div className="h-64 w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={MONTHLY_CASH_FLOW} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="incomeGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#10b981" stopOpacity={0.4} />
+                    <stop offset="95%" stopColor="#10b981" stopOpacity={0.0} />
+                  </linearGradient>
+                  <linearGradient id="expenseGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#ef4444" stopOpacity={0.4} />
+                    <stop offset="95%" stopColor="#ef4444" stopOpacity={0.0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+                <XAxis dataKey="month" tick={{ fontSize: 11, fill: "#64748b" }} axisLine={{ stroke: "#e2e8f0" }} />
+                <YAxis
+                  tick={{ fontSize: 11, fill: "#64748b" }}
+                  axisLine={{ stroke: "#e2e8f0" }}
+                  tickFormatter={(v) => `৳${(v / 100000).toFixed(0)}L`}
+                />
+                <Tooltip
+                  formatter={(val: any) => [`৳${Number(val).toLocaleString()}`, ""]}
+                  contentStyle={{ backgroundColor: "#ffffff", borderColor: "#cbd5e1", borderRadius: "6px", fontSize: "12px" }}
+                />
+                <Legend iconType="circle" wrapperStyle={{ fontSize: "12px", paddingTop: "8px" }} />
+                <Area type="monotone" dataKey="income" name="Income (৳)" stroke="#10b981" fill="url(#incomeGrad)" strokeWidth={2} />
+                <Area type="monotone" dataKey="expense" name="Expense (৳)" stroke="#ef4444" fill="url(#expenseGrad)" strokeWidth={2} />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        {/* Net Cash Flow Bar Chart */}
+        <div className="bg-white rounded border border-slate-200/90 p-4 shadow-2xs">
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <h3 className="text-sm font-bold text-slate-900 tracking-tight">Net Cash Flow Trajectory</h3>
+              <p className="text-[11px] text-slate-500">Period net operating surplus / deficit</p>
+            </div>
+            <span className="text-[11px] font-semibold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+              Liquidity
+            </span>
+          </div>
+          <div className="h-64 w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={MONTHLY_CASH_FLOW} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+                <XAxis dataKey="month" tick={{ fontSize: 11, fill: "#64748b" }} axisLine={{ stroke: "#e2e8f0" }} />
+                <YAxis
+                  tick={{ fontSize: 11, fill: "#64748b" }}
+                  axisLine={{ stroke: "#e2e8f0" }}
+                  tickFormatter={(v) => `৳${(v / 100000).toFixed(0)}L`}
+                />
+                <Tooltip
+                  formatter={(val: any) => [`৳${Number(val).toLocaleString()}`, "Net Flow"]}
+                  contentStyle={{ backgroundColor: "#ffffff", borderColor: "#cbd5e1", borderRadius: "6px", fontSize: "12px" }}
+                />
+                <Bar dataKey="netFlow" name="Net Cash Flow (৳)" fill="#2563eb" radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      </div>
+
+      {/* ------------------------------------------------------------- */}
+      {/* 6. FINANCIAL RATIOS & RECENT TRANSACTIONS */}
+      {/* ------------------------------------------------------------- */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+        {/* Financial Health Ratios Card */}
+        <div className="bg-white rounded border border-slate-200/90 p-4 shadow-2xs space-y-3">
+          <h3 className="text-sm font-bold text-slate-900 tracking-tight">Financial Health & Ratios</h3>
+          <div className="space-y-2.5 text-xs">
+            <div className="p-3 bg-slate-50 rounded border border-slate-200 flex items-center justify-between">
+              <div>
+                <span className="font-semibold text-slate-800 block">Current Ratio</span>
+                <span className="text-[11px] text-slate-500">Current Assets / Current Liabilities</span>
+              </div>
+              <span className="text-base font-extrabold text-blue-600 font-mono">{currentRatio}x</span>
+            </div>
+
+            <div className="p-3 bg-slate-50 rounded border border-slate-200 flex items-center justify-between">
+              <div>
+                <span className="font-semibold text-slate-800 block">Quick / Acid-Test Ratio</span>
+                <span className="text-[11px] text-slate-500">Liquid Assets / Current Liabilities</span>
+              </div>
+              <span className="text-base font-extrabold text-emerald-600 font-mono">{quickRatio}x</span>
+            </div>
+
+            <div className="p-3 bg-slate-50 rounded border border-slate-200 flex items-center justify-between">
+              <div>
+                <span className="font-semibold text-slate-800 block">Net Profit Margin</span>
+                <span className="text-[11px] text-slate-500">Net Profit as % of Revenue</span>
+              </div>
+              <span className="text-base font-extrabold text-slate-800 font-mono">{profitMargin}%</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Recent Journal Vouchers Table */}
+        <div className="bg-white rounded border border-slate-200/90 shadow-2xs overflow-hidden lg:col-span-2">
+          <div className="px-4 py-3 border-b border-slate-200 flex items-center justify-between bg-slate-50/50">
+            <div>
+              <h3 className="text-sm font-bold text-slate-900 tracking-tight">Recent General Ledger Vouchers</h3>
+              <p className="text-[11px] text-slate-500">Audited double-entry transactions</p>
+            </div>
+            <Link
+              href="/accounts/journal"
+              className="text-xs font-semibold text-blue-600 hover:text-blue-800 transition"
             >
-              <option value="all">All Offices & Branches</option>
-              <option value="hq">Dhaka Corporate HQ</option>
-              <option value="ctg">Chittagong Plant</option>
-            </select>
-            <Link href="/accounts/journal">
-              <Button variant="primary" size="sm">
-                <BookOpen className="mr-1.5 size-3.5" />
-                New Journal Voucher
-              </Button>
+              View Journal Register →
             </Link>
           </div>
-        }
-      />
 
-      {/* Primary KPI Ribbon (16 Requirements) */}
-      <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-4 xl:grid-cols-8">
-        {/* Row 1 */}
-        <div className="rounded-xl border border-line bg-surface p-3 shadow-xs">
-          <p className="text-[11px] font-medium text-ink-muted">Accounts Receivable</p>
-          <p className="mt-1 text-base font-bold text-ink">৳{kpis.accountsReceivable.toLocaleString()}</p>
-          <div className="mt-1 flex items-center gap-1 text-[10px] text-emerald-600">
-            <ArrowUpRight className="size-3" />
-            <span>Customer Dues</span>
-          </div>
-        </div>
-
-        <div className="rounded-xl border border-line bg-surface p-3 shadow-xs">
-          <p className="text-[11px] font-medium text-ink-muted">Accounts Payable</p>
-          <p className="mt-1 text-base font-bold text-ink">৳{kpis.accountsPayable.toLocaleString()}</p>
-          <div className="mt-1 flex items-center gap-1 text-[10px] text-amber-600">
-            <ArrowDownRight className="size-3" />
-            <span>Supplier Bills</span>
-          </div>
-        </div>
-
-        <div className="rounded-xl border border-line bg-surface p-3 shadow-xs">
-          <p className="text-[11px] font-medium text-ink-muted">Cash in Hand</p>
-          <p className="mt-1 text-base font-bold text-ink">৳{kpis.cashInHand.toLocaleString()}</p>
-          <div className="mt-1 flex items-center gap-1 text-[10px] text-ink-faint">
-            <Wallet className="size-3" />
-            <span>Vault & Petty Cash</span>
-          </div>
-        </div>
-
-        <div className="rounded-xl border border-line bg-surface p-3 shadow-xs">
-          <p className="text-[11px] font-medium text-ink-muted">Cash at Bank</p>
-          <p className="mt-1 text-base font-bold text-ink">৳{kpis.cashAtBank.toLocaleString()}</p>
-          <div className="mt-1 flex items-center gap-1 text-[10px] text-primary">
-            <Banknote className="size-3" />
-            <span>Bank Accounts</span>
-          </div>
-        </div>
-
-        <div className="rounded-xl border border-line bg-surface p-3 shadow-xs">
-          <p className="text-[11px] font-medium text-ink-muted">Total Income</p>
-          <p className="mt-1 text-base font-bold text-emerald-600">৳{kpis.totalIncome.toLocaleString()}</p>
-          <div className="mt-1 flex items-center gap-1 text-[10px] text-emerald-600">
-            <TrendingUp className="size-3" />
-            <span>Gross Revenue</span>
-          </div>
-        </div>
-
-        <div className="rounded-xl border border-line bg-surface p-3 shadow-xs">
-          <p className="text-[11px] font-medium text-ink-muted">Total Expenses</p>
-          <p className="mt-1 text-base font-bold text-rose-600">৳{kpis.totalExpenses.toLocaleString()}</p>
-          <div className="mt-1 flex items-center gap-1 text-[10px] text-rose-600">
-            <TrendingDown className="size-3" />
-            <span>Operational & Admin</span>
-          </div>
-        </div>
-
-        <div className="rounded-xl border border-line bg-surface p-3 shadow-xs">
-          <p className="text-[11px] font-medium text-ink-muted">Opening Cash & Bank</p>
-          <p className="mt-1 text-base font-bold text-ink">৳{kpis.openingCashAndBank.toLocaleString()}</p>
-          <div className="mt-1 text-[10px] text-ink-faint">Start of Period</div>
-        </div>
-
-        <div className="rounded-xl border border-line bg-surface p-3 shadow-xs">
-          <p className="text-[11px] font-medium text-ink-muted">Closing Cash & Bank</p>
-          <p className="mt-1 text-base font-bold text-primary">৳{kpis.closingCashAndBank.toLocaleString()}</p>
-          <div className="mt-1 text-[10px] text-ink-faint">Available Liquidity</div>
-        </div>
-      </div>
-
-      {/* Row 2 KPI Cards */}
-      <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-4 xl:grid-cols-8">
-        <div className="rounded-xl border border-line bg-surface p-3 shadow-xs">
-          <p className="text-[11px] font-medium text-ink-muted">Total Receipts</p>
-          <p className="mt-1 text-base font-bold text-emerald-600">৳{kpis.totalReceipts.toLocaleString()}</p>
-          <div className="mt-1 text-[10px] text-ink-faint">Period Inflows</div>
-        </div>
-
-        <div className="rounded-xl border border-line bg-surface p-3 shadow-xs">
-          <p className="text-[11px] font-medium text-ink-muted">Total Payments</p>
-          <p className="mt-1 text-base font-bold text-amber-600">৳{kpis.totalPayments.toLocaleString()}</p>
-          <div className="mt-1 text-[10px] text-ink-faint">Period Outflows</div>
-        </div>
-
-        <div className="rounded-xl border border-line bg-surface p-3 shadow-xs">
-          <p className="text-[11px] font-medium text-ink-muted">Current Period P&L</p>
-          <p className={`mt-1 text-base font-bold ${kpis.currentPeriodProfitLoss >= 0 ? "text-emerald-600" : "text-rose-600"}`}>
-            ৳{kpis.currentPeriodProfitLoss.toLocaleString()}
-          </p>
-          <div className="mt-1 text-[10px] text-ink-faint">{kpis.currentPeriodProfitLoss >= 0 ? "Net Profit" : "Net Loss"}</div>
-        </div>
-
-        <div className="rounded-xl border border-line bg-surface p-3 shadow-xs">
-          <p className="text-[11px] font-medium text-ink-muted">Pending Vouchers</p>
-          <p className="mt-1 text-base font-bold text-amber-600">{kpis.pendingJournalVouchers}</p>
-          <div className="mt-1 text-[10px] text-ink-faint">Awaiting Posting</div>
-        </div>
-
-        <div className="rounded-xl border border-line bg-surface p-3 shadow-xs">
-          <p className="text-[11px] font-medium text-ink-muted">Pending Expenses</p>
-          <p className="mt-1 text-base font-bold text-amber-600">{kpis.pendingExpenseApprovals}</p>
-          <div className="mt-1 text-[10px] text-ink-faint">Needs Approval</div>
-        </div>
-
-        <div className="rounded-xl border border-line bg-surface p-3 shadow-xs">
-          <p className="text-[11px] font-medium text-ink-muted">Pending Transfers</p>
-          <p className="mt-1 text-base font-bold text-blue-600">{kpis.pendingFundTransfers}</p>
-          <div className="mt-1 text-[10px] text-ink-faint">In Transit / Pending</div>
-        </div>
-
-        <div className="rounded-xl border border-line bg-surface p-3 shadow-xs">
-          <p className="text-[11px] font-medium text-ink-muted">Outstanding Cheques</p>
-          <p className="mt-1 text-base font-bold text-violet-600">{kpis.outstandingCheques}</p>
-          <div className="mt-1 text-[10px] text-ink-faint">Un-cleared Leaves</div>
-        </div>
-
-        <div className="rounded-xl border border-line bg-surface p-3 shadow-xs">
-          <p className="text-[11px] font-medium text-ink-muted">Budget Utilization</p>
-          <p className="mt-1 text-base font-bold text-ink">{kpis.budgetUtilization.toFixed(1)}%</p>
-          <div className="mt-1 text-[10px] text-ink-faint">CapEx & OpEx</div>
-        </div>
-      </div>
-
-      {/* Main Grid: Visual Trend Breakdown & Ratios */}
-      <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-3">
-        {/* Income vs Expense & Cash Flow Visuals */}
-        <div className="space-y-4 lg:col-span-2">
-          <Card className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="text-sm font-semibold text-ink">Income vs. Expense Trend</h3>
-                <p className="text-xs text-ink-muted">Monthly financial performance & operating margin</p>
-              </div>
-              <div className="flex items-center gap-3 text-xs">
-                <span className="flex items-center gap-1.5 font-medium text-emerald-600">
-                  <span className="size-2.5 rounded-full bg-emerald-500" /> Income
-                </span>
-                <span className="flex items-center gap-1.5 font-medium text-rose-600">
-                  <span className="size-2.5 rounded-full bg-rose-500" /> Expense
-                </span>
-              </div>
-            </div>
-
-            {/* Visual Bar representation */}
-            <div className="mt-6 space-y-4">
-              <div>
-                <div className="flex justify-between text-xs font-medium text-ink">
-                  <span>Operating Revenue</span>
-                  <span>৳{kpis.totalIncome.toLocaleString()}</span>
-                </div>
-                <div className="mt-1.5 h-3 w-full overflow-hidden rounded-full bg-control">
-                  <div
-                    className="h-full rounded-full bg-emerald-500 transition-all duration-500"
-                    style={{ width: `${Math.min(100, (kpis.totalIncome / Math.max(1, kpis.totalIncome + kpis.totalExpenses)) * 100)}%` }}
-                  />
-                </div>
-              </div>
-
-              <div>
-                <div className="flex justify-between text-xs font-medium text-ink">
-                  <span>Total Operational & Administrative Expense</span>
-                  <span>৳{kpis.totalExpenses.toLocaleString()}</span>
-                </div>
-                <div className="mt-1.5 h-3 w-full overflow-hidden rounded-full bg-control">
-                  <div
-                    className="h-full rounded-full bg-rose-500 transition-all duration-500"
-                    style={{ width: `${Math.min(100, (kpis.totalExpenses / Math.max(1, kpis.totalIncome + kpis.totalExpenses)) * 100)}%` }}
-                  />
-                </div>
-              </div>
-
-              <div>
-                <div className="flex justify-between text-xs font-medium text-ink">
-                  <span>Cash Flow Inflow vs. Outflow</span>
-                  <span>Net Flow: ৳{(kpis.totalReceipts - kpis.totalPayments).toLocaleString()}</span>
-                </div>
-                <div className="mt-1.5 flex h-3 w-full overflow-hidden rounded-full bg-control">
-                  <div
-                    className="h-full bg-primary"
-                    style={{ width: `${Math.min(100, (kpis.totalReceipts / Math.max(1, kpis.totalReceipts + kpis.totalPayments)) * 100)}%` }}
-                  />
-                  <div
-                    className="h-full bg-amber-500"
-                    style={{ width: `${Math.min(100, (kpis.totalPayments / Math.max(1, kpis.totalReceipts + kpis.totalPayments)) * 100)}%` }}
-                  />
-                </div>
-              </div>
-            </div>
-
-            {/* Quick Summary Footnote */}
-            <div className="mt-6 grid grid-cols-3 gap-2 border-t border-line pt-3 text-center text-xs">
-              <div>
-                <p className="text-ink-muted">Net Cash Flow</p>
-                <p className="mt-0.5 font-semibold text-ink">৳{(kpis.totalReceipts - kpis.totalPayments).toLocaleString()}</p>
-              </div>
-              <div>
-                <p className="text-ink-muted">Liquid Assets</p>
-                <p className="mt-0.5 font-semibold text-ink">৳{(kpis.cashInHand + kpis.cashAtBank).toLocaleString()}</p>
-              </div>
-              <div>
-                <p className="text-ink-muted">Operating Margin</p>
-                <p className="mt-0.5 font-semibold text-emerald-600">{profitMargin}%</p>
-              </div>
-            </div>
-          </Card>
-
-          {/* Recent Posted Vouchers */}
-          <Card className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="text-sm font-semibold text-ink">Recent Journal Transactions</h3>
-                <p className="text-xs text-ink-muted">Chronological audit stream from General Ledger</p>
-              </div>
-              <Link href="/accounts/journal" className="text-xs font-medium text-primary hover:underline">
-                View Journal Repository →
-              </Link>
-            </div>
-
-            <div className="mt-3 divide-y divide-line">
-              {recentVouchers.length === 0 ? (
-                <div className="py-8 text-center text-xs text-ink-faint">
-                  No journal vouchers recorded yet. Click &quot;New Journal Voucher&quot; to post entries.
-                </div>
-              ) : (
-                recentVouchers.map((v) => (
-                  <div key={v.id} className="flex items-center justify-between py-2.5 text-xs">
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className="font-semibold text-ink">{v.voucherNumber}</span>
-                        <Badge
-                          variant={
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead className="bg-slate-50 border-b border-slate-200 text-[11px] font-bold text-slate-700 uppercase tracking-wider">
+                <tr>
+                  <th className="px-3.5 py-2">Voucher #</th>
+                  <th className="px-3.5 py-2">Date</th>
+                  <th className="px-3.5 py-2">Type</th>
+                  <th className="px-3.5 py-2">Office</th>
+                  <th className="px-3.5 py-2 text-right">Debit (৳)</th>
+                  <th className="px-3.5 py-2 text-right">Credit (৳)</th>
+                  <th className="px-3.5 py-2 text-center">Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {recentVouchers.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="py-6 text-center text-slate-400">
+                      No journal vouchers recorded yet.
+                    </td>
+                  </tr>
+                ) : (
+                  recentVouchers.map((v) => (
+                    <tr key={v.id} className="hover:bg-slate-50/80 transition-colors">
+                      <td className="px-3.5 py-2 font-mono font-bold text-blue-600">{v.voucherNumber}</td>
+                      <td className="px-3.5 py-2 text-slate-600">{v.transactionDate}</td>
+                      <td className="px-3.5 py-2">
+                        <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-slate-100 text-slate-700">
+                          {v.journalType}
+                        </span>
+                      </td>
+                      <td className="px-3.5 py-2 text-slate-600">{v.officeName}</td>
+                      <td className="px-3.5 py-2 text-right font-mono font-semibold text-slate-800">
+                        ৳{v.totalDebit.toLocaleString()}
+                      </td>
+                      <td className="px-3.5 py-2 text-right font-mono font-semibold text-slate-800">
+                        ৳{v.totalCredit.toLocaleString()}
+                      </td>
+                      <td className="px-3.5 py-2 text-center">
+                        <span
+                          className={`px-2 py-0.5 rounded-full text-[10px] font-semibold border ${
                             v.status === "POSTED"
-                              ? "success"
+                              ? "bg-emerald-50 text-emerald-700 border-emerald-200"
                               : v.status === "REVERSED"
-                              ? "neutral"
-                              : "warning"
-                          }
+                              ? "bg-rose-50 text-rose-700 border-rose-200"
+                              : "bg-amber-50 text-amber-700 border-amber-200"
+                          }`}
                         >
                           {v.status}
-                        </Badge>
-                      </div>
-                      <p className="mt-0.5 text-ink-muted">
-                        {v.transactionDate} • {v.narration || "General transaction entry"}
-                      </p>
-                    </div>
-                    <div className="text-right">
-                      <p className="font-semibold text-ink">৳{v.totalDebit.toLocaleString()}</p>
-                      <p className="text-[10px] text-ink-faint">{v.officeName}</p>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          </Card>
-        </div>
-
-        {/* Right Sidebar: Ratio Analysis & Pending Approvals */}
-        <div className="space-y-4">
-          {/* Financial Ratios Panel */}
-          <Card className="p-4">
-            <h3 className="text-sm font-semibold text-ink">Financial Ratio Analysis</h3>
-            <p className="text-xs text-ink-muted">Key balance sheet liquidity & solvency metrics</p>
-
-            <div className="mt-4 space-y-3.5">
-              <div className="flex items-center justify-between border-b border-line pb-2.5">
-                <div>
-                  <p className="text-xs font-medium text-ink">Current Ratio</p>
-                  <p className="text-[10px] text-ink-faint">Current Assets / Current Liabilities</p>
-                </div>
-                <div className="text-right">
-                  <span className="text-sm font-bold text-ink">{currentRatio}x</span>
-                  <p className="text-[10px] text-emerald-600">Benchmark: &gt; 1.5x</p>
-                </div>
-              </div>
-
-              <div className="flex items-center justify-between border-b border-line pb-2.5">
-                <div>
-                  <p className="text-xs font-medium text-ink">Quick Ratio (Acid-Test)</p>
-                  <p className="text-[10px] text-ink-faint">(Cash + Receivables) / Current Liab.</p>
-                </div>
-                <div className="text-right">
-                  <span className="text-sm font-bold text-ink">{quickRatio}x</span>
-                  <p className="text-[10px] text-emerald-600">Benchmark: &gt; 1.0x</p>
-                </div>
-              </div>
-
-              <div className="flex items-center justify-between border-b border-line pb-2.5">
-                <div>
-                  <p className="text-xs font-medium text-ink">Net Profit Margin</p>
-                  <p className="text-[10px] text-ink-faint">Net Income / Total Revenue</p>
-                </div>
-                <div className="text-right">
-                  <span className="text-sm font-bold text-emerald-600">{profitMargin}%</span>
-                  <p className="text-[10px] text-ink-faint">Net Return</p>
-                </div>
-              </div>
-
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-xs font-medium text-ink">Debt-to-Equity</p>
-                  <p className="text-[10px] text-ink-faint">Total Liabilities / Shareholder Equity</p>
-                </div>
-                <div className="text-right">
-                  <span className="text-sm font-bold text-ink">
-                    {(kpis.accountsPayable / 2700000).toFixed(2)}x
-                  </span>
-                  <p className="text-[10px] text-emerald-600">Healthy Solvency</p>
-                </div>
-              </div>
-            </div>
-          </Card>
-
-          {/* Pending Approvals Panel */}
-          <Card className="p-4">
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-ink">Pending Approvals</h3>
-              <Badge variant="warning">{pendingApprovals.length}</Badge>
-            </div>
-            <p className="text-xs text-ink-muted">Tasks awaiting authorized verification</p>
-
-            <div className="mt-3 divide-y divide-line">
-              {pendingApprovals.length === 0 ? (
-                <div className="py-6 text-center text-xs text-emerald-600">
-                  <CheckCircle2 className="mx-auto mb-1.5 size-5" />
-                  All vouchers and payments are up to date!
-                </div>
-              ) : (
-                pendingApprovals.map((item) => (
-                  <div key={item.id} className="flex items-center justify-between py-2 text-xs">
-                    <div>
-                      <p className="font-medium text-ink">{item.title}</p>
-                      <p className="text-[10px] text-ink-muted">{item.subtitle}</p>
-                    </div>
-                    <div className="text-right">
-                      <p className="font-semibold text-ink">৳{item.amount.toLocaleString()}</p>
-                      <Link href={item.href} className="text-[10px] font-medium text-primary hover:underline">
-                        Review →
-                      </Link>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          </Card>
-
-          {/* Quick Access Tiles */}
-          <Card className="p-4">
-            <h3 className="text-sm font-semibold text-ink">Accounting Shortcuts</h3>
-            <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
-              <Link
-                href="/accounts/chart-of-accounts"
-                className="flex items-center gap-2 rounded-lg border border-line p-2.5 transition hover:bg-control"
-              >
-                <Layers className="size-4 text-primary" />
-                <span className="font-medium text-ink">Chart of Accounts</span>
-              </Link>
-              <Link
-                href="/accounts/expenses"
-                className="flex items-center gap-2 rounded-lg border border-line p-2.5 transition hover:bg-control"
-              >
-                <Wallet className="size-4 text-emerald-600" />
-                <span className="font-medium text-ink">Expense Claim</span>
-              </Link>
-              <Link
-                href="/accounts/fund-transfers"
-                className="flex items-center gap-2 rounded-lg border border-line p-2.5 transition hover:bg-control"
-              >
-                <DollarSign className="size-4 text-blue-600" />
-                <span className="font-medium text-ink">Fund Transfer</span>
-              </Link>
-              <Link
-                href="/accounts/financial-reports"
-                className="flex items-center gap-2 rounded-lg border border-line p-2.5 transition hover:bg-control"
-              >
-                <FileText className="size-4 text-violet-600" />
-                <span className="font-medium text-ink">Financial Reports</span>
-              </Link>
-            </div>
-          </Card>
+                        </span>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
-    </PageContainer>
+    </div>
   );
 }

@@ -1,32 +1,29 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import React, { useMemo, useState } from "react";
+import Link from "next/link";
 import {
   ChevronDown,
   ChevronRight,
   Download,
+  Eye,
   FileSpreadsheet,
+  FileText,
   Folder,
   FolderOpen,
   Layers,
   List,
+  Pencil,
   Plus,
   Printer,
+  RotateCcw,
   Search,
+  ShieldCheck,
   Tag,
+  X,
 } from "lucide-react";
-import { PageContainer, PageHead } from "@/components/layout/page";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { SummaryCard } from "@/components/purchase/SummaryCard";
+import { ModalDialog } from "@/components/purchase/ModalDialog";
 import { useAccountingStore } from "@/features/accounts/store/accounting-store";
 import type { AccountItem, AccountType, NormalBalance } from "@/features/accounts/types";
 
@@ -36,12 +33,13 @@ export default function ChartOfAccountsPage() {
   const updateAccount = useAccountingStore((s) => s.updateAccount);
   const toggleAccountStatus = useAccountingStore((s) => s.toggleAccountStatus);
 
-  const [viewMode, setViewMode] = useState<"tree" | "table">("tree");
-  const [searchQuery, setSearchQuery] = useState("");
+  const [activeTab, setActiveTab] = useState<"TREE" | "TABLE">("TREE");
+  const [search, setSearch] = useState("");
   const [filterType, setFilterType] = useState<string>("ALL");
   const [expandedNodes, setExpandedNodes] = useState<Record<string, boolean>>({
     "1000": true,
     "1100": true,
+    "1200": true,
     "2000": true,
     "2100": true,
     "3000": true,
@@ -74,23 +72,22 @@ export default function ChartOfAccountsPage() {
 
   const filteredAccounts = useMemo(() => {
     return accounts.filter((acc) => {
-      const matchesSearch =
-        acc.code.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        acc.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        acc.accountSubtype.toLowerCase().includes(searchQuery.toLowerCase());
-      const matchesType = filterType === "ALL" || acc.accountType === filterType;
-      return matchesSearch && matchesType;
+      if (search) {
+        const q = search.toLowerCase();
+        const m =
+          acc.code.toLowerCase().includes(q) ||
+          acc.name.toLowerCase().includes(q) ||
+          acc.accountSubtype.toLowerCase().includes(q);
+        if (!m) return false;
+      }
+      if (filterType !== "ALL" && acc.accountType !== filterType) return false;
+      return true;
     });
-  }, [accounts, searchQuery, filterType]);
+  }, [accounts, search, filterType]);
 
-  // Hierarchical tree building
-  const rootAccounts = useMemo(() => {
-    return accounts.filter((a) => !a.parentCode);
-  }, [accounts]);
+  const rootAccounts = useMemo(() => accounts.filter((a) => !a.parentCode), [accounts]);
 
-  const getChildAccounts = (parentCode: string) => {
-    return accounts.filter((a) => a.parentCode === parentCode);
-  };
+  const getChildAccounts = (parentCode: string) => accounts.filter((a) => a.parentCode === parentCode);
 
   const handleOpenCreate = (parentAccount?: AccountItem) => {
     setErrorMessage("");
@@ -98,12 +95,13 @@ export default function ChartOfAccountsPage() {
       const children = accounts.filter((a) => a.parentCode === parentAccount.code);
       const nextSuffix = (children.length + 1) * 10;
       const suggestedCode = `${parentAccount.code.slice(0, 2)}${nextSuffix.toString().padStart(2, "0")}`;
+
       setFormData({
         code: suggestedCode,
         name: "",
         parentCode: parentAccount.code,
         accountType: parentAccount.accountType,
-        accountSubtype: parentAccount.accountSubtype === "Group" ? "Ledger Account" : parentAccount.accountSubtype,
+        accountSubtype: parentAccount.accountSubtype,
         normalBalance: parentAccount.normalBalance,
         description: "",
         openingBalance: 0,
@@ -130,516 +128,527 @@ export default function ChartOfAccountsPage() {
     setIsCreateOpen(true);
   };
 
-  const handleOpenEdit = (acc: AccountItem) => {
+  const handleOpenEdit = (account: AccountItem) => {
     setErrorMessage("");
-    setEditingAccount(acc);
+    setEditingAccount(account);
     setFormData({
-      code: acc.code,
-      name: acc.name,
-      parentCode: acc.parentCode || "",
-      accountType: acc.accountType,
-      accountSubtype: acc.accountSubtype,
-      normalBalance: acc.normalBalance,
-      description: acc.description || "",
-      openingBalance: acc.openingBalance,
-      currency: acc.currency,
-      isGroup: acc.isGroup,
-      status: acc.status,
+      code: account.code,
+      name: account.name,
+      parentCode: account.parentCode || "",
+      accountType: account.accountType,
+      accountSubtype: account.accountSubtype,
+      normalBalance: account.normalBalance,
+      description: account.description || "",
+      openingBalance: account.openingBalance,
+      currency: account.currency,
+      isGroup: account.isGroup,
+      status: account.status,
     });
     setIsCreateOpen(true);
   };
 
-  const handleSave = (e: React.FormEvent) => {
+  const handleSaveAccount = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.code.trim() || !formData.name.trim()) {
-      setErrorMessage("Account code and name are required.");
+    setErrorMessage("");
+
+    if (!formData.code || !formData.name) {
+      setErrorMessage("Account code and account name are required.");
       return;
     }
 
-    // Uniqueness validation
     if (!editingAccount) {
-      const exists = accounts.some((a) => a.code === formData.code.trim());
+      const exists = accounts.some((a) => a.code === formData.code);
       if (exists) {
-        setErrorMessage(`Account code "${formData.code}" is already in use.`);
+        setErrorMessage(`Account code ${formData.code} is already in use.`);
         return;
       }
-      addAccount({
-        code: formData.code.trim(),
-        name: formData.name.trim(),
-        parentCode: formData.parentCode || null,
-        accountType: formData.accountType,
-        accountSubtype: formData.accountSubtype,
-        normalBalance: formData.normalBalance,
-        description: formData.description,
-        openingBalance: Number(formData.openingBalance) || 0,
-        currency: formData.currency,
-        isGroup: formData.isGroup,
-        status: formData.status,
-      });
+      addAccount(formData);
     } else {
-      // Check circular reference
-      if (formData.parentCode === editingAccount.code) {
-        setErrorMessage("An account cannot be its own parent.");
-        return;
-      }
-      updateAccount(editingAccount.id, {
-        code: formData.code.trim(),
-        name: formData.name.trim(),
-        parentCode: formData.parentCode || null,
-        accountType: formData.accountType,
-        accountSubtype: formData.accountSubtype,
-        normalBalance: formData.normalBalance,
-        description: formData.description,
-        isGroup: formData.isGroup,
-        status: formData.status,
-      });
+      updateAccount(editingAccount.id, formData);
     }
 
     setIsCreateOpen(false);
   };
 
-  const exportExcel = () => {
-    const csvContent =
-      "data:text/csv;charset=utf-8," +
-      ["Code,Name,Parent Code,Type,Subtype,Normal Balance,Balance,Status"]
-        .concat(
-          accounts.map(
-            (a) =>
-              `"${a.code}","${a.name}","${a.parentCode || ""}","${a.accountType}","${a.accountSubtype}","${a.normalBalance}",${a.currentBalance},"${a.status}"`,
-          ),
-        )
-        .join("\n");
-    const encodedUri = encodeURI(csvContent);
+  const handleExportCSV = () => {
+    let csv = "SL,Account Code,Account Name,Parent Code,Account Type,Subtype,Normal Balance,Opening Balance,Current Balance,Is Group,Status\n";
+    filteredAccounts.forEach((a, i) => {
+      csv += `"${i + 1}","${a.code}","${a.name}","${a.parentCode || "-"}","${a.accountType}","${a.accountSubtype}","${a.normalBalance}","${a.openingBalance}","${a.currentBalance}","${a.isGroup ? "YES" : "NO"}","${a.status}"\n`;
+    });
     const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
-    link.setAttribute("download", `chart_of_accounts_${new Date().toISOString().split("T")[0]}.csv`);
-    document.body.appendChild(link);
+    link.href = encodeURI("data:text/csv;charset=utf-8," + csv);
+    link.download = "BridgeOne_Chart_of_Accounts.csv";
     link.click();
-    document.body.removeChild(link);
+  };
+
+  // Recursive Tree Component
+  const renderTreeNode = (acc: AccountItem, level = 0) => {
+    const children = getChildAccounts(acc.code);
+    const hasChildren = children.length > 0;
+    const isExpanded = !!expandedNodes[acc.code];
+
+    return (
+      <div key={acc.id} className="select-none">
+        <div
+          className={`group flex items-center justify-between py-1.5 px-2.5 rounded hover:bg-slate-50 transition border-b border-slate-100 ${
+            acc.isGroup ? "font-bold text-slate-900 bg-slate-50/40" : "text-slate-700 font-medium"
+          }`}
+          style={{ paddingLeft: `${level * 22 + 10}px` }}
+        >
+          <div className="flex items-center gap-2">
+            {hasChildren ? (
+              <button
+                type="button"
+                onClick={() => toggleNode(acc.code)}
+                className="p-0.5 rounded text-slate-400 hover:text-slate-700 transition"
+              >
+                {isExpanded ? <ChevronDown className="w-3.5 h-3.5 text-blue-600" /> : <ChevronRight className="w-3.5 h-3.5" />}
+              </button>
+            ) : (
+              <span className="w-4 h-4 inline-block" />
+            )}
+
+            {acc.isGroup ? (
+              <FolderOpen className="w-4 h-4 text-amber-500 shrink-0" />
+            ) : (
+              <Tag className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+            )}
+
+            <span className="font-mono text-xs px-1.5 py-0.5 rounded bg-slate-100 text-slate-800 font-bold">
+              {acc.code}
+            </span>
+
+            <span className="text-xs">{acc.name}</span>
+
+            <span className="text-[10px] text-slate-400 ml-1">({acc.accountSubtype})</span>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <span
+              className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                acc.normalBalance === "DEBIT" ? "bg-blue-50 text-blue-700" : "bg-emerald-50 text-emerald-700"
+              }`}
+            >
+              {acc.normalBalance}
+            </span>
+
+            <span className="font-mono text-xs font-semibold text-slate-900 min-w-[90px] text-right">
+              ৳{acc.currentBalance.toLocaleString()}
+            </span>
+
+            <div className="opacity-0 group-hover:opacity-100 flex items-center gap-1 transition">
+              {acc.isGroup && (
+                <button
+                  type="button"
+                  onClick={() => handleOpenCreate(acc)}
+                  className="px-2 py-0.5 rounded text-[10px] font-semibold bg-blue-50 hover:bg-blue-100 text-blue-700"
+                >
+                  + Add Child
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => handleOpenEdit(acc)}
+                className="p-1 rounded text-slate-400 hover:text-blue-600 hover:bg-slate-200 transition"
+                title="Edit Account"
+              >
+                <Pencil className="w-3 h-3" />
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {hasChildren && isExpanded && (
+          <div className="space-y-0.5">{children.map((child) => renderTreeNode(child, level + 1))}</div>
+        )}
+      </div>
+    );
   };
 
   return (
-    <PageContainer>
-      <PageHead
-        title="Chart of Accounts (COA)"
-        subtitle="Manage hierarchical general ledger accounts, groups, normal balances, and financial classifications"
-        actions={
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="flex rounded-lg border border-line bg-surface p-0.5">
-              <button
-                type="button"
-                onClick={() => setViewMode("tree")}
-                className={`flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition ${
-                  viewMode === "tree" ? "bg-control font-semibold text-ink shadow-xs" : "text-ink-muted hover:text-ink"
-                }`}
-              >
-                <Layers className="size-3.5" /> Tree View
-              </button>
-              <button
-                type="button"
-                onClick={() => setViewMode("table")}
-                className={`flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition ${
-                  viewMode === "table" ? "bg-control font-semibold text-ink shadow-xs" : "text-ink-muted hover:text-ink"
-                }`}
-              >
-                <List className="size-3.5" /> Table View
-              </button>
-            </div>
-
-            <Button variant="secondary" size="sm" onClick={exportExcel}>
-              <Download className="mr-1.5 size-3.5" /> Export Excel
-            </Button>
-            <Button variant="secondary" size="sm" onClick={() => window.print()}>
-              <Printer className="mr-1.5 size-3.5" /> Print PDF
-            </Button>
-            <Button variant="primary" size="sm" onClick={() => handleOpenCreate()}>
-              <Plus className="mr-1.5 size-3.5" /> New Account
-            </Button>
-          </div>
-        }
-      />
-
-      {/* Filter and Search Bar */}
-      <Card className="mt-4 p-3">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex flex-1 items-center gap-2">
-            <div className="relative w-full max-w-sm">
-              <Search className="absolute top-2.5 left-2.5 size-3.5 text-ink-faint" />
-              <input
-                type="text"
-                placeholder="Search account code, title, or subtype..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full rounded-lg border border-line bg-surface py-1.5 pr-3 pl-8 text-xs text-ink placeholder:text-ink-faint focus:border-primary focus:outline-none"
-              />
-            </div>
-            <select
-              value={filterType}
-              onChange={(e) => setFilterType(e.target.value)}
-              className="rounded-lg border border-line bg-surface px-3 py-1.5 text-xs text-ink outline-none focus:border-primary"
-            >
-              <option value="ALL">All Account Classes</option>
-              <option value="ASSET">1000 - Assets</option>
-              <option value="LIABILITY">2000 - Liabilities</option>
-              <option value="EQUITY">3000 - Equity</option>
-              <option value="REVENUE">4000 - Revenue</option>
-              <option value="EXPENSE">5000 - Expenses</option>
-            </select>
-          </div>
-
-          <div className="flex items-center gap-3 text-xs text-ink-muted">
-            <span>
-              Total Accounts: <strong className="text-ink">{accounts.length}</strong>
-            </span>
-            <span>
-              Active Ledgers: <strong className="text-emerald-600">{accounts.filter((a) => !a.isGroup && a.status === "ACTIVE").length}</strong>
-            </span>
-          </div>
+    <div className="space-y-3 font-sans pb-12">
+      {/* ------------------------------------------------------------- */}
+      {/* 1. TOP HEADER */}
+      {/* ------------------------------------------------------------- */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-3 rounded border border-slate-200/90 shadow-2xs">
+        <div>
+          <nav className="flex items-center gap-1.5 text-[11px] text-slate-400 mb-0.5">
+            <Link href="/accounts" className="hover:text-slate-600 transition">
+              Account
+            </Link>
+            <ChevronRight className="w-3 h-3 text-slate-300" />
+            <span className="text-slate-600 font-medium">Chart of Accounts</span>
+          </nav>
+          <h1 className="text-xl font-bold text-slate-900 tracking-tight">Chart of Accounts (COA)</h1>
+          <p className="text-xs text-slate-500 mt-0.5">
+            Configurable 5-tier financial hierarchy: Assets, Liabilities, Equity, Revenue, and Expenses
+          </p>
         </div>
-      </Card>
 
-      {/* Content Rendering: Tree View vs Table View */}
-      {viewMode === "tree" ? (
-        <Card className="mt-4 p-4">
-          <div className="space-y-1 divide-y divide-line/60">
-            {rootAccounts
-              .filter((root) => filterType === "ALL" || root.accountType === filterType)
-              .map((root) => (
-                <TreeNode
-                  key={root.id}
-                  account={root}
-                  allAccounts={accounts}
-                  expandedNodes={expandedNodes}
-                  onToggle={toggleNode}
-                  onAddChild={handleOpenCreate}
-                  onEdit={handleOpenEdit}
-                  onToggleStatus={toggleAccountStatus}
-                />
-              ))}
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="relative">
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search code, name..."
+              className="w-56 sm:w-64 h-9 pl-3 pr-8 text-xs border border-slate-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 bg-white placeholder-slate-400"
+            />
+            <Search className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
           </div>
-        </Card>
-      ) : (
-        <Card className="mt-4 overflow-hidden">
+
+          <button
+            type="button"
+            onClick={handleExportCSV}
+            className="h-9 px-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs rounded flex items-center gap-1.5 shadow-xs transition"
+          >
+            <Download className="w-3.5 h-3.5" />
+            <span>Excel</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => handleOpenCreate()}
+            className="h-9 px-4 bg-[#2563eb] hover:bg-blue-700 text-white font-semibold text-xs rounded flex items-center gap-1.5 shadow-xs transition"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Create Account</span>
+          </button>
+        </div>
+      </div>
+
+      {/* ------------------------------------------------------------- */}
+      {/* 2. SUMMARY CARDS: 5 MAIN ACCOUNT TYPES */}
+      {/* ------------------------------------------------------------- */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+        <SummaryCard
+          title="Assets (1000)"
+          value={`৳${accounts.filter((a) => a.accountType === "ASSET" && !a.isGroup).reduce((s, a) => s + a.currentBalance, 0).toLocaleString()}`}
+          subtitle={`${accounts.filter((a) => a.accountType === "ASSET").length} ledgers`}
+          icon={Layers}
+          variant="info"
+        />
+        <SummaryCard
+          title="Liabilities (2000)"
+          value={`৳${accounts.filter((a) => a.accountType === "LIABILITY" && !a.isGroup).reduce((s, a) => s + a.currentBalance, 0).toLocaleString()}`}
+          subtitle={`${accounts.filter((a) => a.accountType === "LIABILITY").length} ledgers`}
+          icon={ShieldCheck}
+          variant="danger"
+        />
+        <SummaryCard
+          title="Equity (3000)"
+          value={`৳${accounts.filter((a) => a.accountType === "EQUITY" && !a.isGroup).reduce((s, a) => s + a.currentBalance, 0).toLocaleString()}`}
+          subtitle={`${accounts.filter((a) => a.accountType === "EQUITY").length} ledgers`}
+          icon={Layers}
+          variant="info"
+        />
+        <SummaryCard
+          title="Revenue (4000)"
+          value={`৳${accounts.filter((a) => a.accountType === "REVENUE" && !a.isGroup).reduce((s, a) => s + a.currentBalance, 0).toLocaleString()}`}
+          subtitle={`${accounts.filter((a) => a.accountType === "REVENUE").length} ledgers`}
+          icon={Layers}
+          variant="success"
+        />
+        <SummaryCard
+          title="Expenses (5000)"
+          value={`৳${accounts.filter((a) => a.accountType === "EXPENSE" && !a.isGroup).reduce((s, a) => s + a.currentBalance, 0).toLocaleString()}`}
+          subtitle={`${accounts.filter((a) => a.accountType === "EXPENSE").length} ledgers`}
+          icon={Layers}
+          variant="warning"
+        />
+      </div>
+
+      {/* ------------------------------------------------------------- */}
+      {/* 3. NAVIGATION TABS */}
+      {/* ------------------------------------------------------------- */}
+      <div className="flex items-center gap-8 border-b border-slate-200 mb-3 bg-white px-3 pt-2 rounded-t border-t border-x border-slate-200/90 overflow-x-auto select-none">
+        <button
+          type="button"
+          onClick={() => setActiveTab("TREE")}
+          className={`pb-2.5 text-xs font-bold tracking-wide transition-colors relative flex items-center gap-2 uppercase whitespace-nowrap ${
+            activeTab === "TREE"
+              ? "text-blue-600 border-b-2 border-blue-600 -mb-[1px]"
+              : "text-slate-500 hover:text-slate-800"
+          }`}
+        >
+          <span>TREE VIEW (EXPLORER)</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab("TABLE")}
+          className={`pb-2.5 text-xs font-bold tracking-wide transition-colors relative flex items-center gap-2 uppercase whitespace-nowrap ${
+            activeTab === "TABLE"
+              ? "text-blue-600 border-b-2 border-blue-600 -mb-[1px]"
+              : "text-slate-500 hover:text-slate-800"
+          }`}
+        >
+          <span>TABLE VIEW (FLAT REGISTER)</span>
+        </button>
+      </div>
+
+      {/* ------------------------------------------------------------- */}
+      {/* 4. FILTER TOOLBAR */}
+      {/* ------------------------------------------------------------- */}
+      <div className="bg-white rounded border border-slate-200/90 p-3 shadow-2xs">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-3 flex-1 min-w-0">
+            <div className="flex items-center gap-1.5 text-xs text-slate-600">
+              <span className="font-medium text-[11px] text-slate-500">Account Classification:</span>
+              <select
+                value={filterType}
+                onChange={(e) => setFilterType(e.target.value)}
+                className="border border-slate-200 rounded px-2.5 py-1 text-xs bg-slate-50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+              >
+                <option value="ALL">All Account Classes</option>
+                <option value="ASSET">Assets (1000)</option>
+                <option value="LIABILITY">Liabilities (2000)</option>
+                <option value="EQUITY">Equity (3000)</option>
+                <option value="REVENUE">Revenue / Income (4000)</option>
+                <option value="EXPENSE">Expenses (5000)</option>
+              </select>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => {
+              setSearch("");
+              setFilterType("ALL");
+            }}
+            className="flex items-center gap-1 px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded text-xs font-medium transition"
+          >
+            <RotateCcw className="w-3.5 h-3.5" />
+            <span>Reset</span>
+          </button>
+        </div>
+      </div>
+
+      {/* ------------------------------------------------------------- */}
+      {/* 5. TREE VIEW DISPLAY */}
+      {/* ------------------------------------------------------------- */}
+      {activeTab === "TREE" && (
+        <div className="bg-white rounded border border-slate-200/90 shadow-2xs p-4">
+          <div className="flex items-center justify-between border-b border-slate-200 pb-2.5 mb-3 text-xs text-slate-500">
+            <span className="font-bold text-slate-700 uppercase tracking-wider text-[11px]">Account Hierarchy</span>
+            <div className="flex items-center gap-3">
+              <span className="font-semibold text-slate-700">Normal Balance</span>
+              <span className="font-semibold text-slate-700">Current Balance (৳)</span>
+            </div>
+          </div>
+
+          <div className="divide-y divide-slate-100">{rootAccounts.map((root) => renderTreeNode(root, 0))}</div>
+        </div>
+      )}
+
+      {/* ------------------------------------------------------------- */}
+      {/* 6. TABLE VIEW REGISTER */}
+      {/* ------------------------------------------------------------- */}
+      {activeTab === "TABLE" && (
+        <div className="bg-white rounded border border-slate-200/90 shadow-2xs overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs">
-              <thead className="border-b border-line bg-control/40 font-semibold text-ink">
+              <thead className="bg-slate-50 border-y border-slate-200 text-[11px] font-bold text-slate-700 uppercase tracking-wider">
                 <tr>
-                  <th className="px-4 py-2.5">Code</th>
-                  <th className="px-4 py-2.5">Account Title</th>
-                  <th className="px-4 py-2.5">Class</th>
-                  <th className="px-4 py-2.5">Subtype</th>
-                  <th className="px-4 py-2.5">Normal Balance</th>
-                  <th className="px-4 py-2.5 text-right">Current Balance</th>
-                  <th className="px-4 py-2.5 text-center">Status</th>
-                  <th className="px-4 py-2.5 text-right">Actions</th>
+                  <th className="px-3.5 py-2.5">SL</th>
+                  <th className="px-3.5 py-2.5">Code</th>
+                  <th className="px-3.5 py-2.5">Account Name</th>
+                  <th className="px-3.5 py-2.5">Classification</th>
+                  <th className="px-3.5 py-2.5">Parent Account</th>
+                  <th className="px-3.5 py-2.5 text-center">Type</th>
+                  <th className="px-3.5 py-2.5 text-center">Normal Balance</th>
+                  <th className="px-3.5 py-2.5 text-right font-bold text-slate-900">Current Balance</th>
+                  <th className="px-3.5 py-2.5 text-center">Status</th>
+                  <th className="px-3.5 py-2.5 text-center">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-line">
-                {filteredAccounts.map((acc) => (
-                  <tr key={acc.id} className="hover:bg-control/30">
-                    <td className="px-4 py-2.5 font-mono font-medium text-ink">{acc.code}</td>
-                    <td className="px-4 py-2.5 font-medium text-ink">
-                      {acc.isGroup ? (
-                        <span className="flex items-center gap-1.5 font-semibold text-primary">
-                          <Folder className="size-3.5" /> {acc.name}
-                        </span>
-                      ) : (
-                        acc.name
-                      )}
-                    </td>
-                    <td className="px-4 py-2.5">
-                      <Badge variant="neutral">{acc.accountType}</Badge>
-                    </td>
-                    <td className="px-4 py-2.5 text-ink-muted">{acc.accountSubtype}</td>
-                    <td className="px-4 py-2.5">
-                      <span className={acc.normalBalance === "DEBIT" ? "text-blue-600 font-medium" : "text-amber-600 font-medium"}>
-                        {acc.normalBalance}
+              <tbody className="divide-y divide-slate-100">
+                {filteredAccounts.map((a, index) => (
+                  <tr key={a.id} className="hover:bg-slate-50/80 transition-colors">
+                    <td className="px-3.5 py-2.5 font-medium text-slate-500">{index + 1}</td>
+                    <td className="px-3.5 py-2.5 font-mono font-bold text-blue-600">{a.code}</td>
+                    <td className="px-3.5 py-2.5 font-semibold text-slate-900">{a.name}</td>
+                    <td className="px-3.5 py-2.5">
+                      <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-100 text-slate-700 border border-slate-200">
+                        {a.accountType}
                       </span>
                     </td>
-                    <td className="px-4 py-2.5 text-right font-medium text-ink">
-                      {acc.isGroup ? "—" : `৳${acc.currentBalance.toLocaleString()}`}
+                    <td className="px-3.5 py-2.5 font-mono text-slate-500">{a.parentCode || "-"}</td>
+                    <td className="px-3.5 py-2.5 text-center">
+                      <span
+                        className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                          a.isGroup ? "bg-amber-50 text-amber-700 border border-amber-200" : "bg-blue-50 text-blue-700 border border-blue-200"
+                        }`}
+                      >
+                        {a.isGroup ? "GROUP" : "POSTABLE"}
+                      </span>
                     </td>
-                    <td className="px-4 py-2.5 text-center">
-                      <Badge variant={acc.status === "ACTIVE" ? "success" : "neutral"}>{acc.status}</Badge>
+                    <td className="px-3.5 py-2.5 text-center font-bold text-[10px]">
+                      <span className={a.normalBalance === "DEBIT" ? "text-blue-600" : "text-emerald-600"}>
+                        {a.normalBalance}
+                      </span>
                     </td>
-                    <td className="px-4 py-2.5 text-right">
-                      <div className="flex items-center justify-end gap-1.5">
-                        {acc.isGroup && (
-                          <Button size="sm" variant="ghost" onClick={() => handleOpenCreate(acc)}>
-                            <Plus className="size-3" />
-                          </Button>
-                        )}
-                        <Button size="sm" variant="ghost" onClick={() => handleOpenEdit(acc)}>
-                          Edit
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => toggleAccountStatus(acc.id)}
-                          className={acc.status === "ACTIVE" ? "text-amber-600" : "text-emerald-600"}
-                        >
-                          {acc.status === "ACTIVE" ? "Deactivate" : "Activate"}
-                        </Button>
-                      </div>
+                    <td className="px-3.5 py-2.5 text-right font-mono font-bold text-slate-900">
+                      ৳{a.currentBalance.toLocaleString()}
+                    </td>
+                    <td className="px-3.5 py-2.5 text-center">
+                      <button
+                        type="button"
+                        onClick={() => toggleAccountStatus(a.id)}
+                        className={`px-2 py-0.5 rounded-full text-[10px] font-semibold border ${
+                          a.status === "ACTIVE"
+                            ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                            : "bg-slate-100 text-slate-500 border-slate-200"
+                        }`}
+                      >
+                        {a.status}
+                      </button>
+                    </td>
+                    <td className="px-3.5 py-2.5 text-center">
+                      <button
+                        type="button"
+                        onClick={() => handleOpenEdit(a)}
+                        className="p-1 rounded text-slate-400 hover:text-blue-600 hover:bg-slate-100 transition"
+                      >
+                        <Pencil className="w-3.5 h-3.5" />
+                      </button>
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-        </Card>
+        </div>
       )}
 
-      {/* Create / Edit Dialog */}
-      <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>{editingAccount ? "Edit Account" : "Create Chart of Account Node"}</DialogTitle>
-            <DialogDescription>
-              Configure general ledger account properties, classification, normal balance, and parent linkage.
-            </DialogDescription>
-          </DialogHeader>
-
+      {/* ------------------------------------------------------------- */}
+      {/* 7. MODAL: CREATE / EDIT ACCOUNT */}
+      {/* ------------------------------------------------------------- */}
+      <ModalDialog
+        isOpen={isCreateOpen}
+        onClose={() => setIsCreateOpen(false)}
+        title={editingAccount ? `Edit Account — [${editingAccount.code}]` : "Create Chart of Accounts Ledger"}
+        subtitle="Define ledger categorization, parent hierarchy, and accounting properties"
+        maxWidth="lg"
+      >
+        <form onSubmit={handleSaveAccount} className="space-y-4 text-xs">
           {errorMessage && (
-            <div className="rounded-lg bg-rose-50 p-2 text-xs font-medium text-rose-600 dark:bg-rose-950/40">
+            <div className="p-2.5 rounded bg-rose-50 border border-rose-200 text-rose-700 font-medium">
               {errorMessage}
             </div>
           )}
 
-          <form onSubmit={handleSave} className="space-y-3 py-2 text-xs">
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="mb-1 block font-medium text-ink">Account Code *</label>
-                <input
-                  type="text"
-                  required
-                  value={formData.code}
-                  onChange={(e) => setFormData({ ...formData, code: e.target.value })}
-                  placeholder="e.g. 5210"
-                  className="w-full rounded-lg border border-line bg-surface p-2 text-xs text-ink outline-none focus:border-primary"
-                />
-              </div>
-
-              <div>
-                <label className="mb-1 block font-medium text-ink">Parent Account Code</label>
-                <select
-                  value={formData.parentCode}
-                  onChange={(e) => setFormData({ ...formData, parentCode: e.target.value })}
-                  className="w-full rounded-lg border border-line bg-surface p-2 text-xs text-ink outline-none focus:border-primary"
-                >
-                  <option value="">(None - Top Level)</option>
-                  {accounts
-                    .filter((a) => a.isGroup)
-                    .map((a) => (
-                      <option key={a.id} value={a.code}>
-                        {a.code} - {a.name} ({a.accountType})
-                      </option>
-                    ))}
-                </select>
-              </div>
-            </div>
-
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <label className="mb-1 block font-medium text-ink">Account Title *</label>
+              <label className="block font-semibold text-slate-700 mb-1">Account Code *</label>
+              <input
+                type="text"
+                required
+                value={formData.code}
+                onChange={(e) => setFormData({ ...formData, code: e.target.value })}
+                disabled={!!editingAccount}
+                className="w-full h-8 border border-slate-300 rounded px-2.5 font-mono text-xs text-slate-800 disabled:bg-slate-100"
+              />
+            </div>
+            <div>
+              <label className="block font-semibold text-slate-700 mb-1">Account Name *</label>
               <input
                 type="text"
                 required
                 value={formData.name}
                 onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                placeholder="e.g. Office Rent & Maintenance"
-                className="w-full rounded-lg border border-line bg-surface p-2 text-xs text-ink outline-none focus:border-primary"
+                className="w-full h-8 border border-slate-300 rounded px-2.5 text-xs text-slate-800"
               />
             </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="mb-1 block font-medium text-ink">Account Class *</label>
-                <select
-                  value={formData.accountType}
-                  onChange={(e) => setFormData({ ...formData, accountType: e.target.value as AccountType })}
-                  className="w-full rounded-lg border border-line bg-surface p-2 text-xs text-ink outline-none focus:border-primary"
-                >
-                  <option value="ASSET">Asset (1000)</option>
-                  <option value="LIABILITY">Liability (2000)</option>
-                  <option value="EQUITY">Equity (3000)</option>
-                  <option value="REVENUE">Revenue (4000)</option>
-                  <option value="EXPENSE">Expense (5000)</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="mb-1 block font-medium text-ink">Normal Balance *</label>
-                <select
-                  value={formData.normalBalance}
-                  onChange={(e) => setFormData({ ...formData, normalBalance: e.target.value as NormalBalance })}
-                  className="w-full rounded-lg border border-line bg-surface p-2 text-xs text-ink outline-none focus:border-primary"
-                >
-                  <option value="DEBIT">Debit (Dr)</option>
-                  <option value="CREDIT">Credit (Cr)</option>
-                </select>
-              </div>
+            <div>
+              <label className="block font-semibold text-slate-700 mb-1">Classification Type *</label>
+              <select
+                value={formData.accountType}
+                onChange={(e) => {
+                  const t = e.target.value as AccountType;
+                  setFormData({
+                    ...formData,
+                    accountType: t,
+                    normalBalance: t === "ASSET" || t === "EXPENSE" ? "DEBIT" : "CREDIT",
+                  });
+                }}
+                className="w-full h-8 border border-slate-300 rounded px-2 text-xs bg-white"
+              >
+                <option value="ASSET">Assets</option>
+                <option value="LIABILITY">Liabilities</option>
+                <option value="EQUITY">Equity</option>
+                <option value="REVENUE">Revenue</option>
+                <option value="EXPENSE">Expenses</option>
+              </select>
             </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="mb-1 block font-medium text-ink">Subtype / Category</label>
-                <input
-                  type="text"
-                  value={formData.accountSubtype}
-                  onChange={(e) => setFormData({ ...formData, accountSubtype: e.target.value })}
-                  placeholder="e.g. Operating Expense"
-                  className="w-full rounded-lg border border-line bg-surface p-2 text-xs text-ink outline-none focus:border-primary"
-                />
-              </div>
-
-              <div>
-                <label className="mb-1 block font-medium text-ink">Opening Balance (৳)</label>
-                <input
-                  type="number"
-                  disabled={!!editingAccount}
-                  value={formData.openingBalance}
-                  onChange={(e) => setFormData({ ...formData, openingBalance: Number(e.target.value) })}
-                  className="w-full rounded-lg border border-line bg-surface p-2 text-xs text-ink outline-none focus:border-primary disabled:opacity-50"
-                />
-              </div>
+            <div>
+              <label className="block font-semibold text-slate-700 mb-1">Normal Balance *</label>
+              <select
+                value={formData.normalBalance}
+                onChange={(e) => setFormData({ ...formData, normalBalance: e.target.value as NormalBalance })}
+                className="w-full h-8 border border-slate-300 rounded px-2 text-xs bg-white"
+              >
+                <option value="DEBIT">DEBIT (Dr)</option>
+                <option value="CREDIT">CREDIT (Cr)</option>
+              </select>
             </div>
-
-            <div className="flex items-center gap-2 pt-2">
+            <div>
+              <label className="block font-semibold text-slate-700 mb-1">Parent Group Account</label>
+              <select
+                value={formData.parentCode}
+                onChange={(e) => setFormData({ ...formData, parentCode: e.target.value })}
+                className="w-full h-8 border border-slate-300 rounded px-2 text-xs bg-white"
+              >
+                <option value="">None (Top Root Group)</option>
+                {accounts
+                  .filter((a) => a.isGroup)
+                  .map((a) => (
+                    <option key={a.id} value={a.code}>
+                      [{a.code}] {a.name}
+                    </option>
+                  ))}
+              </select>
+            </div>
+            <div>
+              <label className="block font-semibold text-slate-700 mb-1">Subtype / Category</label>
+              <input
+                type="text"
+                value={formData.accountSubtype}
+                onChange={(e) => setFormData({ ...formData, accountSubtype: e.target.value })}
+                className="w-full h-8 border border-slate-300 rounded px-2.5 text-xs"
+              />
+            </div>
+            <div className="sm:col-span-2 flex items-center gap-2 pt-1">
               <input
                 type="checkbox"
                 id="isGroup"
                 checked={formData.isGroup}
                 onChange={(e) => setFormData({ ...formData, isGroup: e.target.checked })}
-                className="size-4 rounded border-line text-primary"
+                className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
               />
-              <label htmlFor="isGroup" className="text-xs font-medium text-ink">
-                Is Group Account (Parent only, directly non-postable)
+              <label htmlFor="isGroup" className="font-semibold text-slate-700 cursor-pointer">
+                This is a Group Account (Non-postable parent category containing sub-accounts)
               </label>
             </div>
+          </div>
 
-            <DialogFooter className="pt-3">
-              <Button type="button" variant="ghost" onClick={() => setIsCreateOpen(false)}>
-                Cancel
-              </Button>
-              <Button type="submit" variant="primary">
-                {editingAccount ? "Update Account" : "Create Account"}
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
-    </PageContainer>
-  );
-}
-
-function TreeNode({
-  account,
-  allAccounts,
-  expandedNodes,
-  onToggle,
-  onAddChild,
-  onEdit,
-  onToggleStatus,
-  level = 0,
-}: {
-  account: AccountItem;
-  allAccounts: AccountItem[];
-  expandedNodes: Record<string, boolean>;
-  onToggle: (code: string) => void;
-  onAddChild: (parent: AccountItem) => void;
-  onEdit: (account: AccountItem) => void;
-  onToggleStatus: (id: string) => void;
-  level?: number;
-}) {
-  const children = allAccounts.filter((a) => a.parentCode === account.code);
-  const hasChildren = children.length > 0;
-  const isExpanded = !!expandedNodes[account.code];
-
-  return (
-    <div className="text-xs">
-      <div
-        className="group flex items-center justify-between rounded-lg py-1.5 pr-2 transition hover:bg-control/50"
-        style={{ paddingLeft: `${level * 20 + 8}px` }}
-      >
-        <div className="flex items-center gap-2">
-          {hasChildren ? (
+          <div className="flex justify-end gap-2 pt-3 border-t border-slate-200">
             <button
               type="button"
-              onClick={() => onToggle(account.code)}
-              className="text-ink-muted hover:text-ink focus:outline-none"
+              onClick={() => setIsCreateOpen(false)}
+              className="px-3.5 py-1.5 border border-slate-300 hover:bg-slate-50 text-slate-700 rounded text-xs font-semibold"
             >
-              {isExpanded ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
+              Cancel
             </button>
-          ) : (
-            <span className="size-3.5" />
-          )}
-
-          {account.isGroup ? (
-            isExpanded ? (
-              <FolderOpen className="size-4 text-primary" />
-            ) : (
-              <Folder className="size-4 text-primary" />
-            )
-          ) : (
-            <Tag className="size-3.5 text-ink-muted" />
-          )}
-
-          <span className="font-mono font-semibold text-ink">{account.code}</span>
-          <span className={account.isGroup ? "font-semibold text-ink" : "text-ink"}>{account.name}</span>
-          <Badge variant="neutral" className="text-[10px]">
-            {account.accountSubtype}
-          </Badge>
-        </div>
-
-        <div className="flex items-center gap-3">
-          <span className={account.normalBalance === "DEBIT" ? "text-blue-600 font-medium" : "text-amber-600 font-medium"}>
-            {account.normalBalance}
-          </span>
-          <span className="w-24 text-right font-medium text-ink">
-            {account.isGroup ? "—" : `৳${account.currentBalance.toLocaleString()}`}
-          </span>
-          <Badge variant={account.status === "ACTIVE" ? "success" : "neutral"} className="text-[10px]">
-            {account.status}
-          </Badge>
-
-          <div className="opacity-0 transition group-hover:opacity-100 flex items-center gap-1">
-            {account.isGroup && (
-              <Button size="sm" variant="ghost" onClick={() => onAddChild(account)} title="Add Sub Account">
-                <Plus className="size-3" />
-              </Button>
-            )}
-            <Button size="sm" variant="ghost" onClick={() => onEdit(account)}>
-              Edit
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() => onToggleStatus(account.id)}
-              className={account.status === "ACTIVE" ? "text-amber-600" : "text-emerald-600"}
+            <button
+              type="submit"
+              className="px-4 py-1.5 bg-[#2563eb] hover:bg-blue-700 text-white rounded text-xs font-semibold shadow-xs"
             >
-              {account.status === "ACTIVE" ? "Disable" : "Enable"}
-            </Button>
+              {editingAccount ? "Update Account" : "Create Account"}
+            </button>
           </div>
-        </div>
-      </div>
-
-      {hasChildren && isExpanded && (
-        <div className="border-l border-line/60 ml-3">
-          {children.map((child) => (
-            <TreeNode
-              key={child.id}
-              account={child}
-              allAccounts={allAccounts}
-              expandedNodes={expandedNodes}
-              onToggle={onToggle}
-              onAddChild={onAddChild}
-              onEdit={onEdit}
-              onToggleStatus={onToggleStatus}
-              level={level + 1}
-            />
-          ))}
-        </div>
-      )}
+        </form>
+      </ModalDialog>
     </div>
   );
 }

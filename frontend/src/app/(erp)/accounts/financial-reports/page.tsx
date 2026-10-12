@@ -1,12 +1,14 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import React, { useMemo, useState } from "react";
+import Link from "next/link";
 import {
   ArrowDownRight,
   ArrowUpRight,
   BookOpen,
   Calendar,
   CheckCircle2,
+  ChevronRight,
   Download,
   FileSpreadsheet,
   FileText,
@@ -15,16 +17,14 @@ import {
   Printer,
   Scale,
   Search,
+  ShieldCheck,
 } from "lucide-react";
-import { PageContainer, PageHead } from "@/components/layout/page";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
+import { SummaryCard } from "@/components/purchase/SummaryCard";
 import { useAccountingStore } from "@/features/accounts/store/accounting-store";
 
 export default function FinancialReportsPage() {
   const [reportType, setReportType] = useState<
-    "gl" | "tb" | "bs" | "pl" | "cf" | "cashbook" | "bankbook" | "ar" | "ap"
+    "tb" | "gl" | "pl" | "bs" | "cashbook" | "bankbook" | "ar" | "ap"
   >("tb");
   const [selectedOffice, setSelectedOffice] = useState("all");
   const [selectedAccount, setSelectedAccount] = useState("all");
@@ -48,7 +48,9 @@ export default function FinancialReportsPage() {
   );
 
   const formatAmount = (val: number) => {
-    const formatted = withoutDecimal ? Math.round(val).toLocaleString() : val.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const formatted = withoutDecimal
+      ? Math.round(val).toLocaleString()
+      : val.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     return `৳${formatted}`;
   };
 
@@ -61,7 +63,8 @@ export default function FinancialReportsPage() {
     } else if (reportType === "gl") {
       rows = ["Date,Voucher No,Type,Account,Narration,Debit,Credit,Running Balance"].concat(
         glData.map(
-          (g) => `"${g.date}","${g.voucherNumber}","${g.transactionType}","${g.accountName}","${g.narration}",${g.debit},${g.credit},${g.runningBalance}`,
+          (g) =>
+            `"${g.date}","${g.voucherNumber}","${g.transactionType}","${g.accountName}","${g.narration}",${g.debit},${g.credit},${g.runningBalance}`,
         ),
       );
     } else if (reportType === "pl") {
@@ -85,363 +88,480 @@ export default function FinancialReportsPage() {
   };
 
   return (
-    <PageContainer>
-      <PageHead
-        title="Financial Reports"
-        subtitle="Auditable accounting reports, Trial Balance reconciliation, Profit & Loss, and Balance Sheet"
-        actions={
-          <div className="flex flex-wrap items-center gap-2">
-            <Button variant="secondary" size="sm" onClick={handleExportCSV}>
-              <Download className="mr-1.5 size-3.5" /> Export CSV
-            </Button>
-            <Button variant="secondary" size="sm" onClick={() => window.print()}>
-              <Printer className="mr-1.5 size-3.5" /> Print Layout
-            </Button>
-          </div>
-        }
-      />
+    <div className="space-y-3 font-sans pb-12">
+      {/* ------------------------------------------------------------- */}
+      {/* 1. TOP HEADER */}
+      {/* ------------------------------------------------------------- */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-3 rounded border border-slate-200/90 shadow-2xs">
+        <div>
+          <nav className="flex items-center gap-1.5 text-[11px] text-slate-400 mb-0.5">
+            <Link href="/accounts" className="hover:text-slate-600 transition">
+              Account
+            </Link>
+            <ChevronRight className="w-3 h-3 text-slate-300" />
+            <span className="text-slate-600 font-medium">Financial Reports</span>
+          </nav>
+          <h1 className="text-xl font-bold text-slate-900 tracking-tight">Auditable Financial Statements & Ledgers</h1>
+          <p className="text-xs text-slate-500 mt-0.5">
+            Trial Balance reconciliation, General Ledger audit trail, Profit & Loss, and Balance Sheet statements
+          </p>
+        </div>
 
-      {/* Filter Ribbon */}
-      <Card className="mt-4 p-4">
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6 text-xs">
-          <div>
-            <label className="mb-1 block font-medium text-ink">Report Statement *</label>
-            <select
-              value={reportType}
-              onChange={(e) => setReportType(e.target.value as any)}
-              className="w-full rounded-lg border border-line bg-surface p-2 text-xs font-semibold text-ink outline-none focus:border-primary"
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            type="button"
+            onClick={handleExportCSV}
+            className="h-9 px-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs rounded flex items-center gap-1.5 shadow-xs transition"
+          >
+            <Download className="w-3.5 h-3.5" />
+            <span>Excel Export</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => window.print()}
+            className="h-9 px-3.5 bg-slate-100 hover:bg-slate-200 text-slate-800 font-semibold text-xs rounded flex items-center gap-1.5 shadow-xs transition"
+          >
+            <Printer className="w-3.5 h-3.5" />
+            <span>Print Report</span>
+          </button>
+        </div>
+      </div>
+
+      {/* ------------------------------------------------------------- */}
+      {/* 2. SUMMARY KPI CARDS */}
+      {/* ------------------------------------------------------------- */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <SummaryCard
+          title="TB Status"
+          value={tbData.isBalanced ? "BALANCED" : "OUT OF BALANCE"}
+          subtitle={`Diff: ৳${Math.abs(tbData.totalDebit - tbData.totalCredit).toLocaleString()}`}
+          icon={tbData.isBalanced ? CheckCircle2 : Scale}
+          variant={tbData.isBalanced ? "success" : "danger"}
+        />
+        <SummaryCard
+          title="Net Profit / Loss"
+          value={formatAmount(plData.netProfit)}
+          subtitle={`${plData.totalRevenue > 0 ? ((plData.netProfit / plData.totalRevenue) * 100).toFixed(1) : "0"}% margin`}
+          icon={plData.netProfit >= 0 ? ArrowUpRight : ArrowDownRight}
+          variant={plData.netProfit >= 0 ? "info" : "warning"}
+        />
+        <SummaryCard
+          title="Total Assets"
+          value={formatAmount(bsData.totalAssets)}
+          subtitle="Fixed + Current Liquid Assets"
+          icon={BookOpen}
+          variant="info"
+        />
+        <SummaryCard
+          title="Liabilities & Equity"
+          value={formatAmount(bsData.totalLiabilities + bsData.totalEquity)}
+          subtitle={bsData.isBalanced ? "Accounting Equation Verified" : "Recheck required"}
+          icon={ShieldCheck}
+          variant="success"
+        />
+      </div>
+
+      {/* ------------------------------------------------------------- */}
+      {/* 3. REPORT SELECTOR TABS */}
+      {/* ------------------------------------------------------------- */}
+      <div className="bg-white rounded border border-slate-200/90 shadow-2xs">
+        <div className="flex items-center gap-1 px-3 border-b border-slate-200 overflow-x-auto text-xs font-medium">
+          {[
+            { id: "tb", label: "TRIAL BALANCE" },
+            { id: "gl", label: "GENERAL LEDGER" },
+            { id: "pl", label: "PROFIT & LOSS (INCOME STMT)" },
+            { id: "bs", label: "BALANCE SHEET" },
+            { id: "cashbook", label: "CASH BOOK" },
+            { id: "bankbook", label: "BANK BOOK" },
+          ].map((tab) => (
+            <button
+              key={tab.id}
+              onClick={() => setReportType(tab.id as any)}
+              className={`py-2.5 px-3 whitespace-nowrap transition-colors border-b-2 -mb-[1px] ${
+                reportType === tab.id
+                  ? "text-blue-600 border-blue-600 font-semibold"
+                  : "text-slate-500 border-transparent hover:text-slate-700"
+              }`}
             >
-              <option value="tb">Trial Balance</option>
-              <option value="gl">General Ledger</option>
-              <option value="pl">Profit & Loss (P&L)</option>
-              <option value="bs">Balance Sheet</option>
-              <option value="cashbook">Cash Book</option>
-              <option value="bankbook">Bank Book</option>
-              <option value="ar">Receivables Statement</option>
-              <option value="ap">Payables Statement</option>
-            </select>
+              {tab.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Filter bar */}
+        <div className="p-3 bg-slate-50/60 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3 text-xs">
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="flex items-center gap-1.5">
+              <span className="text-[11px] font-semibold text-slate-500 uppercase">From:</span>
+              <input
+                type="date"
+                value={fromDate}
+                onChange={(e) => setFromDate(e.target.value)}
+                className="h-8 px-2 border border-slate-300 rounded text-xs bg-white focus:ring-1 focus:ring-blue-500"
+              />
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="text-[11px] font-semibold text-slate-500 uppercase">To:</span>
+              <input
+                type="date"
+                value={toDate}
+                onChange={(e) => setToDate(e.target.value)}
+                className="h-8 px-2 border border-slate-300 rounded text-xs bg-white focus:ring-1 focus:ring-blue-500"
+              />
+            </div>
+
+            {reportType === "gl" && (
+              <div className="flex items-center gap-1.5">
+                <span className="text-[11px] font-semibold text-slate-500 uppercase">Account:</span>
+                <select
+                  value={selectedAccount}
+                  onChange={(e) => setSelectedAccount(e.target.value)}
+                  className="h-8 px-2 border border-slate-300 rounded text-xs bg-white focus:ring-1 focus:ring-blue-500"
+                >
+                  <option value="all">All Chart Accounts</option>
+                  {accounts.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.code} - {a.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            <div className="flex items-center gap-1.5">
+              <span className="text-[11px] font-semibold text-slate-500 uppercase">Office:</span>
+              <select
+                value={selectedOffice}
+                onChange={(e) => setSelectedOffice(e.target.value)}
+                className="h-8 px-2 border border-slate-300 rounded text-xs bg-white focus:ring-1 focus:ring-blue-500"
+              >
+                <option value="all">Consolidated (All Branches)</option>
+                <option value="office-main">Dhaka Corporate HQ</option>
+                <option value="office-ctg">Chittagong Heavy Plant</option>
+              </select>
+            </div>
           </div>
 
-          <div>
-            <label className="mb-1 block font-medium text-ink">Office Scope</label>
-            <select
-              value={selectedOffice}
-              onChange={(e) => setSelectedOffice(e.target.value)}
-              className="w-full rounded-lg border border-line bg-surface p-2 text-xs text-ink outline-none focus:border-primary"
-            >
-              <option value="all">All Offices & Branches</option>
-              <option value="hq">Dhaka Corporate HQ</option>
-              <option value="ctg">Chittagong Plant</option>
-            </select>
-          </div>
-
-          <div>
-            <label className="mb-1 block font-medium text-ink">From Date</label>
-            <input
-              type="date"
-              value={fromDate}
-              onChange={(e) => setFromDate(e.target.value)}
-              className="w-full rounded-lg border border-line bg-surface p-2 text-xs text-ink outline-none focus:border-primary"
-            />
-          </div>
-
-          <div>
-            <label className="mb-1 block font-medium text-ink">To Date</label>
-            <input
-              type="date"
-              value={toDate}
-              onChange={(e) => setToDate(e.target.value)}
-              className="w-full rounded-lg border border-line bg-surface p-2 text-xs text-ink outline-none focus:border-primary"
-            />
-          </div>
-
-          <div>
-            <label className="mb-1 block font-medium text-ink">Specific GL Ledger</label>
-            <select
-              value={selectedAccount}
-              onChange={(e) => setSelectedAccount(e.target.value)}
-              className="w-full rounded-lg border border-line bg-surface p-2 text-xs text-ink outline-none focus:border-primary"
-            >
-              <option value="all">All Ledger Accounts</option>
-              {accounts
-                .filter((a) => !a.isGroup)
-                .map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.code} - {a.name}
-                  </option>
-                ))}
-            </select>
-          </div>
-
-          <div className="flex flex-col justify-end gap-1.5 pb-1">
-            <label className="flex items-center gap-1.5 text-xs text-ink cursor-pointer">
+          <div className="flex items-center gap-4 text-slate-700">
+            <label className="flex items-center gap-1.5 cursor-pointer select-none">
               <input
                 type="checkbox"
                 checked={withoutDecimal}
                 onChange={(e) => setWithoutDecimal(e.target.checked)}
-                className="size-3.5 rounded border-line text-primary"
+                className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
               />
-              <span>Without Decimals</span>
+              <span className="text-xs">Round Decimals</span>
             </label>
-            <label className="flex items-center gap-1.5 text-xs text-ink cursor-pointer">
+            <label className="flex items-center gap-1.5 cursor-pointer select-none">
               <input
                 type="checkbox"
                 checked={includeZero}
                 onChange={(e) => setIncludeZero(e.target.checked)}
-                className="size-3.5 rounded border-line text-primary"
+                className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
               />
-              <span>Zero-Balance</span>
+              <span className="text-xs">Include Zero Balances</span>
             </label>
           </div>
         </div>
-      </Card>
 
-      {/* Report View Body */}
-      <Card className="mt-4 p-6">
-        {/* Report Header for Print & Display */}
-        <div className="border-b border-line pb-4 text-center">
-          <h2 className="text-base font-bold text-ink uppercase tracking-wide">
-            BridgeOne Industrial Solutions Ltd
-          </h2>
-          <p className="text-sm font-semibold text-primary">
-            {reportType === "tb" && "Trial Balance Statement"}
-            {reportType === "gl" && "General Ledger Statement"}
-            {reportType === "pl" && "Profit & Loss (Income Statement)"}
-            {reportType === "bs" && "Balance Sheet (Statement of Financial Position)"}
-            {reportType === "cashbook" && "Cash Book Statement"}
-            {reportType === "bankbook" && "Bank Book Statement"}
-            {reportType === "ar" && "Accounts Receivable Ledger"}
-            {reportType === "ap" && "Accounts Payable Ledger"}
-          </p>
-          <p className="mt-1 text-xs text-ink-muted">
-            For Period: {fromDate} to {toDate} • Currency: BDT
-          </p>
-        </div>
+        {/* ------------------------------------------------------------- */}
+        {/* 4. FINANCIAL STATEMENT DISPLAY */}
+        {/* ------------------------------------------------------------- */}
+        <div className="p-4">
+          {/* A. TRIAL BALANCE */}
+          {reportType === "tb" && (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between border-b pb-3 border-slate-200">
+                <div>
+                  <h3 className="font-bold text-slate-900 text-base">Trial Balance Reconciliation</h3>
+                  <p className="text-xs text-slate-500">
+                    As on {toDate} • General Ledger Debit / Credit equilibrium check
+                  </p>
+                </div>
+                {tbData.isBalanced ? (
+                  <span className="px-2.5 py-1 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-bold">
+                    ✓ Balanced
+                  </span>
+                ) : (
+                  <span className="px-2.5 py-1 rounded bg-rose-50 text-rose-700 border border-rose-200 text-xs font-bold">
+                    ⚠ Imbalance: ৳{Math.abs(tbData.totalDebit - tbData.totalCredit).toLocaleString()}
+                  </span>
+                )}
+              </div>
 
-        {/* 1. Trial Balance */}
-        {reportType === "tb" && (
-          <div className="mt-6">
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs">
-                <thead className="border-b border-line bg-control/40 font-semibold text-ink">
-                  <tr>
-                    <th className="px-4 py-2.5">Account Code</th>
-                    <th className="px-4 py-2.5">Account Title</th>
-                    <th className="px-4 py-2.5">Classification</th>
-                    <th className="px-4 py-2.5 text-right">Debit (৳)</th>
-                    <th className="px-4 py-2.5 text-right">Credit (৳)</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-line">
-                  {tbData.rows
-                    .filter((r) => includeZero || r.debit > 0 || r.credit > 0)
-                    .map((r) => (
-                      <tr key={r.code} className="hover:bg-control/30">
-                        <td className="px-4 py-2.5 font-mono font-medium text-ink">{r.code}</td>
-                        <td className="px-4 py-2.5 font-medium text-ink">{r.name}</td>
-                        <td className="px-4 py-2.5">
-                          <Badge variant="neutral">{r.type}</Badge>
+              <div className="overflow-x-auto border border-slate-200 rounded">
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead className="bg-slate-50 border-b border-slate-200 text-[11px] font-bold text-slate-700 uppercase tracking-wider">
+                    <tr>
+                      <th className="px-3.5 py-2.5">Code</th>
+                      <th className="px-3.5 py-2.5">Account Title</th>
+                      <th className="px-3.5 py-2.5">Classification</th>
+                      <th className="px-3.5 py-2.5 text-right">Debit (৳)</th>
+                      <th className="px-3.5 py-2.5 text-right">Credit (৳)</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {tbData.rows.map((row) => (
+                      <tr key={row.code} className="hover:bg-slate-50/70 transition">
+                        <td className="px-3.5 py-2 font-mono font-semibold text-blue-600">{row.code}</td>
+                        <td className="px-3.5 py-2 font-medium text-slate-900">{row.name}</td>
+                        <td className="px-3.5 py-2 text-slate-500">{row.type}</td>
+                        <td className="px-3.5 py-2 text-right font-medium text-slate-900">
+                          {row.debit > 0 ? formatAmount(row.debit) : "—"}
                         </td>
-                        <td className="px-4 py-2.5 text-right font-medium text-ink">
-                          {r.debit > 0 ? formatAmount(r.debit) : "—"}
-                        </td>
-                        <td className="px-4 py-2.5 text-right font-medium text-ink">
-                          {r.credit > 0 ? formatAmount(r.credit) : "—"}
+                        <td className="px-3.5 py-2 text-right font-medium text-slate-900">
+                          {row.credit > 0 ? formatAmount(row.credit) : "—"}
                         </td>
                       </tr>
                     ))}
-                </tbody>
-                <tfoot className="border-t-2 border-ink bg-control/50 text-xs font-bold text-ink">
-                  <tr>
-                    <td colSpan={3} className="px-4 py-3 text-right">
-                      Reconciled Total:
-                    </td>
-                    <td className="px-4 py-3 text-right font-bold text-ink">{formatAmount(tbData.totalDebit)}</td>
-                    <td className="px-4 py-3 text-right font-bold text-ink">{formatAmount(tbData.totalCredit)}</td>
-                  </tr>
-                </tfoot>
-              </table>
-            </div>
-
-            <div className="mt-4 flex items-center justify-between border-t border-line pt-3 text-xs">
-              <span className="text-ink-muted">Invariance Reconciliation Status:</span>
-              {tbData.isBalanced ? (
-                <span className="flex items-center gap-1.5 font-semibold text-emerald-600">
-                  <CheckCircle2 className="size-4" /> Trial Balance is perfectly in balance (Total Dr = Total Cr)
-                </span>
-              ) : (
-                <span className="font-semibold text-rose-600">
-                  Unbalanced Trial Balance: Difference of ৳
-                  {Math.abs(tbData.totalDebit - tbData.totalCredit).toFixed(2)}
-                </span>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* 2. General Ledger */}
-        {(reportType === "gl" || reportType === "cashbook" || reportType === "bankbook" || reportType === "ar" || reportType === "ap") && (
-          <div className="mt-6">
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs">
-                <thead className="border-b border-line bg-control/40 font-semibold text-ink">
-                  <tr>
-                    <th className="px-4 py-2.5">Date</th>
-                    <th className="px-4 py-2.5">Voucher #</th>
-                    <th className="px-4 py-2.5">Type</th>
-                    <th className="px-4 py-2.5">Account / Details</th>
-                    <th className="px-4 py-2.5">Narration</th>
-                    <th className="px-4 py-2.5 text-right">Debit (৳)</th>
-                    <th className="px-4 py-2.5 text-right">Credit (৳)</th>
-                    <th className="px-4 py-2.5 text-right">Running Balance (৳)</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-line">
-                  {glData.length === 0 ? (
+                  </tbody>
+                  <tfoot className="bg-slate-100/80 font-bold border-t-2 border-slate-300">
                     <tr>
-                      <td colSpan={8} className="py-12 text-center text-ink-faint">
-                        No general ledger entries recorded for the selected account & date range.
+                      <td colSpan={3} className="px-3.5 py-2.5 text-slate-900 uppercase">
+                        Total Sum
                       </td>
+                      <td className="px-3.5 py-2.5 text-right text-slate-900">{formatAmount(tbData.totalDebit)}</td>
+                      <td className="px-3.5 py-2.5 text-right text-slate-900">{formatAmount(tbData.totalCredit)}</td>
                     </tr>
-                  ) : (
-                    glData.map((g, idx) => (
-                      <tr key={idx} className="hover:bg-control/30">
-                        <td className="px-4 py-2.5 text-ink-muted">{g.date}</td>
-                        <td className="px-4 py-2.5 font-mono font-medium text-ink">{g.voucherNumber}</td>
-                        <td className="px-4 py-2.5">
-                          <Badge variant="neutral">{g.transactionType}</Badge>
-                        </td>
-                        <td className="px-4 py-2.5 font-medium text-ink">{g.accountName}</td>
-                        <td className="max-w-xs truncate px-4 py-2.5 text-ink-muted">{g.narration}</td>
-                        <td className="px-4 py-2.5 text-right font-medium text-ink">
-                          {g.debit > 0 ? formatAmount(g.debit) : "—"}
-                        </td>
-                        <td className="px-4 py-2.5 text-right font-medium text-ink">
-                          {g.credit > 0 ? formatAmount(g.credit) : "—"}
-                        </td>
-                        <td className="px-4 py-2.5 text-right font-bold text-primary">
-                          {formatAmount(g.runningBalance)}
+                  </tfoot>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* B. GENERAL LEDGER */}
+          {reportType === "gl" && (
+            <div className="space-y-4">
+              <div className="border-b pb-3 border-slate-200">
+                <h3 className="font-bold text-slate-900 text-base">General Ledger Detail</h3>
+                <p className="text-xs text-slate-500">
+                  Transaction entries from {fromDate} to {toDate}
+                </p>
+              </div>
+
+              <div className="overflow-x-auto border border-slate-200 rounded">
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead className="bg-slate-50 border-b border-slate-200 text-[11px] font-bold text-slate-700 uppercase tracking-wider">
+                    <tr>
+                      <th className="px-3.5 py-2.5">Date</th>
+                      <th className="px-3.5 py-2.5">Voucher #</th>
+                      <th className="px-3.5 py-2.5">Type</th>
+                      <th className="px-3.5 py-2.5">Account Title</th>
+                      <th className="px-3.5 py-2.5">Narration / Description</th>
+                      <th className="px-3.5 py-2.5 text-right">Debit (৳)</th>
+                      <th className="px-3.5 py-2.5 text-right">Credit (৳)</th>
+                      <th className="px-3.5 py-2.5 text-right">Running Balance</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {glData.length === 0 ? (
+                      <tr>
+                        <td colSpan={8} className="py-8 text-center text-slate-400">
+                          No ledger postings found for the selected period.
                         </td>
                       </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
+                    ) : (
+                      glData.map((g, idx) => (
+                        <tr key={idx} className="hover:bg-slate-50/70 transition">
+                          <td className="px-3.5 py-2 text-slate-600 whitespace-nowrap">{g.date}</td>
+                          <td className="px-3.5 py-2 font-mono font-semibold text-blue-600">{g.voucherNumber}</td>
+                          <td className="px-3.5 py-2">
+                            <span className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 text-[10px] font-medium">
+                              {g.transactionType}
+                            </span>
+                          </td>
+                          <td className="px-3.5 py-2 font-medium text-slate-900">{g.accountName}</td>
+                          <td className="px-3.5 py-2 text-slate-500 max-w-xs truncate" title={g.narration}>
+                            {g.narration}
+                          </td>
+                          <td className="px-3.5 py-2 text-right font-medium text-slate-900">
+                            {g.debit > 0 ? formatAmount(g.debit) : "—"}
+                          </td>
+                          <td className="px-3.5 py-2 text-right font-medium text-slate-900">
+                            {g.credit > 0 ? formatAmount(g.credit) : "—"}
+                          </td>
+                          <td className="px-3.5 py-2 text-right font-bold text-slate-900">
+                            {formatAmount(g.runningBalance)}
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </div>
-          </div>
-        )}
+          )}
 
-        {/* 3. Profit & Loss */}
-        {reportType === "pl" && (
-          <div className="mt-6 space-y-6">
-            <div>
-              <h4 className="border-b border-line pb-1.5 text-xs font-bold text-emerald-600 uppercase">
-                Operating Income / Revenue
-              </h4>
-              <div className="divide-y divide-line text-xs">
-                {plData.revenues.map((r, idx) => (
-                  <div key={idx} className="flex justify-between py-2">
-                    <span className="font-medium text-ink">{r.name}</span>
-                    <span className="font-medium text-ink">{formatAmount(r.amount)}</span>
+          {/* C. PROFIT & LOSS */}
+          {reportType === "pl" && (
+            <div className="space-y-4 max-w-4xl">
+              <div className="border-b pb-3 border-slate-200">
+                <h3 className="font-bold text-slate-900 text-base">Statement of Profit or Loss (Income Statement)</h3>
+                <p className="text-xs text-slate-500">
+                  For the period: {fromDate} to {toDate}
+                </p>
+              </div>
+
+              <div className="border border-slate-200 rounded overflow-hidden divide-y divide-slate-200">
+                {/* Revenue */}
+                <div className="p-3 bg-emerald-50/50">
+                  <div className="flex justify-between items-center font-bold text-emerald-900 text-sm">
+                    <span>1. Operating Revenue & Sales</span>
+                    <span>{formatAmount(plData.totalRevenue)}</span>
                   </div>
-                ))}
-                <div className="flex justify-between py-2.5 font-bold text-emerald-600">
-                  <span>Total Operating Revenue (A)</span>
-                  <span>{formatAmount(plData.totalRevenue)}</span>
+                </div>
+                <div className="divide-y divide-slate-100">
+                  {plData.revenues.map((r, i) => (
+                    <div key={i} className="flex justify-between px-6 py-2 text-xs text-slate-700">
+                      <span>{r.name}</span>
+                      <span className="font-medium">{formatAmount(r.amount)}</span>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Expenses */}
+                <div className="p-3 bg-amber-50/50">
+                  <div className="flex justify-between items-center font-bold text-amber-900 text-sm">
+                    <span>2. Operating Expenses & Overheads</span>
+                    <span>{formatAmount(plData.totalExpense)}</span>
+                  </div>
+                </div>
+                <div className="divide-y divide-slate-100">
+                  {plData.expenses.map((e, i) => (
+                    <div key={i} className="flex justify-between px-6 py-2 text-xs text-slate-700">
+                      <span>{e.name}</span>
+                      <span className="font-medium">{formatAmount(e.amount)}</span>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Net Income */}
+                <div className="p-3.5 bg-slate-900 text-white flex justify-between items-center font-bold text-base">
+                  <span>Net Profit / (Loss) for the Period</span>
+                  <span className={plData.netProfit >= 0 ? "text-emerald-400" : "text-rose-400"}>
+                    {formatAmount(plData.netProfit)}
+                  </span>
                 </div>
               </div>
             </div>
+          )}
 
-            <div>
-              <h4 className="border-b border-line pb-1.5 text-xs font-bold text-rose-600 uppercase">
-                Operating & Administrative Expenses
-              </h4>
-              <div className="divide-y divide-line text-xs">
-                {plData.expenses.map((e, idx) => (
-                  <div key={idx} className="flex justify-between py-2">
-                    <span className="font-medium text-ink">{e.name}</span>
-                    <span className="font-medium text-ink">{formatAmount(e.amount)}</span>
+          {/* D. BALANCE SHEET */}
+          {reportType === "bs" && (
+            <div className="space-y-4 max-w-4xl">
+              <div className="border-b pb-3 border-slate-200">
+                <h3 className="font-bold text-slate-900 text-base">Statement of Financial Position (Balance Sheet)</h3>
+                <p className="text-xs text-slate-500">As on {toDate}</p>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Assets Column */}
+                <div className="border border-slate-200 rounded overflow-hidden divide-y divide-slate-200">
+                  <div className="p-3 bg-blue-50 font-bold text-blue-900 text-sm flex justify-between">
+                    <span>ASSETS</span>
+                    <span>{formatAmount(bsData.totalAssets)}</span>
                   </div>
-                ))}
-                <div className="flex justify-between py-2.5 font-bold text-rose-600">
-                  <span>Total Operating Expenses (B)</span>
-                  <span>{formatAmount(plData.totalExpense)}</span>
+                  <div className="divide-y divide-slate-100">
+                    {bsData.assets.map((a, i) => (
+                      <div key={i} className="flex justify-between px-4 py-2 text-xs text-slate-700">
+                        <span>{a.name}</span>
+                        <span className="font-medium">{formatAmount(a.amount)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Liabilities & Equity */}
+                <div className="space-y-4">
+                  <div className="border border-slate-200 rounded overflow-hidden divide-y divide-slate-200">
+                    <div className="p-3 bg-rose-50 font-bold text-rose-900 text-sm flex justify-between">
+                      <span>LIABILITIES</span>
+                      <span>{formatAmount(bsData.totalLiabilities)}</span>
+                    </div>
+                    <div className="divide-y divide-slate-100">
+                      {bsData.liabilities.map((l, i) => (
+                        <div key={i} className="flex justify-between px-4 py-2 text-xs text-slate-700">
+                          <span>{l.name}</span>
+                          <span className="font-medium">{formatAmount(l.amount)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="border border-slate-200 rounded overflow-hidden divide-y divide-slate-200">
+                    <div className="p-3 bg-purple-50 font-bold text-purple-900 text-sm flex justify-between">
+                      <span>EQUITY & RESERVES</span>
+                      <span>{formatAmount(bsData.totalEquity)}</span>
+                    </div>
+                    <div className="divide-y divide-slate-100">
+                      {bsData.equity.map((e, i) => (
+                        <div key={i} className="flex justify-between px-4 py-2 text-xs text-slate-700">
+                          <span>{e.name}</span>
+                          <span className="font-medium">{formatAmount(e.amount)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
+          )}
 
-            <div className="rounded-xl border border-line bg-control/50 p-4">
-              <div className="flex items-center justify-between text-sm font-bold text-ink">
-                <span>Net Operating Profit / (Loss) for the Period (A - B)</span>
-                <span className={plData.netProfit >= 0 ? "text-emerald-600 text-base" : "text-rose-600 text-base"}>
-                  {formatAmount(plData.netProfit)}
-                </span>
+          {/* E. CASH / BANK BOOK */}
+          {(reportType === "cashbook" || reportType === "bankbook") && (
+            <div className="space-y-4">
+              <div className="border-b pb-3 border-slate-200">
+                <h3 className="font-bold text-slate-900 text-base">
+                  {reportType === "cashbook" ? "Cash Book (Petty & Office Cash)" : "Bank Book (Bank Accounts Register)"}
+                </h3>
+                <p className="text-xs text-slate-500">
+                  Receipts, disbursements, and reconciliation balances from {fromDate} to {toDate}
+                </p>
+              </div>
+
+              <div className="overflow-x-auto border border-slate-200 rounded">
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead className="bg-slate-50 border-b border-slate-200 text-[11px] font-bold text-slate-700 uppercase tracking-wider">
+                    <tr>
+                      <th className="px-3.5 py-2.5">Date</th>
+                      <th className="px-3.5 py-2.5">Voucher / Slip #</th>
+                      <th className="px-3.5 py-2.5">Description</th>
+                      <th className="px-3.5 py-2.5 text-right">Receipts (Debit ৳)</th>
+                      <th className="px-3.5 py-2.5 text-right">Payments (Credit ৳)</th>
+                      <th className="px-3.5 py-2.5 text-right">Closing Balance</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {glData
+                      .filter((g) =>
+                        reportType === "cashbook"
+                          ? g.accountName.toLowerCase().includes("cash")
+                          : g.accountName.toLowerCase().includes("bank"),
+                      )
+                      .map((g, idx) => (
+                        <tr key={idx} className="hover:bg-slate-50/70 transition">
+                          <td className="px-3.5 py-2 text-slate-600">{g.date}</td>
+                          <td className="px-3.5 py-2 font-mono font-semibold text-blue-600">{g.voucherNumber}</td>
+                          <td className="px-3.5 py-2 text-slate-800">{g.narration}</td>
+                          <td className="px-3.5 py-2 text-right font-medium text-emerald-700">
+                            {g.debit > 0 ? formatAmount(g.debit) : "—"}
+                          </td>
+                          <td className="px-3.5 py-2 text-right font-medium text-rose-700">
+                            {g.credit > 0 ? formatAmount(g.credit) : "—"}
+                          </td>
+                          <td className="px-3.5 py-2 text-right font-bold text-slate-900">
+                            {formatAmount(g.runningBalance)}
+                          </td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
               </div>
             </div>
-          </div>
-        )}
-
-        {/* 4. Balance Sheet */}
-        {reportType === "bs" && (
-          <div className="mt-6 grid grid-cols-1 gap-6 md:grid-cols-2">
-            {/* Assets */}
-            <div>
-              <h4 className="border-b border-line pb-1.5 text-xs font-bold text-primary uppercase">
-                Assets (Economic Resources)
-              </h4>
-              <div className="divide-y divide-line text-xs">
-                {bsData.assets.map((a, idx) => (
-                  <div key={idx} className="flex justify-between py-2">
-                    <span className="font-medium text-ink">{a.name}</span>
-                    <span className="font-medium text-ink">{formatAmount(a.amount)}</span>
-                  </div>
-                ))}
-                <div className="flex justify-between py-3 font-bold text-primary border-t-2 border-line">
-                  <span>Total Assets</span>
-                  <span>{formatAmount(bsData.totalAssets)}</span>
-                </div>
-              </div>
-            </div>
-
-            {/* Liabilities & Equity */}
-            <div>
-              <h4 className="border-b border-line pb-1.5 text-xs font-bold text-amber-600 uppercase">
-                Liabilities & Shareholder Equity
-              </h4>
-              <div className="divide-y divide-line text-xs">
-                <div className="py-1 text-[11px] font-semibold text-ink-muted">Liabilities:</div>
-                {bsData.liabilities.map((l, idx) => (
-                  <div key={idx} className="flex justify-between py-1.5 pl-2">
-                    <span className="text-ink">{l.name}</span>
-                    <span className="text-ink">{formatAmount(l.amount)}</span>
-                  </div>
-                ))}
-                <div className="flex justify-between py-1.5 font-semibold text-amber-600">
-                  <span>Total Liabilities</span>
-                  <span>{formatAmount(bsData.totalLiabilities)}</span>
-                </div>
-
-                <div className="pt-2 text-[11px] font-semibold text-ink-muted">Equity & Retained Earnings:</div>
-                {bsData.equity.map((e, idx) => (
-                  <div key={idx} className="flex justify-between py-1.5 pl-2">
-                    <span className="text-ink">{e.name}</span>
-                    <span className="text-ink">{formatAmount(e.amount)}</span>
-                  </div>
-                ))}
-                <div className="flex justify-between py-1.5 font-semibold text-primary">
-                  <span>Total Shareholder Equity</span>
-                  <span>{formatAmount(bsData.totalEquity)}</span>
-                </div>
-
-                <div className="flex justify-between py-3 font-bold text-ink border-t-2 border-line">
-                  <span>Total Liabilities & Equity</span>
-                  <span>{formatAmount(bsData.totalLiabilities + bsData.totalEquity)}</span>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-      </Card>
-    </PageContainer>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }

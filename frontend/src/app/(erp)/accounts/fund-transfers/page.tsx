@@ -1,41 +1,35 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import React, { useMemo, useState } from "react";
+import Link from "next/link";
 import {
   AlertTriangle,
   ArrowRight,
   ArrowRightLeft,
   CheckCircle2,
+  ChevronRight,
   Clock,
   DollarSign,
   Download,
+  Eye,
   Filter,
   Plus,
   Printer,
   RotateCcw,
   Search,
   Send,
+  ShieldCheck,
   Truck,
+  X,
 } from "lucide-react";
-import { PageContainer, PageHead } from "@/components/layout/page";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { SummaryCard } from "@/components/purchase/SummaryCard";
+import { ModalDialog } from "@/components/purchase/ModalDialog";
 import { useAccountingStore } from "@/features/accounts/store/accounting-store";
 import type { FundTransferRecord, FundTransferStatus } from "@/features/accounts/types";
 
 export default function FundTransferPage() {
   const transfers = useAccountingStore((s) => s.transfers);
   const accounts = useAccountingStore((s) => s.accounts);
-  const bankAccounts = useAccountingStore((s) => s.bankAccounts);
   const createTransfer = useAccountingStore((s) => s.createTransfer);
   const approveTransfer = useAccountingStore((s) => s.approveTransfer);
   const dispatchTransfer = useAccountingStore((s) => s.dispatchTransfer);
@@ -43,9 +37,10 @@ export default function FundTransferPage() {
   const returnTransfer = useAccountingStore((s) => s.returnTransfer);
 
   const [activeTab, setActiveTab] = useState<
-    "all" | "requests" | "out" | "in_transit" | "received" | "returned"
-  >("all");
-  const [searchQuery, setSearchQuery] = useState("");
+    "ALL" | "REQUESTS" | "DISPATCHED" | "IN_TRANSIT" | "RECEIVED" | "RETURNED"
+  >("ALL");
+  const [search, setSearch] = useState("");
+  const [fromOfficeFilter, setFromOfficeFilter] = useState("ALL");
 
   const [isNewOpen, setIsNewOpen] = useState(false);
   const [returnTarget, setReturnTarget] = useState<FundTransferRecord | null>(null);
@@ -57,7 +52,7 @@ export default function FundTransferPage() {
     fromOfficeId: "office-main",
     fromOfficeName: "Dhaka Corporate HQ",
     toOfficeId: "office-ctg",
-    toOfficeName: "Chittagong Plant",
+    toOfficeName: "Chittagong Heavy Plant",
     fromAccountId: "acc-1120",
     fromAccountName: "Cash at Bank - Sonali Bank",
     toAccountId: "acc-1121",
@@ -71,20 +66,26 @@ export default function FundTransferPage() {
 
   const filteredTransfers = useMemo(() => {
     return transfers.filter((t) => {
-      const matchSearch =
-        t.transferNumber.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        t.fromOfficeName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        t.toOfficeName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        t.purpose.toLowerCase().includes(searchQuery.toLowerCase());
+      if (search) {
+        const q = search.toLowerCase();
+        const m =
+          t.transferNumber.toLowerCase().includes(q) ||
+          t.requestCode.toLowerCase().includes(q) ||
+          t.fromOfficeName.toLowerCase().includes(q) ||
+          t.toOfficeName.toLowerCase().includes(q) ||
+          t.purpose.toLowerCase().includes(q);
+        if (!m) return false;
+      }
+      if (fromOfficeFilter !== "ALL" && t.fromOfficeId !== fromOfficeFilter) return false;
 
-      if (activeTab === "requests") return matchSearch && (t.status === "DRAFT" || t.status === "SUBMITTED" || t.status === "PENDING_APPROVAL");
-      if (activeTab === "out") return matchSearch && t.status === "APPROVED";
-      if (activeTab === "in_transit") return matchSearch && t.status === "IN_TRANSIT";
-      if (activeTab === "received") return matchSearch && t.status === "RECEIVED";
-      if (activeTab === "returned") return matchSearch && t.status === "RETURNED";
-      return matchSearch;
+      if (activeTab === "REQUESTS") return t.status === "DRAFT" || t.status === "SUBMITTED" || t.status === "PENDING_APPROVAL";
+      if (activeTab === "DISPATCHED") return t.status === "APPROVED" || t.status === "DISPATCHED";
+      if (activeTab === "IN_TRANSIT") return t.status === "IN_TRANSIT";
+      if (activeTab === "RECEIVED") return t.status === "RECEIVED";
+      if (activeTab === "RETURNED") return t.status === "RETURNED";
+      return true;
     });
-  }, [transfers, searchQuery, activeTab]);
+  }, [transfers, search, fromOfficeFilter, activeTab]);
 
   const handleSaveTransfer = (e: React.FormEvent) => {
     e.preventDefault();
@@ -104,168 +105,319 @@ export default function FundTransferPage() {
     setReturnReason("");
   };
 
+  const handleExportCSV = () => {
+    let csv = "SL,Transfer #,Request Code,Date,From Office,To Office,Source Account,Destination Account,Amount,Status\n";
+    filteredTransfers.forEach((t, i) => {
+      csv += `"${i + 1}","${t.transferNumber}","${t.requestCode}","${t.requestDate}","${t.fromOfficeName}","${t.toOfficeName}","${t.fromAccountName}","${t.toAccountName}","${t.approvedAmount || t.requestedAmount}","${t.status}"\n`;
+    });
+    const link = document.createElement("a");
+    link.href = encodeURI("data:text/csv;charset=utf-8," + csv);
+    link.download = `BridgeOne_Fund_Transfers.csv`;
+    link.click();
+  };
+
   return (
-    <PageContainer>
-      <PageHead
-        title="Fund Transfer Management"
-        subtitle="Inter-branch and inter-bank fund transfers with in-transit status and zero-sum double-entry posting"
-        actions={
-          <div className="flex flex-wrap items-center gap-2">
-            <Button variant="secondary" size="sm" onClick={() => window.print()}>
-              <Printer className="mr-1.5 size-3.5" /> Print Transfer Log
-            </Button>
-            <Button variant="primary" size="sm" onClick={() => setIsNewOpen(true)}>
-              <Plus className="mr-1.5 size-3.5" /> Request Fund Transfer
-            </Button>
-          </div>
-        }
-      />
+    <div className="space-y-3 font-sans pb-12">
+      {/* ------------------------------------------------------------- */}
+      {/* 1. TOP HEADER */}
+      {/* ------------------------------------------------------------- */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-3 rounded border border-slate-200/90 shadow-2xs">
+        <div>
+          <nav className="flex items-center gap-1.5 text-[11px] text-slate-400 mb-0.5">
+            <Link href="/accounts" className="hover:text-slate-600 transition">
+              Account
+            </Link>
+            <ChevronRight className="w-3 h-3 text-slate-300" />
+            <span className="text-slate-600 font-medium">Fund Transfer</span>
+          </nav>
+          <h1 className="text-xl font-bold text-slate-900 tracking-tight">Fund Transfer Management</h1>
+          <p className="text-xs text-slate-500 mt-0.5">
+            Inter-branch and inter-bank fund transfers with in-transit reconciliation and zero double-counting
+          </p>
+        </div>
 
-      {/* Tabs */}
-      <Card className="mt-4 p-3">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex flex-wrap rounded-lg border border-line bg-surface p-0.5 text-xs font-medium">
-            <button
-              type="button"
-              onClick={() => setActiveTab("all")}
-              className={`rounded-md px-3 py-1.5 transition ${activeTab === "all" ? "bg-control font-semibold text-ink shadow-xs" : "text-ink-muted hover:text-ink"}`}
-            >
-              All Transfers ({transfers.length})
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveTab("requests")}
-              className={`rounded-md px-3 py-1.5 transition ${activeTab === "requests" ? "bg-control font-semibold text-ink shadow-xs" : "text-ink-muted hover:text-ink"}`}
-            >
-              Requests ({transfers.filter((t) => t.status === "PENDING_APPROVAL" || t.status === "DRAFT").length})
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveTab("out")}
-              className={`rounded-md px-3 py-1.5 transition ${activeTab === "out" ? "bg-control font-semibold text-ink shadow-xs" : "text-ink-muted hover:text-ink"}`}
-            >
-              Transfer Out ({transfers.filter((t) => t.status === "APPROVED").length})
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveTab("in_transit")}
-              className={`rounded-md px-3 py-1.5 transition ${activeTab === "in_transit" ? "bg-control font-semibold text-ink shadow-xs" : "text-ink-muted hover:text-ink"}`}
-            >
-              In Transit ({transfers.filter((t) => t.status === "IN_TRANSIT").length})
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveTab("received")}
-              className={`rounded-md px-3 py-1.5 transition ${activeTab === "received" ? "bg-control font-semibold text-ink shadow-xs" : "text-ink-muted hover:text-ink"}`}
-            >
-              Received ({transfers.filter((t) => t.status === "RECEIVED").length})
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveTab("returned")}
-              className={`rounded-md px-3 py-1.5 transition ${activeTab === "returned" ? "bg-control font-semibold text-ink shadow-xs" : "text-ink-muted hover:text-ink"}`}
-            >
-              Returns ({transfers.filter((t) => t.status === "RETURNED").length})
-            </button>
-          </div>
-
-          <div className="relative w-64">
-            <Search className="absolute top-2.5 left-2.5 size-3.5 text-ink-faint" />
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="relative">
             <input
               type="text"
-              placeholder="Search transfer #, office, purpose..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full rounded-lg border border-line bg-surface py-1.5 pr-3 pl-8 text-xs text-ink placeholder:text-ink-faint focus:border-primary focus:outline-none"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search transfer #, office..."
+              className="w-56 sm:w-64 h-9 pl-3 pr-8 text-xs border border-slate-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 bg-white placeholder-slate-400"
             />
+            <Search className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
           </div>
-        </div>
-      </Card>
 
-      {/* Transfers Table */}
-      <Card className="mt-4 overflow-hidden">
+          <button
+            type="button"
+            onClick={handleExportCSV}
+            className="h-9 px-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs rounded flex items-center gap-1.5 shadow-xs transition"
+          >
+            <Download className="w-3.5 h-3.5" />
+            <span>Excel</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setIsNewOpen(true)}
+            className="h-9 px-4 bg-[#2563eb] hover:bg-blue-700 text-white font-semibold text-xs rounded flex items-center gap-1.5 shadow-xs transition"
+          >
+            <Plus className="w-4 h-4" />
+            <span>New Transfer Request</span>
+          </button>
+        </div>
+      </div>
+
+      {/* ------------------------------------------------------------- */}
+      {/* 2. SUMMARY KPI CARDS ROW */}
+      {/* ------------------------------------------------------------- */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <SummaryCard
+          title="Funds in Transit"
+          value={`৳${transfers.filter((t) => t.status === "IN_TRANSIT").reduce((s, t) => s + t.transferredAmount, 0).toLocaleString()}`}
+          subtitle={`${transfers.filter((t) => t.status === "IN_TRANSIT").length} shipments in route`}
+          icon={Truck}
+          variant="warning"
+        />
+        <SummaryCard
+          title="Completed Receipts"
+          value={`৳${transfers.filter((t) => t.status === "RECEIVED").reduce((s, t) => s + t.receivedAmount, 0).toLocaleString()}`}
+          subtitle={`${transfers.filter((t) => t.status === "RECEIVED").length} settled transfers`}
+          icon={CheckCircle2}
+          variant="success"
+        />
+        <SummaryCard
+          title="Pending Approval"
+          value={transfers.filter((t) => t.status === "PENDING_APPROVAL").length}
+          subtitle="Awaiting treasury sign-off"
+          icon={Clock}
+          variant="info"
+        />
+        <SummaryCard
+          title="Returned Discrepancies"
+          value={transfers.filter((t) => t.status === "RETURNED").length}
+          subtitle="Reversed to source account"
+          icon={AlertTriangle}
+          variant="danger"
+        />
+      </div>
+
+      {/* ------------------------------------------------------------- */}
+      {/* 3. NAVIGATION TABS */}
+      {/* ------------------------------------------------------------- */}
+      <div className="flex items-center gap-8 border-b border-slate-200 mb-3 bg-white px-3 pt-2 rounded-t border-t border-x border-slate-200/90 overflow-x-auto select-none">
+        <button
+          type="button"
+          onClick={() => setActiveTab("ALL")}
+          className={`pb-2.5 text-xs font-bold tracking-wide transition-colors relative flex items-center gap-2 uppercase whitespace-nowrap ${
+            activeTab === "ALL"
+              ? "text-blue-600 border-b-2 border-blue-600 -mb-[1px]"
+              : "text-slate-500 hover:text-slate-800"
+          }`}
+        >
+          <span>ALL TRANSFERS ({transfers.length})</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab("REQUESTS")}
+          className={`pb-2.5 text-xs font-bold tracking-wide transition-colors relative flex items-center gap-2 uppercase whitespace-nowrap ${
+            activeTab === "REQUESTS"
+              ? "text-blue-600 border-b-2 border-blue-600 -mb-[1px]"
+              : "text-slate-500 hover:text-slate-800"
+          }`}
+        >
+          <span>TRANSFER REQUESTS ({transfers.filter((t) => t.status === "PENDING_APPROVAL").length})</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab("DISPATCHED")}
+          className={`pb-2.5 text-xs font-bold tracking-wide transition-colors relative flex items-center gap-2 uppercase whitespace-nowrap ${
+            activeTab === "DISPATCHED"
+              ? "text-blue-600 border-b-2 border-blue-600 -mb-[1px]"
+              : "text-slate-500 hover:text-slate-800"
+          }`}
+        >
+          <span>APPROVED OUT ({transfers.filter((t) => t.status === "APPROVED").length})</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab("IN_TRANSIT")}
+          className={`pb-2.5 text-xs font-bold tracking-wide transition-colors relative flex items-center gap-2 uppercase whitespace-nowrap ${
+            activeTab === "IN_TRANSIT"
+              ? "text-blue-600 border-b-2 border-blue-600 -mb-[1px]"
+              : "text-slate-500 hover:text-slate-800"
+          }`}
+        >
+          <span>IN TRANSIT ({transfers.filter((t) => t.status === "IN_TRANSIT").length})</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab("RECEIVED")}
+          className={`pb-2.5 text-xs font-bold tracking-wide transition-colors relative flex items-center gap-2 uppercase whitespace-nowrap ${
+            activeTab === "RECEIVED"
+              ? "text-blue-600 border-b-2 border-blue-600 -mb-[1px]"
+              : "text-slate-500 hover:text-slate-800"
+          }`}
+        >
+          <span>RECEIVED ({transfers.filter((t) => t.status === "RECEIVED").length})</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab("RETURNED")}
+          className={`pb-2.5 text-xs font-bold tracking-wide transition-colors relative flex items-center gap-2 uppercase whitespace-nowrap ${
+            activeTab === "RETURNED"
+              ? "text-blue-600 border-b-2 border-blue-600 -mb-[1px]"
+              : "text-slate-500 hover:text-slate-800"
+          }`}
+        >
+          <span>RETURNED ({transfers.filter((t) => t.status === "RETURNED").length})</span>
+        </button>
+      </div>
+
+      {/* ------------------------------------------------------------- */}
+      {/* 4. FILTER TOOLBAR */}
+      {/* ------------------------------------------------------------- */}
+      <div className="bg-white rounded border border-slate-200/90 p-3 shadow-2xs">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-1.5 text-xs text-slate-600">
+            <span className="font-medium text-[11px] text-slate-500">Source Office:</span>
+            <select
+              value={fromOfficeFilter}
+              onChange={(e) => setFromOfficeFilter(e.target.value)}
+              className="border border-slate-200 rounded px-2.5 py-1 text-xs bg-slate-50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+            >
+              <option value="ALL">All Source Branches</option>
+              <option value="office-main">Dhaka Corporate HQ</option>
+              <option value="office-ctg">Chittagong Heavy Plant</option>
+            </select>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => {
+              setSearch("");
+              setFromOfficeFilter("ALL");
+            }}
+            className="flex items-center gap-1 px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded text-xs font-medium transition"
+          >
+            <RotateCcw className="w-3.5 h-3.5" />
+            <span>Reset</span>
+          </button>
+        </div>
+      </div>
+
+      {/* ------------------------------------------------------------- */}
+      {/* 5. FUND TRANSFER REGISTER TABLE */}
+      {/* ------------------------------------------------------------- */}
+      <div className="bg-white rounded border border-slate-200/90 shadow-2xs overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">
-            <thead className="border-b border-line bg-control/40 font-semibold text-ink">
+            <thead className="bg-slate-50 border-y border-slate-200 text-[11px] font-bold text-slate-700 uppercase tracking-wider">
               <tr>
-                <th className="px-4 py-2.5">Transfer #</th>
-                <th className="px-4 py-2.5">Date</th>
-                <th className="px-4 py-2.5">Origin Office</th>
-                <th className="px-4 py-2.5">Destination Office</th>
-                <th className="px-4 py-2.5">Source &rarr; Target Account</th>
-                <th className="px-4 py-2.5 text-right">Amount (৳)</th>
-                <th className="px-4 py-2.5">Responsible</th>
-                <th className="px-4 py-2.5 text-center">Status</th>
-                <th className="px-4 py-2.5 text-right">Actions</th>
+                <th className="px-3.5 py-2.5">SL</th>
+                <th className="px-3.5 py-2.5">Transfer #</th>
+                <th className="px-3.5 py-2.5">Date</th>
+                <th className="px-3.5 py-2.5">From Branch & Account</th>
+                <th className="px-3.5 py-2.5">To Branch & Account</th>
+                <th className="px-3.5 py-2.5">Responsible</th>
+                <th className="px-3.5 py-2.5 text-right font-bold text-slate-900">Amount (৳)</th>
+                <th className="px-3.5 py-2.5 text-center">Status</th>
+                <th className="px-3.5 py-2.5 text-center">Workflow Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-line">
+            <tbody className="divide-y divide-slate-100">
               {filteredTransfers.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="py-12 text-center text-ink-faint">
-                    No fund transfer records found in this category. Click &quot;Request Fund Transfer&quot; to initiate a transfer.
+                  <td colSpan={9} className="py-8 text-center text-xs text-slate-400">
+                    No fund transfers found matching criteria.
                   </td>
                 </tr>
               ) : (
-                filteredTransfers.map((t) => (
-                  <tr key={t.id} className="hover:bg-control/30">
-                    <td className="px-4 py-2.5 font-mono font-semibold text-ink">{t.transferNumber}</td>
-                    <td className="px-4 py-2.5 text-ink-muted">{t.requestDate}</td>
-                    <td className="px-4 py-2.5 font-medium text-ink">{t.fromOfficeName}</td>
-                    <td className="px-4 py-2.5 font-medium text-ink">{t.toOfficeName}</td>
-                    <td className="px-4 py-2.5 text-ink">
-                      <div className="flex items-center gap-1.5 text-[11px]">
-                        <span>{t.fromAccountName}</span>
-                        <ArrowRight className="size-3 text-ink-faint" />
-                        <span>{t.toAccountName}</span>
-                      </div>
+                filteredTransfers.map((t, index) => (
+                  <tr key={t.id} className="hover:bg-slate-50/80 transition-colors">
+                    <td className="px-3.5 py-2.5 font-medium text-slate-500">{index + 1}</td>
+                    <td className="px-3.5 py-2.5">
+                      <div className="font-mono font-bold text-blue-600">{t.transferNumber}</div>
+                      <div className="text-[10px] text-slate-400 font-mono">{t.requestCode}</div>
                     </td>
-                    <td className="px-4 py-2.5 text-right font-bold text-ink">৳{t.requestedAmount.toLocaleString()}</td>
-                    <td className="px-4 py-2.5 text-ink-muted">{t.responsiblePerson}</td>
-                    <td className="px-4 py-2.5 text-center">
-                      <Badge
-                        variant={
+                    <td className="px-3.5 py-2.5 text-slate-600">{t.requestDate}</td>
+                    <td className="px-3.5 py-2.5">
+                      <div className="font-semibold text-slate-800">{t.fromOfficeName}</div>
+                      <div className="text-[11px] text-slate-500">{t.fromAccountName}</div>
+                    </td>
+                    <td className="px-3.5 py-2.5">
+                      <div className="font-semibold text-slate-800">{t.toOfficeName}</div>
+                      <div className="text-[11px] text-slate-500">{t.toAccountName}</div>
+                    </td>
+                    <td className="px-3.5 py-2.5 text-slate-600">{t.responsiblePerson}</td>
+                    <td className="px-3.5 py-2.5 text-right font-mono font-bold text-blue-700 text-sm">
+                      ৳{(t.approvedAmount || t.requestedAmount).toLocaleString()}
+                    </td>
+                    <td className="px-3.5 py-2.5 text-center">
+                      <span
+                        className={`px-2 py-0.5 rounded-full text-[10px] font-semibold border ${
                           t.status === "RECEIVED"
-                            ? "success"
+                            ? "bg-emerald-50 text-emerald-700 border-emerald-200"
                             : t.status === "IN_TRANSIT"
-                            ? "primary"
+                            ? "bg-amber-50 text-amber-700 border-amber-200"
                             : t.status === "RETURNED"
-                            ? "danger"
-                            : "warning"
-                        }
+                            ? "bg-rose-50 text-rose-700 border-rose-200"
+                            : "bg-blue-50 text-blue-700 border-blue-200"
+                        }`}
                       >
-                        {t.status.replace("_", " ")}
-                      </Badge>
+                        {t.status}
+                      </span>
                     </td>
-                    <td className="px-4 py-2.5 text-right">
-                      <div className="flex items-center justify-end gap-1.5">
+                    <td className="px-3.5 py-2.5 text-center">
+                      <div className="flex items-center justify-center gap-1.5">
                         {t.status === "PENDING_APPROVAL" && (
-                          <Button size="sm" variant="primary" onClick={() => approveTransfer(t.id, t.requestedAmount)}>
+                          <button
+                            type="button"
+                            onClick={() => approveTransfer(t.id, t.requestedAmount)}
+                            className="px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-600 hover:bg-emerald-700 text-white transition"
+                          >
                             Approve
-                          </Button>
+                          </button>
                         )}
                         {t.status === "APPROVED" && (
-                          <Button size="sm" variant="primary" onClick={() => dispatchTransfer(t.id)}>
-                            <Truck className="mr-1 size-3" /> Dispatch (In-Transit)
-                          </Button>
+                          <button
+                            type="button"
+                            onClick={() => dispatchTransfer(t.id)}
+                            className="px-2 py-0.5 rounded text-[10px] font-semibold bg-blue-600 hover:bg-blue-700 text-white transition flex items-center gap-1"
+                          >
+                            <Send className="w-3 h-3" /> Dispatch
+                          </button>
                         )}
                         {t.status === "IN_TRANSIT" && (
                           <>
-                            <Button size="sm" variant="primary" onClick={() => receiveTransfer(t.id)}>
+                            <button
+                              type="button"
+                              onClick={() => receiveTransfer(t.id)}
+                              className="px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-600 hover:bg-emerald-700 text-white transition"
+                            >
                               Confirm Receipt
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              className="text-rose-600"
+                            </button>
+                            <button
+                              type="button"
                               onClick={() => {
                                 setReturnTarget(t);
                                 setReturnReason("");
                               }}
+                              className="px-2 py-0.5 rounded text-[10px] font-semibold bg-rose-600 hover:bg-rose-700 text-white transition"
                             >
                               Return
-                            </Button>
+                            </button>
                           </>
+                        )}
+                        {t.status === "RECEIVED" && (
+                          <span className="text-[11px] font-medium text-emerald-600 flex items-center gap-1 justify-center">
+                            <CheckCircle2 className="w-3 h-3" /> Received
+                          </span>
                         )}
                       </div>
                     </td>
@@ -275,184 +427,203 @@ export default function FundTransferPage() {
             </tbody>
           </table>
         </div>
-      </Card>
+      </div>
 
-      {/* New Transfer Modal */}
-      <Dialog open={isNewOpen} onOpenChange={setIsNewOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Request Internal Fund Transfer</DialogTitle>
-            <DialogDescription>
-              Transfer liquid funds between offices or bank accounts. Entries will flow through &quot;Fund in Transit&quot; until confirmed.
-            </DialogDescription>
-          </DialogHeader>
-
-          <form onSubmit={handleSaveTransfer} className="space-y-3 py-2 text-xs">
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="mb-1 block font-medium text-ink">Source Office *</label>
-                <select
-                  value={form.fromOfficeId}
-                  onChange={(e) => {
-                    const name = e.target.value === "office-main" ? "Dhaka Corporate HQ" : "Chittagong Plant";
-                    setForm({ ...form, fromOfficeId: e.target.value, fromOfficeName: name });
-                  }}
-                  className="w-full rounded-lg border border-line bg-surface p-2 text-xs text-ink outline-none focus:border-primary"
-                >
-                  <option value="office-main">Dhaka Corporate HQ</option>
-                  <option value="office-ctg">Chittagong Plant</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="mb-1 block font-medium text-ink">Receiving Office *</label>
-                <select
-                  value={form.toOfficeId}
-                  onChange={(e) => {
-                    const name = e.target.value === "office-ctg" ? "Chittagong Plant" : "Dhaka Corporate HQ";
-                    setForm({ ...form, toOfficeId: e.target.value, toOfficeName: name });
-                  }}
-                  className="w-full rounded-lg border border-line bg-surface p-2 text-xs text-ink outline-none focus:border-primary"
-                >
-                  <option value="office-ctg">Chittagong Plant</option>
-                  <option value="office-main">Dhaka Corporate HQ</option>
-                </select>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="mb-1 block font-medium text-ink">Source Account (Out) *</label>
-                <select
-                  value={form.fromAccountId}
-                  onChange={(e) => {
-                    const acc = accounts.find((a) => a.id === e.target.value);
-                    setForm({ ...form, fromAccountId: e.target.value, fromAccountName: acc?.name || "Source" });
-                  }}
-                  className="w-full rounded-lg border border-line bg-surface p-2 text-xs text-ink outline-none focus:border-primary"
-                >
-                  {accounts
-                    .filter((a) => (a.accountSubtype === "Bank" || a.accountSubtype === "Cash") && !a.isGroup)
-                    .map((a) => (
-                      <option key={a.id} value={a.id}>
-                        {a.code} - {a.name}
-                      </option>
-                    ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="mb-1 block font-medium text-ink">Target Account (In) *</label>
-                <select
-                  value={form.toAccountId}
-                  onChange={(e) => {
-                    const acc = accounts.find((a) => a.id === e.target.value);
-                    setForm({ ...form, toAccountId: e.target.value, toAccountName: acc?.name || "Target" });
-                  }}
-                  className="w-full rounded-lg border border-line bg-surface p-2 text-xs text-ink outline-none focus:border-primary"
-                >
-                  {accounts
-                    .filter((a) => (a.accountSubtype === "Bank" || a.accountSubtype === "Cash") && !a.isGroup)
-                    .map((a) => (
-                      <option key={a.id} value={a.id}>
-                        {a.code} - {a.name}
-                      </option>
-                    ))}
-                </select>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="mb-1 block font-medium text-ink">Transfer Amount (৳) *</label>
-                <input
-                  type="number"
-                  required
-                  min="1"
-                  value={form.requestedAmount || ""}
-                  onChange={(e) => setForm({ ...form, requestedAmount: Number(e.target.value) || 0 })}
-                  className="w-full rounded-lg border border-line bg-surface p-2 text-xs text-ink outline-none focus:border-primary"
-                />
-              </div>
-
-              <div>
-                <label className="mb-1 block font-medium text-ink">Expected Date</label>
-                <input
-                  type="date"
-                  required
-                  value={form.expectedDate}
-                  onChange={(e) => setForm({ ...form, expectedDate: e.target.value })}
-                  className="w-full rounded-lg border border-line bg-surface p-2 text-xs text-ink outline-none focus:border-primary"
-                />
-              </div>
-            </div>
-
+      {/* ------------------------------------------------------------- */}
+      {/* 6. MODAL: CREATE FUND TRANSFER REQUEST */}
+      {/* ------------------------------------------------------------- */}
+      <ModalDialog
+        isOpen={isNewOpen}
+        onClose={() => setIsNewOpen(false)}
+        title="Create Fund Transfer Request"
+        subtitle="Initiate inter-branch cash/bank transfer workflow with automated transit posting"
+        maxWidth="xl"
+      >
+        <form onSubmit={handleSaveTransfer} className="space-y-4 text-xs">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <label className="mb-1 block font-medium text-ink">Responsible Officer</label>
+              <label className="block font-semibold text-slate-700 mb-1">Request Date *</label>
+              <input
+                type="date"
+                required
+                value={form.requestDate}
+                onChange={(e) => setForm({ ...form, requestDate: e.target.value })}
+                className="w-full h-8 border border-slate-300 rounded px-2 text-xs"
+              />
+            </div>
+            <div>
+              <label className="block font-semibold text-slate-700 mb-1">Expected Delivery Date *</label>
+              <input
+                type="date"
+                required
+                value={form.expectedDate}
+                onChange={(e) => setForm({ ...form, expectedDate: e.target.value })}
+                className="w-full h-8 border border-slate-300 rounded px-2 text-xs"
+              />
+            </div>
+            <div>
+              <label className="block font-semibold text-slate-700 mb-1">From Office (Origin) *</label>
+              <select
+                value={form.fromOfficeId}
+                onChange={(e) =>
+                  setForm({
+                    ...form,
+                    fromOfficeId: e.target.value,
+                    fromOfficeName: e.target.value === "office-main" ? "Dhaka Corporate HQ" : "Chittagong Heavy Plant",
+                  })
+                }
+                className="w-full h-8 border border-slate-300 rounded px-2 text-xs bg-white"
+              >
+                <option value="office-main">Dhaka Corporate HQ</option>
+                <option value="office-ctg">Chittagong Heavy Plant</option>
+              </select>
+            </div>
+            <div>
+              <label className="block font-semibold text-slate-700 mb-1">To Office (Destination) *</label>
+              <select
+                value={form.toOfficeId}
+                onChange={(e) =>
+                  setForm({
+                    ...form,
+                    toOfficeId: e.target.value,
+                    toOfficeName: e.target.value === "office-ctg" ? "Chittagong Heavy Plant" : "Dhaka Corporate HQ",
+                  })
+                }
+                className="w-full h-8 border border-slate-300 rounded px-2 text-xs bg-white"
+              >
+                <option value="office-ctg">Chittagong Heavy Plant</option>
+                <option value="office-main">Dhaka Corporate HQ</option>
+              </select>
+            </div>
+            <div>
+              <label className="block font-semibold text-slate-700 mb-1">Source Cash/Bank Account *</label>
+              <select
+                value={form.fromAccountId}
+                onChange={(e) => {
+                  const acc = accounts.find((a) => a.id === e.target.value);
+                  setForm({ ...form, fromAccountId: e.target.value, fromAccountName: acc?.name || "Bank" });
+                }}
+                className="w-full h-8 border border-slate-300 rounded px-2 text-xs bg-white"
+              >
+                {accounts
+                  .filter((a) => a.accountSubtype === "Bank" || a.accountSubtype === "Cash")
+                  .map((a) => (
+                    <option key={a.id} value={a.id}>
+                      [{a.code}] {a.name}
+                    </option>
+                  ))}
+              </select>
+            </div>
+            <div>
+              <label className="block font-semibold text-slate-700 mb-1">Destination Cash/Bank Account *</label>
+              <select
+                value={form.toAccountId}
+                onChange={(e) => {
+                  const acc = accounts.find((a) => a.id === e.target.value);
+                  setForm({ ...form, toAccountId: e.target.value, toAccountName: acc?.name || "Bank" });
+                }}
+                className="w-full h-8 border border-slate-300 rounded px-2 text-xs bg-white"
+              >
+                {accounts
+                  .filter((a) => a.accountSubtype === "Bank" || a.accountSubtype === "Cash")
+                  .map((a) => (
+                    <option key={a.id} value={a.id}>
+                      [{a.code}] {a.name}
+                    </option>
+                  ))}
+              </select>
+            </div>
+            <div>
+              <label className="block font-semibold text-slate-700 mb-1">Transfer Amount (৳) *</label>
+              <input
+                type="number"
+                required
+                min="100"
+                value={form.requestedAmount || ""}
+                onChange={(e) => setForm({ ...form, requestedAmount: parseFloat(e.target.value) || 0 })}
+                className="w-full h-8 border border-slate-300 rounded px-2.5 text-xs font-mono text-slate-800"
+              />
+            </div>
+            <div>
+              <label className="block font-semibold text-slate-700 mb-1">Responsible Person *</label>
               <input
                 type="text"
+                required
                 value={form.responsiblePerson}
                 onChange={(e) => setForm({ ...form, responsiblePerson: e.target.value })}
-                className="w-full rounded-lg border border-line bg-surface p-2 text-xs text-ink outline-none focus:border-primary"
+                className="w-full h-8 border border-slate-300 rounded px-2.5 text-xs text-slate-800"
               />
             </div>
-
-            <div>
-              <label className="mb-1 block font-medium text-ink">Purpose & Scope</label>
-              <textarea
-                rows={2}
+            <div className="sm:col-span-2">
+              <label className="block font-semibold text-slate-700 mb-1">Business Purpose *</label>
+              <input
+                type="text"
+                required
                 value={form.purpose}
                 onChange={(e) => setForm({ ...form, purpose: e.target.value })}
-                className="w-full rounded-lg border border-line bg-surface p-2 text-xs text-ink outline-none focus:border-primary"
-              />
-            </div>
-
-            <DialogFooter>
-              <Button type="button" variant="ghost" onClick={() => setIsNewOpen(false)}>
-                Cancel
-              </Button>
-              <Button type="submit" variant="primary">
-                Submit Request
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
-
-      {/* Return Dialog */}
-      <Dialog open={!!returnTarget} onOpenChange={(open) => !open && setReturnTarget(null)}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Return Fund Transfer</DialogTitle>
-            <DialogDescription>
-              Return in-transit fund {returnTarget?.transferNumber} back to origin source account.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-3 py-2 text-xs">
-            <div>
-              <label className="mb-1 block font-medium text-ink">Return Justification *</label>
-              <textarea
-                required
-                rows={3}
-                placeholder="e.g. Account mismatch or branch request revoked..."
-                value={returnReason}
-                onChange={(e) => setReturnReason(e.target.value)}
-                className="w-full rounded-lg border border-line bg-surface p-2 text-xs text-ink outline-none focus:border-primary"
+                className="w-full h-8 border border-slate-300 rounded px-2.5 text-xs text-slate-800"
               />
             </div>
           </div>
 
-          <DialogFooter>
-            <Button variant="ghost" onClick={() => setReturnTarget(null)}>
+          <div className="flex justify-end gap-2 pt-3 border-t border-slate-200">
+            <button
+              type="button"
+              onClick={() => setIsNewOpen(false)}
+              className="px-3.5 py-1.5 border border-slate-300 hover:bg-slate-50 text-slate-700 rounded text-xs font-semibold"
+            >
               Cancel
-            </Button>
-            <Button variant="primary" className="bg-rose-600 hover:bg-rose-700" onClick={handleConfirmReturn}>
-              Confirm Return
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </PageContainer>
+            </button>
+            <button
+              type="submit"
+              className="px-4 py-1.5 bg-[#2563eb] hover:bg-blue-700 text-white rounded text-xs font-semibold shadow-xs"
+            >
+              Submit Transfer Request
+            </button>
+          </div>
+        </form>
+      </ModalDialog>
+
+      {/* ------------------------------------------------------------- */}
+      {/* 7. MODAL: RETURN IN-TRANSIT TRANSFER */}
+      {/* ------------------------------------------------------------- */}
+      <ModalDialog
+        isOpen={!!returnTarget}
+        onClose={() => setReturnTarget(null)}
+        title={`Return In-Transit Transfer — ${returnTarget?.transferNumber}`}
+        subtitle="This will reverse the Fund in Transit entry back into the originating source account"
+        maxWidth="md"
+      >
+        <div className="space-y-4 text-xs">
+          <div>
+            <label className="block font-semibold text-slate-700 mb-1">Reason for Return / Discrepancy *</label>
+            <textarea
+              rows={3}
+              required
+              placeholder="e.g. Branch courier intercepted, incorrect destination account, rejected by branch controller..."
+              value={returnReason}
+              onChange={(e) => setReturnReason(e.target.value)}
+              className="w-full border border-slate-300 rounded p-2 text-xs text-slate-800"
+            />
+          </div>
+          <div className="flex justify-end gap-2 pt-2 border-t border-slate-200">
+            <button
+              type="button"
+              onClick={() => setReturnTarget(null)}
+              className="px-3.5 py-1.5 border border-slate-300 hover:bg-slate-50 text-slate-700 rounded text-xs font-semibold"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleConfirmReturn}
+              className="px-4 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded text-xs font-semibold shadow-xs"
+            >
+              Confirm Return to Source
+            </button>
+          </div>
+        </div>
+      </ModalDialog>
+    </div>
   );
 }
