@@ -78,14 +78,21 @@ export type PaymentMethod = "CASH" | "BANK" | "CHEQUE" | "ONLINE";
 export interface ExpenseRecord {
   id: string;
   expenseNumber: string;
+  code?: string;
   officeId: string;
   officeName: string;
   expenseType: string;
   accountId: string;
   accountName: string;
+  chartOfAccount?: string;
   payeeName: string;
+  partnerPayee?: string;
   amount: number;
   date: string;
+  registrationDate?: string;
+  transactionDate?: string;
+  transactionNo?: string;
+  registrationCode?: string;
   paymentMethod: PaymentMethod;
   referenceNumber?: string;
   description: string;
@@ -100,15 +107,19 @@ export type AdvanceStatus = "DRAFT" | "PENDING" | "APPROVED" | "DISBURSED" | "SE
 export interface AdvanceRecord {
   id: string;
   advanceNumber: string;
+  code?: string;
   employeeName: string;
+  partnerPayee?: string;
   officeId: string;
   officeName: string;
   purpose: string;
+  chartOfAccounts?: string;
   requestedAmount: number;
   approvedAmount: number;
   disbursedAmount: number;
   settledAmount: number;
   remainingBalance: number;
+  amount?: number;
   date: string;
   status: AdvanceStatus;
   approvedBy?: string;
@@ -118,14 +129,19 @@ export interface AdvanceRecord {
 export interface ProvisionRecord {
   id: string;
   provisionNumber: string;
+  code?: string;
   officeId: string;
   officeName: string;
+  expenseType?: string;
   accountId: string;
   accountName: string;
+  chartOfAccount?: string;
+  partnerPayee?: string;
   amount: number;
+  date?: string;
   effectivePeriod: string;
   description: string;
-  status: "DRAFT" | "POSTED" | "REVERSED";
+  status: "DRAFT" | "POSTED" | "REVERSED" | "PENDING";
   postedAt?: string;
   createdAt: string;
 }
