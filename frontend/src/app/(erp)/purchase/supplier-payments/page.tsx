@@ -67,44 +67,6 @@ export interface PendingBillRow {
   status: "Pending" | "Approved" | "In_Review" | "In_Progress";
 }
 
-const INITIAL_PENDING_BILLS: PendingBillRow[] = [
-  { sl: 1, billNo: "BILL-2610-001", billDate: "2026-10-09", supplierCode: "SUP-DHA00220", supplierName: "BridgeOne Technologies Ltd", poNumber: "PO-2026-00091", grnNumber: "GRN-2026-00042", billType: "Local", currency: "BDT", grossAmount: 292556.0, taxVat: 14628.0, netPayable: 277928.0, dueDate: "2026-10-25", status: "Pending" },
-  { sl: 2, billNo: "BILL-2610-002", billDate: "2026-10-06", supplierCode: "SUP-DHA00018", supplierName: "Bengal Poly & Packaging PLC", poNumber: "PO-2026-00089", grnNumber: "GRN-2026-00040", billType: "Local", currency: "BDT", grossAmount: 750000.0, taxVat: 37500.0, netPayable: 712500.0, dueDate: "2026-10-22", status: "Pending" },
-  { sl: 3, billNo: "BILL-2610-003", billDate: "2026-10-05", supplierCode: "SUP-DHA00009", supplierName: "Freshpack Packaging Industries Ltd", poNumber: "PO-2026-00088", grnNumber: "GRN-2026-00039", billType: "Local", currency: "BDT", grossAmount: 407480.0, taxVat: 20374.0, netPayable: 387106.0, dueDate: "2026-10-18", status: "In_Review" },
-  { sl: 4, billNo: "BILL-2610-004", billDate: "2026-10-04", supplierCode: "SUP-DHA00025", supplierName: "Crown Cement Concrete Products Ltd", poNumber: "PO-2026-00086", grnNumber: "GRN-2026-00038", billType: "Local", currency: "BDT", grossAmount: 580000.0, taxVat: 29000.0, netPayable: 551000.0, dueDate: "2026-10-20", status: "Approved" },
-  { sl: 5, billNo: "BILL-2610-005", billDate: "2026-10-03", supplierCode: "SUP-DHA00015", supplierName: "Rangs Energy Solutions Ltd", poNumber: "PO-2026-00085", grnNumber: "GRN-2026-00037", billType: "Local", currency: "BDT", grossAmount: 860000.0, taxVat: 43000.0, netPayable: 817000.0, dueDate: "2026-10-24", status: "Pending" },
-  { sl: 6, billNo: "BILL-2610-006", billDate: "2026-10-02", supplierCode: "SUP-DHA00024", supplierName: "Standard Steel & Engineering Works", poNumber: "PO-2026-00090", grnNumber: "GRN-2026-00041", billType: "Local", currency: "BDT", grossAmount: 185250.0, taxVat: 9262.0, netPayable: 175988.0, dueDate: "2026-10-16", status: "Approved" },
-  { sl: 7, billNo: "BILL-2610-007", billDate: "2026-10-01", supplierCode: "SUP-DHA00105", supplierName: "Walton Digi-Tech Industries Ltd", poNumber: "PO-2026-00084", grnNumber: "GRN-2026-00036", billType: "Local", currency: "BDT", grossAmount: 640000.0, taxVat: 32000.0, netPayable: 608000.0, dueDate: "2026-10-25", status: "In_Progress" },
-  { sl: 8, billNo: "BILL-2610-008", billDate: "2026-09-30", supplierCode: "SUP-DHA00021", supplierName: "Rahimafrooz Industrial Batteries Ltd", poNumber: "PO-2026-00083", grnNumber: "GRN-2026-00035", billType: "Local", currency: "BDT", grossAmount: 320000.0, taxVat: 16000.0, netPayable: 304000.0, dueDate: "2026-10-15", status: "Pending" },
-  { sl: 9, billNo: "BILL-2610-009", billDate: "2026-09-28", supplierCode: "SUP-DHA00010", supplierName: "Meghna Industrial Automation Ltd", poNumber: "PO-2026-00082", grnNumber: "GRN-2026-00034", billType: "Local", currency: "BDT", grossAmount: 490000.0, taxVat: 24500.0, netPayable: 465500.0, dueDate: "2026-10-14", status: "Approved" },
-];
-
-const INITIAL_DUE_LIST: DueListRow[] = [
-  { sl: 1, supplierCode: "SUP-DHA00220", supplierName: "BridgeOne Technologies Ltd", mobileNumber: "01329731801", totalAmount: 1525000.0, returnAmount: 0.0, paymentAmount: 775000.0, dueAmount: 750000.0 },
-  { sl: 2, supplierCode: "SUP-DHA00010", supplierName: "Meghna Industrial Automation Ltd", mobileNumber: "01711489477", totalAmount: 950000.0, returnAmount: 0.0, paymentAmount: 450000.0, dueAmount: 500000.0 },
-  { sl: 3, supplierCode: "SUP-DHA00018", supplierName: "Bengal Poly & Packaging PLC", mobileNumber: "01833401899", totalAmount: 1650000.0, returnAmount: 50000.0, paymentAmount: 950000.0, dueAmount: 650000.0 },
-  { sl: 4, supplierCode: "SUP-DHA00025", supplierName: "Crown Cement Concrete Products Ltd", mobileNumber: "01715061944", totalAmount: 1840000.0, returnAmount: 0.0, paymentAmount: 1200000.0, dueAmount: 640000.0 },
-  { sl: 5, supplierCode: "SUP-DHA00009", supplierName: "Freshpack Packaging Industries Ltd", mobileNumber: "01844154045", totalAmount: 1120000.0, returnAmount: 20000.0, paymentAmount: 650000.0, dueAmount: 450000.0 },
-  { sl: 6, supplierCode: "SUP-DHA00012", supplierName: "Bashundhara Multi-Paper Mills", mobileNumber: "01712275433", totalAmount: 880000.0, returnAmount: 0.0, paymentAmount: 530000.0, dueAmount: 350000.0 },
-  { sl: 7, supplierCode: "SUP-DHA00015", supplierName: "Rangs Energy Solutions Ltd", mobileNumber: "01791005888", totalAmount: 2400000.0, returnAmount: 0.0, paymentAmount: 1800000.0, dueAmount: 600000.0 },
-  { sl: 8, supplierCode: "SUP-DHA00021", supplierName: "Rahimafrooz Industrial Batteries Ltd", mobileNumber: "01701043212", totalAmount: 720000.0, returnAmount: 0.0, paymentAmount: 480000.0, dueAmount: 240000.0 },
-  { sl: 9, supplierCode: "SUP-DHA00022", supplierName: "Square Textiles PLC", mobileNumber: "01760429498", totalAmount: 1350000.0, returnAmount: 0.0, paymentAmount: 900000.0, dueAmount: 450000.0 },
-  { sl: 10, supplierCode: "SUP-DHA00105", supplierName: "Walton Digi-Tech Industries Ltd", mobileNumber: "01713175865", totalAmount: 1480000.0, returnAmount: 0.0, paymentAmount: 960000.0, dueAmount: 520000.0 },
-  { sl: 11, supplierCode: "SUP-DHA00111", supplierName: "ACI Logistics & Supply Chain Ltd", mobileNumber: "01725415082", totalAmount: 1950000.0, returnAmount: 0.0, paymentAmount: 1350000.0, dueAmount: 600000.0 },
-  { sl: 12, supplierCode: "SUP-DHA00024", supplierName: "Standard Steel & Engineering Works", mobileNumber: "01764273039", totalAmount: 680000.0, returnAmount: 0.0, paymentAmount: 450000.0, dueAmount: 230000.0 },
-  { sl: 13, supplierCode: "SUP-DHA00065", supplierName: "Pakfirm Industrial Packaging PLC", mobileNumber: "01844154045", totalAmount: 1220000.0, returnAmount: 0.0, paymentAmount: 820000.0, dueAmount: 400000.0 },
-  { sl: 14, supplierCode: "SUP-DHA00019", supplierName: "Shahin Auto Processing Mills", mobileNumber: "01710503755", totalAmount: 750000.0, returnAmount: 0.0, paymentAmount: 480000.0, dueAmount: 270000.0 },
-  { sl: 15, supplierCode: "SUP-DHA00100", supplierName: "Ujjal Agro Industries Ltd", mobileNumber: "01711349594", totalAmount: 540000.0, returnAmount: 0.0, paymentAmount: 360000.0, dueAmount: 180000.0 },
-  { sl: 16, supplierCode: "SUP-DHA00020", supplierName: "Star Agro Processing Industries", mobileNumber: "01312475727", totalAmount: 320000.0, returnAmount: 0.0, paymentAmount: 220000.0, dueAmount: 100000.0 },
-  { sl: 17, supplierCode: "SUP-DHA00150", supplierName: "Thermokool Industrial Refrigeration", mobileNumber: "01329749970", totalAmount: 860000.0, returnAmount: 0.0, paymentAmount: 560000.0, dueAmount: 300000.0 },
-  { sl: 18, supplierCode: "SUP-DHA00029", supplierName: "Abir Trade International Ltd", mobileNumber: "01722757720", totalAmount: 420000.0, returnAmount: 0.0, paymentAmount: 280000.0, dueAmount: 140000.0 },
-  { sl: 19, supplierCode: "SUP-DHA00190", supplierName: "Nazifa Industrial Enterprise", mobileNumber: "01813609554", totalAmount: 650000.0, returnAmount: 0.0, paymentAmount: 450000.0, dueAmount: 200000.0 },
-  { sl: 20, supplierCode: "SUP-DHA00088", supplierName: "Sarkar Electrical & Engineering", mobileNumber: "01734431700", totalAmount: 490000.0, returnAmount: 0.0, paymentAmount: 340000.0, dueAmount: 150000.0 },
-];
-
-// ============================================================================
-// DATA SET 2: PAID GRN/BILL - REALISTIC ENTERPRISE DISBURSEMENTS
-// ============================================================================
 interface PaidRow {
   sl: number;
   paidDate: string;
@@ -116,28 +78,6 @@ interface PaidRow {
   paidAmount: number;
 }
 
-const INITIAL_PAID_LIST: PaidRow[] = [
-  { sl: 1, paidDate: "09-10-2026", invoiceNo: "GRN-2026-00042", supplier: "BridgeOne Technologies Ltd", moneyReceiptNo: "EFT-884210", bankAmount: 775000.0, cashAmount: 0.0, paidAmount: 775000.0 },
-  { sl: 2, paidDate: "08-10-2026", invoiceNo: "GRN-2026-00040", supplier: "Bengal Poly & Packaging PLC", moneyReceiptNo: "MR-261008", bankAmount: 950000.0, cashAmount: 0.0, paidAmount: 950000.0 },
-  { sl: 3, paidDate: "08-10-2026", invoiceNo: "GRN-2026-00039", supplier: "Freshpack Packaging Industries Ltd", moneyReceiptNo: "CQ-551920", bankAmount: 650000.0, cashAmount: 0.0, paidAmount: 650000.0 },
-  { sl: 4, paidDate: "07-10-2026", invoiceNo: "GRN-2026-00038", supplier: "Crown Cement Concrete Products Ltd", moneyReceiptNo: "EFT-884195", bankAmount: 1200000.0, cashAmount: 0.0, paidAmount: 1200000.0 },
-  { sl: 5, paidDate: "06-10-2026", invoiceNo: "GRN-2026-00037", supplier: "Rangs Energy Solutions Ltd", moneyReceiptNo: "MR-261005", bankAmount: 1800000.0, cashAmount: 0.0, paidAmount: 1800000.0 },
-  { sl: 6, paidDate: "05-10-2026", invoiceNo: "GRN-2026-00036", supplier: "Walton Digi-Tech Industries Ltd", moneyReceiptNo: "CQ-551910", bankAmount: 960000.0, cashAmount: 0.0, paidAmount: 960000.0 },
-  { sl: 7, paidDate: "04-10-2026", invoiceNo: "GRN-2026-00035", supplier: "Rahimafrooz Industrial Batteries Ltd", moneyReceiptNo: "EFT-884180", bankAmount: 480000.0, cashAmount: 0.0, paidAmount: 480000.0 },
-  { sl: 8, paidDate: "03-10-2026", invoiceNo: "GRN-2026-00034", supplier: "Meghna Industrial Automation Ltd", moneyReceiptNo: "MR-261002", bankAmount: 450000.0, cashAmount: 0.0, paidAmount: 450000.0 },
-  { sl: 9, paidDate: "02-10-2026", invoiceNo: "GRN-2026-00033", supplier: "Square Textiles PLC", moneyReceiptNo: "CQ-551901", bankAmount: 900000.0, cashAmount: 0.0, paidAmount: 900000.0 },
-  { sl: 10, paidDate: "01-10-2026", invoiceNo: "GRN-2026-00032", supplier: "ACI Logistics & Supply Chain Ltd", moneyReceiptNo: "EFT-884160", bankAmount: 1350000.0, cashAmount: 0.0, paidAmount: 1350000.0 },
-  { sl: 11, paidDate: "30-09-2026", invoiceNo: "GRN-2026-00031", supplier: "Standard Steel & Engineering Works", moneyReceiptNo: "MR-260930", bankAmount: 420000.0, cashAmount: 30000.0, paidAmount: 450000.0 },
-  { sl: 12, paidDate: "28-09-2026", invoiceNo: "GRN-2026-00030", supplier: "Pakfirm Industrial Packaging PLC", moneyReceiptNo: "EFT-884145", bankAmount: 820000.0, cashAmount: 0.0, paidAmount: 820000.0 },
-  { sl: 13, paidDate: "26-09-2026", invoiceNo: "GRN-2026-00029", supplier: "Bashundhara Multi-Paper Mills", moneyReceiptNo: "MR-260926", bankAmount: 500000.0, cashAmount: 30000.0, paidAmount: 530000.0 },
-  { sl: 14, paidDate: "25-09-2026", invoiceNo: "GRN-2026-00028", supplier: "Shahin Auto Processing Mills", moneyReceiptNo: "CQ-551890", bankAmount: 480000.0, cashAmount: 0.0, paidAmount: 480000.0 },
-  { sl: 15, paidDate: "24-09-2026", invoiceNo: "GRN-2026-00027", supplier: "Ujjal Agro Industries Ltd", moneyReceiptNo: "EFT-884130", bankAmount: 360000.0, cashAmount: 0.0, paidAmount: 360000.0 },
-  { sl: 16, paidDate: "22-09-2026", invoiceNo: "GRN-2026-00026", supplier: "Thermokool Industrial Refrigeration", moneyReceiptNo: "MR-260922", bankAmount: 560000.0, cashAmount: 0.0, paidAmount: 560000.0 },
-];
-
-// ============================================================================
-// DATA SET 3: DUE INVOICES - ENTERPRISE TRACKING WITH CREDIT TERMS
-// ============================================================================
 interface DueInvoiceRow {
   sl: number;
   receDate: string;
@@ -150,27 +90,6 @@ interface DueInvoiceRow {
   dueAmount: number;
 }
 
-const INITIAL_DUE_INVOICES: DueInvoiceRow[] = [
-  { sl: 1, receDate: "2026-10-09", invoice: "INV-2610-001", supplierName: "BridgeOne Technologies Ltd", creditDays: 30, exPaymentDate: "2026-11-08", totalAmount: 750000.0, netAmount: 750000.0, dueAmount: 750000.0 },
-  { sl: 2, receDate: "2026-10-08", invoice: "INV-2610-002", supplierName: "Meghna Industrial Automation Ltd", creditDays: 30, exPaymentDate: "2026-11-07", totalAmount: 500000.0, netAmount: 500000.0, dueAmount: 500000.0 },
-  { sl: 3, receDate: "2026-10-06", invoice: "INV-2610-003", supplierName: "Bengal Poly & Packaging PLC", creditDays: 45, exPaymentDate: "2026-11-20", totalAmount: 700000.0, netAmount: 650000.0, dueAmount: 650000.0 },
-  { sl: 4, receDate: "2026-10-05", invoice: "INV-2610-004", supplierName: "Crown Cement Concrete Products Ltd", creditDays: 30, exPaymentDate: "2026-11-04", totalAmount: 640000.0, netAmount: 640000.0, dueAmount: 640000.0 },
-  { sl: 5, receDate: "2026-10-04", invoice: "INV-2610-005", supplierName: "Freshpack Packaging Industries Ltd", creditDays: 30, exPaymentDate: "2026-11-03", totalAmount: 470000.0, netAmount: 450000.0, dueAmount: 450000.0 },
-  { sl: 6, receDate: "2026-10-03", invoice: "INV-2610-006", supplierName: "Rangs Energy Solutions Ltd", creditDays: 45, exPaymentDate: "2026-11-17", totalAmount: 600000.0, netAmount: 600000.0, dueAmount: 600000.0 },
-  { sl: 7, receDate: "2026-10-02", invoice: "INV-2610-007", supplierName: "Walton Digi-Tech Industries Ltd", creditDays: 30, exPaymentDate: "2026-11-01", totalAmount: 520000.0, netAmount: 520000.0, dueAmount: 520000.0 },
-  { sl: 8, receDate: "2026-10-01", invoice: "INV-2610-008", supplierName: "ACI Logistics & Supply Chain Ltd", creditDays: 30, exPaymentDate: "2026-10-31", totalAmount: 600000.0, netAmount: 600000.0, dueAmount: 600000.0 },
-  { sl: 9, receDate: "2026-09-29", invoice: "INV-2609-009", supplierName: "Square Textiles PLC", creditDays: 30, exPaymentDate: "2026-10-29", totalAmount: 450000.0, netAmount: 450000.0, dueAmount: 450000.0 },
-  { sl: 10, receDate: "2026-09-28", invoice: "INV-2609-010", supplierName: "Bashundhara Multi-Paper Mills", creditDays: 30, exPaymentDate: "2026-10-28", totalAmount: 350000.0, netAmount: 350000.0, dueAmount: 350000.0 },
-  { sl: 11, receDate: "2026-09-26", invoice: "INV-2609-011", supplierName: "Pakfirm Industrial Packaging PLC", creditDays: 30, exPaymentDate: "2026-10-26", totalAmount: 400000.0, netAmount: 400000.0, dueAmount: 400000.0 },
-  { sl: 12, receDate: "2026-09-25", invoice: "INV-2609-012", supplierName: "Thermokool Industrial Refrigeration", creditDays: 30, exPaymentDate: "2026-10-25", totalAmount: 300000.0, netAmount: 300000.0, dueAmount: 300000.0 },
-  { sl: 13, receDate: "2026-09-24", invoice: "INV-2609-013", supplierName: "Shahin Auto Processing Mills", creditDays: 30, exPaymentDate: "2026-10-24", totalAmount: 270000.0, netAmount: 270000.0, dueAmount: 270000.0 },
-  { sl: 14, receDate: "2026-09-22", invoice: "INV-2609-014", supplierName: "Rahimafrooz Industrial Batteries Ltd", creditDays: 30, exPaymentDate: "2026-10-22", totalAmount: 240000.0, netAmount: 240000.0, dueAmount: 240000.0 },
-  { sl: 15, receDate: "2026-09-20", invoice: "INV-2609-015", supplierName: "Standard Steel & Engineering Works", creditDays: 30, exPaymentDate: "2026-10-20", totalAmount: 230000.0, netAmount: 230000.0, dueAmount: 230000.0 },
-];
-
-// ============================================================================
-// DATA SET 4: PAYMENT ADVANCE - MOBILIZATION & DEPOSIT ADVANCES
-// ============================================================================
 interface AdvanceRow {
   sl: number;
   supplierName: string;
@@ -179,16 +98,6 @@ interface AdvanceRow {
   remainingAdvance: number;
 }
 
-const INITIAL_ADVANCE_LIST: AdvanceRow[] = [
-  { sl: 1, supplierName: "BridgeOne Technologies Ltd", advanceAmount: 350000.0, adjustAmount: 150000.0, remainingAdvance: 200000.0 },
-  { sl: 2, supplierName: "Rangs Energy Solutions Ltd", advanceAmount: 500000.0, adjustAmount: 250000.0, remainingAdvance: 250000.0 },
-  { sl: 3, supplierName: "Bengal Poly & Packaging PLC", advanceAmount: 200000.0, adjustAmount: 100000.0, remainingAdvance: 100000.0 },
-  { sl: 4, supplierName: "Crown Cement Concrete Products Ltd", advanceAmount: 300000.0, adjustAmount: 180000.0, remainingAdvance: 120000.0 },
-];
-
-// ============================================================================
-// DATA SET 5: SUPPLIER PURCHASE VS LEDGER BALANCE - CLEAN RECONCILIATION
-// ============================================================================
 interface LedgerReconRow {
   sl: number;
   supplierCode: string;
@@ -199,20 +108,12 @@ interface LedgerReconRow {
   difference: number;
 }
 
-const INITIAL_LEDGER_RECON_LIST: LedgerReconRow[] = [
-  { sl: 1, supplierCode: "SUP-DHA00220", supplierName: "BridgeOne Technologies Ltd", supplierGroup: "Strategic IT Partner", purchasePaymentDue: 750000.0, ledger: 750000.0, difference: 0.0 },
-  { sl: 2, supplierCode: "SUP-DHA00010", supplierName: "Meghna Industrial Automation Ltd", supplierGroup: "Machinery & Spares", purchasePaymentDue: 500000.0, ledger: 500000.0, difference: 0.0 },
-  { sl: 3, supplierCode: "SUP-DHA00018", supplierName: "Bengal Poly & Packaging PLC", supplierGroup: "Packaging Materials", purchasePaymentDue: 650000.0, ledger: 650000.0, difference: 0.0 },
-  { sl: 4, supplierCode: "SUP-DHA00025", supplierName: "Crown Cement Concrete Products Ltd", supplierGroup: "Civil & Infrastructure", purchasePaymentDue: 640000.0, ledger: 640000.0, difference: 0.0 },
-  { sl: 5, supplierCode: "SUP-DHA00009", supplierName: "Freshpack Packaging Industries Ltd", supplierGroup: "Packaging Materials", purchasePaymentDue: 450000.0, ledger: 450000.0, difference: 0.0 },
-  { sl: 6, supplierCode: "SUP-DHA00015", supplierName: "Rangs Energy Solutions Ltd", supplierGroup: "Power & Electrical", purchasePaymentDue: 600000.0, ledger: 600000.0, difference: 0.0 },
-  { sl: 7, supplierCode: "SUP-DHA00105", supplierName: "Walton Digi-Tech Industries Ltd", supplierGroup: "Hardware & Tech", purchasePaymentDue: 520000.0, ledger: 520000.0, difference: 0.0 },
-  { sl: 8, supplierCode: "SUP-DHA00111", supplierName: "ACI Logistics & Supply Chain Ltd", supplierGroup: "Logistics Partner", purchasePaymentDue: 600000.0, ledger: 600000.0, difference: 0.0 },
-  { sl: 9, supplierCode: "SUP-DHA00022", supplierName: "Square Textiles PLC", supplierGroup: "Industrial Fabric", purchasePaymentDue: 450000.0, ledger: 450000.0, difference: 0.0 },
-  { sl: 10, supplierCode: "SUP-DHA00012", supplierName: "Bashundhara Multi-Paper Mills", supplierGroup: "Raw Paper & Board", purchasePaymentDue: 350000.0, ledger: 350000.0, difference: 0.0 },
-  { sl: 11, supplierCode: "SUP-DHA00065", supplierName: "Pakfirm Industrial Packaging PLC", supplierGroup: "Packaging Materials", purchasePaymentDue: 400000.0, ledger: 400000.0, difference: 0.0 },
-  { sl: 12, supplierCode: "SUP-DHA00150", supplierName: "Thermokool Industrial Refrigeration", supplierGroup: "HVAC & Cold Chain", purchasePaymentDue: 300000.0, ledger: 300000.0, difference: 0.0 },
-];
+const INITIAL_PENDING_BILLS: PendingBillRow[] = [];
+const INITIAL_DUE_LIST: DueListRow[] = [];
+const INITIAL_PAID_LIST: PaidRow[] = [];
+const INITIAL_DUE_INVOICES: DueInvoiceRow[] = [];
+const INITIAL_ADVANCE_LIST: AdvanceRow[] = [];
+const INITIAL_LEDGER_RECON_LIST: LedgerReconRow[] = [];
 
 export default function SupplierPaymentsPage() {
   const queryClient = useQueryClient();

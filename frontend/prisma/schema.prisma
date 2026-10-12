@@ -124,6 +124,13 @@ model BusinessUnit {
   priceLists       PriceList[]
   salesOrders      SalesOrder[]
 
+  suppliers            Supplier[]
+  purchaseRequisitions PurchaseRequisition[]
+  purchaseOrders       PurchaseOrder[]
+  goodsReceipts        GoodsReceipt[]
+  purchaseReturns      PurchaseReturn[]
+  supplierPayments     SupplierPayment[]
+
   @@unique([companyId, name])
   @@map("business_units")
 }
@@ -145,6 +152,11 @@ model Office {
   quotations   SalesQuotation[]
   salesOrders  SalesOrder[]
 
+  purchaseRequisitions PurchaseRequisition[]
+  purchaseOrders       PurchaseOrder[]
+  goodsReceipts        GoodsReceipt[]
+  purchaseReturns      PurchaseReturn[]
+
   @@unique([businessUnitId, name])
   @@map("offices")
 }
@@ -157,6 +169,11 @@ model Warehouse {
   updatedAt DateTime @updatedAt @db.Timestamptz(3)
 
   office Office @relation(fields: [officeId], references: [id], onDelete: Restrict)
+
+  purchaseRequisitions PurchaseRequisition[]
+  purchaseOrders       PurchaseOrder[]
+  goodsReceipts        GoodsReceipt[]
+  purchaseReturns      PurchaseReturn[]
 
   @@unique([officeId, name])
   @@map("warehouses")
@@ -322,6 +339,11 @@ model Item {
   deliveryLines  SalesDeliveryLine[]
   returnLines    SalesReturnLine[]
   quotationLines SalesQuotationLine[]
+
+  requisitionLines    PurchaseRequisitionLine[]
+  purchaseOrderLines  PurchaseOrderLine[]
+  goodsReceiptLines   GoodsReceiptLine[]
+  purchaseReturnLines PurchaseReturnLine[]
 
   @@unique([businessUnitId, code])
   @@map("items")
@@ -819,4 +841,333 @@ model SalesOrderEvent {
 
   @@index([orderId, createdAt])
   @@map("sales_order_events")
+}
+
+// ─── Purchase ─────────────────────────────────────────────────────────────────
+
+model Supplier {
+  id             String   @id @default(uuid()) @db.Uuid
+  businessUnitId String   @db.Uuid
+  code           String   @db.VarChar(30)
+  name           String   @db.VarChar(150)
+  contactPerson  String?  @db.VarChar(150)
+  email          String?  @db.VarChar(254)
+  phone          String?  @db.VarChar(30)
+  address        String?  @db.VarChar(500)
+  taxNumber      String?  @db.VarChar(50)
+  type           String   @default("LOCAL") @db.VarChar(30)
+  status         String   @default("ACTIVE") @db.VarChar(30)
+  balance        Decimal  @default(0) @db.Decimal(14, 2)
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime @updatedAt @db.Timestamptz(3)
+
+  businessUnit   BusinessUnit      @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  purchaseOrders PurchaseOrder[]
+  goodsReceipts  GoodsReceipt[]
+  returns        PurchaseReturn[]
+  payments       SupplierPayment[]
+
+  @@unique([businessUnitId, code])
+  @@index([businessUnitId, name])
+  @@map("suppliers")
+}
+
+enum PurchaseRequisitionStatus {
+  DRAFT
+  PENDING
+  APPROVED
+  REJECTED
+  ORDERED
+  CANCELLED
+}
+
+enum PurchaseRequisitionPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+model PurchaseRequisition {
+  id              String                      @id @default(uuid()) @db.Uuid
+  businessUnitId  String                      @db.Uuid
+  officeId        String                      @db.Uuid
+  warehouseId     String?                     @db.Uuid
+  number          String                      @db.VarChar(30)
+  department      String                      @db.VarChar(100)
+  requestedBy     String                      @db.VarChar(150)
+  requisitionDate DateTime                    @db.Date
+  requiredDate    DateTime                    @db.Date
+  status          PurchaseRequisitionStatus   @default(PENDING)
+  priority        PurchaseRequisitionPriority @default(MEDIUM)
+  requestType     String                      @default("LOCAL") @db.VarChar(30)
+  purchaseMethod  String                      @default("DIRECT") @db.VarChar(30)
+  totalEstimated  Decimal                     @default(0) @db.Decimal(14, 2)
+  notes           String?                     @db.VarChar(1000)
+  createdAt       DateTime                    @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime                    @updatedAt @db.Timestamptz(3)
+
+  businessUnit    BusinessUnit                @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  office          Office                      @relation(fields: [officeId], references: [id], onDelete: Restrict)
+  warehouse       Warehouse?                  @relation(fields: [warehouseId], references: [id], onDelete: SetNull)
+  lines           PurchaseRequisitionLine[]
+  purchaseOrders  PurchaseOrder[]
+
+  @@unique([businessUnitId, number])
+  @@index([businessUnitId, status, requisitionDate])
+  @@map("purchase_requisitions")
+}
+
+model PurchaseRequisitionLine {
+  id                 String              @id @default(uuid()) @db.Uuid
+  requisitionId      String              @db.Uuid
+  lineNo             Int
+  itemId             String?             @db.Uuid
+  itemCode           String              @db.VarChar(50)
+  itemName           String              @db.VarChar(200)
+  uom                String              @default("Pcs") @db.VarChar(20)
+  quantity           Decimal             @db.Decimal(14, 3)
+  estimatedUnitPrice Decimal             @default(0) @db.Decimal(14, 2)
+  lineTotal          Decimal             @default(0) @db.Decimal(14, 2)
+  remarks            String?             @db.VarChar(500)
+
+  requisition        PurchaseRequisition @relation(fields: [requisitionId], references: [id], onDelete: Cascade)
+  item               Item?               @relation(fields: [itemId], references: [id], onDelete: SetNull)
+
+  @@unique([requisitionId, lineNo])
+  @@map("purchase_requisition_lines")
+}
+
+enum PurchaseOrderStatus {
+  DRAFT
+  PENDING
+  APPROVED
+  PARTIAL_RECEIVED
+  RECEIVED
+  CLOSED
+  CANCELLED
+}
+
+model PurchaseOrder {
+  id                   String              @id @default(uuid()) @db.Uuid
+  businessUnitId       String              @db.Uuid
+  officeId             String              @db.Uuid
+  warehouseId          String?             @db.Uuid
+  supplierId           String              @db.Uuid
+  requisitionId        String?             @db.Uuid
+  number               String              @db.VarChar(30)
+  orderDate            DateTime            @db.Date
+  expectedDeliveryDate DateTime?           @db.Date
+  referenceNumber      String?             @db.VarChar(100)
+  projectCostCenter    String?             @db.VarChar(100)
+  status               PurchaseOrderStatus @default(PENDING)
+  subtotal             Decimal             @default(0) @db.Decimal(14, 2)
+  totalDiscount        Decimal             @default(0) @db.Decimal(14, 2)
+  totalTax             Decimal             @default(0) @db.Decimal(14, 2)
+  shippingFee          Decimal             @default(0) @db.Decimal(14, 2)
+  totalAmount          Decimal             @default(0) @db.Decimal(14, 2)
+  notes                String?             @db.VarChar(1000)
+  createdBy            String              @db.VarChar(150)
+  createdAt            DateTime            @default(now()) @db.Timestamptz(3)
+  updatedAt            DateTime            @updatedAt @db.Timestamptz(3)
+
+  businessUnit         BusinessUnit        @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  office               Office              @relation(fields: [officeId], references: [id], onDelete: Restrict)
+  warehouse            Warehouse?          @relation(fields: [warehouseId], references: [id], onDelete: SetNull)
+  supplier             Supplier            @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  requisition          PurchaseRequisition? @relation(fields: [requisitionId], references: [id], onDelete: SetNull)
+  lines                PurchaseOrderLine[]
+  goodsReceipts        GoodsReceipt[]
+  returns              PurchaseReturn[]
+  payments             SupplierPayment[]
+
+  @@unique([businessUnitId, number])
+  @@index([businessUnitId, status, orderDate])
+  @@index([supplierId, status])
+  @@map("purchase_orders")
+}
+
+model PurchaseOrderLine {
+  id               String        @id @default(uuid()) @db.Uuid
+  orderId          String        @db.Uuid
+  lineNo           Int
+  itemId           String?       @db.Uuid
+  itemCode         String        @db.VarChar(50)
+  itemName         String        @db.VarChar(200)
+  uom              String        @default("Pcs") @db.VarChar(20)
+  quantity         Decimal       @db.Decimal(14, 3)
+  unitPrice        Decimal       @db.Decimal(14, 2)
+  discountPercent  Decimal       @default(0) @db.Decimal(5, 2)
+  vatPercent       Decimal       @default(0) @db.Decimal(5, 2)
+  lineTotal        Decimal       @db.Decimal(14, 2)
+  receivedQuantity Decimal       @default(0) @db.Decimal(14, 3)
+  remarks          String?       @db.VarChar(500)
+
+  order            PurchaseOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  item             Item?         @relation(fields: [itemId], references: [id], onDelete: SetNull)
+
+  @@unique([orderId, lineNo])
+  @@map("purchase_order_lines")
+}
+
+enum GoodsReceiptStatus {
+  DRAFT
+  RECEIVED
+  INSPECTED
+  CANCELLED
+}
+
+model GoodsReceipt {
+  id               String             @id @default(uuid()) @db.Uuid
+  businessUnitId   String             @db.Uuid
+  officeId         String             @db.Uuid
+  warehouseId      String?            @db.Uuid
+  orderId          String             @db.Uuid
+  supplierId       String             @db.Uuid
+  number           String             @db.VarChar(30)
+  challanNumber    String?            @db.VarChar(100)
+  challanDate      DateTime?          @db.Date
+  receiveDate      DateTime           @db.Date
+  gatePassNumber   String?            @db.VarChar(100)
+  status           GoodsReceiptStatus @default(RECEIVED)
+  totalReceivedQty Decimal            @default(0) @db.Decimal(14, 3)
+  totalAcceptedQty Decimal            @default(0) @db.Decimal(14, 3)
+  totalRejectedQty Decimal            @default(0) @db.Decimal(14, 3)
+  totalAmount      Decimal            @default(0) @db.Decimal(14, 2)
+  remarks          String?            @db.VarChar(1000)
+  receivedBy       String             @db.VarChar(150)
+  createdAt        DateTime           @default(now()) @db.Timestamptz(3)
+  updatedAt        DateTime           @updatedAt @db.Timestamptz(3)
+
+  businessUnit     BusinessUnit       @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  office           Office             @relation(fields: [officeId], references: [id], onDelete: Restrict)
+  warehouse        Warehouse?         @relation(fields: [warehouseId], references: [id], onDelete: SetNull)
+  order            PurchaseOrder      @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  supplier         Supplier           @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  lines            GoodsReceiptLine[]
+  returns          PurchaseReturn[]
+
+  @@unique([businessUnitId, number])
+  @@index([businessUnitId, status, receiveDate])
+  @@index([orderId])
+  @@map("goods_receipts")
+}
+
+model GoodsReceiptLine {
+  id          String       @id @default(uuid()) @db.Uuid
+  receiptId   String       @db.Uuid
+  lineNo      Int
+  itemId      String?      @db.Uuid
+  itemCode    String       @db.VarChar(50)
+  itemName    String       @db.VarChar(200)
+  uom         String       @default("Pcs") @db.VarChar(20)
+  orderedQty  Decimal      @db.Decimal(14, 3)
+  receivedQty Decimal      @db.Decimal(14, 3)
+  acceptedQty Decimal      @default(0) @db.Decimal(14, 3)
+  rejectedQty Decimal      @default(0) @db.Decimal(14, 3)
+  unitPrice   Decimal      @default(0) @db.Decimal(14, 2)
+  lineTotal   Decimal      @default(0) @db.Decimal(14, 2)
+  remarks     String?      @db.VarChar(500)
+
+  receipt     GoodsReceipt @relation(fields: [receiptId], references: [id], onDelete: Cascade)
+  item        Item?        @relation(fields: [itemId], references: [id], onDelete: SetNull)
+
+  @@unique([receiptId, lineNo])
+  @@map("goods_receipt_lines")
+}
+
+enum PurchaseReturnStatus {
+  DRAFT
+  SUBMITTED
+  COMPLETED
+  CANCELLED
+}
+
+model PurchaseReturn {
+  id             String               @id @default(uuid()) @db.Uuid
+  businessUnitId String               @db.Uuid
+  officeId       String               @db.Uuid
+  warehouseId    String?              @db.Uuid
+  receiptId      String?              @db.Uuid
+  orderId        String?              @db.Uuid
+  supplierId     String               @db.Uuid
+  number         String               @db.VarChar(30)
+  returnDate     DateTime             @db.Date
+  reason         String?              @db.VarChar(500)
+  status         PurchaseReturnStatus @default(SUBMITTED)
+  totalQty       Decimal              @default(0) @db.Decimal(14, 3)
+  totalAmount    Decimal              @default(0) @db.Decimal(14, 2)
+  createdAt      DateTime             @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime             @updatedAt @db.Timestamptz(3)
+
+  businessUnit   BusinessUnit         @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  office         Office               @relation(fields: [officeId], references: [id], onDelete: Restrict)
+  warehouse      Warehouse?           @relation(fields: [warehouseId], references: [id], onDelete: SetNull)
+  receipt        GoodsReceipt?        @relation(fields: [receiptId], references: [id], onDelete: SetNull)
+  order          PurchaseOrder?       @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  supplier       Supplier             @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  lines          PurchaseReturnLine[]
+
+  @@unique([businessUnitId, number])
+  @@index([businessUnitId, status, returnDate])
+  @@map("purchase_returns")
+}
+
+model PurchaseReturnLine {
+  id        String         @id @default(uuid()) @db.Uuid
+  returnId  String         @db.Uuid
+  lineNo    Int
+  itemId    String?        @db.Uuid
+  itemCode  String         @db.VarChar(50)
+  itemName  String         @db.VarChar(200)
+  uom       String         @default("Pcs") @db.VarChar(20)
+  qty       Decimal        @db.Decimal(14, 3)
+  unitPrice Decimal        @db.Decimal(14, 2)
+  amount    Decimal        @db.Decimal(14, 2)
+  reason    String?        @db.VarChar(500)
+
+  ret       PurchaseReturn @relation(fields: [returnId], references: [id], onDelete: Cascade)
+  item      Item?          @relation(fields: [itemId], references: [id], onDelete: SetNull)
+
+  @@unique([returnId, lineNo])
+  @@map("purchase_return_lines")
+}
+
+enum PurchasePaymentMethod {
+  CASH
+  BANK
+  CHEQUE
+  ONLINE
+}
+
+enum PurchasePaymentStatus {
+  DRAFT
+  PAID
+  CANCELLED
+}
+
+model SupplierPayment {
+  id              String                @id @default(uuid()) @db.Uuid
+  businessUnitId  String                @db.Uuid
+  supplierId      String                @db.Uuid
+  orderId         String?               @db.Uuid
+  number          String                @db.VarChar(30)
+  paymentDate     DateTime              @db.Date
+  amount          Decimal               @db.Decimal(14, 2)
+  method          PurchasePaymentMethod @default(BANK)
+  referenceNumber String?               @db.VarChar(100)
+  status          PurchasePaymentStatus @default(PAID)
+  remarks         String?               @db.VarChar(500)
+  createdAt       DateTime              @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime              @updatedAt @db.Timestamptz(3)
+
+  businessUnit    BusinessUnit          @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  supplier        Supplier              @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  order           PurchaseOrder?        @relation(fields: [orderId], references: [id], onDelete: SetNull)
+
+  @@unique([businessUnitId, number])
+  @@index([businessUnitId, paymentDate])
+  @@index([supplierId])
+  @@map("supplier_payments")
 }
