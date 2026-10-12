@@ -1,5 +1,6 @@
 import { configurationWorkspace } from "@/features/configuration/navigation";
 import { purchaseWorkspace } from "@/features/purchase/navigation";
+import { salesWorkspace } from "@/features/sales/navigation";
 import { plannedWorkspaces } from "./planned";
 import type { Breadcrumb, NavLink, NavRoute, Workspace } from "./types";
 
@@ -11,6 +12,7 @@ import type { Breadcrumb, NavLink, NavRoute, Workspace } from "./types";
 export const workspaces: readonly Workspace[] = [
   configurationWorkspace,
   purchaseWorkspace,
+  salesWorkspace,
   ...plannedWorkspaces,
 ];
 

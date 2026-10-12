@@ -3,7 +3,7 @@ import { getAuthCookie } from "@/lib/auth/cookies";
 import { verifyToken } from "@/lib/auth/jwt";
 import { db } from "@/lib/prisma/client";
 
-export type Permission = "configuration:read" | "configuration:write";
+export type Permission = "configuration:read" | "configuration:write" | "sales:read" | "sales:write" | "sales:approve";
 
 export interface Actor {
   id: string;
@@ -13,7 +13,13 @@ export interface Actor {
   companyScope: "ALL" | readonly string[];
 }
 
-const ALL_PERMISSIONS: Permission[] = ["configuration:read", "configuration:write"];
+const ALL_PERMISSIONS: Permission[] = [
+  "configuration:read",
+  "configuration:write",
+  "sales:read",
+  "sales:write",
+  "sales:approve",
+];
 
 function permissionsForRole(role: string): ReadonlySet<Permission> {
   // ADMINISTRATOR gets all permissions; extend this as roles grow.

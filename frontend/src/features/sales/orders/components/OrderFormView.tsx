@@ -1,0 +1,1060 @@
+"use client";
+
+import { ArrowLeft, Pencil, Plus, Trash2, UserPlus } from "lucide-react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useId, useMemo, useState } from "react";
+import { PageContainer, PageHead } from "@/components/layout/page";
+import { Button, buttonClasses } from "@/components/ui/button";
+import { CONTROL, CheckboxField, SelectField, TextAreaField, TextField } from "@/components/ui/form-field";
+import { Indicator } from "@/components/ui/indicator";
+import { Card, EmptyState, ErrorState, LoadingState, Section } from "@/components/ui/section";
+import { useToast } from "@/components/ui/toast";
+import { useResource } from "@/hooks/use-resource";
+import { useSaveShortcut } from "@/hooks/use-save-shortcut";
+import { errorMessage } from "@/lib/api/client";
+import { cn } from "@/lib/cn";
+import { formatAmount, formatQty } from "../../dashboard/lib/format";
+import { issuesToErrors, numberText, optionalNumber, requiredNumber } from "../../lib/form";
+import { addDays, useToday } from "../../lib/use-today";
+import {
+  CATEGORY_LEVEL_LABELS,
+  type CustomerOption,
+  type ItemOption,
+  type SalesLookups,
+  type SetupLookups,
+} from "../../masters/schemas/masters.schema";
+import {
+  fetchCustomerCredit,
+  fetchCustomers,
+  fetchItemPending,
+  fetchItems,
+  fetchSalesLookups,
+  fetchSetupLookups,
+} from "../../masters/services/masters.api";
+import { paths } from "../../paths";
+import type { QuotationDetail } from "../../quotations/schemas/quotation.schema";
+import { fetchQuotation } from "../../quotations/services/quotation.api";
+import { CustomerDialog } from "../../setup/components/CustomerDialog";
+import { altQty, orderTotals } from "../lib/order-totals";
+import {
+  ORDER_TYPES,
+  ORDER_TYPE_LABELS,
+  PAYMENT_METHODS,
+  PAYMENT_METHOD_LABELS,
+  orderInputSchema,
+  type OrderDetail,
+  type OrderInput,
+  type OrderType,
+  type PaymentMethod,
+} from "../schemas/order.schema";
+import { createOrder, fetchOrder, updateOrder } from "../services/order.api";
+import { OrderStatusIndicator } from "./OrderStatusIndicator";
+
+// ─── Entry points ────────────────────────────────────────────────────────────
+
+/** /sales/orders/new[?quotation=<id>] */
+export function NewOrderView({ quotationId }: { quotationId: string | null }) {
+  const today = useToday();
+  const lookups = useResource("sales-lookups", fetchSalesLookups);
+  const quotation = useResource(quotationId, () => fetchQuotation(quotationId!));
+  const error = lookups.error ?? quotation.error;
+  if (error) return <Failed title="Create Sales Order" error={error} onRetry={lookups.reload} />;
+  if (!today || !lookups.data || (quotationId && !quotation.data)) return <Loading title="Create Sales Order" />;
+  return <OrderEditor today={today} lookups={lookups.data} order={null} quotation={quotation.data} />;
+}
+
+/** /sales/orders/[orderId]/edit */
+export function EditOrderView({ id }: { id: string }) {
+  const today = useToday();
+  const lookups = useResource("sales-lookups", fetchSalesLookups);
+  const order = useResource(id, () => fetchOrder(id));
+  const error = lookups.error ?? order.error;
+  if (error) return <Failed title="Edit Sales Order" error={error} onRetry={order.reload} />;
+  if (!today || !lookups.data || !order.data) return <Loading title="Edit Sales Order" />;
+  if (order.data.status !== "DRAFT") {
+    return (
+      <PageContainer>
+        <PageHead title={`Edit ${order.data.number}`} indicator={<OrderStatusIndicator status={order.data.status} />} />
+        <Card>
+          <EmptyState title="Only draft orders can be edited">
+            <Link href={paths.order(id)} className="font-medium text-ink underline underline-offset-2">
+              View the order
+            </Link>
+          </EmptyState>
+        </Card>
+      </PageContainer>
+    );
+  }
+  return <OrderEditor key={order.data.updatedAt} today={today} lookups={lookups.data} order={order.data} />;
+}
+
+function Loading({ title }: { title: string }) {
+  return (
+    <PageContainer>
+      <PageHead title={title} />
+      <LoadingState />
+    </PageContainer>
+  );
+}
+
+function Failed({ title, error, onRetry }: { title: string; error: Error; onRetry: () => void }) {
+  return (
+    <PageContainer>
+      <PageHead title={title} />
+      <Card>
+        <ErrorState message={errorMessage(error)} onRetry={onRetry} />
+      </Card>
+    </PageContainer>
+  );
+}
+
+// ─── Form state ──────────────────────────────────────────────────────────────
+
+interface LineValues {
+  key: string;
+  itemId: string;
+  qty: string;
+  unitPrice: string;
+  discountPercent: string;
+  vatPercent: string;
+  aitPercent: string;
+}
+
+interface Values {
+  officeId: string;
+  customerId: string;
+  salesPersonId: string;
+  priceListId: string;
+  shipToAddressId: string;
+  shippingAddress: string;
+  contactPerson: string;
+  referredBy: string;
+  orderType: OrderType;
+  paymentMethod: PaymentMethod;
+  orderDate: string;
+  expectedDeliveryDate: string;
+  priceIncludesVat: boolean;
+  isForeign: boolean;
+  refCustomerPo: string;
+  refCustomerPoDate: string;
+  refCustomerPoAmount: string;
+  refInvoice: string;
+  refProjectOutlet: string;
+  paymentTermDays: string;
+  dueLimit: string;
+  remarks: string;
+  terms: string;
+  discountAmount: string;
+  deliveryCharge: string;
+  unloadingCharge: string;
+  lines: LineValues[];
+}
+
+const newKey = () => crypto.randomUUID();
+
+function fromOrder(order: OrderDetail): Values {
+  return {
+    officeId: order.officeId,
+    customerId: order.customerId,
+    salesPersonId: order.salesPersonId ?? "",
+    priceListId: order.priceListId ?? "",
+    shipToAddressId: order.shipToAddressId ?? "",
+    shippingAddress: order.shipToAddressId ? "" : (order.shippingAddress ?? ""),
+    contactPerson: order.contactPerson ?? "",
+    referredBy: order.referredBy ?? "",
+    orderType: order.orderType,
+    paymentMethod: order.paymentMethod,
+    orderDate: order.orderDate,
+    expectedDeliveryDate: order.expectedDeliveryDate,
+    priceIncludesVat: order.priceIncludesVat,
+    isForeign: order.isForeign,
+    refCustomerPo: order.refCustomerPo ?? "",
+    refCustomerPoDate: order.refCustomerPoDate ?? "",
+    refCustomerPoAmount: numberText(order.refCustomerPoAmount),
+    refInvoice: order.refInvoice ?? "",
+    refProjectOutlet: order.refProjectOutlet ?? "",
+    paymentTermDays: String(order.paymentTermDays),
+    dueLimit: String(order.dueLimit),
+    remarks: order.remarks ?? "",
+    terms: order.terms ?? "",
+    discountAmount: String(order.discountAmount),
+    deliveryCharge: String(order.deliveryCharge),
+    unloadingCharge: String(order.unloadingCharge),
+    lines: order.lines.map((line) => ({
+      key: line.id,
+      itemId: line.itemId,
+      qty: String(line.qty),
+      unitPrice: String(line.unitPrice),
+      discountPercent: String(line.discountPercent),
+      vatPercent: String(line.vatPercent),
+      aitPercent: String(line.aitPercent),
+    })),
+  };
+}
+
+function blank(today: string, lookups: SalesLookups, quotation?: QuotationDetail): Values {
+  const office = quotation ? lookups.offices.find((candidate) => candidate.id === quotation.officeId) : lookups.offices[0];
+  return {
+    officeId: office?.id ?? "",
+    customerId: quotation?.customerId ?? "",
+    salesPersonId: quotation?.salesPersonId ?? "",
+    priceListId: "",
+    shipToAddressId: "",
+    shippingAddress: "",
+    contactPerson: "",
+    referredBy: "",
+    orderType: "SALES",
+    paymentMethod: "CASH",
+    orderDate: today,
+    expectedDeliveryDate: addDays(today, 1),
+    // Quotation rates exclude VAT (VAT is a header % there).
+    priceIncludesVat: !quotation,
+    isForeign: false,
+    refCustomerPo: "",
+    refCustomerPoDate: "",
+    refCustomerPoAmount: "",
+    refInvoice: "",
+    refProjectOutlet: "",
+    paymentTermDays: "0",
+    dueLimit: "0",
+    remarks: quotation?.remarks ?? "",
+    terms: quotation?.terms ?? (office ? (lookups.orderTerms[office.businessUnitId] ?? "") : ""),
+    discountAmount: String(quotation?.discountAmount ?? 0),
+    deliveryCharge: "0",
+    unloadingCharge: "0",
+    lines: (quotation?.lines ?? []).map((line) => ({
+      key: newKey(),
+      itemId: line.itemId,
+      qty: String(line.qty),
+      unitPrice: String(line.rate),
+      discountPercent: String(line.discountPercent),
+      vatPercent: String(quotation?.vatPercent ?? 0),
+      aitPercent: "0",
+    })),
+  };
+}
+
+const orZero = (value: string) => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+function toInput(values: Values, quotationId: string | null): OrderInput {
+  return {
+    officeId: values.officeId,
+    customerId: values.customerId,
+    salesPersonId: values.salesPersonId || null,
+    quotationId,
+    priceListId: values.priceListId || null,
+    shipToAddressId: values.shipToAddressId || null,
+    shippingAddress: values.shippingAddress,
+    contactPerson: values.contactPerson,
+    referredBy: values.referredBy,
+    orderType: values.orderType,
+    paymentMethod: values.paymentMethod,
+    orderDate: values.orderDate,
+    expectedDeliveryDate: values.expectedDeliveryDate,
+    priceIncludesVat: values.priceIncludesVat,
+    isForeign: values.isForeign,
+    refCustomerPo: values.refCustomerPo,
+    refCustomerPoDate: values.refCustomerPoDate || null,
+    refCustomerPoAmount: optionalNumber(values.refCustomerPoAmount),
+    refInvoice: values.refInvoice,
+    refProjectOutlet: values.refProjectOutlet,
+    paymentTermDays: requiredNumber(values.paymentTermDays || "0"),
+    dueLimit: requiredNumber(values.dueLimit || "0"),
+    remarks: values.remarks,
+    terms: values.terms,
+    discountAmount: requiredNumber(values.discountAmount || "0"),
+    deliveryCharge: requiredNumber(values.deliveryCharge || "0"),
+    unloadingCharge: requiredNumber(values.unloadingCharge || "0"),
+    lines: values.lines.map((line) => ({
+      itemId: line.itemId,
+      qty: requiredNumber(line.qty),
+      unitPrice: requiredNumber(line.unitPrice),
+      discountPercent: requiredNumber(line.discountPercent || "0"),
+      vatPercent: requiredNumber(line.vatPercent || "0"),
+      aitPercent: requiredNumber(line.aitPercent || "0"),
+    })),
+  };
+}
+
+/** Rate of an item for a price type (falls back to the item's default rate). */
+const rateFor = (item: ItemOption, priceListId: string) => item.prices[priceListId] ?? item.salesRate;
+
+// ─── Editor ──────────────────────────────────────────────────────────────────
+
+interface EditorProps {
+  today: string;
+  lookups: SalesLookups;
+  order: OrderDetail | null;
+  quotation?: QuotationDetail;
+}
+
+function OrderEditor({ today, lookups, order, quotation }: EditorProps) {
+  const router = useRouter();
+  const toast = useToast();
+  const initial = useMemo(() => (order ? fromOrder(order) : blank(today, lookups, quotation)), [order, today, lookups, quotation]);
+  const [values, setValues] = useState<Values>(initial);
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState(false);
+  const [customerDialog, setCustomerDialog] = useState<CustomerOption | "new" | null>(null);
+  const initialJson = useMemo(() => JSON.stringify(initial, (name, value) => (name === "key" ? undefined : value)), [initial]);
+  const dirty = !order || JSON.stringify(values, (name, value) => (name === "key" ? undefined : value)) !== initialJson;
+  const quotationId = order?.quotationId ?? quotation?.id ?? null;
+
+  const office = lookups.offices.find((candidate) => candidate.id === values.officeId);
+  const businessUnitId = office?.businessUnitId ?? null;
+  const masters = useResource(businessUnitId && `order-masters:${businessUnitId}`, async () => {
+    const [setup, customers, items] = await Promise.all([
+      fetchSetupLookups(businessUnitId!),
+      fetchCustomers(businessUnitId!),
+      fetchItems(businessUnitId!),
+    ]);
+    return { setup, customers, items };
+  });
+  const setup = masters.data?.setup;
+  const customers = useMemo(() => masters.data?.customers ?? [], [masters.data]);
+  const items = useMemo(() => masters.data?.items ?? [], [masters.data]);
+  const itemById = useMemo(() => new Map(items.map((item) => [item.id, item])), [items]);
+  const customer = customers.find((candidate) => candidate.id === values.customerId);
+  const credit = useResource(values.customerId ? `credit:${values.customerId}:${today}` : null, () =>
+    fetchCustomerCredit(values.customerId, today),
+  );
+
+  // Default price type once the masters arrive (new orders only).
+  const defaultPriceList = setup?.priceLists.find((list) => list.isDefault)?.id ?? "";
+  const priceListId = values.priceListId || (order ? "" : defaultPriceList);
+
+  const totals = orderTotals(
+    values.lines.map((line) => ({
+      qty: orZero(line.qty),
+      unitPrice: orZero(line.unitPrice),
+      discountPercent: orZero(line.discountPercent),
+      vatPercent: orZero(line.vatPercent),
+      aitPercent: orZero(line.aitPercent),
+    })),
+    {
+      priceIncludesVat: values.priceIncludesVat,
+      discountAmount: orZero(values.discountAmount),
+      deliveryCharge: orZero(values.deliveryCharge),
+      unloadingCharge: orZero(values.unloadingCharge),
+    },
+  );
+
+  const set = <K extends keyof Values>(key: K, value: Values[K]) => setValues((current) => ({ ...current, [key]: value }));
+  const setLine = (key: string, patch: Partial<LineValues>) =>
+    setValues((current) => ({ ...current, lines: current.lines.map((line) => (line.key === key ? { ...line, ...patch } : line)) }));
+
+  function changeOffice(officeId: string) {
+    const next = lookups.offices.find((candidate) => candidate.id === officeId);
+    setValues((current) =>
+      !next || next.businessUnitId === businessUnitId
+        ? { ...current, officeId }
+        : {
+            ...current,
+            officeId,
+            customerId: "",
+            salesPersonId: "",
+            priceListId: "",
+            shipToAddressId: "",
+            terms: current.terms || (lookups.orderTerms[next.businessUnitId] ?? ""),
+            lines: [],
+          },
+    );
+  }
+
+  function selectCustomer(next: CustomerOption | undefined) {
+    setValues((current) => ({
+      ...current,
+      customerId: next?.id ?? "",
+      salesPersonId: next?.salesPersonId ?? current.salesPersonId,
+      shipToAddressId: next?.addresses.find((address) => address.isDefault)?.id ?? "",
+      contactPerson: next?.contactPerson ?? "",
+      paymentTermDays: String(next?.creditDays ?? 0),
+      paymentMethod: next && next.creditDays > 0 ? "CREDIT" : current.paymentMethod,
+    }));
+  }
+
+  function changePriceList(nextId: string) {
+    setValues((current) => ({
+      ...current,
+      priceListId: nextId,
+      lines: current.lines.map((line) => {
+        const item = itemById.get(line.itemId);
+        return item ? { ...line, unitPrice: String(rateFor(item, nextId)) } : line;
+      }),
+    }));
+  }
+
+  function addLine(line: Omit<LineValues, "key">) {
+    setValues((current) => {
+      const existing = current.lines.find((candidate) => candidate.itemId === line.itemId);
+      if (existing) {
+        // Same item again: add to its quantity instead of a duplicate row.
+        return {
+          ...current,
+          lines: current.lines.map((candidate) =>
+            candidate.key === existing.key ? { ...candidate, qty: String(orZero(candidate.qty) + orZero(line.qty)) } : candidate,
+          ),
+        };
+      }
+      return { ...current, lines: [...current.lines, { ...line, key: newKey() }] };
+    });
+  }
+
+  async function save() {
+    if (busy) return;
+    const input = toInput({ ...values, priceListId }, quotationId);
+    const parsed = orderInputSchema.safeParse(input);
+    if (!parsed.success) {
+      setErrors(issuesToErrors(parsed.error));
+      toast.error(parsed.error.issues[0]?.message ?? "Please correct the highlighted fields.");
+      return;
+    }
+    setErrors({});
+    setBusy(true);
+    try {
+      const saved = order ? await updateOrder(order.id, order.updatedAt, input) : await createOrder(input);
+      toast.success(`${saved.number} saved as draft.`);
+      router.replace(paths.order(saved.id));
+    } catch (error) {
+      toast.error(errorMessage(error));
+      setBusy(false);
+    }
+  }
+
+  useSaveShortcut(save, dirty);
+
+  const persons = setup?.salesPersons ?? [];
+  const err = (path: string) => errors[path];
+  const discountPercent = totals.itemsTotal > 0 ? Math.round((orZero(values.discountAmount) / totals.itemsTotal) * 10_000) / 100 : 0;
+
+  return (
+    <PageContainer className="max-w-none">
+      <PageHead
+        title={
+          <span className="flex items-center gap-2">
+            <Link href={order ? paths.order(order.id) : paths.orders} aria-label="Back" className={buttonClasses("ghost", "icon")}>
+              <ArrowLeft />
+            </Link>
+            {order ? `Edit Sales Order ${order.number}` : "Create Sales Order"}
+          </span>
+        }
+        indicator={dirty ? <Indicator color="orange">Not Saved</Indicator> : undefined}
+        subtitle={quotation ? `From quotation ${quotation.number}` : order?.quotationNumber ? `From quotation ${order.quotationNumber}` : undefined}
+        actions={
+          <Button variant="primary" onClick={save} loading={busy}>
+            Save
+          </Button>
+        }
+      />
+
+      <div className="flex flex-col gap-4">
+        <Card>
+          <Section>
+            <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+              <CheckboxField label="Price Including VAT" checked={values.priceIncludesVat} onChange={(event) => set("priceIncludesVat", event.target.checked)} />
+              <CheckboxField label="Is Foreign" checked={values.isForeign} onChange={(event) => set("isForeign", event.target.checked)} />
+              {customer && (
+                <div className="ml-auto flex flex-wrap gap-1.5" aria-label="Customer credit">
+                  {customer.territoryId && <Indicator color="blue">Tr: {setup?.areas.find((area) => area.id === customer.territoryId)?.name}</Indicator>}
+                  {customer.customerGroupId && (
+                    <Indicator color="blue">Cust Grp: {setup?.customerGroups.find((group) => group.id === customer.customerGroupId)?.name}</Indicator>
+                  )}
+                  {credit.data && (
+                    <>
+                      <Indicator color="blue">Cr Lmt: {credit.data.creditLimit === null ? "No limit" : formatAmount(credit.data.creditLimit)}</Indicator>
+                      <Indicator color={credit.data.overdue > 0 ? "red" : "blue"}>OD: {formatAmount(credit.data.overdue)}</Indicator>
+                      {credit.data.available !== null && (
+                        <Indicator color={credit.data.available < totals.salesTotal ? "red" : "green"}>CL: {formatAmount(credit.data.available)}</Indicator>
+                      )}
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div className="grid gap-x-4 gap-y-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+              <TextField label="Create Date" type="date" required value={values.orderDate} error={err("orderDate")} onChange={(event) => set("orderDate", event.target.value)} />
+              <SelectField
+                label="Office"
+                required
+                value={values.officeId}
+                error={err("officeId")}
+                options={[
+                  { value: "", label: "Select office" },
+                  ...lookups.offices
+                    .filter((candidate) => !order || candidate.businessUnitId === order.businessUnitId)
+                    .map((candidate) => ({ value: candidate.id, label: candidate.name })),
+                ]}
+                onChange={(event) => changeOffice(event.target.value)}
+              />
+              <div className="flex items-end gap-1.5 lg:col-span-1">
+                <SelectField
+                  label="Customer"
+                  required
+                  className="min-w-0 flex-1"
+                  value={values.customerId}
+                  error={err("customerId")}
+                  disabled={!businessUnitId || masters.loading}
+                  options={[
+                    { value: "", label: masters.loading ? "Loading…" : "Select customer" },
+                    ...(order && !customers.some((candidate) => candidate.id === order.customerId)
+                      ? [{ value: order.customerId, label: order.customerName }]
+                      : []),
+                    ...customers.map((candidate) => ({ value: candidate.id, label: `${candidate.name} (${candidate.code})` })),
+                  ]}
+                  onChange={(event) => selectCustomer(customers.find((candidate) => candidate.id === event.target.value))}
+                />
+                <Button size="icon" aria-label="New customer" title="New customer" disabled={!setup} onClick={() => setCustomerDialog("new")}>
+                  <UserPlus />
+                </Button>
+              </div>
+              <TextField label="Referred By" value={values.referredBy} error={err("referredBy")} onChange={(event) => set("referredBy", event.target.value)} />
+              <div className="flex items-end gap-1.5">
+                {customer && customer.addresses.length > 0 ? (
+                  <SelectField
+                    label="Ship To"
+                    className="min-w-0 flex-1"
+                    value={values.shipToAddressId}
+                    options={[
+                      { value: "", label: "Type another address…" },
+                      ...customer.addresses.map((address) => ({ value: address.id, label: `${address.label}: ${address.address}` })),
+                    ]}
+                    onChange={(event) => set("shipToAddressId", event.target.value)}
+                  />
+                ) : (
+                  <TextField
+                    label="Ship To"
+                    className="min-w-0 flex-1"
+                    value={values.shippingAddress}
+                    error={err("shippingAddress")}
+                    onChange={(event) => set("shippingAddress", event.target.value)}
+                  />
+                )}
+                {customer && (
+                  <Button size="icon" aria-label="Edit customer addresses" title="Edit customer / addresses" onClick={() => setCustomerDialog(customer)}>
+                    <Pencil />
+                  </Button>
+                )}
+              </div>
+              {customer && customer.addresses.length > 0 && !values.shipToAddressId && (
+                <TextField
+                  label="Ship To (address)"
+                  value={values.shippingAddress}
+                  error={err("shippingAddress")}
+                  onChange={(event) => set("shippingAddress", event.target.value)}
+                />
+              )}
+              <TextField label="Contact To" value={values.contactPerson} error={err("contactPerson")} onChange={(event) => set("contactPerson", event.target.value)} />
+              <SelectField
+                label="Sales Force"
+                value={values.salesPersonId}
+                error={err("salesPersonId")}
+                options={[{ value: "", label: "None" }, ...persons.map((person) => ({ value: person.id, label: person.name }))]}
+                onChange={(event) => set("salesPersonId", event.target.value)}
+              />
+              <SelectField
+                label="Type"
+                value={values.orderType}
+                options={ORDER_TYPES.map((value) => ({ value, label: ORDER_TYPE_LABELS[value] }))}
+                onChange={(event) => set("orderType", event.target.value as OrderType)}
+              />
+              <TextField label="Ref Customer PO" value={values.refCustomerPo} error={err("refCustomerPo")} onChange={(event) => set("refCustomerPo", event.target.value)} />
+              <TextField
+                label="Ref Customer PO Date"
+                type="date"
+                value={values.refCustomerPoDate}
+                error={err("refCustomerPoDate")}
+                onChange={(event) => set("refCustomerPoDate", event.target.value)}
+              />
+              <TextField
+                label="Ref Customer PO Amount"
+                type="number"
+                min={0}
+                step="any"
+                value={values.refCustomerPoAmount}
+                error={err("refCustomerPoAmount")}
+                onChange={(event) => set("refCustomerPoAmount", event.target.value)}
+              />
+              <TextField label="Ref Invoice" value={values.refInvoice} error={err("refInvoice")} onChange={(event) => set("refInvoice", event.target.value)} />
+              <TextField
+                label="Ref Project / Outlet"
+                value={values.refProjectOutlet}
+                error={err("refProjectOutlet")}
+                onChange={(event) => set("refProjectOutlet", event.target.value)}
+              />
+              <TextField
+                label="Exp. Delivery Date"
+                type="date"
+                required
+                min={values.orderDate}
+                value={values.expectedDeliveryDate}
+                error={err("expectedDeliveryDate")}
+                onChange={(event) => set("expectedDeliveryDate", event.target.value)}
+              />
+              <TextField label="Remarks" value={values.remarks} error={err("remarks")} onChange={(event) => set("remarks", event.target.value)} />
+              <TextField
+                label="Payment Term Days"
+                type="number"
+                min={0}
+                max={365}
+                value={values.paymentTermDays}
+                error={err("paymentTermDays")}
+                onChange={(event) => set("paymentTermDays", event.target.value)}
+              />
+              <TextField
+                label="Due Limit"
+                type="number"
+                min={0}
+                step="any"
+                value={values.dueLimit}
+                error={err("dueLimit")}
+                onChange={(event) => set("dueLimit", event.target.value)}
+              />
+              <SelectField
+                label="Price Type"
+                value={priceListId}
+                error={err("priceListId")}
+                options={[
+                  { value: "", label: "Default sales rate" },
+                  ...(setup?.priceLists ?? []).map((list) => ({ value: list.id, label: list.name })),
+                ]}
+                onChange={(event) => changePriceList(event.target.value)}
+              />
+            </div>
+          </Section>
+        </Card>
+
+        <Card>
+          <Section title="Items">
+            <ItemEntry
+              items={items}
+              setup={setup}
+              priceListId={priceListId}
+              disabled={!businessUnitId || masters.loading}
+              onAdd={addLine}
+            />
+            <LinesGrid
+              lines={values.lines}
+              itemById={itemById}
+              storedLines={order?.lines ?? []}
+              totals={totals}
+              errors={errors}
+              onChange={setLine}
+              onRemove={(key) => set("lines", values.lines.filter((line) => line.key !== key))}
+            />
+            {err("lines") && (
+              <p role="alert" className="text-xs text-danger">
+                {err("lines")}
+              </p>
+            )}
+          </Section>
+        </Card>
+
+        <div className="grid gap-4 lg:grid-cols-[1fr_24rem]">
+          <Card>
+            <Section title="Terms & Conditions">
+              <TextAreaField label="Terms and Conditions" rows={8} value={values.terms} error={err("terms")} onChange={(event) => set("terms", event.target.value)} />
+            </Section>
+          </Card>
+          <Card>
+            <Section title="Summary">
+              <dl className="flex flex-col gap-2 text-sm">
+                <SummaryRow label="Total" value={formatAmount(totals.itemsTotal)} />
+                <div className="flex items-center justify-between gap-3">
+                  <dt className="text-ink-muted">Total Discount</dt>
+                  <dd className="flex items-center gap-1.5">
+                    <input
+                      aria-label="Total discount percent"
+                      type="number"
+                      min={0}
+                      max={100}
+                      step="any"
+                      value={discountPercent || ""}
+                      placeholder="%"
+                      onChange={(event) =>
+                        set("discountAmount", String(Math.round(((orZero(event.target.value) * totals.itemsTotal) / 100) * 100) / 100))
+                      }
+                      className={cn(CONTROL, "h-7 w-16 text-right")}
+                    />
+                    <input
+                      aria-label="Total discount amount"
+                      type="number"
+                      min={0}
+                      step="any"
+                      value={values.discountAmount}
+                      onChange={(event) => set("discountAmount", event.target.value)}
+                      className={cn(CONTROL, "h-7 w-28 text-right tabular-nums", err("discountAmount") && "ring-1 ring-danger")}
+                    />
+                  </dd>
+                </div>
+                {err("discountAmount") && <p className="text-right text-xs text-danger">{err("discountAmount")}</p>}
+                <SummaryRow label="Item Total (after discount)" value={formatAmount(totals.itemsTotal - totals.discountAmount)} />
+                <SummaryRow label="Total VAT" value={formatAmount(totals.vatAmount)} />
+                {totals.aitAmount > 0 && <SummaryRow label="Total AIT" value={formatAmount(totals.aitAmount)} />}
+                <SummaryRow label="Item Total (Without VAT)" value={formatAmount(totals.itemsBase)} />
+                <ChargeRow label="Delivery Charge" value={values.deliveryCharge} error={err("deliveryCharge")} onChange={(value) => set("deliveryCharge", value)} />
+                <ChargeRow label="Unloading Charge" value={values.unloadingCharge} error={err("unloadingCharge")} onChange={(value) => set("unloadingCharge", value)} />
+                <div className="flex items-center justify-between gap-3">
+                  <dt className="text-ink-muted">Payment Method</dt>
+                  <dd>
+                    <select
+                      aria-label="Payment method"
+                      value={values.paymentMethod}
+                      onChange={(event) => set("paymentMethod", event.target.value as PaymentMethod)}
+                      className={cn(CONTROL, "h-7 w-40")}
+                    >
+                      {PAYMENT_METHODS.map((value) => (
+                        <option key={value} value={value}>
+                          {PAYMENT_METHOD_LABELS[value]}
+                        </option>
+                      ))}
+                    </select>
+                  </dd>
+                </div>
+                <div className="mt-1 border-t border-line pt-2">
+                  <SummaryRow label="Sales Total" value={formatAmount(totals.salesTotal)} strong />
+                </div>
+              </dl>
+            </Section>
+          </Card>
+        </div>
+      </div>
+
+      {customerDialog && businessUnitId && setup && (
+        <CustomerDialog
+          key={customerDialog === "new" ? "new" : customerDialog.id}
+          open
+          businessUnitId={businessUnitId}
+          lookups={setup}
+          customer={customerDialog === "new" ? null : customerDialog}
+          onClose={() => setCustomerDialog(null)}
+          onSaved={(saved) => {
+            setCustomerDialog(null);
+            masters.mutate((data) =>
+              data
+                ? {
+                    ...data,
+                    customers: [...data.customers.filter((candidate) => candidate.id !== saved.id), saved].sort((a, b) =>
+                      a.name.localeCompare(b.name),
+                    ),
+                  }
+                : data!,
+            );
+            selectCustomer(saved);
+          }}
+        />
+      )}
+    </PageContainer>
+  );
+}
+
+function SummaryRow({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
+  return (
+    <div className="flex items-baseline justify-between gap-3">
+      <dt className={strong ? "font-semibold text-ink" : "text-ink-muted"}>{label}</dt>
+      <dd className={cn("tabular-nums", strong ? "text-base font-semibold text-ink" : "text-ink")}>{value}</dd>
+    </div>
+  );
+}
+
+function ChargeRow({ label, value, error, onChange }: { label: string; value: string; error?: string; onChange: (value: string) => void }) {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <dt className="text-ink-muted">{label}</dt>
+      <dd>
+        <input
+          aria-label={label}
+          type="number"
+          min={0}
+          step="any"
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          className={cn(CONTROL, "h-7 w-28 text-right tabular-nums", error && "ring-1 ring-danger")}
+        />
+      </dd>
+    </div>
+  );
+}
+
+// ─── Item entry bar ──────────────────────────────────────────────────────────
+
+function ItemEntry({
+  items,
+  setup,
+  priceListId,
+  disabled,
+  onAdd,
+}: {
+  items: ItemOption[];
+  setup: SetupLookups | undefined;
+  priceListId: string;
+  disabled: boolean;
+  onAdd: (line: Omit<LineValues, "key">) => void;
+}) {
+  const listId = useId();
+  const [category, setCategory] = useState<[string, string, string]>(["", "", ""]);
+  const [itemText, setItemText] = useState("");
+  const [entry, setEntry] = useState({ qty: "", unitPrice: "", discountPercent: "0", vatPercent: "0", aitPercent: "0" });
+  const [error, setError] = useState<string>();
+
+  const categories = useMemo(() => setup?.categories ?? [], [setup]);
+  // Items of the deepest chosen category and all its descendants.
+  const chosen = category[2] || category[1] || category[0];
+  const allowed = useMemo(() => {
+    if (!chosen) return null;
+    const ids = new Set([chosen]);
+    let grew = true;
+    while (grew) {
+      grew = false;
+      for (const candidate of categories) {
+        if (candidate.parentId && ids.has(candidate.parentId) && !ids.has(candidate.id)) {
+          ids.add(candidate.id);
+          grew = true;
+        }
+      }
+    }
+    return ids;
+  }, [chosen, categories]);
+  const visible = allowed ? items.filter((item) => item.categoryId && allowed.has(item.categoryId)) : items;
+  const label = (item: ItemOption) => `${item.code} — ${item.name}`;
+  const item = visible.find((candidate) => label(candidate) === itemText) ?? items.find((candidate) => label(candidate) === itemText);
+  const pending = useResource(item ? `pending:${item.id}` : null, () => fetchItemPending(item!.id));
+
+  function pick(text: string) {
+    setItemText(text);
+    const match = items.find((candidate) => label(candidate) === text);
+    if (match) {
+      setEntry((current) => ({
+        ...current,
+        qty: current.qty || "1",
+        unitPrice: String(rateFor(match, priceListId)),
+        vatPercent: String(match.vatPercent),
+      }));
+    }
+  }
+
+  function add() {
+    if (!item) {
+      setError("Select an item from the list.");
+      return;
+    }
+    if (!(orZero(entry.qty) > 0)) {
+      setError("Quantity must be more than 0.");
+      return;
+    }
+    onAdd({ itemId: item.id, ...entry });
+    setItemText("");
+    setEntry({ qty: "", unitPrice: "", discountPercent: "0", vatPercent: "0", aitPercent: "0" });
+    setError(undefined);
+  }
+
+  const level = (depth: 0 | 1 | 2) => {
+    const parent = depth === 0 ? null : category[depth - 1];
+    const choices = categories.filter((candidate) => candidate.level === depth + 1 && (depth === 0 || candidate.parentId === parent));
+    return (
+      <SelectField
+        label={CATEGORY_LEVEL_LABELS[depth + 1]}
+        value={category[depth]}
+        disabled={disabled || (depth > 0 && !parent)}
+        options={[{ value: "", label: "All" }, ...choices.map((candidate) => ({ value: candidate.id, label: candidate.name }))]}
+        onChange={(event) => {
+          const next = [...category] as [string, string, string];
+          next[depth] = event.target.value;
+          for (let index = depth + 1; index < 3; index++) next[index] = "";
+          setCategory(next);
+        }}
+      />
+    );
+  };
+
+  const entryTotal = orZero(entry.qty) * orZero(entry.unitPrice) * (1 - orZero(entry.discountPercent) / 100);
+
+  return (
+    <div className="flex flex-col gap-3 rounded-lg bg-canvas p-3">
+      <div className="grid gap-3 sm:grid-cols-3">
+        {level(0)}
+        {level(1)}
+        {level(2)}
+      </div>
+      <div
+        className="grid items-end gap-3 sm:grid-cols-4 lg:grid-cols-[minmax(16rem,2fr)_repeat(7,minmax(5rem,1fr))_auto]"
+        onKeyDown={(event) => {
+          if (event.key === "Enter" && (event.target as HTMLElement).tagName === "INPUT") {
+            event.preventDefault();
+            add();
+          }
+        }}
+      >
+        <div className="flex flex-col gap-1 sm:col-span-4 lg:col-span-1">
+          <label htmlFor={`${listId}-item`} className="text-xs text-ink-muted">
+            Item <span className="text-danger">*</span>
+          </label>
+          <input
+            id={`${listId}-item`}
+            list={listId}
+            value={itemText}
+            disabled={disabled}
+            placeholder={disabled ? "Select an office first" : `Search ${visible.length} items by code or name`}
+            onChange={(event) => pick(event.target.value)}
+            className={cn(CONTROL, "h-7")}
+          />
+          <datalist id={listId}>
+            {visible.map((candidate) => (
+              <option key={candidate.id} value={label(candidate)} />
+            ))}
+          </datalist>
+        </div>
+        <TextField label="Quantity" type="number" min={0} step="any" value={entry.qty} disabled={disabled} onChange={(event) => setEntry({ ...entry, qty: event.target.value })} />
+        <TextField label="Rate" type="number" min={0} step="any" value={entry.unitPrice} disabled={disabled} onChange={(event) => setEntry({ ...entry, unitPrice: event.target.value })} />
+        <TextField label="MRP" value={item?.mrp === null || !item ? "" : formatAmount(item.mrp)} readOnly tabIndex={-1} />
+        <TextField label="Total Amount" value={entryTotal ? formatAmount(entryTotal) : ""} readOnly tabIndex={-1} />
+        <TextField
+          label="Discount (%)"
+          type="number"
+          min={0}
+          max={100}
+          step="any"
+          value={entry.discountPercent}
+          disabled={disabled}
+          onChange={(event) => setEntry({ ...entry, discountPercent: event.target.value })}
+        />
+        <TextField label="VAT (%)" type="number" min={0} max={100} step="any" value={entry.vatPercent} disabled={disabled} onChange={(event) => setEntry({ ...entry, vatPercent: event.target.value })} />
+        <TextField label="AIT (%)" type="number" min={0} max={100} step="any" value={entry.aitPercent} disabled={disabled} onChange={(event) => setEntry({ ...entry, aitPercent: event.target.value })} />
+        <Button variant="primary" onClick={add} disabled={disabled}>
+          <Plus aria-hidden="true" />
+          Add
+        </Button>
+      </div>
+      <div className="flex flex-wrap items-center gap-2 text-xs">
+        {item && (
+          <>
+            <Indicator color="blue">
+              {item.uom}
+              {item.altUom ? ` · ${item.altUomFactor} per ${item.altUom}` : ""}
+            </Indicator>
+            <Indicator color="orange">Pending in orders: {pending.data ? formatQty(pending.data.pendingQty) : "…"}</Indicator>
+          </>
+        )}
+        {error && (
+          <p role="alert" className="text-danger">
+            {error}
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Lines grid ──────────────────────────────────────────────────────────────
+
+const CELL = cn(CONTROL, "h-7 w-full min-w-0 text-right tabular-nums");
+
+function LinesGrid({
+  lines,
+  itemById,
+  storedLines,
+  totals,
+  errors,
+  onChange,
+  onRemove,
+}: {
+  lines: LineValues[];
+  itemById: Map<string, ItemOption>;
+  storedLines: OrderDetail["lines"];
+  totals: ReturnType<typeof orderTotals>;
+  errors: Record<string, string>;
+  onChange: (key: string, patch: Partial<LineValues>) => void;
+  onRemove: (key: string) => void;
+}) {
+  if (lines.length === 0) {
+    return <EmptyState title="No items yet">Pick an item above and press Add (or Enter).</EmptyState>;
+  }
+  const storedById = new Map(storedLines.map((line) => [line.itemId, line]));
+  let altTotal = 0;
+
+  return (
+    <div className="overflow-x-auto rounded-lg border border-line">
+      <table className="w-full min-w-[1100px] text-sm">
+        <thead className="bg-canvas text-xs text-ink-muted">
+          <tr className="border-b border-line">
+            {["SL", "Code", "Name", "UOM", "Quantity", "Alt. UOM", "Alt. Qty", "Unit Price", "Disc %", "Net Unit Price", "VAT %", "AIT %", "Total", "Net Total", ""].map(
+              (header, index) => (
+                <th key={header || index} scope="col" className={cn("px-2 py-2 font-medium", index >= 4 && index !== 5 ? "text-right" : "text-left")}>
+                  {header || <span className="sr-only">Remove</span>}
+                </th>
+              ),
+            )}
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-line">
+          {lines.map((line, index) => {
+            const item = itemById.get(line.itemId);
+            const stored = storedById.get(line.itemId);
+            const amounts = totals.lines[index];
+            const factor = item?.altUomFactor ?? stored?.altUomFactor ?? null;
+            const alt = altQty(orZero(line.qty), factor);
+            altTotal += alt ?? 0;
+            const rowError = ["itemId", "qty", "unitPrice", "discountPercent", "vatPercent", "aitPercent"]
+              .map((field) => errors[`lines.${index}.${field}`])
+              .find(Boolean);
+            const input = (field: "qty" | "unitPrice" | "discountPercent" | "vatPercent" | "aitPercent", labelText: string) => (
+              <input
+                aria-label={`${labelText}, row ${index + 1}`}
+                type="number"
+                min={0}
+                step="any"
+                value={line[field]}
+                onChange={(event) => onChange(line.key, { [field]: event.target.value })}
+                className={cn(CELL, errors[`lines.${index}.${field}`] && "ring-1 ring-danger")}
+              />
+            );
+            return (
+              <tr key={line.key} className="align-top">
+                <td className="px-2 py-1.5 pt-2.5 text-ink-faint tabular-nums">{index + 1}</td>
+                <td className="px-2 py-1.5 pt-2.5 whitespace-nowrap text-ink-muted">{item?.code ?? stored?.itemCode}</td>
+                <td className="px-2 py-1.5 pt-2.5 text-ink">
+                  {item?.name ?? stored?.itemName ?? "Unknown item"}
+                  {rowError && <p className="text-xs text-danger">{rowError}</p>}
+                </td>
+                <td className="px-2 py-1.5 pt-2.5 text-ink-muted">{item?.uom ?? stored?.uom}</td>
+                <td className="w-24 px-2 py-1.5">{input("qty", "Quantity")}</td>
+                <td className="px-2 py-1.5 pt-2.5 text-ink-muted">{item?.altUom ?? stored?.altUom ?? "—"}</td>
+                <td className="px-2 py-1.5 pt-2.5 text-right tabular-nums">{alt === null ? "—" : formatQty(alt)}</td>
+                <td className="w-28 px-2 py-1.5">{input("unitPrice", "Unit price")}</td>
+                <td className="w-20 px-2 py-1.5">{input("discountPercent", "Discount percent")}</td>
+                <td className="px-2 py-1.5 pt-2.5 text-right tabular-nums">{amounts ? amounts.netUnitPrice.toFixed(2) : "—"}</td>
+                <td className="w-20 px-2 py-1.5">{input("vatPercent", "VAT percent")}</td>
+                <td className="w-20 px-2 py-1.5">{input("aitPercent", "AIT percent")}</td>
+                <td className="px-2 py-1.5 pt-2.5 text-right tabular-nums">{formatAmount(amounts?.grossAmount ?? 0)}</td>
+                <td className="px-2 py-1.5 pt-2.5 text-right font-medium text-ink tabular-nums">{formatAmount(amounts?.lineTotal ?? 0)}</td>
+                <td className="px-2 py-1.5">
+                  <Button variant="ghost" size="icon" aria-label={`Remove row ${index + 1}`} onClick={() => onRemove(line.key)}>
+                    <Trash2 />
+                  </Button>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+        <tfoot className="border-t border-line-strong bg-canvas text-sm font-medium text-ink">
+          <tr>
+            <td colSpan={4} className="px-2 py-2">
+              Total:
+            </td>
+            <td className="px-2 py-2 text-right tabular-nums">{formatQty(totals.totalQty)}</td>
+            <td />
+            <td className="px-2 py-2 text-right tabular-nums">{formatQty(Math.round(altTotal * 1000) / 1000)}</td>
+            <td colSpan={5} />
+            <td className="px-2 py-2 text-right tabular-nums">{formatAmount(totals.lines.reduce((sum, line) => sum + line.grossAmount, 0))}</td>
+            <td className="px-2 py-2 text-right tabular-nums">{formatAmount(totals.itemsTotal)}</td>
+            <td />
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  );
+}
