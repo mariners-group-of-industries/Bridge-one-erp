@@ -5,677 +5,677 @@ import Link from "next/link";
 import {
   Banknote,
   Building2,
+  Calendar,
+  Check,
   CheckCircle2,
+  ChevronLeft,
   ChevronRight,
-  Clock,
   Coins,
   CreditCard,
   Download,
   Eye,
   FileSpreadsheet,
+  FileText,
   Filter,
   Landmark,
+  Layers,
   Pencil,
   Plus,
   Printer,
   RotateCcw,
   Search,
   ShieldCheck,
-  TrendingUp,
+  Trash2,
+  Upload,
   X,
 } from "lucide-react";
-import { SummaryCard } from "@/components/purchase/SummaryCard";
 import { ModalDialog } from "@/components/purchase/ModalDialog";
 import { useAccountingStore } from "@/features/accounts/store/accounting-store";
-import type { BankAccountItem, DepositItem, FactoringItem, LoanItem } from "@/features/accounts/types";
+import type {
+  BankAccountItem,
+  DepositItem,
+  FactoringItem,
+  LoanItem,
+  LoanPartnerItem,
+} from "@/features/accounts/types";
 
 export default function FinanceBankingPage() {
   const bankAccounts = useAccountingStore((s) => s.bankAccounts);
   const deposits = useAccountingStore((s) => s.deposits);
   const loans = useAccountingStore((s) => s.loans);
   const factoring = useAccountingStore((s) => s.factoring);
+  const loanPartners = useAccountingStore((s) => s.loanPartners);
   const accounts = useAccountingStore((s) => s.accounts);
   const addBankAccount = useAccountingStore((s) => s.addBankAccount);
   const addDeposit = useAccountingStore((s) => s.addDeposit);
   const addLoan = useAccountingStore((s) => s.addLoan);
+  const addLoanPartner = useAccountingStore((s) => s.addLoanPartner);
 
+  // -------------------------------------------------------------
+  // TABS: Exact 5 tabs from user screenshots
+  // 1. REGULAR BANKING
+  // 2. DEPOSITS
+  // 3. LOANS (BANK)
+  // 4. FACTORING REPORT
+  // 5. LOAN (OTHERS)
+  // -------------------------------------------------------------
   const [activeTab, setActiveTab] = useState<
-    "REGULAR_BANKING" | "DEPOSITS_FDR" | "LOANS_CREDIT" | "FACTORING_REPORT" | "BANK_RECON"
+    "REGULAR_BANKING" | "DEPOSITS" | "LOANS_BANK" | "FACTORING_REPORT" | "LOAN_OTHERS"
   >("REGULAR_BANKING");
 
-  // Filter states
-  const [search, setSearch] = useState("");
-  const [selectedBankType, setSelectedBankType] = useState("ALL");
-  const [selectedReconStatus, setSelectedReconStatus] = useState("ALL");
-  const [viewMode, setViewMode] = useState<"table" | "cards">("table");
+  // Global search input in top right
+  const [globalSearch, setGlobalSearch] = useState("");
 
-  // Modal States
+  // Pagination states
+  const [rowsPerPage, setRowsPerPage] = useState<number>(50);
+  const [currentPage, setCurrentPage] = useState<number>(1);
+
+  // -------------------------------------------------------------
+  // TAB 1: REGULAR BANKING FILTER STATES
+  // -------------------------------------------------------------
+  const [bankAccountTypeFilter, setBankAccountTypeFilter] = useState("ALL");
+
+  // -------------------------------------------------------------
+  // TAB 2: DEPOSITS FILTER STATES (Screenshot 2)
+  // -------------------------------------------------------------
+  const [depositTypeFilter, setDepositTypeFilter] = useState("Security Deposit");
+  const [depositOfficeFilter, setDepositOfficeFilter] = useState("All");
+
+  // -------------------------------------------------------------
+  // TAB 3: LOANS (BANK) FILTER STATES (Screenshot 3)
+  // -------------------------------------------------------------
+  const [loanTypeFilter, setLoanTypeFilter] = useState("ALL");
+  const [loanGlFilter, setLoanGlFilter] = useState("ALL");
+  const [loanFromDate, setLoanFromDate] = useState("2026-10-01");
+  const [loanToDate, setLoanToDate] = useState("2026-10-31");
+
+  // -------------------------------------------------------------
+  // TAB 4: FACTORING REPORT FILTER STATES (Screenshot 4)
+  // -------------------------------------------------------------
+  const [factoringFromDate, setFactoringFromDate] = useState("2026-10-01");
+  const [factoringToDate, setFactoringToDate] = useState("2026-10-31");
+  const [factoringCustomer, setFactoringCustomer] = useState("ALL");
+  const [factoringBillSearch, setFactoringBillSearch] = useState("");
+  const [factoringAccountSearch, setFactoringAccountSearch] = useState("");
+  const [isBillWise, setIsBillWise] = useState(true);
+
+  // -------------------------------------------------------------
+  // TAB 5: LOAN (OTHERS) FILTER STATES (Screenshot 5)
+  // -------------------------------------------------------------
+  const [otherOfficeFilter, setOtherOfficeFilter] = useState("ALL");
+  const [otherGroupFilter, setOtherGroupFilter] = useState("ALL");
+  const [otherActiveFilter, setOtherActiveFilter] = useState("ALL");
+  const [otherAccountTypeFilter, setOtherAccountTypeFilter] = useState("ALL");
+
+  // -------------------------------------------------------------
+  // MODAL STATES
+  // -------------------------------------------------------------
   const [isNewBankOpen, setIsNewBankOpen] = useState(false);
   const [isNewDepositOpen, setIsNewDepositOpen] = useState(false);
   const [isNewLoanOpen, setIsNewLoanOpen] = useState(false);
-  const [viewBank, setViewBank] = useState<BankAccountItem | null>(null);
+  const [isNewLoanPartnerOpen, setIsNewLoanPartnerOpen] = useState(false);
+  const [isBulkUploadOpen, setIsBulkUploadOpen] = useState(false);
+  const [viewBankDetails, setViewBankDetails] = useState<BankAccountItem | null>(null);
 
-  // Form: Bank
-  const [bankForm, setBankForm] = useState({
-    accountNumber: "",
+  // Forms
+  const [newBankForm, setNewBankForm] = useState({
     bankName: "",
     branchName: "",
     accountHolder: "BridgeOne Industrial Solutions Ltd",
-    accountType: "CURRENT" as BankAccountItem["accountType"],
+    accountType: "Current Account",
+    accountNumber: "",
     currency: "BDT",
-    glAccountId: "acc-1120",
-    glAccountName: "Cash at Bank - Sonali Bank",
+    glAccountId: "acc-10102",
+    glAccountName: "Cash At Bank",
     openingBalance: 0,
     reconciliationStatus: "RECONCILED" as const,
     isActive: true,
   });
 
-  // Form: Deposit
-  const [depositForm, setDepositForm] = useState({
-    bankAccountId: "bank-1",
+  const [newDepositForm, setNewDepositForm] = useState({
     bankName: "Sonali Bank PLC",
-    depositType: "FIXED" as const,
+    depositType: "Security Deposit",
+    officeId: "office-dhaka",
+    officeName: "Dhaka Head Office",
     principalAmount: 500000,
     interestRate: 8.5,
-    openingDate: new Date().toISOString().split("T")[0],
-    maturityDate: new Date(Date.now() + 365 * 86400000).toISOString().split("T")[0],
+    openingDate: "2026-10-12",
+    maturityDate: "2027-10-12",
     maturityValue: 542500,
     interestEarned: 42500,
-    status: "ACTIVE" as const,
+    status: "ACTIVE",
   });
 
-  // Form: Loan
-  const [loanForm, setLoanForm] = useState({
+  const [newLoanForm, setNewLoanForm] = useState({
     lenderName: "Eastern Bank PLC",
-    loanType: "WORKING_CAPITAL" as const,
-    principalAmount: 2000000,
-    interestRate: 9.0,
-    disbursementDate: new Date().toISOString().split("T")[0],
-    maturityDate: new Date(Date.now() + 730 * 86400000).toISOString().split("T")[0],
-    installmentAmount: 95000,
-    outstandingPrincipal: 2000000,
+    loanType: "Working Capital",
+    category: "BANK" as const,
+    officeId: "office-dhaka",
+    officeName: "Dhaka Head Office",
+    glAccountId: "acc-302",
+    glAccountName: "Short Term Borrowing",
+    partnerGroup: "Corporate Credit",
+    principalAmount: 5000000,
+    interestRate: 9.5,
+    disbursementDate: "2026-10-01",
+    maturityDate: "2027-10-01",
+    installmentAmount: 438000,
+    outstandingPrincipal: 5000000,
     accruedInterest: 0,
+    tenureMonths: 12,
+    status: "ACTIVE",
+  });
+
+  const [newPartnerForm, setNewPartnerForm] = useState({
+    partnerName: "",
+    group: "NBFI Corporate Partner",
+    officeId: "office-dhaka",
+    officeName: "Dhaka Head Office",
+    accountType: "Lease Finance Facility",
+    principalFacility: 3000000,
+    interestRate: 10.0,
+    tenureMonths: 36,
+    outstanding: 3000000,
     status: "ACTIVE" as const,
   });
 
-  // Derived Calculations
-  const totalBankBalance = useMemo(
-    () => bankAccounts.reduce((sum, b) => sum + (b.isActive ? b.currentBalance : 0), 0),
-    [bankAccounts],
-  );
+  // -------------------------------------------------------------
+  // FILTERED DATASETS
+  // -------------------------------------------------------------
 
-  const totalFixedDeposits = useMemo(
-    () => deposits.reduce((sum, d) => sum + (d.status === "ACTIVE" ? d.principalAmount : 0), 0),
-    [deposits],
-  );
-
-  const totalBorrowing = useMemo(
-    () => loans.reduce((sum, l) => sum + (l.status === "ACTIVE" ? l.outstandingPrincipal : 0), 0),
-    [loans],
-  );
-
-  const filteredBanks = useMemo(() => {
+  // 1. Regular Banking
+  const filteredBankAccounts = useMemo(() => {
     return bankAccounts.filter((b) => {
-      if (search) {
-        const q = search.toLowerCase();
+      if (globalSearch) {
+        const q = globalSearch.toLowerCase();
         const m =
           b.bankName.toLowerCase().includes(q) ||
-          b.accountNumber.toLowerCase().includes(q) ||
           b.branchName.toLowerCase().includes(q) ||
-          b.glAccountName.toLowerCase().includes(q);
+          b.accountHolder.toLowerCase().includes(q) ||
+          b.accountNumber.toLowerCase().includes(q);
         if (!m) return false;
       }
-      if (selectedBankType !== "ALL" && b.accountType !== selectedBankType) return false;
-      if (selectedReconStatus !== "ALL" && b.reconciliationStatus !== selectedReconStatus) return false;
+      if (bankAccountTypeFilter !== "ALL") {
+        if (b.accountType.toLowerCase() !== bankAccountTypeFilter.toLowerCase()) return false;
+      }
       return true;
     });
-  }, [bankAccounts, search, selectedBankType, selectedReconStatus]);
+  }, [bankAccounts, globalSearch, bankAccountTypeFilter]);
 
-  // Handle Export CSV
-  const handleExportCSV = () => {
-    let csvContent = "data:text/csv;charset=utf-8,";
+  // 2. Deposits
+  const filteredDeposits = useMemo(() => {
+    return deposits.filter((d) => {
+      if (globalSearch) {
+        const q = globalSearch.toLowerCase();
+        const m =
+          d.depositNumber.toLowerCase().includes(q) ||
+          d.bankName.toLowerCase().includes(q) ||
+          d.depositType.toLowerCase().includes(q);
+        if (!m) return false;
+      }
+      if (depositTypeFilter && depositTypeFilter !== "ALL") {
+        if (d.depositType.toLowerCase() !== depositTypeFilter.toLowerCase()) return false;
+      }
+      if (depositOfficeFilter && depositOfficeFilter !== "All" && depositOfficeFilter !== "ALL") {
+        if (d.officeName?.toLowerCase() !== depositOfficeFilter.toLowerCase()) return false;
+      }
+      return true;
+    });
+  }, [deposits, globalSearch, depositTypeFilter, depositOfficeFilter]);
+
+  // 3. Loans (Bank)
+  const filteredLoans = useMemo(() => {
+    return loans.filter((l) => {
+      if (globalSearch) {
+        const q = globalSearch.toLowerCase();
+        const m =
+          l.loanNumber.toLowerCase().includes(q) ||
+          l.lenderName.toLowerCase().includes(q) ||
+          l.loanType.toLowerCase().includes(q);
+        if (!m) return false;
+      }
+      if (loanTypeFilter !== "ALL") {
+        if (l.loanType.toLowerCase() !== loanTypeFilter.toLowerCase()) return false;
+      }
+      if (loanGlFilter !== "ALL") {
+        if (l.glAccountName?.toLowerCase() !== loanGlFilter.toLowerCase()) return false;
+      }
+      return true;
+    });
+  }, [loans, globalSearch, loanTypeFilter, loanGlFilter]);
+
+  // 4. Factoring Report
+  const filteredFactoring = useMemo(() => {
+    return factoring.filter((f) => {
+      if (factoringCustomer !== "ALL") {
+        if (f.customerName?.toLowerCase() !== factoringCustomer.toLowerCase()) return false;
+      }
+      if (factoringBillSearch && factoringBillSearch.trim().length >= 2) {
+        const q = factoringBillSearch.toLowerCase();
+        const m =
+          f.billNumber?.toLowerCase().includes(q) ||
+          f.invoiceReference.toLowerCase().includes(q);
+        if (!m) return false;
+      }
+      if (factoringAccountSearch && factoringAccountSearch.trim().length >= 2) {
+        const q = factoringAccountSearch.toLowerCase();
+        if (!f.accountNo?.toLowerCase().includes(q)) return false;
+      }
+      return true;
+    });
+  }, [factoring, factoringCustomer, factoringBillSearch, factoringAccountSearch]);
+
+  // 5. Loan Others
+  const filteredLoanPartners = useMemo(() => {
+    return loanPartners.filter((lp) => {
+      if (globalSearch) {
+        const q = globalSearch.toLowerCase();
+        const m =
+          lp.partnerName.toLowerCase().includes(q) ||
+          lp.group.toLowerCase().includes(q) ||
+          lp.accountType.toLowerCase().includes(q);
+        if (!m) return false;
+      }
+      if (otherOfficeFilter !== "ALL") {
+        if (lp.officeName.toLowerCase() !== otherOfficeFilter.toLowerCase()) return false;
+      }
+      if (otherGroupFilter !== "ALL") {
+        if (lp.group.toLowerCase() !== otherGroupFilter.toLowerCase()) return false;
+      }
+      if (otherActiveFilter !== "ALL") {
+        if (lp.status !== otherActiveFilter) return false;
+      }
+      if (otherAccountTypeFilter !== "ALL") {
+        if (lp.accountType.toLowerCase() !== otherAccountTypeFilter.toLowerCase()) return false;
+      }
+      return true;
+    });
+  }, [loanPartners, globalSearch, otherOfficeFilter, otherGroupFilter, otherActiveFilter, otherAccountTypeFilter]);
+
+  // -------------------------------------------------------------
+  // EXPORT TO EXCEL / CSV HELPER
+  // -------------------------------------------------------------
+  const handleExportExcel = () => {
+    let csv = "data:text/csv;charset=utf-8,";
     if (activeTab === "REGULAR_BANKING") {
-      csvContent += "SL,Bank Name,Branch,Account Number,Account Type,Currency,Linked GL Account,Opening Balance,Current Balance,Reconciliation Status\n";
-      filteredBanks.forEach((b, i) => {
-        csvContent += `"${i + 1}","${b.bankName}","${b.branchName}","${b.accountNumber}","${b.accountType}","${b.currency}","${b.glAccountName}","${b.openingBalance}","${b.currentBalance}","${b.reconciliationStatus}"\n`;
+      csv += "SL,Bank Name,Branch Name,Account Holder,Account Type,Account No,Status\n";
+      filteredBankAccounts.forEach((b, i) => {
+        csv += `"${i + 1}","${b.bankName}","${b.branchName}","${b.accountHolder}","${b.accountType}","${b.accountNumber}","${b.isActive ? "ACTIVE" : "INACTIVE"}"\n`;
       });
-    } else if (activeTab === "DEPOSITS_FDR") {
-      csvContent += "SL,Deposit #,Bank Name,Type,Principal Amount,Interest Rate %,Opening Date,Maturity Date,Maturity Value,Status\n";
-      deposits.forEach((d, i) => {
-        csvContent += `"${i + 1}","${d.depositNumber}","${d.bankName}","${d.depositType}","${d.principalAmount}","${d.interestRate}","${d.openingDate}","${d.maturityDate}","${d.maturityValue}","${d.status}"\n`;
+    } else if (activeTab === "DEPOSITS") {
+      csv += "SL,Deposit #,Bank Name,Type,Office,Principal,Interest Rate,Opening Date,Maturity Date,Status\n";
+      filteredDeposits.forEach((d, i) => {
+        csv += `"${i + 1}","${d.depositNumber}","${d.bankName}","${d.depositType}","${d.officeName || ""}","${d.principalAmount}","${d.interestRate}%","${d.openingDate}","${d.maturityDate}","${d.status}"\n`;
       });
-    } else if (activeTab === "LOANS_CREDIT") {
-      csvContent += "SL,Loan #,Lender Name,Loan Type,Principal Amount,Interest Rate %,Disbursement Date,Maturity Date,Installment Amount,Outstanding,Status\n";
-      loans.forEach((l, i) => {
-        csvContent += `"${i + 1}","${l.loanNumber}","${l.lenderName}","${l.loanType}","${l.principalAmount}","${l.interestRate}","${l.disbursementDate}","${l.maturityDate}","${l.installmentAmount}","${l.outstandingPrincipal}","${l.status}"\n`;
+    } else if (activeTab === "LOANS_BANK") {
+      csv += "SL,Loan #,Lender Name,Loan Type,GL Account,Principal Amount,Interest Rate,Disbursement Date,Maturity Date,Outstanding,Status\n";
+      filteredLoans.forEach((l, i) => {
+        csv += `"${i + 1}","${l.loanNumber}","${l.lenderName}","${l.loanType}","${l.glAccountName || ""}","${l.principalAmount}","${l.interestRate}%","${l.disbursementDate}","${l.maturityDate}","${l.outstandingPrincipal}","${l.status}"\n`;
+      });
+    } else if (activeTab === "FACTORING_REPORT") {
+      csv += "SL,Bill / Invoice,Customer,Bank Account,Invoice Date,Invoice Value,Eligible Advance,Factoring Fee,Remaining,Status\n";
+      filteredFactoring.forEach((f, i) => {
+        csv += `"${i + 1}","${f.billNumber || f.invoiceReference}","${f.customerName || ""}","${f.accountNo || ""}","${f.invoiceDate || ""}","${f.eligibleReceivable}","${f.advanceAmount}","${f.feesCharges}","${f.remainingReceivable}","${f.settlementStatus}"\n`;
+      });
+    } else if (activeTab === "LOAN_OTHERS") {
+      csv += "SL,Loan Partner,Group,Office,Account Type,Principal Facility,Interest Rate %,Tenure (Months),Outstanding,Status\n";
+      filteredLoanPartners.forEach((lp, i) => {
+        csv += `"${i + 1}","${lp.partnerName}","${lp.group}","${lp.officeName}","${lp.accountType}","${lp.principalFacility}","${lp.interestRate}%","${lp.tenureMonths}","${lp.outstanding}","${lp.status}"\n`;
       });
     }
-    const encodedUri = encodeURI(csvContent);
+    const encoded = encodeURI(csv);
     const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
-    link.setAttribute("download", `BridgeOne_${activeTab}_Report.csv`);
+    link.setAttribute("href", encoded);
+    link.setAttribute("download", `BridgeOne_${activeTab}_Export.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
   };
 
+  // -------------------------------------------------------------
+  // SAVE HANDLERS
+  // -------------------------------------------------------------
   const handleSaveBank = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!bankForm.accountNumber || !bankForm.bankName) return;
-    addBankAccount(bankForm);
+    if (!newBankForm.bankName || !newBankForm.accountNumber) return;
+    addBankAccount(newBankForm);
     setIsNewBankOpen(false);
+    setNewBankForm({
+      bankName: "",
+      branchName: "",
+      accountHolder: "BridgeOne Industrial Solutions Ltd",
+      accountType: "Current Account",
+      accountNumber: "",
+      currency: "BDT",
+      glAccountId: "acc-10102",
+      glAccountName: "Cash At Bank",
+      openingBalance: 0,
+      reconciliationStatus: "RECONCILED",
+      isActive: true,
+    });
   };
 
   const handleSaveDeposit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (depositForm.principalAmount <= 0) return;
-    addDeposit(depositForm);
+    if (newDepositForm.principalAmount <= 0) return;
+    addDeposit(newDepositForm);
     setIsNewDepositOpen(false);
   };
 
   const handleSaveLoan = (e: React.FormEvent) => {
     e.preventDefault();
-    if (loanForm.principalAmount <= 0) return;
-    addLoan(loanForm);
+    if (newLoanForm.principalAmount <= 0) return;
+    addLoan(newLoanForm);
     setIsNewLoanOpen(false);
   };
 
+  const handleSaveLoanPartner = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newPartnerForm.partnerName) return;
+    addLoanPartner(newPartnerForm);
+    setIsNewLoanPartnerOpen(false);
+  };
+
+  // -------------------------------------------------------------
+  // BRIDGEONE ERP BRANDED EMPTY STATE
+  // -------------------------------------------------------------
+  const renderBridgeOneEmptyState = (message: string = "No Data Found") => (
+    <div className="py-24 flex flex-col items-center justify-center text-center select-none bg-white">
+      <div className="relative mb-4 flex items-center justify-center">
+        <div className="w-20 h-20 rounded-2xl bg-gradient-to-tr from-blue-700 via-indigo-600 to-sky-500 flex items-center justify-center shadow-lg shadow-blue-500/20 text-white font-black text-2xl tracking-tighter">
+          B1
+        </div>
+        <div className="absolute -bottom-1 -right-1 w-7 h-7 rounded-full bg-emerald-500 border-2 border-white flex items-center justify-center text-white">
+          <Check className="w-3.5 h-3.5 stroke-[3]" />
+        </div>
+      </div>
+      <div className="flex items-center gap-2">
+        <span className="text-2xl font-black tracking-tight text-[#0f2d59]">
+          Bridge<span className="text-blue-600">One</span>
+        </span>
+        <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-blue-50 text-blue-700 border border-blue-200">
+          ERP
+        </span>
+      </div>
+      <h3 className="text-base font-bold text-slate-800 mt-2">{message}</h3>
+      <p className="text-xs text-slate-400 mt-1 max-w-sm">
+        No records found matching the active filter criteria. Adjust the dropdown filters or click View to refresh data.
+      </p>
+    </div>
+  );
+
   return (
-    <div className="space-y-3 font-sans pb-12">
+    <div className="space-y-2.5 font-sans pb-16 bg-[#f8fafc] min-h-screen">
       {/* ------------------------------------------------------------- */}
-      {/* 1. TOP HEADER (Exact Managerium / Purchase Layout) */}
+      {/* 1. TOP BAR: Title & Tab-Specific Action Buttons */}
       {/* ------------------------------------------------------------- */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-3 rounded border border-slate-200/90 shadow-2xs">
+      <div className="bg-white px-4 py-3 rounded-t border-b border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs">
         <div>
-          <nav className="flex items-center gap-1.5 text-[11px] text-slate-400 mb-0.5">
-            <Link href="/accounts" className="hover:text-slate-600 transition">
-              Account
-            </Link>
-            <ChevronRight className="w-3 h-3 text-slate-300" />
-            <span className="text-slate-600 font-medium">Finance & Banking</span>
-          </nav>
-          <h1 className="text-xl font-bold text-slate-900 tracking-tight">Finance & Banking</h1>
-          <p className="text-xs text-slate-500 mt-0.5">
-            Manage corporate bank accounts, fixed term deposits (FDR), credit facilities, and factoring receivables
-          </p>
+          <h1 className="text-lg font-bold text-slate-900 tracking-tight">Finance and Banking</h1>
         </div>
 
-        <div className="flex items-center gap-2 flex-wrap">
-          {/* Quick search input */}
-          <div className="relative">
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search bank, account #..."
-              className="w-56 sm:w-64 h-9 pl-3 pr-8 text-xs border border-slate-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 bg-white placeholder-slate-400"
-            />
-            <Search className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-          </div>
+        <div className="flex items-center gap-2 flex-wrap justify-end">
+          {/* Search box (shown on tabs 1, 3, 5) */}
+          {(activeTab === "REGULAR_BANKING" ||
+            activeTab === "DEPOSITS" ||
+            activeTab === "LOANS_BANK" ||
+            activeTab === "LOAN_OTHERS") && (
+            <div className="relative">
+              <input
+                type="text"
+                value={globalSearch}
+                onChange={(e) => setGlobalSearch(e.target.value)}
+                placeholder="Search..."
+                className="w-44 sm:w-56 h-8 pl-3 pr-7 text-xs border border-slate-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 bg-white placeholder-slate-400"
+              />
+              <Search className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+            </div>
+          )}
 
-          {/* Export Excel Button */}
-          <button
-            type="button"
-            onClick={handleExportCSV}
-            className="h-9 px-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs rounded flex items-center gap-1.5 shadow-xs transition"
-            title="Download CSV / Excel Report"
-          >
-            <Download className="w-3.5 h-3.5" />
-            <span>Excel</span>
-          </button>
-
-          {/* Add Action Buttons */}
+          {/* TAB 1: + Regular Banking */}
           {activeTab === "REGULAR_BANKING" && (
             <button
               type="button"
               onClick={() => setIsNewBankOpen(true)}
-              className="h-9 px-4 bg-[#2563eb] hover:bg-blue-700 text-white font-semibold text-xs rounded flex items-center gap-1.5 shadow-xs transition"
+              className="h-8 px-3.5 bg-[#2563eb] hover:bg-blue-700 text-white font-semibold text-xs rounded flex items-center gap-1.5 shadow-xs transition"
             >
-              <Plus className="w-4 h-4" />
-              <span>Add Bank Account</span>
+              <Plus className="w-3.5 h-3.5" />
+              <span>Regular Banking</span>
             </button>
           )}
 
-          {activeTab === "DEPOSITS_FDR" && (
+          {/* TAB 2: + Deposits */}
+          {activeTab === "DEPOSITS" && (
             <button
               type="button"
               onClick={() => setIsNewDepositOpen(true)}
-              className="h-9 px-4 bg-[#2563eb] hover:bg-blue-700 text-white font-semibold text-xs rounded flex items-center gap-1.5 shadow-xs transition"
+              className="h-8 px-3.5 bg-[#2563eb] hover:bg-blue-700 text-white font-semibold text-xs rounded flex items-center gap-1.5 shadow-xs transition"
             >
-              <Plus className="w-4 h-4" />
-              <span>Open Fixed Deposit</span>
+              <Plus className="w-3.5 h-3.5" />
+              <span>Deposits</span>
             </button>
           )}
 
-          {activeTab === "LOANS_CREDIT" && (
+          {/* TAB 3: Excel + + Loans */}
+          {activeTab === "LOANS_BANK" && (
+            <>
+              <button
+                type="button"
+                onClick={handleExportExcel}
+                className="h-8 px-3 bg-[#2563eb] hover:bg-blue-700 text-white font-semibold text-xs rounded flex items-center gap-1.5 shadow-xs transition"
+                title="Download Excel Report"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>Excel</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsNewLoanOpen(true)}
+                className="h-8 px-3.5 bg-[#2563eb] hover:bg-blue-700 text-white font-semibold text-xs rounded flex items-center gap-1.5 shadow-xs transition"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>Loans</span>
+              </button>
+            </>
+          )}
+
+          {/* TAB 4: Print/PDF */}
+          {activeTab === "FACTORING_REPORT" && (
             <button
               type="button"
-              onClick={() => setIsNewLoanOpen(true)}
-              className="h-9 px-4 bg-[#2563eb] hover:bg-blue-700 text-white font-semibold text-xs rounded flex items-center gap-1.5 shadow-xs transition"
+              onClick={() => window.print()}
+              className="h-8 px-3.5 bg-[#2563eb] hover:bg-blue-700 text-white font-semibold text-xs rounded flex items-center gap-1.5 shadow-xs transition"
             >
-              <Plus className="w-4 h-4" />
-              <span>Register Bank Loan</span>
+              <span>Print/PDF</span>
             </button>
+          )}
+
+          {/* TAB 5: EXCEL + + Bulk Upload + + Loan Partner */}
+          {activeTab === "LOAN_OTHERS" && (
+            <>
+              <button
+                type="button"
+                onClick={handleExportExcel}
+                className="h-8 px-3 bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 font-semibold text-xs rounded flex items-center gap-1.5 shadow-2xs transition"
+                title="Download Excel Report"
+              >
+                <Download className="w-3.5 h-3.5 text-slate-500" />
+                <span>EXCEL</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsBulkUploadOpen(true)}
+                className="h-8 px-3.5 bg-[#2563eb] hover:bg-blue-700 text-white font-semibold text-xs rounded flex items-center gap-1.5 shadow-xs transition"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>Bulk Upload</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsNewLoanPartnerOpen(true)}
+                className="h-8 px-3.5 bg-[#2563eb] hover:bg-blue-700 text-white font-semibold text-xs rounded flex items-center gap-1.5 shadow-xs transition"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>Loan Partner</span>
+              </button>
+            </>
           )}
         </div>
       </div>
 
       {/* ------------------------------------------------------------- */}
-      {/* 2. SUMMARY KPI CARDS ROW (Exact Purchase SummaryCard Design) */}
+      {/* 2. TABS BAR (Exact 5 tabs from user screenshots) */}
       {/* ------------------------------------------------------------- */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-        <SummaryCard
-          title="Total Bank Balance"
-          value={`৳${totalBankBalance.toLocaleString()}`}
-          subtitle={`${bankAccounts.filter((b) => b.isActive).length} active bank ledgers`}
-          icon={Landmark}
-          variant="info"
-        />
-        <SummaryCard
-          title="Fixed Deposits (FDR)"
-          value={`৳${totalFixedDeposits.toLocaleString()}`}
-          subtitle={`${deposits.length} term deposit contracts`}
-          icon={Coins}
-          variant="success"
-        />
-        <SummaryCard
-          title="Bank Loans & Credit"
-          value={`৳${totalBorrowing.toLocaleString()}`}
-          subtitle={`${loans.length} active credit facilities`}
-          icon={CreditCard}
-          variant="warning"
-        />
-        <SummaryCard
-          title="Factoring Receivables"
-          value={`৳${factoring.reduce((sum, f) => sum + f.eligibleReceivable, 0).toLocaleString()}`}
-          subtitle="Discounted book debts"
-          icon={Banknote}
-          variant="info"
-        />
-        <SummaryCard
-          title="Reconciliation"
-          value="100% RECONCILED"
-          subtitle="Audit balances matched"
-          icon={ShieldCheck}
-          variant="success"
-        />
-      </div>
-
-      {/* ------------------------------------------------------------- */}
-      {/* 3. NAVIGATION TABS (Purchase Layout) */}
-      {/* ------------------------------------------------------------- */}
-      <div className="flex items-center gap-8 border-b border-slate-200 mb-3 bg-white px-3 pt-2 rounded-t border-t border-x border-slate-200/90 overflow-x-auto select-none">
+      <div className="bg-white border-b border-slate-200 px-4 pt-1 flex items-center gap-7 overflow-x-auto select-none">
         <button
           type="button"
           onClick={() => setActiveTab("REGULAR_BANKING")}
-          className={`pb-2.5 text-xs font-bold tracking-wide transition-colors relative flex items-center gap-2 uppercase whitespace-nowrap ${
+          className={`pb-2.5 text-xs font-bold tracking-wide transition-colors uppercase whitespace-nowrap ${
             activeTab === "REGULAR_BANKING"
               ? "text-blue-600 border-b-2 border-blue-600 -mb-[1px]"
               : "text-slate-500 hover:text-slate-800"
           }`}
         >
-          <span>REGULAR BANKING ({bankAccounts.length})</span>
+          REGULAR BANKING
         </button>
 
         <button
           type="button"
-          onClick={() => setActiveTab("DEPOSITS_FDR")}
-          className={`pb-2.5 text-xs font-bold tracking-wide transition-colors relative flex items-center gap-2 uppercase whitespace-nowrap ${
-            activeTab === "DEPOSITS_FDR"
+          onClick={() => setActiveTab("DEPOSITS")}
+          className={`pb-2.5 text-xs font-bold tracking-wide transition-colors uppercase whitespace-nowrap ${
+            activeTab === "DEPOSITS"
               ? "text-blue-600 border-b-2 border-blue-600 -mb-[1px]"
               : "text-slate-500 hover:text-slate-800"
           }`}
         >
-          <span>DEPOSITS / FDR ({deposits.length})</span>
+          DEPOSITS
         </button>
 
         <button
           type="button"
-          onClick={() => setActiveTab("LOANS_CREDIT")}
-          className={`pb-2.5 text-xs font-bold tracking-wide transition-colors relative flex items-center gap-2 uppercase whitespace-nowrap ${
-            activeTab === "LOANS_CREDIT"
+          onClick={() => setActiveTab("LOANS_BANK")}
+          className={`pb-2.5 text-xs font-bold tracking-wide transition-colors uppercase whitespace-nowrap ${
+            activeTab === "LOANS_BANK"
               ? "text-blue-600 border-b-2 border-blue-600 -mb-[1px]"
               : "text-slate-500 hover:text-slate-800"
           }`}
         >
-          <span>LOANS & CREDIT ({loans.length})</span>
+          LOANS (BANK)
         </button>
 
         <button
           type="button"
           onClick={() => setActiveTab("FACTORING_REPORT")}
-          className={`pb-2.5 text-xs font-bold tracking-wide transition-colors relative flex items-center gap-2 uppercase whitespace-nowrap ${
+          className={`pb-2.5 text-xs font-bold tracking-wide transition-colors uppercase whitespace-nowrap ${
             activeTab === "FACTORING_REPORT"
               ? "text-blue-600 border-b-2 border-blue-600 -mb-[1px]"
               : "text-slate-500 hover:text-slate-800"
           }`}
         >
-          <span>FACTORING REPORT ({factoring.length})</span>
+          FACTORING REPORT
         </button>
 
         <button
           type="button"
-          onClick={() => setActiveTab("BANK_RECON")}
-          className={`pb-2.5 text-xs font-bold tracking-wide transition-colors relative flex items-center gap-2 uppercase whitespace-nowrap ${
-            activeTab === "BANK_RECON"
+          onClick={() => setActiveTab("LOAN_OTHERS")}
+          className={`pb-2.5 text-xs font-bold tracking-wide transition-colors uppercase whitespace-nowrap ${
+            activeTab === "LOAN_OTHERS"
               ? "text-blue-600 border-b-2 border-blue-600 -mb-[1px]"
               : "text-slate-500 hover:text-slate-800"
           }`}
         >
-          <span>BANK RECONCILIATION STATEMENT</span>
+          LOAN (OTHERS)
         </button>
       </div>
 
       {/* ------------------------------------------------------------- */}
-      {/* 4. FILTER TOOLBAR CARD (Managerium Filter Design) */}
-      {/* ------------------------------------------------------------- */}
-      <div className="bg-white rounded border border-slate-200/90 p-3 shadow-2xs">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex flex-wrap items-center gap-3 flex-1 min-w-0">
-            {/* Account Type Filter */}
-            <div className="flex items-center gap-1.5 text-xs text-slate-600">
-              <span className="font-medium text-[11px] text-slate-500">Account Type:</span>
-              <select
-                value={selectedBankType}
-                onChange={(e) => setSelectedBankType(e.target.value)}
-                className="border border-slate-200 rounded px-2.5 py-1 text-xs bg-slate-50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
-              >
-                <option value="ALL">All Account Types</option>
-                <option value="CURRENT">Current Account</option>
-                <option value="SAVINGS">Savings Account</option>
-                <option value="ESCROW">Escrow Account</option>
-                <option value="SALARY">Salary Account</option>
-              </select>
-            </div>
-
-            {/* Reconciliation Filter */}
-            <div className="flex items-center gap-1.5 text-xs text-slate-600">
-              <span className="font-medium text-[11px] text-slate-500">Reconciliation:</span>
-              <select
-                value={selectedReconStatus}
-                onChange={(e) => setSelectedReconStatus(e.target.value)}
-                className="border border-slate-200 rounded px-2.5 py-1 text-xs bg-slate-50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
-              >
-                <option value="ALL">All Status</option>
-                <option value="RECONCILED">Reconciled</option>
-                <option value="PENDING_RECONCILIATION">Pending Reconciliation</option>
-              </select>
-            </div>
-
-            {/* Currency Filter */}
-            <div className="flex items-center gap-1.5 text-xs text-slate-600">
-              <span className="font-medium text-[11px] text-slate-500">Currency:</span>
-              <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-700 font-semibold text-[11px]">
-                BDT (৳)
-              </span>
-            </div>
-          </div>
-
-          {/* Action buttons & View mode toggle */}
-          <div className="flex items-center gap-2 shrink-0">
-            {activeTab === "REGULAR_BANKING" && (
-              <div className="flex rounded border border-slate-200 overflow-hidden text-xs">
-                <button
-                  type="button"
-                  onClick={() => setViewMode("table")}
-                  className={`px-2.5 py-1 font-medium transition ${
-                    viewMode === "table" ? "bg-blue-600 text-white" : "bg-slate-50 text-slate-600 hover:bg-slate-100"
-                  }`}
-                >
-                  Table View
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setViewMode("cards")}
-                  className={`px-2.5 py-1 font-medium transition ${
-                    viewMode === "cards" ? "bg-blue-600 text-white" : "bg-slate-50 text-slate-600 hover:bg-slate-100"
-                  }`}
-                >
-                  Passbook Cards
-                </button>
-              </div>
-            )}
-
-            <button
-              type="button"
-              onClick={() => {
-                setSearch("");
-                setSelectedBankType("ALL");
-                setSelectedReconStatus("ALL");
-              }}
-              className="flex items-center gap-1 px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded text-xs font-medium transition"
-              title="Reset Filters"
-            >
-              <RotateCcw className="w-3.5 h-3.5" />
-              <span>Reset</span>
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* ------------------------------------------------------------- */}
-      {/* 5. TAB 1: REGULAR BANKING REGISTER */}
+      {/* 3. TAB 1: REGULAR BANKING (Screenshot 1) */}
       {/* ------------------------------------------------------------- */}
       {activeTab === "REGULAR_BANKING" && (
-        <div className="space-y-4">
-          {viewMode === "table" ? (
-            <div className="bg-white rounded border border-slate-200/90 shadow-2xs overflow-hidden">
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs">
-                  <thead className="bg-slate-50 border-y border-slate-200 text-[11px] font-bold text-slate-700 uppercase tracking-wider">
-                    <tr>
-                      <th className="px-3.5 py-2.5">SL</th>
-                      <th className="px-3.5 py-2.5">Bank Name & Branch</th>
-                      <th className="px-3.5 py-2.5">Account Number</th>
-                      <th className="px-3.5 py-2.5">Account Holder</th>
-                      <th className="px-3.5 py-2.5">Type</th>
-                      <th className="px-3.5 py-2.5">Linked GL Account</th>
-                      <th className="px-3.5 py-2.5 text-right">Opening Balance</th>
-                      <th className="px-3.5 py-2.5 text-right font-bold text-slate-900">Current Balance</th>
-                      <th className="px-3.5 py-2.5 text-center">Reconciliation</th>
-                      <th className="px-3.5 py-2.5 text-center">Status</th>
-                      <th className="px-3.5 py-2.5 text-center">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {filteredBanks.length === 0 ? (
-                      <tr>
-                        <td colSpan={11} className="py-8 text-center text-xs text-slate-400">
-                          No bank accounts found matching filter criteria.
-                        </td>
-                      </tr>
-                    ) : (
-                      filteredBanks.map((b, index) => (
-                        <tr key={b.id} className="hover:bg-slate-50/80 transition-colors">
-                          <td className="px-3.5 py-2.5 font-medium text-slate-500">{index + 1}</td>
-                          <td className="px-3.5 py-2.5">
-                            <div className="font-semibold text-slate-900">{b.bankName}</div>
-                            <div className="text-[11px] text-slate-500">{b.branchName}</div>
-                          </td>
-                          <td className="px-3.5 py-2.5 font-mono font-medium text-slate-800">{b.accountNumber}</td>
-                          <td className="px-3.5 py-2.5 text-slate-600">{b.accountHolder}</td>
-                          <td className="px-3.5 py-2.5">
-                            <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-100 text-slate-700 border border-slate-200">
-                              {b.accountType}
-                            </span>
-                          </td>
-                          <td className="px-3.5 py-2.5">
-                            <span className="text-slate-700 font-medium">{b.glAccountName}</span>
-                          </td>
-                          <td className="px-3.5 py-2.5 text-right font-mono text-slate-500">
-                            ৳{b.openingBalance.toLocaleString()}
-                          </td>
-                          <td className="px-3.5 py-2.5 text-right font-mono font-bold text-blue-700 text-sm">
-                            ৳{b.currentBalance.toLocaleString()}
-                          </td>
-                          <td className="px-3.5 py-2.5 text-center">
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                              <ShieldCheck className="w-3 h-3" /> {b.reconciliationStatus}
-                            </span>
-                          </td>
-                          <td className="px-3.5 py-2.5 text-center">
-                            <span
-                              className={`px-2 py-0.5 rounded-full text-[10px] font-semibold border ${
-                                b.isActive
-                                  ? "bg-emerald-50 text-emerald-700 border-emerald-200"
-                                  : "bg-slate-100 text-slate-500 border-slate-200"
-                              }`}
-                            >
-                              {b.isActive ? "ACTIVE" : "INACTIVE"}
-                            </span>
-                          </td>
-                          <td className="px-3.5 py-2.5 text-center">
-                            <div className="flex items-center justify-center gap-1.5">
-                              <button
-                                type="button"
-                                onClick={() => setViewBank(b)}
-                                className="p-1 rounded text-slate-500 hover:text-blue-600 hover:bg-slate-100 transition"
-                                title="View Statement & Details"
-                              >
-                                <Eye className="w-3.5 h-3.5" />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => window.print()}
-                                className="p-1 rounded text-slate-500 hover:text-emerald-600 hover:bg-slate-100 transition"
-                                title="Print Statement"
-                              >
-                                <Printer className="w-3.5 h-3.5" />
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
+        <div className="bg-white border-t border-slate-200">
+          {/* Filter Bar */}
+          <div className="px-4 py-3 border-b border-slate-200/80 flex flex-wrap items-center gap-3">
+            <div className="flex flex-col gap-1">
+              <label className="text-[11px] font-semibold text-slate-600">Bank Account Type</label>
+              <select
+                value={bankAccountTypeFilter}
+                onChange={(e) => setBankAccountTypeFilter(e.target.value)}
+                className="h-8 w-60 border border-slate-300 rounded px-2.5 text-xs bg-white text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              >
+                <option value="ALL">Bank Account Type</option>
+                <option value="Current Account">Current Account</option>
+                <option value="Savings Account">Savings Account</option>
+                <option value="Escrow Account">Escrow Account</option>
+                <option value="Salary Account">Salary Account</option>
+              </select>
             </div>
-          ) : (
-            /* Passbook Card Visual Grid */
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {filteredBanks.map((b) => (
-                <div
-                  key={b.id}
-                  className="bg-white rounded-lg border border-slate-200 p-4 shadow-xs hover:shadow-sm transition-all relative overflow-hidden"
-                >
-                  <div className="absolute top-0 left-0 right-0 h-1 bg-blue-600" />
-                  <div className="flex items-start justify-between gap-2 mb-3">
-                    <div>
-                      <h4 className="text-sm font-bold text-slate-900">{b.bankName}</h4>
-                      <p className="text-xs text-slate-500">{b.branchName}</p>
-                    </div>
-                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200">
-                      {b.accountType}
-                    </span>
-                  </div>
 
-                  <div className="space-y-2 border-t border-slate-100 pt-3 text-xs">
-                    <div className="flex justify-between">
-                      <span className="text-slate-500">Account Number:</span>
-                      <span className="font-mono font-semibold text-slate-800">{b.accountNumber}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-slate-500">Account Holder:</span>
-                      <span className="text-slate-700 font-medium truncate max-w-[180px]">{b.accountHolder}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-slate-500">Linked GL Account:</span>
-                      <span className="text-slate-700 font-medium">{b.glAccountName}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-slate-500">Reconciliation:</span>
-                      <span className="inline-flex items-center gap-1 text-emerald-600 font-semibold text-[11px]">
-                        <ShieldCheck className="w-3.5 h-3.5" /> {b.reconciliationStatus}
-                      </span>
-                    </div>
-                    <div className="flex justify-between items-baseline border-t border-slate-100 pt-2.5">
-                      <span className="font-semibold text-slate-700">Available Balance:</span>
-                      <span className="text-base font-extrabold text-blue-600">৳{b.currentBalance.toLocaleString()}</span>
-                    </div>
-                  </div>
-
-                  <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-end gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setViewBank(b)}
-                      className="px-2.5 py-1 text-[11px] font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 rounded transition"
-                    >
-                      Statement
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => window.print()}
-                      className="px-2.5 py-1 text-[11px] font-semibold bg-blue-50 hover:bg-blue-100 text-blue-700 rounded transition"
-                    >
-                      Print
-                    </button>
-                  </div>
-                </div>
-              ))}
+            <div className="flex items-end self-end">
+              <button
+                type="button"
+                onClick={() => {}}
+                className="h-8 px-4 bg-[#2563eb] hover:bg-blue-700 text-white font-semibold text-xs rounded transition shadow-xs"
+              >
+                View
+              </button>
             </div>
-          )}
-        </div>
-      )}
+          </div>
 
-      {/* ------------------------------------------------------------- */}
-      {/* 6. TAB 2: DEPOSITS / FDR REGISTER */}
-      {/* ------------------------------------------------------------- */}
-      {activeTab === "DEPOSITS_FDR" && (
-        <div className="bg-white rounded border border-slate-200/90 shadow-2xs overflow-hidden">
+          {/* Table */}
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs">
-              <thead className="bg-slate-50 border-y border-slate-200 text-[11px] font-bold text-slate-700 uppercase tracking-wider">
+              <thead className="bg-[#e8f2fe] border-b border-blue-200/80 text-[11px] font-bold text-slate-800 uppercase tracking-wide">
                 <tr>
-                  <th className="px-3.5 py-2.5">SL</th>
-                  <th className="px-3.5 py-2.5">Deposit #</th>
-                  <th className="px-3.5 py-2.5">Bank / Financial Institution</th>
-                  <th className="px-3.5 py-2.5">Type</th>
-                  <th className="px-3.5 py-2.5 text-right">Principal Amount</th>
-                  <th className="px-3.5 py-2.5 text-right">Interest Rate (%)</th>
-                  <th className="px-3.5 py-2.5">Opening Date</th>
-                  <th className="px-3.5 py-2.5">Maturity Date</th>
-                  <th className="px-3.5 py-2.5 text-right">Maturity Value</th>
-                  <th className="px-3.5 py-2.5 text-right font-bold text-emerald-700">Interest Earned</th>
-                  <th className="px-3.5 py-2.5 text-center">Status</th>
+                  <th className="px-3.5 py-2.5 w-12 text-center">SL</th>
+                  <th className="px-3.5 py-2.5">Bank Name</th>
+                  <th className="px-3.5 py-2.5">Branch Name</th>
+                  <th className="px-3.5 py-2.5">Account Holder</th>
+                  <th className="px-3.5 py-2.5">Account Type</th>
+                  <th className="px-3.5 py-2.5 font-mono">Account No</th>
+                  <th className="px-3.5 py-2.5 text-center w-24">Action</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
-                {deposits.length === 0 ? (
+              <tbody className="divide-y divide-slate-100 text-slate-700">
+                {filteredBankAccounts.length === 0 ? (
                   <tr>
-                    <td colSpan={11} className="py-8 text-center text-xs text-slate-400">
-                      No fixed deposit records registered yet. Click &quot;Open Fixed Deposit&quot; to create one.
-                    </td>
+                    <td colSpan={7}>{renderBridgeOneEmptyState("No Bank Accounts Found")}</td>
                   </tr>
                 ) : (
-                  deposits.map((d, index) => (
-                    <tr key={d.id} className="hover:bg-slate-50/80 transition-colors">
-                      <td className="px-3.5 py-2.5 font-medium text-slate-500">{index + 1}</td>
-                      <td className="px-3.5 py-2.5 font-mono font-bold text-blue-600">{d.depositNumber}</td>
-                      <td className="px-3.5 py-2.5 font-semibold text-slate-900">{d.bankName}</td>
-                      <td className="px-3.5 py-2.5">
-                        <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-100 text-slate-700">
-                          {d.depositType}
-                        </span>
-                      </td>
-                      <td className="px-3.5 py-2.5 text-right font-mono font-semibold text-slate-800">
-                        ৳{d.principalAmount.toLocaleString()}
-                      </td>
-                      <td className="px-3.5 py-2.5 text-right font-mono font-bold text-slate-700">
-                        {d.interestRate}%
-                      </td>
-                      <td className="px-3.5 py-2.5 text-slate-600">{d.openingDate}</td>
-                      <td className="px-3.5 py-2.5 text-slate-600">{d.maturityDate}</td>
-                      <td className="px-3.5 py-2.5 text-right font-mono font-bold text-slate-900">
-                        ৳{d.maturityValue.toLocaleString()}
-                      </td>
-                      <td className="px-3.5 py-2.5 text-right font-mono font-bold text-emerald-600">
-                        ৳{d.interestEarned.toLocaleString()}
-                      </td>
+                  filteredBankAccounts.map((b, idx) => (
+                    <tr key={b.id} className="hover:bg-blue-50/40 transition-colors">
+                      <td className="px-3.5 py-2.5 text-center text-slate-500 font-medium">{idx + 1}</td>
+                      <td className="px-3.5 py-2.5 font-semibold text-slate-900">{b.bankName}</td>
+                      <td className="px-3.5 py-2.5 text-slate-600">{b.branchName}</td>
+                      <td className="px-3.5 py-2.5 text-slate-700 font-medium">{b.accountHolder}</td>
+                      <td className="px-3.5 py-2.5 text-slate-600">{b.accountType}</td>
+                      <td className="px-3.5 py-2.5 font-mono font-medium text-slate-900">{b.accountNumber}</td>
                       <td className="px-3.5 py-2.5 text-center">
-                        <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                          {d.status}
-                        </span>
+                        <div className="flex items-center justify-center gap-2 text-slate-400">
+                          <button
+                            type="button"
+                            onClick={() => setViewBankDetails(b)}
+                            className="hover:text-blue-600 transition"
+                            title="Edit"
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setViewBankDetails(b)}
+                            className="hover:text-blue-600 transition"
+                            title="View"
+                          >
+                            <Eye className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setViewBankDetails(b)}
+                            className="hover:text-blue-600 transition"
+                            title="Details / Link"
+                          >
+                            <Plus className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))
@@ -683,59 +683,264 @@ export default function FinanceBankingPage() {
               </tbody>
             </table>
           </div>
+
+          {/* Footer Pagination */}
+          <div className="px-4 py-2.5 border-t border-slate-200 flex items-center justify-end gap-5 text-xs text-slate-500">
+            <div className="flex items-center gap-1.5">
+              <span>Rows per page:</span>
+              <select
+                value={rowsPerPage}
+                onChange={(e) => setRowsPerPage(Number(e.target.value))}
+                className="border border-slate-200 rounded px-1.5 py-0.5 text-xs bg-white focus:outline-none"
+              >
+                <option value={10}>10</option>
+                <option value={20}>20</option>
+                <option value={50}>50</option>
+                <option value={100}>100</option>
+              </select>
+            </div>
+            <span>
+              1–{filteredBankAccounts.length} of {filteredBankAccounts.length}
+            </span>
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                className="p-1 rounded hover:bg-slate-100 disabled:opacity-40"
+                disabled
+              >
+                <ChevronLeft className="w-4 h-4 text-slate-400" />
+              </button>
+              <button
+                type="button"
+                className="p-1 rounded hover:bg-slate-100 disabled:opacity-40"
+                disabled
+              >
+                <ChevronRight className="w-4 h-4 text-slate-400" />
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
       {/* ------------------------------------------------------------- */}
-      {/* 7. TAB 3: LOANS & BORROWING REGISTER */}
+      {/* 4. TAB 2: DEPOSITS (Screenshot 2) */}
       {/* ------------------------------------------------------------- */}
-      {activeTab === "LOANS_CREDIT" && (
-        <div className="bg-white rounded border border-slate-200/90 shadow-2xs overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
-              <thead className="bg-slate-50 border-y border-slate-200 text-[11px] font-bold text-slate-700 uppercase tracking-wider">
-                <tr>
-                  <th className="px-3.5 py-2.5">SL</th>
-                  <th className="px-3.5 py-2.5">Loan #</th>
-                  <th className="px-3.5 py-2.5">Lender / Bank</th>
-                  <th className="px-3.5 py-2.5">Facility Type</th>
-                  <th className="px-3.5 py-2.5 text-right">Principal Amount</th>
-                  <th className="px-3.5 py-2.5 text-right">Interest Rate (%)</th>
-                  <th className="px-3.5 py-2.5">Disbursement Date</th>
-                  <th className="px-3.5 py-2.5">Maturity Date</th>
-                  <th className="px-3.5 py-2.5 text-right">Monthly Installment</th>
-                  <th className="px-3.5 py-2.5 text-right font-bold text-rose-700">Outstanding Principal</th>
-                  <th className="px-3.5 py-2.5 text-center">Status</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {loans.length === 0 ? (
+      {activeTab === "DEPOSITS" && (
+        <div className="bg-white border-t border-slate-200">
+          {/* Filter Bar */}
+          <div className="px-4 py-3 border-b border-slate-200/80 flex flex-wrap items-center gap-4">
+            <div className="flex flex-col gap-1">
+              <label className="text-[11px] font-semibold text-slate-600">
+                Type <span className="text-red-500">*</span>
+              </label>
+              <select
+                value={depositTypeFilter}
+                onChange={(e) => setDepositTypeFilter(e.target.value)}
+                className="h-8 w-56 border border-slate-300 rounded px-2.5 text-xs bg-white text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              >
+                <option value="Security Deposit">Security Deposit</option>
+                <option value="Fixed Deposit">Fixed Deposit (FDR)</option>
+                <option value="Term Deposit">Term Deposit (TDR)</option>
+                <option value="ALL">All Types</option>
+              </select>
+            </div>
+
+            <div className="flex flex-col gap-1">
+              <label className="text-[11px] font-semibold text-slate-600">Office</label>
+              <select
+                value={depositOfficeFilter}
+                onChange={(e) => setDepositOfficeFilter(e.target.value)}
+                className="h-8 w-60 border border-slate-300 rounded px-2.5 text-xs bg-white text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              >
+                <option value="All">All</option>
+                <option value="Dhaka Head Office">Dhaka Head Office</option>
+                <option value="MG Sirajganj Factory">MG Sirajganj Factory</option>
+                <option value="MBBL-HO">MBBL-HO</option>
+                <option value="MGV-PLC">MGV-PLC</option>
+                <option value="MOHS-Eco">MOHS-Eco</option>
+              </select>
+            </div>
+
+            <div className="flex items-end self-end">
+              <button
+                type="button"
+                onClick={() => {}}
+                className="h-8 px-4 bg-[#2563eb] hover:bg-blue-700 text-white font-semibold text-xs rounded transition shadow-xs"
+              >
+                View
+              </button>
+            </div>
+          </div>
+
+          {/* Table or Branded Empty State */}
+          {filteredDeposits.length === 0 ? (
+            renderBridgeOneEmptyState("No Deposits Found")
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-[#e8f2fe] border-b border-blue-200/80 text-[11px] font-bold text-slate-800 uppercase tracking-wide">
                   <tr>
-                    <td colSpan={11} className="py-8 text-center text-xs text-slate-400">
-                      No loan records registered yet. Click &quot;Register Bank Loan&quot; to add a credit facility.
-                    </td>
+                    <th className="px-3.5 py-2.5 w-12 text-center">SL</th>
+                    <th className="px-3.5 py-2.5">Deposit #</th>
+                    <th className="px-3.5 py-2.5">Bank / Institution</th>
+                    <th className="px-3.5 py-2.5">Type</th>
+                    <th className="px-3.5 py-2.5">Office</th>
+                    <th className="px-3.5 py-2.5 text-right">Principal Amount</th>
+                    <th className="px-3.5 py-2.5 text-right">Interest Rate (%)</th>
+                    <th className="px-3.5 py-2.5">Opening Date</th>
+                    <th className="px-3.5 py-2.5">Maturity Date</th>
+                    <th className="px-3.5 py-2.5 text-center">Status</th>
                   </tr>
-                ) : (
-                  loans.map((l, index) => (
-                    <tr key={l.id} className="hover:bg-slate-50/80 transition-colors">
-                      <td className="px-3.5 py-2.5 font-medium text-slate-500">{index + 1}</td>
+                </thead>
+                <tbody className="divide-y divide-slate-100 text-slate-700">
+                  {filteredDeposits.map((d, idx) => (
+                    <tr key={d.id} className="hover:bg-blue-50/40 transition-colors">
+                      <td className="px-3.5 py-2.5 text-center text-slate-500 font-medium">{idx + 1}</td>
+                      <td className="px-3.5 py-2.5 font-mono font-bold text-blue-600">{d.depositNumber}</td>
+                      <td className="px-3.5 py-2.5 font-semibold text-slate-900">{d.bankName}</td>
+                      <td className="px-3.5 py-2.5">
+                        <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-blue-50 text-blue-700 border border-blue-100">
+                          {d.depositType}
+                        </span>
+                      </td>
+                      <td className="px-3.5 py-2.5 text-slate-600">{d.officeName}</td>
+                      <td className="px-3.5 py-2.5 text-right font-mono font-bold text-slate-900">
+                        ৳{d.principalAmount.toLocaleString()}
+                      </td>
+                      <td className="px-3.5 py-2.5 text-right font-mono font-semibold text-slate-700">
+                        {d.interestRate}%
+                      </td>
+                      <td className="px-3.5 py-2.5 text-slate-600">{d.openingDate}</td>
+                      <td className="px-3.5 py-2.5 text-slate-600">{d.maturityDate}</td>
+                      <td className="px-3.5 py-2.5 text-center">
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                          {d.status}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ------------------------------------------------------------- */}
+      {/* 5. TAB 3: LOANS (BANK) (Screenshot 3) */}
+      {/* ------------------------------------------------------------- */}
+      {activeTab === "LOANS_BANK" && (
+        <div className="bg-white border-t border-slate-200">
+          {/* Filter Bar */}
+          <div className="px-4 py-3 border-b border-slate-200/80 flex flex-wrap items-center gap-4">
+            <div className="flex flex-col gap-1">
+              <label className="text-[11px] font-semibold text-slate-600">
+                Type <span className="text-red-500">*</span>
+              </label>
+              <select
+                value={loanTypeFilter}
+                onChange={(e) => setLoanTypeFilter(e.target.value)}
+                className="h-8 w-52 border border-slate-300 rounded px-2.5 text-xs bg-white text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              >
+                <option value="ALL">All Loan Types</option>
+                <option value="Working Capital">Working Capital</option>
+                <option value="Term Loan">Term Loan</option>
+                <option value="Syndicated Credit Facility">Syndicated Credit Facility</option>
+              </select>
+            </div>
+
+            <div className="flex flex-col gap-1">
+              <label className="text-[11px] font-semibold text-slate-600">
+                GL <span className="text-red-500">*</span>
+              </label>
+              <select
+                value={loanGlFilter}
+                onChange={(e) => setLoanGlFilter(e.target.value)}
+                className="h-8 w-56 border border-slate-300 rounded px-2.5 text-xs bg-white text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              >
+                <option value="ALL">GL Account</option>
+                <option value="Short Term Borrowing">Short Term Borrowing</option>
+                <option value="Long Term Machinery Loan">Long Term Machinery Loan</option>
+              </select>
+            </div>
+
+            <div className="flex flex-col gap-1">
+              <label className="text-[11px] font-semibold text-slate-600">
+                From Date <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="date"
+                value={loanFromDate}
+                onChange={(e) => setLoanFromDate(e.target.value)}
+                className="h-8 w-40 border border-slate-300 rounded px-2.5 text-xs bg-white text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              />
+            </div>
+
+            <div className="flex flex-col gap-1">
+              <label className="text-[11px] font-semibold text-slate-600">
+                To Date <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="date"
+                value={loanToDate}
+                onChange={(e) => setLoanToDate(e.target.value)}
+                className="h-8 w-40 border border-slate-300 rounded px-2.5 text-xs bg-white text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              />
+            </div>
+
+            <div className="flex items-end self-end">
+              <button
+                type="button"
+                onClick={() => {}}
+                className="h-8 px-4 bg-[#2563eb] hover:bg-blue-700 text-white font-semibold text-xs rounded transition shadow-xs"
+              >
+                View
+              </button>
+            </div>
+          </div>
+
+          {/* Table or Branded Empty State */}
+          {filteredLoans.length === 0 ? (
+            renderBridgeOneEmptyState("No Bank Loans Found")
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-[#e8f2fe] border-b border-blue-200/80 text-[11px] font-bold text-slate-800 uppercase tracking-wide">
+                  <tr>
+                    <th className="px-3.5 py-2.5 w-12 text-center">SL</th>
+                    <th className="px-3.5 py-2.5">Loan #</th>
+                    <th className="px-3.5 py-2.5">Lender Bank</th>
+                    <th className="px-3.5 py-2.5">Facility Type</th>
+                    <th className="px-3.5 py-2.5">GL Account</th>
+                    <th className="px-3.5 py-2.5 text-right">Principal Amount</th>
+                    <th className="px-3.5 py-2.5 text-right">Interest Rate (%)</th>
+                    <th className="px-3.5 py-2.5">Disbursement Date</th>
+                    <th className="px-3.5 py-2.5">Maturity Date</th>
+                    <th className="px-3.5 py-2.5 text-right font-bold text-rose-700">Outstanding</th>
+                    <th className="px-3.5 py-2.5 text-center">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 text-slate-700">
+                  {filteredLoans.map((l, idx) => (
+                    <tr key={l.id} className="hover:bg-blue-50/40 transition-colors">
+                      <td className="px-3.5 py-2.5 text-center text-slate-500 font-medium">{idx + 1}</td>
                       <td className="px-3.5 py-2.5 font-mono font-bold text-blue-600">{l.loanNumber}</td>
                       <td className="px-3.5 py-2.5 font-semibold text-slate-900">{l.lenderName}</td>
                       <td className="px-3.5 py-2.5">
-                        <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-amber-50 text-amber-700 border border-amber-200">
+                        <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-amber-50 text-amber-800 border border-amber-200">
                           {l.loanType}
                         </span>
                       </td>
-                      <td className="px-3.5 py-2.5 text-right font-mono font-semibold text-slate-800">
+                      <td className="px-3.5 py-2.5 text-slate-600">{l.glAccountName}</td>
+                      <td className="px-3.5 py-2.5 text-right font-mono font-bold text-slate-900">
                         ৳{l.principalAmount.toLocaleString()}
                       </td>
-                      <td className="px-3.5 py-2.5 text-right font-mono font-bold text-slate-700">{l.interestRate}%</td>
+                      <td className="px-3.5 py-2.5 text-right font-mono font-semibold text-slate-700">
+                        {l.interestRate}%
+                      </td>
                       <td className="px-3.5 py-2.5 text-slate-600">{l.disbursementDate}</td>
                       <td className="px-3.5 py-2.5 text-slate-600">{l.maturityDate}</td>
-                      <td className="px-3.5 py-2.5 text-right font-mono text-slate-700">
-                        ৳{l.installmentAmount.toLocaleString()}
-                      </td>
-                      <td className="px-3.5 py-2.5 text-right font-mono font-bold text-rose-700 text-sm">
+                      <td className="px-3.5 py-2.5 text-right font-mono font-bold text-rose-700">
                         ৳{l.outstandingPrincipal.toLocaleString()}
                       </td>
                       <td className="px-3.5 py-2.5 text-center">
@@ -744,233 +949,416 @@ export default function FinanceBankingPage() {
                         </span>
                       </td>
                     </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       )}
 
       {/* ------------------------------------------------------------- */}
-      {/* 8. TAB 4: FACTORING REPORT */}
+      {/* 6. TAB 4: FACTORING REPORT (Screenshot 4) */}
       {/* ------------------------------------------------------------- */}
       {activeTab === "FACTORING_REPORT" && (
-        <div className="bg-white rounded border border-slate-200/90 shadow-2xs overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
-              <thead className="bg-slate-50 border-y border-slate-200 text-[11px] font-bold text-slate-700 uppercase tracking-wider">
-                <tr>
-                  <th className="px-3.5 py-2.5">SL</th>
-                  <th className="px-3.5 py-2.5">Invoice Reference</th>
-                  <th className="px-3.5 py-2.5">Factoring Company</th>
-                  <th className="px-3.5 py-2.5 text-right">Eligible Receivable</th>
-                  <th className="px-3.5 py-2.5 text-right">Advance Amount (80%)</th>
-                  <th className="px-3.5 py-2.5 text-right">Fees & Charges</th>
-                  <th className="px-3.5 py-2.5 text-right font-bold text-blue-700">Remaining Receivable</th>
-                  <th className="px-3.5 py-2.5 text-center">Settlement Status</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {factoring.length === 0 ? (
+        <div className="bg-white border-t border-slate-200">
+          {/* Filter Bar */}
+          <div className="px-4 py-3 border-b border-slate-200/80 flex flex-wrap items-center gap-4">
+            <div className="flex flex-col gap-1">
+              <label className="text-[11px] font-semibold text-slate-600">
+                From Date <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="date"
+                value={factoringFromDate}
+                onChange={(e) => setFactoringFromDate(e.target.value)}
+                className="h-8 w-36 border border-slate-300 rounded px-2.5 text-xs bg-white text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              />
+            </div>
+
+            <div className="flex flex-col gap-1">
+              <label className="text-[11px] font-semibold text-slate-600">
+                To Date <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="date"
+                value={factoringToDate}
+                onChange={(e) => setFactoringToDate(e.target.value)}
+                className="h-8 w-36 border border-slate-300 rounded px-2.5 text-xs bg-white text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              />
+            </div>
+
+            <div className="flex flex-col gap-1">
+              <label className="text-[11px] font-semibold text-slate-600">Customer</label>
+              <select
+                value={factoringCustomer}
+                onChange={(e) => setFactoringCustomer(e.target.value)}
+                className="h-8 w-52 border border-slate-300 rounded px-2.5 text-xs bg-white text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              >
+                <option value="ALL">Select Partner</option>
+                <option value="Arif Enterprise-Jamalpur">Arif Enterprise-Jamalpur</option>
+                <option value="Choya Dia Enterprise-Magura">Choya Dia Enterprise-Magura</option>
+              </select>
+            </div>
+
+            <div className="flex flex-col gap-1">
+              <label className="text-[11px] font-semibold text-slate-600">Bill</label>
+              <input
+                type="text"
+                value={factoringBillSearch}
+                onChange={(e) => setFactoringBillSearch(e.target.value)}
+                placeholder="Select/Search Bill (min 3 letters)"
+                className="h-8 w-60 border border-slate-300 rounded px-2.5 text-xs bg-white text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500 placeholder-slate-400"
+              />
+            </div>
+
+            <div className="flex flex-col gap-1">
+              <label className="text-[11px] font-semibold text-slate-600">Account No</label>
+              <input
+                type="text"
+                value={factoringAccountSearch}
+                onChange={(e) => setFactoringAccountSearch(e.target.value)}
+                placeholder="Select/Search Account No (min 3 letters)"
+                className="h-8 w-60 border border-slate-300 rounded px-2.5 text-xs bg-white text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500 placeholder-slate-400"
+              />
+            </div>
+
+            <div className="flex items-center gap-1.5 self-end pb-1.5">
+              <input
+                type="checkbox"
+                id="isBillWise"
+                checked={isBillWise}
+                onChange={(e) => setIsBillWise(e.target.checked)}
+                className="w-4 h-4 text-blue-600 rounded border-slate-300 focus:ring-blue-500"
+              />
+              <label htmlFor="isBillWise" className="text-xs font-semibold text-slate-600 cursor-pointer">
+                Is Bill Wise
+              </label>
+            </div>
+
+            <div className="flex items-end self-end">
+              <button
+                type="button"
+                onClick={() => {}}
+                className="h-8 px-4 bg-[#2563eb] hover:bg-blue-700 text-white font-semibold text-xs rounded transition shadow-xs"
+              >
+                View
+              </button>
+            </div>
+          </div>
+
+          {/* Table or Branded Empty State */}
+          {filteredFactoring.length === 0 ? (
+            renderBridgeOneEmptyState("No Factoring Records Found")
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-[#e8f2fe] border-b border-blue-200/80 text-[11px] font-bold text-slate-800 uppercase tracking-wide">
                   <tr>
-                    <td colSpan={8} className="py-8 text-center text-xs text-slate-400">
-                      No receivables submitted for factoring.
-                    </td>
+                    <th className="px-3.5 py-2.5 w-12 text-center">SL</th>
+                    <th className="px-3.5 py-2.5">Bill / Invoice Reference</th>
+                    <th className="px-3.5 py-2.5">Customer / Partner</th>
+                    <th className="px-3.5 py-2.5">Factoring Company</th>
+                    <th className="px-3.5 py-2.5 font-mono">Bank Account No</th>
+                    <th className="px-3.5 py-2.5 text-right">Invoice Value</th>
+                    <th className="px-3.5 py-2.5 text-right font-bold text-emerald-700">Eligible Advance (80%)</th>
+                    <th className="px-3.5 py-2.5 text-right text-rose-700">Fee / Charges</th>
+                    <th className="px-3.5 py-2.5 text-right font-bold text-blue-700">Remaining</th>
+                    <th className="px-3.5 py-2.5 text-center">Status</th>
                   </tr>
-                ) : (
-                  factoring.map((f, index) => (
-                    <tr key={f.id} className="hover:bg-slate-50/80 transition-colors">
-                      <td className="px-3.5 py-2.5 font-medium text-slate-500">{index + 1}</td>
-                      <td className="px-3.5 py-2.5 font-mono font-bold text-blue-600">{f.invoiceReference}</td>
-                      <td className="px-3.5 py-2.5 font-semibold text-slate-800">{f.factoringCompany}</td>
-                      <td className="px-3.5 py-2.5 text-right font-mono text-slate-800">
+                </thead>
+                <tbody className="divide-y divide-slate-100 text-slate-700">
+                  {filteredFactoring.map((f, idx) => (
+                    <tr key={f.id} className="hover:bg-blue-50/40 transition-colors">
+                      <td className="px-3.5 py-2.5 text-center text-slate-500 font-medium">{idx + 1}</td>
+                      <td className="px-3.5 py-2.5 font-mono font-bold text-blue-600">
+                        {f.billNumber || f.invoiceReference}
+                      </td>
+                      <td className="px-3.5 py-2.5 font-semibold text-slate-900">{f.customerName}</td>
+                      <td className="px-3.5 py-2.5 text-slate-600">{f.factoringCompany}</td>
+                      <td className="px-3.5 py-2.5 font-mono text-slate-800">{f.accountNo}</td>
+                      <td className="px-3.5 py-2.5 text-right font-mono font-semibold text-slate-900">
                         ৳{f.eligibleReceivable.toLocaleString()}
                       </td>
-                      <td className="px-3.5 py-2.5 text-right font-mono font-bold text-emerald-600">
+                      <td className="px-3.5 py-2.5 text-right font-mono font-bold text-emerald-700">
                         ৳{f.advanceAmount.toLocaleString()}
                       </td>
-                      <td className="px-3.5 py-2.5 text-right font-mono text-rose-600">
+                      <td className="px-3.5 py-2.5 text-right font-mono text-rose-700">
                         ৳{f.feesCharges.toLocaleString()}
                       </td>
-                      <td className="px-3.5 py-2.5 text-right font-mono font-bold text-slate-900">
+                      <td className="px-3.5 py-2.5 text-right font-mono font-bold text-blue-700">
                         ৳{f.remainingReceivable.toLocaleString()}
                       </td>
                       <td className="px-3.5 py-2.5 text-center">
-                        <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-50 text-amber-700 border border-amber-200">
+                        <span
+                          className={`px-2 py-0.5 rounded-full text-[10px] font-semibold border ${
+                            f.settlementStatus === "SETTLED"
+                              ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                              : "bg-amber-50 text-amber-700 border-amber-200"
+                          }`}
+                        >
                           {f.settlementStatus}
                         </span>
                       </td>
                     </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
 
-      {/* ------------------------------------------------------------- */}
-      {/* 9. TAB 5: BANK RECONCILIATION STATEMENT */}
-      {/* ------------------------------------------------------------- */}
-      {activeTab === "BANK_RECON" && (
-        <div className="bg-white rounded border border-slate-200/90 shadow-2xs p-5 max-w-4xl mx-auto space-y-4">
-          <div className="border-b border-slate-200 pb-3 flex items-center justify-between">
-            <div>
-              <h3 className="text-base font-bold text-slate-900">Bank Reconciliation Statement (BRS)</h3>
-              <p className="text-xs text-slate-500">As of {new Date().toLocaleDateString("en-GB")}</p>
+          {/* Footer Pagination */}
+          <div className="px-4 py-2.5 border-t border-slate-200 flex items-center justify-end gap-5 text-xs text-slate-500">
+            <div className="flex items-center gap-1.5">
+              <span>Rows per page:</span>
+              <select
+                value={rowsPerPage}
+                onChange={(e) => setRowsPerPage(Number(e.target.value))}
+                className="border border-slate-200 rounded px-1.5 py-0.5 text-xs bg-white focus:outline-none"
+              >
+                <option value={10}>10</option>
+                <option value={20}>20</option>
+                <option value={50}>50</option>
+              </select>
             </div>
-            <button
-              type="button"
-              onClick={() => window.print()}
-              className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded text-xs font-semibold flex items-center gap-1.5 transition"
-            >
-              <Printer className="w-3.5 h-3.5" />
-              <span>Print BRS</span>
-            </button>
-          </div>
-
-          <div className="border rounded border-slate-200 divide-y divide-slate-100 text-xs">
-            <div className="p-3.5 flex justify-between font-bold bg-slate-50 text-slate-800">
-              <span>Balance as per Company General Ledger</span>
-              <span className="font-mono text-sm">৳{totalBankBalance.toLocaleString()}</span>
-            </div>
-            <div className="p-3.5 flex justify-between text-slate-600 pl-6">
-              <span>Add: Cheques issued but not yet presented for payment</span>
-              <span className="font-mono text-emerald-600 font-semibold">+ ৳0.00</span>
-            </div>
-            <div className="p-3.5 flex justify-between text-slate-600 pl-6">
-              <span>Less: Cheques received / deposited but not yet cleared by bank</span>
-              <span className="font-mono text-rose-600 font-semibold">- ৳0.00</span>
-            </div>
-            <div className="p-3.5 flex justify-between text-slate-600 pl-6">
-              <span>Add: Bank direct credits / interest credited</span>
-              <span className="font-mono text-emerald-600 font-semibold">+ ৳0.00</span>
-            </div>
-            <div className="p-3.5 flex justify-between font-bold bg-blue-50/70 text-blue-900 border-t-2 border-blue-500">
-              <span className="flex items-center gap-1.5">
-                <ShieldCheck className="w-4 h-4 text-emerald-600" />
-                Balance as per Bank Statement (Reconciled)
-              </span>
-              <span className="font-mono text-sm font-extrabold text-blue-700">৳{totalBankBalance.toLocaleString()}</span>
-            </div>
-          </div>
-
-          <div className="p-3 bg-emerald-50 border border-emerald-200 rounded text-xs text-emerald-800 flex items-center gap-2">
-            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
             <span>
-              All transactions between company general ledger accounts and bank statements are 100% matched and reconciled. No variance detected.
+              1–{filteredFactoring.length} of {filteredFactoring.length}
             </span>
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                className="p-1 rounded hover:bg-slate-100 disabled:opacity-40"
+                disabled
+              >
+                <ChevronLeft className="w-4 h-4 text-slate-400" />
+              </button>
+              <button
+                type="button"
+                className="p-1 rounded hover:bg-slate-100 disabled:opacity-40"
+                disabled
+              >
+                <ChevronRight className="w-4 h-4 text-slate-400" />
+              </button>
+            </div>
           </div>
         </div>
       )}
 
       {/* ------------------------------------------------------------- */}
-      {/* 10. MODAL: ADD BANK ACCOUNT */}
+      {/* 7. TAB 5: LOAN (OTHERS) (Screenshot 5) */}
+      {/* ------------------------------------------------------------- */}
+      {activeTab === "LOAN_OTHERS" && (
+        <div className="bg-white border-t border-slate-200">
+          {/* Filter Bar */}
+          <div className="px-4 py-3 border-b border-slate-200/80 flex flex-wrap items-center gap-4">
+            <div className="flex flex-col gap-1">
+              <label className="text-[11px] font-semibold text-slate-600">Office</label>
+              <select
+                value={otherOfficeFilter}
+                onChange={(e) => setOtherOfficeFilter(e.target.value)}
+                className="h-8 w-44 border border-slate-300 rounded px-2.5 text-xs bg-white text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              >
+                <option value="ALL">Office</option>
+                <option value="Dhaka Head Office">Dhaka Head Office</option>
+                <option value="MG Sirajganj Factory">MG Sirajganj Factory</option>
+                <option value="MGV-PLC">MGV-PLC</option>
+              </select>
+            </div>
+
+            <div className="flex flex-col gap-1">
+              <label className="text-[11px] font-semibold text-slate-600">Group</label>
+              <select
+                value={otherGroupFilter}
+                onChange={(e) => setOtherGroupFilter(e.target.value)}
+                className="h-8 w-52 border border-slate-300 rounded px-2.5 text-xs bg-white text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              >
+                <option value="ALL">Partner Group</option>
+                <option value="NBFI Corporate Partner">NBFI Corporate Partner</option>
+                <option value="Equipment Credit Partner">Equipment Credit Partner</option>
+                <option value="Working Capital Partner">Working Capital Partner</option>
+              </select>
+            </div>
+
+            <div className="flex flex-col gap-1">
+              <label className="text-[11px] font-semibold text-slate-600">Active/InActive</label>
+              <select
+                value={otherActiveFilter}
+                onChange={(e) => setOtherActiveFilter(e.target.value)}
+                className="h-8 w-52 border border-slate-300 rounded px-2.5 text-xs bg-white text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              >
+                <option value="ALL">Filter By Active/InActive</option>
+                <option value="ACTIVE">Active</option>
+                <option value="INACTIVE">InActive</option>
+              </select>
+            </div>
+
+            <div className="flex flex-col gap-1">
+              <label className="text-[11px] font-semibold text-slate-600">Account Type</label>
+              <select
+                value={otherAccountTypeFilter}
+                onChange={(e) => setOtherAccountTypeFilter(e.target.value)}
+                className="h-8 w-52 border border-slate-300 rounded px-2.5 text-xs bg-white text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              >
+                <option value="ALL">Select Account Type</option>
+                <option value="Lease Finance Facility">Lease Finance Facility</option>
+                <option value="Industrial Term Loan">Industrial Term Loan</option>
+                <option value="Revolving Credit Line">Revolving Credit Line</option>
+              </select>
+            </div>
+
+            <div className="flex items-end self-end">
+              <button
+                type="button"
+                onClick={() => {}}
+                className="h-8 px-4 bg-[#2563eb] hover:bg-blue-700 text-white font-semibold text-xs rounded transition shadow-xs"
+              >
+                View
+              </button>
+            </div>
+          </div>
+
+          {/* Table or Branded Empty State */}
+          {filteredLoanPartners.length === 0 ? (
+            renderBridgeOneEmptyState("No Loan Partners Found")
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-[#e8f2fe] border-b border-blue-200/80 text-[11px] font-bold text-slate-800 uppercase tracking-wide">
+                  <tr>
+                    <th className="px-3.5 py-2.5 w-12 text-center">SL</th>
+                    <th className="px-3.5 py-2.5">Loan Partner</th>
+                    <th className="px-3.5 py-2.5">Partner Group</th>
+                    <th className="px-3.5 py-2.5">Office</th>
+                    <th className="px-3.5 py-2.5">Account Type</th>
+                    <th className="px-3.5 py-2.5 text-right">Principal Facility</th>
+                    <th className="px-3.5 py-2.5 text-right">Interest Rate (%)</th>
+                    <th className="px-3.5 py-2.5 text-center">Tenure (Mos)</th>
+                    <th className="px-3.5 py-2.5 text-right font-bold text-rose-700">Outstanding</th>
+                    <th className="px-3.5 py-2.5 text-center">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 text-slate-700">
+                  {filteredLoanPartners.map((lp, idx) => (
+                    <tr key={lp.id} className="hover:bg-blue-50/40 transition-colors">
+                      <td className="px-3.5 py-2.5 text-center text-slate-500 font-medium">{idx + 1}</td>
+                      <td className="px-3.5 py-2.5 font-semibold text-slate-900">{lp.partnerName}</td>
+                      <td className="px-3.5 py-2.5 text-slate-600">{lp.group}</td>
+                      <td className="px-3.5 py-2.5 text-slate-600">{lp.officeName}</td>
+                      <td className="px-3.5 py-2.5">
+                        <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-blue-50 text-blue-700 border border-blue-100">
+                          {lp.accountType}
+                        </span>
+                      </td>
+                      <td className="px-3.5 py-2.5 text-right font-mono font-bold text-slate-900">
+                        ৳{lp.principalFacility.toLocaleString()}
+                      </td>
+                      <td className="px-3.5 py-2.5 text-right font-mono font-semibold text-slate-700">
+                        {lp.interestRate}%
+                      </td>
+                      <td className="px-3.5 py-2.5 text-center font-mono text-slate-600">{lp.tenureMonths}</td>
+                      <td className="px-3.5 py-2.5 text-right font-mono font-bold text-rose-700">
+                        ৳{lp.outstanding.toLocaleString()}
+                      </td>
+                      <td className="px-3.5 py-2.5 text-center">
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                          {lp.status}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ------------------------------------------------------------- */}
+      {/* MODAL 1: ADD REGULAR BANKING ACCOUNT */}
       {/* ------------------------------------------------------------- */}
       <ModalDialog
         isOpen={isNewBankOpen}
         onClose={() => setIsNewBankOpen(false)}
-        title="Add Corporate Bank Account"
-        subtitle="Register a new commercial bank account and map to a General Ledger chart of account"
-        maxWidth="xl"
+        title="Add Regular Bank Account"
+        subtitle="Register corporate bank ledger for BridgeOne Group of Industries"
+        maxWidth="lg"
       >
-        <form onSubmit={handleSaveBank} className="space-y-4 text-xs">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <form onSubmit={handleSaveBank} className="space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="block font-semibold text-slate-700 mb-1">Bank Name *</label>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Bank Name <span className="text-red-500">*</span>
+              </label>
               <input
                 type="text"
                 required
-                placeholder="e.g. Dutch-Bangla Bank PLC"
-                value={bankForm.bankName}
-                onChange={(e) => setBankForm({ ...bankForm, bankName: e.target.value })}
-                className="w-full h-8 border border-slate-300 rounded px-2.5 text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                value={newBankForm.bankName}
+                onChange={(e) => setNewBankForm({ ...newBankForm, bankName: e.target.value })}
+                placeholder="e.g. PRIME BANK LTD PLC"
+                className="w-full h-9 px-3 text-xs border border-slate-300 rounded focus:ring-1 focus:ring-blue-500 focus:outline-none"
               />
             </div>
-
             <div>
-              <label className="block font-semibold text-slate-700 mb-1">Branch Name *</label>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Branch Name <span className="text-red-500">*</span>
+              </label>
               <input
                 type="text"
                 required
-                placeholder="e.g. Motijheel Corporate Branch"
-                value={bankForm.branchName}
-                onChange={(e) => setBankForm({ ...bankForm, branchName: e.target.value })}
-                className="w-full h-8 border border-slate-300 rounded px-2.5 text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                value={newBankForm.branchName}
+                onChange={(e) => setNewBankForm({ ...newBankForm, branchName: e.target.value })}
+                placeholder="e.g. ISLAMI BANKING(MIRPUR)"
+                className="w-full h-9 px-3 text-xs border border-slate-300 rounded focus:ring-1 focus:ring-blue-500 focus:outline-none"
               />
             </div>
-
             <div>
-              <label className="block font-semibold text-slate-700 mb-1">Account Number *</label>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Account Holder <span className="text-red-500">*</span>
+              </label>
               <input
                 type="text"
                 required
-                placeholder="e.g. 1041010045234"
-                value={bankForm.accountNumber}
-                onChange={(e) => setBankForm({ ...bankForm, accountNumber: e.target.value })}
-                className="w-full h-8 border border-slate-300 rounded px-2.5 text-xs text-slate-800 font-mono focus:outline-none focus:ring-1 focus:ring-blue-500"
+                value={newBankForm.accountHolder}
+                onChange={(e) => setNewBankForm({ ...newBankForm, accountHolder: e.target.value })}
+                placeholder="e.g. BridgeOne Industrial Solutions Ltd"
+                className="w-full h-9 px-3 text-xs border border-slate-300 rounded focus:ring-1 focus:ring-blue-500 focus:outline-none"
               />
             </div>
-
             <div>
-              <label className="block font-semibold text-slate-700 mb-1">Account Holder *</label>
-              <input
-                type="text"
-                required
-                value={bankForm.accountHolder}
-                onChange={(e) => setBankForm({ ...bankForm, accountHolder: e.target.value })}
-                className="w-full h-8 border border-slate-300 rounded px-2.5 text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500"
-              />
-            </div>
-
-            <div>
-              <label className="block font-semibold text-slate-700 mb-1">Account Type</label>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">Account Type</label>
               <select
-                value={bankForm.accountType}
-                onChange={(e) => setBankForm({ ...bankForm, accountType: e.target.value as any })}
-                className="w-full h-8 border border-slate-300 rounded px-2.5 text-xs text-slate-800 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                value={newBankForm.accountType}
+                onChange={(e) => setNewBankForm({ ...newBankForm, accountType: e.target.value })}
+                className="w-full h-9 px-3 text-xs border border-slate-300 rounded bg-white focus:ring-1 focus:ring-blue-500 focus:outline-none"
               >
-                <option value="CURRENT">Current Account</option>
-                <option value="SAVINGS">Savings Account</option>
-                <option value="ESCROW">Escrow Account</option>
-                <option value="SALARY">Salary Account</option>
+                <option value="Current Account">Current Account</option>
+                <option value="Savings Account">Savings Account</option>
+                <option value="Escrow Account">Escrow Account</option>
+                <option value="Salary Account">Salary Account</option>
               </select>
             </div>
-
             <div>
-              <label className="block font-semibold text-slate-700 mb-1">Opening Balance (৳)</label>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Account Number <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="text"
+                required
+                value={newBankForm.accountNumber}
+                onChange={(e) => setNewBankForm({ ...newBankForm, accountNumber: e.target.value })}
+                placeholder="e.g. 3133131043165"
+                className="w-full h-9 px-3 text-xs border border-slate-300 rounded font-mono focus:ring-1 focus:ring-blue-500 focus:outline-none"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">Opening Balance (৳)</label>
               <input
                 type="number"
                 min="0"
-                value={bankForm.openingBalance}
-                onChange={(e) => setBankForm({ ...bankForm, openingBalance: parseFloat(e.target.value) || 0 })}
-                className="w-full h-8 border border-slate-300 rounded px-2.5 text-xs text-slate-800 font-mono focus:outline-none focus:ring-1 focus:ring-blue-500"
+                value={newBankForm.openingBalance}
+                onChange={(e) => setNewBankForm({ ...newBankForm, openingBalance: Number(e.target.value) })}
+                className="w-full h-9 px-3 text-xs border border-slate-300 rounded font-mono focus:ring-1 focus:ring-blue-500 focus:outline-none"
               />
-            </div>
-
-            <div className="sm:col-span-2">
-              <label className="block font-semibold text-slate-700 mb-1">Map to Chart of Accounts Ledger *</label>
-              <select
-                value={bankForm.glAccountId}
-                onChange={(e) => {
-                  const acc = accounts.find((a) => a.id === e.target.value);
-                  setBankForm({
-                    ...bankForm,
-                    glAccountId: e.target.value,
-                    glAccountName: acc?.name || "Cash at Bank",
-                  });
-                }}
-                className="w-full h-8 border border-slate-300 rounded px-2.5 text-xs text-slate-800 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
-              >
-                {accounts
-                  .filter((a) => a.accountSubtype === "Bank" || a.code.startsWith("112"))
-                  .map((a) => (
-                    <option key={a.id} value={a.id}>
-                      [{a.code}] {a.name}
-                    </option>
-                  ))}
-              </select>
             </div>
           </div>
 
@@ -978,218 +1366,166 @@ export default function FinanceBankingPage() {
             <button
               type="button"
               onClick={() => setIsNewBankOpen(false)}
-              className="px-3.5 py-1.5 border border-slate-300 hover:bg-slate-50 text-slate-700 rounded text-xs font-semibold transition"
+              className="px-4 py-2 border border-slate-300 text-slate-600 hover:bg-slate-50 text-xs font-semibold rounded"
             >
               Cancel
             </button>
             <button
               type="submit"
-              className="px-4 py-1.5 bg-[#2563eb] hover:bg-blue-700 text-white rounded text-xs font-semibold shadow-xs transition"
+              className="px-4 py-2 bg-[#2563eb] hover:bg-blue-700 text-white text-xs font-semibold rounded"
             >
-              Save Bank Account
+              Save Account
             </button>
           </div>
         </form>
       </ModalDialog>
 
       {/* ------------------------------------------------------------- */}
-      {/* 11. MODAL: OPEN FIXED DEPOSIT */}
+      {/* MODAL 2: ADD DEPOSIT */}
       {/* ------------------------------------------------------------- */}
       <ModalDialog
         isOpen={isNewDepositOpen}
         onClose={() => setIsNewDepositOpen(false)}
-        title="Open Fixed Term Deposit (FDR)"
-        subtitle="Record corporate placement of fixed or term deposit with financial institution"
-        maxWidth="lg"
+        title="Open Term / Security Deposit"
+        subtitle="Register new deposit contract under BridgeOne ERP"
+        maxWidth="md"
       >
-        <form onSubmit={handleSaveDeposit} className="space-y-4 text-xs">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <form onSubmit={handleSaveDeposit} className="space-y-4">
+          <div className="space-y-3">
             <div>
-              <label className="block font-semibold text-slate-700 mb-1">Financial Institution *</label>
-              <input
-                type="text"
-                required
-                value={depositForm.bankName}
-                onChange={(e) => setDepositForm({ ...depositForm, bankName: e.target.value })}
-                className="w-full h-8 border border-slate-300 rounded px-2.5 text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500"
-              />
-            </div>
-            <div>
-              <label className="block font-semibold text-slate-700 mb-1">Deposit Type</label>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">Deposit Type</label>
               <select
-                value={depositForm.depositType}
-                onChange={(e) => setDepositForm({ ...depositForm, depositType: e.target.value as any })}
-                className="w-full h-8 border border-slate-300 rounded px-2.5 text-xs text-slate-800 bg-white"
+                value={newDepositForm.depositType}
+                onChange={(e) => setNewDepositForm({ ...newDepositForm, depositType: e.target.value })}
+                className="w-full h-9 px-3 text-xs border border-slate-300 rounded bg-white focus:ring-1 focus:ring-blue-500 focus:outline-none"
               >
-                <option value="FIXED">Fixed Deposit Receipt (FDR)</option>
-                <option value="TERM">Term Deposit</option>
-                <option value="DPS">Deposit Pension Scheme</option>
+                <option value="Security Deposit">Security Deposit</option>
+                <option value="Fixed Deposit">Fixed Deposit (FDR)</option>
+                <option value="Term Deposit">Term Deposit (TDR)</option>
               </select>
             </div>
             <div>
-              <label className="block font-semibold text-slate-700 mb-1">Principal Amount (৳) *</label>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">Bank Name</label>
               <input
-                type="number"
+                type="text"
                 required
-                min="1000"
-                value={depositForm.principalAmount}
-                onChange={(e) => {
-                  const p = parseFloat(e.target.value) || 0;
-                  const intRate = depositForm.interestRate;
-                  const earned = (p * intRate) / 100;
-                  setDepositForm({
-                    ...depositForm,
-                    principalAmount: p,
-                    interestEarned: earned,
-                    maturityValue: p + earned,
-                  });
-                }}
-                className="w-full h-8 border border-slate-300 rounded px-2.5 text-xs font-mono text-slate-800"
+                value={newDepositForm.bankName}
+                onChange={(e) => setNewDepositForm({ ...newDepositForm, bankName: e.target.value })}
+                className="w-full h-9 px-3 text-xs border border-slate-300 rounded focus:ring-1 focus:ring-blue-500 focus:outline-none"
               />
             </div>
             <div>
-              <label className="block font-semibold text-slate-700 mb-1">Annual Interest Rate (%) *</label>
-              <input
-                type="number"
-                step="0.1"
-                required
-                value={depositForm.interestRate}
-                onChange={(e) => {
-                  const rate = parseFloat(e.target.value) || 0;
-                  const earned = (depositForm.principalAmount * rate) / 100;
-                  setDepositForm({
-                    ...depositForm,
-                    interestRate: rate,
-                    interestEarned: earned,
-                    maturityValue: depositForm.principalAmount + earned,
-                  });
-                }}
-                className="w-full h-8 border border-slate-300 rounded px-2.5 text-xs font-mono text-slate-800"
-              />
+              <label className="block text-xs font-semibold text-slate-700 mb-1">Office</label>
+              <select
+                value={newDepositForm.officeName}
+                onChange={(e) => setNewDepositForm({ ...newDepositForm, officeName: e.target.value })}
+                className="w-full h-9 px-3 text-xs border border-slate-300 rounded bg-white focus:ring-1 focus:ring-blue-500 focus:outline-none"
+              >
+                <option value="Dhaka Head Office">Dhaka Head Office</option>
+                <option value="MG Sirajganj Factory">MG Sirajganj Factory</option>
+                <option value="MBBL-HO">MBBL-HO</option>
+                <option value="MGV-PLC">MGV-PLC</option>
+              </select>
             </div>
-            <div>
-              <label className="block font-semibold text-slate-700 mb-1">Opening Date</label>
-              <input
-                type="date"
-                required
-                value={depositForm.openingDate}
-                onChange={(e) => setDepositForm({ ...depositForm, openingDate: e.target.value })}
-                className="w-full h-8 border border-slate-300 rounded px-2 text-xs"
-              />
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Principal Amount (৳)</label>
+                <input
+                  type="number"
+                  min="1"
+                  required
+                  value={newDepositForm.principalAmount}
+                  onChange={(e) => setNewDepositForm({ ...newDepositForm, principalAmount: Number(e.target.value) })}
+                  className="w-full h-9 px-3 text-xs border border-slate-300 rounded font-mono focus:ring-1 focus:ring-blue-500 focus:outline-none"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Interest Rate (%)</label>
+                <input
+                  type="number"
+                  step="0.1"
+                  value={newDepositForm.interestRate}
+                  onChange={(e) => setNewDepositForm({ ...newDepositForm, interestRate: Number(e.target.value) })}
+                  className="w-full h-9 px-3 text-xs border border-slate-300 rounded font-mono focus:ring-1 focus:ring-blue-500 focus:outline-none"
+                />
+              </div>
             </div>
-            <div>
-              <label className="block font-semibold text-slate-700 mb-1">Maturity Date</label>
-              <input
-                type="date"
-                required
-                value={depositForm.maturityDate}
-                onChange={(e) => setDepositForm({ ...depositForm, maturityDate: e.target.value })}
-                className="w-full h-8 border border-slate-300 rounded px-2 text-xs"
-              />
-            </div>
-          </div>
-
-          <div className="bg-slate-50 p-3 rounded border border-slate-200 flex justify-between text-xs">
-            <span>Calculated Maturity Value:</span>
-            <span className="font-mono font-bold text-emerald-700">৳{depositForm.maturityValue.toLocaleString()}</span>
           </div>
 
           <div className="flex justify-end gap-2 pt-3 border-t border-slate-200">
             <button
               type="button"
               onClick={() => setIsNewDepositOpen(false)}
-              className="px-3.5 py-1.5 border border-slate-300 hover:bg-slate-50 text-slate-700 rounded text-xs font-semibold"
+              className="px-4 py-2 border border-slate-300 text-slate-600 hover:bg-slate-50 text-xs font-semibold rounded"
             >
               Cancel
             </button>
             <button
               type="submit"
-              className="px-4 py-1.5 bg-[#2563eb] hover:bg-blue-700 text-white rounded text-xs font-semibold shadow-xs"
+              className="px-4 py-2 bg-[#2563eb] hover:bg-blue-700 text-white text-xs font-semibold rounded"
             >
-              Confirm FDR Deposit
+              Save Deposit
             </button>
           </div>
         </form>
       </ModalDialog>
 
       {/* ------------------------------------------------------------- */}
-      {/* 12. MODAL: REGISTER LOAN */}
+      {/* MODAL 3: ADD BANK LOAN */}
       {/* ------------------------------------------------------------- */}
       <ModalDialog
         isOpen={isNewLoanOpen}
         onClose={() => setIsNewLoanOpen(false)}
-        title="Register Bank Loan / Credit Facility"
-        subtitle="Set up debt liabilities, interest rates, installment plans, and maturity schedules"
-        maxWidth="lg"
+        title="Register Bank Loan Facility"
+        subtitle="Credit line agreement for BridgeOne Group"
+        maxWidth="md"
       >
-        <form onSubmit={handleSaveLoan} className="space-y-4 text-xs">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <form onSubmit={handleSaveLoan} className="space-y-4">
+          <div className="space-y-3">
             <div>
-              <label className="block font-semibold text-slate-700 mb-1">Lender / Bank Name *</label>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">Lender Bank</label>
               <input
                 type="text"
                 required
-                value={loanForm.lenderName}
-                onChange={(e) => setLoanForm({ ...loanForm, lenderName: e.target.value })}
-                className="w-full h-8 border border-slate-300 rounded px-2.5 text-xs text-slate-800"
+                value={newLoanForm.lenderName}
+                onChange={(e) => setNewLoanForm({ ...newLoanForm, lenderName: e.target.value })}
+                className="w-full h-9 px-3 text-xs border border-slate-300 rounded focus:ring-1 focus:ring-blue-500 focus:outline-none"
               />
             </div>
             <div>
-              <label className="block font-semibold text-slate-700 mb-1">Facility Type</label>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">Facility Type</label>
               <select
-                value={loanForm.loanType}
-                onChange={(e) => setLoanForm({ ...loanForm, loanType: e.target.value as any })}
-                className="w-full h-8 border border-slate-300 rounded px-2.5 text-xs text-slate-800 bg-white"
+                value={newLoanForm.loanType}
+                onChange={(e) => setNewLoanForm({ ...newLoanForm, loanType: e.target.value })}
+                className="w-full h-9 px-3 text-xs border border-slate-300 rounded bg-white focus:ring-1 focus:ring-blue-500 focus:outline-none"
               >
-                <option value="WORKING_CAPITAL">Working Capital Loan</option>
-                <option value="BANK_LOAN">Term Loan</option>
-                <option value="TERM_LOAN">Project Finance</option>
-                <option value="OTHER">Other Credit Line</option>
+                <option value="Working Capital">Working Capital</option>
+                <option value="Term Loan">Term Loan</option>
+                <option value="Syndicated Credit Facility">Syndicated Credit Facility</option>
               </select>
             </div>
-            <div>
-              <label className="block font-semibold text-slate-700 mb-1">Principal Amount (৳) *</label>
-              <input
-                type="number"
-                required
-                min="10000"
-                value={loanForm.principalAmount}
-                onChange={(e) => {
-                  const p = parseFloat(e.target.value) || 0;
-                  setLoanForm({ ...loanForm, principalAmount: p, outstandingPrincipal: p });
-                }}
-                className="w-full h-8 border border-slate-300 rounded px-2.5 text-xs font-mono text-slate-800"
-              />
-            </div>
-            <div>
-              <label className="block font-semibold text-slate-700 mb-1">Annual Interest Rate (%) *</label>
-              <input
-                type="number"
-                step="0.1"
-                required
-                value={loanForm.interestRate}
-                onChange={(e) => setLoanForm({ ...loanForm, interestRate: parseFloat(e.target.value) || 0 })}
-                className="w-full h-8 border border-slate-300 rounded px-2.5 text-xs font-mono text-slate-800"
-              />
-            </div>
-            <div>
-              <label className="block font-semibold text-slate-700 mb-1">Monthly Installment (৳)</label>
-              <input
-                type="number"
-                value={loanForm.installmentAmount}
-                onChange={(e) => setLoanForm({ ...loanForm, installmentAmount: parseFloat(e.target.value) || 0 })}
-                className="w-full h-8 border border-slate-300 rounded px-2.5 text-xs font-mono text-slate-800"
-              />
-            </div>
-            <div>
-              <label className="block font-semibold text-slate-700 mb-1">Disbursement Date</label>
-              <input
-                type="date"
-                required
-                value={loanForm.disbursementDate}
-                onChange={(e) => setLoanForm({ ...loanForm, disbursementDate: e.target.value })}
-                className="w-full h-8 border border-slate-300 rounded px-2 text-xs"
-              />
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Principal Amount (৳)</label>
+                <input
+                  type="number"
+                  min="1"
+                  required
+                  value={newLoanForm.principalAmount}
+                  onChange={(e) => setNewLoanForm({ ...newLoanForm, principalAmount: Number(e.target.value) })}
+                  className="w-full h-9 px-3 text-xs border border-slate-300 rounded font-mono focus:ring-1 focus:ring-blue-500 focus:outline-none"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Interest Rate (%)</label>
+                <input
+                  type="number"
+                  step="0.1"
+                  value={newLoanForm.interestRate}
+                  onChange={(e) => setNewLoanForm({ ...newLoanForm, interestRate: Number(e.target.value) })}
+                  className="w-full h-9 px-3 text-xs border border-slate-300 rounded font-mono focus:ring-1 focus:ring-blue-500 focus:outline-none"
+                />
+              </div>
             </div>
           </div>
 
@@ -1197,105 +1533,204 @@ export default function FinanceBankingPage() {
             <button
               type="button"
               onClick={() => setIsNewLoanOpen(false)}
-              className="px-3.5 py-1.5 border border-slate-300 hover:bg-slate-50 text-slate-700 rounded text-xs font-semibold"
+              className="px-4 py-2 border border-slate-300 text-slate-600 hover:bg-slate-50 text-xs font-semibold rounded"
             >
               Cancel
             </button>
             <button
               type="submit"
-              className="px-4 py-1.5 bg-[#2563eb] hover:bg-blue-700 text-white rounded text-xs font-semibold shadow-xs"
+              className="px-4 py-2 bg-[#2563eb] hover:bg-blue-700 text-white text-xs font-semibold rounded"
             >
-              Save Loan Facility
+              Save Loan
             </button>
           </div>
         </form>
       </ModalDialog>
 
       {/* ------------------------------------------------------------- */}
-      {/* 13. MODAL: VIEW BANK STATEMENT */}
+      {/* MODAL 4: ADD LOAN PARTNER */}
       {/* ------------------------------------------------------------- */}
       <ModalDialog
-        isOpen={!!viewBank}
-        onClose={() => setViewBank(null)}
-        title={viewBank?.bankName || "Bank Statement"}
-        subtitle={`A/C: ${viewBank?.accountNumber} | Branch: ${viewBank?.branchName}`}
-        maxWidth="2xl"
+        isOpen={isNewLoanPartnerOpen}
+        onClose={() => setIsNewLoanPartnerOpen(false)}
+        title="Add Loan Partner"
+        subtitle="Register NBFI or Financial Partner"
+        maxWidth="md"
       >
-        <div className="space-y-4 text-xs">
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-slate-50 p-3 rounded border border-slate-200">
+        <form onSubmit={handleSaveLoanPartner} className="space-y-4">
+          <div className="space-y-3">
             <div>
-              <span className="text-slate-500 block text-[11px]">Account Type</span>
-              <span className="font-semibold text-slate-800">{viewBank?.accountType}</span>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">Partner Name</label>
+              <input
+                type="text"
+                required
+                value={newPartnerForm.partnerName}
+                onChange={(e) => setNewPartnerForm({ ...newPartnerForm, partnerName: e.target.value })}
+                placeholder="e.g. IDLC Finance PLC"
+                className="w-full h-9 px-3 text-xs border border-slate-300 rounded focus:ring-1 focus:ring-blue-500 focus:outline-none"
+              />
             </div>
             <div>
-              <span className="text-slate-500 block text-[11px]">Currency</span>
-              <span className="font-semibold text-slate-800">{viewBank?.currency}</span>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">Partner Group</label>
+              <select
+                value={newPartnerForm.group}
+                onChange={(e) => setNewPartnerForm({ ...newPartnerForm, group: e.target.value })}
+                className="w-full h-9 px-3 text-xs border border-slate-300 rounded bg-white focus:ring-1 focus:ring-blue-500 focus:outline-none"
+              >
+                <option value="NBFI Corporate Partner">NBFI Corporate Partner</option>
+                <option value="Equipment Credit Partner">Equipment Credit Partner</option>
+                <option value="Working Capital Partner">Working Capital Partner</option>
+              </select>
             </div>
             <div>
-              <span className="text-slate-500 block text-[11px]">Opening Balance</span>
-              <span className="font-mono font-semibold text-slate-800">
-                ৳{viewBank?.openingBalance.toLocaleString()}
-              </span>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">Office</label>
+              <select
+                value={newPartnerForm.officeName}
+                onChange={(e) => setNewPartnerForm({ ...newPartnerForm, officeName: e.target.value })}
+                className="w-full h-9 px-3 text-xs border border-slate-300 rounded bg-white focus:ring-1 focus:ring-blue-500 focus:outline-none"
+              >
+                <option value="Dhaka Head Office">Dhaka Head Office</option>
+                <option value="MG Sirajganj Factory">MG Sirajganj Factory</option>
+                <option value="MGV-PLC">MGV-PLC</option>
+              </select>
             </div>
-            <div>
-              <span className="text-slate-500 block text-[11px]">Current Balance</span>
-              <span className="font-mono font-bold text-blue-700">
-                ৳{viewBank?.currentBalance.toLocaleString()}
-              </span>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Facility Amount (৳)</label>
+                <input
+                  type="number"
+                  min="1"
+                  required
+                  value={newPartnerForm.principalFacility}
+                  onChange={(e) => setNewPartnerForm({ ...newPartnerForm, principalFacility: Number(e.target.value) })}
+                  className="w-full h-9 px-3 text-xs border border-slate-300 rounded font-mono focus:ring-1 focus:ring-blue-500 focus:outline-none"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Interest Rate (%)</label>
+                <input
+                  type="number"
+                  step="0.1"
+                  value={newPartnerForm.interestRate}
+                  onChange={(e) => setNewPartnerForm({ ...newPartnerForm, interestRate: Number(e.target.value) })}
+                  className="w-full h-9 px-3 text-xs border border-slate-300 rounded font-mono focus:ring-1 focus:ring-blue-500 focus:outline-none"
+                />
+              </div>
             </div>
           </div>
 
-          <div className="border rounded border-slate-200 overflow-hidden">
-            <div className="bg-slate-100 px-3.5 py-2 font-bold text-[11px] text-slate-700 uppercase tracking-wide">
-              Recent Transactions / Ledger Entries
-            </div>
-            <table className="w-full text-left text-xs">
-              <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold">
-                <tr>
-                  <th className="px-3 py-2">Date</th>
-                  <th className="px-3 py-2">Voucher #</th>
-                  <th className="px-3 py-2">Narration</th>
-                  <th className="px-3 py-2 text-right">Debit (৳)</th>
-                  <th className="px-3 py-2 text-right">Credit (৳)</th>
-                  <th className="px-3 py-2 text-right">Balance (৳)</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                <tr>
-                  <td className="px-3 py-2 text-slate-500">2026-01-01</td>
-                  <td className="px-3 py-2 font-mono font-semibold text-blue-600">OB-2026</td>
-                  <td className="px-3 py-2 text-slate-700">Opening Balance Carry Forward</td>
-                  <td className="px-3 py-2 text-right font-mono text-emerald-600 font-medium">
-                    ৳{viewBank?.openingBalance.toLocaleString()}
-                  </td>
-                  <td className="px-3 py-2 text-right font-mono text-slate-400">-</td>
-                  <td className="px-3 py-2 text-right font-mono font-bold text-slate-800">
-                    ৳{viewBank?.openingBalance.toLocaleString()}
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-
-          <div className="flex justify-end gap-2 pt-2 border-t border-slate-200">
+          <div className="flex justify-end gap-2 pt-3 border-t border-slate-200">
             <button
               type="button"
-              onClick={() => window.print()}
-              className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded text-xs font-semibold flex items-center gap-1.5 transition"
+              onClick={() => setIsNewLoanPartnerOpen(false)}
+              className="px-4 py-2 border border-slate-300 text-slate-600 hover:bg-slate-50 text-xs font-semibold rounded"
             >
-              <Printer className="w-3.5 h-3.5" />
-              <span>Print Statement</span>
+              Cancel
             </button>
             <button
+              type="submit"
+              className="px-4 py-2 bg-[#2563eb] hover:bg-blue-700 text-white text-xs font-semibold rounded"
+            >
+              Save Partner
+            </button>
+          </div>
+        </form>
+      </ModalDialog>
+
+      {/* ------------------------------------------------------------- */}
+      {/* MODAL 5: BULK UPLOAD */}
+      {/* ------------------------------------------------------------- */}
+      <ModalDialog
+        isOpen={isBulkUploadOpen}
+        onClose={() => setIsBulkUploadOpen(false)}
+        title="Bulk Upload Loan Partners"
+        subtitle="Import multiple loan facilities via Excel spreadsheet (.xlsx, .csv)"
+        maxWidth="md"
+      >
+        <div className="space-y-4">
+          <div className="border-2 border-dashed border-slate-300 rounded-lg p-6 text-center hover:border-blue-500 transition cursor-pointer bg-slate-50">
+            <Upload className="w-8 h-8 text-blue-600 mx-auto mb-2" />
+            <p className="text-xs font-semibold text-slate-800">Click to upload or drag and drop</p>
+            <p className="text-[11px] text-slate-400 mt-1">Excel (.xlsx) or CSV format up to 10MB</p>
+          </div>
+
+          <div className="flex items-center justify-between text-xs bg-blue-50/60 p-2.5 rounded border border-blue-100">
+            <span className="text-slate-700 font-medium">Download sample template file:</span>
+            <button
               type="button"
-              onClick={() => setViewBank(null)}
-              className="px-3.5 py-1.5 bg-[#2563eb] hover:bg-blue-700 text-white rounded text-xs font-semibold shadow-xs transition"
+              onClick={handleExportExcel}
+              className="text-blue-600 font-semibold hover:underline flex items-center gap-1"
+            >
+              <Download className="w-3 h-3" />
+              <span>Sample Template.xlsx</span>
+            </button>
+          </div>
+
+          <div className="flex justify-end gap-2 pt-3 border-t border-slate-200">
+            <button
+              type="button"
+              onClick={() => setIsBulkUploadOpen(false)}
+              className="px-4 py-2 border border-slate-300 text-slate-600 hover:bg-slate-50 text-xs font-semibold rounded"
             >
               Close
             </button>
           </div>
         </div>
       </ModalDialog>
+
+      {/* ------------------------------------------------------------- */}
+      {/* MODAL 6: VIEW BANK DETAILS */}
+      {/* ------------------------------------------------------------- */}
+      {viewBankDetails && (
+        <ModalDialog
+          isOpen={!!viewBankDetails}
+          onClose={() => setViewBankDetails(null)}
+          title={viewBankDetails.bankName}
+          subtitle={`Account No: ${viewBankDetails.accountNumber} • Branch: ${viewBankDetails.branchName}`}
+          maxWidth="md"
+        >
+          <div className="space-y-3 text-xs">
+            <div className="grid grid-cols-2 gap-3 bg-slate-50 p-3 rounded border border-slate-200">
+              <div>
+                <span className="text-slate-400 block text-[11px]">Account Holder:</span>
+                <span className="font-semibold text-slate-800">{viewBankDetails.accountHolder}</span>
+              </div>
+              <div>
+                <span className="text-slate-400 block text-[11px]">Account Type:</span>
+                <span className="font-semibold text-slate-800">{viewBankDetails.accountType}</span>
+              </div>
+              <div>
+                <span className="text-slate-400 block text-[11px]">Branch:</span>
+                <span className="font-semibold text-slate-800">{viewBankDetails.branchName}</span>
+              </div>
+              <div>
+                <span className="text-slate-400 block text-[11px]">Linked GL:</span>
+                <span className="font-semibold text-slate-800">{viewBankDetails.glAccountName}</span>
+              </div>
+              <div>
+                <span className="text-slate-400 block text-[11px]">Reconciliation:</span>
+                <span className="inline-flex items-center gap-1 font-semibold text-emerald-600">
+                  <ShieldCheck className="w-3.5 h-3.5" /> {viewBankDetails.reconciliationStatus}
+                </span>
+              </div>
+              <div>
+                <span className="text-slate-400 block text-[11px]">Available Balance:</span>
+                <span className="font-bold text-blue-700 text-sm">৳{viewBankDetails.currentBalance.toLocaleString()}</span>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-3 border-t border-slate-200">
+              <button
+                type="button"
+                onClick={() => setViewBankDetails(null)}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-900 text-white text-xs font-semibold rounded"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </ModalDialog>
+      )}
     </div>
   );
 }

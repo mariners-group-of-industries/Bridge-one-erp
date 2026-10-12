@@ -205,7 +205,7 @@ export interface BankAccountItem {
   bankName: string;
   branchName: string;
   accountHolder: string;
-  accountType: "CURRENT" | "SAVINGS" | "ESCROW" | "SALARY";
+  accountType: "CURRENT" | "SAVINGS" | "ESCROW" | "SALARY" | string;
   currency: string;
   glAccountId: string;
   glAccountName: string;
@@ -219,23 +219,31 @@ export interface BankAccountItem {
 export interface DepositItem {
   id: string;
   depositNumber: string;
-  bankAccountId: string;
+  bankAccountId?: string;
   bankName: string;
-  depositType: "FIXED" | "TERM" | "DPS";
+  depositType: string;
+  officeId?: string;
+  officeName?: string;
   principalAmount: number;
   interestRate: number;
   openingDate: string;
   maturityDate: string;
   maturityValue: number;
   interestEarned: number;
-  status: "ACTIVE" | "MATURED" | "RENEWED" | "CLOSED";
+  status: "ACTIVE" | "MATURED" | "RENEWED" | "CLOSED" | string;
 }
 
 export interface LoanItem {
   id: string;
   loanNumber: string;
   lenderName: string;
-  loanType: "BANK_LOAN" | "TERM_LOAN" | "WORKING_CAPITAL" | "OTHER";
+  loanType: string;
+  category?: "BANK" | "OTHERS";
+  officeId?: string;
+  officeName?: string;
+  glAccountId?: string;
+  glAccountName?: string;
+  partnerGroup?: string;
   principalAmount: number;
   interestRate: number;
   disbursementDate: string;
@@ -243,18 +251,39 @@ export interface LoanItem {
   installmentAmount: number;
   outstandingPrincipal: number;
   accruedInterest: number;
-  status: "ACTIVE" | "PAID_OFF" | "DEFAULTED";
+  tenureMonths?: number;
+  status: "ACTIVE" | "PAID_OFF" | "DEFAULTED" | "IN_PROGRESS" | string;
 }
 
 export interface FactoringItem {
   id: string;
   invoiceReference: string;
+  billNumber?: string;
+  customerName?: string;
   factoringCompany: string;
+  accountNo?: string;
+  invoiceDate?: string;
   eligibleReceivable: number;
   advanceAmount: number;
   feesCharges: number;
-  settlementStatus: "UNSETTLED" | "PARTIAL" | "SETTLED";
+  settlementStatus: "UNSETTLED" | "PARTIAL" | "SETTLED" | string;
   remainingReceivable: number;
+  isBillWise?: boolean;
+}
+
+export interface LoanPartnerItem {
+  id: string;
+  partnerName: string;
+  group: string;
+  officeId: string;
+  officeName: string;
+  accountType: string;
+  principalFacility: number;
+  interestRate: number;
+  tenureMonths: number;
+  outstanding: number;
+  status: "ACTIVE" | "INACTIVE";
+  createdAt: string;
 }
 
 export interface ChequeBookItem {

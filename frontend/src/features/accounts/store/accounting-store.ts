@@ -17,6 +17,7 @@ import type {
   GeneralLedgerEntry,
   JournalVoucher,
   LoanItem,
+  LoanPartnerItem,
   ProvisionRecord,
 } from "../types";
 
@@ -53,6 +54,7 @@ export interface AccountingState {
   deposits: BankDepositItem[];
   loans: BankLoanItem[];
   factoring: FactoringItem[];
+  loanPartners: LoanPartnerItem[];
   chequeBooks: ChequeBookItem[];
   cheques: ChequeIssueItem[];
   budgets: BudgetItem[];
@@ -92,6 +94,7 @@ export interface AccountingState {
   addBankAccount: (account: Omit<BankAccountItem, "id" | "currentBalance" | "createdAt">) => void;
   addDeposit: (deposit: Omit<BankDepositItem, "id" | "depositNumber">) => void;
   addLoan: (loan: Omit<BankLoanItem, "id" | "loanNumber">) => void;
+  addLoanPartner: (partner: Omit<LoanPartnerItem, "id" | "createdAt">) => void;
   addChequeBook: (book: Omit<ChequeBookItem, "id" | "usedLeaves" | "remainingLeaves" | "createdAt">) => { success: boolean; message: string };
   issueCheque: (cheque: Omit<ChequeIssueItem, "id" | "transactionNumber" | "createdAt">) => { success: boolean; message: string };
   updateChequeStatus: (id: string, status: ChequeIssueItem["status"], reason?: string) => void;
@@ -205,38 +208,70 @@ const initialCoaPermissions: CoaPermissionItem[] = [
 ];
 
 const initialBankAccounts: BankAccountItem[] = [
-  {
-    id: "bank-1",
-    accountNumber: "2050123456789",
-    bankName: "Sonali Bank PLC",
-    branchName: "Principal Branch, Motijheel",
-    accountHolder: "BridgeOne Industrial Solutions Ltd",
-    accountType: "CURRENT",
-    currency: "BDT",
-    glAccountId: "acc-1120",
-    glAccountName: "Cash at Bank - Sonali Bank",
-    openingBalance: 1250000,
-    currentBalance: 1250000,
-    reconciliationStatus: "RECONCILED",
-    isActive: true,
-    createdAt: "2026-01-01",
-  },
-  {
-    id: "bank-2",
-    accountNumber: "1501209876543",
-    bankName: "BRAC Bank PLC",
-    branchName: "Gulshan Corporate Branch",
-    accountHolder: "BridgeOne Industrial Solutions Ltd",
-    accountType: "CURRENT",
-    currency: "BDT",
-    glAccountId: "acc-1121",
-    glAccountName: "Cash at Bank - BRAC Bank",
-    openingBalance: 820000,
-    currentBalance: 820000,
-    reconciliationStatus: "RECONCILED",
-    isActive: true,
-    createdAt: "2026-01-01",
-  },
+  { id: "ba-1", accountNumber: "3133131043165", bankName: "PRIME BANK LTD PLC", branchName: "ISLAMI BANKING(MIRPUR)", accountHolder: "Mariners Foodology And Agro Limited", accountType: "Current Account", currency: "BDT", glAccountId: "acc-10102", glAccountName: "Cash At Bank", openingBalance: 2450000, currentBalance: 3120500, reconciliationStatus: "RECONCILED", isActive: true, createdAt: "2026-01-01" },
+  { id: "ba-2", accountNumber: "7862141005310248", bankName: "UNITED COMMERCIAL BANK LTD PLC", branchName: "ESKATON", accountHolder: "MOHS Unity Venture Limited", accountType: "Current Account", currency: "BDT", glAccountId: "acc-10102", glAccountName: "Cash At Bank", openingBalance: 1200000, currentBalance: 1480000, reconciliationStatus: "RECONCILED", isActive: true, createdAt: "2026-01-01" },
+  { id: "ba-3", accountNumber: "1141100563588", bankName: "DUTCH-BANGLA BANK LTD PLC", branchName: "MOHAKHALI", accountHolder: "MOHS ECO Developments PLC", accountType: "Current Account", currency: "BDT", glAccountId: "acc-10102", glAccountName: "Cash At Bank", openingBalance: 850000, currentBalance: 960000, reconciliationStatus: "RECONCILED", isActive: true, createdAt: "2026-01-01" },
+  { id: "ba-4", accountNumber: "7862141005015204", bankName: "UNITED COMMERCIAL BANK LTD PLC", branchName: "ESKATON", accountHolder: "MOHS ECO Developments PLC", accountType: "Current Account", currency: "BDT", glAccountId: "acc-10102", glAccountName: "Cash At Bank", openingBalance: 640000, currentBalance: 810000, reconciliationStatus: "RECONCILED", isActive: true, createdAt: "2026-01-01" },
+  { id: "ba-5", accountNumber: "2079624620001", bankName: "BRAC BANK LTD PLC", branchName: "Mohakhali", accountHolder: "MG Ventures PLC", accountType: "Current Account", currency: "BDT", glAccountId: "acc-10102", glAccountName: "Cash At Bank", openingBalance: 1800000, currentBalance: 2450000, reconciliationStatus: "RECONCILED", isActive: true, createdAt: "2026-01-01" },
+  { id: "ba-6", accountNumber: "3133132046992", bankName: "PRIME BANK LTD PLC", branchName: "MOHAKHALI", accountHolder: "MG Ventures PLC", accountType: "Current Account", currency: "BDT", glAccountId: "acc-10102", glAccountName: "Cash At Bank", openingBalance: 950000, currentBalance: 1120000, reconciliationStatus: "RECONCILED", isActive: true, createdAt: "2026-01-01" },
+  { id: "ba-7", accountNumber: "20501910100371009", bankName: "ISLAMI BANK BANGLADESH LTD PLC", branchName: "MOHAKHALI", accountHolder: "MG Ventures PLC", accountType: "Current Account", currency: "BDT", glAccountId: "acc-10102", glAccountName: "Cash At Bank", openingBalance: 4200000, currentBalance: 4890000, reconciliationStatus: "RECONCILED", isActive: true, createdAt: "2026-01-01" },
+  { id: "ba-8", accountNumber: "1141200049009", bankName: "DUTCH-BANGLA BANK LTD PLC", branchName: "MOHAKHALI", accountHolder: "MG Ventures PLC", accountType: "Current Account", currency: "BDT", glAccountId: "acc-10102", glAccountName: "Cash At Bank", openingBalance: 510000, currentBalance: 630000, reconciliationStatus: "RECONCILED", isActive: true, createdAt: "2026-01-01" },
+  { id: "ba-9", accountNumber: "1141100508628", bankName: "DUTCH-BANGLA BANK LTD PLC", branchName: "MOHAKHALI", accountHolder: "MG Ventures PLC", accountType: "Current Account", currency: "BDT", glAccountId: "acc-10102", glAccountName: "Cash At Bank", openingBalance: 780000, currentBalance: 910000, reconciliationStatus: "RECONCILED", isActive: true, createdAt: "2026-01-01" },
+  { id: "ba-10", accountNumber: "2110110026072", bankName: "PRIME BANK LTD PLC", branchName: "MOHAKHALI", accountHolder: "MARINES BAKERS AND BEVERAGES LTD", accountType: "Current Account", currency: "BDT", glAccountId: "acc-10102", glAccountName: "Cash At Bank", openingBalance: 3200000, currentBalance: 3850000, reconciliationStatus: "RECONCILED", isActive: true, createdAt: "2026-01-01" },
+  { id: "ba-11", accountNumber: "2078831880001", bankName: "BRAC BANK LTD PLC", branchName: "Mohakhali", accountHolder: "Marines Bakers and Beverage Ltd", accountType: "Current Account", currency: "BDT", glAccountId: "acc-10102", glAccountName: "Cash At Bank", openingBalance: 1450000, currentBalance: 1620000, reconciliationStatus: "RECONCILED", isActive: true, createdAt: "2026-01-01" },
+  { id: "ba-12", accountNumber: "1141100438500", bankName: "DUTCH-BANGLA BANK LTD PLC", branchName: "MOHAKHALI", accountHolder: "MARINES BAKERS AND BEVERAGES LTD", accountType: "Current Account", currency: "BDT", glAccountId: "acc-10102", glAccountName: "Cash At Bank", openingBalance: 670000, currentBalance: 790000, reconciliationStatus: "RECONCILED", isActive: true, createdAt: "2026-01-01" },
+  { id: "ba-13", accountNumber: "20503320100203303", bankName: "ISLAMI BANK BANGLADESH LTD PLC", branchName: "MOGHBAZAR", accountHolder: "Merchant Feed Industries Limited", accountType: "Current Account", currency: "BDT", glAccountId: "acc-10102", glAccountName: "Cash At Bank", openingBalance: 5600000, currentBalance: 6150000, reconciliationStatus: "RECONCILED", isActive: true, createdAt: "2026-01-01" },
+  { id: "ba-14", accountNumber: "3108131049501", bankName: "PRIME BANK LTD PLC", branchName: "IBB DILKUSHA", accountHolder: "MOHS ECO Developments PLC", accountType: "Current Account", currency: "BDT", glAccountId: "acc-10102", glAccountName: "Cash At Bank", openingBalance: 1100000, currentBalance: 1350000, reconciliationStatus: "RECONCILED", isActive: true, createdAt: "2026-01-01" },
+  { id: "ba-15", accountNumber: "3108138047250", bankName: "PRIME BANK LTD PLC", branchName: "IBB DILKUSHA", accountHolder: "MS Marine Officers Business Club", accountType: "Current Account", currency: "BDT", glAccountId: "acc-10102", glAccountName: "Cash At Bank", openingBalance: 450000, currentBalance: 520000, reconciliationStatus: "RECONCILED", isActive: true, createdAt: "2026-01-01" },
+  { id: "ba-16", accountNumber: "2321100409685", bankName: "DUTCH-BANGLA BANK LTD PLC", branchName: "SIRAJGANJ", accountHolder: "MARINES BAKERS AND BEVERAGES LTD", accountType: "Current Account", currency: "BDT", glAccountId: "acc-10102", glAccountName: "Cash At Bank", openingBalance: 2900000, currentBalance: 3410000, reconciliationStatus: "RECONCILED", isActive: true, createdAt: "2026-01-01" },
+  { id: "ba-17", accountNumber: "7862141000041706", bankName: "UNITED COMMERCIAL BANK LTD PLC", branchName: "ESKATON", accountHolder: "MARINES BAKERS AND BEVERAGES LTD", accountType: "Current Account", currency: "BDT", glAccountId: "acc-10102", glAccountName: "Cash At Bank", openingBalance: 880000, currentBalance: 940000, reconciliationStatus: "RECONCILED", isActive: true, createdAt: "2026-01-01" },
+  { id: "ba-18", accountNumber: "2072441840001", bankName: "BRAC BANK LTD PLC", branchName: "MOGHBAZAR", accountHolder: "Mariners Oceanic Housing Settlement Limited", accountType: "Current Account", currency: "BDT", glAccountId: "acc-10102", glAccountName: "Cash At Bank", openingBalance: 1750000, currentBalance: 1980000, reconciliationStatus: "RECONCILED", isActive: true, createdAt: "2026-01-01" },
+  { id: "ba-19", accountNumber: "9923", bankName: "DUTCH-BANGLA BANK LTD PLC", branchName: "Moghbazar", accountHolder: "MARINES BAKERS AND BEVERAGES LTD", accountType: "Current Account", currency: "BDT", glAccountId: "acc-10102", glAccountName: "Cash At Bank", openingBalance: 320000, currentBalance: 410000, reconciliationStatus: "RECONCILED", isActive: true, createdAt: "2026-01-01" },
+  { id: "ba-20", accountNumber: "3108131047118", bankName: "PRIME BANK LTD PLC", branchName: "IBB DILKUSHA", accountHolder: "Mariners Cosmetics and Toiletries Ltd", accountType: "Current Account", currency: "BDT", glAccountId: "acc-10102", glAccountName: "Cash At Bank", openingBalance: 1250000, currentBalance: 1530000, reconciliationStatus: "RECONCILED", isActive: true, createdAt: "2026-01-01" },
+  { id: "ba-21", accountNumber: "3108139047036", bankName: "PRIME BANK LTD PLC", branchName: "IBB DILKUSHA", accountHolder: "Mariners Bakers and Beverages Ltd", accountType: "Current Account", currency: "BDT", glAccountId: "acc-10102", glAccountName: "Cash At Bank", openingBalance: 890000, currentBalance: 1040000, reconciliationStatus: "RECONCILED", isActive: true, createdAt: "2026-01-01" },
+  { id: "ba-22", accountNumber: "04933002175", bankName: "BANK ASIA LTD PLC", branchName: "PALTAN", accountHolder: "Mariners Food & Agro Limited", accountType: "Current Account", currency: "BDT", glAccountId: "acc-10102", glAccountName: "Cash At Bank", openingBalance: 2100000, currentBalance: 2650000, reconciliationStatus: "RECONCILED", isActive: true, createdAt: "2026-01-01" },
+  { id: "ba-23", accountNumber: "2331100024678", bankName: "DUTCH-BANGLA BANK LTD PLC", branchName: "KASHINATHPUR", accountHolder: "Mariners Food & Agro Limited-Peanut", accountType: "Current Account", currency: "BDT", glAccountId: "acc-10102", glAccountName: "Cash At Bank", openingBalance: 740000, currentBalance: 880000, reconciliationStatus: "RECONCILED", isActive: true, createdAt: "2026-01-01" },
+  { id: "ba-24", accountNumber: "3108137046527", bankName: "PRIME BANK LTD PLC", branchName: "NEW ESKATON", accountHolder: "Marinozz PLC", accountType: "Current Account", currency: "BDT", glAccountId: "acc-10102", glAccountName: "Cash At Bank", openingBalance: 1600000, currentBalance: 1950000, reconciliationStatus: "RECONCILED", isActive: true, createdAt: "2026-01-01" },
+  { id: "ba-25", accountNumber: "2861100008395", bankName: "DUTCH-BANGLA BANK LTD PLC", branchName: "Moghbazar", accountHolder: "Marinox Trading International", accountType: "Current Account", currency: "BDT", glAccountId: "acc-10102", glAccountName: "Cash At Bank", openingBalance: 430000, currentBalance: 510000, reconciliationStatus: "RECONCILED", isActive: true, createdAt: "2026-01-01" },
+  { id: "ba-26", accountNumber: "2861100198707", bankName: "DUTCH-BANGLA BANK LTD PLC", branchName: "Moghbazar", accountHolder: "Mariners Cosmetics and Toiletries Ltd", accountType: "Current Account", currency: "BDT", glAccountId: "acc-10102", glAccountName: "Cash At Bank", openingBalance: 980000, currentBalance: 1150000, reconciliationStatus: "RECONCILED", isActive: true, createdAt: "2026-01-01" },
+  { id: "ba-27", accountNumber: "3108132034494", bankName: "PRIME BANK LTD PLC", branchName: "NEW ESKATON", accountHolder: "BLUEWAVE MEDIA & PRESS LIMITED", accountType: "Current Account", currency: "BDT", glAccountId: "acc-10102", glAccountName: "Cash At Bank", openingBalance: 570000, currentBalance: 690000, reconciliationStatus: "RECONCILED", isActive: true, createdAt: "2026-01-01" },
+  { id: "ba-28", accountNumber: "2331100320838", bankName: "DUTCH-BANGLA BANK LTD PLC", branchName: "KASHINATHPUR", accountHolder: "MARINES BAKERS AND BEVERAGES LTD", accountType: "Current Account", currency: "BDT", glAccountId: "acc-10102", glAccountName: "Cash At Bank", openingBalance: 1840000, currentBalance: 2190000, reconciliationStatus: "RECONCILED", isActive: true, createdAt: "2026-01-01" },
+  { id: "ba-29", accountNumber: "2861100008475", bankName: "DUTCH-BANGLA BANK LTD PLC", branchName: "Moghbazar", accountHolder: "MARINERS FOOD AND AGRO LIMITED", accountType: "Current Account", currency: "BDT", glAccountId: "acc-10102", glAccountName: "Cash At Bank", openingBalance: 2600000, currentBalance: 3050000, reconciliationStatus: "RECONCILED", isActive: true, createdAt: "2026-01-01" },
+  { id: "ba-30", accountNumber: "2331100024272", bankName: "DUTCH-BANGLA BANK LTD PLC", branchName: "KASHINATHPUR", accountHolder: "MARINERS FOOD AND AGRO LIMITED", accountType: "Current Account", currency: "BDT", glAccountId: "acc-10102", glAccountName: "Cash At Bank", openingBalance: 920000, currentBalance: 1080000, reconciliationStatus: "RECONCILED", isActive: true, createdAt: "2026-01-01" },
+  { id: "ba-31", accountNumber: "2861100007805", bankName: "DUTCH-BANGLA BANK LTD PLC", branchName: "Moghbazar", accountHolder: "MARINES BAKERS AND BEVERAGES LTD", accountType: "Current Account", currency: "BDT", glAccountId: "acc-10102", glAccountName: "Cash At Bank", openingBalance: 1420000, currentBalance: 1710000, reconciliationStatus: "RECONCILED", isActive: true, createdAt: "2026-01-01" },
+  { id: "ba-32", accountNumber: "20503320100198701", bankName: "ISLAMI BANK BANGLADESH LTD PLC", branchName: "MOGHBAZAR", accountHolder: "MARINES BAKERS AND BEVERAGES LTD", accountType: "Current Account", currency: "BDT", glAccountId: "acc-10102", glAccountName: "Cash At Bank", openingBalance: 3800000, currentBalance: 4320000, reconciliationStatus: "RECONCILED", isActive: true, createdAt: "2026-01-01" },
+  { id: "ba-33", accountNumber: "2861200015657", bankName: "DUTCH-BANGLA BANK LTD PLC", branchName: "Moghbazar", accountHolder: "MARINES BAKERS AND BEVERAGES LTD", accountType: "Current Account", currency: "BDT", glAccountId: "acc-10102", glAccountName: "Cash At Bank", openingBalance: 1150000, currentBalance: 1290000, reconciliationStatus: "RECONCILED", isActive: true, createdAt: "2026-01-01" },
+  { id: "ba-34", accountNumber: "3108139098711", bankName: "PRIME BANK LTD PLC", branchName: "MOTIJHEEL", accountHolder: "BridgeOne Industrial Solutions Ltd", accountType: "Current Account", currency: "BDT", glAccountId: "acc-10102", glAccountName: "Cash At Bank", openingBalance: 3500000, currentBalance: 4200000, reconciliationStatus: "RECONCILED", isActive: true, createdAt: "2026-01-01" },
+  { id: "ba-35", accountNumber: "2079624629988", bankName: "BRAC BANK LTD PLC", branchName: "GULSHAN", accountHolder: "BridgeOne Technologies Ltd", accountType: "Current Account", currency: "BDT", glAccountId: "acc-10102", glAccountName: "Cash At Bank", openingBalance: 2100000, currentBalance: 2540000, reconciliationStatus: "RECONCILED", isActive: true, createdAt: "2026-01-01" },
+  { id: "ba-36", accountNumber: "1041060088912", bankName: "EASTERN BANK LTD PLC", branchName: "PRINCIPAL", accountHolder: "BridgeOne Logistics Ltd", accountType: "Current Account", currency: "BDT", glAccountId: "acc-10102", glAccountName: "Cash At Bank", openingBalance: 1650000, currentBalance: 1920000, reconciliationStatus: "RECONCILED", isActive: true, createdAt: "2026-01-01" },
+  { id: "ba-37", accountNumber: "1101982736451", bankName: "CITY BANK LTD PLC", branchName: "DHANMONDI", accountHolder: "BridgeOne Retail Network Ltd", accountType: "Current Account", currency: "BDT", glAccountId: "acc-10102", glAccountName: "Cash At Bank", openingBalance: 1200000, currentBalance: 1430000, reconciliationStatus: "RECONCILED", isActive: true, createdAt: "2026-01-01" },
+  { id: "ba-38", accountNumber: "0111928374650", bankName: "STANDARD CHARTERED BANK", branchName: "MOTIJHEEL", accountHolder: "BridgeOne Group Corporate", accountType: "Current Account", currency: "BDT", glAccountId: "acc-10102", glAccountName: "Cash At Bank", openingBalance: 6500000, currentBalance: 7850000, reconciliationStatus: "RECONCILED", isActive: true, createdAt: "2026-01-01" },
+  { id: "ba-39", accountNumber: "0045021009871", bankName: "MUTUAL TRUST BANK LTD", branchName: "PANTHAPATH", accountHolder: "BridgeOne Agro Industries Ltd", accountType: "Current Account", currency: "BDT", glAccountId: "acc-10102", glAccountName: "Cash At Bank", openingBalance: 1850000, currentBalance: 2180000, reconciliationStatus: "RECONCILED", isActive: true, createdAt: "2026-01-01" },
+  { id: "ba-40", accountNumber: "2151000092837", bankName: "DHAKA BANK LTD", branchName: "BANANI", accountHolder: "BridgeOne Infrastructure Ltd", accountType: "Current Account", currency: "BDT", glAccountId: "acc-10102", glAccountName: "Cash At Bank", openingBalance: 2300000, currentBalance: 2750000, reconciliationStatus: "RECONCILED", isActive: true, createdAt: "2026-01-01" },
+];
+
+const initialDeposits: DepositItem[] = [
+  { id: "dep-1", depositNumber: "SEC-DEP-001", bankName: "Sonali Bank PLC", depositType: "Security Deposit", officeId: "office-dhaka", officeName: "Dhaka Head Office", principalAmount: 500000, interestRate: 8.5, openingDate: "2026-01-10", maturityDate: "2027-01-10", maturityValue: 542500, interestEarned: 42500, status: "ACTIVE" },
+  { id: "dep-2", depositNumber: "SEC-DEP-002", bankName: "Prime Bank LTD PLC", depositType: "Security Deposit", officeId: "office-sirajganj", officeName: "MG Sirajganj Factory", principalAmount: 350000, interestRate: 7.5, openingDate: "2026-02-15", maturityDate: "2027-02-15", maturityValue: 376250, interestEarned: 26250, status: "ACTIVE" },
+  { id: "dep-3", depositNumber: "FDR-2026-001", bankName: "Dutch-Bangla Bank LTD PLC", depositType: "Fixed Deposit", officeId: "office-dhaka", officeName: "Dhaka Head Office", principalAmount: 1500000, interestRate: 9.0, openingDate: "2026-03-01", maturityDate: "2027-03-01", maturityValue: 1635000, interestEarned: 135000, status: "ACTIVE" },
+  { id: "dep-4", depositNumber: "TDR-2026-002", bankName: "BRAC Bank LTD PLC", depositType: "Term Deposit", officeId: "office-mbbl", officeName: "MBBL-HO", principalAmount: 800000, interestRate: 8.75, openingDate: "2026-04-01", maturityDate: "2026-10-01", maturityValue: 835000, interestEarned: 35000, status: "ACTIVE" },
+];
+
+const initialLoans: LoanItem[] = [
+  { id: "ln-1", loanNumber: "LN-EBL-2026-001", lenderName: "Eastern Bank PLC", loanType: "Working Capital", category: "BANK", officeId: "office-dhaka", officeName: "Dhaka Head Office", glAccountId: "acc-302", glAccountName: "Short Term Borrowing", principalAmount: 5000000, interestRate: 9.5, disbursementDate: "2026-02-01", maturityDate: "2027-02-01", installmentAmount: 438000, outstandingPrincipal: 3850000, accruedInterest: 32000, tenureMonths: 12, status: "ACTIVE" },
+  { id: "ln-2", loanNumber: "LN-DBBL-2026-002", lenderName: "Dutch-Bangla Bank LTD PLC", loanType: "Term Loan", category: "BANK", officeId: "office-sirajganj", officeName: "MG Sirajganj Factory", glAccountId: "acc-303", glAccountName: "Long Term Machinery Loan", principalAmount: 12000000, interestRate: 9.0, disbursementDate: "2026-01-15", maturityDate: "2029-01-15", installmentAmount: 381000, outstandingPrincipal: 10450000, accruedInterest: 78000, tenureMonths: 36, status: "ACTIVE" },
+  { id: "ln-3", loanNumber: "LN-PBL-2026-003", lenderName: "Prime Bank LTD PLC", loanType: "Syndicated Credit Facility", category: "BANK", officeId: "office-mgv", officeName: "MGV-PLC", glAccountId: "acc-302", glAccountName: "Short Term Borrowing", principalAmount: 4500000, interestRate: 9.25, disbursementDate: "2026-03-10", maturityDate: "2027-03-10", installmentAmount: 394000, outstandingPrincipal: 3720000, accruedInterest: 28500, tenureMonths: 12, status: "ACTIVE" },
+];
+
+const initialFactoring: FactoringItem[] = [
+  { id: "fact-1", invoiceReference: "FAC-INV-2026-001", billNumber: "SD-MG261000105", customerName: "Arif Enterprise-Jamalpur", factoringCompany: "IPDC Factoring Finance", accountNo: "3133131043165", invoiceDate: "2026-10-05", eligibleReceivable: 450000, advanceAmount: 360000, feesCharges: 7200, remainingReceivable: 90000, settlementStatus: "SETTLED", isBillWise: true },
+  { id: "fact-2", invoiceReference: "FAC-INV-2026-002", billNumber: "SD-MG261000149", customerName: "Choya Dia Enterprise-Magura", factoringCompany: "IDLC Factoring Division", accountNo: "2079624620001", invoiceDate: "2026-10-09", eligibleReceivable: 620000, advanceAmount: 496000, feesCharges: 9920, remainingReceivable: 124000, settlementStatus: "PARTIAL", isBillWise: true },
+];
+
+const initialLoanPartners: LoanPartnerItem[] = [
+  { id: "lp-1", partnerName: "IDLC Finance PLC", group: "NBFI Corporate Partner", officeId: "office-dhaka", officeName: "Dhaka Head Office", accountType: "Lease Finance Facility", principalFacility: 4000000, interestRate: 10.5, tenureMonths: 36, outstanding: 2850000, status: "ACTIVE", createdAt: "2026-01-15" },
+  { id: "lp-2", partnerName: "IPDC Finance Limited", group: "Equipment Credit Partner", officeId: "office-sirajganj", officeName: "MG Sirajganj Factory", accountType: "Industrial Term Loan", principalFacility: 8500000, interestRate: 11.0, tenureMonths: 48, outstanding: 6200000, status: "ACTIVE", createdAt: "2026-02-10" },
+  { id: "lp-3", partnerName: "LankaBangla Finance Ltd", group: "Working Capital Partner", officeId: "office-mgv", officeName: "MGV-PLC", accountType: "Revolving Credit Line", principalFacility: 3000000, interestRate: 10.0, tenureMonths: 12, outstanding: 1500000, status: "ACTIVE", createdAt: "2026-03-01" },
 ];
 
 const initialChequeBooks: ChequeBookItem[] = [
@@ -1076,6 +1111,7 @@ type StateData = Omit<
   | "addBankAccount"
   | "addDeposit"
   | "addLoan"
+  | "addLoanPartner"
   | "addChequeBook"
   | "issueCheque"
   | "updateChequeStatus"
@@ -1800,7 +1836,7 @@ const initialTransfers: FundTransferRecord[] = [
   },
 ];
 
-const STORAGE_KEY = "bridgeone_accounting_v5";
+const STORAGE_KEY = "bridgeone_accounting_v6";
 
 let internalData: StateData = {
   accounts: initialAccounts,
@@ -1810,9 +1846,10 @@ let internalData: StateData = {
   provisions: initialProvisions,
   transfers: initialTransfers,
   bankAccounts: initialBankAccounts,
-  deposits: [],
-  loans: [],
-  factoring: [],
+  deposits: initialDeposits,
+  loans: initialLoans,
+  factoring: initialFactoring,
+  loanPartners: initialLoanPartners,
   chequeBooks: initialChequeBooks,
   cheques: [],
   budgets: [],
@@ -2396,6 +2433,14 @@ function getFullState(): AccountingState {
       const count = internalData.loans.length + 1;
       const loanNumber = `LN-${count.toString().padStart(3, "0")}`;
       updateData((prev) => ({ ...prev, loans: [...prev.loans, { ...loanData, id, loanNumber }] }));
+    },
+
+    addLoanPartner: (partnerData) => {
+      const id = `lp-${Date.now()}`;
+      updateData((prev) => ({
+        ...prev,
+        loanPartners: [...prev.loanPartners, { ...partnerData, id, createdAt: new Date().toISOString() }],
+      }));
     },
 
     addChequeBook: (bookData) => {
