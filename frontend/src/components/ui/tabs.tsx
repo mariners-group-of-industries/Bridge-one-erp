@@ -15,6 +15,8 @@ interface TabsProps<T extends string> {
   value: T;
   onChange: (id: T) => void;
   label: string;
+  /** "accent" draws the selected tab in the blue accent colour. */
+  tone?: "default" | "accent";
   /** Content of the selected tab. */
   children: ReactNode;
   className?: string;
@@ -24,7 +26,15 @@ interface TabsProps<T extends string> {
  * ERPNext form tabs (underlined) plus the selected panel. Follows the WAI-ARIA
  * tabs pattern: arrow keys, Home and End move between tabs.
  */
-export function Tabs<T extends string>({ tabs, value, onChange, label, children, className }: TabsProps<T>) {
+export function Tabs<T extends string>({
+  tabs,
+  value,
+  onChange,
+  label,
+  tone = "default",
+  children,
+  className,
+}: TabsProps<T>) {
   const baseId = useId();
   const refs = useRef(new Map<T, HTMLButtonElement>());
   const tabId = (id: T) => `${baseId}-tab-${id}`;
@@ -69,12 +79,21 @@ export function Tabs<T extends string>({ tabs, value, onChange, label, children,
               onClick={() => onChange(tab.id)}
               className={cn(
                 "-mb-px inline-flex items-center gap-1.5 border-b-2 py-2.5 text-sm whitespace-nowrap transition-colors focus-visible:outline-2",
-                selected ? "border-ink font-medium text-ink" : "border-transparent text-ink-faint hover:text-ink",
+                !selected && "border-transparent text-ink-faint hover:text-ink",
+                selected && tone === "default" && "border-ink font-medium text-ink",
+                selected && tone === "accent" && "border-accent font-medium text-accent-strong dark:text-accent",
               )}
             >
               {tab.label}
               {tab.badge !== undefined && (
-                <span className="rounded-full bg-control px-1.5 text-xs text-ink-muted">{tab.badge}</span>
+                <span
+                  className={cn(
+                    "rounded-full px-1.5 text-xs",
+                    selected && tone === "accent" ? "bg-accent-soft text-accent-strong dark:text-accent" : "bg-control text-ink-muted",
+                  )}
+                >
+                  {tab.badge}
+                </span>
               )}
             </button>
           );

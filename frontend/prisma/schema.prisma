@@ -10,6 +10,44 @@ datasource db {
   provider = "postgresql"
 }
 
+// ─── Auth ────────────────────────────────────────────────────────────────────
+
+enum UserRole {
+  ADMINISTRATOR
+  MANAGER
+  STAFF
+}
+
+model User {
+  id           String    @id @default(uuid()) @db.Uuid
+  name         String    @db.VarChar(150)
+  phone        String    @unique @db.VarChar(30)
+  passwordHash String    @db.VarChar(500)
+  role         UserRole  @default(STAFF)
+  isActive     Boolean   @default(true)
+  lastLoginAt  DateTime? @db.Timestamptz(3)
+  createdAt    DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt    DateTime  @updatedAt @db.Timestamptz(3)
+
+  sessions     UserSession[]
+
+  @@map("users")
+}
+
+model UserSession {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @db.Uuid
+  jti       String   @unique @db.VarChar(100) // JWT ID — used for revocation
+  expiresAt DateTime @db.Timestamptz(3)
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("user_sessions")
+}
+
 // ─── Configuration › Business Configuration › Company Profile ───────────────
 
 enum DateFormat {

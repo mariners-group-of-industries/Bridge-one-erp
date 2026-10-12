@@ -1,39 +1,51 @@
 import { AppError } from "@/lib/api/errors";
+import { getAuthCookie } from "@/lib/auth/cookies";
+import { verifyToken } from "@/lib/auth/jwt";
+import { db } from "@/lib/prisma/client";
 
 export type Permission = "configuration:read" | "configuration:write" | "sales:read" | "sales:write" | "sales:approve";
 
 export interface Actor {
   id: string;
+  role: string;
   permissions: ReadonlySet<Permission>;
   /** Companies this actor may access. "ALL" is reserved for system administrators. */
   companyScope: "ALL" | readonly string[];
 }
 
-const DEV_ACTOR: Actor = {
-  id: "dev-bypass",
-  permissions: new Set<Permission>(["configuration:read", "configuration:write", "sales:read", "sales:write", "sales:approve"]),
-  companyScope: "ALL",
-};
+const ALL_PERMISSIONS: Permission[] = [
+  "configuration:read",
+  "configuration:write",
+  "sales:read",
+  "sales:write",
+  "sales:approve",
+];
 
-/**
- * Resolves the authenticated actor for a request.
- *
- * BLOCKER: the repository has no authentication provider yet. Until one is
- * integrated, this fails closed: every request is rejected unless the explicit
- * development bypass is enabled outside production. Replace the body of this
- * function with real session/token verification before production use.
- */
-export async function resolveActor(request: Request): Promise<Actor | null> {
-  // Reading request data also marks the route as request-time (not prerendered).
-  void request.headers;
+function permissionsForRole(role: string): ReadonlySet<Permission> {
+  // ADMINISTRATOR gets all permissions; extend this as roles grow.
+  return new Set<Permission>(ALL_PERMISSIONS);
+}
 
-  if (
-    process.env.NODE_ENV !== "production" &&
-    process.env.ERP_DEV_AUTH_BYPASS === "true"
-  ) {
-    return DEV_ACTOR;
+export async function resolveActor(_request: Request): Promise<Actor | null> {
+  try {
+    const token = await getAuthCookie();
+    if (!token) return null;
+
+    const payload = await verifyToken(token);
+
+    // Check session not revoked
+    const session = await db().userSession.findUnique({ where: { jti: payload.jti } });
+    if (!session || session.expiresAt < new Date()) return null;
+
+    return {
+      id: payload.sub,
+      role: payload.role,
+      permissions: permissionsForRole(payload.role),
+      companyScope: "ALL",
+    };
+  } catch {
+    return null;
   }
-  return null;
 }
 
 export async function requireActor(

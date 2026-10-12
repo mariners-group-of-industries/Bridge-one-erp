@@ -1,10 +1,17 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { PrismaClient } from "@/generated/prisma/client";
 import { ageBalance, monthStarts, netOfReturns, topKeys } from "@/features/sales/dashboard/lib/aggregate";
 import { dashboardQuerySchema } from "@/features/sales/dashboard/schemas/dashboard.schema";
 import { getSalesDashboard } from "@/features/sales/dashboard/services/dashboard.service";
 import { adminActor, businessUnitInput, companyInput, scopedActor } from "./helpers/fixtures";
 import { startTestDb, stopTestDb } from "./helpers/test-db";
+
+// Route database access to the per-file PGlite test database.
+vi.mock("@/lib/prisma/client", async () => {
+  const { testPrisma } = await import("./helpers/test-db");
+  return { db: testPrisma };
+});
+
 
 const day = (value: string) => new Date(`${value}T00:00:00.000Z`);
 

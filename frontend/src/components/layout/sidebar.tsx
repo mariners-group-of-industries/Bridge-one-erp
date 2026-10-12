@@ -1,22 +1,16 @@
 "use client";
 
-import { House } from "lucide-react";
+import { ChevronRight, House } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { cn } from "@/lib/cn";
-import { findWorkspace, workspaceLinks, workspaces } from "@/lib/navigation/registry";
+import { findWorkspace, workspaces } from "@/lib/navigation/registry";
 
-/**
- * ERPNext workspace sidebar: modules, with the current module's pages nested
- * under it. Reads the URL, so render it inside <Suspense> with
- * <SidebarNav pathname={null} /> as the fallback.
- */
 export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   return <SidebarNav pathname={usePathname()} onNavigate={onNavigate} />;
 }
 
-/** Sidebar markup; `pathname: null` renders it without an active item (prerender fallback). */
 export function SidebarNav({ pathname, onNavigate }: { pathname: string | null; onNavigate?: () => void }) {
   const current = pathname === null ? undefined : findWorkspace(pathname);
 
@@ -28,6 +22,7 @@ export function SidebarNav({ pathname, onNavigate }: { pathname: string | null; 
       <p className="mt-4 mb-1 px-2 text-xs font-medium text-ink-faint uppercase">Modules</p>
       {workspaces.map((workspace) => {
         const Icon = workspace.icon;
+
         if (workspace.status === "planned") {
           return (
             <span
@@ -42,38 +37,126 @@ export function SidebarNav({ pathname, onNavigate }: { pathname: string | null; 
             </span>
           );
         }
+
         const isCurrent = current?.id === workspace.id;
-        // Unique links of this workspace, nested when it is the current one.
-        const links = [...new Map(workspaceLinks(workspace).map((link) => [link.href, link])).values()];
+        const hasCards = (workspace.cards ?? []).length > 0;
+
         return (
-          <div key={workspace.id} className="flex flex-col gap-0.5">
-            <SidebarLink
-              href={workspace.href}
-              active={pathname === workspace.href}
-              icon={<Icon />}
-              onNavigate={onNavigate}
-            >
-              {workspace.label}
-            </SidebarLink>
-            {isCurrent && links.length > 0 && (
-              <ul className="ml-4 flex flex-col gap-0.5 border-l border-line pl-2">
-                {links.map((link) => (
-                  <li key={link.href}>
-                    <SidebarLink
-                      href={link.href}
-                      active={pathname === link.href || !!pathname?.startsWith(`${link.href}/`)}
-                      onNavigate={onNavigate}
+          <CollapsibleWorkspace
+            key={workspace.id}
+            label={workspace.label}
+            icon={<Icon />}
+            defaultOpen={isCurrent}
+            active={isCurrent}
+          >
+            {hasCards && (
+              <ul className="flex flex-col gap-0.5">
+                {(workspace.cards ?? []).map((card) => {
+                  const anyLinkActive = card.links.some(
+                    (link) => pathname === link.href || !!pathname?.startsWith(`${link.href}/`),
+                  );
+                  return (
+                    <CollapsibleGroup
+                      key={card.label}
+                      label={card.label}
+                      defaultOpen={anyLinkActive}
                     >
-                      {link.label}
-                    </SidebarLink>
-                  </li>
-                ))}
+                      {card.links.map((link) => (
+                        <li key={link.href}>
+                          <SidebarLink
+                            href={link.href}
+                            active={pathname === link.href || !!pathname?.startsWith(`${link.href}/`)}
+                            onNavigate={onNavigate}
+                          >
+                            {link.label}
+                          </SidebarLink>
+                        </li>
+                      ))}
+                    </CollapsibleGroup>
+                  );
+                })}
               </ul>
             )}
-          </div>
+          </CollapsibleWorkspace>
         );
       })}
     </nav>
+  );
+}
+
+function CollapsibleWorkspace({
+  label,
+  icon,
+  defaultOpen,
+  active,
+  children,
+}: {
+  label: string;
+  icon: ReactNode;
+  defaultOpen: boolean;
+  active: boolean;
+  children: ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+
+  return (
+    <div className="flex flex-col gap-0.5">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className={cn(
+          "flex h-8 w-full items-center gap-2 rounded-lg px-2 transition-colors focus-visible:outline-2 [&_svg]:size-4 [&_svg]:shrink-0",
+          active
+            ? "bg-surface font-medium text-ink shadow-sm dark:bg-control"
+            : "text-ink-muted hover:bg-control hover:text-ink",
+        )}
+      >
+        <span aria-hidden="true">{icon}</span>
+        <span className="flex-1 truncate text-left">{label}</span>
+        <ChevronRight
+          aria-hidden="true"
+          className={cn("size-3.5 shrink-0 transition-transform", open && "rotate-90")}
+        />
+      </button>
+      {open && (
+        <ul className="ml-4 flex flex-col gap-0.5 border-l border-line pl-2">
+          {children}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function CollapsibleGroup({
+  label,
+  defaultOpen,
+  children,
+}: {
+  label: string;
+  defaultOpen: boolean;
+  children: ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+
+  return (
+    <li>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex h-8 w-full items-center gap-2 rounded-lg px-2 text-ink-muted transition-colors hover:bg-control hover:text-ink focus-visible:outline-2"
+      >
+        <span className="flex-1 truncate text-left">{label}</span>
+        <ChevronRight
+          aria-hidden="true"
+          className={cn("size-3.5 shrink-0 transition-transform", open && "rotate-90")}
+        />
+      </button>
+      {open && (
+        <ul className="ml-4 flex flex-col gap-0.5 border-l border-line pl-2">
+          {children}
+        </ul>
+      )}
+    </li>
   );
 }
 
@@ -97,7 +180,9 @@ function SidebarLink({
       onClick={onNavigate}
       className={cn(
         "flex h-8 items-center gap-2 rounded-lg px-2 transition-colors focus-visible:outline-2 [&_svg]:size-4 [&_svg]:shrink-0",
-        active ? "bg-surface font-medium text-ink shadow-sm dark:bg-control" : "text-ink-muted hover:bg-control hover:text-ink",
+        active
+          ? "bg-surface font-medium text-ink shadow-sm dark:bg-control"
+          : "text-ink-muted hover:bg-control hover:text-ink",
       )}
     >
       {icon && <span aria-hidden="true">{icon}</span>}

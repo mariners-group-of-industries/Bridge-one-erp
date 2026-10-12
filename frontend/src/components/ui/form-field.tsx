@@ -136,13 +136,18 @@ export function SelectField({
 /** Bare checkbox, for grids and list selection. */
 export function Checkbox({
   className,
+  tone = "default",
   ...props
-}: Omit<InputHTMLAttributes<HTMLInputElement>, "type">) {
+}: Omit<InputHTMLAttributes<HTMLInputElement>, "type"> & {
+  /** "accent" draws the checkbox in blue, for checklist grids. */
+  tone?: "default" | "accent";
+}) {
   return (
     <input
       type="checkbox"
       className={cn(
-        "size-3.5 cursor-pointer rounded accent-(--primary) disabled:cursor-not-allowed disabled:opacity-60",
+        "cursor-pointer rounded disabled:cursor-not-allowed disabled:opacity-60",
+        tone === "accent" ? "size-4 accent-(--accent-strong)" : "size-3.5 accent-(--primary)",
         className,
       )}
       {...props}
