@@ -5,9 +5,9 @@ import Link from "next/link";
 import {
   AlertCircle,
   ArrowRightLeft,
-  BookOpen,
   Calendar,
   CheckCircle2,
+  ChevronLeft,
   ChevronRight,
   Clock,
   Download,
@@ -15,6 +15,8 @@ import {
   FileSpreadsheet,
   FileText,
   Filter,
+  Lock,
+  Pencil,
   Plus,
   Printer,
   RotateCcw,
@@ -23,7 +25,6 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { SummaryCard } from "@/components/purchase/SummaryCard";
 import { ModalDialog } from "@/components/purchase/ModalDialog";
 import { useAccountingStore } from "@/features/accounts/store/accounting-store";
 import type { JournalLineItem, JournalType, JournalVoucher, VoucherStatus } from "@/features/accounts/types";
@@ -31,57 +32,66 @@ import type { JournalLineItem, JournalType, JournalVoucher, VoucherStatus } from
 export default function AccountingJournalPage() {
   const vouchers = useAccountingStore((s) => s.vouchers);
   const accounts = useAccountingStore((s) => s.accounts);
-  const costCenters = useAccountingStore((s) => s.costCenters);
   const createVoucher = useAccountingStore((s) => s.createVoucher);
   const postVoucher = useAccountingStore((s) => s.postVoucher);
-  const reverseVoucher = useAccountingStore((s) => s.reverseVoucher);
 
-  const [activeTab, setActiveTab] = useState<"ALL" | "POSTED" | "PENDING" | "REVERSED">("ALL");
+  // Tabs: "ACCOUNTING_JOURNAL" | "PENDING_VOUCHER" | "VOUCHER_REPOSITORY"
+  const [activeTab, setActiveTab] = useState<"ACCOUNTING_JOURNAL" | "PENDING_VOUCHER" | "VOUCHER_REPOSITORY">("ACCOUNTING_JOURNAL");
+
+  // Common Filters
   const [search, setSearch] = useState("");
-  const [filterType, setFilterType] = useState<string>("ALL");
   const [selectedOffice, setSelectedOffice] = useState<string>("ALL");
+  const [selectedTransType, setSelectedTransType] = useState<string>("ALL");
+  const [fromDate, setFromDate] = useState("2026-10-05");
+  const [toDate, setToDate] = useState("2026-10-12");
 
-  // Create Modal State
+  // Repository-specific filters
+  const [repoStatus, setRepoStatus] = useState<string>("ALL");
+  const [prepareBy, setPrepareBy] = useState<string>("ALL");
+
+  // Pagination
+  const [rowsPerPage, setRowsPerPage] = useState<number>(50);
+  const [currentPage, setCurrentPage] = useState<number>(1);
+
+  // Modals
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [formError, setFormError] = useState("");
   const [formSuccess, setFormSuccess] = useState("");
-
-  // Reversal Modal State
-  const [reversalTarget, setReversalTarget] = useState<JournalVoucher | null>(null);
-  const [reversalReason, setReversalReason] = useState("");
-
-  // View / Print Modal
   const [viewingVoucher, setViewingVoucher] = useState<JournalVoucher | null>(null);
+  const [approveConfirmTarget, setApproveConfirmTarget] = useState<JournalVoucher | null>(null);
 
+  // New Voucher Form
   const [newVoucherHeader, setNewVoucherHeader] = useState({
     transactionDate: new Date().toISOString().split("T")[0],
-    officeId: "office-main",
-    officeName: "Dhaka Corporate HQ",
+    officeId: "office-sirajganj",
+    officeName: "MG Sirajganj Factory",
     fiscalYear: "2026-2027",
     journalType: "GENERAL" as JournalType,
+    transType: "Adjustment Journal (Manual)",
     narration: "",
     referenceNumber: "",
-    status: "POSTED" as VoucherStatus,
+    preparedBy: "Md. Roni Mridha",
+    status: "APPROVED" as VoucherStatus,
   });
 
   const [lines, setLines] = useState<JournalLineItem[]>([
     {
       id: "line-1",
-      accountId: "acc-5100",
-      accountCode: "5100",
-      accountName: "Office Rent & Utilities",
-      debit: 50000,
+      accountId: "acc-10201",
+      accountCode: "10201",
+      accountName: "Accounts Receivable",
+      debit: 25000,
       credit: 0,
-      narration: "Office rent for Current Month",
+      narration: "Receivable adjustment",
     },
     {
       id: "line-2",
-      accountId: "acc-1120",
-      accountCode: "1120",
-      accountName: "Cash at Bank - Sonali Bank",
+      accountId: "acc-601",
+      accountCode: "601",
+      accountName: "Sales Income",
       debit: 0,
-      credit: 50000,
-      narration: "Payment via Cheque / Online Transfer",
+      credit: 25000,
+      narration: "Revenue record",
     },
   ]);
 
@@ -89,30 +99,96 @@ export default function AccountingJournalPage() {
   const totalCredit = useMemo(() => lines.reduce((sum, l) => sum + (Number(l.credit) || 0), 0), [lines]);
   const isBalanced = Math.abs(totalDebit - totalCredit) < 0.01 && totalDebit > 0;
 
-  const filteredVouchers = useMemo(() => {
+  // Office List for Filter
+  const officeOptions = [
+    { id: "ALL", name: "All Office" },
+    { id: "MG Sirajganj Factory", name: "MG Sirajganj Factory" },
+    { id: "MGV-PLC", name: "MGV-PLC" },
+    { id: "Dhaka Head Office", name: "Dhaka Head Office" },
+    { id: "MBBL-HO", name: "MBBL-HO" },
+    { id: "MOHS-Eco", name: "MOHS-Eco" },
+    { id: "CFF-Chapai", name: "CFF-Chapai" },
+    { id: "MFIL-HO", name: "MFIL-HO" },
+  ];
+
+  // Transaction Types for Filter
+  const transTypeOptions = [
+    "Sales (Auto)",
+    "Inventory Movement [Transfer In...]",
+    "Inventory Movement [Transfer Out...]",
+    "Inventory Movement (Auto)",
+    "Adjustment Journal (Manual)",
+    "Other Bank Receive Voucher (Auto)",
+    "Other Cash Payment Voucher (Manual)",
+    "Sales Return (Auto)",
+  ];
+
+  // Prepare By Options
+  const prepareByOptions = [
+    "ALL",
+    "Distribution & Logistics",
+    "MD. Tofajjol Hossin",
+    "RSM Md. Humayun Kabir",
+    "Md. Roni Mridha",
+    "Md. Manik Miah",
+  ];
+
+  // Filtered dataset per tab
+  const tabVouchers = useMemo(() => {
     return vouchers.filter((v) => {
-      if (search) {
+      // Tab 1: Accounting Journal - only approved/posted records
+      if (activeTab === "ACCOUNTING_JOURNAL") {
+        if (v.status !== "APPROVED" && v.status !== "POSTED") return false;
+      }
+      // Tab 2: Pending Voucher - pending or in progress
+      else if (activeTab === "PENDING_VOUCHER") {
+        if (v.status !== "PENDING" && v.status !== "IN_PROGRESS" && v.status !== "DRAFT") return false;
+      }
+      // Tab 3: Voucher Repository - shows everything (optionally filtered by repoStatus)
+      else if (activeTab === "VOUCHER_REPOSITORY") {
+        if (repoStatus !== "ALL") {
+          if (repoStatus === "APPROVED" && v.status !== "APPROVED" && v.status !== "POSTED") return false;
+          if (repoStatus === "PENDING" && v.status !== "PENDING") return false;
+          if (repoStatus === "IN_PROGRESS" && v.status !== "IN_PROGRESS") return false;
+        }
+        if (prepareBy !== "ALL" && v.preparedBy !== prepareBy) return false;
+      }
+
+      // Office Filter
+      if (selectedOffice !== "ALL" && v.officeName !== selectedOffice) return false;
+
+      // Transaction Type Filter
+      if (selectedTransType !== "ALL" && v.transType !== selectedTransType) return false;
+
+      // Search Query
+      if (search.trim()) {
         const q = search.toLowerCase();
-        const m =
+        const matches =
           v.voucherNumber.toLowerCase().includes(q) ||
           v.narration.toLowerCase().includes(q) ||
           v.officeName.toLowerCase().includes(q) ||
-          (v.referenceNumber && v.referenceNumber.toLowerCase().includes(q)) ||
+          (v.transType && v.transType.toLowerCase().includes(q)) ||
+          (v.preparedBy && v.preparedBy.toLowerCase().includes(q)) ||
+          (v.createDate && v.createDate.toLowerCase().includes(q)) ||
           v.lines.some((l) => l.accountName.toLowerCase().includes(q) || l.accountCode.includes(q));
-        if (!m) return false;
+        if (!matches) return false;
       }
-      if (activeTab === "POSTED" && v.status !== "POSTED") return false;
-      if (activeTab === "PENDING" && v.status !== "PENDING" && v.status !== "DRAFT") return false;
-      if (activeTab === "REVERSED" && v.status !== "REVERSED") return false;
-      if (filterType !== "ALL" && v.journalType !== filterType) return false;
-      if (selectedOffice !== "ALL" && v.officeId !== selectedOffice) return false;
+
       return true;
     });
-  }, [vouchers, search, activeTab, filterType, selectedOffice]);
+  }, [vouchers, activeTab, selectedOffice, selectedTransType, repoStatus, prepareBy, search]);
+
+  // Paginated Slicing
+  const totalRows = tabVouchers.length;
+  const totalPages = Math.ceil(totalRows / rowsPerPage) || 1;
+  const paginatedVouchers = useMemo(() => {
+    const start = (currentPage - 1) * rowsPerPage;
+    return tabVouchers.slice(start, start + rowsPerPage);
+  }, [tabVouchers, currentPage, rowsPerPage]);
 
   const handleAddLine = () => {
     const id = `line-${Date.now()}`;
-    setLines([...lines, { id, accountId: "acc-1110", accountCode: "1110", accountName: "Cash in Hand", debit: 0, credit: 0, narration: "" }]);
+    setLines([...lines, { id, accountId: "acc-1461", accountCode: "1461", accountName: "Cash In Hand", debit: 0, credit: 0, narration: "" }]);
   };
 
   const handleRemoveLine = (id: string) => {
@@ -151,7 +227,9 @@ export default function AccountingJournalPage() {
     const res = createVoucher({
       ...newVoucherHeader,
       lines,
-      createdBy: "Finance Officer",
+      createdBy: newVoucherHeader.preparedBy,
+      amount: totalDebit,
+      createDate: new Date().toLocaleDateString("en-GB").replace(/\//g, "-"),
     });
 
     if (!res.success) {
@@ -166,688 +244,941 @@ export default function AccountingJournalPage() {
     }, 800);
   };
 
-  const handleConfirmReversal = () => {
-    if (!reversalTarget) return;
-    if (!reversalReason.trim()) {
-      alert("Please provide a reason for reversal.");
-      return;
-    }
-    const res = reverseVoucher(reversalTarget.id, reversalReason.trim());
-    if (res.success) {
-      setReversalTarget(null);
-      setReversalReason("");
-    } else {
-      alert(res.message);
-    }
+  const handleApproveVoucher = (voucher: JournalVoucher) => {
+    setApproveConfirmTarget(voucher);
   };
 
-  const handleExportCSV = () => {
-    let csv = "SL,Voucher #,Date,Type,Office,Narration,Total Debit,Total Credit,Status\n";
-    filteredVouchers.forEach((v, i) => {
-      csv += `"${i + 1}","${v.voucherNumber}","${v.transactionDate}","${v.journalType}","${v.officeName}","${v.narration.replace(/"/g, '""')}","${v.totalDebit}","${v.totalCredit}","${v.status}"\n`;
+  const confirmApproval = () => {
+    if (!approveConfirmTarget) return;
+    postVoucher(approveConfirmTarget.id);
+    setApproveConfirmTarget(null);
+  };
+
+  const handleExportExcel = () => {
+    let csv = "SL,Date,Trans Number,Office Name,Trans. Type,Narration,Prepare By,Amount,Status\n";
+    tabVouchers.forEach((v, i) => {
+      csv += `"${i + 1}","${v.createDate || v.transactionDate}","${v.voucherNumber}","${v.officeName}","${v.transType || v.journalType}","${(v.narration || "").replace(/"/g, '""')}","${v.preparedBy || v.createdBy}","${v.amount || v.totalDebit}","${v.status}"\n`;
     });
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
-    link.href = encodeURI("data:text/csv;charset=utf-8," + csv);
-    link.download = `BridgeOne_Journal_Vouchers.csv`;
+    link.href = url;
+    link.download = `Accounting_Vouchers_${activeTab}_${new Date().toISOString().split("T")[0]}.csv`;
     link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handlePrint = () => {
+    window.print();
   };
 
   return (
-    <div className="space-y-3 font-sans pb-12">
+    <div className="space-y-2.5 font-sans pb-12">
       {/* ------------------------------------------------------------- */}
-      {/* 1. TOP HEADER (Exact Managerium / Purchase Layout) */}
+      {/* 1. TOP BAR: TABS ON LEFT + ACTIONS/SEARCH ON RIGHT */}
       {/* ------------------------------------------------------------- */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-3 rounded border border-slate-200/90 shadow-2xs">
-        <div>
-          <nav className="flex items-center gap-1.5 text-[11px] text-slate-400 mb-0.5">
-            <Link href="/accounts" className="hover:text-slate-600 transition">
-              Account
-            </Link>
-            <ChevronRight className="w-3 h-3 text-slate-300" />
-            <span className="text-slate-600 font-medium">Accounting Journal</span>
-          </nav>
-          <h1 className="text-xl font-bold text-slate-900 tracking-tight">Accounting Journal</h1>
-          <p className="text-xs text-slate-500 mt-0.5">
-            Double-entry journal vouchers, multi-line ledger postings, approvals, and immutable audit trails
-          </p>
-        </div>
-
-        <div className="flex items-center gap-2 flex-wrap">
-          {/* Quick search */}
-          <div className="relative">
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search voucher #, narration..."
-              className="w-56 sm:w-64 h-9 pl-3 pr-8 text-xs border border-slate-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 bg-white placeholder-slate-400"
-            />
-            <Search className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+      <div className="bg-white rounded border border-slate-200/90 shadow-2xs p-2.5">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+          {/* TABS */}
+          <div className="flex items-center gap-1.5 border-b md:border-b-0 border-slate-200 pb-2 md:pb-0 overflow-x-auto">
+            <button
+              onClick={() => {
+                setActiveTab("ACCOUNTING_JOURNAL");
+                setCurrentPage(1);
+              }}
+              className={`px-4 py-1.5 text-xs font-semibold rounded transition-colors whitespace-nowrap ${
+                activeTab === "ACCOUNTING_JOURNAL"
+                  ? "bg-[#e0edff] text-[#1e40af] border border-[#bfdbfe]"
+                  : "text-slate-600 hover:bg-slate-100"
+              }`}
+            >
+              Accounting Journal
+            </button>
+            <button
+              onClick={() => {
+                setActiveTab("PENDING_VOUCHER");
+                setCurrentPage(1);
+              }}
+              className={`px-4 py-1.5 text-xs font-semibold rounded transition-colors whitespace-nowrap ${
+                activeTab === "PENDING_VOUCHER"
+                  ? "bg-[#e0edff] text-[#1e40af] border border-[#bfdbfe]"
+                  : "text-slate-600 hover:bg-slate-100"
+              }`}
+            >
+              Pending Voucher
+            </button>
+            <button
+              onClick={() => {
+                setActiveTab("VOUCHER_REPOSITORY");
+                setCurrentPage(1);
+              }}
+              className={`px-4 py-1.5 text-xs font-semibold rounded transition-colors whitespace-nowrap ${
+                activeTab === "VOUCHER_REPOSITORY"
+                  ? "bg-[#e0edff] text-[#1e40af] border border-[#bfdbfe]"
+                  : "text-slate-600 hover:bg-slate-100"
+              }`}
+            >
+              Voucher Repository
+            </button>
           </div>
 
-          <button
-            type="button"
-            onClick={handleExportCSV}
-            className="h-9 px-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs rounded flex items-center gap-1.5 shadow-xs transition"
-          >
-            <Download className="w-3.5 h-3.5" />
-            <span>Excel</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => {
-              setFormError("");
-              setFormSuccess("");
-              setIsCreateOpen(true);
-            }}
-            className="h-9 px-4 bg-[#2563eb] hover:bg-blue-700 text-white font-semibold text-xs rounded flex items-center gap-1.5 shadow-xs transition"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Create Journal Voucher</span>
-          </button>
-        </div>
-      </div>
-
-      {/* ------------------------------------------------------------- */}
-      {/* 2. SUMMARY KPI CARDS ROW */}
-      {/* ------------------------------------------------------------- */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <SummaryCard
-          title="Total Posted Vouchers"
-          value={vouchers.filter((v) => v.status === "POSTED").length}
-          subtitle={`৳${vouchers.filter((v) => v.status === "POSTED").reduce((sum, v) => sum + v.totalDebit, 0).toLocaleString()} volume`}
-          icon={BookOpen}
-          variant="info"
-        />
-        <SummaryCard
-          title="Pending Posting"
-          value={vouchers.filter((v) => v.status === "PENDING" || v.status === "DRAFT").length}
-          subtitle="Draft & pending approval"
-          icon={Clock}
-          variant="warning"
-        />
-        <SummaryCard
-          title="Reversed Vouchers"
-          value={vouchers.filter((v) => v.status === "REVERSED").length}
-          subtitle="Corrected & void transactions"
-          icon={ArrowRightLeft}
-          variant="danger"
-        />
-        <SummaryCard
-          title="Ledger Invariant"
-          value="100% BALANCED"
-          subtitle="Debit equals Credit across all entries"
-          icon={ShieldCheck}
-          variant="success"
-        />
-      </div>
-
-      {/* ------------------------------------------------------------- */}
-      {/* 3. NAVIGATION TABS */}
-      {/* ------------------------------------------------------------- */}
-      <div className="flex items-center gap-8 border-b border-slate-200 mb-3 bg-white px-3 pt-2 rounded-t border-t border-x border-slate-200/90 overflow-x-auto select-none">
-        <button
-          type="button"
-          onClick={() => setActiveTab("ALL")}
-          className={`pb-2.5 text-xs font-bold tracking-wide transition-colors relative flex items-center gap-2 uppercase whitespace-nowrap ${
-            activeTab === "ALL"
-              ? "text-blue-600 border-b-2 border-blue-600 -mb-[1px]"
-              : "text-slate-500 hover:text-slate-800"
-          }`}
-        >
-          <span>ALL VOUCHERS ({vouchers.length})</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setActiveTab("POSTED")}
-          className={`pb-2.5 text-xs font-bold tracking-wide transition-colors relative flex items-center gap-2 uppercase whitespace-nowrap ${
-            activeTab === "POSTED"
-              ? "text-blue-600 border-b-2 border-blue-600 -mb-[1px]"
-              : "text-slate-500 hover:text-slate-800"
-          }`}
-        >
-          <span>POSTED TO LEDGER ({vouchers.filter((v) => v.status === "POSTED").length})</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setActiveTab("PENDING")}
-          className={`pb-2.5 text-xs font-bold tracking-wide transition-colors relative flex items-center gap-2 uppercase whitespace-nowrap ${
-            activeTab === "PENDING"
-              ? "text-blue-600 border-b-2 border-blue-600 -mb-[1px]"
-              : "text-slate-500 hover:text-slate-800"
-          }`}
-        >
-          <span>PENDING / DRAFT ({vouchers.filter((v) => v.status === "PENDING" || v.status === "DRAFT").length})</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setActiveTab("REVERSED")}
-          className={`pb-2.5 text-xs font-bold tracking-wide transition-colors relative flex items-center gap-2 uppercase whitespace-nowrap ${
-            activeTab === "REVERSED"
-              ? "text-blue-600 border-b-2 border-blue-600 -mb-[1px]"
-              : "text-slate-500 hover:text-slate-800"
-          }`}
-        >
-          <span>REVERSED ({vouchers.filter((v) => v.status === "REVERSED").length})</span>
-        </button>
-      </div>
-
-      {/* ------------------------------------------------------------- */}
-      {/* 4. FILTER TOOLBAR */}
-      {/* ------------------------------------------------------------- */}
-      <div className="bg-white rounded border border-slate-200/90 p-3 shadow-2xs">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex flex-wrap items-center gap-3 flex-1 min-w-0">
-            <div className="flex items-center gap-1.5 text-xs text-slate-600">
-              <span className="font-medium text-[11px] text-slate-500">Journal Type:</span>
-              <select
-                value={filterType}
-                onChange={(e) => setFilterType(e.target.value)}
-                className="border border-slate-200 rounded px-2.5 py-1 text-xs bg-slate-50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
-              >
-                <option value="ALL">All Journal Types</option>
-                <option value="GENERAL">General Journal</option>
-                <option value="PAYMENT">Payment Voucher</option>
-                <option value="RECEIPT">Receipt Voucher</option>
-                <option value="CONTRA">Contra Voucher</option>
-                <option value="ADJUSTMENT">Adjustment Voucher</option>
-                <option value="REVERSAL">Reversal Voucher</option>
-              </select>
+          {/* TOP RIGHT CONTROLS */}
+          <div className="flex items-center gap-2 flex-wrap">
+            {/* Search Box */}
+            <div className="relative min-w-[180px]">
+              <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                type="text"
+                placeholder="Search..."
+                value={search}
+                onChange={(e) => {
+                  setSearch(e.target.value);
+                  setCurrentPage(1);
+                }}
+                className="w-full pl-8 pr-2.5 py-1 text-xs border border-slate-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
+              />
             </div>
 
-            <div className="flex items-center gap-1.5 text-xs text-slate-600">
-              <span className="font-medium text-[11px] text-slate-500">Office:</span>
+            {/* Extra Buttons in Voucher Repository Tab */}
+            {activeTab === "VOUCHER_REPOSITORY" && (
+              <>
+                <button
+                  onClick={handleExportExcel}
+                  className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-medium transition-colors shadow-2xs"
+                >
+                  Export to Excel
+                </button>
+                <button
+                  onClick={handlePrint}
+                  className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-medium transition-colors shadow-2xs"
+                >
+                  PDF
+                </button>
+              </>
+            )}
+
+            {/* + Journal Button */}
+            <button
+              onClick={() => setIsCreateOpen(true)}
+              className="inline-flex items-center gap-1 px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-medium transition-colors shadow-2xs"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>Journal</span>
+            </button>
+          </div>
+        </div>
+
+        {/* ------------------------------------------------------------- */}
+        {/* 2. FILTER TOOLBAR (Matches Screenshots 1, 2, 3) */}
+        {/* ------------------------------------------------------------- */}
+        <div className="mt-3 pt-3 border-t border-slate-100">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 lg:grid-cols-6 gap-2.5 items-end">
+            {/* Office Filter */}
+            <div>
+              <label className="block text-[11px] font-medium text-slate-600 mb-0.5">Office</label>
               <select
                 value={selectedOffice}
-                onChange={(e) => setSelectedOffice(e.target.value)}
-                className="border border-slate-200 rounded px-2.5 py-1 text-xs bg-slate-50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                onChange={(e) => {
+                  setSelectedOffice(e.target.value);
+                  setCurrentPage(1);
+                }}
+                className="w-full text-xs border border-slate-300 rounded px-2.5 py-1 focus:ring-1 focus:ring-blue-500 bg-white text-slate-700"
               >
-                <option value="ALL">All Offices & Plants</option>
-                <option value="office-main">Dhaka Corporate HQ</option>
-                <option value="office-ctg">Chittagong Heavy Plant</option>
+                {officeOptions.map((o) => (
+                  <option key={o.id} value={o.id}>
+                    {o.name}
+                  </option>
+                ))}
               </select>
             </div>
-          </div>
 
-          <button
-            type="button"
-            onClick={() => {
-              setSearch("");
-              setFilterType("ALL");
-              setSelectedOffice("ALL");
-            }}
-            className="flex items-center gap-1 px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded text-xs font-medium transition"
-          >
-            <RotateCcw className="w-3.5 h-3.5" />
-            <span>Reset</span>
-          </button>
+            {/* Transaction Type Filter */}
+            <div>
+              <label className="block text-[11px] font-medium text-slate-600 mb-0.5">Transaction Type</label>
+              <select
+                value={selectedTransType}
+                onChange={(e) => {
+                  setSelectedTransType(e.target.value);
+                  setCurrentPage(1);
+                }}
+                className="w-full text-xs border border-slate-300 rounded px-2.5 py-1 focus:ring-1 focus:ring-blue-500 bg-white text-slate-700 truncate"
+              >
+                <option value="ALL">Transaction Type (All)</option>
+                {transTypeOptions.map((tt) => (
+                  <option key={tt} value={tt}>
+                    {tt}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Status Filter (Only on Voucher Repository) */}
+            {activeTab === "VOUCHER_REPOSITORY" && (
+              <div>
+                <label className="block text-[11px] font-medium text-slate-600 mb-0.5">Status</label>
+                <select
+                  value={repoStatus}
+                  onChange={(e) => {
+                    setRepoStatus(e.target.value);
+                    setCurrentPage(1);
+                  }}
+                  className="w-full text-xs border border-slate-300 rounded px-2.5 py-1 focus:ring-1 focus:ring-blue-500 bg-white text-slate-700"
+                >
+                  <option value="ALL">Status (All)</option>
+                  <option value="APPROVED">Approved</option>
+                  <option value="PENDING">Pending</option>
+                  <option value="IN_PROGRESS">In Progress</option>
+                </select>
+              </div>
+            )}
+
+            {/* From Date */}
+            <div>
+              <label className="block text-[11px] font-medium text-slate-600 mb-0.5">From Date</label>
+              <div className="relative">
+                <input
+                  type="date"
+                  value={fromDate}
+                  onChange={(e) => setFromDate(e.target.value)}
+                  className="w-full text-xs border border-slate-300 rounded px-2.5 py-1 focus:ring-1 focus:ring-blue-500 bg-white text-slate-700"
+                />
+              </div>
+            </div>
+
+            {/* To Date */}
+            <div>
+              <label className="block text-[11px] font-medium text-slate-600 mb-0.5">To Date</label>
+              <div className="relative">
+                <input
+                  type="date"
+                  value={toDate}
+                  onChange={(e) => setToDate(e.target.value)}
+                  className="w-full text-xs border border-slate-300 rounded px-2.5 py-1 focus:ring-1 focus:ring-blue-500 bg-white text-slate-700"
+                />
+              </div>
+            </div>
+
+            {/* Prepare By (Only on Voucher Repository) */}
+            {activeTab === "VOUCHER_REPOSITORY" && (
+              <div>
+                <label className="block text-[11px] font-medium text-slate-600 mb-0.5">Prepare By</label>
+                <select
+                  value={prepareBy}
+                  onChange={(e) => {
+                    setPrepareBy(e.target.value);
+                    setCurrentPage(1);
+                  }}
+                  className="w-full text-xs border border-slate-300 rounded px-2.5 py-1 focus:ring-1 focus:ring-blue-500 bg-white text-slate-700 truncate"
+                >
+                  {prepareByOptions.map((pb) => (
+                    <option key={pb} value={pb}>
+                      {pb === "ALL" ? "Prepare By (All)" : pb}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            {/* View Filter Button */}
+            <div>
+              <button
+                onClick={() => setCurrentPage(1)}
+                className="w-full sm:w-auto px-5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-semibold transition-colors shadow-2xs"
+              >
+                View
+              </button>
+            </div>
+          </div>
         </div>
       </div>
 
       {/* ------------------------------------------------------------- */}
-      {/* 5. VOUCHER REGISTER TABLE */}
+      {/* 3. MAIN DATA TABLE (Conditional on Tab) */}
       {/* ------------------------------------------------------------- */}
       <div className="bg-white rounded border border-slate-200/90 shadow-2xs overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs">
-            <thead className="bg-slate-50 border-y border-slate-200 text-[11px] font-bold text-slate-700 uppercase tracking-wider">
-              <tr>
-                <th className="px-3.5 py-2.5">SL</th>
-                <th className="px-3.5 py-2.5">Voucher #</th>
-                <th className="px-3.5 py-2.5">Date</th>
-                <th className="px-3.5 py-2.5">Type</th>
-                <th className="px-3.5 py-2.5">Office / Branch</th>
-                <th className="px-3.5 py-2.5">Narration & Accounts</th>
-                <th className="px-3.5 py-2.5 text-right">Debit (৳)</th>
-                <th className="px-3.5 py-2.5 text-right">Credit (৳)</th>
-                <th className="px-3.5 py-2.5 text-center">Status</th>
-                <th className="px-3.5 py-2.5 text-center">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {filteredVouchers.length === 0 ? (
-                <tr>
-                  <td colSpan={10} className="py-8 text-center text-xs text-slate-400">
-                    No journal vouchers found matching filter criteria.
-                  </td>
+          {/* TAB 1: ACCOUNTING JOURNAL TABLE */}
+          {activeTab === "ACCOUNTING_JOURNAL" && (
+            <table className="w-full text-left border-collapse text-xs">
+              <thead>
+                <tr className="bg-[#f0f4f8] text-slate-700 font-semibold border-b border-slate-200 uppercase text-[11px] tracking-wider">
+                  <th className="py-2 px-3 w-12 text-center">SL</th>
+                  <th className="py-2 px-3 text-center w-20">Action</th>
+                  <th className="py-2 px-3 w-24">Create Date</th>
+                  <th className="py-2 px-3 w-36">Transaction Date</th>
+                  <th className="py-2 px-3 w-36">Trans Number</th>
+                  <th className="py-2 px-3 w-36">Office Name</th>
+                  <th className="py-2 px-3 w-44">Trans. Type</th>
+                  <th className="py-2 px-3">Narration</th>
+                  <th className="py-2 px-3 text-right w-28">Amount</th>
                 </tr>
-              ) : (
-                filteredVouchers.map((v, index) => (
-                  <tr key={v.id} className="hover:bg-slate-50/80 transition-colors">
-                    <td className="px-3.5 py-2.5 font-medium text-slate-500">{index + 1}</td>
-                    <td className="px-3.5 py-2.5 font-mono font-bold text-blue-600">{v.voucherNumber}</td>
-                    <td className="px-3.5 py-2.5 text-slate-600">{v.transactionDate}</td>
-                    <td className="px-3.5 py-2.5">
-                      <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-100 text-slate-700 border border-slate-200">
-                        {v.journalType}
-                      </span>
-                    </td>
-                    <td className="px-3.5 py-2.5 text-slate-700 font-medium">{v.officeName}</td>
-                    <td className="px-3.5 py-2.5 max-w-xs">
-                      <div className="font-medium text-slate-900 truncate">{v.narration}</div>
-                      <div className="text-[11px] text-slate-400 truncate">
-                        {v.lines.map((l) => l.accountName).join(" • ")}
-                      </div>
-                    </td>
-                    <td className="px-3.5 py-2.5 text-right font-mono font-semibold text-slate-800">
-                      ৳{v.totalDebit.toLocaleString()}
-                    </td>
-                    <td className="px-3.5 py-2.5 text-right font-mono font-semibold text-slate-800">
-                      ৳{v.totalCredit.toLocaleString()}
-                    </td>
-                    <td className="px-3.5 py-2.5 text-center">
-                      <span
-                        className={`px-2 py-0.5 rounded-full text-[10px] font-semibold border ${
-                          v.status === "POSTED"
-                            ? "bg-emerald-50 text-emerald-700 border-emerald-200"
-                            : v.status === "REVERSED"
-                            ? "bg-rose-50 text-rose-700 border-rose-200"
-                            : "bg-amber-50 text-amber-700 border-amber-200"
-                        }`}
-                      >
-                        {v.status}
-                      </span>
-                    </td>
-                    <td className="px-3.5 py-2.5 text-center">
-                      <div className="flex items-center justify-center gap-1.5">
-                        <button
-                          type="button"
-                          onClick={() => setViewingVoucher(v)}
-                          className="p-1 rounded text-slate-500 hover:text-blue-600 hover:bg-slate-100 transition"
-                          title="View Voucher Slip & Print"
-                        >
-                          <Eye className="w-3.5 h-3.5" />
-                        </button>
-                        {v.status === "POSTED" && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setReversalTarget(v);
-                              setReversalReason("");
-                            }}
-                            className="p-1 rounded text-slate-500 hover:text-rose-600 hover:bg-rose-50 transition"
-                            title="Reverse Posted Voucher"
-                          >
-                            <ArrowRightLeft className="w-3.5 h-3.5" />
-                          </button>
-                        )}
-                        {(v.status === "PENDING" || v.status === "DRAFT") && (
-                          <button
-                            type="button"
-                            onClick={() => postVoucher(v.id)}
-                            className="px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-600 hover:bg-emerald-700 text-white transition"
-                          >
-                            Post
-                          </button>
-                        )}
-                      </div>
+              </thead>
+              <tbody className="divide-y divide-slate-100 text-slate-700">
+                {paginatedVouchers.length === 0 ? (
+                  <tr>
+                    <td colSpan={9} className="py-8 text-center text-slate-400">
+                      No accounting journal entries found matching criteria.
                     </td>
                   </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+                ) : (
+                  paginatedVouchers.map((v, index) => {
+                    const sl = (currentPage - 1) * rowsPerPage + index + 1;
+                    return (
+                      <tr key={v.id} className="hover:bg-blue-50/40 transition-colors">
+                        <td className="py-2 px-3 text-center text-slate-500">{sl}</td>
+                        <td className="py-2 px-3 text-center">
+                          <div className="flex items-center justify-center gap-1.5">
+                            <button
+                              onClick={() => setViewingVoucher(v)}
+                              title="View Voucher"
+                              className="w-6 h-6 rounded-full bg-slate-100 hover:bg-blue-100 text-slate-600 hover:text-blue-700 flex items-center justify-center transition-colors"
+                            >
+                              <Eye className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={() => setViewingVoucher(v)}
+                              title="Print Voucher"
+                              className="w-6 h-6 rounded-full bg-slate-100 hover:bg-blue-100 text-slate-600 hover:text-blue-700 flex items-center justify-center transition-colors"
+                            >
+                              <Printer className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </td>
+                        <td className="py-2 px-3 text-slate-600 whitespace-nowrap">{v.createDate || v.transactionDate.split(" - ")[0]}</td>
+                        <td className="py-2 px-3 text-slate-600 whitespace-nowrap font-mono text-[11px]">{v.transactionDate}</td>
+                        <td className="py-2 px-3">
+                          <button
+                            onClick={() => setViewingVoucher(v)}
+                            className="text-blue-600 hover:underline font-medium font-mono text-left"
+                          >
+                            {v.voucherNumber}
+                          </button>
+                        </td>
+                        <td className="py-2 px-3 font-medium text-slate-800 whitespace-nowrap">{v.officeName}</td>
+                        <td className="py-2 px-3 text-slate-600 whitespace-nowrap">{v.transType || v.journalType}</td>
+                        <td className="py-2 px-3 text-slate-700 max-w-md truncate" title={v.narration}>
+                          {v.narration}
+                        </td>
+                        <td className="py-2 px-3 text-right font-mono font-medium text-slate-900 whitespace-nowrap">
+                          {(v.amount || v.totalDebit).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          )}
+
+          {/* TAB 2: PENDING VOUCHER TABLE */}
+          {activeTab === "PENDING_VOUCHER" && (
+            <table className="w-full text-left border-collapse text-xs">
+              <thead>
+                <tr className="bg-[#f0f4f8] text-slate-700 font-semibold border-b border-slate-200 uppercase text-[11px] tracking-wider">
+                  <th className="py-2 px-3 w-12 text-center">SL</th>
+                  <th className="py-2 px-3 text-center w-24">Action</th>
+                  <th className="py-2 px-3 w-28">Date</th>
+                  <th className="py-2 px-3 w-36">Trans Number</th>
+                  <th className="py-2 px-3 w-36">Office Name</th>
+                  <th className="py-2 px-3 w-48">Trans. Type</th>
+                  <th className="py-2 px-3">Narration</th>
+                  <th className="py-2 px-3 text-right w-28">Amount</th>
+                  <th className="py-2 px-3 text-center w-28">Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 text-slate-700">
+                {paginatedVouchers.length === 0 ? (
+                  <tr>
+                    <td colSpan={9} className="py-8 text-center text-slate-400">
+                      No pending vouchers waiting for approval.
+                    </td>
+                  </tr>
+                ) : (
+                  paginatedVouchers.map((v, index) => {
+                    const sl = (currentPage - 1) * rowsPerPage + index + 1;
+                    return (
+                      <tr key={v.id} className="hover:bg-blue-50/40 transition-colors">
+                        <td className="py-2 px-3 text-center text-slate-500">{sl}</td>
+                        <td className="py-2 px-3 text-center">
+                          <div className="flex items-center justify-center gap-1.5">
+                            <button
+                              onClick={() => setViewingVoucher(v)}
+                              title="Edit / Review Voucher"
+                              className="w-6 h-6 rounded-full bg-slate-100 hover:bg-blue-100 text-slate-600 hover:text-blue-700 flex items-center justify-center transition-colors"
+                            >
+                              <Pencil className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={() => handleApproveVoucher(v)}
+                              title="Approve Voucher"
+                              className="w-6 h-6 rounded-full bg-amber-50 hover:bg-emerald-100 text-amber-600 hover:text-emerald-700 flex items-center justify-center transition-colors"
+                            >
+                              <ShieldCheck className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </td>
+                        <td className="py-2 px-3 text-slate-600 whitespace-nowrap">{v.createDate || v.transactionDate}</td>
+                        <td className="py-2 px-3">
+                          <button
+                            onClick={() => setViewingVoucher(v)}
+                            className="text-blue-600 hover:underline font-medium font-mono text-left"
+                          >
+                            {v.voucherNumber}
+                          </button>
+                        </td>
+                        <td className="py-2 px-3 font-medium text-slate-800 whitespace-nowrap">{v.officeName}</td>
+                        <td className="py-2 px-3 text-slate-600 whitespace-nowrap">{v.transType || v.journalType}</td>
+                        <td className="py-2 px-3 text-slate-700 max-w-md truncate" title={v.narration}>
+                          {v.narration}
+                        </td>
+                        <td className="py-2 px-3 text-right font-mono font-medium text-slate-900 whitespace-nowrap">
+                          {(v.amount || v.totalDebit).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </td>
+                        <td className="py-2 px-3 text-center whitespace-nowrap">
+                          {v.status === "PENDING" ? (
+                            <span className="px-2 py-0.5 rounded text-[11px] font-semibold text-amber-700 bg-amber-100 border border-amber-200">
+                              Pending
+                            </span>
+                          ) : (
+                            <span className="px-2 py-0.5 rounded text-[11px] font-semibold text-slate-700 bg-slate-100 border border-slate-200">
+                              In Progress
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          )}
+
+          {/* TAB 3: VOUCHER REPOSITORY TABLE */}
+          {activeTab === "VOUCHER_REPOSITORY" && (
+            <table className="w-full text-left border-collapse text-xs">
+              <thead>
+                <tr className="bg-[#f0f4f8] text-slate-700 font-semibold border-b border-slate-200 uppercase text-[11px] tracking-wider">
+                  <th className="py-2 px-3 w-12 text-center">SL</th>
+                  <th className="py-2 px-3 text-center w-24">Action</th>
+                  <th className="py-2 px-3 w-28">Date</th>
+                  <th className="py-2 px-3 w-36">Trans Number</th>
+                  <th className="py-2 px-3 w-36">Office Name</th>
+                  <th className="py-2 px-3 w-40">Trans. Type</th>
+                  <th className="py-2 px-3">Narration</th>
+                  <th className="py-2 px-3 w-36">Prepare By</th>
+                  <th className="py-2 px-3 text-right w-28">Amount</th>
+                  <th className="py-2 px-3 text-center w-24">Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 text-slate-700">
+                {paginatedVouchers.length === 0 ? (
+                  <tr>
+                    <td colSpan={10} className="py-8 text-center text-slate-400">
+                      No vouchers found in repository matching criteria.
+                    </td>
+                  </tr>
+                ) : (
+                  paginatedVouchers.map((v, index) => {
+                    const sl = (currentPage - 1) * rowsPerPage + index + 1;
+                    return (
+                      <tr key={v.id} className="hover:bg-blue-50/40 transition-colors">
+                        <td className="py-2 px-3 text-center text-slate-500">{sl}</td>
+                        <td className="py-2 px-3 text-center">
+                          <div className="flex items-center justify-center gap-1.5">
+                            <button
+                              onClick={() => setViewingVoucher(v)}
+                              title="View Voucher"
+                              className="w-6 h-6 rounded-full bg-slate-100 hover:bg-blue-100 text-slate-600 hover:text-blue-700 flex items-center justify-center transition-colors"
+                            >
+                              <Eye className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={() => setViewingVoucher(v)}
+                              title="Print Voucher"
+                              className="w-6 h-6 rounded-full bg-slate-100 hover:bg-blue-100 text-slate-600 hover:text-blue-700 flex items-center justify-center transition-colors"
+                            >
+                              <Printer className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </td>
+                        <td className="py-2 px-3 text-slate-600 whitespace-nowrap">{v.createDate || v.transactionDate.split(" - ")[0]}</td>
+                        <td className="py-2 px-3">
+                          <button
+                            onClick={() => setViewingVoucher(v)}
+                            className="text-blue-600 hover:underline font-medium font-mono text-left"
+                          >
+                            {v.voucherNumber}
+                          </button>
+                        </td>
+                        <td className="py-2 px-3 font-medium text-slate-800 whitespace-nowrap">{v.officeName}</td>
+                        <td className="py-2 px-3 text-slate-600 whitespace-nowrap">{v.transType || v.journalType}</td>
+                        <td className="py-2 px-3 text-slate-700 max-w-sm truncate" title={v.narration}>
+                          {v.narration}
+                        </td>
+                        <td className="py-2 px-3 text-slate-600 whitespace-nowrap">{v.preparedBy || v.createdBy}</td>
+                        <td className="py-2 px-3 text-right font-mono font-medium text-slate-900 whitespace-nowrap">
+                          {(v.amount || v.totalDebit).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </td>
+                        <td className="py-2 px-3 text-center whitespace-nowrap">
+                          {v.status === "APPROVED" || v.status === "POSTED" ? (
+                            <span className="px-2 py-0.5 rounded text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200">
+                              Approved
+                            </span>
+                          ) : v.status === "PENDING" ? (
+                            <span className="px-2 py-0.5 rounded text-[11px] font-semibold text-amber-700 bg-amber-50 border border-amber-200">
+                              Pending
+                            </span>
+                          ) : (
+                            <span className="px-2 py-0.5 rounded text-[11px] font-semibold text-slate-700 bg-slate-100 border border-slate-200">
+                              In Progress
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          )}
+        </div>
+
+        {/* ------------------------------------------------------------- */}
+        {/* 4. TABLE FOOTER / PAGINATION (Matches Screenshot) */}
+        {/* ------------------------------------------------------------- */}
+        <div className="p-3 border-t border-slate-200 bg-slate-50/50 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-600">
+          <div className="flex items-center gap-2">
+            <span>
+              Showing {totalRows === 0 ? 0 : (currentPage - 1) * rowsPerPage + 1}–
+              {Math.min(currentPage * rowsPerPage, totalRows)} of {totalRows} Rows
+            </span>
+            <span className="text-slate-400">|</span>
+            <div className="flex items-center gap-1.5">
+              <span>Rows</span>
+              <select
+                value={rowsPerPage}
+                onChange={(e) => {
+                  setRowsPerPage(Number(e.target.value));
+                  setCurrentPage(1);
+                }}
+                className="text-xs border border-slate-300 rounded px-1.5 py-0.5 bg-white text-slate-700 focus:outline-none"
+              >
+                <option value={10}>10</option>
+                <option value={25}>25</option>
+                <option value={50}>50</option>
+                <option value={100}>100</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+              disabled={currentPage <= 1}
+              className="w-7 h-7 flex items-center justify-center rounded border border-slate-200 bg-white hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed text-slate-600 transition-colors"
+            >
+              <ChevronLeft className="w-3.5 h-3.5" />
+            </button>
+            {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+              const p = i + 1;
+              return (
+                <button
+                  key={p}
+                  onClick={() => setCurrentPage(p)}
+                  className={`w-7 h-7 flex items-center justify-center rounded text-xs font-medium transition-colors ${
+                    currentPage === p
+                      ? "bg-blue-600 text-white font-semibold shadow-2xs"
+                      : "border border-slate-200 bg-white hover:bg-slate-100 text-slate-700"
+                  }`}
+                >
+                  {p}
+                </button>
+              );
+            })}
+            <button
+              onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+              disabled={currentPage >= totalPages}
+              className="w-7 h-7 flex items-center justify-center rounded border border-slate-200 bg-white hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed text-slate-600 transition-colors"
+            >
+              <ChevronRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
         </div>
       </div>
 
       {/* ------------------------------------------------------------- */}
-      {/* 6. MODAL: CREATE JOURNAL VOUCHER */}
+      {/* 5. MODAL: CREATE JOURNAL VOUCHER */}
       {/* ------------------------------------------------------------- */}
       <ModalDialog
         isOpen={isCreateOpen}
         onClose={() => setIsCreateOpen(false)}
-        title="Create Double-Entry Journal Voucher"
-        subtitle="Post a balanced general ledger transaction across multiple debit and credit lines"
+        title="Create Journal Voucher"
         maxWidth="4xl"
       >
-        <form onSubmit={handleSubmitVoucher} className="space-y-4 text-xs">
+        <form onSubmit={handleSubmitVoucher} className="space-y-4">
           {formError && (
-            <div className="p-2.5 rounded bg-rose-50 border border-rose-200 text-rose-700 font-medium flex items-center gap-2">
+            <div className="p-2.5 bg-rose-50 border border-rose-200 text-rose-700 text-xs rounded flex items-center gap-2">
               <AlertCircle className="w-4 h-4 shrink-0" />
               <span>{formError}</span>
             </div>
           )}
           {formSuccess && (
-            <div className="p-2.5 rounded bg-emerald-50 border border-emerald-200 text-emerald-700 font-medium flex items-center gap-2">
+            <div className="p-2.5 bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs rounded flex items-center gap-2">
               <CheckCircle2 className="w-4 h-4 shrink-0" />
               <span>{formSuccess}</span>
             </div>
           )}
 
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-slate-50 p-3 rounded border border-slate-200">
+          {/* Voucher Header Information */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 bg-slate-50 p-3 rounded border border-slate-200 text-xs">
             <div>
-              <label className="block font-semibold text-slate-700 mb-1">Transaction Date *</label>
+              <label className="block text-slate-600 font-medium mb-1">Office / Branch *</label>
+              <select
+                value={newVoucherHeader.officeName}
+                onChange={(e) =>
+                  setNewVoucherHeader({
+                    ...newVoucherHeader,
+                    officeName: e.target.value,
+                  })
+                }
+                className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white focus:ring-1 focus:ring-blue-500"
+              >
+                <option value="MG Sirajganj Factory">MG Sirajganj Factory</option>
+                <option value="MGV-PLC">MGV-PLC</option>
+                <option value="Dhaka Head Office">Dhaka Head Office</option>
+                <option value="MBBL-HO">MBBL-HO</option>
+                <option value="MOHS-Eco">MOHS-Eco</option>
+                <option value="CFF-Chapai">CFF-Chapai</option>
+                <option value="MFIL-HO">MFIL-HO</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-slate-600 font-medium mb-1">Transaction Date *</label>
               <input
                 type="date"
                 required
                 value={newVoucherHeader.transactionDate}
                 onChange={(e) => setNewVoucherHeader({ ...newVoucherHeader, transactionDate: e.target.value })}
-                className="w-full h-8 border border-slate-300 rounded px-2 text-xs bg-white"
+                className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white focus:ring-1 focus:ring-blue-500"
               />
             </div>
             <div>
-              <label className="block font-semibold text-slate-700 mb-1">Office / Branch *</label>
+              <label className="block text-slate-600 font-medium mb-1">Trans. Type *</label>
               <select
-                value={newVoucherHeader.officeId}
-                onChange={(e) =>
-                  setNewVoucherHeader({
-                    ...newVoucherHeader,
-                    officeId: e.target.value,
-                    officeName: e.target.value === "office-main" ? "Dhaka Corporate HQ" : "Chittagong Heavy Plant",
-                  })
-                }
-                className="w-full h-8 border border-slate-300 rounded px-2 text-xs bg-white"
+                value={newVoucherHeader.transType}
+                onChange={(e) => setNewVoucherHeader({ ...newVoucherHeader, transType: e.target.value })}
+                className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white focus:ring-1 focus:ring-blue-500"
               >
-                <option value="office-main">Dhaka Corporate HQ</option>
-                <option value="office-ctg">Chittagong Heavy Plant</option>
+                {transTypeOptions.map((tt) => (
+                  <option key={tt} value={tt}>
+                    {tt}
+                  </option>
+                ))}
               </select>
             </div>
             <div>
-              <label className="block font-semibold text-slate-700 mb-1">Journal Type</label>
-              <select
-                value={newVoucherHeader.journalType}
-                onChange={(e) => setNewVoucherHeader({ ...newVoucherHeader, journalType: e.target.value as any })}
-                className="w-full h-8 border border-slate-300 rounded px-2 text-xs bg-white"
-              >
-                <option value="GENERAL">General Journal</option>
-                <option value="PAYMENT">Payment Voucher</option>
-                <option value="RECEIPT">Receipt Voucher</option>
-                <option value="CONTRA">Contra Voucher</option>
-                <option value="ADJUSTMENT">Adjustment Voucher</option>
-              </select>
-            </div>
-            <div>
-              <label className="block font-semibold text-slate-700 mb-1">Status</label>
-              <select
-                value={newVoucherHeader.status}
-                onChange={(e) => setNewVoucherHeader({ ...newVoucherHeader, status: e.target.value as any })}
-                className="w-full h-8 border border-slate-300 rounded px-2 text-xs bg-white"
-              >
-                <option value="POSTED">Post to Ledger Directly</option>
-                <option value="DRAFT">Save as Draft</option>
-                <option value="PENDING">Submit for Approval</option>
-              </select>
-            </div>
-            <div className="col-span-2 sm:col-span-4">
-              <label className="block font-semibold text-slate-700 mb-1">General Narration / Remarks *</label>
+              <label className="block text-slate-600 font-medium mb-1">Prepared By *</label>
               <input
                 type="text"
                 required
-                placeholder="Provide clear business context for this voucher"
+                value={newVoucherHeader.preparedBy}
+                onChange={(e) => setNewVoucherHeader({ ...newVoucherHeader, preparedBy: e.target.value })}
+                className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white focus:ring-1 focus:ring-blue-500"
+              />
+            </div>
+            <div className="sm:col-span-2 md:col-span-4">
+              <label className="block text-slate-600 font-medium mb-1">Narration / Description *</label>
+              <input
+                type="text"
+                required
+                placeholder="Enter complete voucher narration..."
                 value={newVoucherHeader.narration}
                 onChange={(e) => setNewVoucherHeader({ ...newVoucherHeader, narration: e.target.value })}
-                className="w-full h-8 border border-slate-300 rounded px-2.5 text-xs bg-white"
+                className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white focus:ring-1 focus:ring-blue-500"
               />
             </div>
           </div>
 
-          {/* Line items table */}
-          <div className="border rounded border-slate-200 overflow-hidden">
-            <div className="bg-slate-100 px-3.5 py-2 flex items-center justify-between border-b border-slate-200">
-              <span className="font-bold text-[11px] text-slate-700 uppercase tracking-wide">Journal Lines (Debits & Credits)</span>
+          {/* Double-Entry Debit/Credit Table */}
+          <div className="border border-slate-200 rounded overflow-hidden">
+            <div className="bg-slate-100 p-2 border-b border-slate-200 flex items-center justify-between">
+              <span className="text-xs font-semibold text-slate-800">Double-Entry Account Line Items</span>
               <button
                 type="button"
                 onClick={handleAddLine}
-                className="px-2 py-0.5 bg-blue-600 hover:bg-blue-700 text-white rounded text-[11px] font-semibold flex items-center gap-1"
+                className="inline-flex items-center gap-1 text-xs px-2.5 py-1 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 rounded font-medium shadow-2xs"
               >
-                <Plus className="w-3 h-3" /> Add Line
+                <Plus className="w-3.5 h-3.5" />
+                <span>Add Row</span>
               </button>
             </div>
 
-            <table className="w-full text-left text-xs">
-              <thead className="bg-slate-50 border-b border-slate-200 text-slate-700 font-semibold">
-                <tr>
-                  <th className="px-3 py-2">Account Ledger *</th>
-                  <th className="px-3 py-2">Line Narration</th>
-                  <th className="px-3 py-2 w-32 text-right">Debit (৳)</th>
-                  <th className="px-3 py-2 w-32 text-right">Credit (৳)</th>
-                  <th className="px-2 py-2 w-8 text-center"></th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {lines.map((l) => (
-                  <tr key={l.id}>
-                    <td className="p-2">
-                      <select
-                        value={l.accountId}
-                        onChange={(e) => handleLineChange(l.id, { accountId: e.target.value })}
-                        className="w-full h-7 border border-slate-300 rounded px-2 text-xs bg-white"
-                      >
-                        {accounts
-                          .filter((a) => !a.isGroup)
-                          .map((a) => (
-                            <option key={a.id} value={a.id}>
-                              [{a.code}] {a.name} ({a.normalBalance})
-                            </option>
-                          ))}
-                      </select>
-                    </td>
-                    <td className="p-2">
-                      <input
-                        type="text"
-                        placeholder="Narration"
-                        value={l.narration || ""}
-                        onChange={(e) => handleLineChange(l.id, { narration: e.target.value })}
-                        className="w-full h-7 border border-slate-300 rounded px-2 text-xs"
-                      />
-                    </td>
-                    <td className="p-2">
-                      <input
-                        type="number"
-                        min="0"
-                        step="any"
-                        value={l.debit || ""}
-                        onChange={(e) => handleLineChange(l.id, { debit: parseFloat(e.target.value) || 0, credit: 0 })}
-                        className="w-full h-7 border border-slate-300 rounded px-2 text-right font-mono text-xs"
-                        placeholder="0.00"
-                      />
-                    </td>
-                    <td className="p-2">
-                      <input
-                        type="number"
-                        min="0"
-                        step="any"
-                        value={l.credit || ""}
-                        onChange={(e) => handleLineChange(l.id, { credit: parseFloat(e.target.value) || 0, debit: 0 })}
-                        className="w-full h-7 border border-slate-300 rounded px-2 text-right font-mono text-xs"
-                        placeholder="0.00"
-                      />
-                    </td>
-                    <td className="p-2 text-center">
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveLine(l.id)}
-                        disabled={lines.length <= 2}
-                        className="text-slate-400 hover:text-rose-600 disabled:opacity-30 transition"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead>
+                  <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold uppercase text-[11px]">
+                    <th className="p-2 w-72">GL Account</th>
+                    <th className="p-2 w-32 text-right">Debit (৳)</th>
+                    <th className="p-2 w-32 text-right">Credit (৳)</th>
+                    <th className="p-2">Line Narration</th>
+                    <th className="p-2 w-10 text-center"></th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {lines.map((l) => (
+                    <tr key={l.id} className="hover:bg-slate-50/50">
+                      <td className="p-2">
+                        <select
+                          value={l.accountId}
+                          onChange={(e) => handleLineChange(l.id, { accountId: e.target.value })}
+                          className="w-full border border-slate-300 rounded px-2 py-1 bg-white focus:ring-1 focus:ring-blue-500 text-xs"
+                        >
+                          {accounts
+                            .filter((a) => !a.isGroup)
+                            .map((a) => (
+                              <option key={a.id} value={a.id}>
+                                {a.code} - {a.name}
+                              </option>
+                            ))}
+                        </select>
+                      </td>
+                      <td className="p-2">
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={l.debit || ""}
+                          onChange={(e) => handleLineChange(l.id, { debit: parseFloat(e.target.value) || 0 })}
+                          placeholder="0.00"
+                          className="w-full text-right border border-slate-300 rounded px-2 py-1 font-mono text-xs focus:ring-1 focus:ring-blue-500"
+                        />
+                      </td>
+                      <td className="p-2">
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={l.credit || ""}
+                          onChange={(e) => handleLineChange(l.id, { credit: parseFloat(e.target.value) || 0 })}
+                          placeholder="0.00"
+                          className="w-full text-right border border-slate-300 rounded px-2 py-1 font-mono text-xs focus:ring-1 focus:ring-blue-500"
+                        />
+                      </td>
+                      <td className="p-2">
+                        <input
+                          type="text"
+                          value={l.narration || ""}
+                          onChange={(e) => handleLineChange(l.id, { narration: e.target.value })}
+                          placeholder="Particulars..."
+                          className="w-full border border-slate-300 rounded px-2 py-1 text-xs focus:ring-1 focus:ring-blue-500"
+                        />
+                      </td>
+                      <td className="p-2 text-center">
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveLine(l.id)}
+                          disabled={lines.length <= 2}
+                          className="text-slate-400 hover:text-rose-600 disabled:opacity-20 transition-colors"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr className="bg-slate-50 font-semibold border-t border-slate-200">
+                    <td className="p-2 text-right text-slate-700">Total:</td>
+                    <td className="p-2 text-right font-mono text-slate-900">৳{totalDebit.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+                    <td className="p-2 text-right font-mono text-slate-900">৳{totalCredit.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+                    <td colSpan={2} className="p-2 text-left">
+                      {isBalanced ? (
+                        <span className="text-emerald-700 text-[11px] font-semibold flex items-center gap-1">
+                          <CheckCircle2 className="w-3.5 h-3.5" /> Balanced
+                        </span>
+                      ) : (
+                        <span className="text-rose-700 text-[11px] font-semibold flex items-center gap-1">
+                          <AlertCircle className="w-3.5 h-3.5" /> Unbalanced (Diff: ৳{Math.abs(totalDebit - totalCredit).toLocaleString()})
+                        </span>
+                      )}
                     </td>
                   </tr>
-                ))}
-              </tbody>
-              <tfoot className="bg-slate-100 font-bold border-t border-slate-200">
-                <tr>
-                  <td colSpan={2} className="px-3 py-2 text-right text-slate-700">
-                    Totals:
-                  </td>
-                  <td className="px-3 py-2 text-right font-mono text-slate-900">৳{totalDebit.toLocaleString()}</td>
-                  <td className="px-3 py-2 text-right font-mono text-slate-900">৳{totalCredit.toLocaleString()}</td>
-                  <td></td>
-                </tr>
-              </tfoot>
-            </table>
-          </div>
-
-          {/* Invariant validation bar */}
-          <div
-            className={`p-2.5 rounded border text-xs flex items-center justify-between ${
-              isBalanced ? "bg-emerald-50 border-emerald-200 text-emerald-800" : "bg-amber-50 border-amber-200 text-amber-800"
-            }`}
-          >
-            <div className="flex items-center gap-1.5 font-semibold">
-              {isBalanced ? <CheckCircle2 className="w-4 h-4 text-emerald-600" /> : <AlertCircle className="w-4 h-4 text-amber-600" />}
-              <span>{isBalanced ? "Voucher is balanced and ready to post" : "Voucher is unbalanced (Debits must equal Credits)"}</span>
+                </tfoot>
+              </table>
             </div>
-            <span className="font-mono font-bold">
-              Difference: ৳{Math.abs(totalDebit - totalCredit).toLocaleString()}
-            </span>
           </div>
 
-          <div className="flex justify-end gap-2 pt-2 border-t border-slate-200">
+          {/* Action Buttons */}
+          <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
             <button
               type="button"
               onClick={() => setIsCreateOpen(false)}
-              className="px-3.5 py-1.5 border border-slate-300 hover:bg-slate-50 text-slate-700 rounded text-xs font-semibold"
+              className="px-4 py-1.5 border border-slate-300 rounded text-xs font-medium text-slate-700 hover:bg-slate-50 transition-colors"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={!isBalanced}
-              className="px-4 py-1.5 bg-[#2563eb] hover:bg-blue-700 disabled:bg-slate-300 text-white rounded text-xs font-semibold shadow-xs"
+              className="px-5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-semibold disabled:opacity-40 disabled:cursor-not-allowed transition-colors shadow-2xs"
             >
-              Save & Post Voucher
+              Post Voucher
             </button>
           </div>
         </form>
       </ModalDialog>
 
       {/* ------------------------------------------------------------- */}
-      {/* 7. MODAL: VIEW / PRINT VOUCHER SLIP */}
+      {/* 6. MODAL: VIEW / PRINT VOUCHER */}
       {/* ------------------------------------------------------------- */}
       <ModalDialog
-        isOpen={!!viewingVoucher}
+        isOpen={Boolean(viewingVoucher)}
         onClose={() => setViewingVoucher(null)}
-        title={`Journal Voucher Slip — ${viewingVoucher?.voucherNumber}`}
-        subtitle={`Transaction Date: ${viewingVoucher?.transactionDate} | Type: ${viewingVoucher?.journalType}`}
+        title={viewingVoucher ? `Voucher Details: ${viewingVoucher.voucherNumber}` : ""}
         maxWidth="2xl"
       >
-        <div className="space-y-4 text-xs">
-          <div className="p-3 bg-slate-50 rounded border border-slate-200 flex justify-between">
-            <div>
-              <p className="text-slate-500 text-[11px]">Office / Plant</p>
-              <p className="font-semibold text-slate-800">{viewingVoucher?.officeName}</p>
+        {viewingVoucher && (
+          <div className="space-y-4 text-xs font-sans">
+            {/* Header / Company Stamp */}
+            <div className="p-3 bg-slate-50 rounded border border-slate-200">
+              <div className="flex justify-between items-start">
+                <div>
+                  <h4 className="font-bold text-sm text-slate-900">BridgeOne Industrial ERP</h4>
+                  <p className="text-slate-500 text-[11px]">{viewingVoucher.officeName}</p>
+                  <p className="text-slate-500 text-[11px]">Type: {viewingVoucher.transType || viewingVoucher.journalType}</p>
+                </div>
+                <div className="text-right">
+                  <span className="text-xs font-mono font-bold text-blue-600 block">{viewingVoucher.voucherNumber}</span>
+                  <span className="text-slate-500 text-[11px]">Date: {viewingVoucher.createDate || viewingVoucher.transactionDate}</span>
+                  <span className="block mt-1">
+                    <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-100 text-emerald-800">
+                      {viewingVoucher.status}
+                    </span>
+                  </span>
+                </div>
+              </div>
+              <div className="mt-2.5 pt-2 border-t border-slate-200 text-slate-700">
+                <span className="font-semibold text-slate-800">Narration:</span> {viewingVoucher.narration}
+              </div>
             </div>
-            <div>
-              <p className="text-slate-500 text-[11px]">Posted At</p>
-              <p className="font-semibold text-slate-800">{viewingVoucher?.postedAt || viewingVoucher?.createdAt}</p>
-            </div>
-            <div>
-              <p className="text-slate-500 text-[11px]">Status</p>
-              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                {viewingVoucher?.status}
-              </span>
-            </div>
-          </div>
 
-          <div className="border rounded border-slate-200 overflow-hidden">
-            <table className="w-full text-left text-xs">
-              <thead className="bg-slate-50 border-b border-slate-200 text-slate-700 font-semibold">
-                <tr>
-                  <th className="px-3 py-2">Code</th>
-                  <th className="px-3 py-2">Account Name</th>
-                  <th className="px-3 py-2">Narration</th>
-                  <th className="px-3 py-2 text-right">Debit (৳)</th>
-                  <th className="px-3 py-2 text-right">Credit (৳)</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {viewingVoucher?.lines.map((l, i) => (
-                  <tr key={i}>
-                    <td className="px-3 py-2 font-mono text-blue-600">{l.accountCode}</td>
-                    <td className="px-3 py-2 font-semibold text-slate-900">{l.accountName}</td>
-                    <td className="px-3 py-2 text-slate-500">{l.narration || "-"}</td>
-                    <td className="px-3 py-2 text-right font-mono font-medium text-slate-800">
-                      {l.debit > 0 ? `৳${l.debit.toLocaleString()}` : "-"}
-                    </td>
-                    <td className="px-3 py-2 text-right font-mono font-medium text-slate-800">
-                      {l.credit > 0 ? `৳${l.credit.toLocaleString()}` : "-"}
-                    </td>
+            {/* Line Items Table */}
+            <div className="border border-slate-200 rounded overflow-hidden">
+              <table className="w-full text-left text-xs">
+                <thead>
+                  <tr className="bg-slate-100 text-slate-700 uppercase font-semibold text-[11px]">
+                    <th className="p-2">Account Code & Name</th>
+                    <th className="p-2 text-right">Debit (৳)</th>
+                    <th className="p-2 text-right">Credit (৳)</th>
+                    <th className="p-2">Particulars</th>
                   </tr>
-                ))}
-              </tbody>
-              <tfoot className="bg-slate-100 font-bold border-t border-slate-200">
-                <tr>
-                  <td colSpan={3} className="px-3 py-2 text-right">
-                    Total:
-                  </td>
-                  <td className="px-3 py-2 text-right font-mono text-blue-700">
-                    ৳{viewingVoucher?.totalDebit.toLocaleString()}
-                  </td>
-                  <td className="px-3 py-2 text-right font-mono text-blue-700">
-                    ৳{viewingVoucher?.totalCredit.toLocaleString()}
-                  </td>
-                </tr>
-              </tfoot>
-            </table>
-          </div>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {viewingVoucher.lines.map((l) => (
+                    <tr key={l.id}>
+                      <td className="p-2 font-medium text-slate-800">
+                        {l.accountCode} - {l.accountName}
+                      </td>
+                      <td className="p-2 text-right font-mono text-slate-900">
+                        {l.debit > 0 ? l.debit.toLocaleString(undefined, { minimumFractionDigits: 2 }) : "-"}
+                      </td>
+                      <td className="p-2 text-right font-mono text-slate-900">
+                        {l.credit > 0 ? l.credit.toLocaleString(undefined, { minimumFractionDigits: 2 }) : "-"}
+                      </td>
+                      <td className="p-2 text-slate-600">{l.narration || "-"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr className="bg-slate-50 font-bold border-t border-slate-200">
+                    <td className="p-2 text-right text-slate-800">Total:</td>
+                    <td className="p-2 text-right font-mono text-slate-900">
+                      ৳{viewingVoucher.totalDebit.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                    </td>
+                    <td className="p-2 text-right font-mono text-slate-900">
+                      ৳{viewingVoucher.totalCredit.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                    </td>
+                    <td></td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
 
-          <div className="flex justify-end gap-2 pt-2 border-t border-slate-200">
-            <button
-              type="button"
-              onClick={() => window.print()}
-              className="px-3.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded text-xs font-semibold flex items-center gap-1.5"
-            >
-              <Printer className="w-3.5 h-3.5" /> Print Voucher Slip
-            </button>
-            <button
-              type="button"
-              onClick={() => setViewingVoucher(null)}
-              className="px-3.5 py-1.5 bg-[#2563eb] hover:bg-blue-700 text-white rounded text-xs font-semibold shadow-xs"
-            >
-              Close
-            </button>
+            {/* Signatures */}
+            <div className="grid grid-cols-3 gap-4 pt-6 text-center text-[11px] text-slate-600">
+              <div className="border-t border-slate-300 pt-1">
+                <p className="font-semibold">{viewingVoucher.preparedBy || viewingVoucher.createdBy}</p>
+                <p className="text-slate-400">Prepared By</p>
+              </div>
+              <div className="border-t border-slate-300 pt-1">
+                <p className="font-semibold">Accounts Officer</p>
+                <p className="text-slate-400">Verified By</p>
+              </div>
+              <div className="border-t border-slate-300 pt-1">
+                <p className="font-semibold">{viewingVoucher.approvedBy || "Finance Controller"}</p>
+                <p className="text-slate-400">Approved By</p>
+              </div>
+            </div>
+
+            {/* Modal Actions */}
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setViewingVoucher(null)}
+                className="px-4 py-1.5 border border-slate-300 rounded text-xs font-medium text-slate-700 hover:bg-slate-50"
+              >
+                Close
+              </button>
+              <button
+                type="button"
+                onClick={handlePrint}
+                className="inline-flex items-center gap-1.5 px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-semibold shadow-2xs"
+              >
+                <Printer className="w-3.5 h-3.5" />
+                <span>Print Voucher</span>
+              </button>
+            </div>
           </div>
-        </div>
+        )}
       </ModalDialog>
 
       {/* ------------------------------------------------------------- */}
-      {/* 8. MODAL: REVERSE VOUCHER */}
+      {/* 7. MODAL: APPROVE PENDING VOUCHER CONFIRMATION */}
       {/* ------------------------------------------------------------- */}
       <ModalDialog
-        isOpen={!!reversalTarget}
-        onClose={() => setReversalTarget(null)}
-        title={`Reverse Posted Voucher — ${reversalTarget?.voucherNumber}`}
-        subtitle="This will atomically generate an inverse reversal voucher and restore general ledger balances"
-        maxWidth="md"
+        isOpen={Boolean(approveConfirmTarget)}
+        onClose={() => setApproveConfirmTarget(null)}
+        title="Approve Voucher"
+        maxWidth="sm"
       >
-        <div className="space-y-4 text-xs">
-          <div className="p-3 bg-rose-50 border border-rose-200 rounded text-rose-800">
-            Warning: Reversing this voucher will post an exact mirror entry (swapping debits and credits) and mark this voucher as REVERSED.
+        {approveConfirmTarget && (
+          <div className="space-y-3 text-xs">
+            <p className="text-slate-600">
+              Are you sure you want to approve voucher{" "}
+              <strong className="text-blue-600">{approveConfirmTarget.voucherNumber}</strong> for amount{" "}
+              <strong>৳{(approveConfirmTarget.amount || approveConfirmTarget.totalDebit).toLocaleString()}</strong>?
+            </p>
+            <p className="text-slate-500 text-[11px]">
+              Upon approval, the voucher will post directly to the General Ledger and move to Accounting Journal.
+            </p>
+            <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setApproveConfirmTarget(null)}
+                className="px-4 py-1.5 border border-slate-300 rounded text-xs font-medium text-slate-700 hover:bg-slate-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmApproval}
+                className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-xs font-semibold shadow-2xs"
+              >
+                Confirm Approval
+              </button>
+            </div>
           </div>
-          <div>
-            <label className="block font-semibold text-slate-700 mb-1">Reason for Reversal *</label>
-            <textarea
-              rows={3}
-              required
-              placeholder="e.g. Inadvertent duplicate entry, incorrect ledger mapping, audit adjustment..."
-              value={reversalReason}
-              onChange={(e) => setReversalReason(e.target.value)}
-              className="w-full border border-slate-300 rounded p-2 text-xs text-slate-800"
-            />
-          </div>
-          <div className="flex justify-end gap-2 pt-2 border-t border-slate-200">
-            <button
-              type="button"
-              onClick={() => setReversalTarget(null)}
-              className="px-3.5 py-1.5 border border-slate-300 hover:bg-slate-50 text-slate-700 rounded text-xs font-semibold"
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              onClick={handleConfirmReversal}
-              className="px-4 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded text-xs font-semibold shadow-xs"
-            >
-              Confirm Reversal
-            </button>
-          </div>
-        </div>
+        )}
       </ModalDialog>
     </div>
   );

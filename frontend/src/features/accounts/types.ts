@@ -32,7 +32,7 @@ export interface CoaPermissionItem {
   createdAt: string;
 }
 
-export type VoucherStatus = "DRAFT" | "PENDING" | "POSTED" | "REVERSED" | "CANCELLED";
+export type VoucherStatus = "DRAFT" | "PENDING" | "POSTED" | "APPROVED" | "IN_PROGRESS" | "REVERSED" | "CANCELLED";
 export type JournalType = "GENERAL" | "PAYMENT" | "RECEIPT" | "CONTRA" | "ADJUSTMENT" | "REVERSAL";
 
 export interface JournalLineItem {
@@ -49,20 +49,24 @@ export interface JournalLineItem {
 export interface JournalVoucher {
   id: string;
   voucherNumber: string;
+  createDate?: string;
   transactionDate: string;
   officeId: string;
   officeName: string;
   fiscalYear: string;
   journalType: JournalType;
+  transType?: string;
   narration: string;
   referenceNumber?: string;
   lines: JournalLineItem[];
   totalDebit: number;
   totalCredit: number;
+  amount?: number;
   status: VoucherStatus;
   reversalOfId?: string;
   reversedById?: string;
   createdBy: string;
+  preparedBy?: string;
   approvedBy?: string;
   postedAt?: string;
   createdAt: string;
