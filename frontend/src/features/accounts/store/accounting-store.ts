@@ -304,6 +304,7 @@ function notify() {
 
 function updateData(updater: (prev: StateData) => StateData) {
   internalData = updater(internalData);
+  cachedSnapshot = getFullState();
   notify();
 }
 
@@ -1120,11 +1121,10 @@ function subscribe(callback: () => void) {
 }
 
 function getSnapshot(): AccountingState {
-  cachedSnapshot = getFullState();
   return cachedSnapshot;
 }
 
-const getServerSnapshot = getSnapshot;
+const getServerSnapshot = () => cachedSnapshot;
 
 export function useAccountingStore<T = AccountingState>(selector?: (state: AccountingState) => T): T {
   const state = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
