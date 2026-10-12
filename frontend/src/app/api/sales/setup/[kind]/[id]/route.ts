@@ -4,7 +4,7 @@ import { deleteSetupRecord, updateSetupRecord } from "@/features/sales/masters/s
 import { notFound } from "@/lib/api/errors";
 import { apiHandler, noContent, parseId } from "@/lib/api/handler";
 
-type Context = RouteContext<"/api/sales/setup/[kind]/[id]">;
+type Context = { params: Promise<{ kind: string; id: string }> };
 const kindSchema = z.enum(SETUP_KINDS);
 
 async function target(context: Context) {

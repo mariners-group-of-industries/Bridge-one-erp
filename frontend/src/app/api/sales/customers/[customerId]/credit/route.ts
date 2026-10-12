@@ -5,7 +5,7 @@ import { apiHandler, ok, parseId } from "@/lib/api/handler";
 const querySchema = z.object({ asOf: z.iso.date() });
 
 /** GET /api/sales/customers/:id/credit?asOf=YYYY-MM-DD: credit limit, outstanding, overdue, available. */
-export const GET = apiHandler<RouteContext<"/api/sales/customers/[customerId]/credit">>(
+export const GET = apiHandler<{ params: Promise<{ customerId: string }> }>(
   "sales:read",
   async (request, context, actor) => {
     const id = parseId((await context.params).customerId, "Customer");

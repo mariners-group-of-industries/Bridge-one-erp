@@ -1,7 +1,7 @@
 import { deleteOrder, getOrder, updateOrder } from "@/features/sales/orders/services/order.service";
 import { apiHandler, noContent, ok, parseId } from "@/lib/api/handler";
 
-type Context = RouteContext<"/api/sales/orders/[orderId]">;
+type Context = { params: Promise<{ orderId: string }> };
 
 export const GET = apiHandler<Context>("sales:read", async (_request, context, actor) => {
   return ok(await getOrder(actor, parseId((await context.params).orderId, "Sales order")));

@@ -2,7 +2,7 @@ import { changeQuotationStatus } from "@/features/sales/quotations/services/quot
 import { apiHandler, ok, parseId } from "@/lib/api/handler";
 
 /** POST body: { action: "submit" | "cancel" | "lost" | "reopen", version, reason? } */
-export const POST = apiHandler<RouteContext<"/api/sales/quotations/[quotationId]/status">>(
+export const POST = apiHandler<{ params: Promise<{ quotationId: string }> }>(
   "sales:write",
   async (request, context, actor) => {
     const id = parseId((await context.params).quotationId, "Quotation");

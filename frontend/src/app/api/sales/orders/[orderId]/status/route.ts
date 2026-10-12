@@ -2,7 +2,7 @@ import { changeOrderStatus } from "@/features/sales/orders/services/order.servic
 import { apiHandler, ok, parseId } from "@/lib/api/handler";
 
 /** POST body: { action: "submit" | "approve" | "reject" | "cancel" | "complete", version, remarks?, today } */
-export const POST = apiHandler<RouteContext<"/api/sales/orders/[orderId]/status">>(
+export const POST = apiHandler<{ params: Promise<{ orderId: string }> }>(
   "sales:write",
   async (request, context, actor) => {
     const id = parseId((await context.params).orderId, "Sales order");

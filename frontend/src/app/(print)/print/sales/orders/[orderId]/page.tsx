@@ -5,12 +5,12 @@ import { OrderPrintView } from "@/features/sales/orders/components/OrderPrintVie
 
 export const metadata: Metadata = { title: "Print Sales Order" };
 
-async function PrintOrder({ params }: { params: PageProps<"/print/sales/orders/[orderId]">["params"] }) {
+async function PrintOrder({ params }: { params: Promise<{ orderId: string }> }) {
   return <OrderPrintView id={(await params).orderId} />;
 }
 
 /** Printable sales order, outside the desk shell (no navbar or sidebar on paper). */
-export default function PrintSalesOrderPage({ params }: PageProps<"/print/sales/orders/[orderId]">) {
+export default function PrintSalesOrderPage({ params }: { params: Promise<{ orderId: string }> }) {
   return (
     <Suspense fallback={<LoadingState />}>
       <PrintOrder params={params} />

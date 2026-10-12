@@ -5,7 +5,7 @@ import {
 } from "@/features/sales/quotations/services/quotation.service";
 import { apiHandler, noContent, ok, parseId } from "@/lib/api/handler";
 
-type Context = RouteContext<"/api/sales/quotations/[quotationId]">;
+type Context = { params: Promise<{ quotationId: string }> };
 
 export const GET = apiHandler<Context>("sales:read", async (_request, context, actor) => {
   const id = parseId((await context.params).quotationId, "Quotation");
