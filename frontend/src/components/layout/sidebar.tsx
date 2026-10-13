@@ -3,9 +3,12 @@
 import { ChevronRight, House } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState, type ReactNode } from "react";
+import { useId, useState, type ReactNode } from "react";
 import { cn } from "@/lib/cn";
 import { findWorkspace, workspaces } from "@/lib/navigation/registry";
+
+const isWithin = (pathname: string | null, href: string) =>
+  pathname === href || !!pathname?.startsWith(`${href}/`);
 
 export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   return <SidebarNav pathname={usePathname()} onNavigate={onNavigate} />;
@@ -15,11 +18,13 @@ export function SidebarNav({ pathname, onNavigate }: { pathname: string | null; 
   const current = pathname === null ? undefined : findWorkspace(pathname);
 
   return (
-    <nav aria-label="Modules" className="flex flex-col gap-0.5 p-2 text-sm">
-      <SidebarLink href="/" active={pathname === "/"} icon={<House />} onNavigate={onNavigate}>
+    <nav aria-label="Modules" className="flex flex-col gap-0.5 bg-surface px-2 py-3 text-sm">
+      <TopLink href="/" active={pathname === "/"} icon={<House />} onNavigate={onNavigate}>
         Home
-      </SidebarLink>
-      <p className="mt-4 mb-1 px-2 text-xs font-medium text-ink-faint uppercase">Modules</p>
+      </TopLink>
+
+      <p className="mt-4 mb-1 px-2.5 text-[11px] font-semibold tracking-wider text-ink-faint uppercase">Modules</p>
+
       {workspaces.map((workspace) => {
         const Icon = workspace.icon;
 
@@ -29,67 +34,41 @@ export function SidebarNav({ pathname, onNavigate }: { pathname: string | null; 
               key={workspace.id}
               aria-disabled="true"
               title={`${workspace.label} is not built yet`}
-              className="flex h-8 cursor-default items-center gap-2 rounded-lg px-2 text-ink-faint [&_svg]:size-4"
+              className="flex h-9 cursor-default items-center gap-2.5 rounded-md px-2.5 text-ink-faint [&_svg]:size-4"
             >
               <Icon aria-hidden="true" />
-              <span className="flex-1">{workspace.label}</span>
-              <span className="rounded bg-control px-1 text-[10px] uppercase">Soon</span>
+              <span className="flex-1 truncate">{workspace.label}</span>
+              <span className="rounded border border-line px-1 text-[10px] font-medium uppercase">Soon</span>
             </span>
           );
         }
 
-        const isCurrent = current?.id === workspace.id;
-        const hasCards = (workspace.cards ?? []).length > 0;
-
+        const cards = workspace.cards ?? [];
         return (
           <CollapsibleWorkspace
             key={workspace.id}
             label={workspace.label}
             icon={<Icon />}
-            defaultOpen={isCurrent}
-            active={isCurrent}
+            active={current?.id === workspace.id}
           >
-            {hasCards && (
-              <ul className="flex flex-col gap-0.5">
-                {(workspace.cards ?? []).map((card, idx) => {
-                  if (!card.label) {
-                    return card.links.map((link) => (
-                      <li key={link.href}>
-                        <SidebarLink
-                          href={link.href}
-                          active={pathname === link.href || !!pathname?.startsWith(`${link.href}/`)}
-                          onNavigate={onNavigate}
-                        >
-                          {link.label}
-                        </SidebarLink>
-                      </li>
-                    ));
-                  }
-                  const anyLinkActive = card.links.some(
-                    (link) => pathname === link.href || !!pathname?.startsWith(`${link.href}/`),
-                  );
-                  return (
-                    <CollapsibleGroup
-                      key={card.label || `card-${idx}`}
-                      label={card.label}
-                      defaultOpen={anyLinkActive}
-                    >
-                      {card.links.map((link) => (
-                        <li key={link.href}>
-                          <SidebarLink
-                            href={link.href}
-                            active={pathname === link.href || !!pathname?.startsWith(`${link.href}/`)}
-                            onNavigate={onNavigate}
-                          >
-                            {link.label}
-                          </SidebarLink>
-                        </li>
-                      ))}
-                    </CollapsibleGroup>
-                  );
-                })}
-              </ul>
-            )}
+            {cards.map((card) => (
+              <CollapsibleGroup
+                key={card.label}
+                label={card.label}
+                count={card.links.length}
+                active={
+                  (!!card.href && isWithin(pathname, card.href)) || card.links.some((link) => isWithin(pathname, link.href))
+                }
+              >
+                {card.links.map((link) => (
+                  <li key={link.href}>
+                    <SubLink href={link.href} active={isWithin(pathname, link.href)} onNavigate={onNavigate}>
+                      {link.label}
+                    </SubLink>
+                  </li>
+                ))}
+              </CollapsibleGroup>
+            ))}
           </CollapsibleWorkspace>
         );
       })}
@@ -97,42 +76,64 @@ export function SidebarNav({ pathname, onNavigate }: { pathname: string | null; 
   );
 }
 
+/**
+ * Open/closed state of a collapsible menu entry. Starts open when the entry holds
+ * the current page and re-opens whenever navigation moves into it; the user can
+ * still collapse it.
+ */
+function useOpenWhenActive(active: boolean) {
+  const [open, setOpen] = useState(active);
+  const [wasActive, setWasActive] = useState(active);
+  if (active !== wasActive) {
+    setWasActive(active);
+    if (active) setOpen(true);
+  }
+  return [open, setOpen] as const;
+}
+
+function Chevron({ open }: { open: boolean }) {
+  return (
+    <ChevronRight
+      aria-hidden="true"
+      className={cn("size-3.5 shrink-0 text-ink-faint transition-transform duration-150", open && "rotate-90")}
+    />
+  );
+}
+
 function CollapsibleWorkspace({
   label,
   icon,
-  defaultOpen,
   active,
   children,
 }: {
   label: string;
   icon: ReactNode;
-  defaultOpen: boolean;
   active: boolean;
   children: ReactNode;
 }) {
-  const [open, setOpen] = useState(defaultOpen);
+  const [open, setOpen] = useOpenWhenActive(active);
+  const listId = useId();
 
   return (
-    <div className="flex flex-col gap-0.5">
+    <div className="flex flex-col">
       <button
         type="button"
+        aria-expanded={open}
+        aria-controls={open ? listId : undefined}
         onClick={() => setOpen((v) => !v)}
         className={cn(
-          "flex h-8 w-full items-center gap-2 rounded-lg px-2 transition-colors focus-visible:outline-2 [&_svg]:size-4 [&_svg]:shrink-0",
-          active
-            ? "bg-surface font-medium text-ink shadow-sm dark:bg-control"
-            : "text-ink-muted hover:bg-control hover:text-ink",
+          "flex h-9 w-full items-center gap-2.5 rounded-md px-2.5 transition-colors focus-visible:outline-2 [&_svg]:size-4 [&_svg]:shrink-0",
+          active ? "font-semibold text-accent-strong dark:text-accent" : "text-ink-muted hover:bg-control hover:text-ink",
         )}
       >
-        <span aria-hidden="true">{icon}</span>
+        <span aria-hidden="true" className={cn(active ? "text-accent-strong dark:text-accent" : "text-ink-faint")}>
+          {icon}
+        </span>
         <span className="flex-1 truncate text-left">{label}</span>
-        <ChevronRight
-          aria-hidden="true"
-          className={cn("size-3.5 shrink-0 transition-transform", open && "rotate-90")}
-        />
+        <Chevron open={open} />
       </button>
       {open && (
-        <ul className="ml-4 flex flex-col gap-0.5 border-l border-line pl-2">
+        <ul id={listId} className="mb-1 flex flex-col gap-0.5 pl-4">
           {children}
         </ul>
       )}
@@ -142,30 +143,37 @@ function CollapsibleWorkspace({
 
 function CollapsibleGroup({
   label,
-  defaultOpen,
+  count,
+  active,
   children,
 }: {
   label: string;
-  defaultOpen: boolean;
+  count: number;
+  /** The group holds the current page. */
+  active: boolean;
   children: ReactNode;
 }) {
-  const [open, setOpen] = useState(defaultOpen);
+  const [open, setOpen] = useOpenWhenActive(active);
+  const listId = useId();
 
   return (
     <li>
       <button
         type="button"
+        aria-expanded={open}
+        aria-controls={open ? listId : undefined}
         onClick={() => setOpen((v) => !v)}
-        className="flex h-8 w-full items-center gap-2 rounded-lg px-2 text-ink-muted transition-colors hover:bg-control hover:text-ink focus-visible:outline-2"
+        className={cn(
+          "flex h-8 w-full items-center gap-2 rounded-md pr-2.5 pl-3 text-[13px] transition-colors hover:bg-control focus-visible:outline-2",
+          active ? "font-medium text-ink" : "text-ink-muted hover:text-ink",
+        )}
       >
         <span className="flex-1 truncate text-left">{label}</span>
-        <ChevronRight
-          aria-hidden="true"
-          className={cn("size-3.5 shrink-0 transition-transform", open && "rotate-90")}
-        />
+        {!open && <span className="text-[11px] text-ink-faint tabular-nums">{count}</span>}
+        <Chevron open={open} />
       </button>
       {open && (
-        <ul className="ml-4 flex flex-col gap-0.5 border-l border-line pl-2">
+        <ul id={listId} className="ml-3 flex flex-col gap-0.5 border-l border-line py-0.5 pl-0">
           {children}
         </ul>
       )}
@@ -173,7 +181,8 @@ function CollapsibleGroup({
   );
 }
 
-function SidebarLink({
+/** Top-level entry (Home). */
+function TopLink({
   href,
   active,
   icon,
@@ -182,7 +191,7 @@ function SidebarLink({
 }: {
   href: string;
   active: boolean;
-  icon?: ReactNode;
+  icon: ReactNode;
   children: ReactNode;
   onNavigate?: () => void;
 }) {
@@ -192,13 +201,42 @@ function SidebarLink({
       aria-current={active ? "page" : undefined}
       onClick={onNavigate}
       className={cn(
-        "flex h-8 items-center gap-2 rounded-lg px-2 transition-colors focus-visible:outline-2 [&_svg]:size-4 [&_svg]:shrink-0",
+        "flex h-9 items-center gap-2.5 rounded-md px-2.5 transition-colors focus-visible:outline-2 [&_svg]:size-4 [&_svg]:shrink-0",
         active
-          ? "bg-surface font-medium text-ink shadow-sm dark:bg-control"
-          : "text-ink-muted hover:bg-control hover:text-ink",
+          ? "bg-accent-soft font-semibold text-accent-strong dark:text-accent"
+          : "text-ink-muted hover:bg-control hover:text-ink [&_svg]:text-ink-faint",
       )}
     >
-      {icon && <span aria-hidden="true">{icon}</span>}
+      <span aria-hidden="true">{icon}</span>
+      <span className="truncate">{children}</span>
+    </Link>
+  );
+}
+
+/** Page link inside a group; the active one gets a blue bar on the guide line. */
+function SubLink({
+  href,
+  active,
+  children,
+  onNavigate,
+}: {
+  href: string;
+  active: boolean;
+  children: ReactNode;
+  onNavigate?: () => void;
+}) {
+  return (
+    <Link
+      href={href}
+      aria-current={active ? "page" : undefined}
+      onClick={onNavigate}
+      className={cn(
+        "relative -ml-px flex h-8 items-center rounded-r-md border-l-2 pr-2.5 pl-3 text-[13px] transition-colors focus-visible:outline-2",
+        active
+          ? "border-accent-strong bg-accent-soft font-medium text-accent-strong dark:border-accent dark:text-accent"
+          : "border-transparent text-ink-muted hover:border-line-strong hover:bg-control hover:text-ink",
+      )}
+    >
       <span className="truncate">{children}</span>
     </Link>
   );

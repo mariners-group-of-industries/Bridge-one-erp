@@ -3,7 +3,6 @@ import Link from "next/link";
 import type { Workspace } from "@/lib/navigation/types";
 import { PageContainer, PageHead } from "./page";
 
-/** ERPNext workspace page: "Your Shortcuts" tiles, then link cards. */
 export function WorkspaceView({ workspace }: { workspace: Workspace }) {
   return (
     <PageContainer>

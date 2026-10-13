@@ -41,3 +41,27 @@ export function timeAgo(value: string | Date, now: Date = new Date()): string {
 export function formatDateTime(value: string | Date): string {
   return new Date(value).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 }
+
+export type CompanyDateFormat = "DD_MM_YYYY_SLASH" | "MM_DD_YYYY_SLASH" | "YYYY_MM_DD_DASH" | "DD_MM_YYYY_DASH";
+
+function datePartsToString(year: string, month: string, day: string, format: CompanyDateFormat): string {
+  switch (format) {
+    case "DD_MM_YYYY_SLASH": return `${day}/${month}/${year}`;
+    case "MM_DD_YYYY_SLASH": return `${month}/${day}/${year}`;
+    case "YYYY_MM_DD_DASH":  return `${year}-${month}-${day}`;
+    case "DD_MM_YYYY_DASH":  return `${day}-${month}-${year}`;
+  }
+}
+
+export function formatCompanyDate(value: string, format: CompanyDateFormat): string {
+  const [year, month, day] = value.slice(0, 10).split("-");
+  if (!year || !month || !day) return value;
+  return datePartsToString(year, month, day, format);
+}
+
+export function formatCompanyDateTime(value: string | Date, format: CompanyDateFormat): string {
+  const date = new Date(value);
+  const pad = (part: number) => String(part).padStart(2, "0");
+  const day = datePartsToString(String(date.getFullYear()), pad(date.getMonth() + 1), pad(date.getDate()), format);
+  return `${day} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}

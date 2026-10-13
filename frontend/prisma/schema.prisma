@@ -18,19 +18,44 @@ enum UserRole {
   STAFF
 }
 
+/// Dynamic named role — separate from the UserRole system enum.
+/// Permissions for each role will be assigned in a future phase.
+model Role {
+  id          String   @id @default(uuid()) @db.Uuid
+  name        String   @unique @db.VarChar(100)
+  description String?  @db.VarChar(500)
+  createdAt   DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime @updatedAt @db.Timestamptz(3)
+
+  users User[]
+
+  @@map("roles")
+}
+
 model User {
   id           String    @id @default(uuid()) @db.Uuid
   name         String    @db.VarChar(150)
   phone        String    @unique @db.VarChar(30)
   passwordHash String    @db.VarChar(500)
   role         UserRole  @default(STAFF)
+  roleId       String?   @db.Uuid
+  isMaster     Boolean   @default(false)
   isActive     Boolean   @default(true)
   lastLoginAt  DateTime? @db.Timestamptz(3)
   createdAt    DateTime  @default(now()) @db.Timestamptz(3)
   updatedAt    DateTime  @updatedAt @db.Timestamptz(3)
 
-  sessions     UserSession[]
+  sessions    UserSession[]
+  dynamicRole Role?         @relation(fields: [roleId], references: [id], onDelete: SetNull)
 
+  employee            Employee?  @relation("EmployeeUser")
+  employeeLastActions Employee[] @relation("EmployeeLastActionBy")
+
+  businessUnitAccess UserBusinessUnitAccess[]
+  officeAccess       UserOfficeAccess[]
+  warehouseAccess    UserWarehouseAccess[]
+
+  @@index([roleId])
   @@map("users")
 }
 
@@ -46,6 +71,44 @@ model UserSession {
   @@index([userId])
   @@index([expiresAt])
   @@map("user_sessions")
+}
+
+// ─── Organizational access assignments ───────────────────────────────────────
+
+model UserBusinessUnitAccess {
+  userId         String   @db.Uuid
+  businessUnitId String   @db.Uuid
+  createdAt      DateTime @default(now()) @db.Timestamptz(3)
+
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  businessUnit BusinessUnit @relation(fields: [businessUnitId], references: [id], onDelete: Cascade)
+
+  @@id([userId, businessUnitId])
+  @@map("user_business_unit_access")
+}
+
+model UserOfficeAccess {
+  userId    String   @db.Uuid
+  officeId  String   @db.Uuid
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  office Office @relation(fields: [officeId], references: [id], onDelete: Cascade)
+
+  @@id([userId, officeId])
+  @@map("user_office_access")
+}
+
+model UserWarehouseAccess {
+  userId      String   @db.Uuid
+  warehouseId String   @db.Uuid
+  createdAt   DateTime @default(now()) @db.Timestamptz(3)
+
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  warehouse Warehouse @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
+
+  @@id([userId, warehouseId])
+  @@map("user_warehouse_access")
 }
 
 // ─── Configuration › Business Configuration › Company Profile ───────────────
@@ -105,9 +168,10 @@ model BusinessUnit {
   createdAt     DateTime   @default(now()) @db.Timestamptz(3)
   updatedAt     DateTime   @updatedAt @db.Timestamptz(3)
 
-  company Company          @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  offices Office[]
-  terms   TermsCondition[]
+  company    Company                  @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  offices    Office[]
+  terms      TermsCondition[]
+  userAccess UserBusinessUnitAccess[]
 
   salesPersons     SalesPerson[]
   customers        Customer[]
@@ -146,9 +210,11 @@ model Office {
   createdAt      DateTime @default(now()) @db.Timestamptz(3)
   updatedAt      DateTime @updatedAt @db.Timestamptz(3)
 
-  businessUnit BusinessUnit     @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  businessUnit BusinessUnit       @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
   warehouses   Warehouse[]
   assets       OfficeAsset[]
+  employees    Employee[]
+  userAccess   UserOfficeAccess[]
   quotations   SalesQuotation[]
   salesOrders  SalesOrder[]
 
@@ -168,7 +234,8 @@ model Warehouse {
   createdAt DateTime @default(now()) @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @db.Timestamptz(3)
 
-  office Office @relation(fields: [officeId], references: [id], onDelete: Restrict)
+  office     Office                @relation(fields: [officeId], references: [id], onDelete: Restrict)
+  userAccess UserWarehouseAccess[]
 
   purchaseRequisitions PurchaseRequisition[]
   purchaseOrders       PurchaseOrder[]
@@ -227,6 +294,7 @@ model TermApplicability {
   @@map("term_applicability")
 }
 
+<<<<<<< HEAD
 // ─── Sales ───────────────────────────────────────────────────────────────────
 // Every sales record belongs to a business unit, so company scoping follows
 // BusinessUnit.companyId.
@@ -1170,4 +1238,178 @@ model SupplierPayment {
   @@index([businessUnitId, paymentDate])
   @@index([supplierId])
   @@map("supplier_payments")
+}
+
+// ─── Configuration › Entity Master Data › Employee ──────────────────────────
+
+model Employee {
+  id                   String    @id @default(uuid()) @db.Uuid
+  officeId             String    @db.Uuid
+  employeeCode         String    @db.VarChar(30)
+  attendanceId         String?   @db.VarChar(30)
+  name                 String    @db.VarChar(150)
+  designation          String?   @db.VarChar(100)
+  hrPosition           String?   @db.VarChar(100)
+  department           String?   @db.VarChar(100)
+  departmentSection    String?   @db.VarChar(100)
+  employeeType         String?   @db.VarChar(50)
+  serviceCategory      String?   @db.VarChar(100)
+  employeePolicy       String?   @db.VarChar(100)
+  location             String?   @db.VarChar(150)
+  joiningDate          DateTime  @db.Date
+  confirmationDate     DateTime? @db.Date
+  terminationDate      DateTime? @db.Date
+  mobile               String?   @db.VarChar(30)
+  email                String?   @db.VarChar(254)
+  officialContact      String?   @db.VarChar(30)
+  religion             String?   @db.VarChar(50)
+  gender               String?   @db.VarChar(20)
+  bloodGroup           String?   @db.VarChar(10)
+  dateOfBirth          DateTime? @db.Date
+  fathersName          String?   @db.VarChar(150)
+  mothersName          String?   @db.VarChar(150)
+  nidNumber            String?   @db.VarChar(30)
+  presentAddress       String?   @db.VarChar(500)
+  permanentAddress     String?   @db.VarChar(500)
+  supervisor           String?   @db.VarChar(150)
+  lineManager          String?   @db.VarChar(150)
+  signatureKey         String?   @db.VarChar(300)
+  profileImageKey      String?   @db.VarChar(300)
+  // flags
+  holdSalary           Boolean   @default(false)
+  departmentApproval   Boolean   @default(false)
+  isService            Boolean   @default(false)
+  holdPayment          Boolean   @default(false)
+  isReseller           Boolean   @default(false)
+  isUser               Boolean   @default(false)
+  isMasterUser         Boolean   @default(false)
+  loginWithEmployeeId  Boolean   @default(false)
+  isAllCustomerView    Boolean   @default(false)
+  isSR                 Boolean   @default(false)
+  userId               String?   @unique @db.Uuid
+  isActive             Boolean   @default(true)
+  updatedById          String?   @db.Uuid
+  createdAt            DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt            DateTime  @updatedAt @db.Timestamptz(3)
+
+  office    Office @relation(fields: [officeId], references: [id], onDelete: Restrict)
+  user      User?  @relation("EmployeeUser", fields: [userId], references: [id], onDelete: SetNull)
+  updatedBy User?  @relation("EmployeeLastActionBy", fields: [updatedById], references: [id], onDelete: SetNull)
+
+  documents   EmployeeDocument[]
+  salary      EmployeeSalary?
+  adjustments EmployeeSalaryAdjustment[]
+  academics   EmployeeAcademic[]
+  employmentHistories EmploymentHistory[]
+
+  @@index([officeId])
+  @@index([employeeCode])
+  @@index([attendanceId])
+  @@index([isActive])
+  @@map("employees")
+}
+
+model EmployeeDocument {
+  id           String    @id @default(uuid()) @db.Uuid
+  employeeId   String    @db.Uuid
+  documentType String    @db.VarChar(100)
+  documentName String    @db.VarChar(150)
+  issueDate    DateTime? @db.Date
+  fileKey      String?   @db.VarChar(300)
+  fileName     String?   @db.VarChar(255)
+  createdAt    DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt    DateTime  @updatedAt @db.Timestamptz(3)
+
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([employeeId])
+  @@map("employee_documents")
+}
+
+model EmployeeSalary {
+  id               String   @id @default(uuid()) @db.Uuid
+  employeeId       String   @unique @db.Uuid
+  salaryType       String   @db.VarChar(20)   // regular | day-basis
+  salaryOption     String   @db.VarChar(20)   // gross | structure-basic | structure-gross
+  grossOnly        Decimal? @db.Decimal(14,2)
+  structBasic      Decimal? @db.Decimal(14,2)
+  structGross      Decimal? @db.Decimal(14,2)
+  sgGross          Decimal? @db.Decimal(14,2)
+  sgBasic          Decimal? @db.Decimal(14,2)
+  sgHouseRent      Decimal? @db.Decimal(14,2)
+  sgMedical        Decimal? @db.Decimal(14,2)
+  sgConveyance     Decimal? @db.Decimal(14,2)
+  sgMobile         Decimal? @db.Decimal(14,2)
+  sgFood           Decimal? @db.Decimal(14,2)
+  sgExtra          Decimal? @db.Decimal(14,2)
+  disbursementMode String   @db.VarChar(20)   // cash | bank | mfs | multiple
+  eligibleOT       Boolean  @default(false)
+  eligiblePF       Boolean  @default(false)
+  bankName         String?  @db.VarChar(150)
+  branchName       String?  @db.VarChar(150)
+  bankAccountName  String?  @db.VarChar(150)
+  bankAccountNo    String?  @db.VarChar(50)
+  routingNo        String?  @db.VarChar(50)
+  mfsProvider      String?  @db.VarChar(50)
+  mfsNumber        String?  @db.VarChar(30)
+  mfsAccountName   String?  @db.VarChar(150)
+  createdAt        DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt        DateTime @updatedAt @db.Timestamptz(3)
+
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@map("employee_salaries")
+}
+
+model EmployeeSalaryAdjustment {
+  id         String   @id @default(uuid()) @db.Uuid
+  employeeId String   @db.Uuid
+  fromMonth  String   @db.VarChar(7)    // YYYY-MM
+  toMonth    String   @db.VarChar(7)    // YYYY-MM
+  type       String   @db.VarChar(10)   // addition | deduction
+  amount     Decimal  @db.Decimal(14,2)
+  createdAt  DateTime @default(now()) @db.Timestamptz(3)
+
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([employeeId])
+  @@map("employee_salary_adjustments")
+}
+
+model EmployeeAcademic {
+  id           String   @id @default(uuid()) @db.Uuid
+  employeeId   String   @db.Uuid
+  isForeigner  Boolean  @default(false)
+  institute    String   @db.VarChar(200)
+  degree       String   @db.VarChar(150)
+  fieldOfStudy String   @db.VarChar(150)
+  result       String   @db.VarChar(50)
+  scale        String   @db.VarChar(20)
+  startDate    DateTime @db.Date
+  finishDate   DateTime @db.Date
+  createdAt    DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt    DateTime @updatedAt @db.Timestamptz(3)
+
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([employeeId])
+  @@map("employee_academics")
+}
+
+model EmploymentHistory {
+  id          String   @id @default(uuid()) @db.Uuid
+  employeeId  String   @db.Uuid
+  companyName String   @db.VarChar(200)
+  jobTitle    String   @db.VarChar(150)
+  location    String   @db.VarChar(150)
+  description String?  @db.VarChar(1000)
+  fromDate    DateTime @db.Date
+  toDate      DateTime @db.Date
+  createdAt   DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime @updatedAt @db.Timestamptz(3)
+
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([employeeId])
+  @@map("employment_histories")
 }
