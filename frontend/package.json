@@ -45,5 +45,9 @@
     "typescript": "^5",
     "vite": "^6.0.0",
     "vitest": "^4.1.11"
+  },
+  "optionalDependencies": {
+    "@tailwindcss/oxide-linux-x64-gnu": "4.3.3",
+    "lightningcss-linux-x64-gnu": "1.32.0"
   }
 }
