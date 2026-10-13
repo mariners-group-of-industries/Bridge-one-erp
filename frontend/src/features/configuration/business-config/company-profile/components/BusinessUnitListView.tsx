@@ -294,7 +294,7 @@ export function BusinessUnitListView() {
         busy={busy}
         message={
           <>
-            <p>"{deleting?.name}" and all its terms will be permanently deleted.</p>
+            <p>&quot;{deleting?.name}&quot; and all its terms will be permanently deleted.</p>
             <p className="mt-2">Business units that still have offices cannot be deleted.</p>
           </>
         }

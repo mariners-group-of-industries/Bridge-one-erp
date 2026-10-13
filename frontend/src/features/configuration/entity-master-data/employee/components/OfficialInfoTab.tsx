@@ -67,7 +67,7 @@ function CalendarGrid({
   );
 }
 
-export function OfficialInfoTab({ employeeId }: { employeeId: string }) {
+export function OfficialInfoTab({ employeeId: _employeeId }: { employeeId: string }) {
   const toast = useToast();
   const today = new Date();
   const todayIso = today.toISOString().slice(0, 10);
