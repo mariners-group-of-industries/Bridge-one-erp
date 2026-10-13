@@ -1,6 +1,7 @@
 import { Settings } from "lucide-react";
-import type { NavLink, Workspace } from "@/lib/navigation/types";
+import type { NavCard, NavLink, Workspace } from "@/lib/navigation/types";
 import { paths } from "./business-config/company-profile/paths";
+import { entityMasterDataPaths } from "./entity-master-data/paths";
 
 const companyProfile: NavLink = {
   label: "Company Profile",
@@ -14,6 +15,22 @@ const businessUnits: NavLink = {
   href: "/configuration/business-config/business-units",
 };
 
+export const entityMasterData: NavCard = {
+  label: "Entity Master Data",
+  href: entityMasterDataPaths.root,
+  links: [
+    {
+      label: "Employee",
+      href: entityMasterDataPaths.employee,
+      description: "Employee Management: search, filter and act on employee records.",
+      keywords: ["employee", "staff", "attendance"],
+    },
+    { label: "Item Profile", href: entityMasterDataPaths.itemProfile, keywords: ["item", "product"] },
+    { label: "Customer Profile", href: entityMasterDataPaths.customerProfile, keywords: ["customer", "client"] },
+    { label: "Supplier Profile", href: entityMasterDataPaths.supplierProfile, keywords: ["supplier", "vendor"] },
+  ],
+};
+
 export const configurationWorkspace: Workspace = {
   id: "configuration",
   label: "Configuration",
@@ -22,7 +39,7 @@ export const configurationWorkspace: Workspace = {
   description: "Company setup, business units, offices, warehouses and document terms.",
   status: "active",
   shortcuts: [companyProfile],
-  cards: [{ label: "Business Config", links: [companyProfile, businessUnits] }],
+  cards: [{ label: "Business Config", links: [companyProfile, businessUnits] }, entityMasterData],
   routes: [
     {
       pattern: "/configuration/business-config/offices/[officeId]",

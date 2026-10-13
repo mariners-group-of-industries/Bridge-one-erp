@@ -18,19 +18,44 @@ enum UserRole {
   STAFF
 }
 
+/// Dynamic named role — separate from the UserRole system enum.
+/// Permissions for each role will be assigned in a future phase.
+model Role {
+  id          String   @id @default(uuid()) @db.Uuid
+  name        String   @unique @db.VarChar(100)
+  description String?  @db.VarChar(500)
+  createdAt   DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime @updatedAt @db.Timestamptz(3)
+
+  users User[]
+
+  @@map("roles")
+}
+
 model User {
   id           String    @id @default(uuid()) @db.Uuid
   name         String    @db.VarChar(150)
   phone        String    @unique @db.VarChar(30)
   passwordHash String    @db.VarChar(500)
   role         UserRole  @default(STAFF)
+  roleId       String?   @db.Uuid
+  isMaster     Boolean   @default(false)
   isActive     Boolean   @default(true)
   lastLoginAt  DateTime? @db.Timestamptz(3)
   createdAt    DateTime  @default(now()) @db.Timestamptz(3)
   updatedAt    DateTime  @updatedAt @db.Timestamptz(3)
 
-  sessions     UserSession[]
+  sessions    UserSession[]
+  dynamicRole Role?         @relation(fields: [roleId], references: [id], onDelete: SetNull)
 
+  employee            Employee?  @relation("EmployeeUser")
+  employeeLastActions Employee[] @relation("EmployeeLastActionBy")
+
+  businessUnitAccess UserBusinessUnitAccess[]
+  officeAccess       UserOfficeAccess[]
+  warehouseAccess    UserWarehouseAccess[]
+
+  @@index([roleId])
   @@map("users")
 }
 
@@ -46,6 +71,44 @@ model UserSession {
   @@index([userId])
   @@index([expiresAt])
   @@map("user_sessions")
+}
+
+// ─── Organizational access assignments ───────────────────────────────────────
+
+model UserBusinessUnitAccess {
+  userId         String   @db.Uuid
+  businessUnitId String   @db.Uuid
+  createdAt      DateTime @default(now()) @db.Timestamptz(3)
+
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  businessUnit BusinessUnit @relation(fields: [businessUnitId], references: [id], onDelete: Cascade)
+
+  @@id([userId, businessUnitId])
+  @@map("user_business_unit_access")
+}
+
+model UserOfficeAccess {
+  userId    String   @db.Uuid
+  officeId  String   @db.Uuid
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  office Office @relation(fields: [officeId], references: [id], onDelete: Cascade)
+
+  @@id([userId, officeId])
+  @@map("user_office_access")
+}
+
+model UserWarehouseAccess {
+  userId      String   @db.Uuid
+  warehouseId String   @db.Uuid
+  createdAt   DateTime @default(now()) @db.Timestamptz(3)
+
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  warehouse Warehouse @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
+
+  @@id([userId, warehouseId])
+  @@map("user_warehouse_access")
 }
 
 // ─── Configuration › Business Configuration › Company Profile ───────────────
@@ -105,9 +168,10 @@ model BusinessUnit {
   createdAt     DateTime   @default(now()) @db.Timestamptz(3)
   updatedAt     DateTime   @updatedAt @db.Timestamptz(3)
 
-  company Company          @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  offices Office[]
-  terms   TermsCondition[]
+  company    Company                  @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  offices    Office[]
+  terms      TermsCondition[]
+  userAccess UserBusinessUnitAccess[]
 
   salesPersons     SalesPerson[]
   customers        Customer[]
@@ -146,9 +210,11 @@ model Office {
   createdAt      DateTime @default(now()) @db.Timestamptz(3)
   updatedAt      DateTime @updatedAt @db.Timestamptz(3)
 
-  businessUnit BusinessUnit     @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  businessUnit BusinessUnit       @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
   warehouses   Warehouse[]
   assets       OfficeAsset[]
+  employees    Employee[]
+  userAccess   UserOfficeAccess[]
   quotations   SalesQuotation[]
   salesOrders  SalesOrder[]
 
@@ -168,7 +234,8 @@ model Warehouse {
   createdAt DateTime @default(now()) @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @db.Timestamptz(3)
 
-  office Office @relation(fields: [officeId], references: [id], onDelete: Restrict)
+  office     Office                @relation(fields: [officeId], references: [id], onDelete: Restrict)
+  userAccess UserWarehouseAccess[]
 
   purchaseRequisitions PurchaseRequisition[]
   purchaseOrders       PurchaseOrder[]
@@ -1170,283 +1237,4 @@ model SupplierPayment {
   @@index([businessUnitId, paymentDate])
   @@index([supplierId])
   @@map("supplier_payments")
-}
-
-// ─── Accounts & Finance Module ───────────────────────────────────────────────
-
-model Account {
-  id             String    @id @default(uuid()) @db.Uuid
-  code           String    @unique @db.VarChar(50)
-  name           String    @db.VarChar(150)
-  parentCode     String?   @db.VarChar(50)
-  accountType    String    @db.VarChar(50)
-  accountSubtype String    @db.VarChar(100)
-  tierLevel      String?   @db.VarChar(50)
-  normalBalance  String    @db.VarChar(20)
-  description    String?   @db.VarChar(500)
-  openingBalance Decimal   @default(0) @db.Decimal(14, 2)
-  currentBalance Decimal   @default(0) @db.Decimal(14, 2)
-  currency       String    @default("BDT") @db.VarChar(10)
-  isGroup        Boolean   @default(false)
-  status         String    @default("ACTIVE") @db.VarChar(30)
-  officeId       String?   @db.Uuid
-  createdAt      DateTime  @default(now()) @db.Timestamptz(3)
-  updatedAt      DateTime  @updatedAt @db.Timestamptz(3)
-
-  voucherLines   JournalVoucherLine[]
-
-  @@map("accounts")
-}
-
-model CostCenter {
-  id             String    @id @default(uuid()) @db.Uuid
-  code           String    @unique @db.VarChar(50)
-  name           String    @db.VarChar(150)
-  type           String    @default("DEPARTMENT") @db.VarChar(50)
-  parentCenterId String?   @db.Uuid
-  officeId       String?   @db.Uuid
-  officeName     String?   @db.VarChar(150)
-  description    String?   @db.VarChar(500)
-  effectiveDate  DateTime? @db.Date
-  status         String    @default("ACTIVE") @db.VarChar(30)
-  createdAt      DateTime  @default(now()) @db.Timestamptz(3)
-  updatedAt      DateTime  @updatedAt @db.Timestamptz(3)
-
-  voucherLines   JournalVoucherLine[]
-
-  @@map("cost_centers")
-}
-
-model JournalVoucher {
-  id              String               @id @default(uuid()) @db.Uuid
-  voucherNumber   String               @unique @db.VarChar(50)
-  transactionDate DateTime             @db.Date
-  officeId        String?              @db.Uuid
-  officeName      String?              @db.VarChar(150)
-  fiscalYear      String               @db.VarChar(30)
-  journalType     String               @db.VarChar(30)
-  transType       String?              @db.VarChar(50)
-  narration       String               @db.VarChar(1000)
-  referenceNumber String?              @db.VarChar(100)
-  totalDebit      Decimal              @default(0) @db.Decimal(14, 2)
-  totalCredit     Decimal              @default(0) @db.Decimal(14, 2)
-  amount          Decimal?             @db.Decimal(14, 2)
-  status          String               @default("POSTED") @db.VarChar(30)
-  reversalOfId    String?              @db.Uuid
-  reversedById    String?              @db.Uuid
-  createdBy       String               @db.VarChar(150)
-  preparedBy      String?              @db.VarChar(150)
-  approvedBy      String?              @db.VarChar(150)
-  postedAt        DateTime?            @db.Timestamptz(3)
-  createdAt       DateTime             @default(now()) @db.Timestamptz(3)
-  updatedAt       DateTime             @updatedAt @db.Timestamptz(3)
-
-  lines           JournalVoucherLine[]
-
-  @@map("journal_vouchers")
-}
-
-model JournalVoucherLine {
-  id           String         @id @default(uuid()) @db.Uuid
-  voucherId    String         @db.Uuid
-  lineNo       Int            @default(1)
-  accountId    String?        @db.Uuid
-  accountCode  String         @db.VarChar(50)
-  accountName  String         @db.VarChar(150)
-  debit        Decimal        @default(0) @db.Decimal(14, 2)
-  credit       Decimal        @default(0) @db.Decimal(14, 2)
-  narration    String?        @db.VarChar(500)
-  costCenterId String?        @db.Uuid
-
-  voucher      JournalVoucher @relation(fields: [voucherId], references: [id], onDelete: Cascade)
-  account      Account?       @relation(fields: [accountId], references: [id], onDelete: SetNull)
-  costCenter   CostCenter?    @relation(fields: [costCenterId], references: [id], onDelete: SetNull)
-
-  @@map("journal_voucher_lines")
-}
-
-model ExpenseRecord {
-  id              String    @id @default(uuid()) @db.Uuid
-  expenseNumber   String    @unique @db.VarChar(50)
-  officeId        String?   @db.Uuid
-  officeName      String?   @db.VarChar(150)
-  expenseType     String    @db.VarChar(100)
-  accountId       String?   @db.Uuid
-  accountName     String    @db.VarChar(150)
-  payeeName       String    @db.VarChar(150)
-  amount          Decimal   @db.Decimal(14, 2)
-  date            DateTime  @db.Date
-  paymentMethod   String    @default("BANK") @db.VarChar(30)
-  referenceNumber String?   @db.VarChar(100)
-  description     String?   @db.VarChar(500)
-  status          String    @default("APPROVED") @db.VarChar(30)
-  approvedBy      String?   @db.VarChar(150)
-  paidAt          DateTime? @db.Timestamptz(3)
-  createdAt       DateTime  @default(now()) @db.Timestamptz(3)
-  updatedAt       DateTime  @updatedAt @db.Timestamptz(3)
-
-  @@map("expense_records")
-}
-
-model FundTransfer {
-  id                String    @id @default(uuid()) @db.Uuid
-  transferNumber    String    @unique @db.VarChar(50)
-  requestCode       String?   @db.VarChar(50)
-  outCode           String?   @db.VarChar(50)
-  receiveCode       String?   @db.VarChar(50)
-  returnCode        String?   @db.VarChar(50)
-  requestDate       DateTime  @db.Date
-  expectedDate      DateTime? @db.Date
-  fromOfficeId      String?   @db.Uuid
-  fromOfficeName    String    @db.VarChar(150)
-  toOfficeId        String?   @db.Uuid
-  toOfficeName      String    @db.VarChar(150)
-  fromAccountId     String?   @db.Uuid
-  fromAccountName   String    @db.VarChar(150)
-  toAccountId       String?   @db.Uuid
-  toAccountName     String    @db.VarChar(150)
-  requestedAmount   Decimal   @db.Decimal(14, 2)
-  approvedAmount    Decimal   @default(0) @db.Decimal(14, 2)
-  transferredAmount Decimal   @default(0) @db.Decimal(14, 2)
-  receivedAmount    Decimal   @default(0) @db.Decimal(14, 2)
-  responsiblePerson String    @db.VarChar(150)
-  receivedPerson    String?   @db.VarChar(150)
-  purpose           String    @db.VarChar(500)
-  status            String    @default("Approved") @db.VarChar(50)
-  dispatchedAt      DateTime? @db.Timestamptz(3)
-  receivedAt        DateTime? @db.Timestamptz(3)
-  createdAt         DateTime  @default(now()) @db.Timestamptz(3)
-  updatedAt         DateTime  @updatedAt @db.Timestamptz(3)
-
-  @@map("fund_transfers")
-}
-
-model ChequeBook {
-  id                 String        @id @default(uuid()) @db.Uuid
-  bookName           String        @db.VarChar(150)
-  bankAccountId      String?       @db.Uuid
-  bankName           String        @db.VarChar(150)
-  branchName         String?       @db.VarChar(150)
-  accountNumber      String        @db.VarChar(50)
-  startChequeNumber  String        @db.VarChar(50)
-  endChequeNumber    String        @db.VarChar(50)
-  totalLeaves        Int           @default(25)
-  usedLeaves         Int           @default(0)
-  remainingLeaves    Int           @default(25)
-  status             String        @default("Running") @db.VarChar(30)
-  createdAt          DateTime      @default(now()) @db.Timestamptz(3)
-  updatedAt          DateTime      @updatedAt @db.Timestamptz(3)
-
-  cheques            ChequeIssue[]
-
-  @@map("cheque_books")
-}
-
-model ChequeIssue {
-  id                 String      @id @default(uuid()) @db.Uuid
-  chequeBookId       String?     @db.Uuid
-  chequeNumber       String      @db.VarChar(50)
-  bankAccountId      String?     @db.Uuid
-  bankName           String      @db.VarChar(150)
-  transactionNumber  String      @unique @db.VarChar(50)
-  payeeName          String      @db.VarChar(150)
-  issueDate          DateTime    @db.Date
-  chequeDate         DateTime    @db.Date
-  amount             Decimal     @db.Decimal(14, 2)
-  purpose            String      @db.VarChar(500)
-  referenceVoucher   String?     @db.VarChar(50)
-  status             String      @default("ISSUED") @db.VarChar(30)
-  cancellationReason String?     @db.VarChar(500)
-  createdAt          DateTime    @default(now()) @db.Timestamptz(3)
-  updatedAt          DateTime    @updatedAt @db.Timestamptz(3)
-
-  chequeBook         ChequeBook? @relation(fields: [chequeBookId], references: [id], onDelete: SetNull)
-
-  @@map("cheque_issues")
-}
-
-model ReceivedCheque {
-  id            String    @id @default(uuid()) @db.Uuid
-  chequeNumber  String    @db.VarChar(50)
-  customerName  String    @db.VarChar(150)
-  bankName      String    @db.VarChar(150)
-  branchName    String?   @db.VarChar(150)
-  receivedDate  DateTime  @db.Date
-  chequeDate    DateTime  @db.Date
-  amount        Decimal   @db.Decimal(14, 2)
-  depositStatus String    @default("NOT_DEPOSITED") @db.VarChar(30)
-  depositDate   DateTime? @db.Date
-  remarks       String?   @db.VarChar(500)
-  createdAt     DateTime  @default(now()) @db.Timestamptz(3)
-  updatedAt     DateTime  @updatedAt @db.Timestamptz(3)
-
-  @@map("received_cheques")
-}
-
-model Budget {
-  id                String       @id @default(uuid()) @db.Uuid
-  budgetCode        String       @unique @db.VarChar(50)
-  budgetName        String       @db.VarChar(150)
-  budgetYear        String       @db.VarChar(100)
-  createDate        String?      @db.VarChar(50)
-  financialPeriod   String       @db.VarChar(100)
-  officeId          String?      @db.Uuid
-  officeName        String?      @db.VarChar(150)
-  costCenterId      String?      @db.Uuid
-  costCenterName    String?      @db.VarChar(150)
-  budgetType        String       @db.VarChar(100)
-  accountId         String?      @db.Uuid
-  accountName       String?      @db.VarChar(150)
-  allocatedAmount   Decimal      @db.Decimal(14, 2)
-  totalBudgetAmount Decimal?     @db.Decimal(14, 2)
-  revisedAmount     Decimal      @default(0) @db.Decimal(14, 2)
-  utilizedAmount    Decimal      @default(0) @db.Decimal(14, 2)
-  committedAmount   Decimal      @default(0) @db.Decimal(14, 2)
-  remainingAmount   Decimal      @default(0) @db.Decimal(14, 2)
-  approvalStatus    String       @default("Approved") @db.VarChar(50)
-  status            String       @default("Approved") @db.VarChar(50)
-  version           Int          @default(1)
-  createdBy         String       @db.VarChar(150)
-  createdAt         DateTime     @default(now()) @db.Timestamptz(3)
-  updatedAt         DateTime     @updatedAt @db.Timestamptz(3)
-
-  items             BudgetLine[]
-
-  @@map("budgets")
-}
-
-model BudgetLine {
-  id              String   @id @default(uuid()) @db.Uuid
-  budgetId        String   @db.Uuid
-  accountCode     String   @db.VarChar(50)
-  accountName     String   @db.VarChar(150)
-  costCenterName  String?  @db.VarChar(150)
-  allocatedAmount Decimal  @db.Decimal(14, 2)
-  utilizedAmount  Decimal  @default(0) @db.Decimal(14, 2)
-  remainingAmount Decimal  @default(0) @db.Decimal(14, 2)
-  remarks         String?  @db.VarChar(500)
-
-  budget          Budget   @relation(fields: [budgetId], references: [id], onDelete: Cascade)
-
-  @@map("budget_lines")
-}
-
-model BankAccount {
-  id                   String   @id @default(uuid()) @db.Uuid
-  accountNumber        String   @unique @db.VarChar(50)
-  bankName             String   @db.VarChar(150)
-  branchName           String   @db.VarChar(150)
-  accountHolder        String   @db.VarChar(150)
-  accountType          String   @default("CURRENT") @db.VarChar(50)
-  currency             String   @default("BDT") @db.VarChar(10)
-  glAccountId          String?  @db.Uuid
-  glAccountName        String?  @db.VarChar(150)
-  openingBalance       Decimal  @default(0) @db.Decimal(14, 2)
-  currentBalance       Decimal  @default(0) @db.Decimal(14, 2)
-  reconciliationStatus String   @default("RECONCILED") @db.VarChar(50)
-  isActive             Boolean  @default(true)
-  createdAt            DateTime @default(now()) @db.Timestamptz(3)
-  updatedAt            DateTime @updatedAt @db.Timestamptz(3)
-
-  @@map("bank_accounts")
 }

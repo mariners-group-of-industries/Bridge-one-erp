@@ -72,7 +72,9 @@ export function Dialog({
           <X className="size-4" />
         </Button>
       </div>
-      <div className="max-h-[75vh] overflow-y-auto px-5 pb-4">{children}</div>
+      <div className={cn("overflow-x-hidden overflow-y-auto px-5 pb-4", size === "xl" ? "max-h-[75vh]" : "max-h-[65vh]")}>
+        {children}
+      </div>
       {footer && <div className="flex flex-wrap justify-end gap-2 border-t border-line px-5 py-3">{footer}</div>}
     </>
   );
@@ -102,8 +104,9 @@ export function Dialog({
         handleClose();
       }}
       className={cn(
-        "m-auto w-[calc(100%-2rem)] rounded-xl bg-surface p-0 text-ink shadow-dropdown backdrop:bg-black/50 border border-line",
-        size === "lg" ? "max-w-2xl" : size === "xl" ? "max-w-4xl" : "max-w-lg",
+        // The body scrolls, not the <dialog> itself (avoids a second scrollbar).
+        "m-auto w-[calc(100%-2rem)] overflow-hidden rounded-xl bg-surface p-0 text-ink shadow-dropdown backdrop:bg-black/40",
+        size === "xl" ? "max-w-5xl" : size === "lg" ? "max-w-2xl" : "max-w-lg",
         className,
       )}
     >

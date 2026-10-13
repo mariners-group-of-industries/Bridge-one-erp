@@ -11,6 +11,8 @@ export interface NavLink {
 /** A titled group of links, shown as a card on the workspace page. */
 export interface NavCard {
   label: string;
+  /** Landing page of the group. When set, the group appears in its pages' breadcrumbs. */
+  href?: string;
   links: readonly NavLink[];
 }
 

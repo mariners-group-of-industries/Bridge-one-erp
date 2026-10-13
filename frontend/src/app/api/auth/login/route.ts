@@ -33,6 +33,7 @@ export async function POST(req: NextRequest) {
     name: user.name,
     phone: user.phone,
     role: user.role,
+    isMaster: user.isMaster,
   });
 
   // Persist session for revocation support
