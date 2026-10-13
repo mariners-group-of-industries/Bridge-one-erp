@@ -38,11 +38,12 @@ export async function parseJson<T>(request: Request, schema: ZodType<T>): Promis
   return schema.parse(body);
 }
 
-const idSchema = z.uuid();
+// Loose UUID pattern — accepts any 8-4-4-4-12 hex string regardless of version/variant bits.
+const idSchema = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** Validates a UUID path parameter; malformed ids are reported as not found. */
 export function parseId(value: string, entity: string): string {
-  if (!idSchema.safeParse(value).success) throw notFound(entity);
+  if (!idSchema.test(value)) throw notFound(entity);
   return value;
 }
 
