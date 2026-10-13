@@ -1,5 +1,6 @@
 import { accountWorkspace } from "@/features/accounts/navigation";
 import { configurationWorkspace } from "@/features/configuration/navigation";
+import { inventoryWorkspace } from "@/features/inventory/navigation";
 import { purchaseWorkspace } from "@/features/purchase/navigation";
 import { salesWorkspace } from "@/features/sales/navigation";
 import { plannedWorkspaces } from "./planned";
@@ -15,6 +16,7 @@ export const workspaces: readonly Workspace[] = [
   purchaseWorkspace,
   salesWorkspace,
   accountWorkspace,
+  inventoryWorkspace,
   ...plannedWorkspaces,
 ];
 
