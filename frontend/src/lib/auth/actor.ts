@@ -3,7 +3,14 @@ import { getAuthCookie } from "@/lib/auth/cookies";
 import { verifyToken } from "@/lib/auth/jwt";
 import { db } from "@/lib/prisma/client";
 
-export type Permission = "configuration:read" | "configuration:write" | "sales:read" | "sales:write" | "sales:approve";
+export type Permission =
+  | "configuration:read"
+  | "configuration:write"
+  | "sales:read"
+  | "sales:write"
+  | "sales:approve"
+  | "accounts:read"
+  | "accounts:write";
 
 export interface Actor {
   id: string;
@@ -19,6 +26,8 @@ const ALL_PERMISSIONS: Permission[] = [
   "sales:read",
   "sales:write",
   "sales:approve",
+  "accounts:read",
+  "accounts:write",
 ];
 
 function permissionsForRole(role: string): ReadonlySet<Permission> {
