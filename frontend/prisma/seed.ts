@@ -87,7 +87,7 @@ async function main() {
   console.log(`  Offices:       Dhaka Head Office, MG Sirajganj Factory`);
   console.log(`  Warehouses:    10 total`);
 
-  // Seed admin user
+  // Seed master account — isMaster=true gives full access regardless of future RBAC rules
   const passwordHash = await argon2.hash("U1234356@", { type: argon2.argon2id });
   await prisma.user.create({
     data: {
@@ -95,9 +95,10 @@ async function main() {
       phone: "01857055057",
       passwordHash,
       role: "ADMINISTRATOR",
+      isMaster: true,
     },
   });
-  console.log("  User:          01857055057 / U1234356@ (ADMINISTRATOR)");
+  console.log("  User:          01857055057 / U1234356@ (ADMINISTRATOR, isMaster=true)");
 }
 
 main()

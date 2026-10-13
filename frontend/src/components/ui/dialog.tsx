@@ -14,7 +14,7 @@ interface DialogProps {
   footer?: ReactNode;
   /** When set, the dialog body is a form and the footer's submit button triggers this. */
   onSubmit?: (event: FormEvent<HTMLFormElement>) => void;
-  size?: "md" | "lg";
+  size?: "md" | "lg" | "xl";
 }
 
 /**
@@ -47,7 +47,9 @@ export function Dialog({ open, title, description, onClose, children, footer, on
           <X />
         </Button>
       </div>
-      <div className="max-h-[65vh] overflow-y-auto px-5 pb-4">{children}</div>
+      <div className={cn("overflow-x-hidden overflow-y-auto px-5 pb-4", size === "xl" ? "max-h-[75vh]" : "max-h-[65vh]")}>
+        {children}
+      </div>
       {footer && <div className="flex flex-wrap justify-end gap-2 border-t border-line px-5 py-3">{footer}</div>}
     </>
   );
@@ -61,8 +63,9 @@ export function Dialog({ open, title, description, onClose, children, footer, on
         onClose();
       }}
       className={cn(
-        "m-auto w-[calc(100%-2rem)] rounded-xl bg-surface p-0 text-ink shadow-dropdown backdrop:bg-black/40",
-        size === "lg" ? "max-w-2xl" : "max-w-lg",
+        // The body scrolls, not the <dialog> itself (avoids a second scrollbar).
+        "m-auto w-[calc(100%-2rem)] overflow-hidden rounded-xl bg-surface p-0 text-ink shadow-dropdown backdrop:bg-black/40",
+        size === "xl" ? "max-w-5xl" : size === "lg" ? "max-w-2xl" : "max-w-lg",
       )}
     >
       {open &&

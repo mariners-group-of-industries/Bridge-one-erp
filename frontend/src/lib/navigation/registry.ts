@@ -53,13 +53,22 @@ export function matchesPattern(pattern: string, pathname: string): boolean {
   );
 }
 
-/** Breadcrumbs for the navbar: Workspace › (list page ›) current page. */
+/** Breadcrumbs for the navbar: Workspace › (group ›) (list page ›) current page. */
 export function resolveBreadcrumbs(pathname: string, list: readonly Workspace[] = workspaces): Breadcrumb[] {
   const workspace = findWorkspace(pathname, list);
   if (!workspace) return [];
 
   const crumbs: Breadcrumb[] = [{ label: workspace.label, href: workspace.href }];
   if (pathname === workspace.href) return crumbs;
+
+  // Groups with their own landing page (e.g. Entity Master Data) get a crumb.
+  for (const card of workspace.cards ?? []) {
+    if (!card.href) continue;
+    const cardCrumb = { label: card.label, href: card.href };
+    if (pathname === card.href) return [...crumbs, cardCrumb];
+    const cardLink = card.links.find((item) => item.href === pathname);
+    if (cardLink) return [...crumbs, cardCrumb, { label: cardLink.label, href: cardLink.href }];
+  }
 
   const links = workspaceLinks(workspace);
   const link = links.find((item) => item.href === pathname);
