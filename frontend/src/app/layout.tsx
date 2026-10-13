@@ -11,6 +11,11 @@ const inter = Inter({
 export const metadata: Metadata = {
   title: { default: "BridgeOne ERP", template: "%s | BridgeOne ERP" },
   description: "BridgeOne enterprise resource planning",
+  icons: {
+    icon: "/favicon.png",
+    shortcut: "/favicon.png",
+    apple: "/favicon.png",
+  },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

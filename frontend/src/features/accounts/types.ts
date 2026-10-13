@@ -291,13 +291,29 @@ export interface ChequeBookItem {
   bookName: string;
   bankAccountId: string;
   bankName: string;
+  branchName?: string;
   accountNumber: string;
   startChequeNumber: string;
   endChequeNumber: string;
   totalLeaves: number;
   usedLeaves: number;
   remainingLeaves: number;
-  status: "ACTIVE" | "EXHAUSTED" | "CANCELLED";
+  status: "ACTIVE" | "EXHAUSTED" | "CANCELLED" | "Running";
+  createdAt: string;
+}
+
+export interface ReceivedChequeItem {
+  id: string;
+  chequeNumber: string;
+  customerName: string;
+  bankName: string;
+  branchName?: string;
+  receivedDate: string;
+  chequeDate: string;
+  amount: number;
+  depositStatus: "DEPOSITED" | "NOT_DEPOSITED";
+  depositDate?: string;
+  remarks?: string;
   createdAt: string;
 }
 
@@ -340,25 +356,41 @@ export interface CostCenterItem {
   createdAt: string;
 }
 
+export interface BudgetLineItem {
+  id: string;
+  accountCode: string;
+  accountName: string;
+  costCenterName?: string;
+  allocatedAmount: number;
+  utilizedAmount?: number;
+  remainingAmount?: number;
+  remarks?: string;
+}
+
 export interface BudgetItem {
   id: string;
   budgetCode: string;
   budgetName: string;
   budgetYear: string;
+  createDate?: string;
   financialPeriod: string;
   officeId: string;
   officeName: string;
   costCenterId: string;
   costCenterName: string;
-  budgetType: "OPERATING" | "CAPITAL" | "DEPARTMENT" | "PROJECT";
+  budgetType: "OPERATING" | "CAPITAL" | "DEPARTMENT" | "PROJECT" | "OverHeads/Expense Budget" | string;
   accountId: string;
   accountName: string;
   allocatedAmount: number;
+  totalBudgetAmount?: number;
   revisedAmount: number;
   utilizedAmount: number;
   committedAmount: number;
   remainingAmount: number;
-  approvalStatus: "DRAFT" | "SUBMITTED" | "APPROVED" | "REJECTED";
+  approvalStatus: "DRAFT" | "SUBMITTED" | "APPROVED" | "REJECTED" | "Approved" | string;
+  status?: string;
+  version?: number;
+  items?: BudgetLineItem[];
   createdBy: string;
   createdAt: string;
 }

@@ -1,566 +1,549 @@
 "use client";
 
 import React, { useMemo, useState } from "react";
-import Link from "next/link";
+import Image from "next/image";
 import {
-  ArrowDownRight,
-  ArrowUpRight,
-  BookOpen,
-  Calendar,
-  CheckCircle2,
-  ChevronRight,
+  ChevronDown,
   Download,
   FileSpreadsheet,
-  FileText,
-  Filter,
-  Layers,
+  Inbox,
   Printer,
-  Scale,
   Search,
-  ShieldCheck,
 } from "lucide-react";
-import { SummaryCard } from "@/components/purchase/SummaryCard";
 import { useAccountingStore } from "@/features/accounts/store/accounting-store";
 
 export default function FinancialReportsPage() {
-  const [reportType, setReportType] = useState<
-    "tb" | "gl" | "pl" | "bs" | "cashbook" | "bankbook" | "ar" | "ap"
-  >("tb");
-  const [selectedOffice, setSelectedOffice] = useState("all");
-  const [selectedAccount, setSelectedAccount] = useState("all");
-  const [fromDate, setFromDate] = useState("2026-07-01");
-  const [toDate, setToDate] = useState("2027-06-30");
-  const [includeZero, setIncludeZero] = useState(false);
-  const [withoutDecimal, setWithoutDecimal] = useState(false);
-
   const accounts = useAccountingStore((s) => s.accounts);
+  const vouchers = useAccountingStore((s) => s.vouchers);
   const getTrialBalance = useAccountingStore((s) => s.getTrialBalance);
   const getProfitAndLoss = useAccountingStore((s) => s.getProfitAndLoss);
   const getBalanceSheet = useAccountingStore((s) => s.getBalanceSheet);
   const getGeneralLedger = useAccountingStore((s) => s.getGeneralLedger);
 
-  const tbData = useMemo(() => getTrialBalance(), [getTrialBalance]);
-  const plData = useMemo(() => getProfitAndLoss(fromDate, toDate), [getProfitAndLoss, fromDate, toDate]);
-  const bsData = useMemo(() => getBalanceSheet(), [getBalanceSheet]);
-  const glData = useMemo(
-    () => getGeneralLedger(selectedAccount === "all" ? undefined : selectedAccount, fromDate, toDate),
-    [getGeneralLedger, selectedAccount, fromDate, toDate],
+  // Filter States from Screenshot 3
+  const [reportType, setReportType] = useState<string>("Ledger");
+  const [selectedOffice, setSelectedOffice] = useState<string>("ALL");
+  const [ledgerType, setLedgerType] = useState<string>("General Ledger");
+  const [selectedAccountId, setSelectedAccountId] = useState<string>("");
+  const [fromDate, setFromDate] = useState<string>("2026-09-12");
+  const [toDate, setToDate] = useState<string>("2026-10-13");
+  const [officeWise, setOfficeWise] = useState<boolean>(false);
+  const [withoutDecimal, setWithoutDecimal] = useState<boolean>(false);
+
+  // Active view state
+  const [hasViewed, setHasViewed] = useState<boolean>(true);
+  const [activeReport, setActiveReport] = useState<{
+    reportType: string;
+    office: string;
+    ledgerType: string;
+    accountId: string;
+    fromDate: string;
+    toDate: string;
+    officeWise: boolean;
+    withoutDecimal: boolean;
+  }>({
+    reportType: "Ledger",
+    office: "ALL",
+    ledgerType: "General Ledger",
+    accountId: "",
+    fromDate: "2026-09-12",
+    toDate: "2026-10-13",
+    officeWise: false,
+    withoutDecimal: false,
+  });
+
+  const handleView = () => {
+    setActiveReport({
+      reportType,
+      office: selectedOffice,
+      ledgerType,
+      accountId: selectedAccountId,
+      fromDate,
+      toDate,
+      officeWise,
+      withoutDecimal,
+    });
+    setHasViewed(true);
+  };
+
+  // Format numbers helper
+  const formatAmount = (val: number | undefined | null) => {
+    if (val === undefined || val === null) return "0.00";
+    if (activeReport.withoutDecimal) {
+      return Math.round(val).toLocaleString();
+    }
+    return val.toLocaleString("en-US", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+  };
+
+  // Selected Account details
+  const currentAccount = useMemo(() => {
+    if (!activeReport.accountId) return null;
+    return accounts.find((a) => a.id === activeReport.accountId);
+  }, [accounts, activeReport.accountId]);
+
+  // Compute General Ledger Entries
+  const ledgerEntries = useMemo(() => {
+    const raw = getGeneralLedger(
+      activeReport.accountId || undefined,
+      activeReport.fromDate,
+      activeReport.toDate,
+    );
+
+    if (activeReport.office !== "ALL") {
+      return raw.filter((r) =>
+        r.officeName.toLowerCase().includes(activeReport.office.toLowerCase()),
+      );
+    }
+    return raw;
+  }, [getGeneralLedger, activeReport]);
+
+  const totalDebit = useMemo(
+    () => ledgerEntries.reduce((sum, r) => sum + r.debit, 0),
+    [ledgerEntries],
+  );
+  const totalCredit = useMemo(
+    () => ledgerEntries.reduce((sum, r) => sum + r.credit, 0),
+    [ledgerEntries],
   );
 
-  const formatAmount = (val: number) => {
-    const formatted = withoutDecimal
-      ? Math.round(val).toLocaleString()
-      : val.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-    return `৳${formatted}`;
-  };
+  // Trial Balance Data
+  const tbData = useMemo(() => getTrialBalance(), [getTrialBalance]);
+
+  // Profit & Loss Data
+  const plData = useMemo(
+    () => getProfitAndLoss(activeReport.fromDate, activeReport.toDate),
+    [getProfitAndLoss, activeReport.fromDate, activeReport.toDate],
+  );
+
+  // Balance Sheet Data
+  const bsData = useMemo(() => getBalanceSheet(), [getBalanceSheet]);
 
   const handleExportCSV = () => {
     let rows: string[] = [];
-    if (reportType === "tb") {
-      rows = ["Account Code,Account Name,Account Type,Debit,Credit"].concat(
-        tbData.rows.map((r) => `"${r.code}","${r.name}","${r.type}",${r.debit},${r.credit}`),
-      );
-    } else if (reportType === "gl") {
-      rows = ["Date,Voucher No,Type,Account,Narration,Debit,Credit,Running Balance"].concat(
-        glData.map(
+    if (activeReport.reportType === "Ledger") {
+      rows = [
+        "Date,Voucher No,Transaction Type,Narration,Office,Debit,Credit,Running Balance",
+      ].concat(
+        ledgerEntries.map(
           (g) =>
-            `"${g.date}","${g.voucherNumber}","${g.transactionType}","${g.accountName}","${g.narration}",${g.debit},${g.credit},${g.runningBalance}`,
+            `"${g.date}","${g.voucherNumber}","${g.transactionType}","${g.narration}","${g.officeName}",${g.debit},${g.credit},${g.runningBalance}`,
         ),
       );
-    } else if (reportType === "pl") {
-      rows = ["Category,Account Name,Amount"]
+    } else if (activeReport.reportType === "Trial Balance") {
+      rows = ["Code,Name,Type,Debit,Credit"].concat(
+        tbData.rows.map(
+          (r) => `"${r.code}","${r.name}","${r.type}",${r.debit},${r.credit}`,
+        ),
+      );
+    } else if (activeReport.reportType === "Profit & Loss") {
+      rows = ["Class,Account,Amount"]
         .concat(plData.revenues.map((r) => `"Revenue","${r.name}",${r.amount}`))
         .concat(plData.expenses.map((e) => `"Expense","${e.name}",${e.amount}`));
     } else {
-      rows = ["Account Class,Account Title,Amount"]
+      rows = ["Category,Title,Amount"]
         .concat(bsData.assets.map((a) => `"Asset","${a.name}",${a.amount}`))
         .concat(bsData.liabilities.map((l) => `"Liability","${l.name}",${l.amount}`))
         .concat(bsData.equity.map((e) => `"Equity","${e.name}",${e.amount}`));
     }
 
-    const csvContent = "data:text/csv;charset=utf-8," + rows.join("\n");
+    const blob = new Blob([rows.join("\n")], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
-    link.setAttribute("href", encodeURI(csvContent));
-    link.setAttribute("download", `${reportType}_report_${new Date().toISOString().split("T")[0]}.csv`);
-    document.body.appendChild(link);
+    link.href = url;
+    link.download = `${activeReport.reportType.toLowerCase().replace(/\s+/g, "_")}_${new Date().toISOString().split("T")[0]}.csv`;
     link.click();
-    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
   };
 
   return (
-    <div className="space-y-3 font-sans pb-12">
+    <div className="min-h-screen bg-[#f8fafc] text-slate-800 font-sans pb-16">
       {/* ------------------------------------------------------------- */}
-      {/* 1. TOP HEADER */}
+      {/* 1. TOP TAB BAR */}
       {/* ------------------------------------------------------------- */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-3 rounded border border-slate-200/90 shadow-2xs">
-        <div>
-          <nav className="flex items-center gap-1.5 text-[11px] text-slate-400 mb-0.5">
-            <Link href="/accounts" className="hover:text-slate-600 transition">
-              Account
-            </Link>
-            <ChevronRight className="w-3 h-3 text-slate-300" />
-            <span className="text-slate-600 font-medium">Financial Reports</span>
-          </nav>
-          <h1 className="text-xl font-bold text-slate-900 tracking-tight">Auditable Financial Statements & Ledgers</h1>
-          <p className="text-xs text-slate-500 mt-0.5">
-            Trial Balance reconciliation, General Ledger audit trail, Profit & Loss, and Balance Sheet statements
-          </p>
-        </div>
-
-        <div className="flex items-center gap-2 flex-wrap">
-          <button
-            type="button"
-            onClick={handleExportCSV}
-            className="h-9 px-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs rounded flex items-center gap-1.5 shadow-xs transition"
-          >
-            <Download className="w-3.5 h-3.5" />
-            <span>Excel Export</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => window.print()}
-            className="h-9 px-3.5 bg-slate-100 hover:bg-slate-200 text-slate-800 font-semibold text-xs rounded flex items-center gap-1.5 shadow-xs transition"
-          >
-            <Printer className="w-3.5 h-3.5" />
-            <span>Print Report</span>
-          </button>
+      <div className="bg-white border-b border-slate-200">
+        <div className="px-4 flex items-center">
+          <div className="relative pb-2.5 pt-2 px-4 text-[13px] font-semibold text-[#2563eb] cursor-pointer">
+            Financial Report
+            <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-[#2563eb]" />
+          </div>
         </div>
       </div>
 
       {/* ------------------------------------------------------------- */}
-      {/* 2. SUMMARY KPI CARDS */}
+      {/* 2. FILTER BAR (Matching Screenshot 3) */}
       {/* ------------------------------------------------------------- */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <SummaryCard
-          title="TB Status"
-          value={tbData.isBalanced ? "BALANCED" : "OUT OF BALANCE"}
-          subtitle={`Diff: ৳${Math.abs(tbData.totalDebit - tbData.totalCredit).toLocaleString()}`}
-          icon={tbData.isBalanced ? CheckCircle2 : Scale}
-          variant={tbData.isBalanced ? "success" : "danger"}
-        />
-        <SummaryCard
-          title="Net Profit / Loss"
-          value={formatAmount(plData.netProfit)}
-          subtitle={`${plData.totalRevenue > 0 ? ((plData.netProfit / plData.totalRevenue) * 100).toFixed(1) : "0"}% margin`}
-          icon={plData.netProfit >= 0 ? ArrowUpRight : ArrowDownRight}
-          variant={plData.netProfit >= 0 ? "info" : "warning"}
-        />
-        <SummaryCard
-          title="Total Assets"
-          value={formatAmount(bsData.totalAssets)}
-          subtitle="Fixed + Current Liquid Assets"
-          icon={BookOpen}
-          variant="info"
-        />
-        <SummaryCard
-          title="Liabilities & Equity"
-          value={formatAmount(bsData.totalLiabilities + bsData.totalEquity)}
-          subtitle={bsData.isBalanced ? "Accounting Equation Verified" : "Recheck required"}
-          icon={ShieldCheck}
-          variant="success"
-        />
-      </div>
-
-      {/* ------------------------------------------------------------- */}
-      {/* 3. REPORT SELECTOR TABS */}
-      {/* ------------------------------------------------------------- */}
-      <div className="bg-white rounded border border-slate-200/90 shadow-2xs">
-        <div className="flex items-center gap-1 px-3 border-b border-slate-200 overflow-x-auto text-xs font-medium">
-          {[
-            { id: "tb", label: "TRIAL BALANCE" },
-            { id: "gl", label: "GENERAL LEDGER" },
-            { id: "pl", label: "PROFIT & LOSS (INCOME STMT)" },
-            { id: "bs", label: "BALANCE SHEET" },
-            { id: "cashbook", label: "CASH BOOK" },
-            { id: "bankbook", label: "BANK BOOK" },
-          ].map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => setReportType(tab.id as any)}
-              className={`py-2.5 px-3 whitespace-nowrap transition-colors border-b-2 -mb-[1px] ${
-                reportType === tab.id
-                  ? "text-blue-600 border-blue-600 font-semibold"
-                  : "text-slate-500 border-transparent hover:text-slate-700"
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
-
-        {/* Filter bar */}
-        <div className="p-3 bg-slate-50/60 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3 text-xs">
-          <div className="flex flex-wrap items-center gap-3">
-            <div className="flex items-center gap-1.5">
-              <span className="text-[11px] font-semibold text-slate-500 uppercase">From:</span>
-              <input
-                type="date"
-                value={fromDate}
-                onChange={(e) => setFromDate(e.target.value)}
-                className="h-8 px-2 border border-slate-300 rounded text-xs bg-white focus:ring-1 focus:ring-blue-500"
-              />
+      <div className="px-4 py-3 bg-white border-b border-slate-200/90 shadow-2xs space-y-2.5">
+        {/* Top Dropdowns Row */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-6 gap-2.5 text-xs">
+          {/* Report Type */}
+          <div>
+            <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+              Report Type
+            </label>
+            <div className="relative">
+              <select
+                value={reportType}
+                onChange={(e) => setReportType(e.target.value)}
+                className="w-full h-8 px-2.5 pr-7 border border-slate-300 rounded text-xs bg-white text-slate-800 appearance-none focus:outline-none focus:ring-1 focus:ring-[#2563eb]"
+              >
+                <option value="Ledger">Ledger</option>
+                <option value="Trial Balance">Trial Balance</option>
+                <option value="Profit & Loss">Profit & Loss</option>
+                <option value="Balance Sheet">Balance Sheet</option>
+                <option value="Cash Book">Cash Book</option>
+                <option value="Bank Book">Bank Book</option>
+              </select>
+              <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none" />
             </div>
-            <div className="flex items-center gap-1.5">
-              <span className="text-[11px] font-semibold text-slate-500 uppercase">To:</span>
-              <input
-                type="date"
-                value={toDate}
-                onChange={(e) => setToDate(e.target.value)}
-                className="h-8 px-2 border border-slate-300 rounded text-xs bg-white focus:ring-1 focus:ring-blue-500"
-              />
-            </div>
+          </div>
 
-            {reportType === "gl" && (
-              <div className="flex items-center gap-1.5">
-                <span className="text-[11px] font-semibold text-slate-500 uppercase">Account:</span>
-                <select
-                  value={selectedAccount}
-                  onChange={(e) => setSelectedAccount(e.target.value)}
-                  className="h-8 px-2 border border-slate-300 rounded text-xs bg-white focus:ring-1 focus:ring-blue-500"
-                >
-                  <option value="all">All Chart Accounts</option>
-                  {accounts.map((a) => (
-                    <option key={a.id} value={a.id}>
-                      {a.code} - {a.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
-
-            <div className="flex items-center gap-1.5">
-              <span className="text-[11px] font-semibold text-slate-500 uppercase">Office:</span>
+          {/* Office */}
+          <div>
+            <label className="block text-[11px] font-semibold text-slate-700 mb-1">Office</label>
+            <div className="relative">
               <select
                 value={selectedOffice}
                 onChange={(e) => setSelectedOffice(e.target.value)}
-                className="h-8 px-2 border border-slate-300 rounded text-xs bg-white focus:ring-1 focus:ring-blue-500"
+                className="w-full h-8 px-2.5 pr-7 border border-slate-300 rounded text-xs bg-white text-slate-800 appearance-none focus:outline-none focus:ring-1 focus:ring-[#2563eb]"
               >
-                <option value="all">Consolidated (All Branches)</option>
-                <option value="office-main">Dhaka Corporate HQ</option>
-                <option value="office-ctg">Chittagong Heavy Plant</option>
+                <option value="ALL">ALL</option>
+                <option value="MBBL-HO">MBBL-HO</option>
+                <option value="MG Sirajganj Factory">MG Sirajganj Factory</option>
+                <option value="Corporate Head Office">Corporate Head Office</option>
+                <option value="Chattogram Port Depot">Chattogram Port Depot</option>
               </select>
+              <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none" />
             </div>
           </div>
 
-          <div className="flex items-center gap-4 text-slate-700">
-            <label className="flex items-center gap-1.5 cursor-pointer select-none">
-              <input
-                type="checkbox"
-                checked={withoutDecimal}
-                onChange={(e) => setWithoutDecimal(e.target.checked)}
-                className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-              />
-              <span className="text-xs">Round Decimals</span>
+          {/* Ledger Type with Red Asterisk */}
+          <div>
+            <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+              <span className="text-rose-500 font-bold">* </span>Ledger Type
             </label>
-            <label className="flex items-center gap-1.5 cursor-pointer select-none">
-              <input
-                type="checkbox"
-                checked={includeZero}
-                onChange={(e) => setIncludeZero(e.target.checked)}
-                className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-              />
-              <span className="text-xs">Include Zero Balances</span>
+            <div className="relative">
+              <select
+                value={ledgerType}
+                onChange={(e) => setLedgerType(e.target.value)}
+                className="w-full h-8 px-2.5 pr-7 border border-slate-300 rounded text-xs bg-white text-slate-800 appearance-none focus:outline-none focus:ring-1 focus:ring-[#2563eb]"
+              >
+                <option value="General Ledger">General Ledger</option>
+                <option value="Sub Ledger">Sub Ledger</option>
+                <option value="Customer Ledger">Customer Ledger</option>
+                <option value="Supplier Ledger">Supplier Ledger</option>
+                <option value="Cost Center Ledger">Cost Center Ledger</option>
+              </select>
+              <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none" />
+            </div>
+          </div>
+
+          {/* Chart Of Account */}
+          <div>
+            <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+              Chart Of Account
             </label>
+            <div className="relative">
+              <select
+                value={selectedAccountId}
+                onChange={(e) => setSelectedAccountId(e.target.value)}
+                className="w-full h-8 px-2.5 pr-7 border border-slate-300 rounded text-xs bg-white text-slate-800 appearance-none focus:outline-none focus:ring-1 focus:ring-[#2563eb]"
+              >
+                <option value="">Select Chart Of Account</option>
+                {accounts.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.code} - {a.name}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none" />
+            </div>
+          </div>
+
+          {/* From Date */}
+          <div>
+            <label className="block text-[11px] font-semibold text-slate-700 mb-1">From Date</label>
+            <input
+              type="date"
+              value={fromDate}
+              onChange={(e) => setFromDate(e.target.value)}
+              className="w-full h-8 px-2.5 border border-slate-300 rounded text-xs bg-white text-slate-800 focus:outline-none focus:ring-1 focus:ring-[#2563eb]"
+            />
+          </div>
+
+          {/* To Date */}
+          <div>
+            <label className="block text-[11px] font-semibold text-slate-700 mb-1">To Date</label>
+            <input
+              type="date"
+              value={toDate}
+              onChange={(e) => setToDate(e.target.value)}
+              className="w-full h-8 px-2.5 border border-slate-300 rounded text-xs bg-white text-slate-800 focus:outline-none focus:ring-1 focus:ring-[#2563eb]"
+            />
           </div>
         </div>
 
-        {/* ------------------------------------------------------------- */}
-        {/* 4. FINANCIAL STATEMENT DISPLAY */}
-        {/* ------------------------------------------------------------- */}
-        <div className="p-4">
-          {/* A. TRIAL BALANCE */}
-          {reportType === "tb" && (
-            <div className="space-y-4">
-              <div className="flex items-center justify-between border-b pb-3 border-slate-200">
+        {/* Checkboxes & View Button Row */}
+        <div className="flex items-center gap-6 pt-1 text-xs">
+          <label className="flex items-center gap-2 cursor-pointer select-none text-slate-700">
+            <input
+              type="checkbox"
+              checked={officeWise}
+              onChange={(e) => setOfficeWise(e.target.checked)}
+              className="w-3.5 h-3.5 rounded border-slate-300 text-[#2563eb] focus:ring-[#2563eb]"
+            />
+            <span>Office Wise</span>
+          </label>
+
+          <label className="flex items-center gap-2 cursor-pointer select-none text-slate-700">
+            <input
+              type="checkbox"
+              checked={withoutDecimal}
+              onChange={(e) => setWithoutDecimal(e.target.checked)}
+              className="w-3.5 h-3.5 rounded border-slate-300 text-[#2563eb] focus:ring-[#2563eb]"
+            />
+            <span>Without Decimal</span>
+          </label>
+
+          <button
+            type="button"
+            onClick={handleView}
+            className="h-7 px-5 bg-[#2563eb] hover:bg-blue-700 text-white font-medium text-xs rounded transition shadow-2xs"
+          >
+            View
+          </button>
+        </div>
+      </div>
+
+      {/* ------------------------------------------------------------- */}
+      {/* 3. REPORT OUTPUT VIEW */}
+      {/* ------------------------------------------------------------- */}
+      <div className="px-4 mt-3">
+        {hasViewed && (
+          <div className="bg-white border border-slate-200 rounded shadow-2xs p-4 space-y-4">
+            {/* Report Header */}
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between border-b border-slate-200 pb-3 gap-3">
+              <div className="flex items-center gap-3">
+                <div className="relative w-28 h-8">
+                  <Image
+                    src="/logo.png"
+                    alt="Bridge One ERP"
+                    fill
+                    className="object-contain"
+                    priority
+                  />
+                </div>
                 <div>
-                  <h3 className="font-bold text-slate-900 text-base">Trial Balance Reconciliation</h3>
-                  <p className="text-xs text-slate-500">
-                    As on {toDate} • General Ledger Debit / Credit equilibrium check
+                  <h3 className="text-sm font-bold text-slate-900 uppercase tracking-tight">
+                    {activeReport.reportType} Statement — {activeReport.ledgerType}
+                  </h3>
+                  <p className="text-[11px] text-slate-500">
+                    Period: <span className="font-medium text-slate-700">{activeReport.fromDate} to {activeReport.toDate}</span> • Office:{" "}
+                    <span className="font-medium text-slate-700">{activeReport.office}</span>
+                    {currentAccount && (
+                      <span> • Account: <span className="font-semibold text-blue-600">{currentAccount.code} - {currentAccount.name}</span></span>
+                    )}
                   </p>
                 </div>
-                {tbData.isBalanced ? (
-                  <span className="px-2.5 py-1 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-bold">
-                    ✓ Balanced
-                  </span>
-                ) : (
-                  <span className="px-2.5 py-1 rounded bg-rose-50 text-rose-700 border border-rose-200 text-xs font-bold">
-                    ⚠ Imbalance: ৳{Math.abs(tbData.totalDebit - tbData.totalCredit).toLocaleString()}
-                  </span>
-                )}
               </div>
 
-              <div className="overflow-x-auto border border-slate-200 rounded">
-                <table className="w-full text-left text-xs border-collapse">
-                  <thead className="bg-slate-50 border-b border-slate-200 text-[11px] font-bold text-slate-700 uppercase tracking-wider">
-                    <tr>
-                      <th className="px-3.5 py-2.5">Code</th>
-                      <th className="px-3.5 py-2.5">Account Title</th>
-                      <th className="px-3.5 py-2.5">Classification</th>
-                      <th className="px-3.5 py-2.5 text-right">Debit (৳)</th>
-                      <th className="px-3.5 py-2.5 text-right">Credit (৳)</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {tbData.rows.map((row) => (
-                      <tr key={row.code} className="hover:bg-slate-50/70 transition">
-                        <td className="px-3.5 py-2 font-mono font-semibold text-blue-600">{row.code}</td>
-                        <td className="px-3.5 py-2 font-medium text-slate-900">{row.name}</td>
-                        <td className="px-3.5 py-2 text-slate-500">{row.type}</td>
-                        <td className="px-3.5 py-2 text-right font-medium text-slate-900">
-                          {row.debit > 0 ? formatAmount(row.debit) : "—"}
-                        </td>
-                        <td className="px-3.5 py-2 text-right font-medium text-slate-900">
-                          {row.credit > 0 ? formatAmount(row.credit) : "—"}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                  <tfoot className="bg-slate-100/80 font-bold border-t-2 border-slate-300">
-                    <tr>
-                      <td colSpan={3} className="px-3.5 py-2.5 text-slate-900 uppercase">
-                        Total Sum
-                      </td>
-                      <td className="px-3.5 py-2.5 text-right text-slate-900">{formatAmount(tbData.totalDebit)}</td>
-                      <td className="px-3.5 py-2.5 text-right text-slate-900">{formatAmount(tbData.totalCredit)}</td>
-                    </tr>
-                  </tfoot>
-                </table>
+              {/* Action Buttons */}
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleExportCSV}
+                  className="h-8 px-3 border border-slate-300 hover:bg-slate-50 text-slate-700 text-xs rounded flex items-center gap-1.5 transition"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Excel</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => window.print()}
+                  className="h-8 px-3 bg-slate-800 hover:bg-slate-900 text-white text-xs rounded flex items-center gap-1.5 transition"
+                >
+                  <Printer className="w-3.5 h-3.5" />
+                  <span>Print</span>
+                </button>
               </div>
             </div>
-          )}
 
-          {/* B. GENERAL LEDGER */}
-          {reportType === "gl" && (
-            <div className="space-y-4">
-              <div className="border-b pb-3 border-slate-200">
-                <h3 className="font-bold text-slate-900 text-base">General Ledger Detail</h3>
-                <p className="text-xs text-slate-500">
-                  Transaction entries from {fromDate} to {toDate}
-                </p>
-              </div>
-
-              <div className="overflow-x-auto border border-slate-200 rounded">
-                <table className="w-full text-left text-xs border-collapse">
-                  <thead className="bg-slate-50 border-b border-slate-200 text-[11px] font-bold text-slate-700 uppercase tracking-wider">
+            {/* A. LEDGER TABLE */}
+            {activeReport.reportType === "Ledger" && (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs border border-slate-200">
+                  <thead className="bg-[#f8fafc] border-b border-slate-200 text-[11px] font-semibold text-slate-700">
                     <tr>
-                      <th className="px-3.5 py-2.5">Date</th>
-                      <th className="px-3.5 py-2.5">Voucher #</th>
-                      <th className="px-3.5 py-2.5">Type</th>
-                      <th className="px-3.5 py-2.5">Account Title</th>
-                      <th className="px-3.5 py-2.5">Narration / Description</th>
-                      <th className="px-3.5 py-2.5 text-right">Debit (৳)</th>
-                      <th className="px-3.5 py-2.5 text-right">Credit (৳)</th>
-                      <th className="px-3.5 py-2.5 text-right">Running Balance</th>
+                      <th className="px-2.5 py-2 text-center w-12 border-r border-slate-200">SL</th>
+                      <th className="px-3 py-2 border-r border-slate-200 w-24">Date</th>
+                      <th className="px-3 py-2 border-r border-slate-200 w-32">Voucher No</th>
+                      <th className="px-3 py-2 border-r border-slate-200">Particulars / Narration</th>
+                      {activeReport.officeWise && (
+                        <th className="px-3 py-2 border-r border-slate-200 w-32">Office</th>
+                      )}
+                      <th className="px-3 py-2 text-right border-r border-slate-200 w-28">Debit (৳)</th>
+                      <th className="px-3 py-2 text-right border-r border-slate-200 w-28">Credit (৳)</th>
+                      <th className="px-3 py-2 text-right w-32">Balance (৳)</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {glData.length === 0 ? (
+                    {ledgerEntries.length === 0 ? (
                       <tr>
-                        <td colSpan={8} className="py-8 text-center text-slate-400">
-                          No ledger postings found for the selected period.
+                        <td colSpan={activeReport.officeWise ? 8 : 7} className="py-16 text-center text-slate-400">
+                          <Inbox className="w-6 h-6 mx-auto mb-1 stroke-[1.5] text-slate-300" />
+                          <span>No transaction records found for the selected period.</span>
                         </td>
                       </tr>
                     ) : (
-                      glData.map((g, idx) => (
-                        <tr key={idx} className="hover:bg-slate-50/70 transition">
-                          <td className="px-3.5 py-2 text-slate-600 whitespace-nowrap">{g.date}</td>
-                          <td className="px-3.5 py-2 font-mono font-semibold text-blue-600">{g.voucherNumber}</td>
-                          <td className="px-3.5 py-2">
-                            <span className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 text-[10px] font-medium">
-                              {g.transactionType}
-                            </span>
+                      ledgerEntries.map((entry, idx) => (
+                        <tr key={idx} className="hover:bg-slate-50/70">
+                          <td className="px-2.5 py-2 text-center text-slate-500 border-r border-slate-200/70">
+                            {idx + 1}
                           </td>
-                          <td className="px-3.5 py-2 font-medium text-slate-900">{g.accountName}</td>
-                          <td className="px-3.5 py-2 text-slate-500 max-w-xs truncate" title={g.narration}>
-                            {g.narration}
+                          <td className="px-3 py-2 text-slate-700 border-r border-slate-200/70 whitespace-nowrap">
+                            {entry.date}
                           </td>
-                          <td className="px-3.5 py-2 text-right font-medium text-slate-900">
-                            {g.debit > 0 ? formatAmount(g.debit) : "—"}
+                          <td className="px-3 py-2 font-mono font-medium text-blue-600 border-r border-slate-200/70 whitespace-nowrap">
+                            {entry.voucherNumber}
                           </td>
-                          <td className="px-3.5 py-2 text-right font-medium text-slate-900">
-                            {g.credit > 0 ? formatAmount(g.credit) : "—"}
+                          <td className="px-3 py-2 border-r border-slate-200/70">
+                            <div className="font-medium text-slate-800">{entry.narration || "General Journal Entry"}</div>
+                            <div className="text-[10px] text-slate-400 font-mono">{entry.accountName}</div>
                           </td>
-                          <td className="px-3.5 py-2 text-right font-bold text-slate-900">
-                            {formatAmount(g.runningBalance)}
+                          {activeReport.officeWise && (
+                            <td className="px-3 py-2 text-slate-600 border-r border-slate-200/70 text-[11px]">
+                              {entry.officeName}
+                            </td>
+                          )}
+                          <td className="px-3 py-2 text-right font-medium text-slate-900 border-r border-slate-200/70 whitespace-nowrap">
+                            {entry.debit > 0 ? formatAmount(entry.debit) : "—"}
+                          </td>
+                          <td className="px-3 py-2 text-right font-medium text-slate-900 border-r border-slate-200/70 whitespace-nowrap">
+                            {entry.credit > 0 ? formatAmount(entry.credit) : "—"}
+                          </td>
+                          <td className="px-3 py-2 text-right font-bold text-slate-900 whitespace-nowrap">
+                            {formatAmount(entry.runningBalance)}
                           </td>
                         </tr>
                       ))
                     )}
                   </tbody>
+                  {ledgerEntries.length > 0 && (
+                    <tfoot>
+                      <tr className="bg-slate-50 font-bold border-t-2 border-slate-300 text-slate-900">
+                        <td
+                          colSpan={activeReport.officeWise ? 5 : 4}
+                          className="px-3 py-2.5 text-right uppercase text-[11px] tracking-wider"
+                        >
+                          Period Totals:
+                        </td>
+                        <td className="px-3 py-2.5 text-right border-r border-slate-200">
+                          ৳{formatAmount(totalDebit)}
+                        </td>
+                        <td className="px-3 py-2.5 text-right border-r border-slate-200">
+                          ৳{formatAmount(totalCredit)}
+                        </td>
+                        <td className="px-3 py-2.5 text-right text-blue-700">
+                          ৳{formatAmount(totalDebit - totalCredit)}
+                        </td>
+                      </tr>
+                    </tfoot>
+                  )}
                 </table>
               </div>
-            </div>
-          )}
+            )}
 
-          {/* C. PROFIT & LOSS */}
-          {reportType === "pl" && (
-            <div className="space-y-4 max-w-4xl">
-              <div className="border-b pb-3 border-slate-200">
-                <h3 className="font-bold text-slate-900 text-base">Statement of Profit or Loss (Income Statement)</h3>
-                <p className="text-xs text-slate-500">
-                  For the period: {fromDate} to {toDate}
-                </p>
-              </div>
-
-              <div className="border border-slate-200 rounded overflow-hidden divide-y divide-slate-200">
-                {/* Revenue */}
-                <div className="p-3 bg-emerald-50/50">
-                  <div className="flex justify-between items-center font-bold text-emerald-900 text-sm">
-                    <span>1. Operating Revenue & Sales</span>
-                    <span>{formatAmount(plData.totalRevenue)}</span>
-                  </div>
-                </div>
-                <div className="divide-y divide-slate-100">
-                  {plData.revenues.map((r, i) => (
-                    <div key={i} className="flex justify-between px-6 py-2 text-xs text-slate-700">
-                      <span>{r.name}</span>
-                      <span className="font-medium">{formatAmount(r.amount)}</span>
-                    </div>
-                  ))}
-                </div>
-
-                {/* Expenses */}
-                <div className="p-3 bg-amber-50/50">
-                  <div className="flex justify-between items-center font-bold text-amber-900 text-sm">
-                    <span>2. Operating Expenses & Overheads</span>
-                    <span>{formatAmount(plData.totalExpense)}</span>
-                  </div>
-                </div>
-                <div className="divide-y divide-slate-100">
-                  {plData.expenses.map((e, i) => (
-                    <div key={i} className="flex justify-between px-6 py-2 text-xs text-slate-700">
-                      <span>{e.name}</span>
-                      <span className="font-medium">{formatAmount(e.amount)}</span>
-                    </div>
-                  ))}
-                </div>
-
-                {/* Net Income */}
-                <div className="p-3.5 bg-slate-900 text-white flex justify-between items-center font-bold text-base">
-                  <span>Net Profit / (Loss) for the Period</span>
-                  <span className={plData.netProfit >= 0 ? "text-emerald-400" : "text-rose-400"}>
-                    {formatAmount(plData.netProfit)}
-                  </span>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* D. BALANCE SHEET */}
-          {reportType === "bs" && (
-            <div className="space-y-4 max-w-4xl">
-              <div className="border-b pb-3 border-slate-200">
-                <h3 className="font-bold text-slate-900 text-base">Statement of Financial Position (Balance Sheet)</h3>
-                <p className="text-xs text-slate-500">As on {toDate}</p>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {/* Assets Column */}
-                <div className="border border-slate-200 rounded overflow-hidden divide-y divide-slate-200">
-                  <div className="p-3 bg-blue-50 font-bold text-blue-900 text-sm flex justify-between">
-                    <span>ASSETS</span>
-                    <span>{formatAmount(bsData.totalAssets)}</span>
-                  </div>
-                  <div className="divide-y divide-slate-100">
-                    {bsData.assets.map((a, i) => (
-                      <div key={i} className="flex justify-between px-4 py-2 text-xs text-slate-700">
-                        <span>{a.name}</span>
-                        <span className="font-medium">{formatAmount(a.amount)}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Liabilities & Equity */}
-                <div className="space-y-4">
-                  <div className="border border-slate-200 rounded overflow-hidden divide-y divide-slate-200">
-                    <div className="p-3 bg-rose-50 font-bold text-rose-900 text-sm flex justify-between">
-                      <span>LIABILITIES</span>
-                      <span>{formatAmount(bsData.totalLiabilities)}</span>
-                    </div>
-                    <div className="divide-y divide-slate-100">
-                      {bsData.liabilities.map((l, i) => (
-                        <div key={i} className="flex justify-between px-4 py-2 text-xs text-slate-700">
-                          <span>{l.name}</span>
-                          <span className="font-medium">{formatAmount(l.amount)}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="border border-slate-200 rounded overflow-hidden divide-y divide-slate-200">
-                    <div className="p-3 bg-purple-50 font-bold text-purple-900 text-sm flex justify-between">
-                      <span>EQUITY & RESERVES</span>
-                      <span>{formatAmount(bsData.totalEquity)}</span>
-                    </div>
-                    <div className="divide-y divide-slate-100">
-                      {bsData.equity.map((e, i) => (
-                        <div key={i} className="flex justify-between px-4 py-2 text-xs text-slate-700">
-                          <span>{e.name}</span>
-                          <span className="font-medium">{formatAmount(e.amount)}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* E. CASH / BANK BOOK */}
-          {(reportType === "cashbook" || reportType === "bankbook") && (
-            <div className="space-y-4">
-              <div className="border-b pb-3 border-slate-200">
-                <h3 className="font-bold text-slate-900 text-base">
-                  {reportType === "cashbook" ? "Cash Book (Petty & Office Cash)" : "Bank Book (Bank Accounts Register)"}
-                </h3>
-                <p className="text-xs text-slate-500">
-                  Receipts, disbursements, and reconciliation balances from {fromDate} to {toDate}
-                </p>
-              </div>
-
-              <div className="overflow-x-auto border border-slate-200 rounded">
-                <table className="w-full text-left text-xs border-collapse">
-                  <thead className="bg-slate-50 border-b border-slate-200 text-[11px] font-bold text-slate-700 uppercase tracking-wider">
+            {/* B. TRIAL BALANCE TABLE */}
+            {activeReport.reportType === "Trial Balance" && (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs border border-slate-200">
+                  <thead className="bg-[#f8fafc] border-b border-slate-200 text-[11px] font-semibold text-slate-700">
                     <tr>
-                      <th className="px-3.5 py-2.5">Date</th>
-                      <th className="px-3.5 py-2.5">Voucher / Slip #</th>
-                      <th className="px-3.5 py-2.5">Description</th>
-                      <th className="px-3.5 py-2.5 text-right">Receipts (Debit ৳)</th>
-                      <th className="px-3.5 py-2.5 text-right">Payments (Credit ৳)</th>
-                      <th className="px-3.5 py-2.5 text-right">Closing Balance</th>
+                      <th className="px-3 py-2 w-28 border-r border-slate-200">Account Code</th>
+                      <th className="px-3 py-2 border-r border-slate-200">Account Head</th>
+                      <th className="px-3 py-2 border-r border-slate-200 w-32">Classification</th>
+                      <th className="px-3 py-2 text-right border-r border-slate-200 w-36">Debit (৳)</th>
+                      <th className="px-3 py-2 text-right w-36">Credit (৳)</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {glData
-                      .filter((g) =>
-                        reportType === "cashbook"
-                          ? g.accountName.toLowerCase().includes("cash")
-                          : g.accountName.toLowerCase().includes("bank"),
-                      )
-                      .map((g, idx) => (
-                        <tr key={idx} className="hover:bg-slate-50/70 transition">
-                          <td className="px-3.5 py-2 text-slate-600">{g.date}</td>
-                          <td className="px-3.5 py-2 font-mono font-semibold text-blue-600">{g.voucherNumber}</td>
-                          <td className="px-3.5 py-2 text-slate-800">{g.narration}</td>
-                          <td className="px-3.5 py-2 text-right font-medium text-emerald-700">
-                            {g.debit > 0 ? formatAmount(g.debit) : "—"}
-                          </td>
-                          <td className="px-3.5 py-2 text-right font-medium text-rose-700">
-                            {g.credit > 0 ? formatAmount(g.credit) : "—"}
-                          </td>
-                          <td className="px-3.5 py-2 text-right font-bold text-slate-900">
-                            {formatAmount(g.runningBalance)}
-                          </td>
-                        </tr>
-                      ))}
+                    {tbData.rows.map((row) => (
+                      <tr key={row.code} className="hover:bg-slate-50/70">
+                        <td className="px-3 py-2 font-mono text-blue-600 font-semibold border-r border-slate-200/70">
+                          {row.code}
+                        </td>
+                        <td className="px-3 py-2 font-medium text-slate-800 border-r border-slate-200/70">
+                          {row.name}
+                        </td>
+                        <td className="px-3 py-2 text-slate-500 border-r border-slate-200/70 text-[11px]">
+                          {row.type}
+                        </td>
+                        <td className="px-3 py-2 text-right font-medium text-slate-900 border-r border-slate-200/70">
+                          {row.debit > 0 ? formatAmount(row.debit) : "—"}
+                        </td>
+                        <td className="px-3 py-2 text-right font-medium text-slate-900">
+                          {row.credit > 0 ? formatAmount(row.credit) : "—"}
+                        </td>
+                      </tr>
+                    ))}
                   </tbody>
+                  <tfoot>
+                    <tr className="bg-slate-50 font-bold border-t-2 border-slate-300 text-slate-900">
+                      <td colSpan={3} className="px-3 py-2.5 text-right uppercase text-[11px]">
+                        Total:
+                      </td>
+                      <td className="px-3 py-2.5 text-right border-r border-slate-200">
+                        ৳{formatAmount(tbData.totalDebit)}
+                      </td>
+                      <td className="px-3 py-2.5 text-right">
+                        ৳{formatAmount(tbData.totalCredit)}
+                      </td>
+                    </tr>
+                  </tfoot>
                 </table>
               </div>
-            </div>
-          )}
-        </div>
+            )}
+
+            {/* C. PROFIT & LOSS / BALANCE SHEET */}
+            {(activeReport.reportType === "Profit & Loss" || activeReport.reportType === "Balance Sheet") && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="border border-slate-200 rounded p-3 bg-slate-50/50">
+                  <h4 className="font-bold text-xs text-slate-800 border-b border-slate-200 pb-2 mb-2">
+                    {activeReport.reportType === "Profit & Loss" ? "Operating Revenues" : "Assets"}
+                  </h4>
+                  <div className="space-y-1.5 text-xs">
+                    {(activeReport.reportType === "Profit & Loss" ? plData.revenues : bsData.assets).map(
+                      (item, i) => (
+                        <div key={i} className="flex justify-between py-1 border-b border-slate-100">
+                          <span className="text-slate-700">{item.name}</span>
+                          <span className="font-semibold text-slate-900">৳{formatAmount(item.amount)}</span>
+                        </div>
+                      ),
+                    )}
+                  </div>
+                </div>
+
+                <div className="border border-slate-200 rounded p-3 bg-slate-50/50">
+                  <h4 className="font-bold text-xs text-slate-800 border-b border-slate-200 pb-2 mb-2">
+                    {activeReport.reportType === "Profit & Loss" ? "Operating Expenses" : "Liabilities & Equity"}
+                  </h4>
+                  <div className="space-y-1.5 text-xs">
+                    {(activeReport.reportType === "Profit & Loss" ? plData.expenses : [...bsData.liabilities, ...bsData.equity]).map(
+                      (item, i) => (
+                        <div key={i} className="flex justify-between py-1 border-b border-slate-100">
+                          <span className="text-slate-700">{item.name}</span>
+                          <span className="font-semibold text-slate-900">৳{formatAmount(item.amount)}</span>
+                        </div>
+                      ),
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

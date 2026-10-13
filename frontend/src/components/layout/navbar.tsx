@@ -56,11 +56,12 @@ export function Navbar({ onToggleSidebar, sidebarHidden, onOpenSearch }: NavbarP
       </NavIconBtn>
 
       {/* Logo */}
-      <Link href="/" className="flex shrink-0 items-center gap-2 rounded-lg px-1 focus-visible:outline-2">
-        <span className="flex size-7 items-center justify-center rounded-lg bg-primary text-sm font-bold text-primary-fg">
-          B
-        </span>
-        <span className="hidden text-base font-semibold text-ink sm:inline">BridgeOne</span>
+      <Link href="/" className="flex shrink-0 items-center rounded-lg px-1 focus-visible:outline-2" title="BridgeOne ERP">
+        <img
+          src="/logo.png"
+          alt="BridgeOne"
+          className="h-7 w-auto max-w-[140px] object-contain"
+        />
       </Link>
 
       {/* Search bar */}

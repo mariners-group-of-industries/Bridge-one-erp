@@ -19,6 +19,7 @@ import type {
   LoanItem,
   LoanPartnerItem,
   ProvisionRecord,
+  ReceivedChequeItem,
 } from "../types";
 
 export interface AccountDashboardKPIs {
@@ -57,6 +58,7 @@ export interface AccountingState {
   loanPartners: LoanPartnerItem[];
   chequeBooks: ChequeBookItem[];
   cheques: ChequeIssueItem[];
+  receivedCheques: ReceivedChequeItem[];
   budgets: BudgetItem[];
   costCenters: CostCenterItem[];
   coaPermissions: CoaPermissionItem[];
@@ -95,13 +97,18 @@ export interface AccountingState {
   addDeposit: (deposit: Omit<BankDepositItem, "id" | "depositNumber">) => void;
   addLoan: (loan: Omit<BankLoanItem, "id" | "loanNumber">) => void;
   addLoanPartner: (partner: Omit<LoanPartnerItem, "id" | "createdAt">) => void;
-  addChequeBook: (book: Omit<ChequeBookItem, "id" | "usedLeaves" | "remainingLeaves" | "createdAt">) => { success: boolean; message: string };
+  addChequeBook: (book: Omit<ChequeBookItem, "id" | "usedLeaves" | "remainingLeaves" | "createdAt" | "totalLeaves"> & { totalLeaves?: number }) => { success: boolean; message: string };
+  updateChequeBook: (id: string, updates: Partial<ChequeBookItem>) => { success: boolean; message: string };
   issueCheque: (cheque: Omit<ChequeIssueItem, "id" | "transactionNumber" | "createdAt">) => { success: boolean; message: string };
   updateChequeStatus: (id: string, status: ChequeIssueItem["status"], reason?: string) => void;
+  addReceivedCheque: (chq: Omit<ReceivedChequeItem, "id" | "createdAt">) => { success: boolean; message: string };
+  updateReceivedChequeStatus: (id: string, depositStatus: "DEPOSITED" | "NOT_DEPOSITED", depositDate?: string) => void;
 
   // Actions - Budgets & Centers
-  createBudget: (budget: Omit<BudgetItem, "id" | "budgetCode" | "revisedAmount" | "utilizedAmount" | "committedAmount" | "remainingAmount" | "createdAt">) => void;
+  createBudget: (budget: Partial<BudgetItem> & { budgetName: string; budgetYear: string; budgetType: string; allocatedAmount: number }) => void;
+  updateBudget: (id: string, updates: Partial<BudgetItem>) => void;
   updateBudgetRevision: (id: string, revisedAmount: number) => void;
+  deleteBudget: (id: string) => void;
   addCostCenter: (center: Omit<CostCenterItem, "id" | "createdAt">) => void;
 
   // Analytics & Reports Helpers
@@ -277,17 +284,406 @@ const initialLoanPartners: LoanPartnerItem[] = [
 const initialChequeBooks: ChequeBookItem[] = [
   {
     id: "cb-1",
-    bookName: "Prime-Corporate-01",
-    bankAccountId: "ba-1",
-    bankName: "PRIME BANK LTD PLC",
-    accountNumber: "3133131043165",
-    startChequeNumber: "PB-31001",
-    endChequeNumber: "PB-31050",
+    bookName: "333 DBBL-0620 Mohakhali Br.",
+    bankAccountId: "ba-9",
+    bankName: "DUTCH-BANGLA BANK LTD PLC",
+    branchName: "MOHAKHALI",
+    accountNumber: "1141100508628",
+    startChequeNumber: "CD 0161712",
+    endChequeNumber: "CD 0161761",
     totalLeaves: 50,
-    usedLeaves: 1,
-    remainingLeaves: 49,
-    status: "ACTIVE",
+    usedLeaves: 0,
+    remainingLeaves: 50,
+    status: "Running",
     createdAt: "2026-01-01",
+  },
+  {
+    id: "cb-2",
+    bookName: "DBBL MBBL: 5657",
+    bankAccountId: "ba-33",
+    bankName: "DUTCH-BANGLA BANK LTD PLC",
+    branchName: "Moghbazar",
+    accountNumber: "2861200015657",
+    startChequeNumber: "CD 2746850",
+    endChequeNumber: "CD 2746890",
+    totalLeaves: 41,
+    usedLeaves: 0,
+    remainingLeaves: 41,
+    status: "Running",
+    createdAt: "2026-01-02",
+  },
+  {
+    id: "cb-3",
+    bookName: "DBBL-0500 MBBL -319",
+    bankAccountId: "ba-12",
+    bankName: "DUTCH-BANGLA BANK LTD PLC",
+    branchName: "MOHAKHALI",
+    accountNumber: "1141100438500",
+    startChequeNumber: "CD 3570783",
+    endChequeNumber: "CD 3570832",
+    totalLeaves: 50,
+    usedLeaves: 0,
+    remainingLeaves: 50,
+    status: "Running",
+    createdAt: "2026-01-03",
+  },
+  {
+    id: "cb-4",
+    bookName: "Prime Bank IBB Dilkusha Branch (17... ",
+    bankAccountId: "ba-24",
+    bankName: "PRIME BANK LTD PLC",
+    branchName: "NEW ESKATON",
+    accountNumber: "3108137046527",
+    startChequeNumber: "204 NO.4244501",
+    endChequeNumber: "204 NO.4244550",
+    totalLeaves: 50,
+    usedLeaves: 0,
+    remainingLeaves: 50,
+    status: "Running",
+    createdAt: "2026-01-04",
+  },
+  {
+    id: "cb-5",
+    bookName: "5688 313 DBBL-5657",
+    bankAccountId: "ba-33",
+    bankName: "DUTCH-BANGLA BANK LTD PLC",
+    branchName: "Moghbazar",
+    accountNumber: "2861200015657",
+    startChequeNumber: "CD 2746826",
+    endChequeNumber: "CD 2746875",
+    totalLeaves: 50,
+    usedLeaves: 0,
+    remainingLeaves: 50,
+    status: "Running",
+    createdAt: "2026-01-05",
+  },
+  {
+    id: "cb-6",
+    bookName: "DBBL Cheque Book new",
+    bankAccountId: "ba-31",
+    bankName: "DUTCH-BANGLA BANK LTD PLC",
+    branchName: "Moghbazar",
+    accountNumber: "2861100007805",
+    startChequeNumber: "CD4633890",
+    endChequeNumber: "CD4633939",
+    totalLeaves: 50,
+    usedLeaves: 0,
+    remainingLeaves: 50,
+    status: "Running",
+    createdAt: "2026-01-06",
+  },
+  {
+    id: "cb-7",
+    bookName: "Prime Cheque Book -03 (13.11.2025... ",
+    bankAccountId: "ba-15",
+    bankName: "PRIME BANK LTD PLC",
+    branchName: "IBB DILKUSHA",
+    accountNumber: "3108130047250",
+    startChequeNumber: "204 NO.3889181",
+    endChequeNumber: "204 NO.3889190",
+    totalLeaves: 10,
+    usedLeaves: 0,
+    remainingLeaves: 10,
+    status: "Running",
+    createdAt: "2026-01-07",
+  },
+  {
+    id: "cb-8",
+    bookName: "Prime Cheque Book -75 (488)",
+    bankAccountId: "ba-21",
+    bankName: "PRIME BANK LTD PLC",
+    branchName: "IBB DILKUSHA",
+    accountNumber: "3108139047036",
+    startChequeNumber: "204 NO.3748451",
+    endChequeNumber: "204 NO.3748460",
+    totalLeaves: 10,
+    usedLeaves: 0,
+    remainingLeaves: 10,
+    status: "Running",
+    createdAt: "2026-01-08",
+  },
+  {
+    id: "cb-9",
+    bookName: "Prime Cheque Book -08 (06.11.2025)",
+    bankAccountId: "ba-20",
+    bankName: "PRIME BANK LTD PLC",
+    branchName: "IBB DILKUSHA",
+    accountNumber: "3108131047118",
+    startChequeNumber: "204 NO.3855161",
+    endChequeNumber: "204 NO.3855170",
+    totalLeaves: 10,
+    usedLeaves: 0,
+    remainingLeaves: 10,
+    status: "Running",
+    createdAt: "2026-01-09",
+  },
+  {
+    id: "cb-10",
+    bookName: "DBBL -167 (4036) Merimax Trading ... ",
+    bankAccountId: "ba-25",
+    bankName: "DUTCH-BANGLA BANK LTD PLC",
+    branchName: "Moghbazar",
+    accountNumber: "2861100008395",
+    startChequeNumber: "CD A 7965028",
+    endChequeNumber: "CD A 7965067",
+    totalLeaves: 41,
+    usedLeaves: 0,
+    remainingLeaves: 41,
+    status: "Running",
+    createdAt: "2026-01-10",
+  },
+  {
+    id: "cb-11",
+    bookName: "IBBL Cheque Book (Sales A/c)",
+    bankAccountId: "ba-32",
+    bankName: "ISLAMI BANK BANGLADESH LTD PLC",
+    branchName: "MOGHBAZAR",
+    accountNumber: "20503320100198701",
+    startChequeNumber: "IDF 1988601",
+    endChequeNumber: "IDF 1988700",
+    totalLeaves: 100,
+    usedLeaves: 0,
+    remainingLeaves: 100,
+    status: "Running",
+    createdAt: "2026-01-11",
+  },
+  {
+    id: "cb-12",
+    bookName: "DBBL Cheque Book-313 (M. Feed) ... ",
+    bankAccountId: "ba-19",
+    bankName: "DUTCH-BANGLA BANK LTD PLC",
+    branchName: "Moghbazar",
+    accountNumber: "2861100073676",
+    startChequeNumber: "CD 2746166",
+    endChequeNumber: "CD 2746215",
+    totalLeaves: 50,
+    usedLeaves: 0,
+    remainingLeaves: 50,
+    status: "Running",
+    createdAt: "2026-01-12",
+  },
+  {
+    id: "cb-13",
+    bookName: "DBBL Cheque Book (MBBL)",
+    bankAccountId: "ba-32",
+    bankName: "ISLAMI BANK BANGLADESH LTD PLC",
+    branchName: "MOGHBAZAR",
+    accountNumber: "20503320100198701",
+    startChequeNumber: "IDF 1988601",
+    endChequeNumber: "IDF 1988700",
+    totalLeaves: 100,
+    usedLeaves: 0,
+    remainingLeaves: 100,
+    status: "Running",
+    createdAt: "2026-01-13",
+  },
+  {
+    id: "cb-14",
+    bookName: "UCBL(MBBL) -Capital A/c",
+    bankAccountId: "ba-17",
+    bankName: "UNITED COMMERCIAL BANK LTD PLC",
+    branchName: "ESKATON",
+    accountNumber: "7862141000041706",
+    startChequeNumber: "CD No.3889146",
+    endChequeNumber: "CD No.3889195",
+    totalLeaves: 50,
+    usedLeaves: 0,
+    remainingLeaves: 50,
+    status: "Running",
+    createdAt: "2026-01-14",
+  },
+  {
+    id: "cb-15",
+    bookName: "Brac Bank (MOHSL) -Capital A/c",
+    bankAccountId: "ba-18",
+    bankName: "BRAC BANK LTD PLC",
+    branchName: "MOGHBAZAR",
+    accountNumber: "2072441840001",
+    startChequeNumber: "CAS 6999288",
+    endChequeNumber: "CAS 6999381",
+    totalLeaves: 94,
+    usedLeaves: 0,
+    remainingLeaves: 94,
+    status: "Running",
+    createdAt: "2026-01-15",
+  },
+  {
+    id: "cb-16",
+    bookName: "Prime Bank (BW Media & Press Ltd) ... ",
+    bankAccountId: "ba-27",
+    bankName: "PRIME BANK LTD PLC",
+    branchName: "NEW ESKATON",
+    accountNumber: "3108132034494",
+    startChequeNumber: "204 NO.3020056",
+    endChequeNumber: "204 NO.3020060",
+    totalLeaves: 5,
+    usedLeaves: 0,
+    remainingLeaves: 5,
+    status: "Running",
+    createdAt: "2026-01-16",
+  },
+  {
+    id: "cb-17",
+    bookName: "Prime Bank(Marincoz PLC) - Capital ... ",
+    bankAccountId: "ba-24",
+    bankName: "PRIME BANK LTD PLC",
+    branchName: "NEW ESKATON",
+    accountNumber: "3108137046527",
+    startChequeNumber: "204 NO.3689072",
+    endChequeNumber: "204 NO.3689080",
+    totalLeaves: 9,
+    usedLeaves: 0,
+    remainingLeaves: 9,
+    status: "Running",
+    createdAt: "2026-01-17",
+  },
+  {
+    id: "cb-18",
+    bookName: "DBBL(MCATL)-Capital A/c",
+    bankAccountId: "ba-26",
+    bankName: "DUTCH-BANGLA BANK LTD PLC",
+    branchName: "Moghbazar",
+    accountNumber: "2861100198707",
+    startChequeNumber: "CD 2748036",
+    endChequeNumber: "CD 2748085",
+    totalLeaves: 50,
+    usedLeaves: 0,
+    remainingLeaves: 50,
+    status: "Running",
+    createdAt: "2026-01-18",
+  },
+  {
+    id: "cb-19",
+    bookName: "DBBL(Bw Media & press Ltd) - Capit... ",
+    bankAccountId: "ba-8",
+    bankName: "DUTCH-BANGLA BANK LTD PLC",
+    branchName: "Moghbazar",
+    accountNumber: "2861100028682",
+    startChequeNumber: "CD 8859416",
+    endChequeNumber: "CD 8859457",
+    totalLeaves: 42,
+    usedLeaves: 0,
+    remainingLeaves: 42,
+    status: "Running",
+    createdAt: "2026-01-19",
+  },
+  {
+    id: "cb-20",
+    bookName: "DBBL (MOHSL)- Capital A/c",
+    bankAccountId: "ba-3",
+    bankName: "DUTCH-BANGLA BANK LTD PLC",
+    branchName: "Moghbazar",
+    accountNumber: "2861100088709",
+    startChequeNumber: "CD 9359299",
+    endChequeNumber: "CD 9359338",
+    totalLeaves: 40,
+    usedLeaves: 0,
+    remainingLeaves: 40,
+    status: "Running",
+    createdAt: "2026-01-20",
+  },
+  {
+    id: "cb-21",
+    bookName: "DBBL (MFIL) -Capital A/c",
+    bankAccountId: "ba-31",
+    bankName: "DUTCH-BANGLA BANK LTD PLC",
+    branchName: "Moghbazar",
+    accountNumber: "2861100073676",
+    startChequeNumber: "CD 08459363",
+    endChequeNumber: "CD 08459366",
+    totalLeaves: 4,
+    usedLeaves: 0,
+    remainingLeaves: 4,
+    status: "Running",
+    createdAt: "2026-01-21",
+  },
+  {
+    id: "cb-22",
+    bookName: "DBBL (MBBL) -Sales A/c",
+    bankAccountId: "ba-33",
+    bankName: "DUTCH-BANGLA BANK LTD PLC",
+    branchName: "Moghbazar",
+    accountNumber: "2861200015657",
+    startChequeNumber: "CD 06632461",
+    endChequeNumber: "CD 06632510",
+    totalLeaves: 50,
+    usedLeaves: 0,
+    remainingLeaves: 50,
+    status: "Running",
+    createdAt: "2026-01-22",
+  },
+  {
+    id: "cb-23",
+    bookName: "IBBL (MBBL) -Sales A/c",
+    bankAccountId: "ba-32",
+    bankName: "ISLAMI BANK BANGLADESH LTD PLC",
+    branchName: "MOGHBAZAR",
+    accountNumber: "20503320100198701",
+    startChequeNumber: "IDE7930496",
+    endChequeNumber: "IDE7930500",
+    totalLeaves: 4,
+    usedLeaves: 0,
+    remainingLeaves: 4,
+    status: "Running",
+    createdAt: "2026-01-23",
+  },
+  {
+    id: "cb-24",
+    bookName: "DBBL (MBBL) - Sales A/c",
+    bankAccountId: "ba-31",
+    bankName: "DUTCH-BANGLA BANK LTD PLC",
+    branchName: "Moghbazar",
+    accountNumber: "2861100007805",
+    startChequeNumber: "DBBL9359483",
+    endChequeNumber: "DBBL9359498",
+    totalLeaves: 16,
+    usedLeaves: 0,
+    remainingLeaves: 16,
+    status: "Running",
+    createdAt: "2026-01-24",
+  },
+];
+
+const initialReceivedCheques: ReceivedChequeItem[] = [
+  {
+    id: "rcv-1",
+    chequeNumber: "CHQ-88201",
+    customerName: "Square Pharmaceuticals Ltd",
+    bankName: "BRAC BANK LTD PLC",
+    branchName: "Gulshan",
+    receivedDate: "2026-10-10",
+    chequeDate: "2026-10-15",
+    amount: 750000,
+    depositStatus: "NOT_DEPOSITED",
+    remarks: "Advance against invoice INV-882",
+    createdAt: "2026-10-10T10:00:00Z",
+  },
+  {
+    id: "rcv-2",
+    chequeNumber: "CHQ-55102",
+    customerName: "ACI Consumer Brands",
+    bankName: "DUTCH-BANGLA BANK LTD PLC",
+    branchName: "Mohakhali",
+    receivedDate: "2026-10-08",
+    chequeDate: "2026-10-08",
+    amount: 420000,
+    depositStatus: "DEPOSITED",
+    depositDate: "2026-10-09",
+    remarks: "Settlement of monthly billing",
+    createdAt: "2026-10-08T09:00:00Z",
+  },
+  {
+    id: "rcv-3",
+    chequeNumber: "CHQ-91044",
+    customerName: "Beximco Industrial Park",
+    bankName: "PRIME BANK LTD PLC",
+    branchName: "Motijheel",
+    receivedDate: "2026-10-11",
+    chequeDate: "2026-10-20",
+    amount: 1100000,
+    depositStatus: "NOT_DEPOSITED",
+    remarks: "Post-dated client cheque",
+    createdAt: "2026-10-11T11:00:00Z",
   },
 ];
 
@@ -1212,10 +1608,15 @@ type StateData = Omit<
   | "addLoan"
   | "addLoanPartner"
   | "addChequeBook"
+  | "updateChequeBook"
   | "issueCheque"
   | "updateChequeStatus"
+  | "addReceivedCheque"
+  | "updateReceivedChequeStatus"
   | "createBudget"
+  | "updateBudget"
   | "updateBudgetRevision"
+  | "deleteBudget"
   | "addCostCenter"
   | "addCoaPermission"
   | "deleteCoaPermission"
@@ -1935,7 +2336,116 @@ const initialTransfers: FundTransferRecord[] = [
   },
 ];
 
-const STORAGE_KEY = "bridgeone_accounting_v7";
+const initialBudgets: BudgetItem[] = [
+  {
+    id: "bgt-01",
+    budgetCode: "BGT-MG260900001 v4",
+    createDate: "19-09-2026",
+    budgetYear: "Sep 21, 2026 - Oct 20, 2026",
+    budgetName: "October-2026",
+    budgetType: "OverHeads/Expense Budget",
+    financialPeriod: "Sep 21, 2026 - Oct 20, 2026",
+    officeId: "office-mbbl",
+    officeName: "MBBL-HO",
+    costCenterId: "cc-1",
+    costCenterName: "Dhaka Head Office",
+    accountId: "acc-5100",
+    accountName: "Overheads & Operational Expenses",
+    allocatedAmount: 6126907.0,
+    totalBudgetAmount: 6126907.0,
+    revisedAmount: 6126907.0,
+    utilizedAmount: 1845200.0,
+    committedAmount: 920000.0,
+    remainingAmount: 3361707.0,
+    approvalStatus: "Approved",
+    status: "Approved",
+    version: 4,
+    items: [
+      {
+        id: "bitem-101",
+        accountCode: "5100",
+        accountName: "Rent, Rates & Taxes (Corporate HQ)",
+        costCenterName: "Dhaka Head Office",
+        allocatedAmount: 1850000.0,
+        utilizedAmount: 650000.0,
+        remainingAmount: 1200000.0,
+        remarks: "HQ lease & local municipality rates",
+      },
+      {
+        id: "bitem-102",
+        accountCode: "5200",
+        accountName: "Electricity, Fuel & Plant Utilities",
+        costCenterName: "MG Factory Floor",
+        allocatedAmount: 2400000.0,
+        utilizedAmount: 780000.0,
+        remainingAmount: 1620000.0,
+        remarks: "Generator diesel and DESCO substation",
+      },
+      {
+        id: "bitem-103",
+        accountCode: "5300",
+        accountName: "Salaries, Overtime & Allowances",
+        costCenterName: "Administration",
+        allocatedAmount: 1200000.0,
+        utilizedAmount: 320000.0,
+        remainingAmount: 880000.0,
+        remarks: "Support staff & security allowances",
+      },
+      {
+        id: "bitem-104",
+        accountCode: "5400",
+        accountName: "Office Supplies, IT & Maintenance",
+        costCenterName: "Corporate HQ",
+        allocatedAmount: 676907.0,
+        utilizedAmount: 95200.0,
+        remainingAmount: 581707.0,
+        remarks: "IT software licenses, stationery & supplies",
+      },
+    ],
+    createdBy: "Md. Tanvir Hossain",
+    createdAt: "2026-09-19T09:30:00Z",
+  },
+  {
+    id: "bgt-02",
+    budgetCode: "BGT-MG260900000 v3",
+    createDate: "19-09-2026",
+    budgetYear: "Sep 21, 2026 - Oct 20, 2026",
+    budgetName: "October-2026",
+    budgetType: "OverHeads/Expense Budget",
+    financialPeriod: "Sep 21, 2026 - Oct 20, 2026",
+    officeId: "office-mbbl",
+    officeName: "MBBL-HO",
+    costCenterId: "cc-2",
+    costCenterName: "Sirajganj Unit 1",
+    accountId: "acc-5200",
+    accountName: "Factory Contingency Overhead",
+    allocatedAmount: 2.0,
+    totalBudgetAmount: 2.0,
+    revisedAmount: 2.0,
+    utilizedAmount: 0.0,
+    committedAmount: 0.0,
+    remainingAmount: 2.0,
+    approvalStatus: "Approved",
+    status: "Approved",
+    version: 3,
+    items: [
+      {
+        id: "bitem-201",
+        accountCode: "5210",
+        accountName: "Emergency Plant Contingency Reserve",
+        costCenterName: "Sirajganj Unit 1",
+        allocatedAmount: 2.0,
+        utilizedAmount: 0.0,
+        remainingAmount: 2.0,
+        remarks: "Nominal threshold ceiling",
+      },
+    ],
+    createdBy: "Md. Tanvir Hossain",
+    createdAt: "2026-09-19T10:15:00Z",
+  },
+];
+
+const STORAGE_KEY = "bridgeone_accounting_v9";
 
 let internalData: StateData = {
   accounts: initialAccounts,
@@ -1951,7 +2461,8 @@ let internalData: StateData = {
   loanPartners: initialLoanPartners,
   chequeBooks: initialChequeBooks,
   cheques: initialCheques,
-  budgets: [],
+  receivedCheques: initialReceivedCheques,
+  budgets: initialBudgets,
   costCenters: initialCostCenters,
   coaPermissions: initialCoaPermissions,
 };
@@ -2606,35 +3117,120 @@ function getFullState(): AccountingState {
       }));
     },
 
+    updateChequeBook: (id, updates) => {
+      updateData((prev) => ({
+        ...prev,
+        chequeBooks: prev.chequeBooks.map((b) => (b.id === id ? { ...b, ...updates } : b)),
+      }));
+      return { success: true, message: "Cheque book updated successfully." };
+    },
+
+    addReceivedCheque: (chqData) => {
+      const id = `rcv-${Date.now()}`;
+      const newChq: ReceivedChequeItem = {
+        ...chqData,
+        id,
+        createdAt: new Date().toISOString(),
+      };
+      updateData((prev) => ({
+        ...prev,
+        receivedCheques: [newChq, ...(prev.receivedCheques || [])],
+      }));
+      return { success: true, message: `Cheque ${chqData.chequeNumber} recorded successfully.` };
+    },
+
+    updateReceivedChequeStatus: (id, depositStatus, depositDate) => {
+      updateData((prev) => ({
+        ...prev,
+        receivedCheques: (prev.receivedCheques || []).map((r) =>
+          r.id === id ? { ...r, depositStatus, depositDate: depositDate || r.depositDate } : r,
+        ),
+      }));
+    },
+
     createBudget: (budgetData) => {
       const id = `bg-${Date.now()}`;
       const count = internalData.budgets.length + 1;
-      const budgetCode = `BG-${budgetData.budgetYear}-${count.toString().padStart(3, "0")}`;
+      const budgetCode =
+        budgetData.budgetCode || `BGT-MG26090000${count} v1`;
+      const amount = Number(budgetData.totalBudgetAmount ?? budgetData.allocatedAmount) || 0;
       const newBudget: BudgetItem = {
+        officeId: "office-mbbl",
+        officeName: "MBBL-HO",
+        costCenterId: "cc-1",
+        costCenterName: "Dhaka Head Office",
+        accountId: "acc-5100",
+        accountName: "Overheads & Operational Expenses",
+        financialPeriod: budgetData.financialPeriod || budgetData.budgetYear,
+        createdBy: "Md. Tanvir Hossain",
         ...budgetData,
         id,
         budgetCode,
-        revisedAmount: budgetData.allocatedAmount,
-        utilizedAmount: 0,
-        committedAmount: 0,
-        remainingAmount: budgetData.allocatedAmount,
+        createDate:
+          budgetData.createDate ||
+          new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "2-digit", year: "numeric" }).replace(/\//g, "-"),
+        allocatedAmount: amount,
+        totalBudgetAmount: amount,
+        revisedAmount: amount,
+        utilizedAmount: budgetData.utilizedAmount || 0,
+        committedAmount: budgetData.committedAmount || 0,
+        remainingAmount: amount - (budgetData.utilizedAmount || 0) - (budgetData.committedAmount || 0),
+        approvalStatus: budgetData.approvalStatus || "Approved",
+        status: budgetData.status || "Approved",
+        version: budgetData.version || 1,
+        items: budgetData.items || [],
         createdAt: new Date().toISOString(),
       };
-      updateData((prev) => ({ ...prev, budgets: [...prev.budgets, newBudget] }));
+      updateData((prev) => ({ ...prev, budgets: [newBudget, ...prev.budgets] }));
+    },
+
+    updateBudget: (id, updates) => {
+      updateData((prev) => ({
+        ...prev,
+        budgets: prev.budgets.map((b) => {
+          if (b.id !== id) return b;
+          const totalAmt =
+            updates.totalBudgetAmount !== undefined
+              ? updates.totalBudgetAmount
+              : updates.allocatedAmount !== undefined
+              ? updates.allocatedAmount
+              : b.totalBudgetAmount ?? b.allocatedAmount;
+          return {
+            ...b,
+            ...updates,
+            allocatedAmount: totalAmt,
+            totalBudgetAmount: totalAmt,
+            remainingAmount: totalAmt - b.utilizedAmount - b.committedAmount,
+          };
+        }),
+      }));
     },
 
     updateBudgetRevision: (id, revisedAmount) => {
       updateData((prev) => ({
         ...prev,
-        budgets: prev.budgets.map((b) =>
-          b.id === id
-            ? {
-                ...b,
-                revisedAmount,
-                remainingAmount: revisedAmount - b.utilizedAmount - b.committedAmount,
-              }
-            : b,
-        ),
+        budgets: prev.budgets.map((b) => {
+          if (b.id !== id) return b;
+          const nextVersion = (b.version || 1) + 1;
+          const codeBase = b.budgetCode.replace(/\s*v\d+$/i, "");
+          const budgetCode = `${codeBase} v${nextVersion}`;
+          return {
+            ...b,
+            version: nextVersion,
+            budgetCode,
+            revisedAmount,
+            totalBudgetAmount: revisedAmount,
+            allocatedAmount: revisedAmount,
+            remainingAmount: revisedAmount - b.utilizedAmount - b.committedAmount,
+          };
+        }),
+      }));
+    },
+
+    deleteBudget: (id) => {
+      updateData((prev) => ({
+        ...prev,
+        budgets: prev.budgets.filter((b) => b.id !== id),
       }));
     },
 
