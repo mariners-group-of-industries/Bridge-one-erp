@@ -294,7 +294,6 @@ model TermApplicability {
   @@map("term_applicability")
 }
 
-<<<<<<< HEAD
 // ─── Sales ───────────────────────────────────────────────────────────────────
 // Every sales record belongs to a business unit, so company scoping follows
 // BusinessUnit.companyId.
