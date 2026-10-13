@@ -1,7 +1,7 @@
 "use client";
 
 import { Building2, Calendar, Check, ChevronDown, Mail, MapPin, Phone, Plus, Trash2 } from "lucide-react";
-import { useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/dialog";
 import { EmptyState, ErrorState, LoadingState } from "@/components/ui/section";
@@ -79,13 +79,13 @@ function DateFormatPicker({
   }
 
   // close on outside click
-  useState(() => {
+  useEffect(() => {
     function handler(e: MouseEvent) {
       if (!ref.current?.contains(e.target as Node)) setOpen(false);
     }
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
-  });
+  }, []);
 
   return (
     <div ref={ref} className="relative flex items-start gap-2.5">
@@ -130,7 +130,7 @@ function DateFormatPicker({
   );
 }
 
-export function BusinessUnitListSection({ company, units, loading, error, onReload, onUnitsChange }: Props) {
+export function BusinessUnitListSection({ company: _company, units, loading, error, onReload, onUnitsChange }: Props) {
   const toast = useToast();
   const [adding, setAdding] = useState(false);
   const [deleting, setDeleting] = useState<{ unit: BusinessUnitDto } | null>(null);
