@@ -38,7 +38,7 @@ const SECTIONS = [
 
 /** White full-height page surface; this page uses white instead of the grey canvas. */
 function ProfileSurface({ children }: { children: ReactNode }) {
-  return <div className="min-h-[calc(100dvh-3rem)] bg-surface">{children}</div>;
+  return <div className="min-h-[calc(100dvh-3.5rem)] bg-surface">{children}</div>;
 }
 
 const HEAD_CLASS = "border-b border-line bg-surface";

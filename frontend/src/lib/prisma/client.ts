@@ -1,9 +1,17 @@
 import { PrismaPg } from "@prisma/adapter-pg";
-import { PrismaClient } from "@/generated/prisma/client";
+import { PrismaClient, Prisma } from "@/generated/prisma/client";
 
 export type { Prisma } from "@/generated/prisma/client";
 
-const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
+const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient; prismaVersion?: string };
+
+// Prisma embeds a schema hash in the generated client — it changes on every
+// db:generate, so we use it to auto-bust the stale globalThis singleton.
+const CURRENT_VERSION = String(Prisma.prismaVersion);
+if (globalForPrisma.prismaVersion !== CURRENT_VERSION) {
+  globalForPrisma.prisma = undefined;
+  globalForPrisma.prismaVersion = CURRENT_VERSION;
+}
 
 function createPrismaClient(): PrismaClient {
   // Pooled Neon connection string (host contains "-pooler") for app runtime.
@@ -29,4 +37,9 @@ export function db(): PrismaClient {
     globalForPrisma.prisma = createPrismaClient();
   }
   return globalForPrisma.prisma;
+}
+
+/** Call during development to force a fresh client after schema changes. */
+export function resetDb(): void {
+  globalForPrisma.prisma = undefined;
 }

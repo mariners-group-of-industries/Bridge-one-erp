@@ -30,7 +30,7 @@ jobs:
 
       # postinstall runs `prisma generate`; no database is needed for any step
       # (tests use in-process PGlite, the Prisma client connects lazily).
-      - run: npm ci
+      - run: npm ci --include=optional
       - run: npm run db:validate
       - run: npm run lint
       - run: npm run typecheck

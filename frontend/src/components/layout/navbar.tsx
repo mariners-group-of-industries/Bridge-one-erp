@@ -46,7 +46,7 @@ export function Navbar({ onToggleSidebar, sidebarHidden, onOpenSearch }: NavbarP
   }
 
   return (
-    <header className="sticky top-0 z-30 flex h-12 items-center gap-1 border-b border-line bg-surface px-2 sm:px-3">
+    <header className="sticky top-0 z-30 flex h-14 items-center gap-1 border-b border-accent-line bg-surface px-2 sm:px-3">
       {/* Sidebar toggle */}
       <NavIconBtn
         aria-label={sidebarHidden ? "Show sidebar" : "Hide sidebar"}
@@ -56,25 +56,26 @@ export function Navbar({ onToggleSidebar, sidebarHidden, onOpenSearch }: NavbarP
       </NavIconBtn>
 
       {/* Logo */}
-      <Link href="/" className="flex shrink-0 items-center gap-2 rounded-lg px-1 focus-visible:outline-2">
-        <span className="flex size-7 items-center justify-center rounded-lg bg-primary text-sm font-bold text-primary-fg">
-          B
-        </span>
-        <span className="hidden text-base font-semibold text-ink sm:inline">BridgeOne</span>
+      <Link href="/" className="flex shrink-0 items-center rounded-lg px-1 focus-visible:outline-2" title="BridgeOne ERP">
+        <img
+          src="/logo.png"
+          alt="BridgeOne"
+          className="h-7 w-auto max-w-[140px] object-contain"
+        />
       </Link>
 
-      {/* Search bar */}
-      <button
-        type="button"
-        onClick={onOpenSearch}
-        className="mx-2 flex h-8 flex-1 max-w-xs items-center gap-2 rounded-lg border border-line bg-canvas px-3 text-sm text-ink-faint hover:bg-control focus-visible:outline-2 sm:max-w-sm"
-      >
-        <Search className="size-3.5 shrink-0" />
-        <span className="hidden flex-1 text-left sm:inline">Search…</span>
-        <span className="hidden sm:inline-flex"><Kbd>Ctrl K</Kbd></span>
-      </button>
-
       <div className="ml-auto flex items-center gap-0.5">
+        {/* Search bar */}
+        <button
+          type="button"
+          onClick={onOpenSearch}
+          className="mr-1 flex h-8 w-48 items-center gap-2 rounded-lg border border-accent-line bg-accent-soft px-3 text-sm text-ink-faint hover:bg-control focus-visible:outline-2 sm:w-56"
+        >
+          <Search className="size-3.5 shrink-0 text-accent" />
+          <span className="hidden flex-1 text-left sm:inline">Search…</span>
+          <span className="hidden sm:inline-flex"><Kbd>Ctrl K</Kbd></span>
+        </button>
+
         {/* Notification */}
         <div className="relative">
           <NavIconBtn aria-label="Notifications" onClick={() => setNotifOpen((v) => !v)}>
@@ -153,7 +154,7 @@ export function Navbar({ onToggleSidebar, sidebarHidden, onOpenSearch }: NavbarP
             onClick={() => setProfileOpen((v) => !v)}
             className="flex items-center gap-1.5 rounded-lg px-2 py-1 text-sm hover:bg-control focus-visible:outline-2"
           >
-            <span className="flex size-7 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-fg">
+            <span className="flex size-7 items-center justify-center rounded-full bg-accent-strong text-xs font-semibold text-white">
               {user?.initials ?? "?"}
             </span>
             <span className="hidden max-w-24 truncate text-sm text-ink sm:inline">{user?.name ?? "Guest"}</span>
@@ -164,7 +165,7 @@ export function Navbar({ onToggleSidebar, sidebarHidden, onOpenSearch }: NavbarP
             <Popover onClose={() => setProfileOpen(false)} className="right-0 w-64">
               {/* User info */}
               <div className="flex items-center gap-3 border-b border-line px-4 py-3">
-                <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary text-sm font-semibold text-primary-fg">
+                <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-accent-strong text-sm font-semibold text-white">
                   {user?.initials ?? "?"}
                 </span>
                 <div className="flex min-w-0 flex-col">

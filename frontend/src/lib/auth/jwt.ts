@@ -28,17 +28,17 @@ export interface JwtPayload {
   name: string;
   phone: string;
   role: string;
+  isMaster: boolean;
 }
 
 export async function signToken(payload: Omit<JwtPayload, "jti">): Promise<{ token: string; jti: string; expiresAt: Date }> {
   const jti = randomUUID();
   const key = await privateKey();
 
-  // Parse expiry to compute expiresAt date
   const hours = parseInt(EXPIRY) || 8;
   const expiresAt = new Date(Date.now() + hours * 60 * 60 * 1000);
 
-  const token = await new SignJWT({ name: payload.name, phone: payload.phone, role: payload.role })
+  const token = await new SignJWT({ name: payload.name, phone: payload.phone, role: payload.role, isMaster: payload.isMaster })
     .setProtectedHeader({ alg: ALG })
     .setSubject(payload.sub)
     .setJti(jti)
@@ -60,5 +60,6 @@ export async function verifyToken(token: string): Promise<JwtPayload> {
     name: payload["name"] as string,
     phone: payload["phone"] as string,
     role: payload["role"] as string,
+    isMaster: (payload["isMaster"] as boolean) ?? false,
   };
 }

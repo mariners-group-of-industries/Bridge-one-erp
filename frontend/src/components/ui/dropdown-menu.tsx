@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { cn } from "@/lib/cn";
 import { buttonClasses } from "./button";
 
@@ -18,32 +19,58 @@ export type MenuItem =
   | "separator";
 
 interface DropdownMenuProps {
-  /** Content of the trigger button (text and/or icon). */
   trigger: ReactNode;
-  /** Accessible name when the trigger has no text (icon-only). */
   triggerLabel?: string;
-  /** Classes of the trigger button; defaults to a secondary button. */
   triggerClassName?: string;
   items: readonly MenuItem[];
   align?: "start" | "end";
+  /**
+   * "fixed" positions the menu against the viewport so it is not clipped by a
+   * scrolling ancestor (e.g. a row menu inside a scrollable table). The menu is
+   * rendered in a portal on <body> so sticky/pinned cells cannot cover it.
+   */
+  strategy?: "absolute" | "fixed";
   className?: string;
 }
 
-/** Accessible menu button (WAI-ARIA menu pattern) for "…" actions, user menu, etc. */
+const MENU_GAP = 4;
+
 export function DropdownMenu({
   trigger,
   triggerLabel,
   triggerClassName = buttonClasses("secondary", "md"),
   items,
   align = "end",
+  strategy = "absolute",
   className,
 }: DropdownMenuProps) {
   const [open, setOpen] = useState(false);
   const menuId = useId();
   const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useLayoutEffect(() => {
+    const menu = menuRef.current;
+    const anchor = triggerRef.current;
+    if (!open || strategy !== "fixed" || !menu || !anchor) return;
+    const rect = anchor.getBoundingClientRect();
+    const fitsBelow = rect.bottom + MENU_GAP + menu.offsetHeight <= window.innerHeight;
+    menu.style.top = `${fitsBelow ? rect.bottom + MENU_GAP : Math.max(MENU_GAP, rect.top - MENU_GAP - menu.offsetHeight)}px`;
+    if (align === "end") menu.style.right = `${window.innerWidth - rect.right}px`;
+    else menu.style.left = `${rect.left}px`;
+
+    const dismiss = () => setOpen(false);
+    window.addEventListener("resize", dismiss);
+    window.addEventListener("scroll", dismiss, true);
+    return () => {
+      window.removeEventListener("resize", dismiss);
+      window.removeEventListener("scroll", dismiss, true);
+    };
+  }, [open, strategy, align]);
+
   const menuItems = () =>
-    Array.from(rootRef.current?.querySelectorAll<HTMLElement>('[role="menuitem"]:not(:disabled)') ?? []);
+    Array.from(menuRef.current?.querySelectorAll<HTMLElement>('[role="menuitem"]:not(:disabled)') ?? []);
 
   const focusItem = (index: number) => {
     const list = menuItems();
@@ -54,11 +81,14 @@ export function DropdownMenu({
   useEffect(() => {
     if (!open) return;
     const onPointerDown = (event: PointerEvent) => {
-      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+      const target = event.target as Node;
+      if (!rootRef.current?.contains(target) && !menuRef.current?.contains(target)) setOpen(false);
     };
     document.addEventListener("pointerdown", onPointerDown);
     return () => document.removeEventListener("pointerdown", onPointerDown);
   }, [open]);
+
+  const portal = (menu: ReactNode) => (strategy === "fixed" ? createPortal(menu, document.body) : menu);
 
   function close(restoreFocus = true) {
     setOpen(false);
@@ -103,14 +133,17 @@ export function DropdownMenu({
       >
         {trigger}
       </button>
-      {open && (
+      {open && portal(
         <div
+          ref={menuRef}
           id={menuId}
           role="menu"
           onKeyDown={onMenuKeyDown}
           className={cn(
-            "absolute top-full z-40 mt-1 min-w-44 rounded-lg bg-surface p-1 shadow-dropdown",
-            align === "end" ? "right-0" : "left-0",
+            "min-w-44 rounded-lg bg-surface p-1 shadow-dropdown",
+            strategy === "fixed"
+              ? "fixed z-[60]"
+              : ["absolute top-full z-40 mt-1", align === "end" ? "right-0" : "left-0"].join(" "),
           )}
         >
           {items.map((item, index) => {
@@ -151,7 +184,7 @@ export function DropdownMenu({
               </button>
             );
           })}
-        </div>
+        </div>,
       )}
     </div>
   );

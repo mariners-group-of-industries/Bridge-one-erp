@@ -1,4 +1,4 @@
-import { Boxes, Calculator, Users } from "lucide-react";
+import { Users } from "lucide-react";
 import type { Workspace } from "./types";
 
 /**
@@ -7,22 +7,6 @@ import type { Workspace } from "./types";
  * `status: "active"` and register it in `registry.ts`.
  */
 export const plannedWorkspaces: Workspace[] = [
-  {
-    id: "stock",
-    label: "Stock",
-    icon: Boxes,
-    href: "/stock",
-    description: "Items, stock levels and stock movements.",
-    status: "planned",
-  },
-  {
-    id: "accounting",
-    label: "Accounting",
-    icon: Calculator,
-    href: "/accounting",
-    description: "Chart of accounts, invoices, payments and ledgers.",
-    status: "planned",
-  },
   {
     id: "hr",
     label: "HR",
