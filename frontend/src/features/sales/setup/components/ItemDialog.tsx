@@ -40,6 +40,7 @@ export function ItemDialog({ open, businessUnitId, lookups, item, onClose, onSav
     salesRate: numberText(item?.salesRate ?? 0),
     mrp: numberText(item?.mrp),
     vatPercent: numberText(item?.vatPercent ?? 0),
+    deliveryTolerancePercent: numberText(item?.deliveryTolerancePercent ?? 0),
     categoryId: item?.categoryId ?? "",
     isActive: item?.isActive ?? true,
     prices: Object.fromEntries(priceLists.map((list) => [list.id, numberText(item?.prices[list.id])])) as Record<string, string>,
@@ -65,6 +66,7 @@ export function ItemDialog({ open, businessUnitId, lookups, item, onClose, onSav
       salesRate: requiredNumber(values.salesRate),
       mrp: optionalNumber(values.mrp),
       vatPercent: requiredNumber(values.vatPercent || "0"),
+      deliveryTolerancePercent: requiredNumber(values.deliveryTolerancePercent || "0"),
       categoryId: values.categoryId || null,
       isActive: values.isActive,
       prices: Object.entries(values.prices)
@@ -158,6 +160,17 @@ export function ItemDialog({ open, businessUnitId, lookups, item, onClose, onSav
             value={values.vatPercent}
             error={errors.vatPercent}
             onChange={(event) => set("vatPercent", event.target.value)}
+          />
+          <TextField
+            label="Delivery Tolerance %"
+            type="number"
+            min={0}
+            max={100}
+            step="any"
+            hint="How much more than ordered may be delivered."
+            value={values.deliveryTolerancePercent}
+            error={errors.deliveryTolerancePercent}
+            onChange={(event) => set("deliveryTolerancePercent", event.target.value)}
           />
         </FieldGrid>
 

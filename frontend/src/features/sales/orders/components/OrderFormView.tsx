@@ -34,6 +34,7 @@ import {
 } from "../../masters/services/masters.api";
 import { paths } from "../../paths";
 import type { QuotationDetail } from "../../quotations/schemas/quotation.schema";
+import { fetchStock } from "../../deliveries/services/delivery.api";
 import { fetchQuotation } from "../../quotations/services/quotation.api";
 import { CustomerDialog } from "../../setup/components/CustomerDialog";
 import { altQty, orderTotals } from "../lib/order-totals";
@@ -111,7 +112,7 @@ function Failed({ title, error, onRetry }: { title: string; error: Error; onRetr
 
 // ─── Form state ──────────────────────────────────────────────────────────────
 
-interface LineValues {
+export interface LineValues {
   key: string;
   itemId: string;
   qty: string;
@@ -782,18 +783,21 @@ function ChargeRow({ label, value, error, onChange }: { label: string; value: st
 
 // ─── Item entry bar ──────────────────────────────────────────────────────────
 
-function ItemEntry({
+/** Item picker bar (category filters, search, qty, rate …). Shows stock when a warehouse is given. */
+export function ItemEntry({
   items,
   setup,
   priceListId,
   disabled,
   onAdd,
+  warehouseId,
 }: {
   items: ItemOption[];
   setup: SetupLookups | undefined;
   priceListId: string;
   disabled: boolean;
   onAdd: (line: Omit<LineValues, "key">) => void;
+  warehouseId?: string | null;
 }) {
   const listId = useId();
   const [category, setCategory] = useState<[string, string, string]>(["", "", ""]);
@@ -823,6 +827,7 @@ function ItemEntry({
   const label = (item: ItemOption) => `${item.code} — ${item.name}`;
   const item = visible.find((candidate) => label(candidate) === itemText) ?? items.find((candidate) => label(candidate) === itemText);
   const pending = useResource(item ? `pending:${item.id}` : null, () => fetchItemPending(item!.id));
+  const stock = useResource(item && warehouseId ? `stock:${warehouseId}:${item.id}` : null, () => fetchStock(warehouseId!, [item!.id]));
 
   function pick(text: string) {
     setItemText(text);
@@ -936,6 +941,11 @@ function ItemEntry({
               {item.uom}
               {item.altUom ? ` · ${item.altUomFactor} per ${item.altUom}` : ""}
             </Indicator>
+            {warehouseId && (
+              <Indicator color={stock.data && stock.data[0].qty > 0 ? "green" : "red"}>
+                Stock: {stock.data ? formatQty(stock.data[0].qty) : "…"}
+              </Indicator>
+            )}
             <Indicator color="orange">Pending in orders: {pending.data ? formatQty(pending.data.pendingQty) : "…"}</Indicator>
           </>
         )}
@@ -953,7 +963,7 @@ function ItemEntry({
 
 const CELL = cn(CONTROL, "h-7 w-full min-w-0 text-right tabular-nums");
 
-function LinesGrid({
+export function LinesGrid({
   lines,
   itemById,
   storedLines,

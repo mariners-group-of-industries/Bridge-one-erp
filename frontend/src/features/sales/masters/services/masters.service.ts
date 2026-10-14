@@ -9,12 +9,14 @@ import { requireBusinessUnit, scopedBusinessUnitIds } from "../../lib/scope";
 import { formatNumber, nextNumber } from "../../lib/sequence";
 import {
   customerGroupInputSchema,
+  deliveryReasonInputSchema,
   customerInputSchema,
   customerUpdateSchema,
   itemCategoryInputSchema,
   itemInputSchema,
   itemUpdateSchema,
   priceListInputSchema,
+  returnReasonInputSchema,
   salesAreaInputSchema,
   salesPersonInputSchema,
   salesPersonUpdateSchema,
@@ -100,7 +102,7 @@ export async function getSalesLookups(actor: Actor): Promise<SalesLookups> {
 export async function getSetupLookups(actor: Actor, businessUnitId?: string): Promise<SetupLookups> {
   const unitIds = await scopedBusinessUnitIds(actor, businessUnitId);
   const where = { businessUnitId: { in: unitIds } };
-  const [customerGroups, areas, categories, priceLists, salesPersons] = await Promise.all([
+  const [customerGroups, areas, categories, priceLists, salesPersons, deliveryReasons, returnReasons] = await Promise.all([
     db().customerGroup.findMany({ where, select: { id: true, businessUnitId: true, name: true }, orderBy: { name: "asc" } }),
     db().salesArea.findMany({
       where,
@@ -122,8 +124,10 @@ export async function getSetupLookups(actor: Actor, businessUnitId?: string): Pr
       select: { id: true, businessUnitId: true, name: true, code: true, designation: true },
       orderBy: { name: "asc" },
     }),
+    db().deliveryPendingReason.findMany({ where, select: { id: true, businessUnitId: true, name: true }, orderBy: { name: "asc" } }),
+    db().salesReturnReason.findMany({ where, select: { id: true, businessUnitId: true, name: true }, orderBy: { name: "asc" } }),
   ]);
-  return { customerGroups, areas, categories, priceLists, salesPersons };
+  return { customerGroups, areas, categories, priceLists, salesPersons, deliveryReasons, returnReasons };
 }
 
 // ─── Codes ───────────────────────────────────────────────────────────────────
@@ -361,6 +365,7 @@ const itemSelect = {
   categoryId: true,
   mrp: true,
   vatPercent: true,
+  deliveryTolerancePercent: true,
   salesRate: true,
   isActive: true,
   prices: { select: { priceListId: true, rate: true } },
@@ -372,6 +377,7 @@ function toItem(record: Prisma.ItemGetPayload<{ select: typeof itemSelect }>): I
     altUomFactor: record.altUomFactor?.toNumber() ?? null,
     mrp: record.mrp?.toNumber() ?? null,
     vatPercent: record.vatPercent.toNumber(),
+    deliveryTolerancePercent: record.deliveryTolerancePercent.toNumber(),
     salesRate: record.salesRate.toNumber(),
     prices: Object.fromEntries(record.prices.map((price) => [price.priceListId, price.rate.toNumber()])),
   };
@@ -500,6 +506,16 @@ export async function createSetupRecord(actor: Actor, kind: SetupKind, raw: unkn
       }
       return guardUnique("category", () => db().itemCategory.create({ data: { ...input, level }, select: { id: true } }));
     }
+    case "delivery-reasons": {
+      const input = deliveryReasonInputSchema.parse(raw);
+      await requireBusinessUnit(actor, input.businessUnitId);
+      return guardUnique("pending reason", () => db().deliveryPendingReason.create({ data: input, select: { id: true } }));
+    }
+    case "return-reasons": {
+      const input = returnReasonInputSchema.parse(raw);
+      await requireBusinessUnit(actor, input.businessUnitId);
+      return guardUnique("return reason", () => db().salesReturnReason.create({ data: input, select: { id: true } }));
+    }
     case "price-lists": {
       const input = priceListInputSchema.parse(raw);
       await requireBusinessUnit(actor, input.businessUnitId);
@@ -531,6 +547,14 @@ export async function updateSetupRecord(actor: Actor, kind: SetupKind, id: strin
       await requireOwned(actor, db().itemCategory.findUnique(where), "Category");
       await guardUnique("category", () => db().itemCategory.update({ where: { id }, data: { name } }));
       return;
+    case "delivery-reasons":
+      await requireOwned(actor, db().deliveryPendingReason.findUnique(where), "Pending reason");
+      await guardUnique("pending reason", () => db().deliveryPendingReason.update({ where: { id }, data: { name } }));
+      return;
+    case "return-reasons":
+      await requireOwned(actor, db().salesReturnReason.findUnique(where), "Return reason");
+      await guardUnique("return reason", () => db().salesReturnReason.update({ where: { id }, data: { name } }));
+      return;
     case "price-lists": {
       const businessUnitId = await requireOwned(actor, db().priceList.findUnique(where), "Price type");
       await guardUnique("price type", () =>
@@ -559,6 +583,16 @@ export async function deleteSetupRecord(actor: Actor, kind: SetupKind, id: strin
       case "categories":
         await requireOwned(actor, db().itemCategory.findUnique(where), "Category");
         await db().itemCategory.delete({ where: { id } });
+        return;
+      case "delivery-reasons":
+        // Orders using it fall back to "no reason" (ON DELETE SET NULL).
+        await requireOwned(actor, db().deliveryPendingReason.findUnique(where), "Pending reason");
+        await db().deliveryPendingReason.delete({ where: { id } });
+        return;
+      case "return-reasons":
+        // Return lines keep the reason text, so removing it changes no history.
+        await requireOwned(actor, db().salesReturnReason.findUnique(where), "Return reason");
+        await db().salesReturnReason.delete({ where: { id } });
         return;
       case "price-lists":
         await requireOwned(actor, db().priceList.findUnique(where), "Price type");

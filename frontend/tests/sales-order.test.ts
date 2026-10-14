@@ -60,6 +60,16 @@ describe("orderTotals", () => {
     expect(totals.salesTotal).toBe(1053 - 53 + 150);
   });
 
+  it("never lets rounding push AIT below zero (VAT-inclusive)", () => {
+    const [line] = orderTotals([{ qty: 100, unitPrice: 14.6, discountPercent: 0, vatPercent: 15, aitPercent: 0 }], {
+      priceIncludesVat: true,
+      discountAmount: 0,
+      deliveryCharge: 0,
+      unloadingCharge: 0,
+    }).lines;
+    expect(line).toMatchObject({ lineTotal: 1460, baseAmount: 1269.57, vatAmount: 190.43, aitAmount: 0 });
+  });
+
   it("converts to the alt. unit", () => {
     expect(altQty(480, 24)).toBe(20);
     expect(altQty(200, null)).toBeNull();
@@ -361,5 +371,32 @@ describe("sales orders", () => {
     expect((await listOrders(adminActor, { territoryId })).totalCount).toBe(2);
     expect((await listOrders(scopedActor([OTHER_COMPANY]), {})).totalCount).toBe(0);
     await expect(getOrder(scopedActor([OTHER_COMPANY]), a.id)).rejects.toMatchObject({ status: 404 });
+  });
+
+  it("shows people by name and filters by who entered the order and its pending reason", async () => {
+    const user = await prisma.user.create({ data: { name: "Md. Manik Miah", phone: "01700000001", passwordHash: "x" } });
+    const clerk: Actor = { ...adminActor, id: user.id };
+    const draft = await createOrder(clerk, input());
+    const approved = await act(clerk, draft.id, draft.updatedAt, "submit");
+    expect(approved).toMatchObject({ status: "APPROVED", createdByName: "Md. Manik Miah", updatedByName: "Md. Manik Miah" });
+    expect(approved.events.at(-1)).toMatchObject({ actorId: user.id, actorName: "Md. Manik Miah" });
+    // Ids that are not users (system actors) are shown as they are.
+    const other = await createOrder(adminActor, input());
+    expect((await getOrder(adminActor, other.id)).createdByName).toBe(adminActor.id);
+
+    const reason = await createSetupRecord(adminActor, "delivery-reasons", { businessUnitId, name: "Vehicle Not Available" });
+    await prisma.salesOrder.update({ where: { id: approved.id }, data: { deliveryPendingReasonId: reason.id } });
+    const byReason = await listOrders(adminActor, { pendingReasonId: reason.id });
+    expect(byReason.rows.map((row) => row.id)).toEqual([approved.id]);
+    expect(byReason.rows[0].pendingReasonName).toBe("Vehicle Not Available");
+    expect((await getOrder(adminActor, approved.id)).pendingReasonName).toBe("Vehicle Not Available");
+
+    const list = await listOrders(adminActor, { createdBy: user.id });
+    expect(list.rows.map((row) => row.id)).toEqual([approved.id]);
+    expect(list.creators).toEqual(expect.arrayContaining([{ id: user.id, name: "Md. Manik Miah" }, { id: adminActor.id, name: adminActor.id }]));
+
+    const fresh = await getOrder(adminActor, approved.id);
+    const closed = await act(adminActor, approved.id, fresh.updatedAt, "complete", "Customer stopped the order.");
+    expect(closed).toMatchObject({ status: "COMPLETED", closedRemarks: "Customer stopped the order." });
   });
 });

@@ -30,10 +30,13 @@ export function orderLineAmounts(line: OrderLineInput, priceIncludesVat: boolean
   const net = round2(grossAmount * (1 - line.discountPercent / 100));
   const netUnitPrice = Math.round(line.unitPrice * (1 - line.discountPercent / 100) * 10_000) / 10_000;
   if (priceIncludesVat) {
-    const baseAmount = round2(net / (1 + (line.vatPercent + line.aitPercent) / 100));
-    const vatAmount = round2((baseAmount * line.vatPercent) / 100);
-    // Whatever is left is AIT, so base + VAT + AIT always equals the line total.
-    const aitAmount = round2(net - baseAmount - vatAmount);
+    const taxPercent = line.vatPercent + line.aitPercent;
+    const baseAmount = round2(net / (1 + taxPercent / 100));
+    // Split the tax part between VAT and AIT so base + VAT + AIT always equals
+    // the line total and neither goes negative through rounding.
+    const taxes = round2(net - baseAmount);
+    const vatAmount = taxPercent > 0 ? round2((taxes * line.vatPercent) / taxPercent) : 0;
+    const aitAmount = round2(taxes - vatAmount);
     return { grossAmount, netUnitPrice, lineTotal: net, baseAmount, vatAmount, aitAmount };
   }
   const vatAmount = round2((net * line.vatPercent) / 100);

@@ -7,6 +7,7 @@ import { fromDbDate, toDbDate } from "../../lib/dates";
 import { customerBalances } from "../../lib/receivables";
 import { requireOffice, scopedBusinessUnitIds } from "../../lib/scope";
 import { formatNumber, nextNumber } from "../../lib/sequence";
+import { userNames } from "../../lib/users";
 import { openOrderValue } from "../../masters/services/masters.service";
 import { orderTotals } from "../lib/order-totals";
 import {
@@ -45,6 +46,8 @@ export async function listOrders(actor: Actor, query: OrderListQuery): Promise<O
     ...(query.salesPersonId ? { salesPersonId: query.salesPersonId } : {}),
     ...(query.status ? { status: query.status } : {}),
     ...(query.holdReason ? { holdReason: query.holdReason } : {}),
+    ...(query.pendingReasonId ? { deliveryPendingReasonId: query.pendingReasonId } : {}),
+    ...(query.createdBy ? { createdBy: query.createdBy } : {}),
     ...(query.paymentMethod ? { paymentMethod: query.paymentMethod } : {}),
     ...(query.orderType ? { orderType: query.orderType } : {}),
     ...(query.from || query.to
@@ -81,6 +84,7 @@ export async function listOrders(actor: Actor, query: OrderListQuery): Promise<O
         updatedAt: true,
         office: { select: { name: true } },
         salesPerson: { select: { name: true } },
+        deliveryPendingReason: { select: { name: true } },
         customer: {
           select: { code: true, name: true, customerType: true, zone: area, territory: area, route: area, section: area },
         },
@@ -90,15 +94,22 @@ export async function listOrders(actor: Actor, query: OrderListQuery): Promise<O
     }),
     db().salesOrder.aggregate({ where, _sum: { salesTotal: true }, _count: true }),
   ]);
+  const creatorIds = await db().salesOrder.groupBy({ by: ["createdBy"], where: { businessUnitId: { in: unitIds } } });
+  const nameOf = await userNames(creatorIds.map((row) => row.createdBy));
 
   return {
     totalAmount: num(aggregate._sum.salesTotal),
     totalCount: aggregate._count,
+    creators: creatorIds
+      .filter((row) => row.createdBy)
+      .map((row) => ({ id: row.createdBy!, name: nameOf(row.createdBy)! }))
+      .sort((a, b) => a.name.localeCompare(b.name)),
     rows: rows.map((row) => ({
       id: row.id,
       number: row.number,
       status: row.status,
       holdReason: row.holdReason,
+      pendingReasonName: row.deliveryPendingReason?.name ?? null,
       orderDate: fromDbDate(row.orderDate),
       expectedDeliveryDate: fromDbDate(row.expectedDeliveryDate),
       officeName: row.office.name,
@@ -139,13 +150,15 @@ const detailInclude = {
   salesPerson: { select: { name: true } },
   quotation: { select: { number: true } },
   priceList: { select: { name: true } },
+  deliveryPendingReason: { select: { name: true } },
   lines: { orderBy: { lineNo: "asc" }, include: { item: { select: { code: true, name: true } } } },
   events: { orderBy: { createdAt: "asc" } },
 } satisfies Prisma.SalesOrderInclude;
 
 type OrderRecord = Prisma.SalesOrderGetPayload<{ include: typeof detailInclude }>;
 
-function toDetail(record: OrderRecord): OrderDetail {
+function toDetail(record: OrderRecord, nameOf: (id: string | null | undefined) => string | null): OrderDetail {
+  const closing = [...record.events].reverse().find((event) => event.toStatus === "COMPLETED" || event.toStatus === "CANCELLED");
   return {
     id: record.id,
     number: record.number,
@@ -199,6 +212,10 @@ function toDetail(record: OrderRecord): OrderDetail {
     salesTotal: num(record.salesTotal),
     createdBy: record.createdBy,
     updatedBy: record.updatedBy,
+    createdByName: nameOf(record.createdBy),
+    updatedByName: nameOf(record.updatedBy),
+    pendingReasonName: record.deliveryPendingReason?.name ?? null,
+    closedRemarks: closing?.remarks ?? null,
     submittedAt: record.submittedAt?.toISOString() ?? null,
     approvedAt: record.approvedAt?.toISOString() ?? null,
     closedAt: record.closedAt?.toISOString() ?? null,
@@ -233,6 +250,7 @@ function toDetail(record: OrderRecord): OrderDetail {
       toStatus: event.toStatus,
       remarks: event.remarks,
       actorId: event.actorId,
+      actorName: nameOf(event.actorId),
       createdAt: event.createdAt.toISOString(),
     })),
   };
@@ -246,7 +264,9 @@ async function loadOrder(actor: Actor, id: string): Promise<OrderRecord> {
 }
 
 export async function getOrder(actor: Actor, id: string): Promise<OrderDetail> {
-  return toDetail(await loadOrder(actor, id));
+  const record = await loadOrder(actor, id);
+  const nameOf = await userNames([record.createdBy, record.updatedBy, ...record.events.map((event) => event.actorId)]);
+  return toDetail(record, nameOf);
 }
 
 // ─── Write ───────────────────────────────────────────────────────────────────

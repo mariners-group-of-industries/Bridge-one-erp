@@ -1,6 +1,6 @@
 "use client";
 
-import { Plus } from "lucide-react";
+import { Boxes, Plus } from "lucide-react";
 import { useState } from "react";
 import { PageContainer, PageHead } from "@/components/layout/page";
 import { Button } from "@/components/ui/button";
@@ -37,6 +37,8 @@ import {
 import { CustomerDialog } from "./CustomerDialog";
 import { ItemDialog } from "./ItemDialog";
 import { SimpleMastersPanel } from "./SimpleMastersPanel";
+import { StockDialog } from "./StockDialog";
+import { useToday } from "../../lib/use-today";
 
 type Tab = "customers" | "items" | "sales-force" | SetupKind;
 
@@ -48,6 +50,8 @@ const TABS: { id: Tab; label: string }[] = [
   { id: "areas", label: "Areas" },
   { id: "categories", label: "Item Categories" },
   { id: "price-lists", label: "Price Types" },
+  { id: "delivery-reasons", label: "Pending Reasons" },
+  { id: "return-reasons", label: "Return Reasons" },
 ];
 
 export function SalesSetupView() {
@@ -192,6 +196,8 @@ function CustomersPanel({ businessUnitId, lookups }: { businessUnitId: string; l
 function ItemsPanel({ businessUnitId, lookups }: { businessUnitId: string; lookups: SetupLookups }) {
   const items = useResource(`items:${businessUnitId}`, () => fetchItems(businessUnitId, true));
   const [editing, setEditing] = useState<ItemOption | "new" | null>(null);
+  const [stockItem, setStockItem] = useState<ItemOption | null>(null);
+  const today = useToday();
 
   const columns: Column<ItemOption>[] = [
     {
@@ -215,6 +221,16 @@ function ItemsPanel({ businessUnitId, lookups }: { businessUnitId: string; looku
     { id: "rate", header: "Rate", cell: (row) => formatAmount(row.salesRate), className: "text-right tabular-nums", sortValue: (row) => row.salesRate },
     { id: "vat", header: "VAT %", cell: (row) => row.vatPercent, className: "text-right tabular-nums", hideBelow: "lg" },
     { id: "status", header: "Status", cell: (row) => activeIndicator(row.isActive) },
+    {
+      id: "stock",
+      header: "Stock",
+      cell: (row) => (
+        <Button size="sm" onClick={() => setStockItem(row)}>
+          <Boxes aria-hidden="true" />
+          Stock
+        </Button>
+      ),
+    },
   ];
 
   return (
@@ -253,6 +269,7 @@ function ItemsPanel({ businessUnitId, lookups }: { businessUnitId: string; looku
           }}
         />
       )}
+      {stockItem && today && <StockDialog key={stockItem.id} item={stockItem} today={today} onClose={() => setStockItem(null)} />}
     </div>
   );
 }

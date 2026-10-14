@@ -94,6 +94,7 @@ const itemFields = {
     .nullish()
     .transform((value) => value ?? null),
   vatPercent: percent("VAT %").default(0),
+  deliveryTolerancePercent: percent("Delivery tolerance %").default(0),
   altUom: optionalText("Alt. unit", 20),
   altUomFactor: z
     .number({ error: "Units per alt. unit must be a number." })
@@ -134,10 +135,12 @@ export type SalesPersonUpdate = z.input<typeof salesPersonUpdateSchema>;
 
 // ─── Simple setup masters ────────────────────────────────────────────────────
 
-export const SETUP_KINDS = ["customer-groups", "areas", "categories", "price-lists"] as const;
+export const SETUP_KINDS = ["customer-groups", "areas", "categories", "price-lists", "delivery-reasons", "return-reasons"] as const;
 export type SetupKind = (typeof SETUP_KINDS)[number];
 
 export const customerGroupInputSchema = z.object({ businessUnitId, name: requiredText("Group name", 100) });
+export const deliveryReasonInputSchema = z.object({ businessUnitId, name: requiredText("Reason", 100) });
+export const returnReasonInputSchema = deliveryReasonInputSchema;
 export const salesAreaInputSchema = z.object({ businessUnitId, kind: z.enum(AREA_KINDS), name: requiredText("Name", 100) });
 export const itemCategoryInputSchema = z.object({
   businessUnitId,
@@ -200,6 +203,8 @@ export interface SetupLookups {
   areas: AreaOption[];
   categories: CategoryOption[];
   priceLists: PriceListOption[];
+  deliveryReasons: NamedOption[];
+  returnReasons: NamedOption[];
   salesPersons: (NamedOption & { code: string; designation: string | null })[];
 }
 
@@ -242,6 +247,7 @@ export interface ItemOption {
   categoryId: string | null;
   mrp: number | null;
   vatPercent: number;
+  deliveryTolerancePercent: number;
   salesRate: number;
   isActive: boolean;
   /** Rate per price list id. */

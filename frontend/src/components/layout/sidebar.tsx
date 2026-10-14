@@ -51,7 +51,16 @@ export function SidebarNav({ pathname, onNavigate }: { pathname: string | null; 
             icon={<Icon />}
             active={current?.id === workspace.id}
           >
-            {cards.map((card) =>
+            {workspace.sidebarLinks
+              ? // Flat list of pages (no groups), e.g. Sales as in Managerium.
+                workspace.sidebarLinks.map((link) => (
+                  <li key={link.href} className="list-none">
+                    <SubLink href={link.href} active={isWithin(pathname, link.href)} onNavigate={onNavigate}>
+                      {link.label}
+                    </SubLink>
+                  </li>
+                ))
+              : cards.map((card) =>
               card.label ? (
                 <CollapsibleGroup
                   key={card.label}

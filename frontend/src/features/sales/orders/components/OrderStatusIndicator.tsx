@@ -3,8 +3,8 @@ import { ORDER_STATUS_LABELS, type OrderStatus } from "../schemas/order.schema";
 
 const COLORS: Record<OrderStatus, IndicatorColor> = {
   DRAFT: "gray",
-  PENDING_APPROVAL: "purple",
-  APPROVED: "orange",
+  PENDING_APPROVAL: "orange",
+  APPROVED: "green",
   COMPLETED: "blue",
   CANCELLED: "red",
 };
