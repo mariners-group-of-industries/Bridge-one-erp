@@ -202,6 +202,7 @@ model BusinessUnit {
   taxBrackets          TaxBracket[]
   itemDivisions        ItemDivision[]
   itemUoms             ItemUom[]
+  salesOffers          SalesOffer[]
   openingStockReceipts OpeningStockReceipt[]
 
   @@unique([companyId, name])
@@ -491,6 +492,11 @@ model Item {
   category       ItemCategory?        @relation(fields: [categoryId], references: [id], onDelete: Restrict)
   division       ItemDivision?        @relation(fields: [divisionId], references: [id], onDelete: SetNull)
   openingStockLines OpeningStockLine[]
+  offerSellingLines  SalesOfferItemLine[]     @relation("OfferSellingItem")
+  offerFreeLines     SalesOfferItemLine[]     @relation("OfferFreeItem")
+  offerPairLines     SalesOfferPairLine[]     @relation("OfferPairItem")
+  offerBonusLines    SalesOfferBonusLine[]    @relation("OfferBonusItem")
+  offerDiscountLines SalesOfferDiscountLine[] @relation("OfferDiscountItem")
   prices         ItemPrice[]
   orderLines     SalesOrderLine[]
   stockEntries   StockEntry[]
@@ -960,6 +966,8 @@ model CustomerGroup {
   children          CustomerGroup[] @relation("CustomerGroupTree")
   customers         Customer[]
   subGroupCustomers Customer[]      @relation("CustomerSubGroup")
+  offers            SalesOffer[]            @relation("OfferCustomerGroup")
+  offerSpecialLines SalesOfferSpecialLine[] @relation("OfferSpecialGroup")
 
   @@unique([businessUnitId, name])
   @@map("customer_groups")
@@ -1027,6 +1035,8 @@ model ItemCategory {
   parent       ItemCategory?  @relation("CategoryTree", fields: [parentId], references: [id], onDelete: Restrict)
   children     ItemCategory[] @relation("CategoryTree")
   items        Item[]
+  offers         SalesOffer[]         @relation("OfferCategory")
+  offerPairLines SalesOfferPairLine[] @relation("OfferPairCategory")
 
   @@unique([businessUnitId, parentId, name])
   @@map("item_categories")
@@ -1115,9 +1125,150 @@ model PriceList {
   prices       ItemPrice[]
   salesOrders  SalesOrder[]
   customers    Customer[]
+  offers       SalesOffer[]
 
   @@unique([businessUnitId, name])
   @@map("price_lists")
+}
+
+// ─── Configuration › Sales Config › Offer Setup ─────────────────────────────
+
+/// A sales offer. `kind`: ITEM (buy item, get item), ITEM_MULTIPLE (buy a
+/// combination, get bonus items), DISCOUNT (item discounts) or SPECIAL_DISCOUNT
+/// (invoice-amount slabs).
+model SalesOffer {
+  id              String    @id @default(uuid()) @db.Uuid
+  businessUnitId  String    @db.Uuid
+  kind            String    @db.VarChar(20)
+  name            String    @db.VarChar(150)
+  fromDate        DateTime? @db.Date
+  toDate          DateTime? @db.Date
+  customerGroupId String?   @db.Uuid
+  priceListId     String?   @db.Uuid
+  basedOn         String?   @db.VarChar(30)
+  /// Selling item category filter (the most specific level chosen).
+  categoryId      String?   @db.Uuid
+  remarks         String?   @db.VarChar(500)
+  isActive        Boolean   @default(true)
+  createdAt       DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime  @updatedAt @db.Timestamptz(3)
+
+  businessUnit  BusinessUnit   @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  customerGroup CustomerGroup? @relation("OfferCustomerGroup", fields: [customerGroupId], references: [id], onDelete: SetNull)
+  priceList     PriceList?     @relation(fields: [priceListId], references: [id], onDelete: SetNull)
+  category      ItemCategory?  @relation("OfferCategory", fields: [categoryId], references: [id], onDelete: SetNull)
+  itemLines     SalesOfferItemLine[]
+  pairLines     SalesOfferPairLine[]
+  bonusLines    SalesOfferBonusLine[]
+  discountLines SalesOfferDiscountLine[]
+  specialLines  SalesOfferSpecialLine[]
+
+  @@index([businessUnitId, kind])
+  @@map("sales_offers")
+}
+
+/// Items tab: buy the selling item, get the offer item.
+model SalesOfferItemLine {
+  id            String  @id @default(uuid()) @db.Uuid
+  offerId       String  @db.Uuid
+  sortOrder     Int
+  sellingItemId String  @db.Uuid
+  sellingUom    String  @db.VarChar(20)
+  sellingQty    Decimal @db.Decimal(14, 3)
+  offerItemId   String  @db.Uuid
+  offerUom      String  @db.VarChar(20)
+  offerQty      Decimal @db.Decimal(14, 3)
+
+  offer       SalesOffer @relation(fields: [offerId], references: [id], onDelete: Cascade)
+  sellingItem Item       @relation("OfferSellingItem", fields: [sellingItemId], references: [id], onDelete: Restrict)
+  offerItem   Item       @relation("OfferFreeItem", fields: [offerItemId], references: [id], onDelete: Restrict)
+
+  @@index([offerId])
+  @@map("sales_offer_item_lines")
+}
+
+/// Item (Multiple) tab: the selling items that must be bought together.
+model SalesOfferPairLine {
+  id         String   @id @default(uuid()) @db.Uuid
+  offerId    String   @db.Uuid
+  sortOrder  Int
+  categoryId String?  @db.Uuid
+  itemId     String   @db.Uuid
+  quantity   Decimal  @db.Decimal(14, 3)
+  minQty     Decimal? @db.Decimal(14, 3)
+  maxQty     Decimal? @db.Decimal(14, 3)
+
+  offer    SalesOffer    @relation(fields: [offerId], references: [id], onDelete: Cascade)
+  category ItemCategory? @relation("OfferPairCategory", fields: [categoryId], references: [id], onDelete: SetNull)
+  item     Item          @relation("OfferPairItem", fields: [itemId], references: [id], onDelete: Restrict)
+
+  @@index([offerId])
+  @@map("sales_offer_pair_lines")
+}
+
+/// Item (Multiple) tab: bonus items given for the combination.
+model SalesOfferBonusLine {
+  id        String  @id @default(uuid()) @db.Uuid
+  offerId   String  @db.Uuid
+  sortOrder Int
+  itemId    String  @db.Uuid
+  quantity  Decimal @db.Decimal(14, 3)
+
+  offer SalesOffer @relation(fields: [offerId], references: [id], onDelete: Cascade)
+  item  Item       @relation("OfferBonusItem", fields: [itemId], references: [id], onDelete: Restrict)
+
+  @@index([offerId])
+  @@map("sales_offer_bonus_lines")
+}
+
+/// Discount tab: per-item discount.
+model SalesOfferDiscountLine {
+  id                   String   @id @default(uuid()) @db.Uuid
+  offerId              String   @db.Uuid
+  sortOrder            Int
+  itemId               String   @db.Uuid
+  /// PERCENT or FLAT.
+  discountType         String   @db.VarChar(10)
+  amount               Decimal  @db.Decimal(14, 2)
+  quantity             Decimal? @db.Decimal(14, 3)
+  minQty               Decimal? @db.Decimal(14, 3)
+  maxQty               Decimal? @db.Decimal(14, 3)
+  isRecurrent          Boolean  @default(false)
+  supplierId           String?  @db.Uuid
+  supplierContribution Decimal? @db.Decimal(5, 2)
+  internalContribution Decimal? @db.Decimal(5, 2)
+
+  offer    SalesOffer @relation(fields: [offerId], references: [id], onDelete: Cascade)
+  item     Item       @relation("OfferDiscountItem", fields: [itemId], references: [id], onDelete: Restrict)
+  supplier Supplier?  @relation("OfferDiscountSupplier", fields: [supplierId], references: [id], onDelete: SetNull)
+
+  @@index([offerId])
+  @@map("sales_offer_discount_lines")
+}
+
+/// Special Discount tab: discount slabs by invoice amount.
+model SalesOfferSpecialLine {
+  id                   String   @id @default(uuid()) @db.Uuid
+  offerId              String   @db.Uuid
+  sortOrder            Int
+  customerGroupId      String?  @db.Uuid
+  /// PERCENT or FLAT.
+  discountType         String   @db.VarChar(10)
+  amount               Decimal  @db.Decimal(14, 2)
+  fromAmount           Decimal? @db.Decimal(16, 2)
+  toAmount             Decimal? @db.Decimal(16, 2)
+  supplierId           String?  @db.Uuid
+  supplierContribution Decimal? @db.Decimal(5, 2)
+  internalContribution Decimal? @db.Decimal(5, 2)
+  /// True: VAT on the discounted price; false: VAT on the original price.
+  vatOnDiscounted      Boolean  @default(true)
+
+  offer         SalesOffer     @relation(fields: [offerId], references: [id], onDelete: Cascade)
+  customerGroup CustomerGroup? @relation("OfferSpecialGroup", fields: [customerGroupId], references: [id], onDelete: SetNull)
+  supplier      Supplier?      @relation("OfferSpecialSupplier", fields: [supplierId], references: [id], onDelete: SetNull)
+
+  @@index([offerId])
+  @@map("sales_offer_special_lines")
 }
 
 model ItemPrice {
@@ -1473,6 +1624,8 @@ model Supplier {
   taxBracket     TaxBracket?       @relation(fields: [taxBracketId], references: [id], onDelete: SetNull)
   details        SupplierDetail[]
   attachments    SupplierAttachment[]
+  offerDiscountLines SalesOfferDiscountLine[] @relation("OfferDiscountSupplier")
+  offerSpecialLines  SalesOfferSpecialLine[]  @relation("OfferSpecialSupplier")
   purchaseOrders PurchaseOrder[]
   goodsReceipts  GoodsReceipt[]
   returns        PurchaseReturn[]
