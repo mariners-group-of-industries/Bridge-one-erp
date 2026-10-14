@@ -449,7 +449,7 @@ function QuotationEditor({ today, lookups, detail, copyFrom, onSaved, onReload }
       />
 
       {detail?.status === "LOST" && detail.lostReason && (
-        <p role="note" className="mb-3 rounded bg-control px-3 py-2 text-sm text-ink-muted">
+        <p role="note" className="mb-3 rounded-lg bg-control px-3 py-2 text-sm text-ink-muted">
           Lost reason: {detail.lostReason}
         </p>
       )}
@@ -647,7 +647,7 @@ function QuotationEditor({ today, lookups, detail, copyFrom, onSaved, onReload }
                       onChange={(event) => set("vatPercent", event.target.value)}
                     />
                   </div>
-                  <dl className="flex flex-col gap-1.5 rounded bg-canvas p-3 text-sm">
+                  <dl className="flex flex-col gap-1.5 rounded-lg bg-canvas p-3 text-sm">
                     <TotalRow label="Total Qty" value={totals.totalQty.toLocaleString("en-US")} />
                     <TotalRow label="Subtotal" value={formatAmount(totals.subTotal)} />
                     <TotalRow label="Discount" value={`− ${formatAmount(totals.discountAmount)}`} />
@@ -815,8 +815,8 @@ function ItemsGrid({ lines, items, storedLines, amounts, editable, loading, erro
 
   return (
     <div className="flex flex-col gap-2">
-      <div className="overflow-x-auto rounded border border-line">
-        <table className="data-grid w-full min-w-[760px]">
+      <div className="overflow-x-auto rounded-lg border border-line">
+        <table className="w-full min-w-[760px] text-sm">
           <thead className="bg-canvas text-xs text-ink-muted">
             <tr className="border-b border-line">
               <th scope="col" className="w-10 px-2 py-2 text-left font-medium">No.</th>

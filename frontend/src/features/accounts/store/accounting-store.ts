@@ -117,6 +117,9 @@ export interface AccountingState {
   getTrialBalance: () => { rows: Array<{ code: string; name: string; type: string; debit: number; credit: number }>; totalDebit: number; totalCredit: number; isBalanced: boolean };
   getProfitAndLoss: (fromDate?: string, toDate?: string) => { revenues: Array<{ name: string; amount: number }>; expenses: Array<{ name: string; amount: number }>; totalRevenue: number; totalExpense: number; netProfit: number };
   getBalanceSheet: () => { assets: Array<{ name: string; amount: number }>; liabilities: Array<{ name: string; amount: number }>; equity: Array<{ name: string; amount: number }>; totalAssets: number; totalLiabilities: number; totalEquity: number; isBalanced: boolean };
+
+  // Database Sync
+  syncDatabase: () => Promise<void>;
 }
 
 const initialAccounts: AccountItem[] = [
@@ -1626,6 +1629,7 @@ type StateData = Omit<
   | "getTrialBalance"
   | "getProfitAndLoss"
   | "getBalanceSheet"
+  | "syncDatabase"
 >;
 
 const initialExpenses: ExpenseRecord[] = [
@@ -2480,6 +2484,124 @@ if (typeof window !== "undefined") {
   }
 }
 
+async function syncFromDatabase() {
+  if (typeof window === "undefined") return;
+  try {
+    const res = await fetch("/api/accounts/all-data");
+    if (!res.ok) return;
+    const json = await res.json();
+    if (json.success && json.data) {
+      const {
+        accounts,
+        costCenters,
+        budgets,
+        vouchers,
+        bankAccounts,
+        chequeBooks,
+        chequeIssues,
+        receivedCheques,
+      } = json.data;
+
+      updateData((prev) => ({
+        ...prev,
+        accounts:
+          accounts && accounts.length > 0
+            ? accounts.map((a: any) => ({
+                ...a,
+                openingBalance: Number(a.openingBalance || 0),
+                currentBalance: Number(a.currentBalance || 0),
+                createdAt: a.createdAt ? new Date(a.createdAt).toISOString().split("T")[0] : "",
+                updatedAt: a.updatedAt ? new Date(a.updatedAt).toISOString().split("T")[0] : "",
+              }))
+            : prev.accounts,
+        costCenters:
+          costCenters && costCenters.length > 0
+            ? costCenters.map((c: any) => ({
+                ...c,
+                createdAt: c.createdAt ? new Date(c.createdAt).toISOString().split("T")[0] : "",
+              }))
+            : prev.costCenters,
+        budgets:
+          budgets && budgets.length > 0
+            ? budgets.map((b: any) => ({
+                ...b,
+                allocatedAmount: Number(b.allocatedAmount || 0),
+                totalBudgetAmount: Number(b.totalBudgetAmount || b.allocatedAmount || 0),
+                revisedAmount: Number(b.revisedAmount || 0),
+                utilizedAmount: Number(b.utilizedAmount || 0),
+                committedAmount: Number(b.committedAmount || 0),
+                remainingAmount: Number(b.remainingAmount || 0),
+                items: (b.items || []).map((item: any) => ({
+                  ...item,
+                  allocatedAmount: Number(item.allocatedAmount || 0),
+                  utilizedAmount: Number(item.utilizedAmount || 0),
+                  remainingAmount: Number(item.remainingAmount || 0),
+                })),
+              }))
+            : prev.budgets,
+        vouchers:
+          vouchers && vouchers.length > 0
+            ? vouchers.map((v: any) => ({
+                ...v,
+                transactionDate: v.transactionDate ? new Date(v.transactionDate).toISOString().split("T")[0] : "",
+                totalDebit: Number(v.totalDebit || 0),
+                totalCredit: Number(v.totalCredit || 0),
+                lines: (v.lines || []).map((l: any) => ({
+                  ...l,
+                  debit: Number(l.debit || 0),
+                  credit: Number(l.credit || 0),
+                })),
+              }))
+            : prev.vouchers,
+        bankAccounts:
+          bankAccounts && bankAccounts.length > 0
+            ? bankAccounts.map((b: any) => ({
+                ...b,
+                openingBalance: Number(b.openingBalance || 0),
+                currentBalance: Number(b.currentBalance || 0),
+              }))
+            : prev.bankAccounts,
+        chequeBooks:
+          chequeBooks && chequeBooks.length > 0
+            ? chequeBooks.map((b: any) => ({
+                ...b,
+                totalLeaves: Number(b.totalLeaves || 25),
+                usedLeaves: Number(b.usedLeaves || 0),
+                remainingLeaves: Number(b.remainingLeaves || 25),
+              }))
+            : prev.chequeBooks,
+        cheques:
+          chequeIssues && chequeIssues.length > 0
+            ? chequeIssues.map((ci: any) => ({
+                ...ci,
+                amount: Number(ci.amount || 0),
+                issueDate: ci.issueDate ? new Date(ci.issueDate).toISOString().split("T")[0] : "",
+                chequeDate: ci.chequeDate ? new Date(ci.chequeDate).toISOString().split("T")[0] : "",
+              }))
+            : prev.cheques,
+        receivedCheques:
+          receivedCheques && receivedCheques.length > 0
+            ? receivedCheques.map((rc: any) => ({
+                ...rc,
+                amount: Number(rc.amount || 0),
+                receivedDate: rc.receivedDate ? new Date(rc.receivedDate).toISOString().split("T")[0] : "",
+                chequeDate: rc.chequeDate ? new Date(rc.chequeDate).toISOString().split("T")[0] : "",
+              }))
+            : prev.receivedCheques,
+      }));
+    }
+  } catch (err) {
+    console.warn("Neon database sync notice:", err);
+  }
+}
+
+if (typeof window !== "undefined") {
+  // Automatically trigger sync from Neon database in background on client mount
+  setTimeout(() => {
+    syncFromDatabase();
+  }, 50);
+}
+
 const listeners = new Set<() => void>();
 
 function notify() {
@@ -2504,6 +2626,10 @@ function getFullState(): AccountingState {
   return {
     ...internalData,
 
+    syncDatabase: async () => {
+      await syncFromDatabase();
+    },
+
     addAccount: (accountData) => {
       const id = `acc-${Date.now()}`;
       const newAccount: AccountItem = {
@@ -2514,6 +2640,15 @@ function getFullState(): AccountingState {
         updatedAt: new Date().toISOString().split("T")[0],
       };
       updateData((prev) => ({ ...prev, accounts: [...prev.accounts, newAccount] }));
+
+      // Persist to Neon DB in background
+      if (typeof window !== "undefined") {
+        fetch("/api/accounts/chart-of-accounts", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(newAccount),
+        }).catch(() => {});
+      }
     },
 
     updateAccount: (id, updates) => {
@@ -2609,6 +2744,14 @@ function getFullState(): AccountingState {
         }));
       } else {
         updateData((prev) => ({ ...prev, vouchers: [newVoucher, ...prev.vouchers] }));
+      }
+
+      if (typeof window !== "undefined") {
+        fetch("/api/accounts/journal", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(newVoucher),
+        }).catch(() => {});
       }
 
       return { success: true, message: `Voucher ${voucherNumber} successfully recorded.`, voucher: newVoucher };
@@ -3029,6 +3172,14 @@ function getFullState(): AccountingState {
         createdAt: new Date().toISOString(),
       };
       updateData((prev) => ({ ...prev, bankAccounts: [...prev.bankAccounts, newBank] }));
+
+      if (typeof window !== "undefined") {
+        fetch("/api/accounts/banking", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(newBank),
+        }).catch(() => {});
+      }
     },
 
     addDeposit: (depositData) => {
@@ -3070,6 +3221,15 @@ function getFullState(): AccountingState {
         createdAt: new Date().toISOString(),
       };
       updateData((prev) => ({ ...prev, chequeBooks: [...prev.chequeBooks, newBook] }));
+
+      if (typeof window !== "undefined") {
+        fetch("/api/accounts/banking", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...newBook, entityType: "chequeBook" }),
+        }).catch(() => {});
+      }
+
       return { success: true, message: `Cheque book ${bookData.bookName} registered with ${totalLeaves} leaves.` };
     },
 
@@ -3104,6 +3264,14 @@ function getFullState(): AccountingState {
             : b,
         ),
       }));
+
+      if (typeof window !== "undefined") {
+        fetch("/api/accounts/banking", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...newCheque, entityType: "chequeIssue" }),
+        }).catch(() => {});
+      }
 
       return { success: true, message: `Cheque ${chequeData.chequeNumber} issued successfully to ${chequeData.payeeName}.` };
     },
@@ -3182,6 +3350,15 @@ function getFullState(): AccountingState {
         createdAt: new Date().toISOString(),
       };
       updateData((prev) => ({ ...prev, budgets: [newBudget, ...prev.budgets] }));
+
+      // Persist to Neon DB in background
+      if (typeof window !== "undefined") {
+        fetch("/api/accounts/budget", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(newBudget),
+        }).catch(() => {});
+      }
     },
 
     updateBudget: (id, updates) => {
@@ -3204,6 +3381,14 @@ function getFullState(): AccountingState {
           };
         }),
       }));
+
+      if (typeof window !== "undefined") {
+        fetch(`/api/accounts/budget/${id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(updates),
+        }).catch(() => {});
+      }
     },
 
     updateBudgetRevision: (id, revisedAmount) => {
@@ -3225,6 +3410,14 @@ function getFullState(): AccountingState {
           };
         }),
       }));
+
+      if (typeof window !== "undefined") {
+        fetch(`/api/accounts/budget/${id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ revisedAmount }),
+        }).catch(() => {});
+      }
     },
 
     deleteBudget: (id) => {
@@ -3232,6 +3425,12 @@ function getFullState(): AccountingState {
         ...prev,
         budgets: prev.budgets.filter((b) => b.id !== id),
       }));
+
+      if (typeof window !== "undefined") {
+        fetch(`/api/accounts/budget/${id}`, {
+          method: "DELETE",
+        }).catch(() => {});
+      }
     },
 
     addCostCenter: (centerData) => {
@@ -3242,6 +3441,14 @@ function getFullState(): AccountingState {
         createdAt: new Date().toISOString(),
       };
       updateData((prev) => ({ ...prev, costCenters: [...prev.costCenters, newCenter] }));
+
+      if (typeof window !== "undefined") {
+        fetch("/api/accounts/cost-centers", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(newCenter),
+        }).catch(() => {});
+      }
     },
 
     getDashboardKPIs: () => {

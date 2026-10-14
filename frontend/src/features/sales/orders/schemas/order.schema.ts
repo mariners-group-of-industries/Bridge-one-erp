@@ -7,11 +7,11 @@ import { orderTotals } from "../lib/order-totals";
 
 export const ORDER_STATUSES = ["DRAFT", "PENDING_APPROVAL", "APPROVED", "COMPLETED", "CANCELLED"] as const;
 export type OrderStatus = (typeof ORDER_STATUSES)[number];
-/** APPROVED shows as "Pending": approved and waiting for delivery. */
+/** As in Managerium: "Pending" waits for approval, "Approved" waits for delivery. */
 export const ORDER_STATUS_LABELS: Record<OrderStatus, string> = {
   DRAFT: "Draft",
-  PENDING_APPROVAL: "Awaiting Approval",
-  APPROVED: "Pending",
+  PENDING_APPROVAL: "Pending",
+  APPROVED: "Approved",
   COMPLETED: "Completed",
   CANCELLED: "Cancelled",
 };
@@ -144,6 +144,10 @@ export const orderListQuerySchema = z
     salesPersonId: optionalUuid,
     status: z.enum(ORDER_STATUSES).optional(),
     holdReason: z.enum(HOLD_REASONS).optional(),
+    /** Delivery pending reason set on the Approved SO tab. */
+    pendingReasonId: optionalUuid,
+    /** "Order By": the user who entered the order. */
+    createdBy: z.string().trim().min(1).max(100).optional(),
     paymentMethod: z.enum(PAYMENT_METHODS).optional(),
     orderType: z.enum(ORDER_TYPES).optional(),
     from: z.iso.date().optional(),
@@ -162,6 +166,7 @@ export interface OrderListRow {
   number: string;
   status: OrderStatus;
   holdReason: HoldReason | null;
+  pendingReasonName: string | null;
   orderDate: string;
   expectedDeliveryDate: string;
   officeName: string;
@@ -190,6 +195,8 @@ export interface OrderList {
   /** Sum of salesTotal over all matching orders (not only the returned rows). */
   totalAmount: number;
   totalCount: number;
+  /** Users who entered orders in scope ("Order By" filter). */
+  creators: { id: string; name: string }[];
 }
 
 export interface OrderLine {
@@ -222,6 +229,7 @@ export interface OrderEvent {
   toStatus: OrderStatus;
   remarks: string | null;
   actorId: string;
+  actorName: string | null;
   createdAt: string;
 }
 
@@ -278,6 +286,13 @@ export interface OrderDetail {
   salesTotal: number;
   createdBy: string;
   updatedBy: string;
+  /** Display names of createdBy / updatedBy. */
+  createdByName: string | null;
+  updatedByName: string | null;
+  /** Delivery pending reason (Approved SO tab). */
+  pendingReasonName: string | null;
+  /** Why the order was closed or cancelled. */
+  closedRemarks: string | null;
   submittedAt: string | null;
   approvedAt: string | null;
   closedAt: string | null;

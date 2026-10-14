@@ -205,11 +205,10 @@ function OrderDetailBody({
             <Link href={paths.orders} aria-label="Back to orders" className={buttonClasses("ghost", "icon")}>
               <ArrowLeft />
             </Link>
-            {order.number}
+            View Sales Order
           </span>
         }
         indicator={<OrderStatusIndicator status={order.status} />}
-        subtitle={`${order.customerName} · ${order.officeName} · Total ${formatAmount(order.salesTotal)}`}
         actions={
           <>
             <DropdownMenu trigger={<Ellipsis />} triggerLabel="More actions" triggerClassName={buttonClasses("secondary", "icon")} items={menu} />
@@ -219,52 +218,68 @@ function OrderDetailBody({
       />
 
       {order.status === "PENDING_APPROVAL" && order.holdReason && (
-        <p role="note" className="mb-3 rounded bg-control px-3 py-2 text-sm text-ink">
+        <p role="note" className="mb-3 rounded-lg bg-control px-3 py-2 text-sm text-ink">
           <span className="font-medium">Waiting for approval: {HOLD_REASON_LABELS[order.holdReason]}.</span>{" "}
           <span className="text-ink-muted">{lastEvent?.remarks}</span>
         </p>
       )}
       {order.status === "DRAFT" && lastEvent?.action === "REJECTED" && (
-        <p role="note" className="mb-3 rounded bg-control px-3 py-2 text-sm text-ink">
+        <p role="note" className="mb-3 rounded-lg bg-control px-3 py-2 text-sm text-ink">
           <span className="font-medium">Rejected:</span> <span className="text-ink-muted">{lastEvent.remarks}</span>
         </p>
       )}
 
       <div className="flex flex-col gap-4">
         <Card className="p-4">
-          <h2 className="mb-3 text-xs font-bold tracking-wide text-ink uppercase">
-            Order Details <span className="font-normal text-ink-muted">· Office: {order.officeName}</span>
-          </h2>
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-x-6 gap-y-2 border-b border-line pb-3">
+            <h2 className="text-base font-semibold text-ink">
+              Order Details <span className="ml-3 font-normal text-ink-muted">Office Name:</span> {order.officeName}
+            </h2>
+            <div className="flex flex-wrap items-center gap-2 text-sm">
+              <span className="font-medium text-ink">Sales Order</span>
+              <span className="text-ink-faint">|</span>
+              <span className="text-ink-muted">
+                Total <span className="font-semibold text-ink tabular-nums">{formatAmount(order.salesTotal)}</span>
+              </span>
+              <span className="text-ink-faint">|</span>
+              <span className="text-ink-muted">
+                SO No. <span className="font-semibold text-ink">{order.number}</span>
+              </span>
+              <Link href={paths.printOrder(order.id)} aria-label="Print order" title="Print" className={buttonClasses("ghost", "icon")}>
+                <Printer />
+              </Link>
+              <Button size="sm" onClick={exportItems}>
+                <Download aria-hidden="true" />
+                Excel
+              </Button>
+            </div>
+          </div>
           <div className="grid gap-x-8 gap-y-1 md:grid-cols-2 xl:grid-cols-3">
             <dl className="flex flex-col gap-1">
               <Detail label="Customer" value={[order.customerName, order.customerPhone].filter(Boolean).join(" · ")} />
               <Detail label="Customer Code" value={order.customerCode} />
-              <Detail label="Customer Group" value={order.customerGroup} />
+              <Detail label="Customer Group Name" value={order.customerGroup} />
               <Detail label="Referred By" value={order.referredBy} />
-              <Detail label="Territory" value={order.territory} />
+              <Detail label="Territory Name" value={order.territory} />
               <Detail label="Billing Address" value={order.billingAddress} />
               <Detail label="Shipping Address" value={order.shippingAddress} />
-              <Detail label="Contact To" value={order.contactPerson} />
+              <Detail label="Customer PO/Ref." value={order.refCustomerPo} />
               <Detail label="Sales Force" value={order.salesPersonName} />
-              <Detail label="Project/Outlet/Ref" value={order.refProjectOutlet} />
+              <Detail label="Project/Outlet/Ref." value={order.refProjectOutlet} />
               <Detail label="Price Type" value={order.priceListName ?? "Default sales rate"} />
             </dl>
             <dl className="flex flex-col gap-1">
               <Detail label="Payment Term Days" value={String(order.paymentTermDays)} />
               <Detail label="Payment Method" value={PAYMENT_METHOD_LABELS[order.paymentMethod]} />
-              <Detail label="Type" value={ORDER_TYPE_LABELS[order.orderType]} />
-              <Detail label="Ref Customer PO" value={order.refCustomerPo} />
-              <Detail label="Ref Customer PO Date" value={order.refCustomerPoDate && formatDay(order.refCustomerPoDate)} />
               <Detail label="Ref Customer PO Amount" value={order.refCustomerPoAmount === null ? null : formatAmount(order.refCustomerPoAmount)} />
               <Detail label="Ref Invoice" value={order.refInvoice} />
               <Detail label="Exp. Delivery Date" value={formatDay(order.expectedDeliveryDate)} />
               <Detail label="Status" value={<OrderStatusIndicator status={order.status} />} />
-              <Detail label="Pending Reason" value={order.holdReason && HOLD_REASON_LABELS[order.holdReason]} />
-              <Detail label="VAT" value={order.priceIncludesVat ? "Inclusive" : "Exclusive"} />
-            </dl>
-            <dl className="flex flex-col gap-1">
-              <Detail label="Order Date" value={formatDay(order.orderDate)} />
-              <Detail label="Order Time" value={formatDateTime(order.createdAt)} />
+              <Detail
+                label="Pending Reason"
+                value={[order.pendingReasonName, order.holdReason && HOLD_REASON_LABELS[order.holdReason]].filter(Boolean).join(" · ")}
+              />
+              <Detail label="VAT/SD/AIT" value={order.priceIncludesVat ? "Inclusive" : "Exclusive"} />
               <Detail
                 label="Quotation No"
                 value={
@@ -275,12 +290,19 @@ function OrderDetailBody({
                   )
                 }
               />
-              <Detail label="Foreign" value={order.isForeign ? "Yes" : "No"} />
+              <Detail label="Type" value={ORDER_TYPE_LABELS[order.orderType]} />
+            </dl>
+            <dl className="flex flex-col gap-1">
+              <Detail label="Order Date" value={formatDay(order.orderDate)} />
+              <Detail label="Order Time" value={formatDateTime(order.createdAt)} />
+              <Detail label="Order By" value={order.salesPersonName} />
+              <Detail label="Ref Customer PO Date" value={order.refCustomerPoDate && formatDay(order.refCustomerPoDate)} />
+              <Detail label="Contact To" value={order.contactPerson} />
               <Detail label="Due Limit" value={formatAmount(order.dueLimit)} />
-              <Detail label="Remarks" value={order.remarks} />
-              <Detail label="Created By" value={order.createdBy} />
-              <Detail label="Last Modified By" value={order.updatedBy} />
-              <Detail label="Last Modified" value={formatDateTime(order.updatedAt)} />
+              <Detail label="Foreign" value={order.isForeign ? "Yes" : "No"} />
+              <Detail label="Closed Remarks" value={order.closedRemarks} />
+              <Detail label="Created By" value={order.createdByName} />
+              <Detail label="Last Modified By" value={order.updatedByName} />
             </dl>
           </div>
         </Card>
@@ -397,7 +419,7 @@ function ItemsTable({ order }: { order: OrderDetail }) {
   const remaining = order.lines.reduce((sum, line) => sum + line.qty - line.deliveredQty, 0);
   return (
     <div className="overflow-x-auto">
-      <table className="data-grid w-full min-w-[960px]">
+      <table className="w-full min-w-[960px] text-sm">
         <thead className="bg-canvas text-xs text-ink-muted">
           <tr className="border-b border-line">
             {headers.map((header, index) => (
@@ -459,7 +481,7 @@ function ApprovalTimeline({ order }: { order: OrderDetail }) {
               <span className="font-medium text-ink">{EVENT_LABELS[event.action] ?? event.action}</span>
               {event.fromStatus !== event.toStatus && <Indicator>{ORDER_STATUS_LABELS[event.toStatus]}</Indicator>}
               <span className="text-xs text-ink-faint">
-                by {event.actorId} · {formatDateTime(event.createdAt)}
+                by {event.actorName ?? event.actorId} · {formatDateTime(event.createdAt)}
               </span>
             </p>
             {event.remarks && <p className="text-ink-muted">{event.remarks}</p>}

@@ -51,24 +51,43 @@ export function SidebarNav({ pathname, onNavigate }: { pathname: string | null; 
             icon={<Icon />}
             active={current?.id === workspace.id}
           >
-            {cards.map((card) => (
-              <CollapsibleGroup
-                key={card.label}
-                label={card.label}
-                count={card.links.length}
-                active={
-                  (!!card.href && isWithin(pathname, card.href)) || card.links.some((link) => isWithin(pathname, link.href))
-                }
-              >
-                {card.links.map((link) => (
-                  <li key={link.href}>
+            {workspace.sidebarLinks
+              ? // Flat list of pages (no groups), e.g. Sales as in Managerium.
+                workspace.sidebarLinks.map((link) => (
+                  <li key={link.href} className="list-none">
                     <SubLink href={link.href} active={isWithin(pathname, link.href)} onNavigate={onNavigate}>
                       {link.label}
                     </SubLink>
                   </li>
-                ))}
-              </CollapsibleGroup>
-            ))}
+                ))
+              : cards.map((card) =>
+              card.label ? (
+                <CollapsibleGroup
+                  key={card.label}
+                  label={card.label}
+                  count={card.links.length}
+                  active={
+                    (!!card.href && isWithin(pathname, card.href)) || card.links.some((link) => isWithin(pathname, link.href))
+                  }
+                >
+                  {card.links.map((link) => (
+                    <li key={link.href}>
+                      <SubLink href={link.href} active={isWithin(pathname, link.href)} onNavigate={onNavigate}>
+                        {link.label}
+                      </SubLink>
+                    </li>
+                  ))}
+                </CollapsibleGroup>
+              ) : (
+                card.links.map((link) => (
+                  <li key={link.href} className="list-none">
+                    <SubLink href={link.href} active={isWithin(pathname, link.href)} onNavigate={onNavigate}>
+                      {link.label}
+                    </SubLink>
+                  </li>
+                ))
+              ),
+            )}
           </CollapsibleWorkspace>
         );
       })}

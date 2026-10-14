@@ -44,36 +44,27 @@ function Dashboard({ today }: { today: string }) {
 
   return (
     <div className="flex flex-col gap-4">
-      <Card className="p-4">
-        <form onSubmit={view} className="flex flex-wrap items-end gap-3">
-          <TextField
-            label="From Date"
-            type="date"
-            required
-            value={form.from}
-            max={form.to}
-            onChange={(event) => setForm({ ...form, from: event.target.value })}
-            className="w-44"
-          />
-          <TextField
-            label="To Date"
-            type="date"
-            required
-            value={form.to}
-            min={form.from}
-            onChange={(event) => setForm({ ...form, to: event.target.value })}
-            className="w-44"
-          />
+      <Card className="flex flex-col gap-4 p-4">
+        <form onSubmit={view} className="grid items-end gap-3 sm:grid-cols-[1fr_1fr_auto]">
+          <TextField label="From Date" type="date" required value={form.from} max={form.to} onChange={(event) => setForm({ ...form, from: event.target.value })} />
+          <TextField label="To Date" type="date" required value={form.to} min={form.from} onChange={(event) => setForm({ ...form, to: event.target.value })} />
           <Button type="submit" variant="primary" disabled={loading}>
             <RefreshCw aria-hidden="true" />
             View
           </Button>
           {formError && (
-            <p role="alert" className="w-full text-xs text-danger">
+            <p role="alert" className="text-xs text-danger sm:col-span-3">
               {formError}
             </p>
           )}
         </form>
+        {data && (
+          <div className="grid gap-4 sm:grid-cols-3">
+            <StatTile label="Total Sales" value={data.totals.sales} hint={`${data.from} to ${data.to}`} />
+            <StatTile label="Total Sales/To Month" value={data.totals.monthSales} hint={`${data.to.slice(0, 7)}-01 to ${data.to}`} />
+            <StatTile label="Total Collection" value={data.totals.collection} hint={`${data.from} to ${data.to}`} />
+          </div>
+        )}
       </Card>
 
       {error ? (
@@ -86,18 +77,13 @@ function Dashboard({ today }: { today: string }) {
         </Card>
       ) : (
         <div className={loading ? "flex flex-col gap-4 opacity-60 transition-opacity" : "flex flex-col gap-4"} aria-busy={loading}>
-          <div className="grid gap-4 sm:grid-cols-3">
-            <StatTile label="Total Sales" value={data.totals.sales} hint={`${data.from} to ${data.to}`} />
-            <StatTile label="Total Sales / This Month" value={data.totals.monthSales} hint={`${data.to.slice(0, 7)}-01 to ${data.to}`} />
-            <StatTile label="Total Collection" value={data.totals.collection} hint={`${data.from} to ${data.to}`} />
-          </div>
-          <div className="grid gap-4 lg:grid-cols-3">
+          <div className="grid gap-4 lg:grid-cols-[2fr_3fr]">
             <TargetWidget data={data.target} />
-            <OverdueWidget data={data} className="lg:col-span-2" />
+            <OverdueWidget data={data} />
           </div>
-          <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
-            <RankedWidget title="Top 10 Selling Items" rows={data.topItems} empty="No items sold in this range" />
-            <RankedWidget title="Top 10 Customers" rows={data.topCustomers} empty="No customer sales in this range" />
+          <div className="grid gap-4 xl:grid-cols-2">
+            <RankedWidget title="Top 10 Selling Item" rows={data.topItems} empty="No items sold in this range" />
+            <RankedWidget title="Top 10 Customer" rows={data.topCustomers} empty="No customer sales in this range" />
             <RankedWidget title="Top 10 Salesforce" rows={data.topSalesPersons} empty="No sales person sales in this range" />
           </div>
         </div>
