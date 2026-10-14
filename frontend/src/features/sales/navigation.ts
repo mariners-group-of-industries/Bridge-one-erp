@@ -47,8 +47,8 @@ export const salesCollection: NavLink = {
 export const salesTarget: NavLink = {
   label: "Sales Target",
   href: paths.targets,
-  description: "Sales targets by person, team and period.",
-  keywords: ["target", "goal", "budget"],
+  description: "Targets by sales force and month, campaign targets with commission, and item commissions.",
+  keywords: ["target", "goal", "budget", "commission", "incentive"],
 };
 
 export const salesReport: NavLink = {
@@ -120,5 +120,13 @@ export const salesWorkspace: Workspace = {
     { pattern: patterns.newBill, label: "Create Bill", parent: paths.collections },
     { pattern: patterns.bill, label: "Bill", parent: paths.collections },
     { pattern: patterns.collection, label: "Money Receipt", parent: paths.collections },
+    { pattern: patterns.newBudget, label: "Create Target", parent: paths.targets },
+    { pattern: patterns.editBudget, label: "Edit Target", parent: paths.targets },
+    { pattern: patterns.newPlan, label: "Create Sales Target", parent: paths.targets },
+    { pattern: patterns.editPlan, label: "Edit Sales Target", parent: paths.targets },
+    { pattern: patterns.plan, label: "Sales Target", parent: paths.targets },
+    { pattern: patterns.assignPlan, label: "Assign Sales Force", parent: paths.targets },
+    { pattern: patterns.newCommission, label: "Create Commission Setup", parent: paths.targets },
+    { pattern: patterns.editCommission, label: "Edit Commission Setup", parent: paths.targets },
   ],
 };

@@ -198,6 +198,9 @@ model BusinessUnit {
   goodsReceipts        GoodsReceipt[]
   purchaseReturns      PurchaseReturn[]
   supplierPayments     SupplierPayment[]
+  targetBudgets    SalesTargetBudget[]
+  targetPlans      SalesTargetPlan[]
+  commissions      SalesCommission[]
 
   @@unique([companyId, name])
   @@map("business_units")
@@ -230,6 +233,7 @@ model Office {
   purchaseOrders       PurchaseOrder[]
   goodsReceipts        GoodsReceipt[]
   purchaseReturns      PurchaseReturn[]
+  targetPlans  SalesTargetPlan[]
 
   @@unique([businessUnitId, name])
   @@map("offices")
@@ -344,6 +348,8 @@ model SalesPerson {
   targets      SalesTarget[]
   quotations   SalesQuotation[]
   salesOrders  SalesOrder[]
+  targetAssignments SalesTargetAssignment[]
+  commissions       SalesCommission[]
 
   @@unique([businessUnitId, code])
   @@map("sales_persons")
@@ -388,6 +394,7 @@ model Customer {
   territory     SalesArea?        @relation("CustomerTerritory", fields: [territoryId], references: [id], onDelete: Restrict)
   route         SalesArea?        @relation("CustomerRoute", fields: [routeId], references: [id], onDelete: Restrict)
   section       SalesArea?        @relation("CustomerSection", fields: [sectionId], references: [id], onDelete: Restrict)
+  targetPlanLines SalesTargetPlanLine[]
 
   @@unique([businessUnitId, code])
   @@index([businessUnitId, name])
@@ -427,6 +434,8 @@ model Item {
   purchaseOrderLines  PurchaseOrderLine[]
   goodsReceiptLines   GoodsReceiptLine[]
   purchaseReturnLines PurchaseReturnLine[]
+  targetPlanLines SalesTargetPlanLine[]
+  commissionLines SalesCommissionLine[]
 
   @@unique([businessUnitId, code])
   @@map("items")
@@ -726,22 +735,179 @@ model SalesCollection {
 }
 
 /// Monthly sales target for one sales person.
+/// One month of a sales force's budget target (see SalesTargetBudget).
 model SalesTarget {
   id             String   @id @default(uuid()) @db.Uuid
   businessUnitId String   @db.Uuid
+  budgetId       String   @db.Uuid
   salesPersonId  String   @db.Uuid
   /// First day of the target month.
   month          DateTime @db.Date
+  /// Target value in taka (AMOUNT budgets; 0 for QUANTITY budgets).
   amount         Decimal  @db.Decimal(14, 2)
+  /// Target quantity (QUANTITY budgets).
+  qty            Decimal? @db.Decimal(14, 3)
   createdAt      DateTime @default(now()) @db.Timestamptz(3)
   updatedAt      DateTime @updatedAt @db.Timestamptz(3)
 
-  businessUnit BusinessUnit @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
-  salesPerson  SalesPerson  @relation(fields: [salesPersonId], references: [id], onDelete: Cascade)
+  businessUnit BusinessUnit      @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  budget       SalesTargetBudget @relation(fields: [budgetId], references: [id], onDelete: Cascade)
+  salesPerson  SalesPerson       @relation(fields: [salesPersonId], references: [id], onDelete: Cascade)
 
-  @@unique([salesPersonId, month])
+  @@unique([budgetId, salesPersonId, month])
   @@index([businessUnitId, month])
+  @@index([salesPersonId, month])
   @@map("sales_targets")
+}
+
+enum TargetBasis {
+  AMOUNT
+  QUANTITY
+}
+
+enum CommissionBasis {
+  /// Taka per unit sold (commission setup) or a fixed sum (target assignment).
+  AMOUNT
+  /// Percent of the sales value.
+  PERCENT
+}
+
+/// "Target" tab: a year's monthly targets for the sales force, in taka or quantity.
+model SalesTargetBudget {
+  id             String      @id @default(uuid()) @db.Uuid
+  businessUnitId String      @db.Uuid
+  /// Who the targets are for (Employee = sales force).
+  targetType     String      @default("EMPLOYEE") @db.VarChar(20)
+  basis          TargetBasis
+  year           Int
+  createdBy      String?     @db.VarChar(100)
+  updatedBy      String?     @db.VarChar(100)
+  createdAt      DateTime    @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime    @updatedAt @db.Timestamptz(3)
+
+  businessUnit BusinessUnit  @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  lines        SalesTarget[]
+
+  @@unique([businessUnitId, year, basis])
+  @@map("sales_target_budgets")
+}
+
+/// "Sales Target" tab: a named target for a period, with its customers / items.
+/// SUBMITTED = live, CANCELLED = deleted.
+model SalesTargetPlan {
+  id                String         @id @default(uuid()) @db.Uuid
+  businessUnitId    String         @db.Uuid
+  number            String         @db.VarChar(30)
+  officeId          String         @db.Uuid
+  createDate        DateTime       @db.Date
+  basis             TargetBasis
+  name              String         @db.VarChar(150)
+  targetAmount      Decimal        @db.Decimal(14, 2)
+  startDate         DateTime       @db.Date
+  endDate           DateTime       @db.Date
+  remarks           String?        @db.VarChar(500)
+  /// Lines name customer groups instead of customers.
+  customerGroupWise Boolean        @default(false)
+  status            SalesDocStatus @default(SUBMITTED)
+  createdBy         String?        @db.VarChar(100)
+  updatedBy         String?        @db.VarChar(100)
+  createdAt         DateTime       @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime       @updatedAt @db.Timestamptz(3)
+
+  businessUnit BusinessUnit            @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  office       Office                  @relation(fields: [officeId], references: [id], onDelete: Restrict)
+  lines        SalesTargetPlanLine[]
+  assignments  SalesTargetAssignment[]
+
+  @@unique([businessUnitId, number])
+  @@index([officeId, startDate])
+  @@map("sales_target_plans")
+}
+
+model SalesTargetPlanLine {
+  id              String   @id @default(uuid()) @db.Uuid
+  planId          String   @db.Uuid
+  lineNo          Int
+  customerId      String?  @db.Uuid
+  customerGroupId String?  @db.Uuid
+  itemId          String?  @db.Uuid
+  rate            Decimal? @db.Decimal(14, 2)
+  qty             Decimal? @db.Decimal(14, 3)
+  amount          Decimal  @db.Decimal(14, 2)
+
+  plan          SalesTargetPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  customer      Customer?       @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  customerGroup CustomerGroup?  @relation(fields: [customerGroupId], references: [id], onDelete: Restrict)
+  item          Item?           @relation(fields: [itemId], references: [id], onDelete: Restrict)
+
+  @@unique([planId, lineNo])
+  @@map("sales_target_plan_lines")
+}
+
+/// A sales force's share of a target plan, with its commission.
+model SalesTargetAssignment {
+  id                String          @id @default(uuid()) @db.Uuid
+  planId            String          @db.Uuid
+  salesPersonId     String          @db.Uuid
+  customerGroupId   String?         @db.Uuid
+  targetAmount      Decimal         @db.Decimal(14, 2)
+  commissionBasis   CommissionBasis
+  commissionRate    Decimal         @db.Decimal(14, 4)
+  /// Commission is earned only if collections reach this.
+  minimumCollection Decimal         @db.Decimal(14, 2)
+  createdBy         String?         @db.VarChar(100)
+  createdAt         DateTime        @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime        @updatedAt @db.Timestamptz(3)
+
+  plan          SalesTargetPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  salesPerson   SalesPerson     @relation(fields: [salesPersonId], references: [id], onDelete: Restrict)
+  customerGroup CustomerGroup?  @relation(fields: [customerGroupId], references: [id], onDelete: Restrict)
+
+  @@unique([planId, salesPersonId])
+  @@index([salesPersonId])
+  @@map("sales_target_assignments")
+}
+
+/// "Commission Setup": item commission of a sales force for a period.
+/// SUBMITTED = live, CANCELLED = deleted.
+model SalesCommission {
+  id              String         @id @default(uuid()) @db.Uuid
+  businessUnitId  String         @db.Uuid
+  name            String         @db.VarChar(150)
+  salesPersonId   String         @db.Uuid
+  /// Only sales to customers of this group earn it (null = all customers).
+  customerGroupId String?        @db.Uuid
+  fromDate        DateTime       @db.Date
+  toDate          DateTime       @db.Date
+  status          SalesDocStatus @default(SUBMITTED)
+  createdBy       String?        @db.VarChar(100)
+  updatedBy       String?        @db.VarChar(100)
+  createdAt       DateTime       @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime       @updatedAt @db.Timestamptz(3)
+
+  businessUnit  BusinessUnit          @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  salesPerson   SalesPerson           @relation(fields: [salesPersonId], references: [id], onDelete: Restrict)
+  customerGroup CustomerGroup?        @relation(fields: [customerGroupId], references: [id], onDelete: Restrict)
+  lines         SalesCommissionLine[]
+
+  @@index([salesPersonId, fromDate])
+  @@map("sales_commissions")
+}
+
+model SalesCommissionLine {
+  id           String          @id @default(uuid()) @db.Uuid
+  commissionId String          @db.Uuid
+  itemId       String          @db.Uuid
+  basis        CommissionBasis
+  /// Taka per unit (AMOUNT) or percent of the line value (PERCENT).
+  value        Decimal         @db.Decimal(14, 4)
+
+  commission SalesCommission @relation(fields: [commissionId], references: [id], onDelete: Cascade)
+  item       Item            @relation(fields: [itemId], references: [id], onDelete: Restrict)
+
+  @@unique([commissionId, itemId])
+  @@index([itemId])
+  @@map("sales_commission_lines")
 }
 
 /// Last number issued per business unit, document type and year. Incremented
@@ -879,6 +1045,9 @@ model CustomerGroup {
 
   businessUnit BusinessUnit @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
   customers    Customer[]
+  targetPlanLines   SalesTargetPlanLine[]
+  targetAssignments SalesTargetAssignment[]
+  commissions       SalesCommission[]
 
   @@unique([businessUnitId, name])
   @@map("customer_groups")
