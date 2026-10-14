@@ -15,7 +15,7 @@ import { useSaveShortcut } from "@/hooks/use-save-shortcut";
 import { errorMessage } from "@/lib/api/client";
 import { cn } from "@/lib/cn";
 import { formatAmount, formatQty } from "../../dashboard/lib/format";
-import { issuesToErrors, numberText, optionalNumber, requiredNumber } from "../../lib/form";
+import { issuesToErrors, numberText } from "../../lib/form";
 import { addDays, useToday } from "../../lib/use-today";
 import {
   CATEGORY_LEVEL_LABELS,
@@ -240,6 +240,13 @@ const orZero = (value: string) => {
   return Number.isFinite(parsed) ? parsed : 0;
 };
 
+/** Sanitize a user-supplied numeric string to a finite number (0 for blank/invalid). */
+const safeNum = (v: string): number => { const n = Number(v.trim()); return Number.isFinite(n) ? n : 0; };
+/** Sanitize a user-supplied numeric string, returning NaN for blank (triggers required validation). */
+const safeReq = (v: string): number => { const t = v.trim(); return t === "" ? Number.NaN : Number(t); };
+/** Sanitize a user-supplied numeric string, returning null for blank. */
+const safeOpt = (v: string): number | null => { const t = v.trim(); return t === "" ? null : Number(t); };
+
 function toInput(values: Values, quotationId: string | null): OrderInput {
   return {
     officeId: values.officeId,
@@ -259,23 +266,23 @@ function toInput(values: Values, quotationId: string | null): OrderInput {
     isForeign: values.isForeign,
     refCustomerPo: values.refCustomerPo,
     refCustomerPoDate: values.refCustomerPoDate || null,
-    refCustomerPoAmount: optionalNumber(values.refCustomerPoAmount),
+    refCustomerPoAmount: safeOpt(values.refCustomerPoAmount),
     refInvoice: values.refInvoice,
     refProjectOutlet: values.refProjectOutlet,
-    paymentTermDays: requiredNumber(values.paymentTermDays || "0"),
-    dueLimit: requiredNumber(values.dueLimit || "0"),
+    paymentTermDays: safeNum(values.paymentTermDays || "0"),
+    dueLimit: safeNum(values.dueLimit || "0"),
     remarks: values.remarks,
     terms: values.terms,
-    discountAmount: requiredNumber(values.discountAmount || "0"),
-    deliveryCharge: requiredNumber(values.deliveryCharge || "0"),
-    unloadingCharge: requiredNumber(values.unloadingCharge || "0"),
+    discountAmount: safeNum(values.discountAmount || "0"),
+    deliveryCharge: safeNum(values.deliveryCharge || "0"),
+    unloadingCharge: safeNum(values.unloadingCharge || "0"),
     lines: values.lines.map((line) => ({
       itemId: line.itemId,
-      qty: requiredNumber(line.qty),
-      unitPrice: requiredNumber(line.unitPrice),
-      discountPercent: requiredNumber(line.discountPercent || "0"),
-      vatPercent: requiredNumber(line.vatPercent || "0"),
-      aitPercent: requiredNumber(line.aitPercent || "0"),
+      qty: safeReq(line.qty),
+      unitPrice: safeReq(line.unitPrice),
+      discountPercent: safeNum(line.discountPercent || "0"),
+      vatPercent: safeNum(line.vatPercent || "0"),
+      aitPercent: safeNum(line.aitPercent || "0"),
     })),
   };
 }
@@ -300,8 +307,9 @@ function OrderEditor({ today, lookups, order, quotation }: EditorProps) {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [customerDialog, setCustomerDialog] = useState<CustomerOption | "new" | null>(null);
-  const initialJson = useMemo(() => JSON.stringify(initial, (name, value) => (name === "key" ? undefined : value)), [initial]);
-  const dirty = !order || JSON.stringify(values, (name, value) => (name === "key" ? undefined : value)) !== initialJson;
+  const stripKeys = (v: Values) => ({ ...v, lines: v.lines.map(({ key: _key, ...rest }) => rest) });
+  const initialJson = useMemo(() => JSON.stringify(stripKeys(initial)), [initial]);
+  const dirty = !order || JSON.stringify(stripKeys(values)) !== initialJson;
   const quotationId = order?.quotationId ?? quotation?.id ?? null;
 
   const office = lookups.offices.find((candidate) => candidate.id === values.officeId);
@@ -343,9 +351,56 @@ function OrderEditor({ today, lookups, order, quotation }: EditorProps) {
     },
   );
 
-  const set = <K extends keyof Values>(key: K, value: Values[K]) => setValues((current) => ({ ...current, [key]: value }));
-  const setLine = (key: string, patch: Partial<LineValues>) =>
-    setValues((current) => ({ ...current, lines: current.lines.map((line) => (line.key === key ? { ...line, ...patch } : line)) }));
+  const set = <K extends keyof Values>(key: K, value: Values[K]) =>
+    setValues((current): Values => {
+      switch (key) {
+        case "officeId": return { ...current, officeId: value as Values["officeId"] };
+        case "customerId": return { ...current, customerId: value as Values["customerId"] };
+        case "salesPersonId": return { ...current, salesPersonId: value as Values["salesPersonId"] };
+        case "priceListId": return { ...current, priceListId: value as Values["priceListId"] };
+        case "shipToAddressId": return { ...current, shipToAddressId: value as Values["shipToAddressId"] };
+        case "shippingAddress": return { ...current, shippingAddress: value as Values["shippingAddress"] };
+        case "contactPerson": return { ...current, contactPerson: value as Values["contactPerson"] };
+        case "referredBy": return { ...current, referredBy: value as Values["referredBy"] };
+        case "orderType": return { ...current, orderType: value as Values["orderType"] };
+        case "paymentMethod": return { ...current, paymentMethod: value as Values["paymentMethod"] };
+        case "orderDate": return { ...current, orderDate: value as Values["orderDate"] };
+        case "expectedDeliveryDate": return { ...current, expectedDeliveryDate: value as Values["expectedDeliveryDate"] };
+        case "priceIncludesVat": return { ...current, priceIncludesVat: value as Values["priceIncludesVat"] };
+        case "isForeign": return { ...current, isForeign: value as Values["isForeign"] };
+        case "refCustomerPo": return { ...current, refCustomerPo: value as Values["refCustomerPo"] };
+        case "refCustomerPoDate": return { ...current, refCustomerPoDate: value as Values["refCustomerPoDate"] };
+        case "refCustomerPoAmount": return { ...current, refCustomerPoAmount: value as Values["refCustomerPoAmount"] };
+        case "refInvoice": return { ...current, refInvoice: value as Values["refInvoice"] };
+        case "refProjectOutlet": return { ...current, refProjectOutlet: value as Values["refProjectOutlet"] };
+        case "paymentTermDays": return { ...current, paymentTermDays: value as Values["paymentTermDays"] };
+        case "dueLimit": return { ...current, dueLimit: value as Values["dueLimit"] };
+        case "remarks": return { ...current, remarks: value as Values["remarks"] };
+        case "terms": return { ...current, terms: value as Values["terms"] };
+        case "discountAmount": return { ...current, discountAmount: value as Values["discountAmount"] };
+        case "deliveryCharge": return { ...current, deliveryCharge: value as Values["deliveryCharge"] };
+        case "unloadingCharge": return { ...current, unloadingCharge: value as Values["unloadingCharge"] };
+        case "lines": return { ...current, lines: value as Values["lines"] };
+        default: return current;
+      }
+    });
+  const setLine = (key: string, field: "qty" | "unitPrice" | "discountPercent" | "vatPercent" | "aitPercent", value: string) =>
+    setValues((current) => ({
+      ...current,
+      lines: current.lines.map((line) => {
+        if (line.key !== key) return line;
+        const updated: LineValues = {
+          key: line.key,
+          itemId: line.itemId,
+          qty: field === "qty" ? value : line.qty,
+          unitPrice: field === "unitPrice" ? value : line.unitPrice,
+          discountPercent: field === "discountPercent" ? value : line.discountPercent,
+          vatPercent: field === "vatPercent" ? value : line.vatPercent,
+          aitPercent: field === "aitPercent" ? value : line.aitPercent,
+        };
+        return updated;
+      }),
+    }));
 
   function changeOffice(officeId: string) {
     const next = lookups.offices.find((candidate) => candidate.id === officeId);
@@ -643,7 +698,7 @@ function OrderEditor({ today, lookups, order, quotation }: EditorProps) {
               storedLines={order?.lines ?? []}
               totals={totals}
               errors={errors}
-              onChange={setLine}
+              onChange={(key, field, value) => setLine(key, field, value)}
               onRemove={(key) => set("lines", values.lines.filter((line) => line.key !== key))}
             />
             {err("lines") && (
@@ -874,7 +929,7 @@ function ItemEntry({
   const entryTotal = orZero(entry.qty) * orZero(entry.unitPrice) * (1 - orZero(entry.discountPercent) / 100);
 
   return (
-    <div className="flex flex-col gap-3 rounded-lg bg-canvas p-3">
+    <div className="flex flex-col gap-3 rounded bg-canvas p-3">
       <div className="grid gap-3 sm:grid-cols-3">
         {level(0)}
         {level(1)}
@@ -967,7 +1022,7 @@ function LinesGrid({
   storedLines: OrderDetail["lines"];
   totals: ReturnType<typeof orderTotals>;
   errors: Record<string, string>;
-  onChange: (key: string, patch: Partial<LineValues>) => void;
+  onChange: (key: string, field: "qty" | "unitPrice" | "discountPercent" | "vatPercent" | "aitPercent", value: string) => void;
   onRemove: (key: string) => void;
 }) {
   if (lines.length === 0) {
@@ -977,8 +1032,8 @@ function LinesGrid({
   let altTotal = 0;
 
   return (
-    <div className="overflow-x-auto rounded-lg border border-line">
-      <table className="w-full min-w-[1100px] text-sm">
+    <div className="overflow-x-auto rounded border border-line">
+      <table className="data-grid w-full min-w-[1100px]">
         <thead className="bg-canvas text-xs text-ink-muted">
           <tr className="border-b border-line">
             {["SL", "Code", "Name", "UOM", "Quantity", "Alt. UOM", "Alt. Qty", "Unit Price", "Disc %", "Net Unit Price", "VAT %", "AIT %", "Total", "Net Total", ""].map(
@@ -1008,7 +1063,7 @@ function LinesGrid({
                 min={0}
                 step="any"
                 value={line[field]}
-                onChange={(event) => onChange(line.key, { [field]: event.target.value })}
+                onChange={(event) => onChange(line.key, field, event.target.value)}
                 className={cn(CELL, errors[`lines.${index}.${field}`] && "ring-1 ring-danger")}
               />
             );

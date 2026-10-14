@@ -38,4 +38,4 @@ async function run() {
   await prisma.$disconnect();
 }
 
-run().catch((e) => { console.error(e); process.exit(1); });
+run().catch((e) => { console.error(String(e instanceof Error ? e.message : e).replace(/\r?\n/g, " ")); process.exit(1); });

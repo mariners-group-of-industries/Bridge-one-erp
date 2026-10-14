@@ -313,7 +313,7 @@ export function CreateEmployeeView() {
             <FormGrid cols={2}>
               {["Profile Image", "Signature"].map((label) => (
                 <Field key={label} label={label}>
-                  <label className="flex h-24 cursor-pointer flex-col items-center justify-center gap-1.5 rounded-md border border-dashed border-line-strong bg-canvas text-ink-faint transition-colors hover:border-accent hover:bg-accent-soft hover:text-accent-strong focus-within:border-accent focus-within:ring-2 focus-within:ring-accent-line">
+                  <label className="flex h-24 cursor-pointer flex-col items-center justify-center gap-1.5 rounded border border-dashed border-line-strong bg-canvas text-ink-faint transition-colors hover:border-accent hover:bg-accent-soft hover:text-accent-strong focus-within:border-accent focus-within:ring-2 focus-within:ring-accent-line">
                     <ImagePlus aria-hidden="true" className="size-5" />
                     <span className="text-xs">Click to choose a file</span>
                     <input type="file" accept="image/jpeg,image/png" className="sr-only" />

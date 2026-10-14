@@ -156,7 +156,7 @@ export function DataTable<T>({
               <select
                 value={sortBy}
                 onChange={(event) => setSortBy(event.target.value)}
-                className="h-7 appearance-none rounded-l-none rounded-r-lg border-l border-line bg-control pr-7 pl-2 text-xs font-medium text-ink hover:bg-hover focus-visible:outline-2"
+                className="h-7 appearance-none rounded-l-none rounded-r border border-l-0 border-line-strong bg-surface pr-7 pl-2 text-xs font-medium text-ink hover:bg-hover focus-visible:outline-2"
               >
                 {sortOptions.map((option) => (
                   <option key={option.id} value={option.id}>
@@ -178,10 +178,10 @@ export function DataTable<T>({
         )
       ) : (
         <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm">
-            <thead className="text-xs text-ink-faint">
-              <tr className="border-b border-line">
-                <th scope="col" className="w-10 py-2 pl-4">
+          <table className="w-full border-collapse text-left text-[12px]">
+            <thead className="bg-grid-head text-[11px] tracking-wide text-grid-head-ink uppercase">
+              <tr className="border-b-2 border-grid-head-rule">
+                <th scope="col" className="w-10 border-r border-grid-head-line px-2.5 py-2">
                   <Checkbox
                     aria-label="Select all rows"
                     checked={allShownSelected}
@@ -192,11 +192,11 @@ export function DataTable<T>({
                   <th
                     key={column.id}
                     scope="col"
-                    className={cn("py-2 pr-4 font-normal", column.hideBelow && HIDE[column.hideBelow], column.className)}
+                    className={cn("border-r border-grid-head-line px-2.5 py-2 font-bold whitespace-nowrap", column.hideBelow && HIDE[column.hideBelow], column.className)}
                   >
                     {index === 0 && selectedCount > 0 ? (
                       <span className="flex items-center gap-3">
-                        <span className="font-medium text-ink">{selectedCount} selected</span>
+                        <span className="font-bold normal-case">{selectedCount} selected</span>
                         {bulkActions && (
                           <DropdownMenu
                             align="start"
@@ -216,7 +216,7 @@ export function DataTable<T>({
                   </th>
                 ))}
                 {modifiedAt && (
-                  <th scope="col" className="py-2 pr-4 text-right font-normal">
+                  <th scope="col" className="px-2.5 py-2 text-right font-bold whitespace-nowrap normal-case">
                     {shown.length} of {filtered.length}
                   </th>
                 )}
@@ -231,12 +231,12 @@ export function DataTable<T>({
                     key={id}
                     onClick={(event) => openRow(event, row)}
                     className={cn(
-                      "border-b border-line last:border-b-0 hover:bg-canvas",
+                      "border-b border-grid-line last:border-b-0 hover:bg-grid-hover",
                       rowHref && "cursor-pointer",
-                      isSelected && "bg-canvas",
+                      isSelected && "bg-accent-soft",
                     )}
                   >
-                    <td className="py-2.5 pl-4 align-top">
+                    <td className="border-r border-grid-line px-2.5 py-2 align-top">
                       <Checkbox
                         aria-label={`Select ${getRowLabel(row)}`}
                         checked={isSelected}
@@ -247,7 +247,7 @@ export function DataTable<T>({
                       <td
                         key={column.id}
                         className={cn(
-                          "py-2.5 pr-4 align-top text-ink-muted",
+                          "border-r border-grid-line px-2.5 py-2 align-top text-ink",
                           column.hideBelow && HIDE[column.hideBelow],
                           column.className,
                         )}
@@ -256,7 +256,7 @@ export function DataTable<T>({
                       </td>
                     ))}
                     {modifiedAt && (
-                      <td className="py-2.5 pr-4 text-right align-top text-xs whitespace-nowrap text-ink-faint">
+                      <td className="px-2.5 py-2 text-right align-top text-xs whitespace-nowrap text-ink-faint">
                         <time dateTime={modifiedAt(row)} title={formatDateTime(modifiedAt(row))}>
                           {shortTimeAgo(modifiedAt(row))}
                         </time>
@@ -271,7 +271,7 @@ export function DataTable<T>({
       )}
 
       {filtered.length > 0 && (
-        <div className="flex flex-wrap items-center gap-2 border-t border-line px-4 py-2.5">
+        <div className="flex flex-wrap items-center gap-2 border-t border-line bg-canvas px-3 py-2">
           <div role="group" aria-label="Rows per page" className="flex">
             {PAGE_SIZES.map((size, index) => (
               <Button
@@ -280,7 +280,7 @@ export function DataTable<T>({
                 aria-pressed={pageSize === size}
                 className={cn(
                   index === 0 ? "rounded-r-none" : index === PAGE_SIZES.length - 1 ? "rounded-l-none" : "rounded-none",
-                  pageSize === size && "bg-hover text-ink",
+                  pageSize === size && "border-accent-line bg-accent-soft text-accent-strong",
                 )}
                 onClick={() => {
                   setPageSize(size);

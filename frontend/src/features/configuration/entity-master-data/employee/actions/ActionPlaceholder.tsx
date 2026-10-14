@@ -8,7 +8,7 @@ export function ActionPlaceholder({ action, employee }: EmployeeActionPanelProps
         <ReadOnlyField label="Employee Id" value={employee.employeeCode} />
         <ReadOnlyField label="Employee Name" value={employee.name} />
       </div>
-      <p className="rounded-lg border border-dashed border-line px-4 py-6 text-center text-sm text-ink-faint">
+      <p className="rounded border border-dashed border-line px-4 py-6 text-center text-sm text-ink-faint">
         {action.label} is not available yet. Its fields will be added once they are defined.
       </p>
     </div>

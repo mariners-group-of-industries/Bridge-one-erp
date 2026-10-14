@@ -20,11 +20,11 @@ export function Widget({
   return (
     <Card className={cn("flex flex-col", className)}>
       <section aria-labelledby={id} className="flex flex-1 flex-col gap-3 p-4">
-        <header className="flex flex-col gap-0.5">
-          <h2 id={id} className="text-base font-semibold text-ink">
+        <header className="flex flex-col gap-0.5 border-b border-line pb-2">
+          <h2 id={id} className="text-xs font-bold tracking-wide text-ink uppercase">
             {title}
           </h2>
-          {subtitle && <p className="text-xs text-ink-faint">{subtitle}</p>}
+          {subtitle && <p className="text-[11px] text-ink-faint">{subtitle}</p>}
         </header>
         {children}
       </section>
@@ -34,10 +34,10 @@ export function Widget({
 
 export function StatTile({ label, value, hint }: { label: string; value: number; hint?: string }) {
   return (
-    <Card className="flex flex-col gap-1 p-4">
-      <p className="text-xs text-ink-muted">{label}</p>
-      <p className="text-2xl font-semibold text-ink">{formatAmount(value)}</p>
-      {hint && <p className="text-xs text-ink-faint">{hint}</p>}
+    <Card className="flex flex-col gap-1.5 border-l-4 border-l-accent p-3.5 transition-shadow hover:shadow-sm">
+      <p className="truncate text-[11px] font-semibold tracking-wider text-ink-faint uppercase">{label}</p>
+      <p className="text-xl font-bold tracking-tight text-ink tabular-nums">{formatAmount(value)}</p>
+      {hint && <p className="truncate text-[11px] text-ink-faint">{hint}</p>}
     </Card>
   );
 }
@@ -112,7 +112,7 @@ const NUM = "text-right tabular-nums";
 function OverdueTable({ rows }: { rows: OverdueRow[] }) {
   if (rows.length === 0) return <EmptyState title="No overdue customers" />;
   return (
-    <table className="w-full">
+    <table className="data-grid w-full">
       <thead className="border-b border-line">
         <tr>
           <th scope="col" className={TH}>Customer Name</th>
@@ -136,7 +136,7 @@ function OverdueTable({ rows }: { rows: OverdueRow[] }) {
 function DueTodayTable({ rows }: { rows: DueTodayRow[] }) {
   if (rows.length === 0) return <EmptyState title="Nothing falls due on this day" />;
   return (
-    <table className="w-full">
+    <table className="data-grid w-full">
       <thead className="border-b border-line">
         <tr>
           <th scope="col" className={TH}>Customer Name</th>

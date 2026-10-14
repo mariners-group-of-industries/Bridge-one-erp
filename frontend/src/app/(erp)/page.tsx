@@ -16,7 +16,7 @@ export default function HomePage() {
       <PageHead title="Home" subtitle="Welcome to BridgeOne ERP" />
       <div className="flex flex-col gap-8">
         <section aria-labelledby="home-shortcuts" className="flex flex-col gap-3">
-          <h2 id="home-shortcuts" className="text-base font-semibold text-ink">
+          <h2 id="home-shortcuts" className="text-xs font-bold tracking-wide text-ink uppercase">
             Your Shortcuts
           </h2>
           <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -24,7 +24,7 @@ export default function HomePage() {
               <li key={link.href}>
                 <Link
                   href={link.href}
-                  className="group flex h-full items-center justify-between gap-2 rounded-xl border border-line bg-surface px-4 py-3 transition-shadow hover:shadow-sm focus-visible:outline-2"
+                  className="group flex h-full items-center justify-between gap-2 rounded border border-line bg-surface px-4 py-3 transition-shadow hover:shadow-sm focus-visible:outline-2"
                 >
                   <span className="flex flex-col">
                     <span className="text-sm font-medium text-ink">{link.label}</span>
@@ -38,7 +38,7 @@ export default function HomePage() {
         </section>
 
         <section aria-labelledby="home-modules" className="flex flex-col gap-3">
-          <h2 id="home-modules" className="text-base font-semibold text-ink">
+          <h2 id="home-modules" className="text-xs font-bold tracking-wide text-ink uppercase">
             Modules
           </h2>
           <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -48,7 +48,7 @@ export default function HomePage() {
                 <>
                   <span
                     aria-hidden="true"
-                    className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-control text-ink-muted [&_svg]:size-5"
+                    className="flex size-9 shrink-0 items-center justify-center rounded bg-control text-ink-muted [&_svg]:size-5"
                   >
                     <Icon />
                   </span>
@@ -70,12 +70,12 @@ export default function HomePage() {
                   {workspace.status === "active" ? (
                     <Link
                       href={workspace.href}
-                      className="flex h-full gap-3 rounded-xl border border-line bg-surface p-4 transition-shadow hover:shadow-sm focus-visible:outline-2"
+                      className="flex h-full gap-3 rounded border border-line bg-surface p-4 transition-shadow hover:shadow-sm focus-visible:outline-2"
                     >
                       {body}
                     </Link>
                   ) : (
-                    <div className="flex h-full gap-3 rounded-xl border border-dashed border-line-strong p-4 opacity-70">
+                    <div className="flex h-full gap-3 rounded border border-dashed border-line-strong p-4 opacity-70">
                       {body}
                     </div>
                   )}

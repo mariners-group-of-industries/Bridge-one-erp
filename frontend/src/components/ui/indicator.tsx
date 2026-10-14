@@ -4,16 +4,16 @@ import { cn } from "@/lib/cn";
 export type IndicatorColor = "gray" | "green" | "red" | "orange" | "blue" | "yellow" | "purple";
 
 const COLORS: Record<IndicatorColor, string> = {
-  gray: "bg-control text-ink-muted",
-  green: "bg-green-50 text-green-700 dark:bg-green-950 dark:text-green-300",
-  red: "bg-red-50 text-red-700 dark:bg-red-950 dark:text-red-300",
-  orange: "bg-orange-50 text-orange-700 dark:bg-orange-950 dark:text-orange-300",
-  blue: "bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300",
-  yellow: "bg-yellow-50 text-yellow-700 dark:bg-yellow-950 dark:text-yellow-300",
-  purple: "bg-purple-50 text-purple-700 dark:bg-purple-950 dark:text-purple-300",
+  gray: "border-line-strong bg-control text-ink-muted",
+  green: "border-success/30 bg-success/10 text-success",
+  red: "border-danger/30 bg-danger/10 text-danger",
+  orange: "border-warning/30 bg-warning/10 text-warning",
+  blue: "border-accent-line bg-accent-soft text-accent-strong dark:text-accent",
+  yellow: "border-warning/30 bg-warning/10 text-warning",
+  purple: "border-purple-200 bg-purple-50 text-purple-700 dark:border-purple-900 dark:bg-purple-950 dark:text-purple-300",
 };
 
-/** ERPNext status pill ("Enabled", "Draft", "Not Saved" …). */
+/** Status pill ("Enabled", "Draft", "Not Saved" …), in the Purchase module style. */
 export function Indicator({
   color = "gray",
   children,
@@ -26,12 +26,11 @@ export function Indicator({
   return (
     <span
       className={cn(
-        "inline-flex h-5 items-center gap-1.5 rounded-full px-2 text-xs font-medium whitespace-nowrap",
+        "inline-flex h-5 items-center rounded border px-2 text-[10px] font-semibold tracking-wide whitespace-nowrap uppercase",
         COLORS[color],
         className,
       )}
     >
-      <span aria-hidden="true" className="size-1.5 rounded-full bg-current" />
       {children}
     </span>
   );

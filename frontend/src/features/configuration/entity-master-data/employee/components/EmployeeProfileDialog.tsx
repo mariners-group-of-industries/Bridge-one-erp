@@ -53,7 +53,7 @@ export function EmployeeProfileDialog({ employee, onClose }: Props) {
     >
       {employee && (
         <div className="flex flex-col gap-6">
-          <div className="flex items-center gap-3 rounded-lg border border-line bg-canvas px-4 py-3">
+          <div className="flex items-center gap-3 rounded border border-line bg-canvas px-4 py-3">
             <Avatar name={employee.name} size="lg" />
             <div className="flex min-w-0 flex-1 flex-col gap-1">
               <p className="truncate text-base font-semibold text-ink">{employee.name}</p>
@@ -313,7 +313,7 @@ function Empty({ children }: { children: ReactNode }) {
 function SummaryTable({ head, rows }: { head: string[]; rows: { key: string; cells: (string | null)[] }[] }) {
   return (
     // Fixed layout with wrapping cells: fits the dialog width, never scrolls sideways.
-    <div className="overflow-hidden rounded-md border border-line">
+    <div className="overflow-hidden rounded border border-line">
       <table className={cn(TABLE.table, "table-fixed")}>
         <thead className={TABLE.head}>
           <tr>

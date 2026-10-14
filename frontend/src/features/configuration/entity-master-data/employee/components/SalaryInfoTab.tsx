@@ -339,7 +339,7 @@ function SalaryEditor({ employeeId, initial, onSaved }: { employeeId: string; in
       >
         <div className="flex flex-col gap-4">
           <div className="flex flex-wrap items-center gap-4">
-            <div role="radiogroup" aria-label="Payment method" className="inline-flex rounded-md border border-line-strong p-0.5">
+            <div role="radiogroup" aria-label="Payment method" className="inline-flex rounded border border-line-strong p-0.5">
               {MODES.map((m) => (
                 <button
                   key={m.value}

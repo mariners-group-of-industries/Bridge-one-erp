@@ -129,7 +129,7 @@ export function EmployeeToolbar({ search, onSearchChange, filters, onFiltersChan
           <button
             type="button"
             onClick={onClear}
-            className="inline-flex h-8 items-center gap-1 rounded-md px-2 text-sm font-medium text-accent-strong hover:bg-accent-soft focus-visible:outline-2 lg:ml-1 dark:text-accent"
+            className="inline-flex h-8 items-center gap-1 rounded px-2 text-sm font-medium text-accent-strong hover:bg-accent-soft focus-visible:outline-2 lg:ml-1 dark:text-accent"
           >
             <X aria-hidden="true" className="size-3.5" /> Clear
           </button>

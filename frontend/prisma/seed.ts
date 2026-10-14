@@ -81,26 +81,29 @@ async function main() {
     ],
   });
 
-  console.log("✓ Seed complete");
+  console.log("Seed complete");
   console.log(`  Company:       ${company.name}`);
   console.log(`  Business Unit: ${bu.name}`);
   console.log(`  Offices:       Dhaka Head Office, MG Sirajganj Factory`);
   console.log(`  Warehouses:    10 total`);
 
-  // Seed master account — isMaster=true gives full access regardless of future RBAC rules
-  const passwordHash = await argon2.hash("U1234356@", { type: argon2.argon2id });
+  const seedPhone = process.env.SEED_ADMIN_PHONE;
+  const seedPassword = process.env.SEED_ADMIN_PASSWORD;
+  if (!seedPhone) throw new Error("SEED_ADMIN_PHONE env var is required");
+  if (!seedPassword) throw new Error("SEED_ADMIN_PASSWORD env var is required");
+  const passwordHash = await argon2.hash(seedPassword, { type: argon2.argon2id });
   await prisma.user.create({
     data: {
       name: "Dev User",
-      phone: "01857055057",
+      phone: seedPhone,
       passwordHash,
       role: "ADMINISTRATOR",
       isMaster: true,
     },
   });
-  console.log("  User:          01857055057 / U1234356@ (ADMINISTRATOR, isMaster=true)");
+  console.log(`  User:          ${seedPhone} (ADMINISTRATOR, isMaster=true)`);
 }
 
 main()
-  .catch((e) => { console.error(e); process.exit(1); })
+  .catch((e) => { console.error(String(e instanceof Error ? e.message : e).replace(/\r|\n/g, " ")); process.exit(1); })
   .finally(() => prisma.$disconnect());

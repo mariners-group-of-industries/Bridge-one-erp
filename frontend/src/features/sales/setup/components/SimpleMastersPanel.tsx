@@ -177,7 +177,7 @@ export function SimpleMastersPanel({ kind, businessUnitId, lookups, onChanged }:
       {rows.length === 0 ? (
         <EmptyState title={`No ${meta.title.toLowerCase()} yet`} />
       ) : (
-        <ul className="divide-y divide-line rounded-lg border border-line">
+        <ul className="divide-y divide-line rounded border border-line">
           {rows.map((row) => (
             <li key={row.id} className="flex items-center gap-2 px-3 py-1.5">
               <span className="flex min-w-0 flex-1 items-center gap-2" style={{ paddingLeft: `${(row.depth ?? 0) * 20}px` }}>

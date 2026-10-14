@@ -4,7 +4,7 @@ import { Spinner } from "./spinner";
 
 /** White bordered surface; form views and list views sit inside one. */
 export function Card({ className, children }: { className?: string; children: ReactNode }) {
-  return <div className={cn("rounded-xl border border-line bg-surface", className)}>{children}</div>;
+  return <div className={cn("rounded border border-line bg-surface shadow-xs", className)}>{children}</div>;
 }
 
 interface SectionProps {
@@ -26,17 +26,17 @@ export function Section({ id, title, description, actions, children, className }
     <section
       id={id}
       aria-labelledby={headingId}
-      className={cn("flex flex-col gap-4 px-5 py-5 not-first:border-t not-first:border-line", className)}
+      className={cn("flex flex-col gap-4 px-4 py-4 not-first:border-t not-first:border-line", className)}
     >
       {(title || actions) && (
-        <header className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+        <header className="flex flex-col gap-2 border-b border-line pb-2 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex flex-col gap-0.5">
             {title && (
-              <h2 id={headingId} className="text-base font-semibold text-ink">
+              <h2 id={headingId} className="text-xs font-bold tracking-wide text-ink uppercase">
                 {title}
               </h2>
             )}
-            {description && <p className="text-sm text-ink-faint">{description}</p>}
+            {description && <p className="text-xs text-ink-faint">{description}</p>}
           </div>
           {actions && <div className="flex flex-wrap gap-2">{actions}</div>}
         </header>
@@ -55,7 +55,7 @@ export function EmptyState({ title, icon, children }: { title: string; icon?: Re
   return (
     <div className="flex flex-col items-center gap-2 px-4 py-10 text-center">
       {icon && <div className="text-ink-faint [&_svg]:size-8">{icon}</div>}
-      <p className="text-sm font-medium text-ink">{title}</p>
+      <p className="text-xs font-medium text-ink-muted">{title}</p>
       {children && <div className="text-sm text-ink-faint">{children}</div>}
     </div>
   );

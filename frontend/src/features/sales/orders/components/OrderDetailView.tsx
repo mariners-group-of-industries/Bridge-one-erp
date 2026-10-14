@@ -219,20 +219,20 @@ function OrderDetailBody({
       />
 
       {order.status === "PENDING_APPROVAL" && order.holdReason && (
-        <p role="note" className="mb-3 rounded-lg bg-control px-3 py-2 text-sm text-ink">
+        <p role="note" className="mb-3 rounded bg-control px-3 py-2 text-sm text-ink">
           <span className="font-medium">Waiting for approval: {HOLD_REASON_LABELS[order.holdReason]}.</span>{" "}
           <span className="text-ink-muted">{lastEvent?.remarks}</span>
         </p>
       )}
       {order.status === "DRAFT" && lastEvent?.action === "REJECTED" && (
-        <p role="note" className="mb-3 rounded-lg bg-control px-3 py-2 text-sm text-ink">
+        <p role="note" className="mb-3 rounded bg-control px-3 py-2 text-sm text-ink">
           <span className="font-medium">Rejected:</span> <span className="text-ink-muted">{lastEvent.remarks}</span>
         </p>
       )}
 
       <div className="flex flex-col gap-4">
         <Card className="p-4">
-          <h2 className="mb-3 text-base font-semibold text-ink">
+          <h2 className="mb-3 text-xs font-bold tracking-wide text-ink uppercase">
             Order Details <span className="font-normal text-ink-muted">· Office: {order.officeName}</span>
           </h2>
           <div className="grid gap-x-8 gap-y-1 md:grid-cols-2 xl:grid-cols-3">
@@ -397,7 +397,7 @@ function ItemsTable({ order }: { order: OrderDetail }) {
   const remaining = order.lines.reduce((sum, line) => sum + line.qty - line.deliveredQty, 0);
   return (
     <div className="overflow-x-auto">
-      <table className="w-full min-w-[960px] text-sm">
+      <table className="data-grid w-full min-w-[960px]">
         <thead className="bg-canvas text-xs text-ink-muted">
           <tr className="border-b border-line">
             {headers.map((header, index) => (

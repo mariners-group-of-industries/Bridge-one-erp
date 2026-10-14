@@ -89,7 +89,7 @@ function DateFormatBadge({
         </button>
       </div>
       {open && (
-        <div className="absolute top-full left-0 z-20 mt-1 min-w-44 rounded-lg border border-accent-line bg-surface shadow-dropdown">
+        <div className="absolute top-full left-0 z-20 mt-1 min-w-44 rounded border border-accent-line bg-surface shadow-dropdown">
           {DATE_FORMATS.map((fmt) => (
             <button
               key={fmt}
@@ -122,9 +122,9 @@ function UnitCard({
   onUpdated: (unit: BusinessUnitDto) => void;
 }) {
   return (
-    <div className="group relative flex flex-col rounded-xl border border-line bg-surface transition-shadow hover:shadow-dropdown">
+    <div className="group relative flex flex-col rounded border border-line bg-surface transition-shadow hover:shadow-dropdown">
       {/* accent top bar */}
-      <div className="h-1 w-full rounded-t-xl bg-accent" />
+      <div className="h-1 w-full rounded-t bg-accent" />
 
       {/* header */}
       <div className="flex items-center justify-between gap-2 px-5 pt-4 pb-3">
@@ -132,7 +132,7 @@ function UnitCard({
           href={paths.businessUnit(unit.id)}
           className="flex min-w-0 items-center gap-2.5 hover:underline"
         >
-          <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-accent-soft text-accent">
+          <span className="flex size-8 shrink-0 items-center justify-center rounded bg-accent-soft text-accent">
             <Building2 className="size-4" />
           </span>
           <span className="truncate text-base font-semibold text-ink">{unit.name}</span>
@@ -218,7 +218,7 @@ export function BusinessUnitListView() {
     body = <LoadingState />;
   } else if (company.data === null) {
     body = (
-      <div className="rounded-xl border border-line bg-surface p-10">
+      <div className="rounded border border-line bg-surface p-10">
         <EmptyState icon={<Building2 />} title="Set up your company first">
           <p className="mb-3">Business units are created under the company profile.</p>
           <Link href={paths.companyProfile} className={buttonClasses("primary")}>
@@ -233,7 +233,7 @@ export function BusinessUnitListView() {
     body = <LoadingState />;
   } else if (units.data.length === 0) {
     body = (
-      <div className="rounded-xl border border-line bg-surface p-10">
+      <div className="rounded border border-line bg-surface p-10">
         <EmptyState icon={<Building2 />} title="No business units yet">
           <p className="mb-3">Each business unit has its own offices, warehouses and document terms.</p>
           <Button variant="primary" onClick={() => setAdding(true)}>
