@@ -1,11 +1,10 @@
 import type { Metadata } from "next";
-import { PendingProfileView } from "@/features/configuration/entity-master-data/components/PendingProfileView";
-import { salesConfigPaths } from "@/features/configuration/sales-config/paths";
+import { ReturnPriceView } from "@/features/configuration/sales-config/return-price/components/ReturnPriceView";
 
 export const instant = false;
 
-export const metadata: Metadata = { title: "Sales Return" };
+export const metadata: Metadata = { title: "Sales Return Price Setup" };
 
 export default function SalesReturnPage() {
-  return <PendingProfileView title="Sales Return" path={salesConfigPaths.salesReturn} />;
+  return <ReturnPriceView />;
 }

@@ -1,11 +1,12 @@
 import type { Metadata } from "next";
-import { PendingProfileView } from "@/features/configuration/entity-master-data/components/PendingProfileView";
-import { salesConfigPaths } from "@/features/configuration/sales-config/paths";
+import { CustomerPriceListView } from "@/features/configuration/sales-config/customer-price/components/CustomerPriceListView";
+import { tabFromSlug } from "@/features/configuration/sales-config/customer-price/schemas/customer-price.schema";
 
 export const instant = false;
 
 export const metadata: Metadata = { title: "Customer Price Setup" };
 
-export default function CustomerPriceSetupPage() {
-  return <PendingProfileView title="Customer Price Setup" path={salesConfigPaths.customerPriceSetup} />;
+export default async function CustomerPriceSetupPage({ searchParams }: { searchParams: Promise<{ tab?: string }> }) {
+  const { tab } = await searchParams;
+  return <CustomerPriceListView initialTab={tabFromSlug(tab)} />;
 }

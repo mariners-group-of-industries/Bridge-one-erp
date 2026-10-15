@@ -1,6 +1,7 @@
 import { ArrowUpRight } from "lucide-react";
 import Link from "next/link";
 import { PageContainer, PageHead } from "@/components/layout/page";
+import { HomeDashboard } from "@/features/home/HomeDashboard";
 import { workspaces } from "@/lib/navigation/registry";
 
 export const instant = false;
@@ -12,9 +13,11 @@ export default function HomePage() {
   );
 
   return (
-    <PageContainer>
-      <PageHead title="Home" subtitle="Welcome to BridgeOne ERP" />
+    <PageContainer full>
+      <PageHead title="Home" subtitle="Business overview from your live data" />
       <div className="flex flex-col gap-8">
+        <HomeDashboard />
+
         <section aria-labelledby="home-shortcuts" className="flex flex-col gap-3">
           <h2 id="home-shortcuts" className="text-xs font-bold tracking-wide text-ink uppercase">
             Your Shortcuts

@@ -68,7 +68,7 @@ function ShellInner({ children }: { children: ReactNode }) {
       <div className="flex">
         <aside
           className={cn(
-            "sticky top-14 hidden h-[calc(100dvh-3.5rem)] w-56 shrink-0 overflow-y-auto border-r border-accent-line bg-surface",
+            "sticky top-14 hidden h-[calc(100dvh-3.5rem)] w-64 shrink-0 overflow-y-auto border-r border-accent-line bg-surface",
             !sidebarHidden && "lg:block",
           )}
         >
@@ -80,7 +80,7 @@ function ShellInner({ children }: { children: ReactNode }) {
         {drawerOpen && (
           <div className="fixed inset-0 z-40 lg:hidden">
             <button type="button" aria-label="Close menu" className="absolute inset-0 bg-black/30" onClick={() => setDrawerOpen(false)} />
-            <div className="absolute inset-y-0 left-0 w-64 overflow-y-auto bg-canvas shadow-dropdown">
+            <div className="absolute inset-y-0 left-0 w-72 overflow-y-auto bg-canvas shadow-dropdown">
               <div className="flex h-14 items-center justify-between border-b border-accent-line px-3">
                 <span className="text-base font-semibold">BridgeOne</span>
                 <Button variant="ghost" size="icon" aria-label="Close menu" onClick={() => setDrawerOpen(false)}>
