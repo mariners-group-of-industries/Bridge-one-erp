@@ -11,7 +11,7 @@ import { cn } from "@/lib/cn";
 type Theme = "light" | "dark" | "system";
 
 export default function SettingsPage() {
-  const { toast } = useToast();
+  const toast = useToast();
   const [theme, setTheme] = useState<Theme>("light");
   const [notifications, setNotifications] = useState(true);
   const [compactMode, setCompactMode] = useState(false);
@@ -35,7 +35,7 @@ export default function SettingsPage() {
     localStorage.setItem("compactMode", String(compactMode));
     localStorage.setItem("notifications", String(notifications));
     localStorage.setItem("language", language);
-    toast({ title: "Settings saved.", variant: "success" });
+    toast.success("Settings saved.");
   }
 
   return (

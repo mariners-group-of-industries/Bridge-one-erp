@@ -20,7 +20,7 @@ interface Profile {
 const inputCls = "h-9 w-full rounded border border-line bg-canvas px-3 text-sm text-ink placeholder:text-ink-faint focus:outline-2 focus:outline-accent disabled:opacity-50";
 
 export default function ProfilePage() {
-  const { toast } = useToast();
+  const toast = useToast();
   const [profile, setProfile] = useState<Profile | null>(null);
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
@@ -53,9 +53,9 @@ export default function ProfilePage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
       setProfile((p) => (p ? { ...p, ...data } : p));
-      toast({ title: "Profile updated successfully.", variant: "success" });
+      toast.success("Profile updated successfully.");
     } catch (err) {
-      toast({ title: err instanceof Error ? err.message : "Failed to update profile.", variant: "error" });
+      toast.error(err instanceof Error ? err.message : "Failed to update profile.");
     } finally {
       setSaving(false);
     }
@@ -64,7 +64,7 @@ export default function ProfilePage() {
   async function handleChangePassword(e: React.FormEvent) {
     e.preventDefault();
     if (newPassword !== confirmPassword) {
-      toast({ title: "New passwords do not match.", variant: "error" });
+      toast.error("New passwords do not match.");
       return;
     }
     setChangingPw(true);
@@ -79,9 +79,9 @@ export default function ProfilePage() {
       setCurrentPassword("");
       setNewPassword("");
       setConfirmPassword("");
-      toast({ title: "Password changed successfully.", variant: "success" });
+      toast.success("Password changed successfully.");
     } catch (err) {
-      toast({ title: err instanceof Error ? err.message : "Failed to change password.", variant: "error" });
+      toast.error(err instanceof Error ? err.message : "Failed to change password.");
     } finally {
       setChangingPw(false);
     }
