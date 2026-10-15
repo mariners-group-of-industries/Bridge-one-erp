@@ -85,7 +85,7 @@ export function AccountSettingsSection({ employeeId }: { employeeId: string }) {
                 <label
                   key={key}
                   className={cn(
-                    "flex cursor-pointer items-center gap-2.5 rounded-md border px-3 py-2 text-sm transition-colors select-none",
+                    "flex cursor-pointer items-center gap-2.5 rounded border px-3 py-2 text-sm transition-colors select-none",
                     checked
                       ? "border-accent-line bg-accent-soft font-medium text-accent-strong dark:text-accent"
                       : "border-line text-ink hover:border-line-strong hover:bg-canvas",

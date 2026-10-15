@@ -140,7 +140,7 @@ export function DropdownMenu({
           role="menu"
           onKeyDown={onMenuKeyDown}
           className={cn(
-            "min-w-44 rounded-lg bg-surface p-1 shadow-dropdown",
+            "min-w-44 rounded border border-line bg-surface p-1 shadow-dropdown",
             strategy === "fixed"
               ? "fixed z-[60]"
               : ["absolute top-full z-40 mt-1", align === "end" ? "right-0" : "left-0"].join(" "),
@@ -151,7 +151,7 @@ export function DropdownMenu({
               return <div key={`separator-${index}`} role="separator" className="my-1 h-px bg-line" />;
             }
             const classes = cn(
-              "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm outline-none focus:bg-control hover:bg-control disabled:cursor-not-allowed disabled:opacity-50 [&_svg]:size-4 [&_svg]:text-ink-faint",
+              "flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs outline-none focus:bg-control hover:bg-control disabled:cursor-not-allowed disabled:opacity-50 [&_svg]:size-4 [&_svg]:text-ink-faint",
               item.danger ? "text-danger" : "text-ink",
             );
             return item.href ? (

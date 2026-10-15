@@ -21,19 +21,19 @@ export function ProfilePanel({ id, icon, title, description, actions, children, 
       id={id}
       aria-labelledby={headingId}
       className={cn(
-        "scroll-mt-32 overflow-hidden rounded-xl border border-line bg-surface shadow-[0_1px_2px_rgb(0_0_0/0.04)]",
+        "scroll-mt-32 overflow-hidden rounded border border-line bg-surface shadow-[0_1px_2px_rgb(0_0_0/0.04)]",
         className,
       )}
     >
       <header className="flex flex-wrap items-start gap-3 border-b border-line px-5 py-4">
         <span
           aria-hidden="true"
-          className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-accent-soft text-accent-strong dark:text-accent [&_svg]:size-[18px]"
+          className="flex size-9 shrink-0 items-center justify-center rounded bg-accent-soft text-accent-strong dark:text-accent [&_svg]:size-[18px]"
         >
           {icon}
         </span>
         <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-          <h2 id={headingId} className="text-base font-semibold text-ink">
+          <h2 id={headingId} className="text-xs font-bold tracking-wide text-ink uppercase">
             {title}
           </h2>
           {description && <p className="text-sm text-ink-faint">{description}</p>}
@@ -57,7 +57,7 @@ export function InfoRow({ label, value, className }: { label: string; value: Rea
 
 export function PanelPlaceholder({ children }: { children: ReactNode }) {
   return (
-    <p className="rounded-lg border border-dashed border-accent-line bg-accent-soft/40 px-4 py-8 text-center text-sm text-ink-faint">
+    <p className="rounded border border-dashed border-accent-line bg-accent-soft/40 px-4 py-8 text-center text-sm text-ink-faint">
       {children}
     </p>
   );

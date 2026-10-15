@@ -1,7 +1,8 @@
 @import "tailwindcss";
 
 /*
- * BridgeOne design tokens (ERPNext / Frappe "Espresso" look).
+ * BridgeOne design tokens — the Purchase module look (slate neutrals, blue
+ * accent, blue grid tables) shared by every module.
  *
  * Feature code must use the semantic utilities generated from these tokens
  * (bg-surface, text-ink-muted, border-line, bg-primary …) instead of raw palette
@@ -12,48 +13,61 @@
 
 :root,
 [data-theme="light"] {
-  --canvas: #f8f8f8;
+  --canvas: #f8fafc;
   --surface: #ffffff;
-  --control: #f3f3f3;
-  --hover: #ededed;
-  --line: #ededed;
-  --line-strong: #e2e2e2;
-  --ink: #171717;
-  --ink-muted: #525252;
-  --ink-faint: #7c7c7c;
-  --primary: #171717;
-  --primary-hover: #383838;
+  --control: #f1f5f9;
+  --hover: #e2e8f0;
+  --line: #e2e8f0;
+  --line-strong: #cbd5e1;
+  --ink: #0f172a;
+  --ink-muted: #475569;
+  --ink-faint: #64748b;
+  --primary: #2563eb;
+  --primary-hover: #1d4ed8;
   --primary-fg: #ffffff;
-  --accent: #0289f7;
-  --accent-strong: #0866c6;
-  --accent-soft: #eef6ff;
-  --accent-line: #cfe4fb;
-  --danger: #e03636;
-  --success: #278f5e;
-  --warning: #db7706;
+  --accent: #3b82f6;
+  --accent-strong: #2563eb;
+  --accent-soft: #eff6ff;
+  --accent-line: #bfdbfe;
+  --danger: #e11d48;
+  --success: #059669;
+  --warning: #d97706;
+  /* Data grid (list tables): blue header band and full cell borders. */
+  --grid-head: #dbeafe;
+  --grid-head-ink: #1e3a8a;
+  --grid-head-line: #93c5fd;
+  --grid-head-rule: #60a5fa;
+  --grid-line: #cbd5e1;
+  --grid-hover: #f1f5f9;
   color-scheme: light;
 }
 
 [data-theme="dark"] {
-  --canvas: #0f0f0f;
-  --surface: #171717;
-  --control: #242424;
-  --hover: #2e2e2e;
-  --line: #2a2a2a;
-  --line-strong: #383838;
-  --ink: #f3f3f3;
-  --ink-muted: #c7c7c7;
-  --ink-faint: #999999;
-  --primary: #f3f3f3;
-  --primary-hover: #dadada;
-  --primary-fg: #171717;
-  --accent: #3ba4ff;
-  --accent-strong: #1f6fc9;
-  --accent-soft: #0f2238;
-  --accent-line: #1d3a5c;
-  --danger: #f56b6b;
-  --success: #4fbf87;
-  --warning: #f2a33a;
+  --canvas: #020617;
+  --surface: #0f172a;
+  --control: #1e293b;
+  --hover: #334155;
+  --line: #1e293b;
+  --line-strong: #334155;
+  --ink: #f1f5f9;
+  --ink-muted: #cbd5e1;
+  --ink-faint: #94a3b8;
+  --primary: #3b82f6;
+  --primary-hover: #60a5fa;
+  --primary-fg: #ffffff;
+  --accent: #60a5fa;
+  --accent-strong: #3b82f6;
+  --accent-soft: #172554;
+  --accent-line: #1e3a8a;
+  --danger: #fb7185;
+  --success: #34d399;
+  --warning: #fbbf24;
+  --grid-head: #172554;
+  --grid-head-ink: #bfdbfe;
+  --grid-head-line: #1e40af;
+  --grid-head-rule: #2563eb;
+  --grid-line: #334155;
+  --grid-hover: #1e293b;
   color-scheme: dark;
 }
 
@@ -77,6 +91,12 @@
   --color-danger: var(--danger);
   --color-success: var(--success);
   --color-warning: var(--warning);
+  --color-grid-head: var(--grid-head);
+  --color-grid-head-ink: var(--grid-head-ink);
+  --color-grid-head-line: var(--grid-head-line);
+  --color-grid-head-rule: var(--grid-head-rule);
+  --color-grid-line: var(--grid-line);
+  --color-grid-hover: var(--grid-hover);
 
   --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -128,37 +148,78 @@
 .erp-table th {
   position: sticky;
   top: 0;
-  background-color: #dbeafe;
+  background-color: var(--grid-head);
   z-index: 10;
   font-weight: 700;
-  color: #1e3a8a;
+  color: var(--grid-head-ink);
   text-transform: uppercase;
   letter-spacing: 0.025em;
   padding: 8px 10px;
-  border-top: 1px solid #93c5fd;
-  border-right: 1px solid #93c5fd;
-  border-bottom: 2px solid #60a5fa;
+  border-top: 1px solid var(--grid-head-line);
+  border-right: 1px solid var(--grid-head-line);
+  border-bottom: 2px solid var(--grid-head-rule);
   white-space: nowrap;
 }
 
 .erp-table th:first-child {
-  border-left: 1px solid #93c5fd;
+  border-left: 1px solid var(--grid-head-line);
 }
 
 .erp-table td {
   padding: 8px 10px;
-  border-right: 1px solid #cbd5e1;
-  border-bottom: 1px solid #cbd5e1;
-  color: #1e293b;
+  border-right: 1px solid var(--grid-line);
+  border-bottom: 1px solid var(--grid-line);
+  color: var(--ink);
   white-space: nowrap;
 }
 
 .erp-table td:first-child {
-  border-left: 1px solid #cbd5e1;
+  border-left: 1px solid var(--grid-line);
 }
 
 .erp-table tr:hover td {
-  background-color: #f1f5f9;
+  background-color: var(--grid-hover);
+}
+
+/*
+ * Same grid look for tables that set their own cell padding/alignment: blue
+ * header band, borders on every cell, 12px text. Spacing stays with the table.
+ */
+.data-grid {
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 12px;
+}
+
+.data-grid th {
+  background-color: var(--grid-head);
+  color: var(--grid-head-ink);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.025em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  border-top: 1px solid var(--grid-head-line);
+  border-right: 1px solid var(--grid-head-line);
+  border-bottom: 2px solid var(--grid-head-rule);
+}
+
+.data-grid td {
+  border-right: 1px solid var(--grid-line);
+  border-bottom: 1px solid var(--grid-line);
+}
+
+.data-grid th:first-child,
+.data-grid td:first-child {
+  border-left: 1px solid var(--grid-line);
+}
+
+.data-grid th:first-child {
+  border-left-color: var(--grid-head-line);
+}
+
+.data-grid tbody tr:hover td {
+  background-color: var(--grid-hover);
 }
 
 @keyframes toastHoverSlideIn {

@@ -6,99 +6,123 @@ import { usePathname } from "next/navigation";
 import { useId, useState, type ReactNode } from "react";
 import { cn } from "@/lib/cn";
 import { findWorkspace, workspaces } from "@/lib/navigation/registry";
+import type { NavLink } from "@/lib/navigation/types";
 
-const isWithin = (pathname: string | null, href: string) =>
-  pathname === href || !!pathname?.startsWith(`${href}/`);
+const isWithin = (pathname: string | null, href: string) => pathname === href || !!pathname?.startsWith(`${href}/`);
 
 export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   return <SidebarNav pathname={usePathname()} onNavigate={onNavigate} />;
 }
 
+/**
+ * Three-level menu: module (icon) › group (● bullet) › page (○ bullet). Guide
+ * lines connect each level to its parent; the current page's bullet is filled.
+ */
 export function SidebarNav({ pathname, onNavigate }: { pathname: string | null; onNavigate?: () => void }) {
   const current = pathname === null ? undefined : findWorkspace(pathname);
 
   return (
-    <nav aria-label="Modules" className="flex flex-col gap-0.5 bg-surface px-2 py-3 text-sm">
-      <TopLink href="/" active={pathname === "/"} icon={<House />} onNavigate={onNavigate}>
-        Home
-      </TopLink>
+    <nav aria-label="Modules" className="flex flex-col bg-surface px-2.5 py-3 text-sm">
+      <Link
+        href="/"
+        aria-current={pathname === "/" ? "page" : undefined}
+        onClick={onNavigate}
+        className={cn(
+          "flex h-9 items-center gap-2.5 rounded-md px-2 transition-colors focus-visible:outline-2",
+          pathname === "/" ? "bg-accent-soft font-semibold text-accent-strong dark:text-accent" : "text-ink-muted hover:bg-control hover:text-ink",
+        )}
+      >
+        <IconTile active={pathname === "/"}>
+          <House />
+        </IconTile>
+        <span className="truncate">Home</span>
+      </Link>
 
-      <p className="mt-4 mb-1 px-2.5 text-[11px] font-semibold tracking-wider text-ink-faint uppercase">Modules</p>
+      <p className="mt-5 mb-1.5 flex items-center gap-2 px-2 text-[10.5px] font-semibold tracking-[0.08em] text-ink-faint uppercase">
+        Modules
+        <span aria-hidden="true" className="h-px flex-1 bg-line" />
+      </p>
 
-      {workspaces.map((workspace) => {
-        const Icon = workspace.icon;
+      <ul className="flex flex-col gap-0.5">
+        {workspaces.map((workspace) => {
+          const Icon = workspace.icon;
+          if (workspace.status === "planned") {
+            return (
+              <li key={workspace.id}>
+                <span aria-disabled="true" title={`${workspace.label} is coming soon`} className="flex h-9 cursor-default items-center gap-2.5 rounded-md px-2 text-ink-faint">
+                  <IconTile muted>
+                    <Icon />
+                  </IconTile>
+                  <span className="flex-1 truncate">{workspace.label}</span>
+                  <span className="rounded-full border border-line px-1.5 text-[9.5px] font-semibold tracking-wide uppercase">Soon</span>
+                </span>
+              </li>
+            );
+          }
 
-        if (workspace.status === "planned") {
+          const active = current?.id === workspace.id;
+          const cards = workspace.cards ?? [];
+          // Flat page lists (Sales) and unnamed cards sit directly under the module.
+          const flat: readonly NavLink[] | null = workspace.sidebarLinks ?? null;
           return (
-            <span
-              key={workspace.id}
-              aria-disabled="true"
-              title={`${workspace.label} is not built yet`}
-              className="flex h-9 cursor-default items-center gap-2.5 rounded-md px-2.5 text-ink-faint [&_svg]:size-4"
-            >
-              <Icon aria-hidden="true" />
-              <span className="flex-1 truncate">{workspace.label}</span>
-              <span className="rounded border border-line px-1 text-[10px] font-medium uppercase">Soon</span>
-            </span>
+            <li key={workspace.id}>
+              <Collapsible
+                active={active}
+                trigger={(open) => (
+                  <>
+                    <IconTile active={active}>
+                      <Icon />
+                    </IconTile>
+                    <span className={cn("flex-1 truncate text-left", active ? "font-semibold text-ink" : "font-medium")}>{workspace.label}</span>
+                    <Chevron open={open} />
+                  </>
+                )}
+                triggerClass={cn("h-9 gap-2.5 px-2", active ? "text-ink" : "text-ink-muted hover:bg-control hover:text-ink")}
+              >
+                {/* Guide line runs from the module icon down through its groups. */}
+                <ul className="mt-0.5 mb-1.5 ml-[1.15rem] flex flex-col gap-px border-l border-line pl-2">
+                  {flat
+                    ? flat.map((link) => <PageLink key={link.href} link={link} pathname={pathname} onNavigate={onNavigate} level={1} />)
+                    : cards.map((card) =>
+                        card.label ? (
+                          <GroupItem key={card.label} label={card.label} links={card.links} groupHref={card.href} pathname={pathname} onNavigate={onNavigate} />
+                        ) : (
+                          card.links.map((link) => <PageLink key={link.href} link={link} pathname={pathname} onNavigate={onNavigate} level={1} />)
+                        ),
+                      )}
+                </ul>
+              </Collapsible>
+            </li>
           );
-        }
-
-        const cards = workspace.cards ?? [];
-        return (
-          <CollapsibleWorkspace
-            key={workspace.id}
-            label={workspace.label}
-            icon={<Icon />}
-            active={current?.id === workspace.id}
-          >
-            {workspace.sidebarLinks
-              ? // Flat list of pages (no groups), e.g. Sales as in Managerium.
-                workspace.sidebarLinks.map((link) => (
-                  <li key={link.href} className="list-none">
-                    <SubLink href={link.href} active={isWithin(pathname, link.href)} onNavigate={onNavigate}>
-                      {link.label}
-                    </SubLink>
-                  </li>
-                ))
-              : cards.map((card) =>
-              card.label ? (
-                <CollapsibleGroup
-                  key={card.label}
-                  label={card.label}
-                  count={card.links.length}
-                  active={
-                    (!!card.href && isWithin(pathname, card.href)) || card.links.some((link) => isWithin(pathname, link.href))
-                  }
-                >
-                  {card.links.map((link) => (
-                    <li key={link.href}>
-                      <SubLink href={link.href} active={isWithin(pathname, link.href)} onNavigate={onNavigate}>
-                        {link.label}
-                      </SubLink>
-                    </li>
-                  ))}
-                </CollapsibleGroup>
-              ) : (
-                card.links.map((link) => (
-                  <li key={link.href} className="list-none">
-                    <SubLink href={link.href} active={isWithin(pathname, link.href)} onNavigate={onNavigate}>
-                      {link.label}
-                    </SubLink>
-                  </li>
-                ))
-              ),
-            )}
-          </CollapsibleWorkspace>
-        );
-      })}
+        })}
+      </ul>
     </nav>
   );
 }
 
+// ─── Building blocks ──────────────────────────────────────────────────────────
+
+function IconTile({ active, muted, children }: { active?: boolean; muted?: boolean; children: ReactNode }) {
+  return (
+    <span
+      aria-hidden="true"
+      className={cn(
+        "flex size-6 shrink-0 items-center justify-center rounded-md border transition-colors [&_svg]:size-3.5",
+        active ? "border-accent-line bg-accent-soft text-accent-strong dark:text-accent" : muted ? "border-dashed border-line text-ink-faint" : "border-line bg-canvas text-ink-muted",
+      )}
+    >
+      {children}
+    </span>
+  );
+}
+
+function Chevron({ open }: { open: boolean }) {
+  return <ChevronRight aria-hidden="true" className={cn("size-3.5 shrink-0 text-ink-faint transition-transform duration-150", open && "rotate-90")} />;
+}
+
 /**
- * Open/closed state of a collapsible menu entry. Starts open when the entry holds
- * the current page and re-opens whenever navigation moves into it; the user can
- * still collapse it.
+ * Open/closed state of a collapsible entry. Starts open when it holds the
+ * current page and re-opens whenever navigation moves into it.
  */
 function useOpenWhenActive(active: boolean) {
   const [open, setOpen] = useState(active);
@@ -110,153 +134,78 @@ function useOpenWhenActive(active: boolean) {
   return [open, setOpen] as const;
 }
 
-function Chevron({ open }: { open: boolean }) {
-  return (
-    <ChevronRight
-      aria-hidden="true"
-      className={cn("size-3.5 shrink-0 text-ink-faint transition-transform duration-150", open && "rotate-90")}
-    />
-  );
-}
-
-function CollapsibleWorkspace({
-  label,
-  icon,
-  active,
-  children,
-}: {
-  label: string;
-  icon: ReactNode;
-  active: boolean;
-  children: ReactNode;
-}) {
+function Collapsible({ active, trigger, triggerClass, children }: { active: boolean; trigger: (open: boolean) => ReactNode; triggerClass: string; children: ReactNode }) {
   const [open, setOpen] = useOpenWhenActive(active);
-  const listId = useId();
-
+  const id = useId();
   return (
-    <div className="flex flex-col">
+    <>
       <button
         type="button"
         aria-expanded={open}
-        aria-controls={open ? listId : undefined}
+        aria-controls={open ? id : undefined}
         onClick={() => setOpen((v) => !v)}
-        className={cn(
-          "flex h-9 w-full items-center gap-2.5 rounded-md px-2.5 transition-colors focus-visible:outline-2 [&_svg]:size-4 [&_svg]:shrink-0",
-          active ? "font-semibold text-accent-strong dark:text-accent" : "text-ink-muted hover:bg-control hover:text-ink",
-        )}
+        className={cn("flex w-full items-center rounded-md transition-colors focus-visible:outline-2", triggerClass)}
       >
-        <span aria-hidden="true" className={cn(active ? "text-accent-strong dark:text-accent" : "text-ink-faint")}>
-          {icon}
-        </span>
-        <span className="flex-1 truncate text-left">{label}</span>
-        <Chevron open={open} />
+        {trigger(open)}
       </button>
-      {open && (
-        <ul id={listId} className="mb-1 flex flex-col gap-0.5 pl-4">
-          {children}
-        </ul>
-      )}
-    </div>
+      {open && <div id={id}>{children}</div>}
+    </>
   );
 }
 
-function CollapsibleGroup({
-  label,
-  count,
-  active,
-  children,
-}: {
-  label: string;
-  count: number;
-  /** The group holds the current page. */
-  active: boolean;
-  children: ReactNode;
-}) {
-  const [open, setOpen] = useOpenWhenActive(active);
-  const listId = useId();
-
+/** Second level: a group of pages with a filled bullet. */
+function GroupItem({ label, links, groupHref, pathname, onNavigate }: { label: string; links: readonly NavLink[]; groupHref?: string; pathname: string | null; onNavigate?: () => void }) {
+  const active = (!!groupHref && isWithin(pathname, groupHref)) || links.some((link) => isWithin(pathname, link.href));
   return (
     <li>
-      <button
-        type="button"
-        aria-expanded={open}
-        aria-controls={open ? listId : undefined}
-        onClick={() => setOpen((v) => !v)}
-        className={cn(
-          "flex h-8 w-full items-center gap-2 rounded-md pr-2.5 pl-3 text-[13px] transition-colors hover:bg-control focus-visible:outline-2",
-          active ? "font-medium text-ink" : "text-ink-muted hover:text-ink",
+      <Collapsible
+        active={active}
+        triggerClass={cn("h-8 gap-2 pr-2 pl-1.5 text-[13px]", active ? "text-ink" : "text-ink-muted hover:bg-control hover:text-ink")}
+        trigger={(open) => (
+          <>
+            <span aria-hidden="true" className={cn("size-1.5 shrink-0 rounded-full", active ? "bg-accent-strong dark:bg-accent" : "bg-ink-faint")} />
+            <span className={cn("flex-1 truncate text-left", active && "font-semibold")}>{label}</span>
+            {!open && <span className="rounded-full bg-control px-1.5 text-[10px] text-ink-faint tabular-nums">{links.length}</span>}
+            <Chevron open={open} />
+          </>
         )}
       >
-        <span className="flex-1 truncate text-left">{label}</span>
-        {!open && <span className="text-[11px] text-ink-faint tabular-nums">{count}</span>}
-        <Chevron open={open} />
-      </button>
-      {open && (
-        <ul id={listId} className="ml-3 flex flex-col gap-0.5 border-l border-line py-0.5 pl-0">
-          {children}
+        <ul className="mb-1 ml-[0.62rem] flex flex-col gap-px border-l border-dashed border-line pl-1.5">
+          {links.map((link) => (
+            <PageLink key={link.href} link={link} pathname={pathname} onNavigate={onNavigate} level={2} />
+          ))}
         </ul>
-      )}
+      </Collapsible>
     </li>
   );
 }
 
-/** Top-level entry (Home). */
-function TopLink({
-  href,
-  active,
-  icon,
-  children,
-  onNavigate,
-}: {
-  href: string;
-  active: boolean;
-  icon: ReactNode;
-  children: ReactNode;
-  onNavigate?: () => void;
-}) {
+/** A page: hollow bullet (filled and highlighted when it is the current page). */
+function PageLink({ link, pathname, onNavigate, level }: { link: NavLink; pathname: string | null; onNavigate?: () => void; level: 1 | 2 }) {
+  const active = isWithin(pathname, link.href);
   return (
-    <Link
-      href={href}
-      aria-current={active ? "page" : undefined}
-      onClick={onNavigate}
-      className={cn(
-        "flex h-9 items-center gap-2.5 rounded-md px-2.5 transition-colors focus-visible:outline-2 [&_svg]:size-4 [&_svg]:shrink-0",
-        active
-          ? "bg-accent-soft font-semibold text-accent-strong dark:text-accent"
-          : "text-ink-muted hover:bg-control hover:text-ink [&_svg]:text-ink-faint",
-      )}
-    >
-      <span aria-hidden="true">{icon}</span>
-      <span className="truncate">{children}</span>
-    </Link>
-  );
-}
-
-/** Page link inside a group; the active one gets a blue bar on the guide line. */
-function SubLink({
-  href,
-  active,
-  children,
-  onNavigate,
-}: {
-  href: string;
-  active: boolean;
-  children: ReactNode;
-  onNavigate?: () => void;
-}) {
-  return (
-    <Link
-      href={href}
-      aria-current={active ? "page" : undefined}
-      onClick={onNavigate}
-      className={cn(
-        "relative -ml-px flex h-8 items-center rounded-r-md border-l-2 pr-2.5 pl-3 text-[13px] transition-colors focus-visible:outline-2",
-        active
-          ? "border-accent-strong bg-accent-soft font-medium text-accent-strong dark:border-accent dark:text-accent"
-          : "border-transparent text-ink-muted hover:border-line-strong hover:bg-control hover:text-ink",
-      )}
-    >
-      <span className="truncate">{children}</span>
-    </Link>
+    <li>
+      <Link
+        href={link.href}
+        aria-current={active ? "page" : undefined}
+        onClick={onNavigate}
+        title={link.description}
+        className={cn(
+          "flex items-center gap-2 rounded-md pr-2 transition-colors focus-visible:outline-2",
+          level === 1 ? "h-8 pl-1.5 text-[13px]" : "h-7 pl-1.5 text-[12.5px]",
+          active ? "bg-accent-soft font-medium text-accent-strong dark:text-accent" : "text-ink-muted hover:bg-control hover:text-ink",
+        )}
+      >
+        <span
+          aria-hidden="true"
+          className={cn(
+            "shrink-0 rounded-full border",
+            level === 1 ? "size-1.5" : "size-[5px]",
+            active ? "border-accent-strong bg-accent-strong dark:border-accent dark:bg-accent" : "border-ink-faint bg-transparent",
+          )}
+        />
+        <span className="truncate">{link.label}</span>
+      </Link>
+    </li>
   );
 }

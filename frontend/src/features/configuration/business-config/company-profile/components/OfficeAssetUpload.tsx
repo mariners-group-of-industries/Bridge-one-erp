@@ -72,7 +72,7 @@ export function OfficeAssetUpload({ officeId, kind, asset, onChange }: OfficeAss
   return (
     <div className="flex flex-col gap-2">
       <p className="text-xs text-ink-muted">{label}</p>
-      <div className="flex h-28 items-center justify-center overflow-hidden rounded-lg border border-dashed border-line-strong bg-canvas">
+      <div className="flex h-28 items-center justify-center overflow-hidden rounded border border-dashed border-line-strong bg-canvas">
         {asset ? (
           // eslint-disable-next-line @next/next/no-img-element -- served by an authorised API route
           <img src={asset.url} alt={`${label} preview`} className="max-h-full max-w-full object-contain" />

@@ -1,9 +1,10 @@
 import type { Metadata } from "next";
-import { PendingProfileView } from "@/features/configuration/entity-master-data/components/PendingProfileView";
-import { entityMasterDataPaths } from "@/features/configuration/entity-master-data/paths";
+import { ItemListView } from "@/features/configuration/entity-master-data/item/components/ItemListView";
+
+export const instant = false;
 
 export const metadata: Metadata = { title: "Item Profile" };
 
 export default function ItemProfilePage() {
-  return <PendingProfileView title="Item Profile" path={entityMasterDataPaths.itemProfile} />;
+  return <ItemListView />;
 }

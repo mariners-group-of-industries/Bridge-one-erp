@@ -174,8 +174,8 @@ export function TermsConditionsTable({ businessUnitId, domain }: TermsConditions
 
   return (
     <div className="flex flex-col gap-2">
-      <div className="overflow-x-auto rounded-lg border border-line">
-          <table className="w-full min-w-[820px] text-sm">
+      <div className="overflow-x-auto rounded border border-line">
+          <table className="data-grid w-full min-w-[820px]">
             <thead className="bg-accent-soft text-xs font-medium text-accent-strong dark:text-accent">
               <tr className="border-b border-accent-line">
                 <th scope="col" className="w-12 px-3 py-2 text-left font-medium">No.</th>

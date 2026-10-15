@@ -3,7 +3,7 @@ import { configurationWorkspace } from "@/features/configuration/navigation";
 import { inventoryWorkspace } from "@/features/inventory/navigation";
 import { purchaseWorkspace } from "@/features/purchase/navigation";
 import { salesWorkspace } from "@/features/sales/navigation";
-import { plannedWorkspaces } from "./planned";
+import { crmWorkspace, hrWorkspace, payrollWorkspace, productionWorkspace, rtmWorkspace } from "./planned";
 import type { Breadcrumb, NavLink, NavRoute, Workspace } from "./types";
 
 /**
@@ -12,12 +12,16 @@ import type { Breadcrumb, NavLink, NavRoute, Workspace } from "./types";
  * entry here.
  */
 export const workspaces: readonly Workspace[] = [
-  configurationWorkspace,
   purchaseWorkspace,
+  inventoryWorkspace,
+  productionWorkspace,
   salesWorkspace,
   accountWorkspace,
-  inventoryWorkspace,
-  ...plannedWorkspaces,
+  payrollWorkspace,
+  configurationWorkspace,
+  rtmWorkspace,
+  crmWorkspace,
+  hrWorkspace,
 ];
 
 export interface SearchEntry extends NavLink {

@@ -74,7 +74,7 @@ function AddableSelect({
             onChange={(e) => setNewVal(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); confirm(); } if (e.key === "Escape") { setAdding(false); setNewVal(""); } }}
             placeholder={`New ${label}`}
-            className="h-7 w-full rounded-md bg-control px-2 text-sm text-ink placeholder:text-ink-faint focus:outline-none focus:ring-1 focus:ring-line-strong"
+            className="h-7 w-full rounded bg-control px-2 text-sm text-ink placeholder:text-ink-faint focus:outline-none focus:ring-1 focus:ring-line-strong"
           />
           <Button size="sm" variant="accent" onClick={confirm}>Add</Button>
           <Button size="sm" variant="ghost" onClick={() => { setAdding(false); setNewVal(""); }}>
@@ -86,7 +86,7 @@ function AddableSelect({
           <select
             value={value}
             onChange={(e) => onChange(e.target.value)}
-            className="h-7 w-full rounded-md bg-control px-2 text-sm text-ink focus:outline-none focus:ring-1 focus:ring-line-strong"
+            className="h-7 w-full rounded bg-control px-2 text-sm text-ink focus:outline-none focus:ring-1 focus:ring-line-strong"
           >
             <option value="">— Select —</option>
             {options.map((o) => <option key={o} value={o}>{o}</option>)}
@@ -95,7 +95,7 @@ function AddableSelect({
             type="button"
             title={`Add new ${label}`}
             onClick={() => setAdding(true)}
-            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-accent-soft text-accent-strong hover:bg-accent-line"
+            className="flex h-7 w-7 shrink-0 items-center justify-center rounded bg-accent-soft text-accent-strong hover:bg-accent-line"
           >
             <Plus className="size-3.5" />
           </button>

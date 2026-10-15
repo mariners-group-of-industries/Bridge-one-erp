@@ -59,14 +59,14 @@ export function Dialog({
 
   const standardBody = (
     <>
-      <div className="flex items-start gap-3 px-5 pt-4 pb-3">
-        <div className="flex flex-1 flex-col gap-1">
+      <div className="mb-4 flex items-center gap-3 border-b border-line bg-canvas px-5 py-3">
+        <div className="flex flex-1 flex-col gap-0.5">
           {title && (
-            <h2 id={titleId} className="text-lg font-semibold text-ink">
+            <h2 id={titleId} className="text-sm font-bold tracking-tight text-ink">
               {title}
             </h2>
           )}
-          {description && <div className="text-sm text-ink-faint">{description}</div>}
+          {description && <div className="text-[11px] text-ink-faint">{description}</div>}
         </div>
         <Button variant="ghost" size="icon" aria-label="Close" onClick={handleClose}>
           <X className="size-4" />
@@ -75,7 +75,7 @@ export function Dialog({
       <div className={cn("overflow-x-hidden overflow-y-auto px-5 pb-4", size === "xl" ? "max-h-[75vh]" : "max-h-[65vh]")}>
         {children}
       </div>
-      {footer && <div className="flex flex-wrap justify-end gap-2 border-t border-line px-5 py-3">{footer}</div>}
+      {footer && <div className="flex flex-wrap justify-end gap-2 border-t border-line bg-canvas px-5 py-3">{footer}</div>}
     </>
   );
 
@@ -85,7 +85,7 @@ export function Dialog({
         type="button"
         onClick={handleClose}
         aria-label="Close"
-        className="absolute top-4 right-4 z-10 rounded-md p-1.5 text-ink-muted hover:bg-surface-sunken hover:text-ink transition-colors"
+        className="absolute top-4 right-4 z-10 rounded p-1.5 text-ink-muted transition-colors hover:bg-control hover:text-ink"
       >
         <X className="size-4" />
       </button>
@@ -105,7 +105,7 @@ export function Dialog({
       }}
       className={cn(
         // The body scrolls, not the <dialog> itself (avoids a second scrollbar).
-        "m-auto w-[calc(100%-2rem)] overflow-hidden rounded-xl bg-surface p-0 text-ink shadow-dropdown backdrop:bg-black/40",
+        "m-auto w-[calc(100%-2rem)] overflow-hidden rounded-lg border border-line bg-surface p-0 text-ink shadow-dropdown backdrop:bg-slate-900/50",
         size === "xl" ? "max-w-5xl" : size === "lg" ? "max-w-2xl" : "max-w-lg",
         className,
       )}

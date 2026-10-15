@@ -55,6 +55,10 @@ model User {
   officeAccess       UserOfficeAccess[]
   warehouseAccess    UserWarehouseAccess[]
 
+  superApproverOf ApprovalPipeline[]      @relation("PipelineSuperUser")
+  userGroups      UserGroupMember[]
+  approverOf      ApprovalStageApprover[] @relation("ApproverUser")
+
   @@index([roleId])
   @@map("users")
 }
@@ -109,6 +113,130 @@ model UserWarehouseAccess {
 
   @@id([userId, warehouseId])
   @@map("user_warehouse_access")
+}
+
+// ─── Configuration › Identity & Security › Approval Setup ───────────────────
+
+/// An approval pipeline for one feature (Purchase Requisition …): a super
+/// approver who can approve at any stage, then numbered stages of approvers.
+/// `userType` USER points at `users`, EMPLOYEE at `employees`.
+model ApprovalPipeline {
+  id                      String   @id @default(uuid()) @db.Uuid
+  name                    String   @unique @db.VarChar(150)
+  feature                 String   @db.VarChar(60)
+  userType                String   @default("USER") @db.VarChar(10)
+  superApproverUserId     String?  @db.Uuid
+  superApproverEmployeeId String?  @db.Uuid
+  remarks                 String?  @db.VarChar(500)
+  createdAt               DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt               DateTime @updatedAt @db.Timestamptz(3)
+
+  superApproverUser     User?           @relation("PipelineSuperUser", fields: [superApproverUserId], references: [id], onDelete: SetNull)
+  superApproverEmployee Employee?       @relation("PipelineSuperEmployee", fields: [superApproverEmployeeId], references: [id], onDelete: SetNull)
+  stages                ApprovalStage[]
+
+  @@index([feature])
+  @@map("approval_pipelines")
+}
+
+/// A stage of a pipeline. `approvalOrder` ANY (any `requiredCount` approvers)
+/// or SEQUENTIAL (in list order).
+model ApprovalStage {
+  id            String   @id @default(uuid()) @db.Uuid
+  pipelineId    String   @db.Uuid
+  stageNo       Int
+  name          String   @db.VarChar(150)
+  approvalOrder String   @db.VarChar(20)
+  requiredCount Int      @default(1)
+  createdAt     DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime @updatedAt @db.Timestamptz(3)
+
+  pipeline  ApprovalPipeline        @relation(fields: [pipelineId], references: [id], onDelete: Cascade)
+  approvers ApprovalStageApprover[]
+
+  @@unique([pipelineId, stageNo])
+  @@map("approval_stages")
+}
+
+model ApprovalStageApprover {
+  id                String  @id @default(uuid()) @db.Uuid
+  stageId           String  @db.Uuid
+  sortOrder         Int     @default(0)
+  userType          String  @db.VarChar(10)
+  businessUnitId    String? @db.Uuid
+  userId            String? @db.Uuid
+  employeeId        String? @db.Uuid
+  authorizationType String  @db.VarChar(20)
+
+  stage        ApprovalStage @relation(fields: [stageId], references: [id], onDelete: Cascade)
+  businessUnit BusinessUnit? @relation(fields: [businessUnitId], references: [id], onDelete: SetNull)
+  user         User?         @relation("ApproverUser", fields: [userId], references: [id], onDelete: Cascade)
+  employee     Employee?     @relation("ApproverEmployee", fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([stageId])
+  @@map("approval_stage_approvers")
+}
+
+// ─── Configuration › Identity & Security › User Group / Permission Group ────
+
+/// A named set of users. `updatedById`/`updatedByName` record the last action
+/// (a name snapshot, so the list still reads after the user is gone).
+model UserGroup {
+  id            String   @id @default(uuid()) @db.Uuid
+  name          String   @unique @db.VarChar(150)
+  updatedById   String?  @db.VarChar(100)
+  updatedByName String?  @db.VarChar(150)
+  createdAt     DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime @updatedAt @db.Timestamptz(3)
+
+  members UserGroupMember[]
+
+  @@map("user_groups")
+}
+
+model UserGroupMember {
+  groupId   String @db.Uuid
+  userId    String @db.Uuid
+  sortOrder Int    @default(0)
+
+  group UserGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  user  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([groupId, userId])
+  @@index([userId])
+  @@map("user_group_members")
+}
+
+/// A permission matrix: per activity (a menu page, keyed by its path) which of
+/// Create / Edit / View / Delete / Approve are allowed. Only granted rows are stored.
+model PermissionGroup {
+  id            String   @id @default(uuid()) @db.Uuid
+  name          String   @unique @db.VarChar(150)
+  updatedById   String?  @db.VarChar(100)
+  updatedByName String?  @db.VarChar(150)
+  createdAt     DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime @updatedAt @db.Timestamptz(3)
+
+  entries PermissionGroupEntry[]
+
+  @@map("permission_groups")
+}
+
+model PermissionGroupEntry {
+  groupId      String  @db.Uuid
+  activityKey  String  @db.VarChar(200)
+  moduleName   String  @db.VarChar(100)
+  activityName String  @db.VarChar(150)
+  canCreate    Boolean @default(false)
+  canEdit      Boolean @default(false)
+  canView      Boolean @default(false)
+  canDelete    Boolean @default(false)
+  canApprove   Boolean @default(false)
+
+  group PermissionGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@id([groupId, activityKey])
+  @@map("permission_group_entries")
 }
 
 // ─── Configuration › Business Configuration › Company Profile ───────────────
@@ -198,6 +326,20 @@ model BusinessUnit {
   goodsReceipts        GoodsReceipt[]
   purchaseReturns      PurchaseReturn[]
   supplierPayments     SupplierPayment[]
+  supplierGroups       SupplierGroup[]
+  taxBrackets          TaxBracket[]
+  itemDivisions        ItemDivision[]
+  itemUoms             ItemUom[]
+  salesOffers          SalesOffer[]
+  customerPriceSetups  CustomerPriceSetup[]
+  standardPrices       StandardPrice[]
+  salesWallets         SalesWallet[]
+  salesReturnPrices    SalesReturnPrice[]
+  approvalApprovers   ApprovalStageApprover[]
+  groupPriceSetups     CustomerGroupPriceSetup[]
+  openingStockReceipts OpeningStockReceipt[]
+  territoryLayers      SalesTerritoryLayer[]
+  territoryNodes       SalesTerritoryNode[]
 
   @@unique([companyId, name])
   @@map("business_units")
@@ -230,6 +372,11 @@ model Office {
   purchaseOrders       PurchaseOrder[]
   goodsReceipts        GoodsReceipt[]
   purchaseReturns      PurchaseReturn[]
+  suppliers            Supplier[]
+  customers            Customer[]
+  openingStockReceipts OpeningStockReceipt[]
+  groupPriceSetups     CustomerGroupPriceSetup[]
+  salesWallets         SalesWallet[]
 
   @@unique([businessUnitId, name])
   @@map("offices")
@@ -249,6 +396,7 @@ model Warehouse {
   purchaseOrders       PurchaseOrder[]
   goodsReceipts        GoodsReceipt[]
   purchaseReturns      PurchaseReturn[]
+  openingStockReceipts OpeningStockReceipt[]
 
   deliveries   SalesDelivery[]
   returns      SalesReturn[]
@@ -374,6 +522,38 @@ model Customer {
   createdAt       DateTime     @default(now()) @db.Timestamptz(3)
   updatedAt       DateTime     @updatedAt @db.Timestamptz(3)
 
+  // Customer Profile (Configuration / Entity Master Data). `phone` is the mobile
+  // number, `address` the billing address and `contactPerson` the billing contact.
+  officeId                   String?   @db.Uuid
+  subGroupId                 String?   @db.Uuid
+  tolerancePercent           Decimal?  @db.Decimal(5, 2)
+  priceListId                String?   @db.Uuid
+  tcsPercent                 Decimal?  @db.Decimal(5, 2)
+  vatRegistrationNo          String?   @db.VarChar(50)
+  tinNumber                  String?   @db.VarChar(50)
+  tradeLicenseNo             String?   @db.VarChar(50)
+  maritalStatus              String?   @db.VarChar(20)
+  marriageDate               DateTime? @db.Date
+  birthDate                  DateTime? @db.Date
+  gender                     String?   @db.VarChar(20)
+  nidNumber                  String?   @db.VarChar(30)
+  isMonthly                  Boolean   @default(false)
+  creditLimitAllOutlets      Boolean   @default(false)
+  isForeign                  Boolean   @default(false)
+  isDistributor              Boolean   @default(false)
+  isEmployeeCustomer         Boolean   @default(false)
+  isAnonymous                Boolean   @default(false)
+  vatAccountingNotApplicable Boolean   @default(false)
+  availableBalanceCheck      Boolean   @default(false)
+  onlyBusinessUnitWise       Boolean   @default(false)
+  isUser                     Boolean   @default(false)
+  districtId                 Int?
+  thanaId                    String?   @db.Uuid
+  billingName                String?   @db.VarChar(150)
+  billingContactNo           String?   @db.VarChar(30)
+  taxBracketId               String?   @db.Uuid
+  remarks                    String?   @db.VarChar(1000)
+
   businessUnit  BusinessUnit      @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
   salesPerson   SalesPerson?      @relation(fields: [salesPersonId], references: [id], onDelete: SetNull)
   deliveries    SalesDelivery[]
@@ -388,9 +568,18 @@ model Customer {
   territory     SalesArea?        @relation("CustomerTerritory", fields: [territoryId], references: [id], onDelete: Restrict)
   route         SalesArea?        @relation("CustomerRoute", fields: [routeId], references: [id], onDelete: Restrict)
   section       SalesArea?        @relation("CustomerSection", fields: [sectionId], references: [id], onDelete: Restrict)
+  office        Office?           @relation(fields: [officeId], references: [id], onDelete: Restrict)
+  subGroup      CustomerGroup?    @relation("CustomerSubGroup", fields: [subGroupId], references: [id], onDelete: SetNull)
+  priceList     PriceList?        @relation(fields: [priceListId], references: [id], onDelete: SetNull)
+  district      District?         @relation(fields: [districtId], references: [id], onDelete: SetNull)
+  thana         Thana?            @relation(fields: [thanaId], references: [id], onDelete: SetNull)
+  taxBracket    TaxBracket?       @relation(fields: [taxBracketId], references: [id], onDelete: SetNull)
+  attachments   CustomerAttachment[]
+  priceSetups   CustomerPriceSetup[]
 
   @@unique([businessUnitId, code])
   @@index([businessUnitId, name])
+  @@index([officeId])
   @@map("customers")
 }
 
@@ -414,8 +603,43 @@ model Item {
   createdAt                DateTime @default(now()) @db.Timestamptz(3)
   updatedAt                DateTime @updatedAt @db.Timestamptz(3)
 
+  // Item Profile (Configuration / Entity Master Data). `code`/`name` are the master
+  // item code and name, `salesRate` the selling price and `mrp` the retail price.
+  printedCode    String?  @db.VarChar(30)
+  printedName    String?  @db.VarChar(200)
+  itemType       String?  @db.VarChar(30)
+  divisionId     String?  @db.Uuid
+  barcode        String?  @db.VarChar(60)
+  brand          String?  @db.VarChar(100)
+  dealerPrice    Decimal? @db.Decimal(14, 2)
+  tradingPrice   Decimal? @db.Decimal(14, 2)
+  purchasePrice  Decimal? @db.Decimal(14, 2)
+  netWeight      Decimal? @db.Decimal(14, 3)
+  netWeightUnit  String?  @db.VarChar(20)
+  restrictedAge  String?  @db.VarChar(10)
+  /// NONE or BOTH (batch and serial tracking).
+  tracking       String   @default("NONE") @db.VarChar(10)
+  autoBarcode    Boolean  @default(false)
+  canBeSold      Boolean  @default(true)
+  canBePurchased Boolean  @default(true)
+  canBeRented    Boolean  @default(false)
+  noDecimal      Boolean  @default(false)
+  allowEbt       Boolean  @default(false)
+  isDefault      Boolean  @default(false)
+
   businessUnit   BusinessUnit         @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
   category       ItemCategory?        @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  division       ItemDivision?        @relation(fields: [divisionId], references: [id], onDelete: SetNull)
+  openingStockLines OpeningStockLine[]
+  offerSellingLines  SalesOfferItemLine[]     @relation("OfferSellingItem")
+  offerFreeLines     SalesOfferItemLine[]     @relation("OfferFreeItem")
+  offerPairLines     SalesOfferPairLine[]     @relation("OfferPairItem")
+  offerBonusLines    SalesOfferBonusLine[]    @relation("OfferBonusItem")
+  offerDiscountLines SalesOfferDiscountLine[] @relation("OfferDiscountItem")
+  customerPriceLines      CustomerPriceLine[]
+  customerGroupPriceLines CustomerGroupPriceLine[]
+  standardPrices          StandardPrice[]
+  salesReturnPrices       SalesReturnPrice[]
   prices         ItemPrice[]
   orderLines     SalesOrderLine[]
   stockEntries   StockEntry[]
@@ -864,6 +1088,8 @@ model SalesArea {
   territoryCustomers Customer[]   @relation("CustomerTerritory")
   routeCustomers     Customer[]   @relation("CustomerRoute")
   sectionCustomers   Customer[]   @relation("CustomerSection")
+  sectionAddresses   CustomerAddress[] @relation("CustomerAddressSection")
+  territoryNode      SalesTerritoryNode?
 
   @@unique([businessUnitId, kind, name])
   @@map("sales_areas")
@@ -876,9 +1102,17 @@ model CustomerGroup {
   isActive       Boolean  @default(true)
   createdAt      DateTime @default(now()) @db.Timestamptz(3)
   updatedAt      DateTime @updatedAt @db.Timestamptz(3)
+  /// Set for a Sub Group (Customer Profile).
+  parentId       String?  @db.Uuid
 
-  businessUnit BusinessUnit @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
-  customers    Customer[]
+  businessUnit      BusinessUnit    @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  parent            CustomerGroup?  @relation("CustomerGroupTree", fields: [parentId], references: [id], onDelete: Cascade)
+  children          CustomerGroup[] @relation("CustomerGroupTree")
+  customers         Customer[]
+  subGroupCustomers Customer[]      @relation("CustomerSubGroup")
+  offers            SalesOffer[]            @relation("OfferCustomerGroup")
+  offerSpecialLines SalesOfferSpecialLine[] @relation("OfferSpecialGroup")
+  groupPriceSetups  CustomerGroupPriceSetup[]
 
   @@unique([businessUnitId, name])
   @@map("customer_groups")
@@ -894,12 +1128,41 @@ model CustomerAddress {
   createdAt  DateTime @default(now()) @db.Timestamptz(3)
   updatedAt  DateTime @updatedAt @db.Timestamptz(3)
 
-  customer    Customer        @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  // Shipping Details of the Customer Profile (label = Ref/Outlet).
+  code          String?  @db.VarChar(30)
+  gps           String?  @db.VarChar(100)
+  contactPerson String?  @db.VarChar(150)
+  contactNo     String?  @db.VarChar(30)
+  vatRegNo      String?  @db.VarChar(50)
+  districtId    Int?
+  thanaId       String?  @db.Uuid
+  sectionId     String?  @db.Uuid
+  sortOrder     Int      @default(0)
+
+  customer    Customer     @relation(fields: [customerId], references: [id], onDelete: Cascade)
   salesOrders SalesOrder[]
   deliveries  SalesDelivery[]
+  district    District?    @relation(fields: [districtId], references: [id], onDelete: SetNull)
+  thana       Thana?       @relation(fields: [thanaId], references: [id], onDelete: SetNull)
+  section     SalesArea?   @relation("CustomerAddressSection", fields: [sectionId], references: [id], onDelete: SetNull)
 
   @@index([customerId])
   @@map("customer_addresses")
+}
+
+model CustomerAttachment {
+  id           String   @id @default(uuid()) @db.Uuid
+  customerId   String   @db.Uuid
+  storageKey   String   @unique @db.VarChar(300)
+  originalName String   @db.VarChar(255)
+  mimeType     String   @db.VarChar(100)
+  size         Int
+  createdAt    DateTime @default(now()) @db.Timestamptz(3)
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([customerId])
+  @@map("customer_attachments")
 }
 
 /// Item category tree: level 1 Category › 2 Sub Category › 3 Minor Category.
@@ -911,14 +1174,87 @@ model ItemCategory {
   name           String   @db.VarChar(100)
   createdAt      DateTime @default(now()) @db.Timestamptz(3)
   updatedAt      DateTime @updatedAt @db.Timestamptz(3)
+  description    String?  @db.VarChar(300)
 
   businessUnit BusinessUnit   @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
   parent       ItemCategory?  @relation("CategoryTree", fields: [parentId], references: [id], onDelete: Restrict)
   children     ItemCategory[] @relation("CategoryTree")
   items        Item[]
+  offers         SalesOffer[]         @relation("OfferCategory")
+  offerPairLines SalesOfferPairLine[] @relation("OfferPairCategory")
 
   @@unique([businessUnitId, parentId, name])
   @@map("item_categories")
+}
+
+/// Item Division of the Item Profile ("+ Add" from the form).
+model ItemDivision {
+  id             String   @id @default(uuid()) @db.Uuid
+  businessUnitId String   @db.Uuid
+  name           String   @db.VarChar(100)
+  createdAt      DateTime @default(now()) @db.Timestamptz(3)
+
+  businessUnit BusinessUnit @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  items        Item[]
+
+  @@unique([businessUnitId, name])
+  @@map("item_divisions")
+}
+
+/// Units of measure offered in the Item Profile (UOM, Alt. UOM, Net Weight Unit).
+model ItemUom {
+  id             String   @id @default(uuid()) @db.Uuid
+  businessUnitId String   @db.Uuid
+  name           String   @db.VarChar(20)
+  createdAt      DateTime @default(now()) @db.Timestamptz(3)
+
+  businessUnit BusinessUnit @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+
+  @@unique([businessUnitId, name])
+  @@map("item_uoms")
+}
+
+/// Opening stock received into a warehouse (Item Profile "Opening Stock").
+model OpeningStockReceipt {
+  id                String   @id @default(uuid()) @db.Uuid
+  businessUnitId    String   @db.Uuid
+  number            String   @db.VarChar(30)
+  receiptDate       DateTime @db.Date
+  officeId          String   @db.Uuid
+  warehouseId       String   @db.Uuid
+  /// INVENTORY or ASSET.
+  itemType          String   @db.VarChar(20)
+  challanNo         String?  @db.VarChar(50)
+  remarks           String?  @db.VarChar(500)
+  /// Credit GL account, copied from the chart of accounts when saved.
+  creditAccountCode String?  @db.VarChar(30)
+  creditAccountName String?  @db.VarChar(200)
+  createdAt         DateTime @default(now()) @db.Timestamptz(3)
+
+  businessUnit BusinessUnit       @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  office       Office             @relation(fields: [officeId], references: [id], onDelete: Restrict)
+  warehouse    Warehouse          @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+  lines        OpeningStockLine[]
+
+  @@unique([businessUnitId, number])
+  @@map("opening_stock_receipts")
+}
+
+model OpeningStockLine {
+  id        String  @id @default(uuid()) @db.Uuid
+  receiptId String  @db.Uuid
+  sortOrder Int
+  itemId    String  @db.Uuid
+  quantity  Decimal @db.Decimal(14, 3)
+  rate      Decimal @db.Decimal(14, 2)
+  amount    Decimal @db.Decimal(16, 2)
+
+  receipt OpeningStockReceipt @relation(fields: [receiptId], references: [id], onDelete: Cascade)
+  item    Item                @relation(fields: [itemId], references: [id], onDelete: Restrict)
+
+  @@index([receiptId])
+  @@index([itemId])
+  @@map("opening_stock_lines")
 }
 
 /// Price type (Dealer Price, Retail Price …) with a rate per item.
@@ -933,9 +1269,386 @@ model PriceList {
   businessUnit BusinessUnit @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
   prices       ItemPrice[]
   salesOrders  SalesOrder[]
+  customers    Customer[]
+  offers       SalesOffer[]
+  customerPriceSetups CustomerPriceSetup[]
+  groupPriceSetups    CustomerGroupPriceSetup[]
 
   @@unique([businessUnitId, name])
   @@map("price_lists")
+}
+
+// ─── Configuration › Sales Config › Offer Setup ─────────────────────────────
+
+/// A sales offer. `kind`: ITEM (buy item, get item), ITEM_MULTIPLE (buy a
+/// combination, get bonus items), DISCOUNT (item discounts) or SPECIAL_DISCOUNT
+/// (invoice-amount slabs).
+model SalesOffer {
+  id              String    @id @default(uuid()) @db.Uuid
+  businessUnitId  String    @db.Uuid
+  kind            String    @db.VarChar(20)
+  name            String    @db.VarChar(150)
+  fromDate        DateTime? @db.Date
+  toDate          DateTime? @db.Date
+  customerGroupId String?   @db.Uuid
+  priceListId     String?   @db.Uuid
+  basedOn         String?   @db.VarChar(30)
+  /// Selling item category filter (the most specific level chosen).
+  categoryId      String?   @db.Uuid
+  remarks         String?   @db.VarChar(500)
+  isActive        Boolean   @default(true)
+  createdAt       DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime  @updatedAt @db.Timestamptz(3)
+
+  businessUnit  BusinessUnit   @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  customerGroup CustomerGroup? @relation("OfferCustomerGroup", fields: [customerGroupId], references: [id], onDelete: SetNull)
+  priceList     PriceList?     @relation(fields: [priceListId], references: [id], onDelete: SetNull)
+  category      ItemCategory?  @relation("OfferCategory", fields: [categoryId], references: [id], onDelete: SetNull)
+  itemLines     SalesOfferItemLine[]
+  pairLines     SalesOfferPairLine[]
+  bonusLines    SalesOfferBonusLine[]
+  discountLines SalesOfferDiscountLine[]
+  specialLines  SalesOfferSpecialLine[]
+
+  @@index([businessUnitId, kind])
+  @@map("sales_offers")
+}
+
+// ─── Configuration › Sales Config › Sales Setup (territory tree) ────────────
+
+/// Levels of the sales territory tree (National, Region, Territory …) per business unit.
+model SalesTerritoryLayer {
+  id             String   @id @default(uuid()) @db.Uuid
+  businessUnitId String   @db.Uuid
+  level          Int
+  code           String   @db.VarChar(20)
+  name           String   @db.VarChar(50)
+  /// The layer whose nodes are the Sales territories customers use.
+  isTerritory    Boolean  @default(false)
+  createdAt      DateTime @default(now()) @db.Timestamptz(3)
+
+  businessUnit BusinessUnit         @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  nodes        SalesTerritoryNode[]
+
+  @@unique([businessUnitId, level])
+  @@unique([businessUnitId, code])
+  @@map("sales_territory_layers")
+}
+
+model SalesTerritoryNode {
+  id             String   @id @default(uuid()) @db.Uuid
+  businessUnitId String   @db.Uuid
+  layerId        String   @db.Uuid
+  parentId       String?  @db.Uuid
+  code           String   @db.VarChar(30)
+  name           String   @db.VarChar(100)
+  /// Set on Territory-layer nodes: the linked Sales territory.
+  salesAreaId    String?  @unique @db.Uuid
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime @updatedAt @db.Timestamptz(3)
+
+  businessUnit BusinessUnit             @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  layer        SalesTerritoryLayer      @relation(fields: [layerId], references: [id], onDelete: Restrict)
+  parent       SalesTerritoryNode?      @relation("TerritoryTree", fields: [parentId], references: [id], onDelete: Restrict)
+  children     SalesTerritoryNode[]     @relation("TerritoryTree")
+  salesArea    SalesArea?               @relation(fields: [salesAreaId], references: [id], onDelete: SetNull)
+  employees    SalesTerritoryEmployee[]
+
+  @@unique([businessUnitId, code])
+  @@index([parentId])
+  @@map("sales_territory_nodes")
+}
+
+/// Employees assigned to a territory node.
+model SalesTerritoryEmployee {
+  id                  String   @id @default(uuid()) @db.Uuid
+  nodeId              String   @db.Uuid
+  employeeId          String   @db.Uuid
+  distributionChannel String?  @db.VarChar(100)
+  createdAt           DateTime @default(now()) @db.Timestamptz(3)
+
+  node     SalesTerritoryNode @relation(fields: [nodeId], references: [id], onDelete: Cascade)
+  employee Employee           @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@unique([nodeId, employeeId])
+  @@map("sales_territory_employees")
+}
+
+// ─── Configuration › Sales Config › Customer Price Setup ────────────────────
+
+/// Customer-specific DP/TP prices (one setup per customer and price type).
+model CustomerPriceSetup {
+  id             String   @id @default(uuid()) @db.Uuid
+  businessUnitId String   @db.Uuid
+  customerId     String   @db.Uuid
+  priceListId    String?  @db.Uuid
+  /// Item filter used when the setup was built (for reference).
+  itemType       String?  @db.VarChar(30)
+  categoryId     String?  @db.Uuid
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime @updatedAt @db.Timestamptz(3)
+
+  businessUnit BusinessUnit        @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  customer     Customer            @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  priceList    PriceList?          @relation(fields: [priceListId], references: [id], onDelete: SetNull)
+  lines        CustomerPriceLine[]
+
+  @@index([businessUnitId])
+  @@index([customerId])
+  @@map("customer_price_setups")
+}
+
+model CustomerPriceLine {
+  id        String  @id @default(uuid()) @db.Uuid
+  setupId   String  @db.Uuid
+  sortOrder Int
+  itemId    String  @db.Uuid
+  dpPrice   Decimal @db.Decimal(14, 2)
+  tpPrice   Decimal @db.Decimal(14, 2)
+
+  setup CustomerPriceSetup @relation(fields: [setupId], references: [id], onDelete: Cascade)
+  item  Item               @relation(fields: [itemId], references: [id], onDelete: Restrict)
+
+  @@unique([setupId, itemId])
+  @@map("customer_price_lines")
+}
+
+/// Customer-group DP/TP prices by date and quantity range ("Customer Offer" tab).
+model CustomerGroupPriceSetup {
+  id              String   @id @default(uuid()) @db.Uuid
+  businessUnitId  String   @db.Uuid
+  officeId        String   @db.Uuid
+  customerGroupId String   @db.Uuid
+  priceListId     String?  @db.Uuid
+  createDate      DateTime @db.Date
+  circularNo      String?  @db.VarChar(100)
+  remarks         String?  @db.VarChar(500)
+  isRunning       Boolean  @default(true)
+  itemType        String?  @db.VarChar(30)
+  categoryId      String?  @db.Uuid
+  createdAt       DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime @updatedAt @db.Timestamptz(3)
+
+  businessUnit  BusinessUnit             @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  office        Office                   @relation(fields: [officeId], references: [id], onDelete: Restrict)
+  customerGroup CustomerGroup            @relation(fields: [customerGroupId], references: [id], onDelete: Restrict)
+  priceList     PriceList?               @relation(fields: [priceListId], references: [id], onDelete: SetNull)
+  lines         CustomerGroupPriceLine[]
+
+  @@index([businessUnitId])
+  @@map("customer_group_price_setups")
+}
+
+model CustomerGroupPriceLine {
+  id        String    @id @default(uuid()) @db.Uuid
+  setupId   String    @db.Uuid
+  sortOrder Int
+  itemId    String    @db.Uuid
+  fromDate  DateTime? @db.Date
+  toDate    DateTime? @db.Date
+  fromQty   Decimal?  @db.Decimal(14, 3)
+  toQty     Decimal?  @db.Decimal(14, 3)
+  dpPrice   Decimal   @db.Decimal(14, 2)
+  tpPrice   Decimal   @db.Decimal(14, 2)
+
+  setup CustomerGroupPriceSetup @relation(fields: [setupId], references: [id], onDelete: Cascade)
+  item  Item                    @relation(fields: [itemId], references: [id], onDelete: Restrict)
+
+  @@index([setupId])
+  @@map("customer_group_price_lines")
+}
+
+// ─── Configuration › Sales Config › Standard Price Setup ─────────────────────
+
+/// Dated standard price of an item; the latest `effectiveFrom` is the current one.
+/// `increaseType` PERCENT or AMOUNT applies `increaseValue` to `costPrice` (→ ETP).
+model StandardPrice {
+  id             String   @id @default(uuid()) @db.Uuid
+  businessUnitId String   @db.Uuid
+  itemId         String   @db.Uuid
+  effectiveFrom  DateTime @db.Date
+  costPrice      Decimal? @db.Decimal(14, 2)
+  increaseType   String   @default("PERCENT") @db.VarChar(10)
+  increaseValue  Decimal? @db.Decimal(14, 2)
+  etpPrice       Decimal? @db.Decimal(14, 2)
+  dealerPrice    Decimal? @db.Decimal(14, 2)
+  tradingPrice   Decimal? @db.Decimal(14, 2)
+  mrp            Decimal? @db.Decimal(14, 2)
+  minSalesPrice  Decimal? @db.Decimal(14, 2)
+  remarks        String?  @db.VarChar(300)
+  createdAt      DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime @updatedAt @db.Timestamptz(3)
+
+  businessUnit BusinessUnit @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  item         Item         @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@unique([itemId, effectiveFrom])
+  @@index([businessUnitId])
+  @@map("standard_prices")
+}
+
+// ─── Configuration › Sales Config › Sales Return Price Setup ─────────────────
+
+/// Dated return rates of an item; the latest `effectiveFrom` is the current one.
+model SalesReturnPrice {
+  id                String   @id @default(uuid()) @db.Uuid
+  businessUnitId    String   @db.Uuid
+  itemId            String   @db.Uuid
+  effectiveFrom     DateTime @db.Date
+  damageRate        Decimal  @default(0) @db.Decimal(14, 2)
+  expireRate        Decimal  @default(0) @db.Decimal(14, 2)
+  damageExpireRate  Decimal  @default(0) @db.Decimal(14, 2)
+  soundStockRate    Decimal  @default(0) @db.Decimal(14, 2)
+  createdAt         DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime @updatedAt @db.Timestamptz(3)
+
+  businessUnit BusinessUnit @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  item         Item         @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@unique([itemId, effectiveFrom])
+  @@index([businessUnitId])
+  @@map("sales_return_prices")
+}
+
+// ─── Configuration › Sales Config › Wallet Setup ─────────────────────────────
+
+/// A payment wallet (cash, bank or MFS) used when collecting sales payments.
+/// Non-cash wallets settle into `bankAccountId`. One optional attachment.
+model SalesWallet {
+  id                  String   @id @default(uuid()) @db.Uuid
+  businessUnitId      String   @db.Uuid
+  name                String   @db.VarChar(100)
+  commissionPercent   Decimal  @db.Decimal(5, 2)
+  isCash              Boolean  @default(false)
+  bankAccountId       String?  @db.Uuid
+  officeId            String?  @db.Uuid
+  referenceCode       String?  @db.VarChar(50)
+  isRounding          Boolean  @default(false)
+  isCoupon            Boolean  @default(false)
+  isWalletCharge      Boolean  @default(false)
+  isReferenceRequired Boolean  @default(false)
+  isMfs               Boolean  @default(false)
+  isActive            Boolean  @default(true)
+  attachmentKey       String?  @unique @db.VarChar(300)
+  attachmentName      String?  @db.VarChar(255)
+  attachmentType      String?  @db.VarChar(100)
+  attachmentSize      Int?
+  createdAt           DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt           DateTime @updatedAt @db.Timestamptz(3)
+
+  businessUnit BusinessUnit @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  bankAccount  BankAccount? @relation(fields: [bankAccountId], references: [id], onDelete: Restrict)
+  office       Office?      @relation(fields: [officeId], references: [id], onDelete: SetNull)
+
+  @@unique([businessUnitId, name])
+  @@index([bankAccountId])
+  @@map("sales_wallets")
+}
+
+/// Items tab: buy the selling item, get the offer item.
+model SalesOfferItemLine {
+  id            String  @id @default(uuid()) @db.Uuid
+  offerId       String  @db.Uuid
+  sortOrder     Int
+  sellingItemId String  @db.Uuid
+  sellingUom    String  @db.VarChar(20)
+  sellingQty    Decimal @db.Decimal(14, 3)
+  offerItemId   String  @db.Uuid
+  offerUom      String  @db.VarChar(20)
+  offerQty      Decimal @db.Decimal(14, 3)
+
+  offer       SalesOffer @relation(fields: [offerId], references: [id], onDelete: Cascade)
+  sellingItem Item       @relation("OfferSellingItem", fields: [sellingItemId], references: [id], onDelete: Restrict)
+  offerItem   Item       @relation("OfferFreeItem", fields: [offerItemId], references: [id], onDelete: Restrict)
+
+  @@index([offerId])
+  @@map("sales_offer_item_lines")
+}
+
+/// Item (Multiple) tab: the selling items that must be bought together.
+model SalesOfferPairLine {
+  id         String   @id @default(uuid()) @db.Uuid
+  offerId    String   @db.Uuid
+  sortOrder  Int
+  categoryId String?  @db.Uuid
+  itemId     String   @db.Uuid
+  quantity   Decimal  @db.Decimal(14, 3)
+  minQty     Decimal? @db.Decimal(14, 3)
+  maxQty     Decimal? @db.Decimal(14, 3)
+
+  offer    SalesOffer    @relation(fields: [offerId], references: [id], onDelete: Cascade)
+  category ItemCategory? @relation("OfferPairCategory", fields: [categoryId], references: [id], onDelete: SetNull)
+  item     Item          @relation("OfferPairItem", fields: [itemId], references: [id], onDelete: Restrict)
+
+  @@index([offerId])
+  @@map("sales_offer_pair_lines")
+}
+
+/// Item (Multiple) tab: bonus items given for the combination.
+model SalesOfferBonusLine {
+  id        String  @id @default(uuid()) @db.Uuid
+  offerId   String  @db.Uuid
+  sortOrder Int
+  itemId    String  @db.Uuid
+  quantity  Decimal @db.Decimal(14, 3)
+
+  offer SalesOffer @relation(fields: [offerId], references: [id], onDelete: Cascade)
+  item  Item       @relation("OfferBonusItem", fields: [itemId], references: [id], onDelete: Restrict)
+
+  @@index([offerId])
+  @@map("sales_offer_bonus_lines")
+}
+
+/// Discount tab: per-item discount.
+model SalesOfferDiscountLine {
+  id                   String   @id @default(uuid()) @db.Uuid
+  offerId              String   @db.Uuid
+  sortOrder            Int
+  itemId               String   @db.Uuid
+  /// PERCENT or FLAT.
+  discountType         String   @db.VarChar(10)
+  amount               Decimal  @db.Decimal(14, 2)
+  quantity             Decimal? @db.Decimal(14, 3)
+  minQty               Decimal? @db.Decimal(14, 3)
+  maxQty               Decimal? @db.Decimal(14, 3)
+  isRecurrent          Boolean  @default(false)
+  supplierId           String?  @db.Uuid
+  supplierContribution Decimal? @db.Decimal(5, 2)
+  internalContribution Decimal? @db.Decimal(5, 2)
+
+  offer    SalesOffer @relation(fields: [offerId], references: [id], onDelete: Cascade)
+  item     Item       @relation("OfferDiscountItem", fields: [itemId], references: [id], onDelete: Restrict)
+  supplier Supplier?  @relation("OfferDiscountSupplier", fields: [supplierId], references: [id], onDelete: SetNull)
+
+  @@index([offerId])
+  @@map("sales_offer_discount_lines")
+}
+
+/// Special Discount tab: discount slabs by invoice amount.
+model SalesOfferSpecialLine {
+  id                   String   @id @default(uuid()) @db.Uuid
+  offerId              String   @db.Uuid
+  sortOrder            Int
+  customerGroupId      String?  @db.Uuid
+  /// PERCENT or FLAT.
+  discountType         String   @db.VarChar(10)
+  amount               Decimal  @db.Decimal(14, 2)
+  fromAmount           Decimal? @db.Decimal(16, 2)
+  toAmount             Decimal? @db.Decimal(16, 2)
+  supplierId           String?  @db.Uuid
+  supplierContribution Decimal? @db.Decimal(5, 2)
+  internalContribution Decimal? @db.Decimal(5, 2)
+  /// True: VAT on the discounted price; false: VAT on the original price.
+  vatOnDiscounted      Boolean  @default(true)
+
+  offer         SalesOffer     @relation(fields: [offerId], references: [id], onDelete: Cascade)
+  customerGroup CustomerGroup? @relation("OfferSpecialGroup", fields: [customerGroupId], references: [id], onDelete: SetNull)
+  supplier      Supplier?      @relation("OfferSpecialSupplier", fields: [supplierId], references: [id], onDelete: SetNull)
+
+  @@index([offerId])
+  @@map("sales_offer_special_lines")
 }
 
 model ItemPrice {
@@ -1259,7 +1972,40 @@ model Supplier {
   createdAt      DateTime @default(now()) @db.Timestamptz(3)
   updatedAt      DateTime @updatedAt @db.Timestamptz(3)
 
+  // Supplier Profile (Configuration › Entity Master Data). `name` is the partner name,
+  // `phone` the mobile number and `address` the billing address.
+  officeId                   String?  @db.Uuid
+  groupId                    String?  @db.Uuid
+  subGroupId                 String?  @db.Uuid
+  creditDays                 Int?
+  tolerancePercent           Decimal? @db.Decimal(5, 2)
+  binNumber                  String?  @db.VarChar(30)
+  tcsPercent                 Decimal? @db.Decimal(5, 2)
+  vatRegistrationNo          String?  @db.VarChar(50)
+  tinNumber                  String?  @db.VarChar(50)
+  tradeLicenseNo             String?  @db.VarChar(50)
+  isMonthly                  Boolean  @default(false)
+  isForeign                  Boolean  @default(false)
+  vdsApplicable              Boolean  @default(false)
+  vatAccountingNotApplicable Boolean  @default(false)
+  isUser                     Boolean  @default(false)
+  districtId                 Int?
+  thanaId                    String?  @db.Uuid
+  billingContactNo           String?  @db.VarChar(30)
+  taxBracketId               String?  @db.Uuid
+  remarks                    String?  @db.VarChar(1000)
+
   businessUnit   BusinessUnit      @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  office         Office?           @relation(fields: [officeId], references: [id], onDelete: Restrict)
+  group          SupplierGroup?    @relation("SupplierGroup", fields: [groupId], references: [id], onDelete: SetNull)
+  subGroup       SupplierGroup?    @relation("SupplierSubGroup", fields: [subGroupId], references: [id], onDelete: SetNull)
+  district       District?         @relation(fields: [districtId], references: [id], onDelete: SetNull)
+  thana          Thana?            @relation(fields: [thanaId], references: [id], onDelete: SetNull)
+  taxBracket     TaxBracket?       @relation(fields: [taxBracketId], references: [id], onDelete: SetNull)
+  details        SupplierDetail[]
+  attachments    SupplierAttachment[]
+  offerDiscountLines SalesOfferDiscountLine[] @relation("OfferDiscountSupplier")
+  offerSpecialLines  SalesOfferSpecialLine[]  @relation("OfferSpecialSupplier")
   purchaseOrders PurchaseOrder[]
   goodsReceipts  GoodsReceipt[]
   returns        PurchaseReturn[]
@@ -1267,7 +2013,104 @@ model Supplier {
 
   @@unique([businessUnitId, code])
   @@index([businessUnitId, name])
+  @@index([officeId])
   @@map("suppliers")
+}
+
+/// Partner Group and Sub Group of the Supplier Profile; a sub group has a parent.
+model SupplierGroup {
+  id             String   @id @default(uuid()) @db.Uuid
+  businessUnitId String   @db.Uuid
+  parentId       String?  @db.Uuid
+  name           String   @db.VarChar(100)
+  createdAt      DateTime @default(now()) @db.Timestamptz(3)
+
+  businessUnit      BusinessUnit    @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  parent            SupplierGroup?  @relation("SupplierGroupTree", fields: [parentId], references: [id], onDelete: Cascade)
+  children          SupplierGroup[] @relation("SupplierGroupTree")
+  suppliers         Supplier[]      @relation("SupplierGroup")
+  subGroupSuppliers Supplier[]      @relation("SupplierSubGroup")
+
+  @@unique([businessUnitId, parentId, name])
+  @@map("supplier_groups")
+}
+
+/// Bangladesh districts (reference data, seeded by the migration).
+model District {
+  id        Int        @id
+  name      String     @unique @db.VarChar(50)
+  division  String     @db.VarChar(30)
+  thanas            Thana[]
+  suppliers         Supplier[]
+  customers         Customer[]
+  customerAddresses CustomerAddress[]
+
+  @@map("districts")
+}
+
+/// Thanas are added by users from the Supplier Profile form, under a district.
+model Thana {
+  id         String   @id @default(uuid()) @db.Uuid
+  districtId Int
+  name       String   @db.VarChar(100)
+  createdAt  DateTime @default(now()) @db.Timestamptz(3)
+
+  district          District          @relation(fields: [districtId], references: [id], onDelete: Restrict)
+  suppliers         Supplier[]
+  customers         Customer[]
+  customerAddresses CustomerAddress[]
+
+  @@unique([districtId, name])
+  @@map("thanas")
+}
+
+model TaxBracket {
+  id             String   @id @default(uuid()) @db.Uuid
+  businessUnitId String   @db.Uuid
+  name           String   @db.VarChar(100)
+  ratePercent    Decimal? @db.Decimal(5, 2)
+  createdAt      DateTime @default(now()) @db.Timestamptz(3)
+
+  businessUnit BusinessUnit @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  suppliers    Supplier[]
+  customers    Customer[]
+
+  @@unique([businessUnitId, name])
+  @@map("tax_brackets")
+}
+
+/// "Supplier Details" list of a supplier profile (vendor addresses / contacts).
+model SupplierDetail {
+  id            String  @id @default(uuid()) @db.Uuid
+  supplierId    String  @db.Uuid
+  sortOrder     Int
+  code          String? @db.VarChar(30)
+  vendorName    String? @db.VarChar(150)
+  address       String  @db.VarChar(500)
+  gps           String? @db.VarChar(100)
+  contactPerson String? @db.VarChar(150)
+  contactNumber String? @db.VarChar(30)
+  vatRegNo      String? @db.VarChar(50)
+
+  supplier Supplier @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+
+  @@index([supplierId])
+  @@map("supplier_details")
+}
+
+model SupplierAttachment {
+  id           String   @id @default(uuid()) @db.Uuid
+  supplierId   String   @db.Uuid
+  storageKey   String   @unique @db.VarChar(300)
+  originalName String   @db.VarChar(255)
+  mimeType     String   @db.VarChar(100)
+  size         Int
+  createdAt    DateTime @default(now()) @db.Timestamptz(3)
+
+  supplier Supplier @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+
+  @@index([supplierId])
+  @@map("supplier_attachments")
 }
 
 enum PurchaseRequisitionStatus {
@@ -1845,6 +2688,8 @@ model BankAccount {
   createdAt            DateTime @default(now()) @db.Timestamptz(3)
   updatedAt            DateTime @updatedAt @db.Timestamptz(3)
 
+  salesWallets SalesWallet[]
+
   @@map("bank_accounts")
 }
 
@@ -1909,6 +2754,9 @@ model Employee {
   adjustments EmployeeSalaryAdjustment[]
   academics   EmployeeAcademic[]
   employmentHistories EmploymentHistory[]
+  territoryAssignments SalesTerritoryEmployee[]
+  superApproverOf      ApprovalPipeline[]      @relation("PipelineSuperEmployee")
+  approverOf           ApprovalStageApprover[] @relation("ApproverEmployee")
 
   @@index([officeId])
   @@index([employeeCode])
