@@ -239,6 +239,51 @@ model PermissionGroupEntry {
   @@map("permission_group_entries")
 }
 
+// ─── Configuration › Community & Gateways › API Configuration ───────────────
+
+/// A token for calling the API from other systems (`Authorization: Bearer …`).
+/// Only a SHA-256 hash is stored; the token is shown once when generated.
+/// `access` READ (GET only) or READ_WRITE.
+model ApiToken {
+  id            String    @id @default(uuid()) @db.Uuid
+  name          String    @db.VarChar(100)
+  tokenPrefix   String    @db.VarChar(16)
+  tokenHash     String    @unique @db.VarChar(64)
+  access        String    @default("READ") @db.VarChar(20)
+  expiresAt     DateTime? @db.Timestamptz(3)
+  lastUsedAt    DateTime? @db.Timestamptz(3)
+  revokedAt     DateTime? @db.Timestamptz(3)
+  createdById   String?   @db.VarChar(100)
+  createdByName String?   @db.VarChar(150)
+  createdAt     DateTime  @default(now()) @db.Timestamptz(3)
+
+  @@map("api_tokens")
+}
+
+// ─── Configuration › System Logs › Audit Logs ───────────────────────────────
+
+/// One recorded action: a successful change through the API, an export, or a
+/// sign-in / sign-out. Request bodies are never stored.
+model AuditLog {
+  id         String   @id @default(uuid()) @db.Uuid
+  feature    String   @db.VarChar(100)
+  actionType String   @db.VarChar(20)
+  userId     String?  @db.VarChar(100)
+  userName   String?  @db.VarChar(150)
+  method     String   @db.VarChar(10)
+  path       String   @db.VarChar(300)
+  entityId   String?  @db.VarChar(100)
+  status     Int
+  ipAddress  String?  @db.VarChar(64)
+  userAgent  String?  @db.VarChar(300)
+  createdAt  DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([createdAt])
+  @@index([feature, createdAt])
+  @@index([userId, createdAt])
+  @@map("audit_logs")
+}
+
 // ─── Configuration › Business Configuration › Company Profile ───────────────
 
 enum DateFormat {

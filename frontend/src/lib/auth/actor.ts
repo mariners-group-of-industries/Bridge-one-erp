@@ -2,6 +2,7 @@ import { AppError } from "@/lib/api/errors";
 import { getAuthCookie } from "@/lib/auth/cookies";
 import { verifyToken } from "@/lib/auth/jwt";
 import { db } from "@/lib/prisma/client";
+import { resolveTokenActor } from "./api-token";
 
 export type Permission =
   | "configuration:read"
@@ -15,6 +16,8 @@ export type Permission =
 
 export interface Actor {
   id: string;
+  /** Display name (user name, or "API token: …"), for the audit trail. */
+  name?: string;
   role: string;
   /** True for the master account — always has every permission, bypasses future RBAC. */
   isMaster: boolean;
@@ -42,8 +45,11 @@ function permissionsForRole(_role: string): ReadonlySet<Permission> {
   return new Set<Permission>(ALL_PERMISSIONS);
 }
 
-export async function resolveActor(_request: Request): Promise<Actor | null> {
+export async function resolveActor(request: Request): Promise<Actor | null> {
   try {
+    // Integrations call with `Authorization: Bearer b1_…` (Configuration › API Configuration).
+    if (request.headers.get("authorization")) return await resolveTokenActor(request.headers.get("authorization"), request.method);
+
     const token = await getAuthCookie();
     if (!token) return null;
 
@@ -57,6 +63,7 @@ export async function resolveActor(_request: Request): Promise<Actor | null> {
 
     return {
       id: payload.sub,
+      name: payload.name,
       role: payload.role,
       isMaster,
       permissions: isMaster
