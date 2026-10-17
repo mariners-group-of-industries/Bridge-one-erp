@@ -1,29 +1,32 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Moon, Sun, Monitor, Bell, BellOff, Globe } from "lucide-react";
 import { PageContainer, PageHead } from "@/components/layout/page";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
-import { applyTheme, readTheme } from "@/lib/theme";
+import { applyTheme } from "@/lib/theme";
 import { cn } from "@/lib/cn";
 
 type Theme = "light" | "dark" | "system";
 
+/** Saved preference (null on the server or when storage is blocked). */
+function stored(key: string): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
 export default function SettingsPage() {
   const toast = useToast();
-  const [theme, setTheme] = useState<Theme>("light");
-  const [notifications, setNotifications] = useState(true);
-  const [compactMode, setCompactMode] = useState(false);
-  const [language, setLanguage] = useState("en");
-
-  useEffect(() => {
-    setTheme((localStorage.getItem("theme") as Theme) ?? "light");
-    setCompactMode(localStorage.getItem("compactMode") === "true");
-    const notif = localStorage.getItem("notifications");
-    setNotifications(notif === null ? true : notif === "true");
-    setLanguage(localStorage.getItem("language") ?? "en");
-  }, []);
+  // The desk shell renders pages only on the client, so saved preferences are read up front.
+  const [theme, setTheme] = useState<Theme>(() => (stored("theme") as Theme | null) ?? "light");
+  const [notifications, setNotifications] = useState(() => stored("notifications") !== "false");
+  const [compactMode, setCompactMode] = useState(() => stored("compactMode") === "true");
+  const [language, setLanguage] = useState(() => stored("language") ?? "en");
 
   function handleTheme(t: Theme) {
     setTheme(t);

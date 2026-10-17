@@ -1,9 +1,10 @@
 import { accountWorkspace } from "@/features/accounts/navigation";
 import { configurationWorkspace } from "@/features/configuration/navigation";
 import { inventoryWorkspace } from "@/features/inventory/navigation";
+import { productionWorkspace } from "@/features/production/navigation";
 import { purchaseWorkspace } from "@/features/purchase/navigation";
 import { salesWorkspace } from "@/features/sales/navigation";
-import { crmWorkspace, hrWorkspace, payrollWorkspace, productionWorkspace, rtmWorkspace } from "./planned";
+import { crmWorkspace, hrWorkspace, payrollWorkspace, rtmWorkspace } from "./planned";
 import type { Breadcrumb, NavLink, NavRoute, Workspace } from "./types";
 
 /**

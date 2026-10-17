@@ -385,6 +385,10 @@ model BusinessUnit {
   openingStockReceipts OpeningStockReceipt[]
   territoryLayers      SalesTerritoryLayer[]
   territoryNodes       SalesTerritoryNode[]
+  workCenters       ProductionWorkCenter[]
+  productionEntries ProductionEntry[]
+  workCenterTypes        ProductionWorkCenterType[]
+  productionDepartments  ProductionDepartment[]
 
   @@unique([companyId, name])
   @@map("business_units")
@@ -422,6 +426,8 @@ model Office {
   openingStockReceipts OpeningStockReceipt[]
   groupPriceSetups     CustomerGroupPriceSetup[]
   salesWallets         SalesWallet[]
+  workCenters       ProductionWorkCenter[]
+  productionEntries ProductionEntry[]
 
   @@unique([businessUnitId, name])
   @@map("offices")
@@ -446,6 +452,7 @@ model Warehouse {
   deliveries   SalesDelivery[]
   returns      SalesReturn[]
   stockEntries StockEntry[]
+  productionWorkCenters ProductionWorkCenter[]
 
   @@unique([officeId, name])
   @@map("warehouses")
@@ -696,6 +703,7 @@ model Item {
   purchaseOrderLines  PurchaseOrderLine[]
   goodsReceiptLines   GoodsReceiptLine[]
   purchaseReturnLines PurchaseReturnLine[]
+  productionEntries ProductionEntry[]
 
   @@unique([businessUnitId, code])
   @@map("items")
@@ -2802,6 +2810,7 @@ model Employee {
   territoryAssignments SalesTerritoryEmployee[]
   superApproverOf      ApprovalPipeline[]      @relation("PipelineSuperEmployee")
   approverOf           ApprovalStageApprover[] @relation("ApproverEmployee")
+  workCenterOperators ProductionWorkCenterOperator[]
 
   @@index([officeId])
   @@index([employeeCode])
@@ -2913,4 +2922,132 @@ model EmploymentHistory {
 
   @@index([employeeId])
   @@map("employment_histories")
+}
+
+// ─── Production ──────────────────────────────────────────────────────────────
+
+/// A machine or line where items are produced ("Work Center").
+model ProductionWorkCenter {
+  id                   String   @id @default(uuid()) @db.Uuid
+  businessUnitId       String   @db.Uuid
+  /// Office of the warehouse, when one is set.
+  officeId             String?  @db.Uuid
+  code                 String   @db.VarChar(30)
+  name                 String   @db.VarChar(150)
+  typeId               String   @db.Uuid
+  departmentId         String?  @db.Uuid
+  departmentSectionId  String?  @db.Uuid
+  warehouseId          String?  @db.Uuid
+  /// Planned running hours per day.
+  standardRunHour      Decimal  @db.Decimal(5, 2)
+  /// Standard output in units per hour.
+  capacityPerHour      Decimal  @db.Decimal(14, 3)
+  /// Rated (achievable) output in units per hour.
+  ratedCapacityPerHour Decimal  @db.Decimal(14, 3)
+  costPerHour          Decimal? @db.Decimal(14, 2)
+  remarks              String?  @db.VarChar(500)
+  isActive             Boolean  @default(true)
+  createdBy            String?  @db.VarChar(100)
+  createdAt            DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt            DateTime @updatedAt @db.Timestamptz(3)
+
+  businessUnit      BusinessUnit                   @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  office            Office?                        @relation(fields: [officeId], references: [id], onDelete: Restrict)
+  type              ProductionWorkCenterType       @relation(fields: [typeId], references: [id], onDelete: Restrict)
+  department        ProductionDepartment?          @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+  departmentSection ProductionDepartmentSection?   @relation(fields: [departmentSectionId], references: [id], onDelete: Restrict)
+  warehouse         Warehouse?                     @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+  operators         ProductionWorkCenterOperator[]
+  entries           ProductionEntry[]
+
+  @@unique([businessUnitId, code])
+  @@map("production_work_centers")
+}
+
+/// Output of one item on a work center on a day ("Production Entry").
+model ProductionEntry {
+  id             String   @id @default(uuid()) @db.Uuid
+  businessUnitId String   @db.Uuid
+  number         String   @db.VarChar(30)
+  officeId       String   @db.Uuid
+  workCenterId   String?  @db.Uuid
+  itemId         String   @db.Uuid
+  productionDate DateTime @db.Date
+  shift          String?  @db.VarChar(30)
+  /// Good units produced.
+  qty            Decimal  @db.Decimal(14, 3)
+  /// Machine hours worked for this output (productivity = qty ÷ hours).
+  hours          Decimal  @default(0) @db.Decimal(10, 2)
+  remarks        String?  @db.VarChar(500)
+  createdBy      String?  @db.VarChar(100)
+  createdAt      DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime @updatedAt @db.Timestamptz(3)
+
+  businessUnit BusinessUnit          @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  office       Office                @relation(fields: [officeId], references: [id], onDelete: Restrict)
+  workCenter   ProductionWorkCenter? @relation(fields: [workCenterId], references: [id], onDelete: Restrict)
+  item         Item                  @relation(fields: [itemId], references: [id], onDelete: Restrict)
+
+  @@unique([businessUnitId, number])
+  @@index([businessUnitId, productionDate])
+  @@index([workCenterId, productionDate])
+  @@map("production_entries")
+}
+
+/// Kind of work center ("Finished Goods", "Packaging", ...).
+model ProductionWorkCenterType {
+  id             String   @id @default(uuid()) @db.Uuid
+  businessUnitId String   @db.Uuid
+  name           String   @db.VarChar(100)
+  createdAt      DateTime @default(now()) @db.Timestamptz(3)
+
+  businessUnit BusinessUnit           @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  workCenters  ProductionWorkCenter[]
+
+  @@unique([businessUnitId, name])
+  @@map("production_work_center_types")
+}
+
+/// Department a work center belongs to.
+model ProductionDepartment {
+  id             String   @id @default(uuid()) @db.Uuid
+  businessUnitId String   @db.Uuid
+  name           String   @db.VarChar(100)
+  createdAt      DateTime @default(now()) @db.Timestamptz(3)
+
+  businessUnit BusinessUnit                  @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  sections     ProductionDepartmentSection[]
+  workCenters  ProductionWorkCenter[]
+
+  @@unique([businessUnitId, name])
+  @@map("production_departments")
+}
+
+/// Section within a department ("Juice", "Snacks", ...).
+model ProductionDepartmentSection {
+  id           String   @id @default(uuid()) @db.Uuid
+  departmentId String   @db.Uuid
+  name         String   @db.VarChar(100)
+  createdAt    DateTime @default(now()) @db.Timestamptz(3)
+
+  department  ProductionDepartment   @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+  workCenters ProductionWorkCenter[]
+
+  @@unique([departmentId, name])
+  @@map("production_department_sections")
+}
+
+/// Employee tagged as an operator of a work center ("Operator Tagging").
+model ProductionWorkCenterOperator {
+  id           String   @id @default(uuid()) @db.Uuid
+  workCenterId String   @db.Uuid
+  employeeId   String   @db.Uuid
+  createdAt    DateTime @default(now()) @db.Timestamptz(3)
+
+  workCenter ProductionWorkCenter @relation(fields: [workCenterId], references: [id], onDelete: Cascade)
+  employee   Employee             @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+
+  @@unique([workCenterId, employeeId])
+  @@index([employeeId])
+  @@map("production_work_center_operators")
 }
