@@ -31,7 +31,7 @@ export async function startTestDb(): Promise<PrismaClient> {
 
 export async function resetTestDb(): Promise<void> {
   await current?.pg.exec(
-    `TRUNCATE stock_entries, delivery_pending_reasons, sales_return_reasons, sales_collection_allocations, sales_bill_lines, sales_bills, sales_order_events, sales_order_lines, sales_orders, item_prices, price_lists, customer_addresses, sales_quotation_lines, sales_quotations, document_sequences, sales_targets, sales_collections, sales_return_lines, sales_returns, sales_delivery_lines, sales_deliveries, items, item_categories, customers, customer_groups, sales_areas, sales_persons, user_sessions, users, term_applicability, terms_conditions, office_assets, warehouses, offices, business_units, companies CASCADE`,
+    `TRUNCATE production_entries, production_work_center_operators, production_work_centers, production_department_sections, production_departments, production_work_center_types, stock_entries, delivery_pending_reasons, sales_return_reasons, sales_collection_allocations, sales_bill_lines, sales_bills, sales_order_events, sales_order_lines, sales_orders, item_prices, price_lists, customer_addresses, sales_quotation_lines, sales_quotations, document_sequences, sales_targets, sales_collections, sales_return_lines, sales_returns, sales_delivery_lines, sales_deliveries, items, item_categories, customers, customer_groups, sales_areas, sales_persons, user_sessions, users, term_applicability, terms_conditions, office_assets, warehouses, offices, business_units, companies CASCADE`,
   );
 }
 
