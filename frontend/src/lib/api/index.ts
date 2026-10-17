@@ -13,6 +13,16 @@ export async function fetchApi<T>(
     (typeof window !== "undefined" ? "/api/v1" : "http://localhost:3000/api/v1");
   const url = `${baseUrl}${cleanEndpoint}`;
 
+  const allowedOrigins = [
+    "",                          // relative URLs (browser only)
+    "http://localhost:3000",
+    process.env.NEXT_PUBLIC_API_URL ?? "",
+  ].filter(Boolean);
+  const parsedOrigin = (() => { try { return new URL(url).origin; } catch { return ""; } })();
+  if (parsedOrigin && !allowedOrigins.includes(parsedOrigin)) {
+    throw new Error(`Blocked request to disallowed origin: ${parsedOrigin}`);
+  }
+
   const res = await fetch(url, {
     ...options,
     headers: {

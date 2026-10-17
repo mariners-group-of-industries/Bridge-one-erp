@@ -5,13 +5,11 @@ import { OfficeFormView } from "@/features/configuration/business-config/company
 
 export const metadata: Metadata = { title: "Office" };
 
-export default function OfficePage({ params }: { params: Promise<{ officeId: string }> }) {
-  // Params are request-time data under Cache Components, so read them inside Suspense.
+export default async function OfficePage({ params }: { params: Promise<{ officeId: string }> }) {
+  const { officeId } = await params;
   return (
     <Suspense fallback={<LoadingState />}>
-      {params.then(({ officeId }) => (
-        <OfficeFormView officeId={officeId} />
-      ))}
+      <OfficeFormView officeId={officeId} />
     </Suspense>
   );
 }

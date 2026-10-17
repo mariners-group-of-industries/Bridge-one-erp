@@ -158,7 +158,7 @@ export function EmployeeListView() {
         }
       />
 
-      <section className="rounded-lg border border-line bg-surface shadow-[0_1px_2px_rgb(0_0_0/0.04)]">
+      <section className="rounded border border-line bg-surface shadow-[0_1px_2px_rgb(0_0_0/0.04)]">
         <EmployeeStatusTabs
           status={filters.status}
           onChange={(status) => changeFilters({ ...filters, status })}

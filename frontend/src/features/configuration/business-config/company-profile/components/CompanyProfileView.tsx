@@ -51,7 +51,7 @@ export function CompanyProfileView() {
       <ProfileSurface>
         <div className="w-full px-4 pb-10 sm:px-6">
           <PageHead title="Company Profile" className={HEAD_CLASS} />
-          <div className="rounded-xl border border-line">
+          <div className="rounded border border-line">
             {company.error ? <ErrorState message={company.error.message} onRetry={company.reload} /> : <LoadingState />}
           </div>
         </div>
@@ -109,7 +109,7 @@ function CompanyProfileForm({
             <span className="flex items-center gap-3">
               <span
                 aria-hidden="true"
-                className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-accent-strong text-base font-semibold text-white"
+                className="flex size-9 shrink-0 items-center justify-center rounded bg-accent-strong text-base font-semibold text-white"
               >
                 {name.trim().charAt(0).toUpperCase() || "C"}
               </span>

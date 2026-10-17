@@ -177,8 +177,8 @@ export function Navbar({ onToggleSidebar, sidebarHidden, onOpenSearch }: NavbarP
 
               {/* Menu items */}
               <div className="p-1">
-                <ProfileMenuItem icon={<User />} label="My Profile" onClick={() => { setProfileOpen(false); alert("Profile — coming soon."); }} />
-                <ProfileMenuItem icon={<Settings />} label="Settings" onClick={() => { setProfileOpen(false); alert("Settings — coming soon."); }} />
+                <ProfileMenuItem icon={<User />} label="My Profile" onClick={() => { setProfileOpen(false); router.push("/profile"); }} />
+                <ProfileMenuItem icon={<Settings />} label="Settings" onClick={() => { setProfileOpen(false); router.push("/settings"); }} />
                 <ProfileMenuItem icon={<Keyboard />} label="Keyboard Shortcuts" onClick={() => { setProfileOpen(false); }} />
                 <ProfileMenuItem
                   icon={readTheme() === "dark" ? <Sun /> : <Moon />}

@@ -40,7 +40,7 @@ export function TermsSection({ units, domain }: Props) {
               key={unit.id}
               type="button"
               onClick={() => setSelectedId(unit.id)}
-              className={`rounded-lg border px-3 py-1.5 text-sm transition-colors ${
+              className={`rounded border px-3 py-1.5 text-sm transition-colors ${
                 unit.id === (selected?.id ?? "")
                   ? "border-ink bg-ink text-surface"
                   : "border-line bg-surface text-ink hover:bg-control"
