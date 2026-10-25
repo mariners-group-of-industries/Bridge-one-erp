@@ -48,7 +48,98 @@ const COLUMNS = [
 ] as const;
 
 type ColumnKey = (typeof COLUMNS)[number]["key"];
-const normal = (value: string) => value.trim().toLowerCase().replace(/\s*\*$/, "");
+
+const HEADER_SEARCH_ROWS = 10;
+
+/** Header text compared loosely: ignores case, "*", bracketed hints, extra/non-breaking spaces and invisible characters. */
+const headerKey = (header: string) =>
+  header
+    .replace(/[\u200b\ufeff]/g, "")
+    .replace(/\u00a0/g, " ")
+    .toLowerCase()
+    .replace(/\([^)]*\)/g, "")
+    .replace(/\*/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+const HEADER_ALIASES: Partial<Record<ColumnKey, string[]>> = {
+  code: ["master item code", "item code", "code", "product code", "item no", "item number", "material code", "master code", "sku"],
+  printedCode: ["printed item code", "printed code", "customer code", "customer item code"],
+  name: ["master item name", "item name", "name", "product name", "material name", "item description", "description"],
+  printedName: ["printed / customer name", "printed customer name", "printed name", "customer name", "display name"],
+  uom: [
+    "uom",
+    "item uom",
+    "u.o.m",
+    "item u.o.m",
+    "unit",
+    "item unit",
+    "unit of measure",
+    "unit of measurement",
+    "measurement unit",
+    "base uom",
+    "base unit",
+    "stock uom",
+    "stock unit",
+    "uom name",
+    "uom code",
+    "default uom",
+    "sales uom",
+    "purchase uom",
+    "packaging uom",
+    "pack uom",
+    "primary uom",
+  ],
+  businessUnit: ["business unit", "bu", "company"],
+  itemType: ["item type", "type", "product type"],
+  division: ["division", "item division", "division name"],
+  category: ["category", "item category", "category name", "main category"],
+  subCategory: ["sub category", "item sub category", "sub-category", "item sub-category", "subcategory", "item subcategory"],
+  minorCategory: ["minor category", "item minor category", "minor-category", "item minor-category", "minorcategory", "item minorcategory"],
+  altUom: ["alt. uom", "alt uom", "alternate uom", "item alt uom", "secondary uom"],
+  altUnit: ["alt. unit", "alt unit", "alternate unit", "conversion factor", "factor"],
+  netWeight: ["net weight", "weight", "item weight"],
+  netWeightUnit: ["net weight unit", "weight unit", "item weight unit"],
+  restrictedAge: ["restricted ages", "restricted age", "age restriction"],
+  tracking: ["tracking", "tracking (none/both)", "tracking type", "batch tracking"],
+  barcode: ["barcode", "bar code", "upc", "ean", "item barcode"],
+  brand: ["brand", "item brand", "brand name"],
+  sellingPrice: ["selling price", "item selling price", "sale price", "sales price", "sales rate", "mrp", "price"],
+  retailPrice: ["retail price", "item retail price"],
+  dealerPrice: ["dealer price", "trade price", "tp"],
+  tradingPrice: ["trading price"],
+  purchasePrice: ["purchase price", "cost price", "buying price", "purchase rate", "cost"],
+  vatPercent: ["vat %", "vat percent", "vat", "vat rate", "tax %", "tax percent", "tax"],
+};
+
+function columnFor(headerText: string) {
+  const raw = headerKey(headerText);
+  const withoutItemPrefix = raw.replace(/^item\s+/, "");
+  const found = COLUMNS.find((c) => {
+    const canonical = headerKey(c.header);
+    const aliases = HEADER_ALIASES[c.key] ?? [];
+    return (
+      canonical === raw ||
+      canonical === withoutItemPrefix ||
+      aliases.includes(raw) ||
+      aliases.includes(withoutItemPrefix)
+    );
+  });
+  if (found) return found;
+
+  // Fallback matching for UOM and units
+  if (
+    raw.includes("uom") ||
+    raw === "unit" ||
+    raw === "item unit" ||
+    raw.includes("unit of measure") ||
+    raw.includes("measurement unit")
+  ) {
+    return COLUMNS.find((c) => c.key === "uom");
+  }
+  return undefined;
+}
+
 const same = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
 
 export async function itemImportTemplate(): Promise<Uint8Array> {
@@ -80,23 +171,58 @@ export async function importItems(actor: Actor, bytes: Uint8Array): Promise<Item
   } catch {
     throw new AppError(400, "VALIDATION_ERROR", "The file is not a valid Excel (.xlsx) workbook.");
   }
-  const sheet = workbook.getWorksheet("Items") ?? workbook.worksheets[0];
+  const findItemSheet = () => {
+    const named = workbook.getWorksheet("Items");
+    if (named) return named;
+    for (const ws of workbook.worksheets) {
+      if (ws.name.toLowerCase() === "instructions") continue;
+      return ws;
+    }
+    return workbook.worksheets[0];
+  };
+  const sheet = findItemSheet();
   if (!sheet) throw new AppError(400, "VALIDATION_ERROR", "The workbook has no sheets.");
 
-  const headerIndex = new Map<ColumnKey, number>();
-  sheet.getRow(1).eachCell((cell, column) => {
-    const match = COLUMNS.find((c) => normal(c.header) === normal(cellText(cell.value)));
-    if (match) headerIndex.set(match.key, column);
-  });
-  for (const required of ["code", "printedCode", "name", "printedName", "uom"] as const) {
+  const readHeaders = (rowNumber: number) => {
+    const found = new Map<ColumnKey, number>();
+    sheet.getRow(rowNumber).eachCell((cell, column) => {
+      const match = columnFor(cellText(cell.value));
+      if (match && !found.has(match.key)) found.set(match.key, column);
+    });
+    return found;
+  };
+
+  let headerRow = 1;
+  for (let r = 1; r <= Math.min(HEADER_SEARCH_ROWS, Math.max(sheet.rowCount, 1)); r++) {
+    const headers = readHeaders(r);
+    if (headers.has("code") || headers.has("name")) {
+      headerRow = r;
+      break;
+    }
+  }
+  const headerIndex = readHeaders(headerRow);
+
+  for (const required of ["code", "name"] as const) {
     if (!headerIndex.has(required)) {
-      throw new AppError(400, "VALIDATION_ERROR", `Column "${COLUMNS.find((c) => c.key === required)!.header}" is missing. Use the template.`);
+      const seen: string[] = [];
+      sheet.getRow(headerRow).eachCell((cell) => {
+        const text = cellText(cell.value);
+        if (text) seen.push(text);
+      });
+      const found = seen.length > 0
+        ? ` Found on "${sheet.name}": ${seen.join(", ")}.`
+        : ` Sheet "${sheet.name}" has no header row.`;
+      throw new AppError(
+        400,
+        "VALIDATION_ERROR",
+        `Column "${COLUMNS.find((c) => c.key === required)!.header}" is missing. Use the template.${found}`,
+      );
     }
   }
 
   const rows: { row: number; get: (k: ColumnKey) => string }[] = [];
   sheet.eachRow((row, rowNumber) => {
-    if (rowNumber === 1) return;
+    if (rowNumber <= headerRow) return;
     const get = (k: ColumnKey) => {
       const column = headerIndex.get(k);
       return column ? cellText(row.getCell(column).value) : "";
@@ -130,11 +256,60 @@ export async function importItems(actor: Actor, bytes: Uint8Array): Promise<Item
         return found;
       };
       const division = find(options.divisions, "Division", get("division"), (d) => d.businessUnitId === unitId);
-      const category = find(options.categories, "Category", get("category"), (c) => c.level === 1 && c.businessUnitId === unitId);
-      if (get("subCategory") && !category) throw new Error("Sub Category needs a Category.");
-      const sub = find(options.categories, "Sub Category", get("subCategory"), (c) => c.parentId === category?.id);
-      if (get("minorCategory") && !sub) throw new Error("Minor Category needs a Sub Category.");
-      const minor = find(options.categories, "Minor Category", get("minorCategory"), (c) => c.parentId === sub?.id);
+      const cleanCat = (s: string) => s.replace(/\s*\[[^\]]+\]\s*$/, "").trim().toLowerCase();
+      const sameCat = (a: string, b: string) => {
+        const ca = cleanCat(a);
+        const cb = cleanCat(b);
+        if (ca === cb) return true;
+        const aliases: Record<string, string> = {
+          bevarage: "beverage",
+          strach: "starch",
+          lebel: "label",
+          bason: "besan",
+        };
+        return (aliases[ca] ?? ca) === (aliases[cb] ?? cb);
+      };
+
+      const rawCat = get("category");
+      const rawSub = get("subCategory");
+      const rawMinor = get("minorCategory");
+
+      let category: (typeof options.categories)[number] | undefined;
+      let sub: (typeof options.categories)[number] | undefined;
+
+      if (rawCat) {
+        category = options.categories.find(
+          (c) => c.level === 1 && c.businessUnitId === unitId && sameCat(c.name, rawCat),
+        );
+        if (!category) {
+          const subMatch = options.categories.find(
+            (c) => c.level === 2 && c.businessUnitId === unitId && sameCat(c.name, rawCat),
+          );
+          if (subMatch && subMatch.parentId) {
+            category = options.categories.find((c) => c.id === subMatch.parentId);
+            sub = subMatch;
+          }
+        }
+        if (!category) throw new Error(`Category "${rawCat}" not found.`);
+      }
+
+      if (rawSub) {
+        if (!category) throw new Error("Sub Category needs a Category.");
+        const subMatch = options.categories.find(
+          (c) => c.parentId === category.id && sameCat(c.name, rawSub),
+        );
+        if (!subMatch) throw new Error(`Sub Category "${rawSub}" not found under "${category.name}".`);
+        sub = subMatch;
+      }
+
+      let minor: (typeof options.categories)[number] | undefined;
+      if (rawMinor) {
+        if (!sub) throw new Error("Minor Category needs a Sub Category.");
+        minor = options.categories.find(
+          (c) => c.parentId === sub.id && sameCat(c.name, rawMinor),
+        );
+        if (!minor) throw new Error(`Minor Category "${rawMinor}" not found under "${sub.name}".`);
+      }
 
       const pick = <T extends string>(list: readonly T[], label: string, value: string): T | "" => {
         if (!value) return "";
@@ -152,15 +327,20 @@ export async function importItems(actor: Actor, bytes: Uint8Array): Promise<Item
         }),
       ) as Record<ItemFlag, boolean>;
 
+      const code = get("code");
+      const name = get("name");
+      const printedCode = get("printedCode") || code;
+      const printedName = get("printedName") || name;
+
       const input: ItemInput = {
         businessUnitId: unitId,
         ...flags,
-        code: get("code"),
-        printedCode: get("printedCode"),
-        name: get("name"),
-        printedName: get("printedName"),
+        code,
+        printedCode,
+        name,
+        printedName,
         itemType: pick(ITEM_TYPES, "Item Type", get("itemType")),
-        uom: get("uom"),
+        uom: get("uom") || "Pcs",
         divisionId: division?.id ?? "",
         categoryId: category?.id ?? "",
         subCategoryId: sub?.id ?? "",

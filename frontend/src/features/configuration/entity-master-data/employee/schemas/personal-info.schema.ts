@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { UUID_PATTERN } from "@/lib/validation/fields";
 
 // ─── Personal info (GET + PATCH) ─────────────────────────────────────────────
 
@@ -104,7 +105,7 @@ export const updateCredentialsSchema = z.object({
   phone:    z.string().trim().min(1).max(30),
   password: z.string().min(8).max(128).optional().or(z.literal("")),
   confirmPassword: z.string().optional().or(z.literal("")),
-  roleId:   z.string().uuid().optional().or(z.literal("")),
+  roleId:   z.string().regex(UUID_PATTERN, { message: "Invalid UUID" }).optional().or(z.literal("")),
 }).refine(
   (d) => !d.password || d.password === d.confirmPassword,
   { message: "Passwords do not match.", path: ["confirmPassword"] },
@@ -133,9 +134,9 @@ export interface CredentialsDto {
 // ─── Org access (GET + PUT) ───────────────────────────────────────────────────
 
 export const updateOrgAccessSchema = z.object({
-  businessUnitIds: z.array(z.string().uuid()),
-  officeIds:       z.array(z.string().uuid()),
-  warehouseIds:    z.array(z.string().uuid()),
+  businessUnitIds: z.array(z.string().regex(UUID_PATTERN, { message: "Invalid UUID" })),
+  officeIds:       z.array(z.string().regex(UUID_PATTERN, { message: "Invalid UUID" })),
+  warehouseIds:    z.array(z.string().regex(UUID_PATTERN, { message: "Invalid UUID" })),
 });
 
 export type UpdateOrgAccessInput = z.infer<typeof updateOrgAccessSchema>;

@@ -104,3 +104,10 @@ export function assertCompanyAccess(actor: Actor, companyId: string, entity: str
     throw new AppError(404, "NOT_FOUND", `${entity} not found.`);
   }
 }
+
+const USER_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** The signed-in user's id for "last action by" foreign keys; null for API tokens and system actors. */
+export function actorUserId(actor: Actor): string | null {
+  return USER_ID.test(actor.id) ? actor.id : null;
+}

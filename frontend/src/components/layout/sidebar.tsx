@@ -165,7 +165,6 @@ function GroupItem({ label, links, groupHref, pathname, onNavigate }: { label: s
           <>
             <span aria-hidden="true" className={cn("size-1.5 shrink-0 rounded-full", active ? "bg-accent-strong dark:bg-accent" : "bg-ink-faint")} />
             <span className={cn("flex-1 truncate text-left", active && "font-semibold")}>{label}</span>
-            {!open && <span className="rounded-full bg-control px-1.5 text-[10px] text-ink-faint tabular-nums">{links.length}</span>}
             <Chevron open={open} />
           </>
         )}
