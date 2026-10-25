@@ -4,34 +4,35 @@ export const hrmPaths = {
   root: ROOT,
   dashboard: ROOT,
 
-  // Employees & Organization
-  employees: `${ROOT}/employees`,
-  employeeCreate: `${ROOT}/employees/new`,
-  employeeProfile: (id: string) => `${ROOT}/employees/${id}`,
-  departments: `${ROOT}/departments`,
-  designations: `${ROOT}/designations`,
+  // Employee Self Service
+  selfService: `${ROOT}/self-service`,
+  myProfile: `${ROOT}/self-service/profile`,
+  myLeave: `${ROOT}/self-service/leave`,
+  leaveApply: `${ROOT}/self-service/leave/apply`,
+  myMovement: `${ROOT}/self-service/movement`,
+  movementApply: `${ROOT}/self-service/movement/apply`,
 
-  // Attendance & Shifts
+  // Time and Attendance
   attendance: `${ROOT}/attendance`,
-  attendanceLogs: `${ROOT}/attendance/logs`,
-  shifts: `${ROOT}/shifts`,
+  attendanceDaily: `${ROOT}/attendance/daily`,
+  calendarAssign: `${ROOT}/calendar-assign`,
+  overtime: `${ROOT}/overtime`,
 
-  // Leave Management
-  leave: `${ROOT}/leave`,
-  leavePolicies: `${ROOT}/leave/policies`,
-
-  // Payroll Management
+  // Payroll Administration
   payroll: `${ROOT}/payroll`,
-  salaryStructures: `${ROOT}/payroll/structures`,
-  salaryProcess: `${ROOT}/payroll/process`,
+  payrollProcess: `${ROOT}/payroll/process`,
   payslips: `${ROOT}/payroll/payslips`,
+  salaryStructures: `${ROOT}/payroll/structures`,
   salaryAdjustments: `${ROOT}/payroll/adjustments`,
-  bankAdvice: `${ROOT}/payroll/bank-advice`,
 
-  // Reports
-  reports: `${ROOT}/reports`,
-  salarySheet: `${ROOT}/reports/salary-sheet`,
-  attendanceReport: `${ROOT}/reports/attendance`,
+  // Talent & Offboarding
+  talent: `${ROOT}/talent`,
+  increment: `${ROOT}/talent/increment`,
+  offboarding: `${ROOT}/talent/offboarding`,
+
+  // Employee Directory & Management
+  employees: `${ROOT}/employees`,
+  employeeProfile: (id: string) => `${ROOT}/employees/${id}`,
 } as const;
 
 export const hrmPatterns = {

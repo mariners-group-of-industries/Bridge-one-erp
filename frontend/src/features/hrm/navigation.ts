@@ -1,164 +1,130 @@
 import {
   Banknote,
-  Building2,
+  Briefcase,
+  CalendarCheck,
   CalendarDays,
   Clock,
-  CreditCard,
   FileSpreadsheet,
   FileText,
-  LayoutDashboard,
-  Receipt,
+  Footprints,
+  TrendingUp,
   UserCheck,
-  UserPlus,
   Users,
+  UserSquare2,
 } from "lucide-react";
 import type { NavLink, Workspace } from "@/lib/navigation/types";
 import { hrmPaths, hrmPatterns } from "./paths";
 
-export const hrmDashboard: NavLink = {
-  label: "HRM Dashboard",
-  href: hrmPaths.dashboard,
-  description: "Workforce overview, attendance statistics, salary expenditures and payroll status.",
-  keywords: ["hrm", "dashboard", "kpi", "overview", "workforce", "headcount"],
+// ─── Employee Self Service ───────────────────────────────────────────────────
+
+export const profileLink: NavLink = {
+  label: "Profile",
+  href: hrmPaths.myProfile,
+  description: "Personal and job information, employment history, documents, and salary details.",
+  keywords: ["profile", "employee", "personal", "self service", "documents"],
 };
 
-export const employeeList: NavLink = {
-  label: "Employee Directory",
-  href: hrmPaths.employees,
-  description: "Active employees, personal profiles, job designations, and employment records.",
-  keywords: ["employee", "staff", "directory", "profiles", "headcount", "personnel"],
+export const leaveLink: NavLink = {
+  label: "Leave",
+  href: hrmPaths.myLeave,
+  description: "Apply for leaves, view leave balance, track approval status, and holiday list.",
+  keywords: ["leave", "vacation", "holiday", "casual leave", "sick leave", "earned leave"],
 };
 
-export const employeeNew: NavLink = {
-  label: "New Employee Onboarding",
-  href: hrmPaths.employeeCreate,
-  description: "Enroll a new staff member with personal, professional, and salary details.",
-  keywords: ["new employee", "hire", "onboard", "create employee"],
+export const movementLink: NavLink = {
+  label: "Movement",
+  href: hrmPaths.myMovement,
+  description: "Official duty / field movement applications, client visit logs, and out-of-office requests.",
+  keywords: ["movement", "out of office", "official visit", "tour", "duty", "field work"],
 };
 
-export const departments: NavLink = {
-  label: "Departments & Designations",
-  href: hrmPaths.departments,
-  description: "Organizational hierarchy, business departments, job titles, and grades.",
-  keywords: ["department", "designation", "grades", "organization", "hierarchy"],
-};
+// ─── Time and Attendance ─────────────────────────────────────────────────────
 
-export const dailyAttendance: NavLink = {
-  label: "Daily Attendance",
+export const attendanceLink: NavLink = {
+  label: "Attendance",
   href: hrmPaths.attendance,
-  description: "Daily check-in/out registers, late arrivals, early departures, and overtime hours.",
-  keywords: ["attendance", "present", "absent", "late", "overtime", "clock in"],
+  description: "Daily attendance tracking, biometric logs, manual in/out adjustments, and late records.",
+  keywords: ["attendance", "daily attendance", "biometric", "check in", "late", "absent", "punch"],
 };
 
-export const shiftSetup: NavLink = {
-  label: "Shift Management",
-  href: hrmPaths.shifts,
-  description: "Roster scheduling, general and rotational shifts, and timing grace periods.",
-  keywords: ["shift", "roster", "timings", "schedule"],
+export const calendarAssignLink: NavLink = {
+  label: "Calendar Assign",
+  href: hrmPaths.calendarAssign,
+  description: "Assign work calendars, general and rotational shift rosters, and weekly off-days to employees.",
+  keywords: ["calendar assign", "shift assign", "roster", "work calendar", "off day", "shift schedule"],
 };
 
-export const leaveManagement: NavLink = {
-  label: "Leave Applications",
-  href: hrmPaths.leave,
-  description: "Leave requests, balance allowances, maternity/casual/sick leave approvals.",
-  keywords: ["leave", "vacation", "holiday", "casual leave", "sick leave", "approval"],
+export const overtimeLink: NavLink = {
+  label: "Overtime",
+  href: hrmPaths.overtime,
+  description: "Overtime (OT) hours tracking, overtime requisitions, approval, and monthly OT summary.",
+  keywords: ["overtime", "ot", "extra hours", "ot approval", "ot rate"],
 };
 
-export const salaryStructures: NavLink = {
-  label: "Salary Structure & Setup",
-  href: hrmPaths.salaryStructures,
-  description: "Basic salary formulas, house rent, medical, conveyance, food allowances, and PF.",
-  keywords: ["salary structure", "basic", "house rent", "allowance", "provident fund", "deduction"],
+// ─── Payroll Administration ──────────────────────────────────────────────────
+
+export const payrollLink: NavLink = {
+  label: "Payroll",
+  href: hrmPaths.payroll,
+  description: "Monthly payroll generation, salary structures, payslips, deductions, and bank advice.",
+  keywords: ["payroll", "salary", "pay run", "payslip", "structure", "deductions", "disbursement"],
 };
 
-export const salaryProcess: NavLink = {
-  label: "Monthly Payroll Processing",
-  href: hrmPaths.salaryProcess,
-  description: "Generate and review monthly salary sheets from attendance and salary structures.",
-  keywords: ["payroll process", "generate salary", "monthly payroll", "pay run"],
+// ─── Talent & Offboarding ───────────────────────────────────────────────────
+
+export const incrementLink: NavLink = {
+  label: "Increment",
+  href: hrmPaths.increment,
+  description: "Employee annual/performance salary increments, revision history, and batch increment processing.",
+  keywords: ["increment", "salary hike", "appraisal", "pay raise", "talent", "offboarding"],
 };
 
-export const payslips: NavLink = {
-  label: "Payslips & Pay Register",
-  href: hrmPaths.payslips,
-  description: "Individual printable payslips, breakdown statements, and salary payment logs.",
-  keywords: ["payslip", "pay slip", "pay register", "salary slip", "advice"],
-};
-
-export const salaryAdjustments: NavLink = {
-  label: "Salary Adjustments & Loans",
-  href: hrmPaths.salaryAdjustments,
-  description: "Special bonuses, festival allowances, advance deductions, and loan repayments.",
-  keywords: ["adjustment", "bonus", "advance", "loan", "deduction", "fine"],
-};
-
-export const bankAdviceReport: NavLink = {
-  label: "Bank Advice & Disbursement",
-  href: hrmPaths.bankAdvice,
-  description: "Bank transfer letters, MFS routing files, and cash disbursement sheets.",
-  keywords: ["bank advice", "disbursement", "bftn", "mfs", "bkash", "cash salary"],
-};
-
-export const salarySheetReport: NavLink = {
-  label: "Monthly Salary Sheet Report",
-  href: hrmPaths.salarySheet,
-  description: "Comprehensive payroll master report with gross, additions, deductions, and net pay.",
-  keywords: ["salary sheet", "payroll report", "register", "audit"],
-};
-
-export const attendanceReport: NavLink = {
-  label: "Attendance Summary Report",
-  href: hrmPaths.attendanceReport,
-  description: "Monthly attendance percentages, working days, leaves taken, and overtime logs.",
-  keywords: ["attendance report", "timecard", "manhours", "overtime report"],
-};
+// ─── Workspace Configuration ────────────────────────────────────────────────
 
 export const hrmWorkspace: Workspace = {
   id: "hrm",
   label: "HRM",
   icon: Users,
   href: hrmPaths.root,
-  description: "Human Resource Management: employee directory, attendance, leaves, payroll processing, and salary structures.",
+  description: "Human Resource Management: Self-service, time & attendance, payroll administration, and talent management.",
   status: "active",
   shortcuts: [
-    employeeList,
-    dailyAttendance,
-    leaveManagement,
-    salaryProcess,
-    payslips,
+    profileLink,
+    leaveLink,
+    movementLink,
+    attendanceLink,
+    calendarAssignLink,
+    overtimeLink,
+    payrollLink,
+    incrementLink,
   ],
   cards: [
     {
-      label: "Employee & Organization",
+      label: "Employee Self Service",
       links: [
-        employeeList,
-        employeeNew,
-        departments,
+        profileLink,
+        leaveLink,
+        movementLink,
       ],
     },
     {
-      label: "Time & Attendance",
+      label: "Time and Attendance",
       links: [
-        dailyAttendance,
-        shiftSetup,
-        leaveManagement,
+        attendanceLink,
+        calendarAssignLink,
+        overtimeLink,
       ],
     },
     {
-      label: "Payroll & Compensation",
+      label: "Payroll Administration",
       links: [
-        salaryStructures,
-        salaryProcess,
-        payslips,
-        salaryAdjustments,
-        bankAdviceReport,
+        payrollLink,
       ],
     },
     {
-      label: "HR Reports & Analytics",
+      label: "Talent Offboarding",
       links: [
-        salarySheetReport,
-        attendanceReport,
+        incrementLink,
       ],
     },
   ],
