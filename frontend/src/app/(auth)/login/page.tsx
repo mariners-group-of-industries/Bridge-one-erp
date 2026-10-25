@@ -2,11 +2,18 @@
 
 import { AlertCircle, Eye, EyeOff, Lock, Moon, Phone, Sun } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { useSession } from "@/lib/auth/session";
 import { applyTheme, readTheme } from "@/lib/theme";
 
 const YEAR = new Date().getFullYear();
+
+/** Re-render whenever the `data-theme` attribute on <html> changes. */
+function subscribeTheme(onChange: () => void) {
+  const observer = new MutationObserver(onChange);
+  observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+  return () => observer.disconnect();
+}
 
 export default function LoginPage() {
   const { login, user } = useSession();
@@ -16,11 +23,7 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const [theme, setTheme] = useState<"light" | "dark">("light");
-
-  useEffect(() => {
-    setTheme(readTheme());
-  }, []);
+  const theme = useSyncExternalStore(subscribeTheme, readTheme, () => "light" as const);
 
   useEffect(() => {
     if (user) router.replace("/");
@@ -29,7 +32,6 @@ export default function LoginPage() {
   function handleToggleTheme() {
     const next = theme === "dark" ? "light" : "dark";
     applyTheme(next);
-    setTheme(next);
   }
 
   async function handleSubmit(e: React.FormEvent) {
