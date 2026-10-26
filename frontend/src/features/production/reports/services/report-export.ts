@@ -1,6 +1,6 @@
 import ExcelJS from "exceljs";
 import type { Actor } from "@/lib/auth/actor";
-import { addPageFooters, pdfWriter } from "../../lib/pdf";
+import { addPageFooters, pdfWriter } from "@/lib/pdf";
 import { cellText } from "../lib/format";
 import type { ColumnKind, Report, ReportCell } from "../schemas/report.schema";
 import { getReport } from "./report.service";

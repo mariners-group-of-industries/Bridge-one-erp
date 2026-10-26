@@ -5,14 +5,16 @@ import { db } from "@/lib/prisma/client";
 import { money } from "../../dashboard/lib/aggregate";
 import { fromDbDate, toDbDate } from "../../lib/dates";
 import { requireOffice, scopedBusinessUnitIds } from "../../lib/scope";
-import { formatNumber, nextNumber } from "../../lib/sequence";
+import { companyDocumentNumber, formatNumber, nextNumber } from "../../lib/sequence";
 import { userNames } from "../../lib/users";
 import {
   adjustAdvanceSchema,
+  advanceVoucherSchema,
   billInputSchema,
   cancelSchema,
   collectionInputSchema,
   collectionListQuerySchema,
+  dueCollectionSchema,
   dueInvoiceQuerySchema,
   dueQuerySchema,
   type AllocationRow,
@@ -23,6 +25,7 @@ import {
   type CollectionRow,
   type DueInvoice,
   type DueListRow,
+  type GlAccountOption,
   type LedgerRow,
 } from "../schemas/collection.schema";
 
@@ -281,6 +284,8 @@ export async function getBill(actor: Actor, id: string, asOf: string): Promise<B
   const nameOf = await userNames([record.createdBy, record.cancelledBy]);
   return {
     ...row,
+    billType: record.billType as BillDetail["billType"],
+    terms: record.terms,
     businessUnitId: record.businessUnitId,
     companyName: record.businessUnit.company.name,
     officeId: record.officeId,
@@ -298,6 +303,9 @@ export async function getBill(actor: Actor, id: string, asOf: string): Promise<B
         deliveryId: line.deliveryId,
         invoiceNumber: line.delivery.number,
         challanNo: line.delivery.challanNo,
+        challanManual: line.challanManual,
+        grnNumber: line.grnNumber,
+        submissionDate: line.submissionDate ? fromDbDate(line.submissionDate) : null,
         invoiceDate: fromDbDate(line.delivery.deliveryDate),
         dueDate: fromDbDate(line.delivery.dueDate),
         invoiceAmount: num(line.delivery.totalAmount),
@@ -314,6 +322,11 @@ const collectionInclude = {
   customer: { select: { code: true, name: true, phone: true, address: true } },
   salesPerson: { select: { name: true } },
   allocations: { include: { delivery: { select: { number: true, deliveryDate: true, totalAmount: true } } } },
+  adjustAccount: { select: { code: true, name: true } },
+  cashAccount: { select: { code: true, name: true } },
+  salesOrder: { select: { number: true } },
+  employee: { select: { name: true } },
+  deductions: { include: { account: { select: { code: true, name: true } } } },
 } satisfies Prisma.SalesCollectionInclude;
 type CollectionRecord = Prisma.SalesCollectionGetPayload<{ include: typeof collectionInclude }>;
 
@@ -386,8 +399,24 @@ async function loadCollection(actor: Actor, id: string): Promise<CollectionRecor
 export async function getCollection(actor: Actor, id: string): Promise<CollectionDetail> {
   const record = await loadCollection(actor, id);
   const nameOf = await userNames([record.createdBy, record.cancelledBy]);
+  const account = (value: { code: string; name: string } | null) => (value ? `${value.code} - ${value.name}` : null);
   return {
     ...toRow(record),
+    moneyReceiptNo: record.moneyReceiptNo,
+    cashType: record.cashType,
+    adjustAccount: account(record.adjustAccount),
+    voucherType: (record.voucherType as CollectionDetail["voucherType"]) ?? null,
+    cashAccount: account(record.cashAccount),
+    cashRemarks: record.cashRemarks,
+    project: record.project,
+    narration: record.narration,
+    controlAmount: record.controlAmount ? num(record.controlAmount) : null,
+    adjustmentAmount: num(record.adjustmentAmount),
+    salesOrderId: record.salesOrderId,
+    salesOrderNumber: record.salesOrder?.number ?? null,
+    employeeName: record.employee?.name ?? null,
+    deductionAmount: num(record.deductionAmount),
+    deductions: record.deductions.map((row) => ({ id: row.id, expense: row.expense, account: account(row.account)!, amount: num(row.amount) })),
     businessUnitId: record.businessUnitId,
     companyName: record.businessUnit.company.name,
     officeId: record.officeId,
@@ -440,14 +469,13 @@ async function requireParty(actor: Actor, input: { officeId: string; customerId:
 export async function createCollection(actor: Actor, raw: unknown): Promise<CollectionDetail> {
   const input = collectionInputSchema.parse(raw);
   const office = await requireParty(actor, input);
-  const year = Number(input.collectionDate.slice(0, 4));
   const id = await db().$transaction(async (tx) => {
     await lockCustomer(tx, input.customerId);
     if (input.kind === "INVOICE") await assertPayable(tx, input.customerId, input.allocations, input.collectionDate);
     const created = await tx.salesCollection.create({
       data: {
         businessUnitId: office.businessUnitId,
-        number: formatNumber("CR", year, await nextNumber(tx, office.businessUnitId, "SALES_COLLECTION", year)),
+        number: await companyDocumentNumber(tx, office.businessUnitId, "SALES_COLLECTION", "CR-", input.collectionDate),
         kind: input.kind,
         officeId: office.id,
         customerId: input.customerId,
@@ -467,6 +495,132 @@ export async function createCollection(actor: Actor, raw: unknown): Promise<Coll
     return created.id;
   });
   return getCollection(actor, id);
+}
+
+/** Leaf GL accounts (Cash Account, Adjust With GL, bank deduction heads). */
+export async function listGlAccounts(): Promise<GlAccountOption[]> {
+  const rows = await db().account.findMany({
+    where: { isGroup: false, status: "ACTIVE" },
+    select: { id: true, code: true, name: true, accountType: true },
+    orderBy: { code: "asc" },
+  });
+  return rows;
+}
+
+async function requireAccounts(client: Client, ids: (string | null)[]) {
+  const wanted = [...new Set(ids.filter((id): id is string => Boolean(id)))];
+  if (wanted.length === 0) return;
+  const found = await client.account.count({ where: { id: { in: wanted }, isGroup: false } });
+  if (found !== wanted.length) throw badRequest("Select an active GL account (not a group).");
+}
+
+async function requireCustomers(client: Client, businessUnitId: string, customerIds: string[]) {
+  const found = await client.customer.count({ where: { id: { in: customerIds }, businessUnitId } });
+  if (found !== new Set(customerIds).size) throw badRequest("A customer does not belong to the office's business unit.");
+}
+
+/**
+ * Due Collection: settles invoices of one or more customers at once (one money receipt
+ * per customer). Bank deductions are kept on the first receipt.
+ */
+export async function createDueCollection(actor: Actor, raw: unknown): Promise<{ id: string; number: string }[]> {
+  const input = dueCollectionSchema.parse(raw);
+  const office = await requireOffice(actor, input.officeId);
+  await requireCustomers(db(), office.businessUnitId, input.rows.map((row) => row.customerId));
+  if (input.salesPersonId) {
+    const person = await db().salesPerson.findFirst({ where: { id: input.salesPersonId, businessUnitId: office.businessUnitId } });
+    if (!person) throw badRequest("Collect By does not belong to the office's business unit.");
+  }
+  await requireAccounts(db(), [input.adjustAccountId, ...input.deductions.map((row) => row.accountId)]);
+  const deductionAmount = money(input.deductions.reduce((sum, row) => sum + row.amount, 0));
+
+  return db().$transaction(async (tx) => {
+    const created: { id: string; number: string }[] = [];
+    for (const [index, row] of input.rows.entries()) {
+      await lockCustomer(tx, row.customerId);
+      await assertPayable(tx, row.customerId, row.allocations, input.collectionDate);
+      const first = index === 0;
+      const record = await tx.salesCollection.create({
+        data: {
+          businessUnitId: office.businessUnitId,
+          number: await companyDocumentNumber(tx, office.businessUnitId, "SALES_COLLECTION", "CR-", input.collectionDate),
+          kind: "INVOICE",
+          officeId: office.id,
+          customerId: row.customerId,
+          salesPersonId: input.salesPersonId,
+          collectionDate: toDbDate(input.collectionDate),
+          method: input.method,
+          amount: money(row.allocations.reduce((sum, item) => sum + item.amount, 0)),
+          reference: input.reference ?? input.moneyReceiptNo,
+          bankName: input.bankName,
+          moneyReceiptNo: input.moneyReceiptNo,
+          cashType: input.cashType,
+          adjustAccountId: input.adjustAccountId,
+          remarks: input.remarks,
+          status: LIVE,
+          createdBy: actor.id,
+          deductionAmount: first ? deductionAmount : 0,
+          allocations: { create: row.allocations },
+          ...(first && input.deductions.length ? { deductions: { create: input.deductions } } : {}),
+        },
+        select: { id: true, number: true },
+      });
+      created.push(record);
+    }
+    return created;
+  });
+}
+
+/** Advance Collection voucher: one advance receipt per row. */
+export async function createAdvanceVoucher(actor: Actor, raw: unknown): Promise<{ id: string; number: string }[]> {
+  const input = advanceVoucherSchema.parse(raw);
+  const office = await requireOffice(actor, input.officeId);
+  await requireCustomers(db(), office.businessUnitId, input.rows.map((row) => row.customerId));
+  await requireAccounts(db(), [input.cashAccountId, input.adjustAccountId]);
+  if (input.employeeId) {
+    const employee = await db().employee.findFirst({ where: { id: input.employeeId, isActive: true, office: { businessUnitId: office.businessUnitId } }, select: { id: true } });
+    if (!employee) throw badRequest("Employee must be an active employee of this business unit.");
+  }
+  for (const row of input.rows) {
+    if (!row.salesOrderId) continue;
+    const order = await db().salesOrder.findFirst({ where: { id: row.salesOrderId, customerId: row.customerId, status: { not: "CANCELLED" } }, select: { id: true } });
+    if (!order) throw badRequest("The SO No does not belong to that partner.");
+  }
+
+  return db().$transaction(async (tx) => {
+    const created: { id: string; number: string }[] = [];
+    for (const row of input.rows) {
+      await lockCustomer(tx, row.customerId);
+      const record = await tx.salesCollection.create({
+        data: {
+          businessUnitId: office.businessUnitId,
+          number: await companyDocumentNumber(tx, office.businessUnitId, "SALES_COLLECTION", "CR-", input.collectionDate),
+          kind: "ADVANCE",
+          officeId: office.id,
+          customerId: row.customerId,
+          collectionDate: toDbDate(input.collectionDate),
+          method: input.voucherType === "BANK_RECEIVE" ? "BANK" : "CASH",
+          amount: row.amount,
+          remarks: row.remarks,
+          voucherType: input.voucherType,
+          cashAccountId: input.cashAccountId,
+          cashRemarks: input.cashRemarks,
+          adjustAccountId: input.adjustAccountId,
+          project: input.project,
+          narration: input.narration,
+          controlAmount: input.controlAmount,
+          adjustmentAmount: row.adjustmentAmount,
+          salesOrderId: row.salesOrderId,
+          employeeId: input.employeeId,
+          status: LIVE,
+          createdBy: actor.id,
+        },
+        select: { id: true, number: true },
+      });
+      created.push(record);
+    }
+    return created;
+  });
 }
 
 /** Applies (part of) an advance to due invoices. */
@@ -520,7 +674,14 @@ export async function createBill(actor: Actor, raw: unknown, asOf: string): Prom
       if (!invoice) throw badRequest("An invoice does not belong to this customer or was deleted.");
       if (invoice.due <= 0) throw conflict(`${invoice.number} has nothing due.`);
       if (invoice.billNumber) throw conflict(`${invoice.number} is already on bill ${invoice.billNumber}.`);
-      return { deliveryId, amount: invoice.due };
+      const detail = input.details.find((row) => row.deliveryId === deliveryId);
+      return {
+        deliveryId,
+        amount: invoice.due,
+        challanManual: detail?.challanManual ?? null,
+        grnNumber: detail?.grnNumber ?? null,
+        submissionDate: detail?.submissionDate ? toDbDate(detail.submissionDate) : null,
+      };
     });
     const created = await tx.salesBill.create({
       data: {
@@ -530,6 +691,8 @@ export async function createBill(actor: Actor, raw: unknown, asOf: string): Prom
         customerId: input.customerId,
         billDate: toDbDate(input.billDate),
         remarks: input.remarks,
+        billType: input.billType,
+        terms: input.terms,
         totalAmount: money(lines.reduce((sum, line) => sum + line.amount, 0)),
         createdBy: actor.id,
         lines: { create: lines },

@@ -361,6 +361,7 @@ model BusinessUnit {
   priceLists       PriceList[]
   salesOrders      SalesOrder[]
   deliveryReasons  DeliveryPendingReason[]
+  vehicles         Vehicle[]
   stockEntries     StockEntry[]
   returnReasons    SalesReturnReason[]
   salesBills       SalesBill[]
@@ -617,6 +618,12 @@ model Customer {
   billingContactNo           String?   @db.VarChar(30)
   taxBracketId               String?   @db.Uuid
   remarks                    String?   @db.VarChar(1000)
+  /// Partner Bank Information.
+  bankAccountType            String?   @db.VarChar(50)
+  bankAccountNo              String?   @db.VarChar(50)
+  bankBranch                 String?   @db.VarChar(100)
+  bankName                   String?   @db.VarChar(100)
+  bankRoutingNo              String?   @db.VarChar(30)
 
   businessUnit  BusinessUnit      @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
   salesPerson   SalesPerson?      @relation(fields: [salesPersonId], references: [id], onDelete: SetNull)
@@ -771,6 +778,16 @@ model SalesDelivery {
   driverName         String?              @db.VarChar(100)
   driverPhone        String?              @db.VarChar(30)
   transporterName    String?              @db.VarChar(150)
+  /// Registered vehicle (vehicleNo keeps its number as it was).
+  vehicleId          String?              @db.Uuid
+  /// Driver (Employee); driverName is the external driver's name.
+  driverEmployeeId   String?              @db.Uuid
+  securityCode       String?              @db.VarChar(40)
+  referredBy         String?              @db.VarChar(150)
+  /// Buyer's name and mobile when the customer is the anonymous (walk-in) one.
+  buyerName          String?              @db.VarChar(150)
+  buyerMobile        String?              @db.VarChar(30)
+  salesType          SalesOrderType       @default(SALES)
   totalQty           Decimal              @default(0) @db.Decimal(14, 3)
   itemsTotal         Decimal              @default(0) @db.Decimal(14, 2)
   itemsBase          Decimal              @default(0) @db.Decimal(14, 2)
@@ -806,6 +823,8 @@ model SalesDelivery {
   salesPerson    SalesPerson?                @relation(fields: [salesPersonId], references: [id], onDelete: Restrict)
   shipTo         CustomerAddress?            @relation(fields: [shipToAddressId], references: [id], onDelete: SetNull)
   exchangeReturn SalesReturn?                @relation("ExchangeReturn", fields: [exchangeReturnId], references: [id], onDelete: Restrict)
+  vehicle        Vehicle?                    @relation(fields: [vehicleId], references: [id], onDelete: SetNull)
+  driver         Employee?                   @relation("DeliveryDriver", fields: [driverEmployeeId], references: [id], onDelete: SetNull)
   lines          SalesDeliveryLine[]
   returns        SalesReturn[]
   collections    SalesCollection[]
@@ -818,7 +837,54 @@ model SalesDelivery {
   @@index([customerId, status, dueDate])
   @@index([salesOrderId])
   @@index([officeId, deliveryType, deliveryDate])
+  @@index([vehicleId])
   @@map("sales_deliveries")
+}
+
+/// Vehicles that carry deliveries (own or rented), with their default driver.
+model Vehicle {
+  id               String   @id @default(uuid()) @db.Uuid
+  businessUnitId   String   @db.Uuid
+  vehicleNumber    String   @db.VarChar(40)
+  vehicleSize      String?  @db.VarChar(50)
+  chassisNumber    String?  @db.VarChar(60)
+  vehicleName      String?  @db.VarChar(100)
+  serviceProvider  String?  @db.VarChar(150)
+  contactNumber    String?  @db.VarChar(30)
+  isRent           Boolean  @default(false)
+  isCargo          Boolean  @default(false)
+  driverEmployeeId String?  @db.Uuid
+  driverName       String?  @db.VarChar(100)
+  driverContact    String?  @db.VarChar(30)
+  securityCode     String?  @db.VarChar(40)
+  isActive         Boolean  @default(true)
+  createdBy        String   @db.VarChar(100)
+  createdAt        DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt        DateTime @updatedAt @db.Timestamptz(3)
+
+  businessUnit BusinessUnit         @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  driver       Employee?            @relation("VehicleDriver", fields: [driverEmployeeId], references: [id], onDelete: SetNull)
+  compartments VehicleCompartment[]
+  deliveries   SalesDelivery[]
+
+  @@unique([businessUnitId, vehicleNumber])
+  @@map("vehicles")
+}
+
+/// Compartments of a vehicle (e.g. tanks of a tanker) and what each holds.
+model VehicleCompartment {
+  id              String  @id @default(uuid()) @db.Uuid
+  vehicleId       String  @db.Uuid
+  compartmentNo   Int
+  compartmentType String  @db.VarChar(60)
+  compartmentName String  @db.VarChar(60)
+  capacity        Decimal @db.Decimal(14, 3)
+  uom             String  @db.VarChar(20)
+
+  vehicle Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+
+  @@unique([vehicleId, compartmentNo])
+  @@map("vehicle_compartments")
 }
 
 model SalesDeliveryLine {
@@ -1004,6 +1070,27 @@ model SalesCollection {
   kind           CollectionKind   @default(INVOICE)
   officeId       String?          @db.Uuid
   bankName       String?          @db.VarChar(100)
+  /// Money Receipt No (Due Collection).
+  moneyReceiptNo String?          @db.VarChar(60)
+  /// Cash Type on Due Collection (e.g. Cash in Hand, Petty Cash).
+  cashType       String?          @db.VarChar(30)
+  /// "Adjust With GL": the GL the collection is posted against.
+  adjustAccountId String?         @db.Uuid
+  /// Advance Collection voucher: Cash / Bank Receive, cash account, project, narration.
+  voucherType    String?          @db.VarChar(30)
+  cashAccountId  String?          @db.Uuid
+  cashRemarks    String?          @db.VarChar(300)
+  project        String?          @db.VarChar(150)
+  narration      String?          @db.VarChar(500)
+  controlAmount  Decimal?         @db.Decimal(14, 2)
+  /// Advance row: part of the amount adjusted at once.
+  adjustmentAmount Decimal        @default(0) @db.Decimal(14, 2)
+  /// Advance taken against a sales order (SO No).
+  salesOrderId   String?          @db.Uuid
+  /// Employee who took the advance.
+  employeeId     String?          @db.Uuid
+  /// Bank charges deducted from the money received (sum of deductions).
+  deductionAmount Decimal         @default(0) @db.Decimal(14, 2)
   createdBy      String?          @db.VarChar(100)
   cancelledAt    DateTime?        @db.Timestamptz(3)
   cancelledBy    String?          @db.VarChar(100)
@@ -1016,7 +1103,12 @@ model SalesCollection {
   salesPerson  SalesPerson?                @relation(fields: [salesPersonId], references: [id], onDelete: Restrict)
   delivery     SalesDelivery?              @relation(fields: [deliveryId], references: [id], onDelete: Restrict)
   office       Office?                     @relation(fields: [officeId], references: [id], onDelete: Restrict)
+  adjustAccount Account?                   @relation("CollectionAdjustAccount", fields: [adjustAccountId], references: [id], onDelete: SetNull)
+  cashAccount   Account?                   @relation("CollectionCashAccount", fields: [cashAccountId], references: [id], onDelete: SetNull)
+  salesOrder    SalesOrder?                @relation(fields: [salesOrderId], references: [id], onDelete: SetNull)
+  employee      Employee?                  @relation("CollectionEmployee", fields: [employeeId], references: [id], onDelete: SetNull)
   allocations  SalesCollectionAllocation[]
+  deductions   SalesCollectionDeduction[]
 
   @@unique([businessUnitId, number])
   @@index([businessUnitId, status, collectionDate])
@@ -1239,15 +1331,31 @@ model SalesQuotation {
   status         QuotationStatus @default(DRAFT)
   /// Customer's mobile at the time of the quotation (editable per document).
   contactMobile  String?         @db.VarChar(30)
-  remarks        String?         @db.VarChar(500)
-  terms          String?         @db.VarChar(4000)
+  billingAddress       String?   @db.VarChar(500)
+  billingContactPerson String?   @db.VarChar(150)
+  billingContactNo     String?   @db.VarChar(30)
+  reference            String?   @db.VarChar(150)
+  subject              String?   @db.VarChar(300)
+  quotationType        String    @default("Quotation") @db.VarChar(30)
+  /// Unit prices include VAT (VAT is taken out of them instead of added).
+  includingVat         Boolean   @default(false)
+  /// Rich text (editor JSON document) shown above and below the items.
+  remarksBody          Json?
+  remarksFooter        Json?
+  /// Numbered terms: [{ text, optional }].
+  termsList            Json?
   totalQty       Decimal         @default(0) @db.Decimal(14, 3)
+  /// Sum of qty × rate before discounts.
   subTotal       Decimal         @default(0) @db.Decimal(14, 2)
+  /// Sum of the line discounts.
   discountAmount Decimal         @default(0) @db.Decimal(14, 2)
-  vatPercent     Decimal         @default(0) @db.Decimal(5, 2)
   vatAmount      Decimal         @default(0) @db.Decimal(14, 2)
+  aitAmount      Decimal         @default(0) @db.Decimal(14, 2)
   grandTotal     Decimal         @default(0) @db.Decimal(14, 2)
+  /// Reject reason (status LOST).
   lostReason     String?         @db.VarChar(500)
+  /// Approved (status SUBMITTED) by and when.
+  approvedBy     String?         @db.VarChar(100)
   submittedAt    DateTime?       @db.Timestamptz(3)
   cancelledAt    DateTime?       @db.Timestamptz(3)
   createdBy      String          @db.VarChar(100)
@@ -1278,7 +1386,15 @@ model SalesQuotationLine {
   qty             Decimal @db.Decimal(14, 3)
   rate            Decimal @db.Decimal(14, 2)
   discountPercent Decimal @default(0) @db.Decimal(5, 2)
+  discountAmount  Decimal @default(0) @db.Decimal(14, 2)
+  vatPercent      Decimal @default(0) @db.Decimal(5, 2)
+  vatAmount       Decimal @default(0) @db.Decimal(14, 2)
+  aitPercent      Decimal @default(0) @db.Decimal(5, 2)
+  aitAmount       Decimal @default(0) @db.Decimal(14, 2)
+  /// Line total: (qty × rate − discount) + VAT (unless prices include it) + AIT.
   amount          Decimal @db.Decimal(14, 2)
+  warranty        String? @db.VarChar(100)
+  deliveryDate    DateTime? @db.Date
 
   quotation SalesQuotation @relation(fields: [quotationId], references: [id], onDelete: Cascade)
   item      Item           @relation(fields: [itemId], references: [id], onDelete: Restrict)
@@ -1997,6 +2113,8 @@ model SalesOrder {
   deliveries            SalesDelivery[]
   deliveryPendingReason DeliveryPendingReason? @relation(fields: [deliveryPendingReasonId], references: [id], onDelete: SetNull)
   productionOrders ProductionOrder[]
+  pendingNotes     SalesOrderPendingNote[]
+  advanceCollections SalesCollection[]
 
   @@unique([businessUnitId, number])
   @@index([businessUnitId, orderDate])
@@ -2004,6 +2122,20 @@ model SalesOrder {
   @@index([customerId, status])
   @@index([quotationId])
   @@map("sales_orders")
+}
+
+/// Why an approved order is not delivered yet, each time someone records it ("Previous Pending Reason").
+model SalesOrderPendingNote {
+  id        String   @id @default(uuid()) @db.Uuid
+  orderId   String   @db.Uuid
+  reason    String   @db.VarChar(300)
+  createdBy String   @db.VarChar(100)
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  order SalesOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId, createdAt])
+  @@map("sales_order_pending_notes")
 }
 
 model SalesOrderLine {
@@ -2130,6 +2262,21 @@ enum CollectionKind {
 }
 
 /// Part of a collection applied to one invoice (delivery).
+/// Bank Deduction Details of a collection: charges the bank kept (expense, GL, amount).
+model SalesCollectionDeduction {
+  id           String  @id @default(uuid()) @db.Uuid
+  collectionId String  @db.Uuid
+  expense      String  @db.VarChar(150)
+  accountId    String  @db.Uuid
+  amount       Decimal @db.Decimal(14, 2)
+
+  collection SalesCollection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+  account    Account         @relation(fields: [accountId], references: [id], onDelete: Restrict)
+
+  @@index([collectionId])
+  @@map("sales_collection_deductions")
+}
+
 model SalesCollectionAllocation {
   id           String   @id @default(uuid()) @db.Uuid
   collectionId String   @db.Uuid
@@ -2158,6 +2305,9 @@ model SalesBill {
   status         SalesDocStatus @default(SUBMITTED)
   /// Sum of the invoices' dues when billed.
   totalAmount    Decimal        @default(0) @db.Decimal(14, 2)
+  /// NORMAL bill or FACTORING bill (sold to a factoring company).
+  billType       String         @default("NORMAL") @db.VarChar(20)
+  terms          String?        @db.VarChar(4000)
   remarks        String?        @db.VarChar(500)
   createdBy      String?        @db.VarChar(100)
   cancelledAt    DateTime?      @db.Timestamptz(3)
@@ -2182,6 +2332,10 @@ model SalesBillLine {
   deliveryId String  @db.Uuid
   /// The invoice's due when billed.
   amount     Decimal @db.Decimal(14, 2)
+  /// Challan no as written on the customer's copy.
+  challanManual  String?   @db.VarChar(60)
+  grnNumber      String?   @db.VarChar(60)
+  submissionDate DateTime? @db.Date
 
   bill     SalesBill     @relation(fields: [billId], references: [id], onDelete: Cascade)
   delivery SalesDelivery @relation(fields: [deliveryId], references: [id], onDelete: Restrict)
@@ -2673,6 +2827,9 @@ model Account {
 
   voucherLines   JournalVoucherLine[]
   productionBomOverheads ProductionBomOverhead[]
+  collectionCashAccounts   SalesCollection[]          @relation("CollectionCashAccount")
+  collectionAdjustAccounts SalesCollection[]          @relation("CollectionAdjustAccount")
+  collectionDeductions     SalesCollectionDeduction[]
 
   @@map("accounts")
 }
@@ -2995,6 +3152,9 @@ model Employee {
   employmentHistories EmploymentHistory[]
   territoryAssignments SalesTerritoryEmployee[]
   superApproverOf      ApprovalPipeline[]      @relation("PipelineSuperEmployee")
+  drivenVehicles       Vehicle[]               @relation("VehicleDriver")
+  drivenDeliveries     SalesDelivery[]         @relation("DeliveryDriver")
+  advanceCollections   SalesCollection[]       @relation("CollectionEmployee")
   approverOf           ApprovalStageApprover[] @relation("ApproverEmployee")
   workCenterOperators ProductionWorkCenterOperator[]
 

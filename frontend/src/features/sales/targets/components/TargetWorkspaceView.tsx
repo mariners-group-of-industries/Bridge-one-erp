@@ -96,7 +96,19 @@ export function TargetWorkspaceView() {
 
   const actions = (
     <>
-      {reportTab && (
+      {tab === "target-report" && (
+        <>
+          <Button onClick={() => table && downloadCsv(`${table.name}-${today}.csv`, table.headers, table.rows)} disabled={!table}>
+            <Download aria-hidden="true" />
+            Excel
+          </Button>
+          <Link href={paths.newBudget} className={buttonClasses("primary")}>
+            <Plus aria-hidden="true" />
+            Target Report
+          </Link>
+        </>
+      )}
+      {tab === "sales-target-report" && (
         <>
           <Button onClick={() => table && downloadCsv(`${table.name}-${today}.csv`, table.headers, table.rows)} disabled={!table}>
             <Download aria-hidden="true" />
@@ -107,6 +119,12 @@ export function TargetWorkspaceView() {
             Print/PDF
           </Button>
         </>
+      )}
+      {tab === "commission-report" && (
+        <Button onClick={() => table && !printTable(table.title, table.headers, table.rows) && toast.error("Allow pop-ups to print or save as PDF.")} disabled={!table}>
+          <Printer aria-hidden="true" />
+          PRINT/PDF
+        </Button>
       )}
       {tab === "target" && (
         <Link href={paths.newBudget} className={buttonClasses("primary")}>
@@ -345,7 +363,7 @@ function TargetReportTab({ today, onExport }: { today: string; onExport: (table:
         <SelectField label="Amount/Qty Wise" required options={TARGET_BASES.map((basis) => ({ value: basis, label: basis === "AMOUNT" ? "Amount Wise" : "Quantity Wise" }))} value={filters.basis} onChange={(event) => setFilters({ ...filters, basis: event.target.value })} />
       </FilterForm>
       {!query ? (
-        <EmptyState title="Choose the months and press View" />
+        <EmptyState title="No Data Found" subtitle="Choose the search criteria and press View" />
       ) : (
         <Results resource={report}>
           {(data) => (
@@ -360,7 +378,7 @@ function TargetReportTab({ today, onExport }: { today: string; onExport: (table:
                 const achieved = sum(shown, (row) => row.achieved);
                 return { month: "Total:", target: format(target), achieved: format(achieved), percent: percentCell(target > 0 ? Math.round((achieved / target) * 10_000) / 100 : null) };
               }}
-              emptyState={<EmptyState title="No targets or sales in these months" />}
+              emptyState={<EmptyState title="No Data Found" subtitle="No records found matching the active filter criteria." />}
             />
           )}
         </Results>
@@ -452,13 +470,7 @@ function PlansTab({ today }: { today: string }) {
             getRowLabel={(row) => row.name}
             rowHref={(row) => paths.plan(row.id)}
             footer={(shown) => ({ end: "Total:", amount: formatAmount(sum(shown.filter((row) => row.basis === "AMOUNT"), (row) => row.targetAmount)) })}
-            emptyState={
-              <EmptyState title="No sales targets in this range">
-                <Link href={paths.newPlan} className="text-ink underline underline-offset-2">
-                  Create a sales target
-                </Link>
-              </EmptyState>
-            }
+            emptyState={<EmptyState title="No Data Found" subtitle="No sales targets found matching the active filter criteria." />}
           />
         )}
       </Results>
@@ -558,19 +570,31 @@ function PlanReportTab({ today, onExport }: { today: string; onExport: (table: T
 
   return (
     <>
-      <FilterForm
-        onSubmit={view}
-        error={filterError}
-        loading={report.loading}
-        extra={<CheckboxField label="Customer Group" hint="Split by customer group." checked={filters.byCustomerGroup} onChange={(event) => setFilters({ ...filters, byCustomerGroup: event.target.checked })} />}
-      >
-        <SelectField label="Office" options={offices} value={filters.officeId} onChange={(event) => setFilters({ ...filters, officeId: event.target.value })} />
-        <SelectField label="Target Name" options={[all, ...(plans.data ?? []).map((plan) => ({ value: plan.id, label: plan.name }))]} value={filters.planId} onChange={(event) => setFilters({ ...filters, planId: event.target.value })} />
-        <SelectField label="Employee" options={persons} value={filters.salesPersonId} onChange={(event) => setFilters({ ...filters, salesPersonId: event.target.value })} />
-        <TextField label="Designation" placeholder="TSM, SR …" value={filters.designation} onChange={(event) => setFilters({ ...filters, designation: event.target.value })} />
-        <TextField label="From Date" type="date" value={filters.from} onChange={(event) => setFilters({ ...filters, from: event.target.value })} />
-        <TextField label="To Date" type="date" value={filters.to} onChange={(event) => setFilters({ ...filters, to: event.target.value })} />
-      </FilterForm>
+      <form onSubmit={view} className="border-b border-line p-4">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <SelectField label="Office" required options={offices.map((opt) => (opt.value === "" ? { value: "", label: "Office" } : opt))} value={filters.officeId} onChange={(event) => setFilters({ ...filters, officeId: event.target.value })} />
+          <SelectField label="Target Name" options={[{ value: "", label: "Target Name" }, ...(plans.data ?? []).map((plan) => ({ value: plan.id, label: plan.name }))]} value={filters.planId} onChange={(event) => setFilters({ ...filters, planId: event.target.value })} />
+          <SelectField label="Employee" options={persons.map((opt) => (opt.value === "" ? { value: "", label: "Select/Search Employee (min 3 letters)" } : opt))} value={filters.salesPersonId} onChange={(event) => setFilters({ ...filters, salesPersonId: event.target.value })} />
+          <TextField label="Designation" placeholder="Designation" value={filters.designation} onChange={(event) => setFilters({ ...filters, designation: event.target.value })} />
+        </div>
+        <div className="mt-3 flex flex-wrap items-center gap-4">
+          <div className="w-48">
+            <TextField label="From Date" type="date" required value={filters.from} onChange={(event) => setFilters({ ...filters, from: event.target.value })} />
+          </div>
+          <div className="w-48">
+            <TextField label="To Date" type="date" required value={filters.to} onChange={(event) => setFilters({ ...filters, to: event.target.value })} />
+          </div>
+          <div className="pt-5">
+            <CheckboxField label="Customer Group" checked={filters.byCustomerGroup} onChange={(event) => setFilters({ ...filters, byCustomerGroup: event.target.checked })} />
+          </div>
+          <div className="pt-5">
+            <Button type="submit" variant="primary" disabled={report.loading}>
+              View
+            </Button>
+          </div>
+        </div>
+        {filterError && <p className="mt-2 text-xs text-danger">{filterError}</p>}
+      </form>
       <Results resource={report}>
         {(data) => (
           <DataTable
@@ -584,13 +608,7 @@ function PlanReportTab({ today, onExport }: { today: string; onExport: (table: T
               collection: formatAmount(sum(shown, (row) => row.collection)),
               commission: split ? "—" : formatAmount(sum(shown, (row) => row.commission)),
             })}
-            emptyState={
-              <EmptyState title="No assigned targets in this range">
-                <Link href={paths.assignPlan()} className="text-ink underline underline-offset-2">
-                  Assign a target to the sales force
-                </Link>
-              </EmptyState>
-            }
+            emptyState={<EmptyState title="No Data Found" subtitle="No records found matching the active filter criteria." />}
           />
         )}
       </Results>
@@ -649,13 +667,7 @@ function CommissionsTab() {
             getRowId={(row) => row.id}
             getRowLabel={(row) => row.name}
             search={{ placeholder: "Search commission or employee", match: (row, needle) => `${row.name} ${row.salesPersonName}`.toLowerCase().includes(needle) }}
-            emptyState={
-              <EmptyState title="No item commissions yet">
-                <Link href={paths.newCommission} className="text-ink underline underline-offset-2">
-                  Set up a commission
-                </Link>
-              </EmptyState>
-            }
+            emptyState={<EmptyState title="No Data Found" subtitle="No item commission setups found. Click + Commission Setup to create one." />}
           />
         )}
       </Results>
@@ -753,18 +765,34 @@ function CommissionReportTab({ today, onExport }: { today: string; onExport: (ta
 
   return (
     <>
-      <FilterForm
-        onSubmit={view}
-        error={filterError}
-        loading={report.loading}
-        extra={<CheckboxField label="Summary" checked={filters.summary} onChange={(event) => setFilters({ ...filters, summary: event.target.checked })} />}
-      >
-        <SelectField label="View By" required options={[{ value: "EMPLOYEE", label: "Employee" }, { value: "ITEM", label: "Item" }]} value={filters.viewBy} onChange={(event) => setFilters({ ...filters, viewBy: event.target.value })} />
-        <SelectField label="Office" options={offices} value={filters.officeId} onChange={(event) => setFilters({ ...filters, officeId: event.target.value })} />
-        <SelectField label="Item Category" options={[all, ...categories]} value={filters.categoryId} onChange={(event) => setFilters({ ...filters, categoryId: event.target.value })} />
-        <TextField label="From Date" type="date" required value={filters.from} onChange={(event) => setFilters({ ...filters, from: event.target.value })} />
-        <TextField label="To Date" type="date" required value={filters.to} onChange={(event) => setFilters({ ...filters, to: event.target.value })} />
-      </FilterForm>
+      <form onSubmit={view} className="border-b border-line p-4">
+        <div className="flex flex-wrap items-end gap-3">
+          <div className="w-48">
+            <SelectField label="View By" required options={[{ value: "", label: "Select View By" }, { value: "EMPLOYEE", label: "Employee" }, { value: "ITEM", label: "Item" }]} value={filters.viewBy} onChange={(event) => setFilters({ ...filters, viewBy: event.target.value })} />
+          </div>
+          <div className="w-48">
+            <SelectField label="Office" options={offices.map((opt) => (opt.value === "" ? { value: "", label: "Select Office" } : opt))} value={filters.officeId} onChange={(event) => setFilters({ ...filters, officeId: event.target.value })} />
+          </div>
+          <div className="w-56">
+            <SelectField label="Item Category" options={[{ value: "", label: "Select Item Category" }, ...categories.filter((c) => c.value !== "")]} value={filters.categoryId} onChange={(event) => setFilters({ ...filters, categoryId: event.target.value })} />
+          </div>
+          <div className="w-44">
+            <TextField label="From Date" type="date" required value={filters.from} onChange={(event) => setFilters({ ...filters, from: event.target.value })} />
+          </div>
+          <div className="w-44">
+            <TextField label="To Date" type="date" required value={filters.to} onChange={(event) => setFilters({ ...filters, to: event.target.value })} />
+          </div>
+          <div className="pb-1.5">
+            <CheckboxField label="Summary" checked={filters.summary} onChange={(event) => setFilters({ ...filters, summary: event.target.checked })} />
+          </div>
+          <div className="pb-1">
+            <Button type="submit" variant="primary" disabled={report.loading}>
+              View
+            </Button>
+          </div>
+        </div>
+        {filterError && <p className="mt-2 text-xs text-danger">{filterError}</p>}
+      </form>
       <Results resource={report}>
         {(result) =>
           summary ? (
@@ -774,7 +802,7 @@ function CommissionReportTab({ today, onExport }: { today: string; onExport: (ta
               getRowId={(row) => row.key}
               getRowLabel={(row) => row.name}
               footer={(shown) => ({ name: "Total:", amount: formatAmount(sum(shown, (row) => row.amount)), commission: formatAmount(sum(shown, (row) => row.commission)) })}
-              emptyState={<EmptyState title="No commission earned in this range" />}
+              emptyState={<EmptyState title="No Data Found" subtitle="No records found matching the active filter criteria." />}
             />
           ) : (
             <DataTable
@@ -784,7 +812,7 @@ function CommissionReportTab({ today, onExport }: { today: string; onExport: (ta
               getRowLabel={(row) => `${row.invoiceNumber} ${row.itemName}`}
               search={{ placeholder: "Search invoice, employee, item", match: (row, needle) => `${row.invoiceNumber} ${row.salesPersonName} ${row.itemName} ${row.customerName}`.toLowerCase().includes(needle) }}
               footer={(shown) => ({ item: "Total:", amount: formatAmount(sum(shown, (row) => row.amount)), commission: formatAmount(sum(shown, (row) => row.commission)) })}
-              emptyState={<EmptyState title="No commission earned in this range" />}
+              emptyState={<EmptyState title="No Data Found" subtitle="No records found matching the active filter criteria." />}
             />
           )
         }

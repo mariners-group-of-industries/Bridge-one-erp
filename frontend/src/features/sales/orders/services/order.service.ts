@@ -6,7 +6,7 @@ import { money } from "../../dashboard/lib/aggregate";
 import { fromDbDate, toDbDate } from "../../lib/dates";
 import { customerBalances } from "../../lib/receivables";
 import { requireOffice, scopedBusinessUnitIds } from "../../lib/scope";
-import { formatNumber, nextNumber } from "../../lib/sequence";
+import { companyDocumentNumber } from "../../lib/sequence";
 import { userNames } from "../../lib/users";
 import { openOrderValue } from "../../masters/services/masters.service";
 import { orderTotals } from "../lib/order-totals";
@@ -24,7 +24,7 @@ import {
 /** Rows the list returns; the total covers every matching order. */
 export const ORDER_LIST_LIMIT = 1000;
 const DOC_TYPE = "SALES_ORDER";
-const PREFIX = "SO";
+const PREFIX = "SO-";
 
 const num = (value: Prisma.Decimal | null | undefined) => (value ? value.toNumber() : 0);
 const optNum = (value: Prisma.Decimal | null | undefined) => (value ? value.toNumber() : null);
@@ -44,6 +44,7 @@ export async function listOrders(actor: Actor, query: OrderListQuery): Promise<O
     businessUnitId: { in: unitIds },
     ...(query.officeId ? { officeId: query.officeId } : {}),
     ...(query.salesPersonId ? { salesPersonId: query.salesPersonId } : {}),
+    ...(query.customerId ? { customerId: query.customerId } : {}),
     ...(query.status ? { status: query.status } : {}),
     ...(query.holdReason ? { holdReason: query.holdReason } : {}),
     ...(query.pendingReasonId ? { deliveryPendingReasonId: query.pendingReasonId } : {}),
@@ -59,6 +60,17 @@ export async function listOrders(actor: Actor, query: OrderListQuery): Promise<O
         }
       : {}),
     ...(Object.keys(customer).length ? { customer } : {}),
+    ...(query.search
+      ? {
+          OR: [
+            { number: { contains: query.search, mode: "insensitive" } },
+            { refCustomerPo: { contains: query.search, mode: "insensitive" } },
+            { refProjectOutlet: { contains: query.search, mode: "insensitive" } },
+            { customer: { name: { contains: query.search, mode: "insensitive" } } },
+            { customer: { code: { contains: query.search, mode: "insensitive" } } },
+          ],
+        }
+      : {}),
   };
   const area = { select: { name: true } } as const;
 
@@ -414,7 +426,6 @@ async function releaseQuotation(tx: Tx, quotationId: string | null, orderId: str
 export async function createOrder(actor: Actor, raw: unknown): Promise<OrderDetail> {
   const input = orderInputSchema.parse(raw);
   const { businessUnitId, header, lines } = await prepare(actor, input);
-  const year = Number(input.orderDate.slice(0, 4));
 
   const created = await db().$transaction(async (tx) => {
     if (input.quotationId) {
@@ -424,7 +435,8 @@ export async function createOrder(actor: Actor, raw: unknown): Promise<OrderDeta
       });
       if (count === 0) throw conflict("The quotation is no longer open. Reload it and try again.");
     }
-    const number = formatNumber(PREFIX, year, await nextNumber(tx, businessUnitId, DOC_TYPE, year));
+    // e.g. "SO-MG260000119": prefix + company initials + 2-digit year + 7-digit serial.
+    const number = await companyDocumentNumber(tx, businessUnitId, DOC_TYPE, PREFIX, input.orderDate);
     const order = await tx.salesOrder.create({
       data: {
         ...header,

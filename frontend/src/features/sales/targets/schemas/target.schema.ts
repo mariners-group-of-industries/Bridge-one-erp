@@ -10,9 +10,9 @@ export const BUDGET_BASIS_LABELS: Record<TargetBasis, string> = { AMOUNT: "Amoun
 /** "Target Type" of a sales target plan. */
 export const PLAN_BASIS_LABELS: Record<TargetBasis, string> = { AMOUNT: "Amount", QUANTITY: "Quantity" };
 
-export const TARGET_TYPES = ["EMPLOYEE"] as const;
+export const TARGET_TYPES = ["EMPLOYEE", "TERRITORY"] as const;
 export type TargetType = (typeof TARGET_TYPES)[number];
-export const TARGET_TYPE_LABELS: Record<TargetType, string> = { EMPLOYEE: "Employee" };
+export const TARGET_TYPE_LABELS: Record<TargetType, string> = { EMPLOYEE: "Employee", TERRITORY: "Territory" };
 
 export const COMMISSION_BASES = ["AMOUNT", "PERCENT"] as const;
 export type CommissionBasis = (typeof COMMISSION_BASES)[number];

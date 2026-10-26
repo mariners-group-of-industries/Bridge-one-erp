@@ -1,10 +1,10 @@
 import { ApiClientError } from "@/lib/api/client";
 
 /** Downloads a file response (Excel / PDF); API errors are thrown like `apiRequest`. */
-export async function downloadFile(path: string, fallbackName: string) {
+export async function downloadFile(path: string, fallbackName: string, init?: RequestInit) {
   let response: Response;
   try {
-    response = await fetch(path, { cache: "no-store" });
+    response = await fetch(path, { cache: "no-store", ...init });
   } catch {
     throw new ApiClientError(0, "NETWORK_ERROR", "Unable to reach the server. Check your connection.");
   }

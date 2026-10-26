@@ -23,7 +23,8 @@ import { altQty, orderLineAmounts, orderTotals } from "../../orders/lib/order-to
 import { paths } from "../../paths";
 import { round2 } from "../../quotations/lib/totals";
 import { APPROVED_ORDER_STATUS_LABELS, orderDeliverySchema, type DeliveryDetail, type OrderForDelivery, type WarehouseOption } from "../schemas/delivery.schema";
-import { createDelivery, fetchDelivery, fetchOrderForDelivery, fetchStock, fetchWarehouses, updateDelivery } from "../services/delivery.api";
+import { createDelivery, fetchDelivery, fetchOrderForDelivery, fetchStock, fetchVehicles, fetchWarehouses, updateDelivery } from "../services/delivery.api";
+import { VehicleSection } from "./DeliveryVehicle";
 import { DeliverySummary, TransportSection, blankHeader, headerFromDelivery, headerInput, nowTime, type HeaderValues } from "./DeliveryFormParts";
 
 /** /sales/deliveries/new?order=… or editing an order delivery. */
@@ -86,6 +87,7 @@ function OrderDeliveryEditor({
   const router = useRouter();
   const toast = useToast();
   const setup = useResource(`setup:${order.businessUnitId}`, () => fetchSetupLookups(order.businessUnitId));
+  const vehicles = useResource(`vehicles:${order.businessUnitId}`, () => fetchVehicles(order.businessUnitId));
 
   const [header, setHeader] = useState<HeaderValues>(() => {
     if (delivery) return headerFromDelivery(delivery);
@@ -254,6 +256,19 @@ function OrderDeliveryEditor({
               warehouses={warehouses}
               salesPersons={setup.data?.salesPersons ?? []}
               addresses={order.addresses}
+            />
+          </Section>
+        </Card>
+
+        <Card>
+          <Section title="Vehicle">
+            <VehicleSection
+              values={header}
+              errors={errors}
+              set={set}
+              businessUnitId={order.businessUnitId}
+              vehicles={vehicles.data ?? []}
+              onVehicleCreated={(vehicle) => vehicles.mutate((current) => [...(current ?? []), vehicle])}
             />
           </Section>
         </Card>

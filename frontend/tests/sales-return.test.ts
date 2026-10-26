@@ -16,6 +16,7 @@ import {
   receiveMarketReturn,
   updateReturn,
 } from "@/features/sales/returns/services/return.service";
+import { returnChallanPdf, returnTabExcel } from "@/features/sales/returns/services/return-export";
 import type { Actor } from "@/lib/auth/actor";
 import { adminActor, businessUnitInput, companyInput, officeInput, scopedActor } from "./helpers/fixtures";
 import { resetTestDb, startTestDb, stopTestDb } from "./helpers/test-db";
@@ -109,7 +110,7 @@ describe("sales return", () => {
 
     const pending = await createReturn(clerk, against(delivery.id, "PARTIAL", [{ deliveryLineId: noodles.id, qty: 24, reason: "Damaged" }]));
     // The delivery line's own amounts, pro rata: 24 of 240 noodles.
-    expect(pending).toMatchObject({ number: "SR-2026-00001", status: "DRAFT", mode: "PARTIAL", kind: "SALES", deliveryNumber: delivery.number });
+    expect(pending).toMatchObject({ number: "SRP-MG260000001", status: "DRAFT", mode: "PARTIAL", kind: "SALES", deliveryNumber: delivery.number });
     expect(pending).toMatchObject({ totalQty: 24, itemsBase: 304.7, vatAmount: 45.7, itemsTotal: 350.4, totalAmount: 350.4 });
     expect(pending.lines[0]).toMatchObject({ itemName: "Marine Noodles 120 gm (1x24)", rate: 14.6, vatPercent: 15, reason: "Damaged" });
     // Pending: no stock or credit yet, but the quantity is held.
@@ -193,7 +194,7 @@ describe("sales return", () => {
 
   it("puts a market return into stock only after factory receipt and QC", async () => {
     const market = await createReturn(clerk, withoutReference({ kind: "MARKET" }));
-    expect(market).toMatchObject({ number: "MR-2026-00001", kind: "MARKET", marketStage: "PENDING" });
+    expect(market).toMatchObject({ number: "MRT-MG260000001", kind: "MARKET", marketStage: "PENDING" });
     const line = market.lines[0].id;
     await expect(receiveMarketReturn(clerk, market.id, { version: market.updatedAt, lines: [{ lineId: line, qty: 12 }] })).rejects.toMatchObject({ status: 409 });
 
@@ -222,5 +223,23 @@ describe("sales return", () => {
     const created = await createReturn(clerk, withoutReference());
     await expect(getReturn(scopedActor([OTHER_COMPANY]), created.id)).rejects.toMatchObject({ status: 404 });
     expect((await listReturns(scopedActor([OTHER_COMPANY]), {})).rows).toHaveLength(0);
+  });
+
+  it("numbers returns the Managerium way, searches, pages and exports them", async () => {
+    const first = await createReturn(clerk, withoutReference({ refNo: "REF-1", requestNo: "REQ-1" }));
+    const second = await createReturn(clerk, withoutReference());
+    expect([first.number, second.number]).toEqual(["RWF-MG260000001", "RWF-MG260000002"]);
+    expect((await listReturns(adminActor, { search: "req-1" })).rows.map((row) => row.id)).toEqual([first.id]);
+    expect((await listReturns(adminActor, { search: "arif" })).totalCount).toBe(2);
+    const page = await listReturns(adminActor, { page: 2, pageSize: 25 });
+    expect(page).toMatchObject({ totalCount: 2, rows: [] });
+    await expect(listReturns(adminActor, { page: 1, pageSize: 3 })).rejects.toThrow();
+
+    const pk = (bytes: Uint8Array) => Buffer.from(bytes.slice(0, 2)).toString();
+    expect(pk(await returnTabExcel(adminActor, "returns", {}))).toBe("PK");
+    expect(pk(await returnTabExcel(adminActor, "deliveries", {}))).toBe("PK");
+    const pdf = await returnChallanPdf(adminActor, first.id);
+    expect(pdf.number).toBe("RWF-MG260000001");
+    expect(Buffer.from(pdf.bytes.slice(0, 5)).toString()).toBe("%PDF-");
   });
 });

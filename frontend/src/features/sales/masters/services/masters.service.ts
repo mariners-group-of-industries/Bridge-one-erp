@@ -211,6 +211,7 @@ const customerSelect = {
   creditDays: true,
   creditLimit: true,
   isActive: true,
+  isAnonymous: true,
   addresses: {
     select: { id: true, label: true, address: true, isDefault: true },
     orderBy: [{ isDefault: "desc" }, { createdAt: "asc" }],
@@ -363,6 +364,9 @@ const itemSelect = {
   altUom: true,
   altUomFactor: true,
   categoryId: true,
+  itemType: true,
+  brand: true,
+  purchasePrice: true,
   mrp: true,
   vatPercent: true,
   deliveryTolerancePercent: true,
@@ -371,9 +375,10 @@ const itemSelect = {
   prices: { select: { priceListId: true, rate: true } },
 } satisfies Prisma.ItemSelect;
 
-function toItem(record: Prisma.ItemGetPayload<{ select: typeof itemSelect }>): ItemOption {
+function toItem({ purchasePrice, ...record }: Prisma.ItemGetPayload<{ select: typeof itemSelect }>): ItemOption {
   return {
     ...record,
+    costPrice: purchasePrice?.toNumber() ?? null,
     altUomFactor: record.altUomFactor?.toNumber() ?? null,
     mrp: record.mrp?.toNumber() ?? null,
     vatPercent: record.vatPercent.toNumber(),

@@ -1,4 +1,5 @@
 import { apiRequest } from "@/lib/api/client";
+import { downloadFile } from "@/lib/download";
 import type {
   DeliveryForReturn,
   ReturnableDeliveryQuery,
@@ -37,3 +38,10 @@ export const receiveMarketReturn = (id: string, version: string, lines: { lineId
   apiRequest<ReturnDetail>(`${BASE}/${id}/receive`, json("POST", { version, lines }));
 export const qcMarketReturn = (id: string, version: string, lines: { lineId: string; qty: number }[]) =>
   apiRequest<ReturnDetail>(`${BASE}/${id}/qc`, json("POST", { version, lines }));
+
+/** Return Note/Challan PDF: opened to print, or saved with `download`. */
+export const returnChallanPdfUrl = (id: string, download = false) => `${BASE}/${id}/challan-pdf${download ? "?download=1" : ""}`;
+
+/** Excel (.xlsx) of a Sales Return tab for the same filters. */
+export const downloadReturnExcel = (tab: "deliveries" | "returns" | "market", filters: Record<string, unknown>) =>
+  downloadFile(`${BASE}/export${query({ ...filters, tab })}`, `sales-return-${tab}.xlsx`);

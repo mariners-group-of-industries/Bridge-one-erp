@@ -6,7 +6,7 @@ import { money } from "../../dashboard/lib/aggregate";
 import { fromDbDate, toDbDate } from "../../lib/dates";
 import { customerBalances } from "../../lib/receivables";
 import { requireOffice, scopedBusinessUnitIds } from "../../lib/scope";
-import { formatNumber, nextNumber } from "../../lib/sequence";
+import { companyDocumentNumber } from "../../lib/sequence";
 import { userNames } from "../../lib/users";
 import { orderLineAmounts, orderTotals } from "../../orders/lib/order-totals";
 import { round2 } from "../../quotations/lib/totals";
@@ -16,17 +16,21 @@ import {
   deliveryDeleteSchema,
   deliveryInputSchema,
   deliveryListQuerySchema,
+  deliveryReferenceSchema,
   deliveryUpdateSchema,
+  pendingNoteSchema,
   pendingReasonSchema,
   type ApprovedOrderQuery,
   type ApprovedOrderRow,
   type DeliveryDetail,
   type DeliveryList,
   type OrderForDelivery,
+  type PendingNote,
 } from "../schemas/delivery.schema";
 import { deliverySettlements } from "../../collections/services/collection.service";
-import { lockDeliveryReturns } from "../../returns/services/return.service";
-import { assertStockAvailable, lockWarehouse, requireWarehouse } from "./stock.service";
+import { lockDeliveryReturns, returnNumber } from "../../returns/services/return.service";
+import { assertStockAvailable, lockWarehouse, requireWarehouse, stockLevels } from "./stock.service";
+import { requireDriver } from "./vehicle.service";
 
 /** Rows a list returns; totals cover every match. */
 export const DELIVERY_LIST_LIMIT = 1000;
@@ -96,6 +100,16 @@ export async function listApprovedOrders(actor: Actor, raw: unknown): Promise<Ap
       ...(query.customerId ? { customerId: query.customerId } : {}),
       ...(query.salesPersonId ? { salesPersonId: query.salesPersonId } : {}),
       ...(dateRange(query.from, query.to) ? { orderDate: dateRange(query.from, query.to) } : {}),
+      ...(query.search
+        ? {
+            OR: [
+              { number: { contains: query.search, mode: "insensitive" } },
+              { refCustomerPo: { contains: query.search, mode: "insensitive" } },
+              { customer: { name: { contains: query.search, mode: "insensitive" } } },
+              { customer: { code: { contains: query.search, mode: "insensitive" } } },
+            ],
+          }
+        : {}),
       ...(customer ? { customer } : {}),
       ...(query.status === "PARTIALLY_DELIVERED"
         ? { lines: { some: { deliveredQty: { gt: 0 } } } }
@@ -114,6 +128,7 @@ export async function listApprovedOrders(actor: Actor, raw: unknown): Promise<Ap
       orderType: true,
       salesTotal: true,
       deliveryPendingReasonId: true,
+      deliveryPendingReason: { select: { name: true } },
       updatedAt: true,
       office: { select: { name: true } },
       salesPerson: { select: { name: true } },
@@ -145,6 +160,7 @@ export async function listApprovedOrders(actor: Actor, raw: unknown): Promise<Ap
       salesPersonName: order.salesPerson?.name ?? null,
       orderType: order.orderType,
       pendingReasonId: order.deliveryPendingReasonId,
+      pendingReasonName: order.deliveryPendingReason?.name ?? null,
       salesTotal: num(order.salesTotal),
       deliveredPercent: ordered > 0 ? Math.round((delivered / ordered) * 100) : 0,
       businessUnitId: order.businessUnitId,
@@ -161,6 +177,34 @@ async function loadOrderForAccess(actor: Actor, orderId: string) {
   if (!order) throw notFound("Sales order");
   assertCompanyAccess(actor, order.businessUnit.companyId, "Sales order");
   return order;
+}
+
+/** Previous Pending Reason of an order, oldest first. */
+export async function listPendingNotes(actor: Actor, orderId: string): Promise<PendingNote[]> {
+  await loadOrderForAccess(actor, orderId);
+  const notes = await db().salesOrderPendingNote.findMany({ where: { orderId }, orderBy: { createdAt: "asc" } });
+  const nameOf = await userNames(notes.map((note) => note.createdBy));
+  return notes.map((note) => ({ id: note.id, reason: note.reason, createdByName: nameOf(note.createdBy), createdAt: note.createdAt.toISOString() }));
+}
+
+/**
+ * Records why an approved order waits: the text is kept in the order's history and
+ * becomes its current pending reason (a reusable reason of the business unit).
+ */
+export async function addPendingNote(actor: Actor, orderId: string, raw: unknown): Promise<PendingNote[]> {
+  const { reason } = pendingNoteSchema.parse(raw);
+  const order = await loadOrderForAccess(actor, orderId);
+  await db().$transaction(async (tx) => {
+    const existing = await tx.deliveryPendingReason.findFirst({
+      where: { businessUnitId: order.businessUnitId, name: { equals: reason, mode: "insensitive" } },
+      select: { id: true },
+    });
+    const master = existing ?? (await tx.deliveryPendingReason.create({ data: { businessUnitId: order.businessUnitId, name: reason }, select: { id: true } }));
+    const { count } = await tx.salesOrder.updateMany({ where: { id: orderId, status: "APPROVED" }, data: { deliveryPendingReasonId: master.id } });
+    if (count === 0) throw conflict("Only approved orders waiting for delivery can have a pending reason.");
+    await tx.salesOrderPendingNote.create({ data: { orderId, reason, createdBy: actor.id } });
+  });
+  return listPendingNotes(actor, orderId);
 }
 
 export async function setOrderPendingReason(actor: Actor, orderId: string, raw: unknown): Promise<void> {
@@ -295,7 +339,20 @@ export async function listDeliveries(actor: Actor, raw: unknown): Promise<Delive
     ...(query.confirmation ? { confirmation: query.confirmation } : {}),
     ...(query.paymentMethod ? { paymentMethod: query.paymentMethod } : {}),
     ...(query.vehicleNo ? { vehicleNo: { contains: query.vehicleNo, mode: "insensitive" } } : {}),
+    ...(query.customerId ? { customerId: query.customerId } : {}),
     ...(dateRange(query.from, query.to) ? { deliveryDate: dateRange(query.from, query.to) } : {}),
+    ...(query.search
+      ? {
+          OR: [
+            { number: { contains: query.search, mode: "insensitive" } },
+            { challanNo: { contains: query.search, mode: "insensitive" } },
+            { buyerName: { contains: query.search, mode: "insensitive" } },
+            { salesOrder: { number: { contains: query.search, mode: "insensitive" } } },
+            { customer: { name: { contains: query.search, mode: "insensitive" } } },
+            { customer: { code: { contains: query.search, mode: "insensitive" } } },
+          ],
+        }
+      : {}),
     ...(customer ? { customer } : {}),
   };
 
@@ -332,7 +389,8 @@ export async function listDeliveries(actor: Actor, raw: unknown): Promise<Delive
         },
       },
       orderBy: [{ deliveryDate: "desc" }, { number: "desc" }],
-      take: DELIVERY_LIST_LIMIT,
+      skip: query.page ? (query.page - 1) * (query.pageSize ?? 50) : 0,
+      take: query.page ? (query.pageSize ?? 50) : DELIVERY_LIST_LIMIT,
     }),
     db().salesDelivery.aggregate({ where, _sum: { totalAmount: true }, _count: true }),
   ]);
@@ -393,10 +451,18 @@ const detailInclude = {
   warehouse: { select: { name: true } },
   salesOrder: { select: { number: true, orderDate: true, expectedDeliveryDate: true, lines: { select: { qty: true, deliveredQty: true } } } },
   salesPerson: { select: { name: true } },
+  driver: { select: { name: true } },
   customer: {
     select: { code: true, name: true, phone: true, binNumber: true, customerGroup: areaSelect, territory: areaSelect },
   },
-  lines: { orderBy: { lineNo: "asc" }, include: { item: { select: { code: true, name: true } } } },
+  lines: {
+    orderBy: { lineNo: "asc" },
+    include: {
+      item: { select: { code: true, name: true } },
+      returnLines: { where: { salesReturn: { status: "SUBMITTED" } }, select: { qty: true } },
+    },
+  },
+  returns: { where: { status: "SUBMITTED" }, select: { totalAmount: true } },
   exchangeReturn: {
     select: {
       id: true,
@@ -460,6 +526,14 @@ function toDetail(record: DeliveryRecord): DeliveryDetail {
     driverName: record.driverName,
     driverPhone: record.driverPhone,
     transporterName: record.transporterName,
+    vehicleId: record.vehicleId,
+    driverEmployeeId: record.driverEmployeeId,
+    driverEmployeeName: record.driver?.name ?? null,
+    securityCode: record.securityCode,
+    referredBy: record.referredBy,
+    buyerName: record.buyerName,
+    buyerMobile: record.buyerMobile,
+    salesType: record.salesType,
     totalQty: num(record.totalQty),
     itemsTotal: num(record.itemsTotal),
     itemsBase: num(record.itemsBase),
@@ -470,6 +544,8 @@ function toDetail(record: DeliveryRecord): DeliveryDetail {
     unloadingCharge: num(record.unloadingCharge),
     totalAmount,
     paidAmount,
+    returnAmount: money(num(record.exchangeReturn?.totalAmount) + record.returns.reduce((sum, item) => sum + num(item.totalAmount), 0)),
+    pendingAmount: money(Math.max(0, totalAmount - paidAmount - num(record.exchangeReturn?.totalAmount) - record.returns.reduce((sum, item) => sum + num(item.totalAmount), 0))),
     invoiceType: paidAmount >= totalAmount && totalAmount > 0 ? "Paid" : "Due",
     orderFullyDelivered: record.salesOrder
       ? record.salesOrder.lines.every((line) => num(line.deliveredQty) >= num(line.qty))
@@ -506,6 +582,8 @@ function toDetail(record: DeliveryRecord): DeliveryDetail {
       vatAmount: num(line.vatAmount),
       aitAmount: num(line.aitAmount),
       amount: num(line.amount),
+      returnedQty: round3(line.returnLines.reduce((sum, returned) => sum + num(returned.qty), 0)),
+      stock: null,
     })),
     exchangeReturn: record.exchangeReturn
       ? {
@@ -537,6 +615,10 @@ async function loadDelivery(actor: Actor, id: string): Promise<DeliveryRecord> {
 
 export async function getDelivery(actor: Actor, id: string): Promise<DeliveryDetail> {
   const detail = toDetail(await loadDelivery(actor, id));
+  if (detail.warehouseId) {
+    const levels = await stockLevels(detail.warehouseId, [...new Set(detail.lines.map((line) => line.itemId))]);
+    for (const line of detail.lines) line.stock = levels.get(line.itemId) ?? 0;
+  }
   // Show who did what by name, not by user id.
   const nameOf = await userNames([detail.createdBy, detail.updatedBy, detail.confirmedBy, detail.deletedBy]);
   return { ...detail, createdBy: nameOf(detail.createdBy), updatedBy: nameOf(detail.updatedBy), confirmedBy: nameOf(detail.confirmedBy), deletedBy: nameOf(detail.deletedBy) };
@@ -697,6 +779,13 @@ async function plan(actor: Actor, input: ParsedInput): Promise<Plan> {
     const person = await db().salesPerson.findFirst({ where: { id: input.salesPersonId, businessUnitId } });
     if (!person) throw badRequest("Sales force does not belong to the office's business unit.");
   }
+  let vehicleNo = input.vehicleNo;
+  if (input.vehicleId) {
+    const vehicle = await db().vehicle.findFirst({ where: { id: input.vehicleId, businessUnitId, isActive: true }, select: { vehicleNumber: true } });
+    if (!vehicle) throw badRequest("Vehicle does not belong to the office's business unit.");
+    vehicleNo = vehicle.vehicleNumber;
+  }
+  if (input.driverEmployeeId) await requireDriver(businessUnitId, input.driverEmployeeId);
   const useOrderAddress = !input.shipToAddressId && !input.shippingAddress && orderDefaults !== null;
   const shipToAddressId = useOrderAddress ? orderDefaults!.shipToAddressId : input.shipToAddressId;
   let shippingAddress = useOrderAddress ? orderDefaults!.shippingAddress : input.shippingAddress;
@@ -770,10 +859,17 @@ async function plan(actor: Actor, input: ParsedInput): Promise<Plan> {
       paymentMethod: input.paymentMethod,
       paymentTermDays: input.paymentTermDays,
       priceIncludesVat,
-      vehicleNo: input.vehicleNo,
+      vehicleNo,
       driverName: input.driverName,
       driverPhone: input.driverPhone,
       transporterName: input.transporterName,
+      vehicleId: input.vehicleId,
+      driverEmployeeId: input.driverEmployeeId,
+      securityCode: input.securityCode,
+      referredBy: input.referredBy,
+      buyerName: input.buyerName,
+      buyerMobile: input.buyerMobile,
+      salesType: input.salesType,
       totalQty: totals.totalQty,
       itemsTotal: totals.itemsTotal,
       itemsBase: totals.itemsBase,
@@ -877,11 +973,10 @@ async function applyEffects(tx: Tx, actor: Actor, deliveryId: string, number: st
 
   // Money collected on delivery.
   if (Number(p.header.paidAmount) > 0) {
-    const year = postingDate.getUTCFullYear();
     await tx.salesCollection.create({
       data: {
         businessUnitId: p.businessUnitId,
-        number: formatNumber("CR", year, await nextNumber(tx, p.businessUnitId, "SALES_COLLECTION", year)),
+        number: await companyDocumentNumber(tx, p.businessUnitId, "SALES_COLLECTION", "CR-", fromDbDate(postingDate)),
         customerId: p.header.customerId,
         salesPersonId: p.header.salesPersonId ?? null,
         collectionDate: postingDate,
@@ -943,18 +1038,18 @@ async function revertEffects(tx: Tx, actor: Actor, delivery: { id: string; numbe
 export async function createDelivery(actor: Actor, raw: unknown): Promise<DeliveryDetail> {
   const input = deliveryInputSchema.parse(raw);
   const p = await plan(actor, input);
-  const year = Number(input.deliveryDate.slice(0, 4));
 
   try {
     const id = await db().$transaction(async (tx) => {
-      const number = formatNumber("SD", year, await nextNumber(tx, p.businessUnitId, "SALES_DELIVERY", year));
-      const challanNo = p.header.challanNo ?? formatNumber("CH", year, await nextNumber(tx, p.businessUnitId, "DELIVERY_CHALLAN", year));
+      // e.g. "SD-MG261000153" / "CH-MG261000153": prefix + company initials + 2-digit year + 7-digit serial.
+      const number = await companyDocumentNumber(tx, p.businessUnitId, "SALES_DELIVERY", "SD-", input.deliveryDate);
+      const challanNo = p.header.challanNo ?? (await companyDocumentNumber(tx, p.businessUnitId, "DELIVERY_CHALLAN", "CH-", input.deliveryDate));
       let returnId: string | null = null;
       if (input.deliveryType === "EXCHANGE") {
         const salesReturn = await tx.salesReturn.create({
           data: {
             businessUnitId: p.businessUnitId,
-            number: formatNumber("SR", year, await nextNumber(tx, p.businessUnitId, "SALES_RETURN", year)),
+            number: await returnNumber(tx, p.businessUnitId, "SALES", "EXCHANGE", input.deliveryDate),
             customerId: p.header.customerId,
             salesPersonId: p.header.salesPersonId ?? null,
             officeId: p.header.officeId,
@@ -1086,6 +1181,20 @@ export async function deleteDelivery(actor: Actor, id: string, raw: unknown): Pr
       await tx.salesReturn.update({ where: { id: existing.exchangeReturnId }, data: { status: "CANCELLED" } });
     }
   });
+}
+
+/** Delivery Details: VAT challan, customer PO, invoice ref and remarks of an unconfirmed delivery. */
+export async function updateDeliveryReferences(actor: Actor, id: string, raw: unknown): Promise<DeliveryDetail> {
+  const { version, ...references } = deliveryReferenceSchema.parse(raw);
+  await loadDelivery(actor, id);
+  await db().$transaction(async (tx) => {
+    await guardEditable(tx, id, version, actor, "edited");
+    await tx.salesDelivery.update({
+      where: { id },
+      data: { ...references, refCustomerPoDate: references.refCustomerPoDate ? toDbDate(references.refCustomerPoDate) : null, updatedBy: actor.id },
+    });
+  });
+  return getDelivery(actor, id);
 }
 
 export async function confirmDelivery(actor: Actor, id: string, raw: unknown): Promise<DeliveryDetail> {

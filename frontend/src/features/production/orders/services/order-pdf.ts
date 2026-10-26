@@ -1,5 +1,5 @@
 import type { Actor } from "@/lib/auth/actor";
-import { pdfWriter } from "../../lib/pdf";
+import { pdfWriter } from "@/lib/pdf";
 import { APPROVAL_ORDER_LABELS, APPROVAL_STATUS_LABELS, ORDER_STATUS_LABELS } from "../schemas/order.schema";
 import { getOrder } from "./order.service";
 

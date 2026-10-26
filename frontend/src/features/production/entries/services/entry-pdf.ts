@@ -1,5 +1,5 @@
 import type { Actor } from "@/lib/auth/actor";
-import { pdfWriter } from "../../lib/pdf";
+import { pdfWriter } from "@/lib/pdf";
 import { getEntry } from "./entry.service";
 
 const qty = (value: number) => value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 4 });

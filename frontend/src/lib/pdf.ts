@@ -62,6 +62,12 @@ export class PdfWriter {
     this.y -= 13;
   }
 
+  /** Empty vertical space (e.g. room for signatures). */
+  space(height: number) {
+    this.ensure(height);
+    this.y -= height;
+  }
+
   /** Two-column "label : value" block. */
   pairs(pairs: [string, string][]) {
     const half = (this.size[0] - 72) / 2;

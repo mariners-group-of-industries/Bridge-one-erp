@@ -1,18 +1,20 @@
 "use client";
 
-import { Download, Eye, Pencil, Plus, Printer, RefreshCw } from "lucide-react";
+import { Download, Eye, History, Pencil, Plus, Printer, RefreshCw, Search } from "lucide-react";
 import Link from "next/link";
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { PageContainer, PageHead } from "@/components/layout/page";
 import { Button, buttonClasses } from "@/components/ui/button";
 import { DataTable, type Column } from "@/components/ui/data-table";
-import { SelectField, TextField } from "@/components/ui/form-field";
+import { Dialog } from "@/components/ui/dialog";
+import { CONTROL, SelectField, TextField } from "@/components/ui/form-field";
 import { Card, EmptyState, ErrorState, LoadingState } from "@/components/ui/section";
 import { Tabs } from "@/components/ui/tabs";
+import { useToast } from "@/components/ui/toast";
 import { useResource } from "@/hooks/use-resource";
 import { errorMessage } from "@/lib/api/client";
+import { cn } from "@/lib/cn";
 import { formatAmount } from "../../dashboard/lib/format";
-import { downloadCsv } from "../../lib/csv";
 import { addDays, formatDay, useToday } from "../../lib/use-today";
 import { AREA_KIND_LABELS, type AreaKind } from "../../masters/schemas/masters.schema";
 import { fetchSalesLookups, fetchSetupLookups } from "../../masters/services/masters.api";
@@ -30,7 +32,8 @@ import {
   type OrderListRow,
   type OrderType,
 } from "../schemas/order.schema";
-import { fetchOrders } from "../services/order.api";
+import { downloadOrdersExcel, fetchOrder, fetchOrders, orderPdfUrl } from "../services/order.api";
+import { ApprovalTimeline } from "./OrderDetailView";
 import { OrderStatusIndicator } from "./OrderStatusIndicator";
 
 type Filters = Record<
@@ -41,6 +44,16 @@ type Filters = Record<
 const all = { value: "", label: "All" };
 const options = <T extends string>(values: readonly T[], labels: Record<T, string>) => [all, ...values.map((value) => ({ value, label: labels[value] }))];
 const text = (value: string | null) => value ?? "N/A";
+
+/** `value` once it has stopped changing for 400 ms. */
+function useDebounced(value: string) {
+  const [settled, setSettled] = useState(value);
+  useEffect(() => {
+    const timer = setTimeout(() => setSettled(value), 400);
+    return () => clearTimeout(timer);
+  }, [value]);
+  return settled;
+}
 
 /** Order Management: sales orders by type (tabs), with Managerium's filters and columns. */
 export function OrderListView() {
@@ -79,7 +92,14 @@ function OrderList({ today }: { today: string }) {
   const toQuery = (values: Filters, type: OrderType) => ({ ...Object.fromEntries(Object.entries(values).filter(([, value]) => value)), orderType: type });
   const [query, setQuery] = useState<OrderListQuery>(() => orderListQuerySchema.parse(toQuery(initial, "SALES")));
   const [filterError, setFilterError] = useState<string>();
-  const list = useResource(JSON.stringify(query), () => fetchOrders(query));
+  const [search, setSearch] = useState("");
+  const searched = useDebounced(search.trim());
+  // The header search runs on the server across every matching order, with the filters.
+  const effective: OrderListQuery = { ...query, ...(searched ? { search: searched } : {}) };
+  const list = useResource(JSON.stringify(effective), () => fetchOrders(effective));
+  const [history, setHistory] = useState<OrderListRow | null>(null);
+  const [exporting, setExporting] = useState(false);
+  const toast = useToast();
 
   function apply(values: Filters, type: OrderType) {
     const parsed = orderListQuerySchema.safeParse(toQuery(values, type));
@@ -103,61 +123,15 @@ function OrderList({ today }: { today: string }) {
   });
   const areaOptions = (kind: AreaKind) => [all, ...(setup.data?.areas ?? []).filter((area) => area.kind === kind).map((area) => ({ value: area.id, label: area.name }))];
 
-  function exportCsv() {
-    if (!list.data) return;
-    downloadCsv(
-      `sales-orders-${query.from ?? "all"}-to-${query.to ?? "all"}.csv`,
-      [
-        "SL",
-        "Status",
-        "SO Date",
-        "Exp. Delivery Date",
-        "SO No",
-        "Office Name",
-        "Customer Code",
-        "Customer Name",
-        "Project/Outlet/Ref",
-        "Shipping Address",
-        "Zone",
-        "Route",
-        "Section",
-        "Ref Customer PO",
-        "Ref Customer PO Date",
-        "Ref Customer PO Amount",
-        "Ref Invoice",
-        "Amount (BDT)",
-        "Order By",
-        "Territory Name",
-        "Type",
-        "Payment Method",
-        "Pending Reason",
-      ],
-      list.data.rows.map((row, index) => [
-        index + 1,
-        ORDER_STATUS_LABELS[row.status],
-        row.orderDate,
-        row.expectedDeliveryDate,
-        row.number,
-        row.officeName,
-        row.customerCode,
-        row.customerName,
-        row.refProjectOutlet,
-        row.shippingAddress,
-        row.zone,
-        row.route,
-        row.section,
-        row.refCustomerPo,
-        row.refCustomerPoDate,
-        row.refCustomerPoAmount ?? 0,
-        row.refInvoice,
-        row.salesTotal.toFixed(2),
-        row.salesPersonName,
-        row.territory,
-        ORDER_TYPE_LABELS[row.orderType],
-        PAYMENT_METHOD_LABELS[row.paymentMethod],
-        row.pendingReasonName ?? (row.holdReason ? HOLD_REASON_LABELS[row.holdReason] : ""),
-      ]),
-    );
+  async function exportExcel() {
+    setExporting(true);
+    try {
+      await downloadOrdersExcel(effective);
+    } catch (error) {
+      toast.error(errorMessage(error));
+    } finally {
+      setExporting(false);
+    }
   }
 
   const columns: Column<OrderListRow>[] = [
@@ -179,9 +153,12 @@ function OrderList({ today }: { today: string }) {
               <Pencil />
             </span>
           )}
-          <Link href={paths.printOrder(row.id)} aria-label={`Print ${row.number}`} title="Print" className={buttonClasses("ghost", "icon")}>
+          <Button variant="ghost" size="icon" aria-label={`History of ${row.number}`} title="History" onClick={() => setHistory(row)}>
+            <History />
+          </Button>
+          <a href={orderPdfUrl(row.id)} target="_blank" rel="noopener" aria-label={`Print ${row.number}`} title="Print (PDF)" className={buttonClasses("ghost", "icon")}>
             <Printer />
-          </Link>
+          </a>
         </span>
       ),
     },
@@ -237,9 +214,14 @@ function OrderList({ today }: { today: string }) {
         title="Order Management"
         actions={
           <>
-            <Button onClick={exportCsv} disabled={!list.data || list.data.rows.length === 0}>
+            <label className="relative w-56">
+              <span className="sr-only">Search orders</span>
+              <Search aria-hidden="true" className="pointer-events-none absolute top-1.5 left-2 size-4 text-ink-faint" />
+              <input type="search" value={search} placeholder="Search…" onChange={(event) => setSearch(event.target.value)} className={cn(CONTROL, "h-7 pl-7")} />
+            </label>
+            <Button onClick={exportExcel} loading={exporting} disabled={!list.data || list.data.rows.length === 0}>
               <Download aria-hidden="true" />
-              Excel (CSV)
+              Excel
             </Button>
             <Link href={paths.newOrder} className={buttonClasses("primary")}>
               <Plus aria-hidden="true" />
@@ -310,10 +292,6 @@ function OrderList({ today }: { today: string }) {
                 getRowId={(row) => row.id}
                 getRowLabel={(row) => row.number}
                 rowHref={(row) => paths.order(row.id)}
-                search={{
-                  placeholder: "Search SO no, customer, PO",
-                  match: (row, needle) => `${row.number} ${row.customerName} ${row.customerCode} ${row.refCustomerPo ?? ""}`.toLowerCase().includes(needle),
-                }}
                 footer={(rows) => ({
                   customer: "Total:",
                   amount: formatAmount(rows.reduce((sum, row) => sum + row.salesTotal, 0)),
@@ -331,6 +309,23 @@ function OrderList({ today }: { today: string }) {
           )}
         </Tabs>
       </Card>
+      <HistoryDialog row={history} onClose={() => setHistory(null)} />
     </PageContainer>
+  );
+}
+
+/** Audit trail of one order (who created, submitted, approved … and when). */
+function HistoryDialog({ row, onClose }: { row: OrderListRow | null; onClose: () => void }) {
+  const order = useResource(row ? `order:${row.id}:${row.updatedAt}` : null, () => fetchOrder(row!.id));
+  return (
+    <Dialog open={row !== null} onClose={onClose} title={row ? `History · ${row.number}` : "History"} size="lg">
+      {order.error ? (
+        <ErrorState message={errorMessage(order.error)} onRetry={order.reload} />
+      ) : !order.data ? (
+        <LoadingState />
+      ) : (
+        <ApprovalTimeline order={order.data} />
+      )}
+    </Dialog>
   );
 }

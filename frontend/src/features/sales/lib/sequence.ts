@@ -22,3 +22,21 @@ export function formatNumber(prefix: string, year: number, value: number): strin
   const serial = String(value).padStart(5, "0");
   return year ? `${prefix}-${year}-${serial}` : `${prefix}-${serial}`;
 }
+
+/**
+ * Next document number: prefix + company initials + 2-digit year + 7-digit serial per
+ * business unit and year, e.g. "SQ-" → "SQ-MG260000001". Runs in the caller's transaction.
+ */
+export async function companyDocumentNumber(tx: Tx, businessUnitId: string, docType: string, prefix: string, date: string): Promise<string> {
+  const year = Number(date.slice(0, 4));
+  const unit = await tx.businessUnit.findUniqueOrThrow({ where: { id: businessUnitId }, select: { company: { select: { name: true } } } });
+  const initials =
+    unit.company.name
+      .split(/\s+/)
+      .map((word) => word.replace(/[^A-Za-z]/g, "").charAt(0))
+      .join("")
+      .slice(0, 3)
+      .toUpperCase() || "BO";
+  const serial = await nextNumber(tx, businessUnitId, docType, year);
+  return `${prefix}${initials}${String(year).slice(-2)}${String(serial).padStart(7, "0")}`;
+}

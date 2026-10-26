@@ -35,6 +35,7 @@ import {
   planInputSchema,
   type CommissionBasis,
   type TargetBasis,
+  type TargetType,
 } from "../schemas/target.schema";
 import {
   assignPlan,
@@ -176,7 +177,7 @@ function BudgetEditor({ today, lookups, existing }: { today: string; lookups: Sa
   function save() {
     const input = {
       businessUnitId,
-      targetType: targetType as "EMPLOYEE",
+      targetType: targetType as TargetType,
       basis: basis as TargetBasis,
       year: Number(year),
       persons: persons.map((person) => ({
@@ -504,8 +505,8 @@ function PlanEditor({ today, lookups, existing }: { today: string; lookups: Sale
               <TextField label="End Date" type="date" required value={header.endDate} error={errors.endDate} onChange={(event) => set("endDate", event.target.value)} />
               <TextAreaField label="Remarks" rows={2} className="lg:col-span-3" value={header.remarks} error={errors.remarks} onChange={(event) => set("remarks", event.target.value)} />
               <div className="flex items-end">
-                <Button variant="secondary" onClick={() => save(true)} disabled={busy}>
-                  Save &amp; Assign
+                <Button variant="primary" onClick={() => save(true)} disabled={busy}>
+                  Assign
                 </Button>
               </div>
             </div>
@@ -579,7 +580,7 @@ function PlanEditor({ today, lookups, existing }: { today: string; lookups: Sale
               </Button>
             </div>
             {lines.length === 0 ? (
-              <EmptyState title="No customers added (all customers count)" />
+              <EmptyState title="No Data Found" subtitle="No customers added (all customers will be counted by default)." />
             ) : (
               <div className="overflow-x-auto rounded-lg border border-line">
                 <table className="w-full min-w-[640px] text-sm">
@@ -812,9 +813,9 @@ function AssignEditor({ lookups, initialPlanId }: { lookups: SalesLookups; initi
 
         <Card>
           {!planId ? (
-            <EmptyState title="Select a target name" />
+            <EmptyState title="No Data Found" subtitle="Select a target name to view or add assignments." />
           ) : list.length === 0 ? (
-            <EmptyState title="No sales force added yet" />
+            <EmptyState title="No Data Found" subtitle="No sales force assigned yet. Select employee details above and click Add." />
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full min-w-[760px] text-sm">
@@ -944,12 +945,14 @@ function CommissionEditor({ today, lookups, existing }: { today: string; lookups
   const level = (depth: 0 | 1 | 2) => {
     const parent = depth === 0 ? null : category[depth - 1];
     const choices = categories.filter((candidate) => candidate.level === depth + 1 && (depth === 0 || candidate.parentId === parent));
+    const label = depth === 0 ? "Selling Item Category" : depth === 1 ? "Selling Item Sub Category" : "Selling Item Minor Category";
+    const placeholder = depth === 0 ? "Select" : depth === 1 ? "Select" : "Minor Category";
     return (
       <SelectField
-        label={`Selling Item ${CATEGORY_LEVEL_LABELS[depth + 1]}`}
+        label={label}
         value={category[depth]}
         disabled={depth > 0 && !parent}
-        options={[{ value: "", label: "All" }, ...choices.map((candidate) => ({ value: candidate.id, label: candidate.name }))]}
+        options={[{ value: "", label: placeholder }, ...choices.map((candidate) => ({ value: candidate.id, label: candidate.name }))]}
         onChange={(event) => {
           const next = [...category] as [string, string, string];
           next[depth] = event.target.value;
@@ -966,17 +969,19 @@ function CommissionEditor({ today, lookups, existing }: { today: string; lookups
       back={paths.targetTab("commission-setup")}
       actions={
         <Button variant="primary" onClick={save} loading={busy}>
-          Save
+          SAVE
         </Button>
       }
     >
       <div className="flex flex-col gap-4">
         <Card>
           <Section>
-            <label className="flex items-center gap-2 text-sm text-ink">
-              <input type="radio" checked readOnly className="accent-accent" />
-              Item Commission
-            </label>
+            <div className="rounded border border-line bg-canvas p-3">
+              <label className="flex items-center gap-2 text-sm font-medium text-ink">
+                <input type="radio" checked readOnly className="size-4 accent-accent" />
+                Item Commission
+              </label>
+            </div>
             <div className="grid gap-x-4 gap-y-3 sm:grid-cols-2 lg:grid-cols-5">
               {units.length > 1 && (
                 <SelectField
@@ -995,7 +1000,7 @@ function CommissionEditor({ today, lookups, existing }: { today: string; lookups
               <SelectField
                 label="Customer Group"
                 value={header.customerGroupId}
-                options={[{ value: "", label: "All customers" }, ...(masters.data?.setup.customerGroups ?? []).map((group) => ({ value: group.id, label: group.name }))]}
+                options={[{ value: "", label: "Customer Group" }, ...(masters.data?.setup.customerGroups ?? []).map((group) => ({ value: group.id, label: group.name }))]}
                 onChange={(event) => set("customerGroupId", event.target.value)}
               />
               <SelectField
@@ -1003,10 +1008,10 @@ function CommissionEditor({ today, lookups, existing }: { today: string; lookups
                 required
                 value={header.salesPersonId}
                 error={errors.salesPersonId}
-                options={[{ value: "", label: masters.loading ? "Loading…" : "Select employee" }, ...(masters.data?.setup.salesPersons ?? []).map((person) => ({ value: person.id, label: `${person.name}${person.designation ? ` (${person.designation})` : ""}` }))]}
+                options={[{ value: "", label: "Select employee" }, ...(masters.data?.setup.salesPersons ?? []).map((person) => ({ value: person.id, label: `${person.name}${person.designation ? ` (${person.designation})` : ""}` }))]}
                 onChange={(event) => set("salesPersonId", event.target.value)}
               />
-              <TextField label="Commission Name" required value={header.name} error={errors.name} onChange={(event) => set("name", event.target.value)} />
+              <TextField label="Commission Name" required placeholder="Commission Name" value={header.name} error={errors.name} onChange={(event) => set("name", event.target.value)} />
               <TextField label="From Date" type="date" required value={header.fromDate} error={errors.fromDate} onChange={(event) => set("fromDate", event.target.value)} />
               <TextField label="To Date" type="date" required value={header.toDate} error={errors.toDate} onChange={(event) => set("toDate", event.target.value)} />
             </div>
@@ -1034,14 +1039,14 @@ function CommissionEditor({ today, lookups, existing }: { today: string; lookups
                   <label htmlFor={`${listId}-item`} className="text-xs text-ink-muted">
                     Select Item <span className="text-danger">*</span>
                   </label>
-                  <CheckboxField label={`All (${visible.length})`} checked={entry.all} onChange={(event) => setEntry({ ...entry, all: event.target.checked })} />
+                  <CheckboxField label="All" checked={entry.all} onChange={(event) => setEntry({ ...entry, all: event.target.checked })} />
                 </span>
                 <input
                   id={`${listId}-item`}
                   list={listId}
                   value={entry.all ? "" : entry.itemText}
                   disabled={entry.all || !masters.data}
-                  placeholder={entry.all ? "Every item in the chosen category" : `Search ${visible.length} items`}
+                  placeholder="Select/Search Item (min 3 letters)"
                   onChange={(event) => setEntry({ ...entry, itemText: event.target.value })}
                   className={cn(CONTROL, "h-7")}
                 />
@@ -1054,17 +1059,35 @@ function CommissionEditor({ today, lookups, existing }: { today: string; lookups
               <SelectField
                 label="Amount/Percentage Wise"
                 value={entry.basis}
-                options={COMMISSION_BASES.map((value) => ({ value, label: value === "AMOUNT" ? "Amount (per unit)" : "Percentage (of sales)" }))}
-                onChange={(event) => setEntry({ ...entry, basis: event.target.value as CommissionBasis })}
+                options={[{ value: "", label: "Amount/Percentage Wise" }, ...COMMISSION_BASES.map((value) => ({ value, label: value === "AMOUNT" ? "Amount" : "Percentage" }))]}
+                onChange={(event) => setEntry({ ...entry, basis: (event.target.value || "AMOUNT") as CommissionBasis })}
               />
-              <TextField label="Commission" type="number" min={0} step="any" value={entry.value} onChange={(event) => setEntry({ ...entry, value: event.target.value })} />
+              <TextField label="Commission" placeholder="Commission" type="number" min={0} step="any" value={entry.value} onChange={(event) => setEntry({ ...entry, value: event.target.value })} />
               <Button onClick={add}>
-                <Plus aria-hidden="true" />
                 Add List
               </Button>
             </div>
             {lines.length === 0 ? (
-              <EmptyState title="No items added yet" />
+              <div className="overflow-x-auto rounded-lg border border-line">
+                <table className="w-full min-w-[640px] text-sm">
+                  <thead className="bg-[#e8f1fc] text-xs font-semibold text-ink">
+                    <tr className="border-b border-line">
+                      {["SL", "Item Name", "UOM", "Amount/Percentage Wise", "Commission", "Actions"].map((label, index) => (
+                        <th key={label} scope="col" className={cn("px-3 py-2.5", index === 4 ? "text-right" : "text-left")}>
+                          {label}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td colSpan={6} className="p-0">
+                        <EmptyState title="No Data Found" subtitle="No items added yet. Choose category and item details above, then click Add List." />
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
             ) : (
               <div className="overflow-x-auto rounded-lg border border-line">
                 <table className="w-full min-w-[640px] text-sm">

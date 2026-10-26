@@ -1,14 +1,18 @@
 import { apiRequest } from "@/lib/api/client";
+import { downloadFile } from "@/lib/download";
 import type {
   BillDetail,
   BillInput,
+  AdvanceVoucherInput,
   BillRow,
   CollectionDetail,
   CollectionInput,
   CollectionList,
   CollectionListQuery,
   DueInvoice,
+  DueCollectionInput,
   DueInvoiceQuery,
+  GlAccountOption,
   DueListRow,
   DueQuery,
   LedgerRow,
@@ -31,6 +35,20 @@ export const fetchLedger = (filters: DueQuery) => apiRequest<LedgerRow[]>(`${C}/
 export const fetchCollections = (filters: CollectionListQuery) => apiRequest<CollectionList>(`${C}${query(filters)}`);
 export const fetchCollection = (id: string) => apiRequest<CollectionDetail>(`${C}/${id}`);
 export const createCollection = (input: CollectionInput) => apiRequest<CollectionDetail>(C, json("POST", input));
+/** Due Collection: one money receipt per customer. */
+export const createDueCollection = (input: DueCollectionInput) => apiRequest<{ id: string; number: string }[]>(`${C}/due-collection`, json("POST", input));
+/** Advance Collection voucher: one advance per row. */
+export const createAdvanceVoucher = (input: AdvanceVoucherInput) => apiRequest<{ id: string; number: string }[]>(`${C}/advance-voucher`, json("POST", input));
+export const fetchGlAccounts = () => apiRequest<GlAccountOption[]>("/api/sales/gl-accounts");
+
+/** The table on screen as an Excel or PDF file. */
+export const exportTable = (format: "xlsx" | "pdf", title: string, headers: string[], rows: (string | number | null)[][]) =>
+  downloadFile("/api/sales/table-export", `${title}.${format}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ format, title, headers, rows }),
+  });
+
 export const adjustAdvance = (id: string, version: string, allocations: { deliveryId: string; amount: number }[]) =>
   apiRequest<CollectionDetail>(`${C}/${id}/adjust`, json("POST", { version, allocations }));
 export const cancelCollection = (id: string, version: string, reason: string) => apiRequest<CollectionDetail>(`${C}/${id}/cancel`, json("POST", { version, reason }));

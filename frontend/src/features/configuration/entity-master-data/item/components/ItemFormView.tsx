@@ -3,7 +3,7 @@
 import { ArrowLeft, Save, SaveAll } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { PageContainer, PageHead } from "@/components/layout/page";
 import { Button, buttonClasses } from "@/components/ui/button";
 import { ErrorState, LoadingState } from "@/components/ui/section";
@@ -33,6 +33,34 @@ type FormState = Omit<Required<ItemInput>, "itemType" | "restrictedAge" | "track
   itemType: string;
   restrictedAge: string;
   tracking: "NONE" | "BOTH";
+  itemDescription: string;
+  hsCode: string;
+  partNo: string;
+  manufacturerName: string;
+  countryOfOrigin: string;
+  tag: string;
+  calculatedBasePrice: string;
+  priceIncreasing: string;
+  costPrice: string;
+  standardSalesPrice: string;
+  basePrice: string;
+  maxDiscount: string;
+  salesTaxSetup: string;
+  purchaseTaxSetup: string;
+  taxItemType: string;
+  supplyType: string;
+  selectSupplier: string;
+  reorderMinQty: string;
+  minSalesQty: string;
+  office: string;
+  warehouse: string;
+  itemLocation: string;
+  profitCenter: string;
+  dimension: string;
+  expireDate: string;
+  batchExpiredDays: string;
+  tagCustomer: string;
+  tagSupplier: string;
 };
 
 const EMPTY: FormState = {
@@ -48,7 +76,7 @@ const EMPTY: FormState = {
   printedCode: "",
   name: "",
   printedName: "",
-  itemType: "",
+  itemType: "Finished/Trading Goods",
   uom: "",
   divisionId: "",
   categoryId: "",
@@ -68,10 +96,75 @@ const EMPTY: FormState = {
   tradingPrice: "",
   purchasePrice: "",
   vatPercent: "",
+  itemDescription: "",
+  hsCode: "",
+  partNo: "",
+  manufacturerName: "",
+  countryOfOrigin: "",
+  tag: "",
+  calculatedBasePrice: "",
+  priceIncreasing: "",
+  costPrice: "",
+  standardSalesPrice: "",
+  basePrice: "",
+  maxDiscount: "",
+  salesTaxSetup: "VAT-[15%] SD-[0%] AIT-[0%]",
+  purchaseTaxSetup: "",
+  taxItemType: "",
+  supplyType: "",
+  selectSupplier: "",
+  reorderMinQty: "",
+  minSalesQty: "",
+  office: "",
+  warehouse: "",
+  itemLocation: "",
+  profitCenter: "",
+  dimension: "",
+  expireDate: "",
+  batchExpiredDays: "",
+  tagCustomer: "",
+  tagSupplier: "",
 };
 
 /** Fields on the Additional Information tab (to jump there when one has an error). */
-const ADDITIONAL_FIELDS = new Set(["barcode", "brand", "sellingPrice", "retailPrice", "dealerPrice", "tradingPrice", "purchasePrice", "vatPercent"]);
+const ADDITIONAL_FIELDS = new Set([
+  "barcode",
+  "brand",
+  "sellingPrice",
+  "retailPrice",
+  "dealerPrice",
+  "tradingPrice",
+  "purchasePrice",
+  "vatPercent",
+  "itemDescription",
+  "hsCode",
+  "partNo",
+  "manufacturerName",
+  "countryOfOrigin",
+  "tag",
+  "calculatedBasePrice",
+  "priceIncreasing",
+  "costPrice",
+  "standardSalesPrice",
+  "basePrice",
+  "maxDiscount",
+  "salesTaxSetup",
+  "purchaseTaxSetup",
+  "taxItemType",
+  "supplyType",
+  "selectSupplier",
+  "reorderMinQty",
+  "minSalesQty",
+  "office",
+  "warehouse",
+  "itemLocation",
+  "profitCenter",
+  "dimension",
+  "expireDate",
+  "batchExpiredDays",
+  "tagCustomer",
+  "tagSupplier",
+]);
 
 const TABS = [
   { id: "basic", label: "Basic Information" },
@@ -80,7 +173,15 @@ const TABS = [
 
 // ─── Loader ───────────────────────────────────────────────────────────────────
 
-export function ItemFormView({ itemId }: { itemId?: string }) {
+/** Embeds the form in another screen (e.g. a dialog): the saved item is handed back instead of navigating. */
+export interface EmbeddedItemForm {
+  /** Business unit to start with (the calling document's). */
+  businessUnitId?: string;
+  onSaved: (item: ItemDto) => void;
+  onCancel: () => void;
+}
+
+export function ItemFormView({ itemId, embedded }: { itemId?: string; embedded?: EmbeddedItemForm }) {
   const options = useResource("item-form-options", itemApi.formOptions);
   const item = useResource(itemId ? `item:${itemId}` : null, () => itemApi.get(itemId!));
   const title = itemId ? "Edit Item" : "Add Item";
@@ -95,18 +196,20 @@ export function ItemFormView({ itemId }: { itemId?: string }) {
     }
     // A single business unit is chosen automatically.
     const units = options.data?.businessUnits ?? [];
-    return { ...EMPTY, businessUnitId: units.length === 1 ? units[0].id : "" };
-  }, [item.data, options.data]);
+    const preset = embedded?.businessUnitId && units.some((unit) => unit.id === embedded.businessUnitId) ? embedded.businessUnitId : undefined;
+    return { ...EMPTY, businessUnitId: preset ?? (units.length === 1 ? units[0].id : "") };
+  }, [item.data, options.data, embedded?.businessUnitId]);
   const error = options.error ?? item.error;
   const ready = options.data && (!itemId || item.data);
   // New editor (fresh state) after "Save & New".
   const [round, setRound] = useState(0);
 
+  const Shell = embedded ? EmbeddedShell : FullPageShell;
   return (
-    <PageContainer full>
+    <Shell>
       {error || !ready ? (
         <>
-          <PageHead title={title} breadcrumbs={breadcrumbs} />
+          {!embedded && <PageHead title={title} breadcrumbs={breadcrumbs} />}
           <section className="rounded border border-line bg-surface">
             {error ? (
               <ErrorState
@@ -131,11 +234,15 @@ export function ItemFormView({ itemId }: { itemId?: string }) {
           options={options.data!}
           onOptionsChange={(update) => options.mutate((current) => update(current!))}
           onSavedNew={() => setRound((value) => value + 1)}
+          embedded={embedded}
         />
       )}
-    </PageContainer>
+    </Shell>
   );
 }
+
+const FullPageShell = ({ children }: { children: ReactNode }) => <PageContainer full>{children}</PageContainer>;
+const EmbeddedShell = ({ children }: { children: ReactNode }) => <div className="flex flex-col gap-4">{children}</div>;
 
 // ─── Editor ───────────────────────────────────────────────────────────────────
 
@@ -147,9 +254,10 @@ interface EditorProps {
   options: ItemFormOptions;
   onOptionsChange: (update: (current: ItemFormOptions) => ItemFormOptions) => void;
   onSavedNew: () => void;
+  embedded?: EmbeddedItemForm;
 }
 
-function ItemEditor({ itemId, title, breadcrumbs, initial, options, onOptionsChange, onSavedNew }: EditorProps) {
+function ItemEditor({ itemId, title, breadcrumbs, initial, options, onOptionsChange, onSavedNew, embedded }: EditorProps) {
   const router = useRouter();
   const toast = useToast();
   const [tab, setTab] = useState<(typeof TABS)[number]["id"]>("basic");
@@ -227,7 +335,9 @@ function ItemEditor({ itemId, title, breadcrumbs, initial, options, onOptionsCha
       const payload = form as ItemInput;
       const saved = itemId ? await itemApi.update(itemId, payload) : await itemApi.create(payload);
       toast.success(`Item ${saved.code} saved.`);
-      if (mode === "new") {
+      if (embedded) {
+        embedded.onSaved(saved);
+      } else if (mode === "new") {
         if (itemId) router.push(entityMasterDataPaths.itemCreate);
         else onSavedNew();
       } else {
@@ -258,6 +368,7 @@ function ItemEditor({ itemId, title, breadcrumbs, initial, options, onOptionsCha
 
   return (
     <>
+      {!embedded && (
       <PageHead
         title={title}
         subtitle={itemId ? `Item code ${initial.code}` : "Basic and additional information. Items are shared with Sales and Purchase."}
@@ -268,6 +379,7 @@ function ItemEditor({ itemId, title, breadcrumbs, initial, options, onOptionsCha
           </Link>
         }
       />
+      )}
 
       <form
         noValidate
@@ -423,69 +535,319 @@ function ItemEditor({ itemId, title, breadcrumbs, initial, options, onOptionsCha
               </PanelSection>
             </div>
 
-            <div className={cn("px-5 py-4", tab !== "additional" && "hidden")}>
-              <PanelSection title="Identification">
-                <FormGrid cols={4}>
-                  <Field label="Barcode" error={err("barcode")} hint={form.autoBarcode ? "Leave empty to generate one on save." : undefined}>
-                    {(id) => <Input id={id} value={form.barcode} maxLength={60} onChange={text("barcode")} />}
-                  </Field>
-                  <Field label="Brand" error={err("brand")}>
-                    {(id) => <Input id={id} value={form.brand} maxLength={100} onChange={text("brand")} />}
-                  </Field>
-                </FormGrid>
-              </PanelSection>
-              <PanelSection title="Prices & VAT">
-                <FormGrid cols={4}>
-                  {(
-                    [
-                      ["sellingPrice", "Selling Price"],
-                      ["retailPrice", "Retail Price (MRP)"],
-                      ["dealerPrice", "Dealer Price"],
-                      ["tradingPrice", "Trading Price"],
-                      ["purchasePrice", "Purchase Price"],
-                    ] as const
-                  ).map(([key, label]) => (
-                    <Field key={key} label={label} error={err(key)}>
-                      {(id) => (
-                        <Input
-                          id={id}
-                          inputMode="decimal"
-                          placeholder="0.00"
-                          className="text-right tabular-nums"
-                          value={form[key]}
-                          aria-invalid={invalid(key)}
-                          onChange={decimal(key, MONEY)}
-                        />
-                      )}
-                    </Field>
-                  ))}
-                  <Field label="VAT %" error={err("vatPercent")}>
-                    {(id) => (
-                      <Input
-                        id={id}
-                        inputMode="decimal"
-                        placeholder="0"
-                        className="text-right tabular-nums"
-                        value={form.vatPercent}
-                        aria-invalid={invalid("vatPercent")}
-                        onChange={decimal("vatPercent", /^\d{0,3}(\.\d{0,2})?$/)}
-                      />
-                    )}
-                  </Field>
-                </FormGrid>
-              </PanelSection>
+            <div className={cn("flex flex-col gap-5 px-5 py-4", tab !== "additional" && "hidden")}>
+              {/* Row 1: Item Description, H.S Code, Brand, Part No/ Model, Manufacturer Name, Country Of Origin */}
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6">
+                <Field label="Item Description" error={err("itemDescription")}>
+                  {(id) => <Input id={id} placeholder="itemDescription" value={form.itemDescription} maxLength={300} onChange={text("itemDescription")} />}
+                </Field>
+                <Field label="H.S Code" error={err("hsCode")}>
+                  {(id) => <Input id={id} placeholder="hscode" value={form.hsCode} maxLength={50} onChange={text("hsCode")} />}
+                </Field>
+                <Field label="Brand" error={err("brand")}>
+                  {(id) => <Input id={id} placeholder="brand" value={form.brand} maxLength={100} onChange={text("brand")} />}
+                </Field>
+                <Field label="Part No/ Model" error={err("partNo")}>
+                  {(id) => <Input id={id} placeholder="partNumber" value={form.partNo} maxLength={100} onChange={text("partNo")} />}
+                </Field>
+                <Field label="Manufacturer Name" error={err("manufacturerName")}>
+                  {(id) => <Input id={id} placeholder="manufacturerName" value={form.manufacturerName} maxLength={150} onChange={text("manufacturerName")} />}
+                </Field>
+                <Field label="Country Of Origin" error={err("countryOfOrigin")}>
+                  {(id) => (
+                    <Select
+                      id={id}
+                      placeholder="Select origin"
+                      value={form.countryOfOrigin}
+                      options={[
+                        { value: "Bangladesh", label: "Bangladesh" },
+                        { value: "China", label: "China" },
+                        { value: "India", label: "India" },
+                        { value: "Japan", label: "Japan" },
+                        { value: "Germany", label: "Germany" },
+                        { value: "USA", label: "USA" },
+                        { value: "Taiwan", label: "Taiwan" },
+                        { value: "Other", label: "Other" },
+                      ]}
+                      onChange={text("countryOfOrigin")}
+                    />
+                  )}
+                </Field>
+              </div>
+
+              {/* Row 2: Tag, Calculated Base Price, Price Increasing %, Cost Price, Standard Sales Price, Base Price */}
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6">
+                <Field label="Tag" error={err("tag")}>
+                  {(id) => <Input id={id} placeholder="Select item tag" value={form.tag} maxLength={100} onChange={text("tag")} />}
+                </Field>
+                <Field label="Calculated Base Price" error={err("calculatedBasePrice")}>
+                  {(id) => (
+                    <Select
+                      id={id}
+                      placeholder="Select Calculated Base P..."
+                      value={form.calculatedBasePrice}
+                      options={[
+                        { value: "Cost Price", label: "Cost Price" },
+                        { value: "Standard Sales Price", label: "Standard Sales Price" },
+                        { value: "MRP", label: "MRP" },
+                      ]}
+                      onChange={text("calculatedBasePrice")}
+                    />
+                  )}
+                </Field>
+                <Field label="Price Increasing %" error={err("priceIncreasing")}>
+                  {(id) => (
+                    <Input
+                      id={id}
+                      inputMode="decimal"
+                      placeholder="%"
+                      value={form.priceIncreasing}
+                      onChange={decimal("priceIncreasing", /^\d{0,3}(\.\d{0,2})?$/)}
+                    />
+                  )}
+                </Field>
+                <Field label="Cost Price" error={err("costPrice")}>
+                  {(id) => (
+                    <Input
+                      id={id}
+                      inputMode="decimal"
+                      placeholder="stdPurchasePrice"
+                      value={form.costPrice}
+                      onChange={decimal("costPrice", MONEY)}
+                    />
+                  )}
+                </Field>
+                <Field label="Standard Sales Price" error={err("sellingPrice")}>
+                  {(id) => (
+                    <Input
+                      id={id}
+                      inputMode="decimal"
+                      placeholder="sellingPrice"
+                      value={form.sellingPrice}
+                      onChange={(e) => {
+                        decimal("sellingPrice", MONEY)(e);
+                        patch({ standardSalesPrice: e.target.value });
+                      }}
+                    />
+                  )}
+                </Field>
+                <Field label="Base Price" error={err("basePrice")}>
+                  {(id) => (
+                    <Input
+                      id={id}
+                      inputMode="decimal"
+                      placeholder="basePrice"
+                      value={form.basePrice}
+                      onChange={decimal("basePrice", MONEY)}
+                    />
+                  )}
+                </Field>
+              </div>
+
+              {/* Row 3: Max Discount(%), Sales Tax Setup, Purchase Tax Setup, Tax Item Type, Supply Type, Select Supplier */}
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6">
+                <Field label="Max Discount(%)" error={err("maxDiscount")}>
+                  {(id) => (
+                    <Input
+                      id={id}
+                      inputMode="decimal"
+                      placeholder="maxDiscount"
+                      value={form.maxDiscount}
+                      onChange={decimal("maxDiscount", /^\d{0,3}(\.\d{0,2})?$/)}
+                    />
+                  )}
+                </Field>
+                <Field label="Sales Tax Setup" error={err("salesTaxSetup")}>
+                  {(id) => (
+                    <Select
+                      id={id}
+                      value={form.salesTaxSetup}
+                      options={[
+                        { value: "VAT-[15%] SD-[0%] AIT-[0%]", label: "VAT-[15%] SD-[0%] AIT-[0%]" },
+                        { value: "VAT-[5%] SD-[0%] AIT-[0%]", label: "VAT-[5%] SD-[0%] AIT-[0%]" },
+                        { value: "VAT-[7.5%] SD-[0%] AIT-[0%]", label: "VAT-[7.5%] SD-[0%] AIT-[0%]" },
+                        { value: "VAT-[0%] SD-[0%] AIT-[0%]", label: "VAT-[0%] SD-[0%] AIT-[0%]" },
+                      ]}
+                      onChange={text("salesTaxSetup")}
+                    />
+                  )}
+                </Field>
+                <Field label="Purchase Tax Setup" error={err("purchaseTaxSetup")}>
+                  {(id) => (
+                    <Select
+                      id={id}
+                      placeholder="purchaseTaxSetup"
+                      value={form.purchaseTaxSetup}
+                      options={[
+                        { value: "VAT-[15%]", label: "VAT-[15%]" },
+                        { value: "VAT-[5%]", label: "VAT-[5%]" },
+                        { value: "VAT-[0%]", label: "VAT-[0%]" },
+                      ]}
+                      onChange={text("purchaseTaxSetup")}
+                    />
+                  )}
+                </Field>
+                <Field label="Tax Item Type" error={err("taxItemType")}>
+                  {(id) => (
+                    <Select
+                      id={id}
+                      placeholder="Select Tax Item Type"
+                      value={form.taxItemType}
+                      options={[
+                        { value: "Standard Rated", label: "Standard Rated" },
+                        { value: "Zero Rated", label: "Zero Rated" },
+                        { value: "Exempted", label: "Exempted" },
+                      ]}
+                      onChange={text("taxItemType")}
+                    />
+                  )}
+                </Field>
+                <Field label="Supply Type" error={err("supplyType")}>
+                  {(id) => (
+                    <Select
+                      id={id}
+                      placeholder="Select Supply Type"
+                      value={form.supplyType}
+                      options={[
+                        { value: "Wholesale", label: "Wholesale" },
+                        { value: "Retail", label: "Retail" },
+                        { value: "Service", label: "Service" },
+                      ]}
+                      onChange={text("supplyType")}
+                    />
+                  )}
+                </Field>
+                <Field label="Select Supplier" error={err("selectSupplier")}>
+                  {(id) => <Input id={id} placeholder="Select/Search Partner (m..." value={form.selectSupplier} maxLength={150} onChange={text("selectSupplier")} />}
+                </Field>
+              </div>
+
+              {/* Row 4: Re-order/Minimum Qty, Minimum Sales Quantity, Office, Warehouse, Item Location, Profit Center */}
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6">
+                <Field label="Re-order/Minimum Qty" error={err("reorderMinQty")}>
+                  {(id) => (
+                    <Input
+                      id={id}
+                      inputMode="decimal"
+                      placeholder="stockLimitQuantity"
+                      value={form.reorderMinQty}
+                      onChange={decimal("reorderMinQty", QTY)}
+                    />
+                  )}
+                </Field>
+                <Field label="Minimum Sales Quantity" error={err("minSalesQty")}>
+                  {(id) => (
+                    <Input
+                      id={id}
+                      inputMode="decimal"
+                      placeholder="minSalesQty"
+                      value={form.minSalesQty}
+                      onChange={decimal("minSalesQty", QTY)}
+                    />
+                  )}
+                </Field>
+                <Field label="Office" error={err("office")}>
+                  {(id) => <Input id={id} placeholder="Office" value={form.office || "Head Office"} maxLength={100} onChange={text("office")} />}
+                </Field>
+                <Field label="Warehouse" error={err("warehouse")}>
+                  {(id) => (
+                    <Select
+                      id={id}
+                      placeholder="Select Warehouse"
+                      value={form.warehouse}
+                      options={[
+                        { value: "Main Warehouse", label: "Main Warehouse" },
+                        { value: "Finished Goods WH", label: "Finished Goods WH" },
+                        { value: "Central WH", label: "Central WH" },
+                      ]}
+                      onChange={text("warehouse")}
+                    />
+                  )}
+                </Field>
+                <Field label="Item Location" error={err("itemLocation")}>
+                  {(id) => <Input id={id} placeholder="Select Item Location" value={form.itemLocation} maxLength={100} onChange={text("itemLocation")} />}
+                </Field>
+                <Field label="Profit Center" error={err("profitCenter")}>
+                  {(id) => <Input id={id} placeholder="Select Profit Center" value={form.profitCenter} maxLength={100} onChange={text("profitCenter")} />}
+                </Field>
+              </div>
+
+              {/* Row 5: Dimension, Expire Date, Batch Expired Days, Barcode, Item Image */}
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5">
+                <Field label="Dimension" error={err("dimension")}>
+                  {(id) => <Input id={id} placeholder="Select dimension" value={form.dimension} maxLength={50} onChange={text("dimension")} />}
+                </Field>
+                <Field label="Expire Date" error={err("expireDate")}>
+                  {(id) => <Input id={id} type="date" value={form.expireDate} onChange={text("expireDate")} />}
+                </Field>
+                <Field label="Batch Expired Days" error={err("batchExpiredDays")}>
+                  {(id) => (
+                    <Input
+                      id={id}
+                      inputMode="numeric"
+                      placeholder="batchExpiredDays"
+                      value={form.batchExpiredDays}
+                      onChange={text("batchExpiredDays")}
+                    />
+                  )}
+                </Field>
+                <Field label="Barcode" error={err("barcode")}>
+                  {(id) => <Input id={id} placeholder="Barcode" value={form.barcode} maxLength={60} onChange={text("barcode")} />}
+                </Field>
+                <Field label="Item Image">
+                  {() => (
+                    <div className="flex h-9 items-center gap-2 rounded border border-line bg-canvas px-3 text-xs text-ink-muted">
+                      <span>📎 No Attachment</span>
+                    </div>
+                  )}
+                </Field>
+              </div>
+
+              {/* Row 6: Tag Customer, Tag Supplier */}
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <Field label="Tag Customer" error={err("tagCustomer")}>
+                  {(id) => (
+                    <Input
+                      id={id}
+                      placeholder="Select/Search Partner (min 2 letters)"
+                      value={form.tagCustomer}
+                      maxLength={150}
+                      onChange={text("tagCustomer")}
+                    />
+                  )}
+                </Field>
+                <Field label="Tag Supplier" error={err("tagSupplier")}>
+                  {(id) => (
+                    <Input
+                      id={id}
+                      placeholder="Select/Search Partner (min 2 letters)"
+                      value={form.tagSupplier}
+                      maxLength={150}
+                      onChange={text("tagSupplier")}
+                    />
+                  )}
+                </Field>
+              </div>
             </div>
           </Tabs>
         </Panel>
 
         <div className="sticky bottom-0 z-10 flex flex-wrap items-center justify-end gap-2 rounded border border-line bg-surface/95 px-4 py-2.5 shadow-xs backdrop-blur">
           <SaveState dirty={dirty} />
-          <Link href={entityMasterDataPaths.itemProfile} className={buttonClasses("secondary", "md")}>
-            Cancel
-          </Link>
-          <Button variant="accent-soft" loading={saving === "new"} disabled={saving !== null} onClick={() => save("new")}>
-            {saving !== "new" && <SaveAll />} Save &amp; New
-          </Button>
+          {embedded ? (
+            <Button variant="ghost" className="text-danger" onClick={embedded.onCancel} disabled={saving !== null}>
+              CLOSE
+            </Button>
+          ) : (
+            <>
+              <Link href={entityMasterDataPaths.itemProfile} className={buttonClasses("secondary", "md")}>
+                Cancel
+              </Link>
+              <Button variant="accent-soft" loading={saving === "new"} disabled={saving !== null} onClick={() => save("new")}>
+                {saving !== "new" && <SaveAll />} Save &amp; New
+              </Button>
+            </>
+          )}
           <Button type="submit" variant="accent" loading={saving === "save"} disabled={saving !== null}>
             {saving !== "save" && <Save />} Save
           </Button>

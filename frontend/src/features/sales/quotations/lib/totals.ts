@@ -7,37 +7,57 @@ export interface LineInput {
   qty: number;
   rate: number;
   discountPercent: number;
+  vatPercent: number;
+  aitPercent: number;
+}
+
+export interface LineFigures {
+  /** qty × rate. */
+  base: number;
+  discountAmount: number;
+  vatAmount: number;
+  aitAmount: number;
+  /** Line total. */
+  amount: number;
+}
+
+/**
+ * One line: Base = qty × rate, Discount = Base × disc %, Taxable = Base − Discount,
+ * VAT = Taxable × VAT %, AIT = Taxable × AIT %, Total = Taxable + VAT + AIT.
+ * When prices include VAT the taxable amount is first taken out of them
+ * (Taxable = (Base − Discount) ÷ (1 + VAT %)), so VAT is not charged twice.
+ */
+export function lineFigures(line: LineInput, includingVat: boolean): LineFigures {
+  const base = round2(line.qty * line.rate);
+  const discountAmount = round2((base * line.discountPercent) / 100);
+  const afterDiscount = base - discountAmount;
+  const taxable = includingVat ? afterDiscount / (1 + line.vatPercent / 100) : afterDiscount;
+  const vatAmount = round2(includingVat ? afterDiscount - taxable : (taxable * line.vatPercent) / 100);
+  const aitAmount = round2((taxable * line.aitPercent) / 100);
+  return { base, discountAmount, vatAmount, aitAmount, amount: round2(taxable + vatAmount + aitAmount) };
 }
 
 export interface QuotationTotals {
-  lineAmounts: number[];
+  lines: LineFigures[];
   totalQty: number;
   subTotal: number;
   discountAmount: number;
   vatAmount: number;
+  aitAmount: number;
   grandTotal: number;
 }
 
-/** Line amount after its own discount. */
-export function lineAmount({ qty, rate, discountPercent }: LineInput): number {
-  return round2(qty * rate * (1 - discountPercent / 100));
-}
-
-/**
- * Quotation totals. VAT applies to the subtotal after the header discount.
- * Shared by the form (live preview) and the server (the stored values).
- */
-export function quotationTotals(lines: readonly LineInput[], discountAmount: number, vatPercent: number): QuotationTotals {
-  const lineAmounts = lines.map(lineAmount);
-  const subTotal = round2(lineAmounts.reduce((sum, amount) => sum + amount, 0));
-  const discount = round2(Math.min(Math.max(discountAmount, 0), subTotal));
-  const vatAmount = round2(((subTotal - discount) * vatPercent) / 100);
+/** Quotation totals: sums of the lines. Shared by the form (live preview) and the server (stored values). */
+export function quotationTotals(lines: readonly LineInput[], includingVat: boolean): QuotationTotals {
+  const figures = lines.map((line) => lineFigures(line, includingVat));
+  const sum = (pick: (line: LineFigures) => number) => round2(figures.reduce((total, line) => total + pick(line), 0));
   return {
-    lineAmounts,
-    totalQty: Math.round(lines.reduce((sum, line) => sum + line.qty, 0) * 1000) / 1000,
-    subTotal,
-    discountAmount: discount,
-    vatAmount,
-    grandTotal: round2(subTotal - discount + vatAmount),
+    lines: figures,
+    totalQty: Math.round(lines.reduce((total, line) => total + line.qty, 0) * 1000) / 1000,
+    subTotal: sum((line) => line.base),
+    discountAmount: sum((line) => line.discountAmount),
+    vatAmount: sum((line) => line.vatAmount),
+    aitAmount: sum((line) => line.aitAmount),
+    grandTotal: sum((line) => line.amount),
   };
 }

@@ -1,7 +1,10 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PrismaClient } from "@/generated/prisma/client";
 import type { DeliveryInput, OrderDeliveryInput } from "@/features/sales/deliveries/schemas/delivery.schema";
+import { deliveryChallanPdf, deliveryTabExcel } from "@/features/sales/deliveries/services/delivery-export";
+import { createVehicle, listVehicles, searchDrivers } from "@/features/sales/deliveries/services/vehicle.service";
 import {
+  addPendingNote,
   confirmDelivery,
   createDelivery,
   deleteDelivery,
@@ -9,8 +12,10 @@ import {
   getOrderForDelivery,
   listApprovedOrders,
   listDeliveries,
+  listPendingNotes,
   setOrderPendingReason,
   updateDelivery,
+  updateDeliveryReferences,
 } from "@/features/sales/deliveries/services/delivery.service";
 import { adjustStock, getItemStock, getStockLevels } from "@/features/sales/deliveries/services/stock.service";
 import { createCustomer, createItem, createSetupRecord, getCustomerCredit } from "@/features/sales/masters/services/masters.service";
@@ -149,11 +154,11 @@ describe("sales delivery", () => {
 
     const delivery = await createDelivery(adminActor, forOrder([{ orderLineId: noodlesLine, qty: 240 }, { orderLineId: muriLine, qty: 100 }]));
     expect(delivery).toMatchObject({
-      number: "SD-2026-00001",
-      challanNo: "CH-2026-00001",
+      number: "SD-MG260000001",
+      challanNo: "CH-MG260000001",
       deliveryType: "SALES_ORDER",
       confirmation: "PENDING",
-      orderNumber: "SO-2026-00001",
+      orderNumber: "SO-MG260000001",
       itemsTotal: 8174,
       discountAmount: 50,
       totalAmount: 8124,
@@ -221,7 +226,7 @@ describe("sales delivery", () => {
     // 240 × 14.6 = 3504; discount 100 × 3504 / 16348 = 21.43; + 200 delivery charge.
     expect(delivery).toMatchObject({ itemsTotal: 3504, discountAmount: 21.43, totalAmount: 3682.57, paidAmount: 1000 });
     const collections = await prisma.salesCollection.findMany({ where: { deliveryId: delivery.id } });
-    expect(collections).toMatchObject([{ number: "CR-2026-00001", status: "SUBMITTED", method: "CASH" }]);
+    expect(collections).toMatchObject([{ number: "CR-MG260000001", status: "SUBMITTED", method: "CASH" }]);
     expect((await getCustomerCredit(adminActor, customerId, TODAY)).outstanding).toBe(2682.57);
 
     await expect(
@@ -286,7 +291,7 @@ describe("sales delivery", () => {
       receivedLines: [{ itemId: muriId, qty: 10, rate: 46.7 }],
       lines: [{ itemId: noodlesId, qty: 40, unitPrice: 14.6, discountPercent: 0, vatPercent: 15, aitPercent: 0 }],
     });
-    expect(exchange.exchangeReturn).toMatchObject({ number: "SR-2026-00001", reason: "Damaged packets", totalAmount: 467 });
+    expect(exchange.exchangeReturn).toMatchObject({ number: "SRE-MG260000001", reason: "Damaged packets", totalAmount: 467 });
     expect([await stock(noodlesId), await stock(muriId)]).toEqual([50, 10]);
 
     const [row] = (await listDeliveries(adminActor, { deliveryType: "EXCHANGE" })).rows;
@@ -313,5 +318,145 @@ describe("sales delivery", () => {
     await setOrderPendingReason(adminActor, orderId, { reasonId: null });
     expect((await listApprovedOrders(adminActor, {}))[0].pendingReasonId).toBeNull();
     await expect(setOrderPendingReason(scopedActor([OTHER_COMPANY]), orderId, { reasonId })).rejects.toMatchObject({ status: 404 });
+  });
+
+  it("registers vehicles with compartments and a driver, and carries them on a walk-in direct delivery", async () => {
+    await opening(noodlesId, 100);
+    const driver = await prisma.employee.create({
+      data: { officeId, employeeCode: "E-101", name: "Md. Rakib Driver", mobile: "01711000000", joiningDate: new Date("2025-01-01") },
+    });
+    expect((await searchDrivers(adminActor, { businessUnitId, search: "rak" })).map((row) => row.name)).toEqual(["Md. Rakib Driver"]);
+    await expect(searchDrivers(adminActor, { businessUnitId, search: "ra" })).rejects.toThrow();
+
+    const vehicle = await createVehicle(adminActor, {
+      businessUnitId,
+      vehicleNumber: "DHAKA METRO-TA 11-2233",
+      vehicleSize: "3 Ton",
+      isRent: true,
+      isCargo: false,
+      driverEmployeeId: driver.id,
+      securityCode: "4455",
+      compartments: [
+        { compartmentType: "Chamber", compartmentName: "Front", capacity: 1500, uom: "Litre" },
+        { compartmentType: "Chamber", compartmentName: "Rear", capacity: 2000, uom: "Litre" },
+      ],
+    });
+    expect(vehicle).toMatchObject({ driverEmployeeName: "Md. Rakib Driver", compartments: [{ compartmentNo: 1 }, { compartmentNo: 2, capacity: 2000 }] });
+    await expect(createVehicle(adminActor, { businessUnitId, vehicleNumber: "dhaka metro-ta 11-2233", isRent: false, isCargo: false, compartments: [] })).rejects.toMatchObject({ status: 409 });
+    expect(await listVehicles(scopedActor([OTHER_COMPANY]))).toEqual([]);
+
+    const walkIn = await createCustomer(adminActor, { businessUnitId, name: "Anonymous", creditDays: 0, addresses: [] });
+    await prisma.customer.update({ where: { id: walkIn.id }, data: { isAnonymous: true } });
+    const direct = await createDelivery(adminActor, {
+      deliveryType: "DIRECT",
+      customerId: walkIn.id,
+      priceIncludesVat: true,
+      discountAmount: 0,
+      officeId,
+      warehouseId,
+      ...header,
+      vehicleId: vehicle.id,
+      vehicleNo: "typed number is replaced",
+      driverEmployeeId: driver.id,
+      securityCode: "4455",
+      referredBy: "Sujon and Polash Enterprise",
+      buyerName: "Karim Mia",
+      buyerMobile: "01811000000",
+      salesType: "SAMPLE",
+      lines: [{ itemId: noodlesId, qty: 24, unitPrice: 14.6, discountPercent: 0, vatPercent: 15, aitPercent: 0 }],
+    });
+    expect(direct).toMatchObject({
+      vehicleId: vehicle.id,
+      vehicleNo: "DHAKA METRO-TA 11-2233",
+      driverEmployeeName: "Md. Rakib Driver",
+      buyerName: "Karim Mia",
+      buyerMobile: "01811000000",
+      referredBy: "Sujon and Polash Enterprise",
+      salesType: "SAMPLE",
+    });
+    expect((await listDeliveries(adminActor, { search: "karim" })).rows.map((row) => row.id)).toEqual([direct.id]);
+
+    const otherUnit = (await prisma.businessUnit.create({ data: { ...businessUnitInput, name: "Other BU", companyId: (await prisma.businessUnit.findUniqueOrThrow({ where: { id: businessUnitId } })).companyId } })).id;
+    const foreignVehicle = await createVehicle(adminActor, { businessUnitId: otherUnit, vehicleNumber: "X-1", isRent: false, isCargo: false, compartments: [] });
+    await expect(
+      createDelivery(adminActor, {
+        deliveryType: "DIRECT",
+        customerId,
+        priceIncludesVat: true,
+        discountAmount: 0,
+        officeId,
+        warehouseId,
+        ...header,
+        vehicleId: foreignVehicle.id,
+        lines: [{ itemId: noodlesId, qty: 1, unitPrice: 14.6, discountPercent: 0, vatPercent: 15, aitPercent: 0 }],
+      }),
+    ).rejects.toMatchObject({ status: 400 });
+  });
+
+  it("keeps the history of pending reasons, searches and exports the tabs", async () => {
+    const first = await addPendingNote(adminActor, orderId, { reason: "Review" });
+    expect(first.map((note) => note.reason)).toEqual(["Review"]);
+    await addPendingNote(adminActor, orderId, { reason: "All products are not available" });
+    await addPendingNote(adminActor, orderId, { reason: "review" });
+    expect((await listPendingNotes(adminActor, orderId)).map((note) => note.reason)).toEqual(["Review", "All products are not available", "review"]);
+    // The same text reuses one reason of the business unit.
+    expect(await prisma.deliveryPendingReason.count({ where: { businessUnitId } })).toBe(2);
+    const [row] = await listApprovedOrders(adminActor, { search: "sujon" });
+    expect(row).toMatchObject({ id: orderId, pendingReasonName: "Review" });
+    expect(await listApprovedOrders(adminActor, { search: "nobody" })).toEqual([]);
+    await expect(addPendingNote(adminActor, orderId, { reason: "  " })).rejects.toThrow();
+    await expect(listPendingNotes(scopedActor([OTHER_COMPANY]), orderId)).rejects.toMatchObject({ status: 404 });
+
+    const pk = (bytes: Uint8Array) => Buffer.from(bytes.slice(0, 2)).toString();
+    expect(pk(await deliveryTabExcel(adminActor, "approved", {}))).toBe("PK");
+    expect(pk(await deliveryTabExcel(adminActor, "deliveries", { from: TODAY, to: TODAY }))).toBe("PK");
+  });
+
+  it("pages the list, filters by customer, edits references until confirmation and prints the challan", async () => {
+    await opening(noodlesId, 1000);
+    const direct = (qty: number) =>
+      createDelivery(adminActor, {
+        deliveryType: "DIRECT",
+        customerId,
+        priceIncludesVat: true,
+        discountAmount: 0,
+        officeId,
+        warehouseId,
+        ...header,
+        paidAmount: 0,
+        lines: [{ itemId: noodlesId, qty, unitPrice: 10, discountPercent: 0, vatPercent: 0, aitPercent: 0 }],
+      });
+    const created = [];
+    for (const qty of [24, 48, 72]) created.push(await direct(qty));
+    expect(created.map((row) => row.number)).toEqual(["SD-MG260000001", "SD-MG260000002", "SD-MG260000003"]);
+    expect(created[0].challanNo).toBe("CH-MG260000001");
+
+    const page = await listDeliveries(adminActor, { page: 2, pageSize: 25 });
+    expect(page).toMatchObject({ totalCount: 3, rows: [] });
+    expect((await listDeliveries(adminActor, { page: 1, pageSize: 25 })).rows).toHaveLength(3);
+    expect((await listDeliveries(adminActor, { customerId })).totalCount).toBe(3);
+    await expect(listDeliveries(adminActor, { page: 1, pageSize: 7 })).rejects.toThrow();
+
+    const detail = await getDelivery(adminActor, created[2].id);
+    // 1000 opening − 24 − 48 − 72 delivered.
+    expect(detail.lines[0]).toMatchObject({ qty: 72, returnedQty: 0, stock: 856 });
+    expect(detail).toMatchObject({ totalAmount: 720, returnAmount: 0, pendingAmount: 720 });
+
+    const edited = await updateDeliveryReferences(adminActor, detail.id, {
+      version: detail.updatedAt,
+      vatChallanNo: "VAT-77",
+      refCustomerPo: "PO-9",
+      refCustomerPoDate: TODAY,
+      refInvoice: null,
+      remarks: "Leave at gate",
+    });
+    expect(edited).toMatchObject({ vatChallanNo: "VAT-77", refCustomerPo: "PO-9", refCustomerPoDate: TODAY, remarks: "Leave at gate" });
+    await expect(updateDeliveryReferences(adminActor, detail.id, { version: detail.updatedAt, vatChallanNo: "late" })).rejects.toMatchObject({ status: 409 });
+    const confirmed = await confirmDelivery(adminActor, detail.id, { version: edited.updatedAt, actualDeliveryDate: TODAY });
+    await expect(updateDeliveryReferences(adminActor, detail.id, { version: confirmed.updatedAt, vatChallanNo: "x" })).rejects.toMatchObject({ status: 409 });
+
+    const pdf = await deliveryChallanPdf(adminActor, detail.id);
+    expect(pdf.number).toBe("CH-MG260000003");
+    expect(Buffer.from(pdf.bytes.slice(0, 5)).toString()).toBe("%PDF-");
   });
 });

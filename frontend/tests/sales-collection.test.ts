@@ -4,9 +4,13 @@ import {
   adjustAdvance,
   cancelBill,
   cancelCollection,
+  createAdvanceVoucher,
   createBill,
   createCollection,
+  createDueCollection,
   getBill,
+  getCollection,
+  listGlAccounts,
   listBills,
   listCollections,
   listDue,
@@ -18,6 +22,8 @@ import { createDelivery, deleteDelivery } from "@/features/sales/deliveries/serv
 import { adjustStock } from "@/features/sales/deliveries/services/stock.service";
 import { createCustomer, createItem } from "@/features/sales/masters/services/masters.service";
 import { approveReturn, createReturn } from "@/features/sales/returns/services/return.service";
+import { tableExport } from "@/features/sales/lib/table-export";
+import { createOrder } from "@/features/sales/orders/services/order.service";
 import type { Actor } from "@/lib/auth/actor";
 import { adminActor, businessUnitInput, companyInput, officeInput, scopedActor } from "./helpers/fixtures";
 import { resetTestDb, startTestDb, stopTestDb } from "./helpers/test-db";
@@ -38,6 +44,7 @@ describe("sales collection", () => {
   let warehouseId: string;
   let customerId: string;
   let itemId: string;
+  let businessUnit: string;
 
   /** Credit delivery of `qty` items at 100 (no VAT): invoice of qty × 100, due after 7 days. */
   const deliver = (qty: number, deliveryDate: string, paidAmount = 0) =>
@@ -78,6 +85,7 @@ describe("sales collection", () => {
     await resetTestDb();
     const companyId = (await prisma.company.create({ data: companyInput })).id;
     const businessUnitId = (await prisma.businessUnit.create({ data: { ...businessUnitInput, companyId } })).id;
+    businessUnit = businessUnitId;
     officeId = (await prisma.office.create({ data: { ...officeInput, businessUnitId } })).id;
     warehouseId = (await prisma.warehouse.create({ data: { officeId, name: "FG WH" } })).id;
     customerId = (await createCustomer(adminActor, { businessUnitId, name: "M/S Arif Enterprise", creditDays: 7 })).id;
@@ -108,7 +116,7 @@ describe("sales collection", () => {
     await expect(createCollection(clerk, { ...receipt([{ deliveryId: a.id, amount: 100 }]), amount: 150 } as CollectionInput)).rejects.toThrow("must add up");
 
     const paid = await createCollection(clerk, receipt([{ deliveryId: a.id, amount: 1000 }, { deliveryId: b.id, amount: 200 }]));
-    expect(paid).toMatchObject({ number: "CR-2026-00001", kind: "INVOICE", amount: 1200, allocated: 1200, unallocated: 0, invoices: 2, createdBy: clerk.id });
+    expect(paid).toMatchObject({ number: "CR-MG260000001", kind: "INVOICE", amount: 1200, allocated: 1200, unallocated: 0, invoices: 2, createdBy: clerk.id });
     expect(await dueOf(a.id)).toBe(0);
     expect(await dueOf(b.id)).toBe(300);
 
@@ -183,5 +191,129 @@ describe("sales collection", () => {
     await deleteDelivery(adminActor, credit.id, { version: credit.updatedAt, reason: "Wrong" });
     // The cash delivery's own collection does not block it.
     await deleteDelivery(adminActor, cash.id, { version: cash.updatedAt, reason: "Wrong" });
+  });
+
+  it("collects invoices of several customers at once with bank deductions", async () => {
+    const cash = await prisma.account.create({ data: { code: "1010", name: "Cash in Hand", accountType: "ASSET", accountSubtype: "Cash", normalBalance: "DEBIT" } });
+    const charges = await prisma.account.create({ data: { code: "6010", name: "Bank Charges", accountType: "EXPENSE", accountSubtype: "Finance", normalBalance: "DEBIT" } });
+    await prisma.account.create({ data: { code: "6000", name: "Expenses", accountType: "EXPENSE", accountSubtype: "Group", normalBalance: "DEBIT", isGroup: true } });
+    expect((await listGlAccounts()).map((row) => row.code)).toEqual(["1010", "6010"]);
+
+    const first = await deliver(10, "2026-10-01"); // 1,000
+    const second = await deliver(5, "2026-10-05"); // 500
+    const otherCustomer = (await createCustomer(adminActor, { businessUnitId: businessUnit, name: "Saleha Electric", creditDays: 7 })).id;
+    const third = await createDelivery(adminActor, {
+      deliveryType: "DIRECT",
+      customerId: otherCustomer,
+      officeId,
+      warehouseId,
+      priceIncludesVat: true,
+      discountAmount: 0,
+      deliveryDate: "2026-10-06",
+      paymentMethod: "CREDIT",
+      paymentTermDays: 7,
+      deliveryCharge: 0,
+      unloadingCharge: 0,
+      paidAmount: 0,
+      lines: [{ itemId, qty: 3, unitPrice: 100, discountPercent: 0, vatPercent: 0, aitPercent: 0 }],
+    });
+
+    const base = {
+      officeId,
+      collectionDate: TODAY,
+      method: "BANK" as const,
+      moneyReceiptNo: "MR-77",
+      adjustAccountId: cash.id,
+      deductions: [{ expense: "Bank charge", accountId: charges.id, amount: 25 }],
+    };
+    const saved = await createDueCollection(clerk, {
+      ...base,
+      rows: [
+        { customerId, allocations: [{ deliveryId: first.id, amount: 1000 }, { deliveryId: second.id, amount: 200 }] },
+        { customerId: otherCustomer, allocations: [{ deliveryId: third.id, amount: 300 }] },
+      ],
+    });
+    expect(saved.map((row) => row.number)).toEqual(["CR-MG260000001", "CR-MG260000002"]);
+    const receipt = await getCollection(adminActor, saved[0].id);
+    expect(receipt).toMatchObject({ amount: 1200, moneyReceiptNo: "MR-77", adjustAccount: "1010 - Cash in Hand", deductionAmount: 25, deductions: [{ expense: "Bank charge", account: "6010 - Bank Charges", amount: 25 }] });
+    expect((await getCollection(adminActor, saved[1].id)).deductionAmount).toBe(0);
+    expect([await dueOf(first.id), await dueOf(second.id), await dueOf(third.id)]).toEqual([0, 300, 0]);
+
+    await expect(createDueCollection(clerk, { ...base, rows: [{ customerId, allocations: [{ deliveryId: second.id, amount: 301 }] }] })).rejects.toMatchObject({ status: 409 });
+    await expect(createDueCollection(clerk, { ...base, deductions: [], adjustAccountId: (await prisma.account.findFirstOrThrow({ where: { isGroup: true } })).id, rows: [{ customerId, allocations: [{ deliveryId: second.id, amount: 1 }] }] })).rejects.toMatchObject({ status: 400 });
+    await expect(createDueCollection(clerk, { ...base, rows: [{ customerId, allocations: [{ deliveryId: second.id, amount: 20 }] }] })).rejects.toThrow();
+  });
+
+  it("saves an advance voucher per partner with its SO, cash account and control amount", async () => {
+    const cash = await prisma.account.create({ data: { code: "1010", name: "Cash in Hand", accountType: "ASSET", accountSubtype: "Cash", normalBalance: "DEBIT" } });
+    const order = await createOrder(adminActor, {
+      officeId,
+      customerId,
+      orderType: "SALES",
+      paymentMethod: "CASH",
+      orderDate: TODAY,
+      expectedDeliveryDate: TODAY,
+      priceIncludesVat: true,
+      isForeign: false,
+      paymentTermDays: 0,
+      dueLimit: 0,
+      discountAmount: 0,
+      deliveryCharge: 0,
+      unloadingCharge: 0,
+      lines: [{ itemId, qty: 1, unitPrice: 100, discountPercent: 0, vatPercent: 0, aitPercent: 0 }],
+    });
+    const input = {
+      officeId,
+      collectionDate: TODAY,
+      voucherType: "BANK_RECEIVE" as const,
+      narration: "Advance for Eid order",
+      controlAmount: 5000,
+      cashAccountId: cash.id,
+      rows: [
+        { customerId, salesOrderId: order.id, adjustmentAmount: 1000, amount: 3000, remarks: "Part 1" },
+        { customerId, amount: 2000 },
+      ],
+    };
+    const saved = await createAdvanceVoucher(clerk, input);
+    expect(saved).toHaveLength(2);
+    expect(await getCollection(adminActor, saved[0].id)).toMatchObject({
+      kind: "ADVANCE",
+      method: "BANK",
+      amount: 3000,
+      voucherType: "BANK_RECEIVE",
+      cashAccount: "1010 - Cash in Hand",
+      narration: "Advance for Eid order",
+      controlAmount: 5000,
+      adjustmentAmount: 1000,
+      salesOrderNumber: order.number,
+    });
+    await expect(createAdvanceVoucher(clerk, { ...input, controlAmount: 4000 })).rejects.toThrow();
+    await expect(createAdvanceVoucher(clerk, { ...input, rows: [{ customerId, adjustmentAmount: 10, amount: 5 }], controlAmount: null })).rejects.toThrow();
+  });
+
+  it("creates factoring bills with GRN numbers, submission dates and terms; exports tables", async () => {
+    const invoice = await deliver(4, "2026-10-01");
+    const bill = await createBill(
+      adminActor,
+      {
+        officeId,
+        customerId,
+        billDate: TODAY,
+        billType: "FACTORING",
+        terms: "Pay within 30 days.",
+        deliveryIds: [invoice.id],
+        details: [{ deliveryId: invoice.id, challanManual: "CH-M-1", grnNumber: "GRN-9", submissionDate: TODAY }],
+      },
+      TODAY,
+    );
+    expect(bill).toMatchObject({ billType: "FACTORING", terms: "Pay within 30 days." });
+    expect(bill.lines[0]).toMatchObject({ challanManual: "CH-M-1", grnNumber: "GRN-9", submissionDate: TODAY });
+
+    const table = { title: "Due List", headers: ["SL", "Customer", "Due"], rows: [[1, "Arif", 400], [2, null, 0]] };
+    const xlsx = await tableExport({ format: "xlsx", ...table });
+    expect(Buffer.from(xlsx.bytes.slice(0, 2)).toString()).toBe("PK");
+    expect(xlsx.fileName).toBe("due-list.xlsx");
+    const pdf = await tableExport({ format: "pdf", ...table });
+    expect(Buffer.from(pdf.bytes.slice(0, 5)).toString()).toBe("%PDF-");
   });
 });

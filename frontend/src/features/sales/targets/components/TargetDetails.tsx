@@ -39,14 +39,8 @@ export function BudgetDetailsDialog({ id, editable, onClose }: { id: string; edi
       onClose={onClose}
       footer={
         <>
-          {editable && data && (
-            <Link href={paths.editBudget(data.id)} className={buttonClasses("secondary")}>
-              <UserPlus aria-hidden="true" />
-              Add Employee
-            </Link>
-          )}
-          <Button variant="ghost" className="text-danger" onClick={onClose}>
-            Close
+          <Button variant="ghost" className="font-semibold text-danger" onClick={onClose}>
+            CLOSE
           </Button>
         </>
       }
@@ -150,10 +144,10 @@ function PersonMonths({
         {editable && (
           <span className="flex items-center gap-1">
             <Button variant="ghost" size="icon" aria-label={`Remove ${person.name}`} title="Remove from target" disabled={busy} onClick={() => save(true)}>
-              <Trash2 />
+              <Trash2 className="size-4" />
             </Button>
-            <Button size="sm" variant="primary" loading={busy} onClick={() => save(false)}>
-              Save
+            <Button size="sm" variant="primary" className="h-7 px-3 text-xs font-semibold uppercase tracking-wider" loading={busy} onClick={() => save(false)}>
+              SAVE
             </Button>
           </span>
         )}

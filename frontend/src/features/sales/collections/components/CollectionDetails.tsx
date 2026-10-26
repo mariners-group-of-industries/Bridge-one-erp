@@ -19,7 +19,7 @@ import { amountInWords } from "../../lib/amount-in-words";
 import { formatDay, useToday } from "../../lib/use-today";
 import { paths } from "../../paths";
 import { round2 } from "../../quotations/lib/totals";
-import { COLLECTION_KIND_LABELS, COLLECTION_METHOD_LABELS, type BillDetail, type CollectionDetail } from "../schemas/collection.schema";
+import { BILL_TYPE_LABELS, COLLECTION_KIND_LABELS, COLLECTION_METHOD_LABELS, VOUCHER_TYPE_LABELS, type BillDetail, type CollectionDetail } from "../schemas/collection.schema";
 import { adjustAdvance, cancelBill, cancelCollection, fetchBill, fetchCollection, fetchDueInvoices } from "../services/collection.api";
 
 function Shell({ title, back, children }: { title: string; back: string; children?: ReactNode }) {
@@ -174,16 +174,68 @@ function CollectionBody({ record, onChanged }: { record: CollectionDetail; onCha
               <Detail label="Address" value={record.customerAddress} />
               <Detail label="Collect By" value={record.salesPersonName} />
               <Detail label="Remarks" value={record.remarks} />
+              {record.employeeName && <Detail label="Employee" value={record.employeeName} />}
+              {record.salesOrderNumber && record.salesOrderId && (
+                <Detail
+                  label="SO No"
+                  value={
+                    <Link href={paths.order(record.salesOrderId)} className="text-accent-strong hover:underline">
+                      {record.salesOrderNumber}
+                    </Link>
+                  }
+                />
+              )}
+              {record.project && <Detail label="Project" value={record.project} />}
+              {record.narration && <Detail label="Narration" value={record.narration} />}
             </dl>
             <dl className="flex flex-col gap-1">
               <Detail label="Collection Date" value={formatDay(record.collectionDate)} />
               <Detail label="Type" value={COLLECTION_KIND_LABELS[record.kind]} />
               <Detail label="Payment Method" value={COLLECTION_METHOD_LABELS[record.method]} />
               <Detail label="Reference" value={[record.reference, record.bankName].filter(Boolean).join(" · ")} />
+              {record.moneyReceiptNo && <Detail label="Money Receipt No" value={record.moneyReceiptNo} />}
+              {record.cashType && <Detail label="Cash Type" value={record.cashType} />}
+              {record.voucherType && <Detail label="Voucher Type" value={VOUCHER_TYPE_LABELS[record.voucherType]} />}
+              {record.cashAccount && <Detail label="Cash Account" value={[record.cashAccount, record.cashRemarks].filter(Boolean).join(" · ")} />}
+              {record.adjustAccount && <Detail label="Adjust With GL" value={record.adjustAccount} />}
+              {record.controlAmount !== null && <Detail label="Control Amount" value={formatAmount(record.controlAmount)} />}
+              {record.adjustmentAmount > 0 && <Detail label="Adjustment Amount" value={formatAmount(record.adjustmentAmount)} />}
               <Detail label="Created By" value={record.createdBy && `${record.createdBy} · ${formatDateTime(record.createdAt)}`} />
             </dl>
           </div>
         </Card>
+
+        {record.deductions.length > 0 && (
+          <Card>
+            <div className="border-b border-line px-4 py-2.5 text-sm font-semibold text-ink">Bank Deduction Details</div>
+            <table className="w-full text-sm">
+              <thead className="bg-accent-soft text-xs font-semibold text-ink">
+                <tr>
+                  <th scope="col" className="px-3 py-2 text-left">Expenses</th>
+                  <th scope="col" className="px-3 py-2 text-left">Account Head (GL)</th>
+                  <th scope="col" className="px-3 py-2 text-right">Amount</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-line">
+                {record.deductions.map((row) => (
+                  <tr key={row.id}>
+                    <td className="px-3 py-2">{row.expense}</td>
+                    <td className="px-3 py-2">{row.account}</td>
+                    <td className="px-3 py-2 text-right tabular-nums">{formatAmount(row.amount)}</td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot className="border-t border-line-strong bg-canvas font-medium text-ink">
+                <tr>
+                  <td colSpan={2} className="px-3 py-2 text-right">
+                    Net received: {formatAmount(record.amount - record.deductionAmount)}
+                  </td>
+                  <td className="px-3 py-2 text-right tabular-nums">{formatAmount(record.deductionAmount)}</td>
+                </tr>
+              </tfoot>
+            </table>
+          </Card>
+        )}
 
         <Card>
           <div className="border-b border-line px-4 py-2.5 text-sm font-semibold text-ink">{record.kind === "ADVANCE" ? "Adjusted Against Invoices" : "Invoices Paid"}</div>
@@ -448,6 +500,8 @@ function BillBody({ today, bill, onChanged }: { today: string; bill: BillDetail;
             <dl className="flex flex-col gap-1">
               <Detail label="Bill Date" value={formatDay(bill.billDate)} />
               <Detail label="Office" value={bill.officeName} />
+              <Detail label="Bill Type" value={BILL_TYPE_LABELS[bill.billType]} />
+              {bill.terms && <Detail label="Terms & Conditions" value={<span className="whitespace-pre-line">{bill.terms}</span>} />}
               <Detail label="Created By" value={bill.createdBy && `${bill.createdBy} · ${formatDateTime(bill.createdAt)}`} />
             </dl>
           </div>
@@ -457,8 +511,8 @@ function BillBody({ today, bill, onChanged }: { today: string; bill: BillDetail;
             <table className="w-full min-w-[760px] text-sm">
               <thead className="bg-canvas text-xs text-ink-muted">
                 <tr className="border-b border-line">
-                  {["SL", "Invoice No", "Challan No", "Invoice Date", "Due Date", "Invoice Amount", "Billed", "Due Now"].map((label, index) => (
-                    <th key={label} scope="col" className={cn("px-3 py-2 font-medium", index >= 5 ? "text-right" : "text-left")}>
+                  {["SL", "Invoice No", "Challan No", "GRN Number", "Submission Date", "Invoice Date", "Due Date", "Invoice Amount", "Billed", "Due Now"].map((label, index) => (
+                    <th key={label} scope="col" className={cn("px-3 py-2 font-medium", index >= 7 ? "text-right" : "text-left")}>
                       {label}
                     </th>
                   ))}
@@ -473,7 +527,9 @@ function BillBody({ today, bill, onChanged }: { today: string; bill: BillDetail;
                         {line.invoiceNumber}
                       </Link>
                     </td>
-                    <td className="px-3 py-2">{line.challanNo ?? "—"}</td>
+                    <td className="px-3 py-2">{line.challanManual ?? line.challanNo ?? "—"}</td>
+                    <td className="px-3 py-2">{line.grnNumber ?? "—"}</td>
+                    <td className="px-3 py-2">{line.submissionDate ? formatDay(line.submissionDate) : "—"}</td>
                     <td className="px-3 py-2">{formatDay(line.invoiceDate)}</td>
                     <td className="px-3 py-2">{formatDay(line.dueDate)}</td>
                     <td className="px-3 py-2 text-right tabular-nums">{formatAmount(line.invoiceAmount)}</td>
@@ -484,7 +540,7 @@ function BillBody({ today, bill, onChanged }: { today: string; bill: BillDetail;
               </tbody>
               <tfoot className="border-t border-line-strong bg-canvas font-medium text-ink">
                 <tr>
-                  <td colSpan={6} className="px-3 py-2 text-right">
+                  <td colSpan={8} className="px-3 py-2 text-right">
                     Total
                   </td>
                   <td className="px-3 py-2 text-right tabular-nums">{formatAmount(bill.billAmount)}</td>

@@ -7,7 +7,7 @@ import { cn } from "@/lib/cn";
 import { formatAmount } from "../../dashboard/lib/format";
 import { requiredNumber } from "../../lib/form";
 import type { OfficeOption } from "../../masters/schemas/masters.schema";
-import { PAYMENT_METHODS, PAYMENT_METHOD_LABELS, type PaymentMethod } from "../../orders/schemas/order.schema";
+import { PAYMENT_METHODS, PAYMENT_METHOD_LABELS, type OrderType, type PaymentMethod } from "../../orders/schemas/order.schema";
 import type { DeliveryDetail, WarehouseOption } from "../schemas/delivery.schema";
 
 /** Header fields shared by order, direct and exchange deliveries (form strings). */
@@ -32,6 +32,15 @@ export interface HeaderValues {
   driverName: string;
   driverPhone: string;
   transporterName: string;
+  vehicleId: string;
+  driverEmployeeId: string;
+  /** Display only: the chosen driver's name. */
+  driverEmployeeName: string;
+  securityCode: string;
+  referredBy: string;
+  buyerName: string;
+  buyerMobile: string;
+  salesType: OrderType;
   paymentMethod: PaymentMethod;
   paymentTermDays: string;
   deliveryCharge: string;
@@ -61,6 +70,14 @@ export function blankHeader(today: string, nowTime: string): HeaderValues {
     driverName: "",
     driverPhone: "",
     transporterName: "",
+    vehicleId: "",
+    driverEmployeeId: "",
+    driverEmployeeName: "",
+    securityCode: "",
+    referredBy: "",
+    buyerName: "",
+    buyerMobile: "",
+    salesType: "SALES",
     paymentMethod: "CASH",
     paymentTermDays: "0",
     deliveryCharge: "0",
@@ -91,6 +108,14 @@ export function headerFromDelivery(delivery: DeliveryDetail): HeaderValues {
     driverName: delivery.driverName ?? "",
     driverPhone: delivery.driverPhone ?? "",
     transporterName: delivery.transporterName ?? "",
+    vehicleId: delivery.vehicleId ?? "",
+    driverEmployeeId: delivery.driverEmployeeId ?? "",
+    driverEmployeeName: delivery.driverEmployeeName ?? "",
+    securityCode: delivery.securityCode ?? "",
+    referredBy: delivery.referredBy ?? "",
+    buyerName: delivery.buyerName ?? "",
+    buyerMobile: delivery.buyerMobile ?? "",
+    salesType: delivery.salesType,
     paymentMethod: delivery.paymentMethod,
     paymentTermDays: String(delivery.paymentTermDays),
     deliveryCharge: String(delivery.deliveryCharge),
@@ -122,6 +147,13 @@ export function headerInput(values: HeaderValues) {
     driverName: values.driverName,
     driverPhone: values.driverPhone,
     transporterName: values.transporterName,
+    vehicleId: values.vehicleId || null,
+    driverEmployeeId: values.driverEmployeeId || null,
+    securityCode: values.securityCode,
+    referredBy: values.referredBy,
+    buyerName: values.buyerName,
+    buyerMobile: values.buyerMobile,
+    salesType: values.salesType,
     paymentMethod: values.paymentMethod,
     paymentTermDays: requiredNumber(values.paymentTermDays || "0"),
     deliveryCharge: requiredNumber(values.deliveryCharge || "0"),
@@ -150,7 +182,7 @@ interface TransportProps {
 
 /** "Transportation Details": where, when, who and the document references. */
 export function TransportSection({ values, errors, set, offices, businessUnitId, warehouses, salesPersons, addresses }: TransportProps) {
-  const [showMore, setShowMore] = useState(!!(values.driverName || values.driverPhone || values.transporterName || values.terms));
+  const [showMore, setShowMore] = useState(Boolean(values.terms));
   const officeWarehouses = warehouses.filter((warehouse) => warehouse.officeId === values.officeId);
   return (
     <div className="flex flex-col gap-3">
@@ -214,19 +246,15 @@ export function TransportSection({ values, errors, set, offices, businessUnitId,
           options={[{ value: "", label: "Select warehouse" }, ...officeWarehouses.map((warehouse) => ({ value: warehouse.id, label: warehouse.name }))]}
           onChange={(event) => set("warehouseId", event.target.value)}
         />
-        <TextField label="Vehicle No" value={values.vehicleNo} error={errors.vehicleNo} onChange={(event) => set("vehicleNo", event.target.value)} />
         <TextField label="Remarks" className="xl:col-span-2" value={values.remarks} error={errors.remarks} onChange={(event) => set("remarks", event.target.value)} />
       </div>
       <div>
         <Button size="sm" onClick={() => setShowMore((value) => !value)} aria-expanded={showMore}>
-          {showMore ? "Hide" : "Driver, Transporter & Terms"}
+          {showMore ? "Hide Terms" : "Terms & Conditions"}
         </Button>
       </div>
       {showMore && (
         <div className="grid gap-x-4 gap-y-3 sm:grid-cols-3">
-          <TextField label="Driver Name" value={values.driverName} error={errors.driverName} onChange={(event) => set("driverName", event.target.value)} />
-          <TextField label="Driver Mobile" type="tel" value={values.driverPhone} error={errors.driverPhone} onChange={(event) => set("driverPhone", event.target.value)} />
-          <TextField label="Transporter" value={values.transporterName} error={errors.transporterName} onChange={(event) => set("transporterName", event.target.value)} />
           <TextAreaField label="Terms & Conditions" className="sm:col-span-3" rows={5} value={values.terms} error={errors.terms} onChange={(event) => set("terms", event.target.value)} />
         </div>
       )}
