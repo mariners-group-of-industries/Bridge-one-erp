@@ -83,7 +83,7 @@ function OfficeAccordion({ unit, showLabel }: { unit: BusinessUnitDto; showLabel
           No offices have been added to this business unit.
         </EmptyState>
       ) : (
-        <div className="flex flex-col divide-y divide-line overflow-hidden rounded-lg border border-line bg-surface">
+        <div className="flex flex-col divide-y divide-line overflow-hidden rounded border border-line bg-surface">
           {offices.data.map((office) => (
             <OfficeRow
               key={office.id}
@@ -149,7 +149,7 @@ function OfficeRow({
         >
           <span
             aria-hidden="true"
-            className="flex size-7 shrink-0 items-center justify-center rounded-md bg-accent-soft text-accent-strong dark:text-accent"
+            className="flex size-7 shrink-0 items-center justify-center rounded bg-accent-soft text-accent-strong dark:text-accent"
           >
             <Building2 className="size-3.5" />
           </span>
@@ -163,7 +163,7 @@ function OfficeRow({
           type="button"
           aria-label={`Delete ${office.name}`}
           onClick={onDelete}
-          className="mr-2 flex size-8 items-center justify-center rounded-lg text-ink-faint transition-colors hover:bg-control hover:text-danger focus-visible:outline-2"
+          className="mr-2 flex size-8 items-center justify-center rounded text-ink-faint transition-colors hover:bg-control hover:text-danger focus-visible:outline-2"
         >
           <Trash2 className="size-4" />
         </button>

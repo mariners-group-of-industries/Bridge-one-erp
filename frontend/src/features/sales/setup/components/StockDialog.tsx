@@ -16,7 +16,14 @@ import { adjustStock, fetchItemStock } from "../../deliveries/services/delivery.
 import { issuesToErrors, requiredNumber } from "../../lib/form";
 import type { ItemOption } from "../../masters/schemas/masters.schema";
 
-const SOURCE_LABELS = { OPENING: "Opening", ADJUSTMENT: "Adjustment", SALES_DELIVERY: "Delivery", SALES_RETURN: "Return" } as const;
+const SOURCE_LABELS = {
+  OPENING: "Opening",
+  ADJUSTMENT: "Adjustment",
+  SALES_DELIVERY: "Delivery",
+  SALES_RETURN: "Return",
+  PRODUCTION_CONSUMPTION: "Production use",
+  PRODUCTION_OUTPUT: "Production output",
+} as const;
 
 /** Stock per warehouse for one item, its movements, and opening stock / adjustments. */
 export function StockDialog({ item, today, onClose }: { item: ItemOption; today: string; onClose: () => void }) {

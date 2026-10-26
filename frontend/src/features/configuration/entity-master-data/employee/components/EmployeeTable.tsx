@@ -82,10 +82,13 @@ interface EmployeeTableProps {
   onRowClick: (row: EmployeeListRow) => void;
 }
 
-const TH = "sticky top-0 z-10 bg-canvas px-3 py-2.5 text-left text-xs font-medium whitespace-nowrap text-ink-muted";
+// Purchase-style grid: blue header band, borders on every cell (border-separate keeps them on sticky cells).
+const TH =
+  "sticky top-0 z-10 border-r border-b-2 border-r-grid-head-line border-b-grid-head-rule bg-grid-head px-2.5 py-2 text-left text-[11px] font-bold tracking-wide whitespace-nowrap text-grid-head-ink uppercase";
+const TD = "border-r border-b border-grid-line px-2.5 py-2";
 // SL and Action stay visible while scrolling sideways.
 const PIN_SL = "sticky left-0 z-[1] w-12";
-const PIN_ACTION = "sticky left-12 z-[1] w-56 border-r border-line";
+const PIN_ACTION = "sticky left-12 z-[1] w-56";
 
 export function EmployeeTable({ rows, firstSerial, busy, onAction, onRowClick }: EmployeeTableProps) {
   return (
@@ -93,10 +96,10 @@ export function EmployeeTable({ rows, firstSerial, busy, onAction, onRowClick }:
       className={cn("max-h-[min(70vh,52rem)] overflow-auto transition-opacity", busy && "opacity-60")}
       aria-busy={busy || undefined}
     >
-      <table className="w-full min-w-max text-sm">
+      <table className="w-full min-w-max border-separate border-spacing-0 text-[12px]">
         <caption className="sr-only">Employees</caption>
         <thead>
-          <tr className="border-b border-line">
+          <tr>
             <th scope="col" className={cn(TH, PIN_SL, "z-20 text-right")}>
               SL
             </th>
@@ -112,16 +115,17 @@ export function EmployeeTable({ rows, firstSerial, busy, onAction, onRowClick }:
         </thead>
         <tbody>
           {rows.map((row, index) => (
-            <tr key={row.id} className="group border-b border-line last:border-b-0">
+            <tr key={row.id} className="group">
               <td
                 className={cn(
                   PIN_SL,
-                  "bg-surface px-3 py-2 text-right text-xs text-ink-faint tabular-nums group-hover:bg-accent-soft",
+                  TD,
+                  "bg-surface text-right text-ink-faint tabular-nums group-hover:bg-grid-hover",
                 )}
               >
                 {firstSerial + index}
               </td>
-              <td className={cn(PIN_ACTION, "bg-surface px-2 py-1 group-hover:bg-accent-soft")}>
+              <td className={cn(PIN_ACTION, TD, "bg-surface px-1.5 py-1 group-hover:bg-grid-hover")}>
                 <EmployeeActionMenu
                   employee={{ employeeId: row.id, employeeCode: row.employeeCode, name: row.name }}
                   onSelect={onAction}
@@ -131,7 +135,8 @@ export function EmployeeTable({ rows, firstSerial, busy, onAction, onRowClick }:
                 <td
                   key={column.id}
                   className={cn(
-                    "px-3 py-2 whitespace-nowrap text-ink-muted group-hover:bg-accent-soft/50",
+                    TD,
+                    "whitespace-nowrap text-ink group-hover:bg-grid-hover",
                     column.className,
                   )}
                 >

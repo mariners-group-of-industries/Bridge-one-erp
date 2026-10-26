@@ -9,11 +9,11 @@ import {
 } from "react";
 import { cn } from "@/lib/cn";
 
-/** ERPNext-style control: filled grey, borderless, ring on focus. */
+/** Purchase-style control: white, bordered, blue ring on focus. */
 export const CONTROL =
-  "w-full rounded-md bg-control px-2 text-sm text-ink placeholder:text-ink-faint transition-colors hover:bg-hover focus:bg-surface focus:outline-none focus:ring-1 focus:ring-line-strong focus:shadow-[0_0_0_2px_var(--control)] disabled:cursor-not-allowed disabled:text-ink-faint disabled:hover:bg-control";
+  "w-full rounded border border-line-strong bg-surface px-2.5 text-[12px] text-ink placeholder:text-ink-faint transition-colors focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent disabled:cursor-not-allowed disabled:bg-control disabled:text-ink-faint";
 
-const INVALID = "ring-1 ring-danger focus:ring-danger";
+const INVALID = "border-danger focus:border-danger focus:ring-danger";
 
 interface FieldShellProps {
   label: string;
@@ -29,7 +29,7 @@ function FieldShell({ label, required, error, hint, className, children }: Field
   const messageId = `${id}-message`;
   return (
     <div className={cn("flex flex-col gap-1", className)}>
-      <label htmlFor={id} className="text-xs text-ink-muted">
+      <label htmlFor={id} className="text-xs font-semibold text-ink-muted">
         {label}
         {required && (
           <span className="ml-0.5 text-danger" aria-hidden="true">
@@ -69,7 +69,7 @@ export function TextField({
           required={required}
           aria-invalid={invalid || undefined}
           aria-describedby={describedBy}
-          className={cn(CONTROL, "h-7", invalid && INVALID)}
+          className={cn(CONTROL, "h-8", invalid && INVALID)}
           {...props}
         />
       )}
@@ -119,7 +119,7 @@ export function SelectField({
           required={required}
           aria-invalid={invalid || undefined}
           aria-describedby={describedBy}
-          className={cn(CONTROL, "h-7", invalid && INVALID)}
+          className={cn(CONTROL, "h-8", invalid && INVALID)}
           {...props}
         >
           {options.map((option) => (

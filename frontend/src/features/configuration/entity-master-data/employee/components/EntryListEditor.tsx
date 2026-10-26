@@ -136,7 +136,7 @@ function Editor<T extends object>({
             rows.map((row, index) => {
               const set = (patch: Partial<T>) => update(row._key, patch);
               return (
-                <fieldset key={row._key} className="rounded-md border border-line">
+                <fieldset key={row._key} className="rounded border border-line">
                   <legend className="sr-only">
                     {itemLabel} {index + 1}
                   </legend>

@@ -2,6 +2,7 @@ import { AppError } from "@/lib/api/errors";
 import { getAuthCookie } from "@/lib/auth/cookies";
 import { verifyToken } from "@/lib/auth/jwt";
 import { db } from "@/lib/prisma/client";
+import { resolveTokenActor } from "./api-token";
 
 export type Permission =
   | "configuration:read"
@@ -11,10 +12,15 @@ export type Permission =
   | "sales:write"
   | "sales:approve"
   | "accounts:read"
-  | "accounts:write";
+  | "accounts:write"
+  | "production:read"
+  | "production:write"
+  | "production:approve";
 
 export interface Actor {
   id: string;
+  /** Display name (user name, or "API token: …"), for the audit trail. */
+  name?: string;
   role: string;
   /** True for the master account — always has every permission, bypasses future RBAC. */
   isMaster: boolean;
@@ -32,6 +38,9 @@ export const ALL_PERMISSIONS: readonly Permission[] = [
   "sales:approve",
   "accounts:read",
   "accounts:write",
+  "production:read",
+  "production:write",
+  "production:approve",
 ];
 
 /**
@@ -42,8 +51,11 @@ function permissionsForRole(_role: string): ReadonlySet<Permission> {
   return new Set<Permission>(ALL_PERMISSIONS);
 }
 
-export async function resolveActor(_request: Request): Promise<Actor | null> {
+export async function resolveActor(request: Request): Promise<Actor | null> {
   try {
+    // Integrations call with `Authorization: Bearer b1_…` (Configuration › API Configuration).
+    if (request.headers.get("authorization")) return await resolveTokenActor(request.headers.get("authorization"), request.method);
+
     const token = await getAuthCookie();
     if (!token) return null;
 
@@ -57,6 +69,7 @@ export async function resolveActor(_request: Request): Promise<Actor | null> {
 
     return {
       id: payload.sub,
+      name: payload.name,
       role: payload.role,
       isMaster,
       permissions: isMaster
@@ -92,4 +105,11 @@ export function assertCompanyAccess(actor: Actor, companyId: string, entity: str
   if (!canAccessCompany(actor, companyId)) {
     throw new AppError(404, "NOT_FOUND", `${entity} not found.`);
   }
+}
+
+const USER_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** The signed-in user's id for "last action by" foreign keys; null for API tokens and system actors. */
+export function actorUserId(actor: Actor): string | null {
+  return USER_ID.test(actor.id) ? actor.id : null;
 }

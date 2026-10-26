@@ -31,7 +31,7 @@ function CalendarGrid({
   while (cells.length % 7 !== 0) cells.push(null);
 
   return (
-    <div className="overflow-hidden rounded-md border border-line">
+    <div className="overflow-hidden rounded border border-line">
       <div className="grid grid-cols-7 border-b border-line bg-canvas">
         {WEEKDAYS.map((d) => (
           <div key={d} className="py-2 text-center text-xs font-medium text-ink-muted">

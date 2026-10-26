@@ -5,17 +5,15 @@ import { BusinessUnitFormView } from "@/features/configuration/business-config/c
 
 export const metadata: Metadata = { title: "Business Unit" };
 
-export default function BusinessUnitPage({
+export default async function BusinessUnitPage({
   params,
 }: {
   params: Promise<{ businessUnitId: string }>;
 }) {
-  // Params are request-time data under Cache Components, so read them inside Suspense.
+  const { businessUnitId } = await params;
   return (
     <Suspense fallback={<LoadingState />}>
-      {params.then(({ businessUnitId }) => (
-        <BusinessUnitFormView businessUnitId={businessUnitId} />
-      ))}
+      <BusinessUnitFormView businessUnitId={businessUnitId} />
     </Suspense>
   );
 }

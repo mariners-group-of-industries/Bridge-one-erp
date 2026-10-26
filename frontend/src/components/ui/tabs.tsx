@@ -15,7 +15,7 @@ interface TabsProps<T extends string> {
   value: T;
   onChange: (id: T) => void;
   label: string;
-  /** "accent" draws the selected tab in the blue accent colour. */
+  /** @deprecated Every tab bar now uses the blue accent underline; kept for existing callers. */
   tone?: "default" | "accent";
   /** Content of the selected tab. */
   children: ReactNode;
@@ -31,7 +31,6 @@ export function Tabs<T extends string>({
   value,
   onChange,
   label,
-  tone = "default",
   children,
   className,
 }: TabsProps<T>) {
@@ -78,18 +77,18 @@ export function Tabs<T extends string>({
               tabIndex={selected ? 0 : -1}
               onClick={() => onChange(tab.id)}
               className={cn(
-                "-mb-px inline-flex items-center gap-1.5 border-b-2 py-2.5 text-sm whitespace-nowrap transition-colors focus-visible:outline-2",
+                "-mb-px inline-flex items-center gap-1.5 border-b-2 py-2.5 text-xs font-bold tracking-wide whitespace-nowrap uppercase transition-colors focus-visible:outline-2",
                 !selected && "border-transparent text-ink-faint hover:text-ink",
-                selected && tone === "default" && "border-ink font-medium text-ink",
-                selected && tone === "accent" && "border-accent font-medium text-accent-strong dark:text-accent",
+                // Both tones use the blue underline of the Purchase module.
+                selected && "border-accent-strong text-accent-strong dark:border-accent dark:text-accent",
               )}
             >
               {tab.label}
               {tab.badge !== undefined && (
                 <span
                   className={cn(
-                    "rounded-full px-1.5 text-xs",
-                    selected && tone === "accent" ? "bg-accent-soft text-accent-strong dark:text-accent" : "bg-control text-ink-muted",
+                    "rounded px-1.5 text-[10px]",
+                    selected ? "bg-accent-soft text-accent-strong dark:text-accent" : "bg-control text-ink-muted",
                   )}
                 >
                   {tab.badge}

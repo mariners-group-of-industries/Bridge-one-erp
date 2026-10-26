@@ -63,11 +63,11 @@ function ProfileInner({ employeeId }: { employeeId: string }) {
       />
 
       {profile.error ? (
-        <section className="rounded-lg border border-line bg-surface">
+        <section className="rounded border border-line bg-surface">
           <ErrorState message={profile.error.message} onRetry={profile.reload} />
         </section>
       ) : !profile.data ? (
-        <section className="rounded-lg border border-line bg-surface">
+        <section className="rounded border border-line bg-surface">
           <LoadingState label="Loading employee…" />
         </section>
       ) : (
@@ -126,7 +126,7 @@ function ProfileHeader({ data }: { data: PersonalInfoDto }) {
   ];
 
   return (
-    <section className="rounded-lg border border-line bg-surface shadow-[0_1px_2px_rgb(0_0_0/0.04)]">
+    <section className="rounded border border-line bg-surface shadow-[0_1px_2px_rgb(0_0_0/0.04)]">
       <div className="flex flex-col gap-4 px-5 py-4 lg:flex-row lg:items-center">
         <div className="flex min-w-0 flex-1 items-center gap-4">
           <Avatar name={data.name} size="lg" />
@@ -148,7 +148,7 @@ function ProfileHeader({ data }: { data: PersonalInfoDto }) {
           </div>
         </div>
 
-        <dl className="grid grid-cols-3 divide-x divide-line rounded-md border border-line bg-canvas text-center lg:min-w-[22rem]">
+        <dl className="grid grid-cols-3 divide-x divide-line rounded border border-line bg-canvas text-center lg:min-w-[22rem]">
           <Fact label="Employee Id" value={data.employeeCode} />
           <Fact label="Attendance Id" value={data.attendanceId ?? "—"} />
           <Fact label="Joined" value={data.joiningDate} icon={<CalendarDays />} />

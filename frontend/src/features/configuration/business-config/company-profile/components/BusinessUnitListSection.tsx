@@ -106,7 +106,7 @@ function DateFormatPicker({
         <span className="text-xs text-ink-faint">{formatDate(unit.dateFormat)}</span>
       </div>
       {open && (
-        <div className="absolute top-full left-0 z-20 mt-1 min-w-40 rounded-lg border border-accent-line bg-surface shadow-dropdown">
+        <div className="absolute top-full left-0 z-20 mt-1 min-w-40 rounded border border-accent-line bg-surface shadow-dropdown">
           {DATE_FORMATS.map((fmt) => (
             <button
               key={fmt}
@@ -187,7 +187,7 @@ export function BusinessUnitListSection({ company: _company, units, loading, err
         {units.map((unit) => (
           <div
             key={unit.id}
-            className="rounded-lg border border-line border-l-[3px] border-l-accent bg-surface p-4 transition-colors hover:border-accent-line hover:border-l-accent"
+            className="rounded border border-line border-l-[3px] border-l-accent bg-surface p-4 transition-colors hover:border-accent-line hover:border-l-accent"
           >
             <div className="mb-3 flex items-center justify-between gap-2">
               <span className="flex min-w-0 items-center gap-2">

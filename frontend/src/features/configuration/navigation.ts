@@ -2,6 +2,10 @@ import { Settings } from "lucide-react";
 import type { NavCard, NavLink, Workspace } from "@/lib/navigation/types";
 import { paths } from "./business-config/company-profile/paths";
 import { entityMasterDataPaths } from "./entity-master-data/paths";
+import { salesConfigPaths } from "./sales-config/paths";
+import { gatewaysPaths } from "./gateways/paths";
+import { securityPaths } from "./security/paths";
+import { systemLogsPaths } from "./system-logs/paths";
 
 const companyProfile: NavLink = {
   label: "Company Profile",
@@ -31,6 +35,61 @@ export const entityMasterData: NavCard = {
   ],
 };
 
+export const salesConfig: NavCard = {
+  label: "Sales Config",
+  href: salesConfigPaths.root,
+  links: [
+    { label: "Offer Setup", href: salesConfigPaths.offerSetup, keywords: ["offer", "promotion", "discount", "bonus"] },
+    { label: "Customer Price Setup", href: salesConfigPaths.customerPriceSetup, keywords: ["customer price", "price"] },
+    { label: "Sales Setup", href: salesConfigPaths.salesSetup, keywords: ["sales", "setup"] },
+    { label: "Standard Price Setup", href: salesConfigPaths.standardPriceSetup, keywords: ["standard price", "price"] },
+    { label: "Wallet Setup", href: salesConfigPaths.walletSetup, keywords: ["wallet"] },
+    { label: "Sales Return", href: salesConfigPaths.salesReturn, keywords: ["return", "sales return"] },
+    { label: "Price Setup", href: salesConfigPaths.priceSetup, keywords: ["price"] },
+  ],
+};
+
+export const identitySecurity: NavCard = {
+  label: "Identity & Security",
+  href: securityPaths.root,
+  links: [
+    {
+      label: "Approval Setup",
+      href: securityPaths.approvalSetup,
+      description: "Approval pipelines: super approver and staged approvers per feature.",
+      keywords: ["approval", "pipeline", "approver", "workflow"],
+    },
+    { label: "User Group", href: securityPaths.userGroup, keywords: ["user", "group"] },
+    { label: "Permission Group", href: securityPaths.permissionGroup, keywords: ["permission", "role", "access"] },
+  ],
+};
+
+export const communityGateways: NavCard = {
+  label: "Community & Gateways",
+  href: gatewaysPaths.root,
+  links: [
+    {
+      label: "API Configuration",
+      href: gatewaysPaths.apiConfiguration,
+      description: "Generate and revoke API tokens for other systems.",
+      keywords: ["api", "token", "integration", "gateway", "expose"],
+    },
+  ],
+};
+
+export const systemLogs: NavCard = {
+  label: "System Logs",
+  href: systemLogsPaths.root,
+  links: [
+    {
+      label: "Audit Logs",
+      href: systemLogsPaths.auditLogs,
+      description: "Who changed what and when.",
+      keywords: ["audit", "log", "history", "activity"],
+    },
+  ],
+};
+
 export const configurationWorkspace: Workspace = {
   id: "configuration",
   label: "Configuration",
@@ -39,7 +98,7 @@ export const configurationWorkspace: Workspace = {
   description: "Company setup, business units, offices, warehouses and document terms.",
   status: "active",
   shortcuts: [companyProfile],
-  cards: [{ label: "Business Config", links: [companyProfile, businessUnits] }, entityMasterData],
+  cards: [{ label: "Business Config", links: [companyProfile, businessUnits] }, entityMasterData, salesConfig, identitySecurity, communityGateways, systemLogs],
   routes: [
     {
       pattern: "/configuration/business-config/offices/[officeId]",

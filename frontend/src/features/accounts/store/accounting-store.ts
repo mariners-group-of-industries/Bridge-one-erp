@@ -150,13 +150,13 @@ const initialAccounts: AccountItem[] = [
 
   // GL Accounts under Cash At Bank
   { id: "acc-00001", code: "00001", name: "UCBL PABNA: 1872101000001011", parentCode: "10102", accountType: "ASSET", accountSubtype: "GL", tierLevel: "GL", normalBalance: "DEBIT", openingBalance: 0, currentBalance: 0, currency: "BDT", isGroup: false, status: "ACTIVE", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
-  { id: "acc-b2", code: "2", name: "DBBLMFAL P: 2331100024316", parentCode: "10102", accountType: "ASSET", accountSubtype: "GL", tierLevel: "GL", normalBalance: "DEBIT", openingBalance: 0, currentBalance: 0, currency: "BDT", isGroup: false, status: "ACTIVE", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
-  { id: "acc-b3", code: "3", name: "IBBLMFAMO: 20501450100552413", parentCode: "10102", accountType: "ASSET", accountSubtype: "GL", tierLevel: "GL", normalBalance: "DEBIT", openingBalance: 0, currentBalance: 0, currency: "BDT", isGroup: false, status: "ACTIVE", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
-  { id: "acc-b4", code: "4", name: "DBBL: 2861200000492", parentCode: "10102", accountType: "ASSET", accountSubtype: "GL", tierLevel: "GL", normalBalance: "DEBIT", openingBalance: 0, currentBalance: 0, currency: "BDT", isGroup: false, status: "ACTIVE", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
-  { id: "acc-b5", code: "5", name: "Feed DBBL: 2861100073676", parentCode: "10102", accountType: "ASSET", accountSubtype: "GL", tierLevel: "GL", normalBalance: "DEBIT", openingBalance: 26016, currentBalance: 26016, currency: "BDT", isGroup: false, status: "ACTIVE", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
-  { id: "acc-b6", code: "6", name: "MOHS DBBL: 2861100088709", parentCode: "10102", accountType: "ASSET", accountSubtype: "GL", tierLevel: "GL", normalBalance: "DEBIT", openingBalance: 1998, currentBalance: 1998, currency: "BDT", isGroup: false, status: "ACTIVE", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
-  { id: "acc-b7", code: "7", name: "BlueWave DBBL: 2861100028682", parentCode: "10102", accountType: "ASSET", accountSubtype: "GL", tierLevel: "GL", normalBalance: "DEBIT", openingBalance: 7042, currentBalance: 7042, currency: "BDT", isGroup: false, status: "ACTIVE", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
-  { id: "acc-b8", code: "8", name: "MBBL DBBL: 2861200015657", parentCode: "10102", accountType: "ASSET", accountSubtype: "GL", tierLevel: "GL", normalBalance: "DEBIT", openingBalance: 4083.09, currentBalance: 4083.09, currency: "BDT", isGroup: false, status: "ACTIVE", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
+  { id: "acc-b2", code: "00002", name: "DBBLMFAL P: 2331100024316", parentCode: "10102", accountType: "ASSET", accountSubtype: "GL", tierLevel: "GL", normalBalance: "DEBIT", openingBalance: 0, currentBalance: 0, currency: "BDT", isGroup: false, status: "ACTIVE", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
+  { id: "acc-b3", code: "00003", name: "IBBLMFAMO: 20501450100552413", parentCode: "10102", accountType: "ASSET", accountSubtype: "GL", tierLevel: "GL", normalBalance: "DEBIT", openingBalance: 0, currentBalance: 0, currency: "BDT", isGroup: false, status: "ACTIVE", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
+  { id: "acc-b4", code: "00004", name: "DBBL: 2861200000492", parentCode: "10102", accountType: "ASSET", accountSubtype: "GL", tierLevel: "GL", normalBalance: "DEBIT", openingBalance: 0, currentBalance: 0, currency: "BDT", isGroup: false, status: "ACTIVE", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
+  { id: "acc-b5", code: "00005", name: "Feed DBBL: 2861100073676", parentCode: "10102", accountType: "ASSET", accountSubtype: "GL", tierLevel: "GL", normalBalance: "DEBIT", openingBalance: 26016, currentBalance: 26016, currency: "BDT", isGroup: false, status: "ACTIVE", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
+  { id: "acc-b6", code: "00006", name: "MOHS DBBL: 2861100088709", parentCode: "10102", accountType: "ASSET", accountSubtype: "GL", tierLevel: "GL", normalBalance: "DEBIT", openingBalance: 1998, currentBalance: 1998, currency: "BDT", isGroup: false, status: "ACTIVE", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
+  { id: "acc-b7", code: "00007", name: "BlueWave DBBL: 2861100028682", parentCode: "10102", accountType: "ASSET", accountSubtype: "GL", tierLevel: "GL", normalBalance: "DEBIT", openingBalance: 7042, currentBalance: 7042, currency: "BDT", isGroup: false, status: "ACTIVE", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
+  { id: "acc-b8", code: "00008", name: "MBBL DBBL: 2861200015657", parentCode: "10102", accountType: "ASSET", accountSubtype: "GL", tierLevel: "GL", normalBalance: "DEBIT", openingBalance: 4083.09, currentBalance: 4083.09, currency: "BDT", isGroup: false, status: "ACTIVE", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
 
   // 102: Receivables (Class)
   { id: "acc-102", code: "102", name: "Receivables", parentCode: "1", accountType: "ASSET", accountSubtype: "Class", tierLevel: "Class", normalBalance: "DEBIT", openingBalance: 14850220, currentBalance: 14850220, currency: "BDT", isGroup: true, status: "ACTIVE", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
@@ -2449,7 +2449,7 @@ const initialBudgets: BudgetItem[] = [
   },
 ];
 
-const STORAGE_KEY = "bridgeone_accounting_v9";
+const STORAGE_KEY = process.env.NEXT_PUBLIC_ACCOUNTING_STORAGE_KEY ?? "bridgeone_accounting_v10";
 
 let internalData: StateData = {
   accounts: initialAccounts,

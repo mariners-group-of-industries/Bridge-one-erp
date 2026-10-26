@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { CompanyDateFormat } from "@/lib/format";
+import { UUID_PATTERN } from "@/lib/validation/fields";
 
 // ─── Listing query ───────────────────────────────────────────────────────────
 
@@ -87,7 +88,7 @@ export const createEmployeeSchema = z.object({
   employeeCode:      z.string().trim().min(1).max(30),
   attendanceId:      z.string().trim().max(30).optional(),
   name:              z.string().trim().min(1).max(150),
-  officeId:          z.string().uuid(),
+  officeId:          z.string().regex(UUID_PATTERN, { message: "Invalid UUID" }),
   designation:       z.string().trim().max(100).optional(),
   hrPosition:        z.string().trim().max(100).optional(),
   department:        z.string().trim().max(100).optional(),
