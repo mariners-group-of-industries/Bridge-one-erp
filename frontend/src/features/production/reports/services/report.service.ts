@@ -48,9 +48,9 @@ interface Context {
   subtitle: string[];
 }
 
-/** Category ids under the chosen category / sub category (an item may sit at level 3). */
-async function categoryScope(unitIds: string[], categoryId?: string, subCategoryId?: string): Promise<Set<string> | null> {
-  const root = subCategoryId ?? categoryId;
+/** Category ids under the chosen category / sub category / minor category (deepest wins). */
+async function categoryScope(unitIds: string[], categoryId?: string, subCategoryId?: string, minorCategoryId?: string): Promise<Set<string> | null> {
+  const root = minorCategoryId ?? subCategoryId ?? categoryId;
   if (!root) return null;
   const categories = await db().itemCategory.findMany({ where: { businessUnitId: { in: unitIds } }, select: { id: true, parentId: true } });
   const children = new Map<string, string[]>();
@@ -69,7 +69,7 @@ async function categoryScope(unitIds: string[], categoryId?: string, subCategory
 async function context(actor: Actor, query: ParsedReportQuery): Promise<Context> {
   const unitIds = await scopedBusinessUnitIds(actor);
   const [categoryIds, unit, office, department, section, workCenter, item] = await Promise.all([
-    categoryScope(unitIds, query.categoryId, query.subCategoryId),
+    categoryScope(unitIds, query.categoryId, query.subCategoryId, query.minorCategoryId),
     db().businessUnit.findFirst({ where: { id: { in: unitIds } }, select: { company: { select: { name: true } } }, orderBy: { name: "asc" } }),
     query.officeId ? db().office.findFirst({ where: { id: query.officeId, businessUnitId: { in: unitIds } }, select: { name: true } }) : null,
     query.departmentId ? db().productionDepartment.findFirst({ where: { id: query.departmentId }, select: { name: true } }) : null,
@@ -329,25 +329,42 @@ async function performanceReport(ctx: Context): Promise<Built> {
   };
 }
 
+/** One row per batch (production entry), by date, process (section / work center) and item. */
 async function processDateReport(ctx: Context): Promise<Built> {
   const records = await entries(ctx);
-  const days = daysOf(ctx.query.from, ctx.query.to);
-  const groups = new Map<string, Record<string, ReportCell>>();
-  for (const entry of records) {
-    const key = `${entry.workCenterId ?? "-"}:${entry.itemId}`;
-    const row = groups.get(key) ?? { process: centerLabel(entry), item: itemLabel(entry.item), uom: entry.item.uom, total: 0 };
-    const dayKey = `d${fromDbDate(entry.productionDate)}`;
-    row[dayKey] = round4(((row[dayKey] as number | undefined) ?? 0) + num(entry.netQty));
-    row.total = round4((row.total as number) + num(entry.netQty));
-    groups.set(key, row);
-  }
-  const rows = [...groups.values()].sort((a, b) => `${a.process}${a.item}`.localeCompare(`${b.process}${b.item}`));
-  const dayColumns = days.map((date) => col(`d${date}`, day(date).slice(0, 5), "qty"));
+  const rows = records
+    .map((entry) => ({
+      date: fromDbDate(entry.productionDate),
+      batch: entry.number,
+      process: [entry.departmentSection?.name, entry.workCenter ? `${entry.workCenter.code} - ${entry.workCenter.name}` : null].filter(Boolean).join(" / ") || "N/A",
+      item: itemLabel(entry.item),
+      shift: entry.shift ?? "N/A",
+      hours: num(entry.hours),
+      batchQty: num(entry.qty),
+      wastage: num(entry.rejectQty),
+      net: num(entry.netQty),
+      uom: entry.item.uom,
+      remarks: entry.remarks ?? "",
+    }))
+    .sort((a, b) => `${a.date}${a.process}${a.item}`.localeCompare(`${b.date}${b.process}${b.item}`));
   return {
-    columns: [col("process", "Process / Work Center"), col("item", "Item"), col("uom", "UoM"), ...dayColumns, col("total", "Total", "qty")],
+    columns: [
+      col("date", "Date", "date"),
+      col("batch", "Batch No"),
+      col("process", "Process / Section"),
+      col("item", "Item Name"),
+      col("shift", "Shift"),
+      col("hours", "Run Hours", "hours"),
+      col("batchQty", "Batch Quantity", "qty"),
+      col("wastage", "Wastage Qty", "qty"),
+      col("net", "Net Good Quantity", "qty"),
+      col("uom", "UoM"),
+      col("remarks", "Remarks"),
+    ],
     rows,
-    totals: totalsOf(rows, [...dayColumns.map((column) => column.key), "total"], "process"),
-    notes: ["Good (net) quantity per day."],
+    totals: totalsOf(rows, ["hours", "batchQty", "wastage", "net"], "date"),
+    subtitle: [`Office:${ctx.query.officeId ? ctx.subtitle[0].replace("Office: ", "") : "All"}`, reportLabel("process-date"), ctx.subtitle[1], ...ctx.subtitle.slice(2)],
+    notes: ["Batch = one production entry; Wastage Qty is the rejected quantity, Net Good Quantity what went to stock."],
   };
 }
 
@@ -499,52 +516,279 @@ async function demandReport(ctx: Context): Promise<Built> {
   };
 }
 
+/** Overhead bucket of an expense account, by its name. */
+function overheadBucket(accountName: string): "labour" | "power" | "other" {
+  if (/salar|wage|labou?r|overtime|allowance/i.test(accountName)) return "labour";
+  if (/electric|power|fuel|gas|utilit|energy/i.test(accountName)) return "power";
+  return "other";
+}
+
 async function cogsReport(ctx: Context): Promise<Built> {
   const records = await db().productionEntry.findMany({
     where: entryWhere(ctx),
-    include: { ...ENTRY_INCLUDE, materials: { select: { actualQty: true, rate: true, item: { select: { itemType: true } } } } },
+    include: {
+      ...ENTRY_INCLUDE,
+      order: { select: { ...ENTRY_INCLUDE.order.select, bom: { select: { ...ENTRY_INCLUDE.order.select.bom.select, overheads: { select: { amount: true, account: { select: { name: true } } } } } } } },
+      materials: { select: { actualQty: true, rate: true, item: { select: { itemType: true } } } },
+    },
     orderBy: [{ productionDate: "asc" }, { number: "asc" }],
   });
   const rows = records.map((entry) => {
+    const net = num(entry.netQty);
     const packaging = entry.materials.filter((line) => line.item.itemType?.toLowerCase().includes("packaging"));
     const packagingCost = round2(packaging.reduce((sum, line) => sum + num(line.actualQty) * num(line.rate), 0));
     const materialCost = round2(num(entry.actualCost) - packagingCost);
+    // Each overhead line of the BOM, per unit of this item (its cost share ÷ lot size), × good quantity.
     const output = entry.order.bom.outputs.find((line) => line.itemId === entry.itemId);
-    const unitOverhead = output && num(output.lotSizeQty) > 0 ? (num(entry.order.bom.overheadCost) * num(output.costPercent)) / 100 / num(output.lotSizeQty) : 0;
-    const overheadCost = round2(unitOverhead * num(entry.netQty));
-    const cogs = round2(materialCost + packagingCost + overheadCost);
+    const perUnit = output && num(output.lotSizeQty) > 0 ? num(output.costPercent) / 100 / num(output.lotSizeQty) : 0;
+    const overhead = { labour: 0, power: 0, other: 0 };
+    for (const line of entry.order.bom.overheads) overhead[overheadBucket(line.account.name)] += num(line.amount) * perUnit * net;
+    const labour = round2(overhead.labour);
+    const power = round2(overhead.power);
+    const other = round2(overhead.other);
+    const cogs = round2(materialCost + packagingCost + labour + power + other);
     return {
-      date: fromDbDate(entry.productionDate),
-      entry: entry.number,
+      batch: `${entry.number} / ${entry.order.number}`,
       item: itemLabel(entry.item),
-      net: num(entry.netQty),
       uom: entry.item.uom,
+      net,
       material: materialCost,
       packaging: packagingCost,
-      overhead: overheadCost,
+      labour,
+      power,
+      other,
       cogs,
-      unitCost: num(entry.netQty) > 0 ? round4(cogs / num(entry.netQty)) : null,
+      unitCost: net > 0 ? round4(cogs / net) : null,
     };
   });
   return {
     columns: [
-      col("date", "Date", "date"),
-      col("entry", "Entry Code"),
-      col("item", "Produced Item"),
-      col("net", "Net Qty", "qty"),
+      col("batch", "Batch / Order No"),
+      col("item", "Item Name"),
       col("uom", "UoM"),
+      col("net", "Total Produced Qty", "qty"),
       col("material", "Raw Material Cost", "money"),
       col("packaging", "Packaging Cost", "money"),
-      col("overhead", "Overhead Cost", "money"),
-      col("cogs", "Total COGS", "money"),
+      col("labour", "Direct Labor Overhead", "money"),
+      col("power", "Power / Utility Overhead", "money"),
+      col("other", "Other Overhead", "money"),
+      col("cogs", "Total COGS Value", "money"),
       col("unitCost", "Unit Cost", "money"),
     ],
     rows,
-    totals: totalsOf(rows, ["net", "material", "packaging", "overhead", "cogs"], "date"),
+    totals: totalsOf(rows, ["net", "material", "packaging", "labour", "power", "other", "cogs"], "batch"),
     notes: [
       "Material cost = actual consumption × BOM rate; packaging = materials whose item type is a packaging type.",
-      "Overhead = the BOM's overhead per unit (its cost share ÷ lot size) × net quantity.",
+      "Overheads come from the BOM's overhead accounts per unit × good quantity: salary / wage / labour accounts are Direct Labor, electricity / power / fuel / gas / utility accounts are Power / Utility, others are Other Overhead.",
     ],
+  };
+}
+
+const monthLabel = (month: string) => new Date(`${month}-01T00:00:00Z`).toLocaleDateString("en-US", { month: "long", year: "numeric", timeZone: "UTC" });
+
+/** Work centers month by month: standard vs actual run hours, idle hours, output, efficiency and running cost. */
+async function workCenterReport(ctx: Context): Promise<Built> {
+  const [centers, records] = await Promise.all([
+    db().productionWorkCenter.findMany({
+      where: {
+        businessUnitId: { in: ctx.unitIds },
+        ...(ctx.query.workCenterId ? { id: ctx.query.workCenterId } : { isActive: true }),
+        ...(ctx.query.departmentId ? { departmentId: ctx.query.departmentId } : {}),
+        ...(ctx.query.departmentSectionId ? { departmentSectionId: ctx.query.departmentSectionId } : {}),
+      },
+      select: { id: true, code: true, name: true, standardRunHour: true, ratedCapacityPerHour: true, costPerHour: true },
+      orderBy: { code: "asc" },
+    }),
+    db().productionEntry.findMany({ where: { ...entryWhere(ctx, false), workCenterId: { not: null } }, select: { workCenterId: true, hours: true, qty: true, productionDate: true } }),
+  ]);
+  // Days of each month that fall inside the range.
+  const monthDays = new Map<string, number>();
+  for (const date of daysOf(ctx.query.from, ctx.query.to)) monthDays.set(date.slice(0, 7), (monthDays.get(date.slice(0, 7)) ?? 0) + 1);
+  const rows: Record<string, ReportCell>[] = [];
+  for (const center of centers) {
+    for (const [month, days] of monthDays) {
+      const own = records.filter((entry) => entry.workCenterId === center.id && fromDbDate(entry.productionDate).startsWith(month));
+      const standard = round2(num(center.standardRunHour) * days);
+      const actual = round2(own.reduce((sum, entry) => sum + num(entry.hours), 0));
+      const produced = round4(own.reduce((sum, entry) => sum + num(entry.qty), 0));
+      rows.push({
+        code: center.code,
+        name: center.name,
+        month: monthLabel(month),
+        standard,
+        actual,
+        idle: round2(Math.max(standard - actual, 0)),
+        produced,
+        efficiency: pct(produced, num(center.ratedCapacityPerHour) * actual),
+        cost: round2(num(center.costPerHour) * actual),
+      });
+    }
+  }
+  return {
+    columns: [
+      col("code", "Work Center Code"),
+      col("name", "Work Center Name"),
+      col("month", "Month"),
+      col("standard", "Standard Run Hours", "hours"),
+      col("actual", "Actual Run Hours", "hours"),
+      col("idle", "Idle Hours", "hours"),
+      col("produced", "Produced Qty", "qty"),
+      col("efficiency", "Efficiency (%)", "percent"),
+      col("cost", "Total Cost", "money"),
+    ],
+    rows,
+    totals: totalsOf(rows, ["standard", "actual", "idle", "produced", "cost"], "code"),
+    subtitle: [ctx.subtitle[0], `From: ${monthLabel(ctx.query.from.slice(0, 7))}  To: ${monthLabel(ctx.query.to.slice(0, 7))}`, ...ctx.subtitle.slice(2)],
+    notes: [
+      "Standard run hours = the work center's standard hours per day × days of the month; idle = standard − actual run hours.",
+      "Efficiency = produced ÷ (rated capacity per hour × actual hours); Total Cost = cost per hour × actual hours.",
+    ],
+  };
+}
+
+/** Output per item against the materials it consumed (at BOM rates). */
+async function outputConsumptionReport(ctx: Context): Promise<Built> {
+  const records = await db().productionEntry.findMany({
+    where: entryWhere(ctx),
+    select: { itemId: true, qty: true, netQty: true, standardCost: true, actualCost: true, item: { select: { code: true, name: true, uom: true } }, _count: { select: { materials: true } } },
+  });
+  const groups = new Map<string, Record<string, ReportCell>>();
+  for (const entry of records) {
+    const row = groups.get(entry.itemId) ?? { item: itemLabel(entry.item), uom: entry.item.uom, batches: 0, total: 0, net: 0, standardCost: 0, actualCost: 0 };
+    row.batches = (row.batches as number) + 1;
+    row.total = round4((row.total as number) + num(entry.qty));
+    row.net = round4((row.net as number) + num(entry.netQty));
+    row.standardCost = round2((row.standardCost as number) + num(entry.standardCost));
+    row.actualCost = round2((row.actualCost as number) + num(entry.actualCost));
+    groups.set(entry.itemId, row);
+  }
+  const rows = [...groups.values()]
+    .map((row): Record<string, ReportCell> => ({
+      ...row,
+      variance: round2((row.actualCost as number) - (row.standardCost as number)),
+      variancePct: pct((row.actualCost as number) - (row.standardCost as number), row.standardCost as number),
+      perUnit: (row.net as number) > 0 ? round4((row.actualCost as number) / (row.net as number)) : null,
+    }))
+    .sort((a, b) => String(a.item).localeCompare(String(b.item)));
+  return {
+    columns: [
+      col("item", "Produced Item"),
+      col("uom", "UoM"),
+      col("batches", "Batches", "qty"),
+      col("total", "Total Output", "qty"),
+      col("net", "Good Output", "qty"),
+      col("standardCost", "Standard Material Cost", "money"),
+      col("actualCost", "Actual Material Cost", "money"),
+      col("variance", "Variance", "money"),
+      col("variancePct", "Variance (%)", "percent"),
+      col("perUnit", "Material Cost / Unit", "money"),
+    ],
+    rows,
+    totals: totalsOf(rows, ["batches", "total", "net", "standardCost", "actualCost", "variance"], "item"),
+    notes: ["Standard = BOM quantities scaled to each batch at BOM rates; Variance = actual − standard (positive = more material used)."],
+  };
+}
+
+/** Each sales order line against the production planned (production orders linked to it) and produced. */
+async function salesOrderPlanningReport(ctx: Context): Promise<Built> {
+  const { query } = ctx;
+  const lines = await db().salesOrderLine.findMany({
+    where: {
+      order: {
+        businessUnitId: { in: ctx.unitIds },
+        orderDate: { gte: toDbDate(query.from), lte: toDbDate(query.to) },
+        status: { in: ["PENDING_APPROVAL", "APPROVED", "COMPLETED"] },
+        ...(query.officeId ? { officeId: query.officeId } : {}),
+      },
+      ...(query.itemId ? { itemId: query.itemId } : {}),
+      ...(ctx.categoryIds ? { item: { categoryId: { in: [...ctx.categoryIds] } } } : {}),
+    },
+    select: {
+      itemId: true,
+      qty: true,
+      item: { select: { code: true, name: true, uom: true } },
+      order: { select: { id: true, number: true, orderDate: true, expectedDeliveryDate: true, customer: { select: { name: true } } } },
+    },
+    orderBy: [{ order: { orderDate: "asc" } }, { lineNo: "asc" }],
+  });
+  const plans = await db().productionOrder.findMany({
+    where: { salesOrderId: { in: [...new Set(lines.map((line) => line.order.id))] }, status: { notIn: ["CANCELLED", "REJECTED"] } },
+    select: { salesOrderId: true, itemId: true, orderQty: true, producedQty: true, number: true },
+  });
+  const rows = lines.map((line) => {
+    const own = plans.filter((plan) => plan.salesOrderId === line.order.id && plan.itemId === line.itemId);
+    const ordered = num(line.qty);
+    const planned = round4(own.reduce((sum, plan) => sum + num(plan.orderQty), 0));
+    const produced = round4(own.reduce((sum, plan) => sum + num(plan.producedQty), 0));
+    return {
+      salesOrder: line.order.number,
+      orderDate: fromDbDate(line.order.orderDate),
+      deliveryDate: fromDbDate(line.order.expectedDeliveryDate),
+      customer: line.order.customer.name,
+      item: itemLabel(line.item),
+      uom: line.item.uom,
+      ordered,
+      planned,
+      unplanned: round4(Math.max(ordered - planned, 0)),
+      produced,
+      productionOrders: own.map((plan) => plan.number).join(", ") || "—",
+      status: produced >= ordered ? "Produced" : planned >= ordered ? "Planned" : planned > 0 ? "Partly planned" : "Not planned",
+    };
+  });
+  return {
+    columns: [
+      col("salesOrder", "Sales Order"),
+      col("orderDate", "Order Date", "date"),
+      col("deliveryDate", "Delivery Date", "date"),
+      col("customer", "Customer"),
+      col("item", "Item"),
+      col("uom", "UoM"),
+      col("ordered", "Ordered Qty", "qty"),
+      col("planned", "Planned Qty", "qty"),
+      col("unplanned", "Not Planned", "qty"),
+      col("produced", "Produced Qty", "qty"),
+      col("productionOrders", "Production Orders"),
+      col("status", "Status"),
+    ],
+    rows,
+    totals: totalsOf(rows, ["ordered", "planned", "unplanned", "produced"], "salesOrder"),
+    notes: ["Planned = production orders that reference the sales order for the same item (cancelled and rejected orders left out)."],
+  };
+}
+
+/** Rejected (defective) quantity per month, item and work center. */
+async function defectReport(ctx: Context): Promise<Built> {
+  const records = await entries(ctx);
+  const groups = new Map<string, Record<string, ReportCell>>();
+  for (const entry of records) {
+    const month = fromDbDate(entry.productionDate).slice(0, 7);
+    const key = `${month}:${entry.itemId}:${entry.workCenterId ?? "-"}`;
+    const row = groups.get(key) ?? { month, item: itemLabel(entry.item), workCenter: centerLabel(entry), uom: entry.item.uom, batches: 0, total: 0, rejected: 0, good: 0 };
+    row.batches = (row.batches as number) + 1;
+    row.total = round4((row.total as number) + num(entry.qty));
+    row.rejected = round4((row.rejected as number) + num(entry.rejectQty));
+    row.good = round4((row.good as number) + num(entry.netQty));
+    groups.set(key, row);
+  }
+  const rows = [...groups.values()]
+    .map((row): Record<string, ReportCell> => ({ ...row, month: monthLabel(row.month as string), defectRate: pct(row.rejected as number, row.total as number), sortKey: row.month }))
+    .sort((a, b) => `${a.sortKey}${a.item}${a.workCenter}`.localeCompare(`${b.sortKey}${b.item}${b.workCenter}`))
+    .map(({ sortKey: _sortKey, ...row }) => row);
+  return {
+    columns: [
+      col("month", "Month"),
+      col("item", "Item"),
+      col("workCenter", "Work Center"),
+      col("uom", "UoM"),
+      col("batches", "Batches", "qty"),
+      col("total", "Total Produced", "qty"),
+      col("rejected", "Defective (Rejected) Qty", "qty"),
+      col("good", "Good Qty", "qty"),
+      col("defectRate", "Defect Rate (%)", "percent"),
+    ],
+    rows,
+    totals: totalsOf(rows, ["batches", "total", "rejected", "good"], "month"),
+    notes: ["Defective = the Reject QTY booked on production entries."],
   };
 }
 
@@ -646,6 +890,10 @@ async function downtimeReport(ctx: Context): Promise<Built> {
 }
 
 const BUILDERS: Record<ReportType, (ctx: Context) => Promise<Built>> = {
+  "work-center": workCenterReport,
+  "output-consumption": outputConsumptionReport,
+  "so-planning": salesOrderPlanningReport,
+  defect: defectReport,
   production: productionReport,
   consumption: consumptionReport,
   performance: performanceReport,
@@ -683,7 +931,7 @@ export async function reportLookups(actor: Actor): Promise<ReportLookups> {
     db().productionDepartmentSection.findMany({ where: { department: inUnits }, select: { id: true, name: true, departmentId: true }, orderBy: { name: "asc" } }),
     db().office.findMany({ where: inUnits, select: { id: true, name: true }, orderBy: { name: "asc" } }),
     db().productionWorkCenter.findMany({ where: inUnits, select: { id: true, code: true, name: true }, orderBy: { code: "asc" } }),
-    db().itemCategory.findMany({ where: { ...inUnits, level: { lte: 2 } }, select: { id: true, name: true, parentId: true, level: true }, orderBy: { name: "asc" } }),
+    db().itemCategory.findMany({ where: { ...inUnits, level: { lte: 3 } }, select: { id: true, name: true, parentId: true, level: true }, orderBy: { name: "asc" } }),
     db().productionBom.findMany({ where: inUnits, select: { id: true, name: true }, orderBy: { name: "asc" } }),
     db().item.findMany({ where: { ...inUnits, isActive: true }, select: { id: true, code: true, name: true, uom: true, itemType: true }, orderBy: { code: "asc" } }),
   ]);

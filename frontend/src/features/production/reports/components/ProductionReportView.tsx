@@ -12,13 +12,15 @@ import { errorMessage } from "@/lib/api/client";
 import { cn } from "@/lib/cn";
 import { addDays, useToday } from "@/features/sales/lib/use-today";
 import { cellText } from "../lib/format";
-import { REPORT_TYPES, reportQuerySchema, type Report, type ReportLookups, type ReportQuery, type ReportType } from "../schemas/report.schema";
+import { MAX_MONTHS, REPORT_TYPES, reportQuerySchema, type Report, type ReportLookups, type ReportQuery, type ReportType } from "../schemas/report.schema";
 import { downloadReportExcel, fetchReport, fetchReportLookups, reportPdfUrl } from "../services/report.api";
 
 interface Filters {
-  viewBy: ReportType;
+  viewBy: ReportType | "";
   from: string;
   to: string;
+  fromMonth: string;
+  toMonth: string;
   departmentId: string;
   departmentSectionId: string;
   officeId: string;
@@ -28,6 +30,7 @@ interface Filters {
   itemType: string;
   categoryId: string;
   subCategoryId: string;
+  minorCategoryId: string;
   bomId: string;
   summary: boolean;
   materialsVariance: boolean;
@@ -36,21 +39,49 @@ interface Filters {
   workCenterWise: boolean;
 }
 
+interface Controls {
+  /** Date range, or From / To Month (Work Center Report). */
+  period: "dates" | "months";
+  department?: boolean;
+  office?: boolean;
+  workCenter?: boolean;
+  /** "Filter by" choices; the item / category / BOM control follows the choice. */
+  filterBy?: ("item" | "category" | "bom")[];
+  itemType?: boolean;
+  /** Item picker without a "Filter by". */
+  item?: boolean;
+  /** Category → Sub Category (→ Minor Category) without a "Filter by". */
+  categories?: 2 | 3;
+  print?: boolean;
+  /** Excel button beside View (all reports also have the header Excel). */
+  excel?: boolean;
+}
+
 /** Which controls each "View By" shows (Managerium's filter matrix). */
-const CONTROLS: Record<ReportType, { office?: boolean; workCenter?: boolean; filterBy?: ("item" | "category" | "bom")[]; itemType?: boolean; item?: boolean; print?: boolean }> = {
-  production: { filterBy: ["item", "category", "bom"], print: true },
-  consumption: { office: true, filterBy: ["item", "category"], itemType: true, print: true },
-  performance: { workCenter: true, print: true },
-  "process-date": { item: true },
-  details: { workCenter: true, print: true },
-  "details-view": { workCenter: true, print: true },
-  demand: { office: true, item: true, print: true },
-  cogs: { workCenter: true, print: true },
-  utilization: { workCenter: true, print: true },
-  downtime: { workCenter: true, print: true },
+const CONTROLS: Record<ReportType, Controls> = {
+  "work-center": { period: "months", department: true, workCenter: true, print: true },
+  cogs: { period: "dates", workCenter: true, categories: 3, print: true },
+  "process-date": { period: "dates", department: true, item: true, excel: true },
+  production: { period: "dates", department: true, filterBy: ["item", "category", "bom"], print: true, excel: true },
+  consumption: { period: "dates", department: true, office: true, filterBy: ["item", "category"], itemType: true, categories: 2, print: true },
+  performance: { period: "dates", department: true, workCenter: true, print: true, excel: true },
+  details: { period: "dates", department: true, workCenter: true, print: true, excel: true },
+  "details-view": { period: "dates", department: true, workCenter: true, print: true, excel: true },
+  demand: { period: "dates", department: true, workCenter: true, item: true, print: true, excel: true },
+  utilization: { period: "dates", department: true, workCenter: true, print: true, excel: true },
+  downtime: { period: "dates", department: true, workCenter: true, print: true, excel: true },
+  "output-consumption": { period: "dates", department: true, workCenter: true, print: true, excel: true },
+  "so-planning": { period: "dates", department: true, workCenter: true, item: true, print: true, excel: true },
+  defect: { period: "dates", department: true, workCenter: true, print: true, excel: true },
 };
 
 const itemOptionLabel = (item: ReportLookups["items"][number]) => `${item.code} - ${item.name}`;
+
+/** Last day of a "YYYY-MM" month. */
+function monthEnd(month: string) {
+  const [year, index] = month.split("-").map(Number);
+  return new Date(Date.UTC(year, index, 0)).toISOString().slice(0, 10);
+}
 
 /** /production/reports: Managerium's "Production Report" with its View By modes. Waits for the browser's date. */
 export function ProductionReportView() {
@@ -62,9 +93,11 @@ function Reports({ today }: { today: string }) {
   const toast = useToast();
   const lookups = useResource("production-report-lookups", fetchReportLookups);
   const [filters, setFilters] = useState<Filters>({
-    viewBy: "production",
+    viewBy: "",
     from: addDays(today, -30),
     to: today,
+    fromMonth: `${today.slice(0, 4)}-01`,
+    toMonth: today.slice(0, 7),
     departmentId: "",
     departmentSectionId: "",
     officeId: "",
@@ -74,6 +107,7 @@ function Reports({ today }: { today: string }) {
     itemType: "",
     categoryId: "",
     subCategoryId: "",
+    minorCategoryId: "",
     bomId: "",
     summary: false,
     materialsVariance: false,
@@ -88,33 +122,37 @@ function Reports({ today }: { today: string }) {
   const report = useResource(applied ? `production-report:${JSON.stringify(applied)}` : null, () => fetchReport(applied!));
 
   const options = lookups.data;
-  const controls = CONTROLS[filters.viewBy];
+  const controls = filters.viewBy ? CONTROLS[filters.viewBy] : null;
   const set = (patch: Partial<Filters>) => setFilters((current) => ({ ...current, ...patch }));
   const itemByLabel = useMemo(() => new Map((options?.items ?? []).map((item) => [itemOptionLabel(item), item.id])), [options]);
   const sections = (options?.sections ?? []).filter((section) => !filters.departmentId || section.departmentId === filters.departmentId);
-  const categories = (options?.categories ?? []).filter((category) => category.level === 1);
-  const subCategories = (options?.categories ?? []).filter((category) => category.level === 2 && category.parentId === filters.categoryId);
-  const showItem = controls.item || (controls.filterBy && filters.filterBy === "item");
-  const showCategory = controls.filterBy?.includes("category") && (filters.filterBy === "category" || filters.viewBy === "consumption");
-  const showBom = controls.filterBy?.includes("bom") && filters.filterBy === "bom";
+  const categoriesOf = (level: number, parentId?: string) =>
+    (options?.categories ?? []).filter((category) => category.level === level && (level === 1 || category.parentId === parentId));
+  const showItem = !!controls && (controls.item || (controls.filterBy && filters.filterBy === "item"));
+  const categoryLevels = !controls ? 0 : controls.categories && (!controls.filterBy || filters.filterBy === "category" || filters.viewBy === "consumption") ? controls.categories : controls.filterBy?.includes("category") && filters.filterBy === "category" ? 2 : 0;
+  const showBom = !!controls?.filterBy?.includes("bom") && filters.filterBy === "bom";
 
   /** The query for the current controls, or an error message. */
   function build(): ReportQuery | string {
+    if (!filters.viewBy || !controls) return "Choose the report (View By).";
     const itemId = showItem && filters.itemText.trim() ? itemByLabel.get(filters.itemText.trim()) : undefined;
     if (showItem && filters.itemText.trim() && !itemId) return "Choose the item from the list.";
+    const months = controls.period === "months";
+    if (months && (!filters.fromMonth || !filters.toMonth)) return "From Month and To Month are required.";
     const query: ReportQuery = {
       viewBy: filters.viewBy,
-      from: filters.from,
-      to: filters.to,
-      ...(filters.departmentId ? { departmentId: filters.departmentId } : {}),
-      ...(filters.departmentSectionId ? { departmentSectionId: filters.departmentSectionId } : {}),
+      from: months ? `${filters.fromMonth}-01` : filters.from,
+      to: months ? monthEnd(filters.toMonth) : filters.to,
+      ...(controls.department && filters.departmentId ? { departmentId: filters.departmentId } : {}),
+      ...(controls.department && filters.departmentSectionId ? { departmentSectionId: filters.departmentSectionId } : {}),
       ...(controls.office && filters.officeId ? { officeId: filters.officeId } : {}),
       ...(controls.workCenter && filters.workCenterId ? { workCenterId: filters.workCenterId } : {}),
       ...(controls.filterBy ? { filterBy: filters.filterBy } : {}),
       ...(itemId ? { itemId } : {}),
       ...(controls.itemType && filters.itemType ? { itemType: filters.itemType } : {}),
-      ...(showCategory && filters.categoryId ? { categoryId: filters.categoryId } : {}),
-      ...(showCategory && filters.subCategoryId ? { subCategoryId: filters.subCategoryId } : {}),
+      ...(categoryLevels >= 1 && filters.categoryId ? { categoryId: filters.categoryId } : {}),
+      ...(categoryLevels >= 2 && filters.subCategoryId ? { subCategoryId: filters.subCategoryId } : {}),
+      ...(categoryLevels >= 3 && filters.minorCategoryId ? { minorCategoryId: filters.minorCategoryId } : {}),
       ...(showBom && filters.bomId ? { bomId: filters.bomId } : {}),
       ...(filters.viewBy === "production" && filters.summary ? { summary: true } : {}),
       ...(filters.viewBy === "consumption" && filters.materialsVariance ? { materialsVariance: true } : {}),
@@ -155,6 +193,24 @@ function Reports({ today }: { today: string }) {
     }
   }
 
+  const categorySelect = (level: 1 | 2 | 3) => {
+    const field = level === 1 ? "categoryId" : level === 2 ? "subCategoryId" : "minorCategoryId";
+    const parent = level === 2 ? filters.categoryId : level === 3 ? filters.subCategoryId : undefined;
+    const rows = categoriesOf(level, parent);
+    return (
+      <SelectField
+        key={field}
+        label={level === 1 ? "Category" : level === 2 ? "Sub Category" : "Minor Category"}
+        value={filters[field]}
+        disabled={level > 1 && (!parent || rows.length === 0)}
+        options={[{ value: "", label: "All" }, ...rows.map((category) => ({ value: category.id, label: category.name }))]}
+        onChange={(event) =>
+          set(level === 1 ? { categoryId: event.target.value, subCategoryId: "", minorCategoryId: "" } : level === 2 ? { subCategoryId: event.target.value, minorCategoryId: "" } : { minorCategoryId: event.target.value })
+        }
+      />
+    );
+  };
+
   return (
     <PageContainer className="max-w-none">
       <PageHead
@@ -166,7 +222,7 @@ function Reports({ today }: { today: string }) {
               <Search aria-hidden="true" className="pointer-events-none absolute top-1.5 left-2 size-4 text-ink-faint" />
               <input type="search" value={search} placeholder="Search…" onChange={(event) => setSearch(event.target.value)} className={cn(CONTROL, "h-7 pl-7")} />
             </label>
-            <Button onClick={excel} loading={exporting}>
+            <Button onClick={excel} loading={exporting} disabled={!filters.viewBy}>
               <Download aria-hidden="true" />
               Excel
             </Button>
@@ -180,127 +236,143 @@ function Reports({ today }: { today: string }) {
               label="View By"
               required
               value={filters.viewBy}
-              options={REPORT_TYPES.map((type) => ({ value: type.id, label: type.label }))}
+              options={[{ value: "", label: "Select report" }, ...REPORT_TYPES.map((type) => ({ value: type.id, label: type.label }))]}
               onChange={(event) => {
-                set({ viewBy: event.target.value as ReportType });
+                set({ viewBy: event.target.value as ReportType | "" });
                 setApplied(null);
                 setFormError(undefined);
               }}
             />
-            <TextField label="From Date" type="date" required value={filters.from} max={filters.to} onChange={(event) => set({ from: event.target.value })} />
-            <TextField label="To Date" type="date" required value={filters.to} min={filters.from} onChange={(event) => set({ to: event.target.value })} />
-            <SelectField
-              label="Department"
-              value={filters.departmentId}
-              options={[{ value: "", label: "All" }, ...(options?.departments ?? []).map((department) => ({ value: department.id, label: department.name }))]}
-              onChange={(event) => set({ departmentId: event.target.value, departmentSectionId: "" })}
-            />
-            <SelectField
-              label="Section"
-              value={filters.departmentSectionId}
-              options={[{ value: "", label: "All" }, ...sections.map((section) => ({ value: section.id, label: section.name }))]}
-              onChange={(event) => set({ departmentSectionId: event.target.value })}
-            />
-            {controls.office && (
-              <SelectField
-                label="Office"
-                value={filters.officeId}
-                options={[{ value: "", label: "All" }, ...(options?.offices ?? []).map((office) => ({ value: office.id, label: office.name }))]}
-                onChange={(event) => set({ officeId: event.target.value })}
-              />
-            )}
-            {controls.workCenter && (
-              <SelectField
-                label="Work Center"
-                value={filters.workCenterId}
-                options={[{ value: "", label: "All" }, ...(options?.workCenters ?? []).map((center) => ({ value: center.id, label: `${center.code} - ${center.name}` }))]}
-                onChange={(event) => set({ workCenterId: event.target.value })}
-              />
-            )}
-            {controls.filterBy && (
-              <SelectField
-                label="Filter by"
-                value={filters.filterBy}
-                options={controls.filterBy.map((by) => ({ value: by, label: by === "bom" ? "BOM" : by === "item" ? "Item" : "Category" }))}
-                onChange={(event) => set({ filterBy: event.target.value as Filters["filterBy"] })}
-              />
-            )}
-            {controls.itemType && (
-              <SelectField
-                label="Item Type"
-                value={filters.itemType}
-                options={[{ value: "", label: "All" }, ...(options?.itemTypes ?? []).map((type) => ({ value: type, label: type }))]}
-                onChange={(event) => set({ itemType: event.target.value })}
-              />
-            )}
-            {showCategory && (
+            {controls && (
               <>
-                <SelectField
-                  label="Category"
-                  value={filters.categoryId}
-                  options={[{ value: "", label: "All" }, ...categories.map((category) => ({ value: category.id, label: category.name }))]}
-                  onChange={(event) => set({ categoryId: event.target.value, subCategoryId: "" })}
-                />
-                <SelectField
-                  label="Sub Category"
-                  value={filters.subCategoryId}
-                  disabled={!filters.categoryId || subCategories.length === 0}
-                  options={[{ value: "", label: "All" }, ...subCategories.map((category) => ({ value: category.id, label: category.name }))]}
-                  onChange={(event) => set({ subCategoryId: event.target.value })}
-                />
-              </>
-            )}
-            {showBom && (
-              <SelectField
-                label="BOM"
-                value={filters.bomId}
-                options={[{ value: "", label: "All" }, ...(options?.boms ?? []).map((bom) => ({ value: bom.id, label: bom.name }))]}
-                onChange={(event) => set({ bomId: event.target.value })}
-              />
-            )}
-            {showItem && (
-              <>
-                <TextField
-                  label="Item"
-                  list="production-report-items"
-                  placeholder="Select/Search Item"
-                  value={filters.itemText}
-                  onChange={(event) => set({ itemText: event.target.value })}
-                />
-                <datalist id="production-report-items">
-                  {(options?.items ?? []).map((item) => (
-                    <option key={item.id} value={itemOptionLabel(item)} />
-                  ))}
-                </datalist>
-              </>
-            )}
-            <div className="flex flex-wrap items-center gap-x-5 gap-y-2 sm:col-span-2 lg:col-span-4">
-              {filters.viewBy === "production" && <CheckboxField label="Summary" checked={filters.summary} onChange={(event) => set({ summary: event.target.checked })} />}
-              {filters.viewBy === "consumption" && (
-                <>
-                  <CheckboxField label="Materials Variance Report" checked={filters.materialsVariance} onChange={(event) => set({ materialsVariance: event.target.checked })} />
-                  <CheckboxField label="Monthly" checked={filters.monthly} onChange={(event) => set({ monthly: event.target.checked })} />
-                </>
-              )}
-              {filters.viewBy === "performance" && (
-                <>
-                  <CheckboxField label="Shift Wise" checked={filters.shiftWise} onChange={(event) => set({ shiftWise: event.target.checked })} />
-                  <CheckboxField label="Work Center Wise" checked={filters.workCenterWise} onChange={(event) => set({ workCenterWise: event.target.checked })} />
-                </>
-              )}
-              <div className="ml-auto flex gap-2">
-                <Button type="submit" variant="primary" disabled={report.loading}>
-                  <RefreshCw aria-hidden="true" />
-                  View
-                </Button>
-                {controls.print && (
-                  <Button onClick={print}>
-                    <Printer aria-hidden="true" />
-                    Print
-                  </Button>
+                {controls.department && (
+                  <>
+                    <SelectField
+                      label="Department"
+                      value={filters.departmentId}
+                      options={[{ value: "", label: "All" }, ...(options?.departments ?? []).map((department) => ({ value: department.id, label: department.name }))]}
+                      onChange={(event) => set({ departmentId: event.target.value, departmentSectionId: "" })}
+                    />
+                    <SelectField
+                      label="Section"
+                      value={filters.departmentSectionId}
+                      options={[{ value: "", label: "All" }, ...sections.map((section) => ({ value: section.id, label: section.name }))]}
+                      onChange={(event) => set({ departmentSectionId: event.target.value })}
+                    />
+                  </>
                 )}
-              </div>
-            </div>
+                {controls.office && (
+                  <SelectField
+                    label="Office"
+                    value={filters.officeId}
+                    options={[{ value: "", label: "All" }, ...(options?.offices ?? []).map((office) => ({ value: office.id, label: office.name }))]}
+                    onChange={(event) => set({ officeId: event.target.value })}
+                  />
+                )}
+                {controls.workCenter && (
+                  <SelectField
+                    label="Work Center"
+                    value={filters.workCenterId}
+                    options={[{ value: "", label: "Select Work Center" }, ...(options?.workCenters ?? []).map((center) => ({ value: center.id, label: `${center.code} - ${center.name}` }))]}
+                    onChange={(event) => set({ workCenterId: event.target.value })}
+                  />
+                )}
+                {controls.period === "months" ? (
+                  <>
+                    <TextField label="From Month" type="month" required value={filters.fromMonth} max={filters.toMonth} onChange={(event) => set({ fromMonth: event.target.value })} />
+                    <TextField
+                      label={`To Month (Max ${MAX_MONTHS} months)`}
+                      type="month"
+                      required
+                      value={filters.toMonth}
+                      min={filters.fromMonth}
+                      onChange={(event) => set({ toMonth: event.target.value })}
+                    />
+                  </>
+                ) : (
+                  <>
+                    <TextField label="From Date" type="date" required value={filters.from} max={filters.to} onChange={(event) => set({ from: event.target.value })} />
+                    <TextField label="To Date" type="date" required value={filters.to} min={filters.from} onChange={(event) => set({ to: event.target.value })} />
+                  </>
+                )}
+                {controls.filterBy && (
+                  <SelectField
+                    label="Filter by"
+                    value={filters.filterBy}
+                    options={controls.filterBy.map((by) => ({ value: by, label: by === "bom" ? "BOM" : by === "item" ? "Item" : "Category" }))}
+                    onChange={(event) => set({ filterBy: event.target.value as Filters["filterBy"] })}
+                  />
+                )}
+                {controls.itemType && (
+                  <SelectField
+                    label="Item Type"
+                    value={filters.itemType}
+                    options={[{ value: "", label: "All" }, ...(options?.itemTypes ?? []).map((type) => ({ value: type, label: type }))]}
+                    onChange={(event) => set({ itemType: event.target.value })}
+                  />
+                )}
+                {categoryLevels >= 1 && categorySelect(1)}
+                {categoryLevels >= 2 && categorySelect(2)}
+                {categoryLevels >= 3 && categorySelect(3)}
+                {showBom && (
+                  <SelectField
+                    label="BOM"
+                    value={filters.bomId}
+                    options={[{ value: "", label: "All" }, ...(options?.boms ?? []).map((bom) => ({ value: bom.id, label: bom.name }))]}
+                    onChange={(event) => set({ bomId: event.target.value })}
+                  />
+                )}
+                {showItem && (
+                  <>
+                    <TextField
+                      label="Item"
+                      list="production-report-items"
+                      placeholder="Select/Search Item"
+                      value={filters.itemText}
+                      onChange={(event) => set({ itemText: event.target.value })}
+                    />
+                    <datalist id="production-report-items">
+                      {(options?.items ?? []).map((item) => (
+                        <option key={item.id} value={itemOptionLabel(item)} />
+                      ))}
+                    </datalist>
+                  </>
+                )}
+                <div className="flex flex-wrap items-center gap-x-5 gap-y-2 sm:col-span-2 lg:col-span-4">
+                  {filters.viewBy === "production" && <CheckboxField label="Summary" checked={filters.summary} onChange={(event) => set({ summary: event.target.checked })} />}
+                  {filters.viewBy === "consumption" && (
+                    <>
+                      <CheckboxField label="Materials Variance Report" checked={filters.materialsVariance} onChange={(event) => set({ materialsVariance: event.target.checked })} />
+                      <CheckboxField label="Monthly" checked={filters.monthly} onChange={(event) => set({ monthly: event.target.checked })} />
+                    </>
+                  )}
+                  {filters.viewBy === "performance" && (
+                    <>
+                      <CheckboxField label="Shift Wise" checked={filters.shiftWise} onChange={(event) => set({ shiftWise: event.target.checked })} />
+                      <CheckboxField label="Work Center Wise" checked={filters.workCenterWise} onChange={(event) => set({ workCenterWise: event.target.checked })} />
+                    </>
+                  )}
+                  <div className="ml-auto flex gap-2">
+                    <Button type="submit" variant="primary" disabled={report.loading}>
+                      <RefreshCw aria-hidden="true" />
+                      View
+                    </Button>
+                    {controls.print && (
+                      <Button variant="accent" onClick={print}>
+                        <Printer aria-hidden="true" />
+                        Print
+                      </Button>
+                    )}
+                    {controls.excel && (
+                      <Button onClick={excel} loading={exporting}>
+                        <Download aria-hidden="true" />
+                        Excel
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              </>
+            )}
             {formError && (
               <p role="alert" className="text-sm text-danger sm:col-span-2 lg:col-span-4">
                 {formError}
@@ -309,17 +381,19 @@ function Reports({ today }: { today: string }) {
           </form>
         </Card>
 
-        <Card>
-          {!applied ? (
-            <NoData company={options?.company} hint="Choose the filters and press View." />
-          ) : report.error ? (
-            <ErrorState message={errorMessage(report.error)} onRetry={report.reload} />
-          ) : !report.data ? (
-            <LoadingState label="Building the report…" />
-          ) : (
-            <ReportBody report={report.data} search={search} busy={report.loading} />
-          )}
-        </Card>
+        {filters.viewBy && (
+          <Card>
+            {!applied ? (
+              <NoData company={options?.company} hint="Choose the filters and press View." />
+            ) : report.error ? (
+              <ErrorState message={errorMessage(report.error)} onRetry={report.reload} />
+            ) : !report.data ? (
+              <LoadingState label="Building the report…" />
+            ) : (
+              <ReportBody report={report.data} search={search} busy={report.loading} />
+            )}
+          </Card>
+        )}
       </div>
     </PageContainer>
   );

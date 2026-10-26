@@ -2,24 +2,34 @@ import { z } from "zod";
 
 /** "View By" options, in Managerium's order. */
 export const REPORT_TYPES = [
+  { id: "work-center", label: "Work Center Report" },
+  { id: "cogs", label: "COGS Calculation Report" },
+  { id: "process-date", label: "Process And Date Wise Production Report" },
   { id: "production", label: "Production Report" },
   { id: "consumption", label: "Consumption Report" },
   { id: "performance", label: "Performance Report" },
-  { id: "process-date", label: "Process And Date Wise Production Report" },
   { id: "details", label: "Production Report Details" },
   { id: "details-view", label: "Production Report Details View" },
   { id: "demand", label: "Production VS Demand Report" },
-  { id: "cogs", label: "COGS Calculation Report" },
   { id: "utilization", label: "Work Center Utilization Report" },
   { id: "downtime", label: "Downtime Report" },
+  { id: "output-consumption", label: "Production Output vs Material Consumption" },
+  { id: "so-planning", label: "Sales Order VS Production Planning" },
+  { id: "defect", label: "Defect Report Monthly" },
 ] as const;
 export type ReportType = (typeof REPORT_TYPES)[number]["id"];
 export const REPORT_IDS = REPORT_TYPES.map((type) => type.id) as [ReportType, ...ReportType[]];
 export const reportLabel = (id: ReportType) => REPORT_TYPES.find((type) => type.id === id)!.label;
 
-/** Longest range of the day-by-day reports (process-date pivot and downtime). */
+/** Longest range of the day-by-day downtime report. */
 export const MAX_DAILY_DAYS = 62;
 export const MAX_RANGE_DAYS = 366;
+/** Longest range of the monthly Work Center Report. */
+export const MAX_MONTHS = 12;
+
+/** Months from `from` to `to` inclusive ("YYYY-MM-DD"). */
+export const monthsBetween = (from: string, to: string) =>
+  (Number(to.slice(0, 4)) - Number(from.slice(0, 4))) * 12 + Number(to.slice(5, 7)) - Number(from.slice(5, 7)) + 1;
 
 const flag = z
   .union([z.boolean(), z.enum(["true", "false"])])
@@ -44,6 +54,7 @@ export const reportQuerySchema = z
     itemType: z.string().trim().max(50).optional(),
     categoryId: optionalId,
     subCategoryId: optionalId,
+    minorCategoryId: optionalId,
     bomId: optionalId,
     summary: flag,
     materialsVariance: flag,
@@ -53,8 +64,12 @@ export const reportQuerySchema = z
   })
   .refine((query) => query.from <= query.to, { error: "From Date must be on or before To Date.", path: ["to"] })
   .refine((query) => daysBetween(query.from, query.to) <= MAX_RANGE_DAYS, { error: `Choose at most ${MAX_RANGE_DAYS} days.`, path: ["to"] })
-  .refine((query) => !["process-date", "downtime"].includes(query.viewBy) || daysBetween(query.from, query.to) <= MAX_DAILY_DAYS, {
-    error: `This report shows one column or row per day: choose at most ${MAX_DAILY_DAYS} days.`,
+  .refine((query) => query.viewBy !== "downtime" || daysBetween(query.from, query.to) <= MAX_DAILY_DAYS, {
+    error: `This report shows one row per day: choose at most ${MAX_DAILY_DAYS} days.`,
+    path: ["to"],
+  })
+  .refine((query) => query.viewBy !== "work-center" || monthsBetween(query.from, query.to) <= MAX_MONTHS, {
+    error: `Choose at most ${MAX_MONTHS} months.`,
     path: ["to"],
   });
 export type ReportQuery = z.input<typeof reportQuerySchema>;

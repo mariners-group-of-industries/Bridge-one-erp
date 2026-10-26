@@ -171,9 +171,20 @@ describe("production reports", () => {
   });
 
   it("process and date wise, details, details view, demand and COGS", async () => {
-    const pivot = await report("process-date");
-    expect(pivot.columns.map((column) => column.label)).toEqual(["Process / Work Center", "Item", "UoM", "20-10", "21-10", "22-10", "23-10", "Total"]);
-    expect(pivot.rows[0]).toMatchObject({ process: "FR-01 - Fryer", "d2026-10-21": 140, "d2026-10-22": 80, total: 220 });
+    const batches = await report("process-date");
+    expect(batches.subtitle.slice(0, 2)).toEqual(["Office:All", "Process And Date Wise Production Report"]);
+    expect(batches.rows[0]).toMatchObject({
+      date: "2026-10-21",
+      batch: "PE-MG260000001",
+      process: "Snacks / FR-01 - Fryer",
+      shift: "Morning",
+      hours: 6,
+      batchQty: 100,
+      wastage: 10,
+      net: 90,
+      remarks: "Oil change",
+    });
+    expect(batches.totals).toMatchObject({ hours: 13, batchQty: 230, wastage: 10, net: 220 });
 
     const details = await report("details");
     expect(details.rows[0]).toMatchObject({ order: "PRO-MG260000001", lotSize: 100, orderQty: 500, total: 100, reject: 10, net: 90 });
@@ -190,7 +201,34 @@ describe("production reports", () => {
 
     const cogs = await report("cogs");
     // Entry 1: potato 105 × 20 = 2,100; pouches 200 × 1 = 200; overhead 3 per unit × 90 = 270 → 2,570 for 90 units
-    expect(cogs.rows[0]).toMatchObject({ material: 2100, packaging: 200, overhead: 270, cogs: 2570, unitCost: 28.5556 });
+    // The BOM's only overhead is on the "Power" account, so it is Power / Utility.
+    expect(cogs.rows[0]).toMatchObject({ batch: "PE-MG260000001 / PRO-MG260000001", material: 2100, packaging: 200, labour: 0, power: 270, other: 0, cogs: 2570, unitCost: 28.5556 });
+  });
+
+  it("work center by month, output vs consumption, sales order planning and defects", async () => {
+    const workCenter = await getReport(manager, { viewBy: "work-center", from: "2026-10-01", to: "2026-10-31" });
+    // 31 days × 10 standard hours = 310; 13 run → 297 idle; 230 ÷ (20/h × 13 h) = 88.46%
+    expect(workCenter.rows).toEqual([
+      expect.objectContaining({ code: "FR-01", month: "October 2026", standard: 310, actual: 13, idle: 297, produced: 230, efficiency: 88.46, cost: 0 }),
+    ]);
+    expect(workCenter.subtitle).toContain("From: October 2026  To: October 2026");
+    await expect(getReport(manager, { viewBy: "work-center", from: "2025-01-01", to: "2026-10-31" })).rejects.toThrow("12 months");
+
+    // Standard 22 per unit (1 KG potato at 20 + 2 pouches at 1) × 230 = 5,060; actual 235 × 20 + 460 × 1 = 5,160
+    const output = await report("output-consumption");
+    expect(output.rows).toEqual([
+      expect.objectContaining({ batches: 3, total: 230, net: 220, standardCost: 5060, actualCost: 5160, variance: 100, variancePct: 1.98, perUnit: 23.4545 }),
+    ]);
+
+    const planning = await report("so-planning");
+    expect(planning.rows).toEqual([
+      expect.objectContaining({ salesOrder: "SO-1", customer: "Retailer", ordered: 400, planned: 0, unplanned: 400, produced: 0, status: "Not planned" }),
+    ]);
+
+    const defects = await report("defect");
+    expect(defects.rows).toEqual([
+      expect.objectContaining({ month: "October 2026", workCenter: "FR-01 - Fryer", batches: 3, total: 230, rejected: 10, good: 220, defectRate: 4.35 }),
+    ]);
 
     const lookups = await reportLookups(manager);
     expect(lookups).toMatchObject({ company: "Mariners Group", workCenters: [expect.objectContaining({ code: "FR-01" })] });
