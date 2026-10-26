@@ -12,7 +12,7 @@ import { useResource } from "@/hooks/use-resource";
 import { errorMessage } from "@/lib/api/client";
 import { addDays, useToday } from "@/features/sales/lib/use-today";
 import { paths } from "../../paths";
-import { ORDER_STATUS_LABELS, ORDER_STATUSES, orderListQuerySchema, type OrderListQuery, type OrderRow } from "../schemas/order.schema";
+import { ORDER_STATUS_LABELS, ORDER_VIEW_STATUSES, orderListQuerySchema, type OrderListQuery, type OrderRow } from "../schemas/order.schema";
 import { fetchOrderLookups, fetchOrders } from "../services/order.api";
 import { OrderStatusBadge, day, money, qty2 } from "./OrderParts";
 
@@ -63,7 +63,7 @@ function OrderList({ today }: { today: string }) {
       cell: (row) => (
         <span className="flex items-center gap-1">
           {row.status === "PENDING_APPROVAL" && (
-            <Link href={paths.editOrder(row.id)} aria-label={`Edit ${row.number}`} title="Edit" className={buttonClasses("ghost", "icon")}>
+            <Link href={paths.editOrder(row.id)} aria-label={`Edit ${row.number}`} title="Edit Order" className={buttonClasses("ghost", "icon")}>
               <Pencil aria-hidden="true" />
             </Link>
           )}
@@ -102,7 +102,7 @@ function OrderList({ today }: { today: string }) {
         <SelectField
           label="Status"
           value={filters.status}
-          options={[{ value: "", label: "All" }, ...ORDER_STATUSES.map((status) => ({ value: status, label: ORDER_STATUS_LABELS[status] }))]}
+          options={[{ value: "", label: "All" }, ...ORDER_VIEW_STATUSES.map((status) => ({ value: status, label: ORDER_STATUS_LABELS[status] }))]}
           onChange={(event) => setFilters({ ...filters, status: event.target.value })}
         />
         <SelectField

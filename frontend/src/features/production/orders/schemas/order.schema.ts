@@ -1,11 +1,19 @@
 import { z } from "zod";
 
+/** Statuses stored on an order. */
 export const ORDER_STATUSES = ["PENDING_APPROVAL", "APPROVED", "IN_PROGRESS", "CLOSED", "REJECTED", "CANCELLED"] as const;
 export type OrderStatus = (typeof ORDER_STATUSES)[number];
-export const ORDER_STATUS_LABELS: Record<OrderStatus, string> = {
-  PENDING_APPROVAL: "Pending Approval",
+/**
+ * Statuses shown and filtered on: IN_REVIEW is a pending order some approver has already
+ * approved (a multi-stage pipeline part-way through).
+ */
+export const ORDER_VIEW_STATUSES = ["PENDING_APPROVAL", "APPROVED", "REJECTED", "CLOSED", "IN_PROGRESS", "IN_REVIEW", "CANCELLED"] as const;
+export type OrderViewStatus = (typeof ORDER_VIEW_STATUSES)[number];
+export const ORDER_STATUS_LABELS: Record<OrderViewStatus, string> = {
+  PENDING_APPROVAL: "Pending",
   APPROVED: "Approved",
   IN_PROGRESS: "In Progress",
+  IN_REVIEW: "In Review",
   CLOSED: "Closed",
   REJECTED: "Rejected",
   CANCELLED: "Cancelled",
@@ -68,7 +76,7 @@ export const orderListQuerySchema = z
   .object({
     from: z.iso.date().optional(),
     to: z.iso.date().optional(),
-    status: z.enum(ORDER_STATUSES).optional(),
+    status: z.enum(ORDER_VIEW_STATUSES).optional(),
     bomId: z.uuid().optional(),
     search: z.string().trim().max(100).optional(),
   })
@@ -155,7 +163,7 @@ export interface OrderRow {
   producedQty: number;
   remainingQty: number;
   producedValue: number;
-  status: OrderStatus;
+  status: OrderViewStatus;
   officeName: string;
   updatedAt: string;
 }

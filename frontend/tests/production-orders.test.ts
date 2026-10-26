@@ -230,7 +230,10 @@ describe("production orders", () => {
     expect((await getOrder(manager, order.id)).allowedActions).toEqual(["cancel"]);
 
     order = await actOnOrder(as(supervisor), order.id, { version: order.updatedAt, action: "approve" });
-    expect(order).toMatchObject({ status: "PENDING_APPROVAL", canEdit: false });
+    // Part-way through a multi-stage pipeline the order shows as In Review.
+    expect(order).toMatchObject({ status: "IN_REVIEW", canEdit: false });
+    expect(await listOrders(planner, { status: "IN_REVIEW" })).toHaveLength(1);
+    expect(await listOrders(planner, { status: "PENDING_APPROVAL" })).toHaveLength(0);
     expect(order.approvals[0]).toMatchObject({ status: "PENDING", approvedNames: ["Supervisor"] });
     order = await actOnOrder(as(head), order.id, { version: order.updatedAt, action: "approve" });
     expect(order.approvals.map((stage) => stage.status)).toEqual(["APPROVED", "PENDING"]);

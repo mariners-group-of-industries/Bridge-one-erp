@@ -1,8 +1,9 @@
 import { Indicator, type IndicatorColor } from "@/components/ui/indicator";
-import { ORDER_STATUS_LABELS, type OrderStatus } from "../schemas/order.schema";
+import { ORDER_STATUS_LABELS, type OrderViewStatus } from "../schemas/order.schema";
 
-export const ORDER_STATUS_COLORS: Record<OrderStatus, IndicatorColor> = {
+export const ORDER_STATUS_COLORS: Record<OrderViewStatus, IndicatorColor> = {
   PENDING_APPROVAL: "orange",
+  IN_REVIEW: "yellow",
   APPROVED: "blue",
   IN_PROGRESS: "purple",
   CLOSED: "green",
@@ -10,7 +11,7 @@ export const ORDER_STATUS_COLORS: Record<OrderStatus, IndicatorColor> = {
   CANCELLED: "gray",
 };
 
-export function OrderStatusBadge({ status }: { status: OrderStatus }) {
+export function OrderStatusBadge({ status }: { status: OrderViewStatus }) {
   return <Indicator color={ORDER_STATUS_COLORS[status]}>{ORDER_STATUS_LABELS[status]}</Indicator>;
 }
 

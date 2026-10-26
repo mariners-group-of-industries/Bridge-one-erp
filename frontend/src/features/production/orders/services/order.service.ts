@@ -18,6 +18,8 @@ import {
   orderUpdateSchema,
   type CustomerOption,
   type OrderAction,
+  type OrderStatus,
+  type OrderViewStatus,
   type OrderDetail,
   type OrderLookups,
   type OrderPreview,
@@ -164,7 +166,16 @@ const ROW_INCLUDE = {
   item: { select: { code: true, name: true, uom: true } },
   bom: { select: { name: true } },
   office: { select: { name: true } },
+  approvals: { select: { status: true, approvedUserIds: true } },
 } satisfies Prisma.ProductionOrderInclude;
+
+/** A pending order some approver has acted on (APPROVED stage or partial approvals). */
+const REVIEWED: Prisma.ProductionOrderApprovalWhereInput = { OR: [{ status: "APPROVED" }, { approvedUserIds: { isEmpty: false } }] };
+
+function viewStatus(record: { status: OrderStatus; approvals: { status: string; approvedUserIds: string[] }[] }): OrderViewStatus {
+  const reviewed = record.approvals.some((stage) => stage.status === "APPROVED" || stage.approvedUserIds.length > 0);
+  return record.status === "PENDING_APPROVAL" && reviewed ? "IN_REVIEW" : record.status;
+}
 
 type RowRecord = Prisma.ProductionOrderGetPayload<{ include: typeof ROW_INCLUDE }>;
 
@@ -186,7 +197,7 @@ function toRow(record: RowRecord): OrderRow {
     producedQty,
     remainingQty: Math.max(round4(orderQty - producedQty), 0),
     producedValue: round2(producedQty * num(record.unitCost)),
-    status: record.status,
+    status: viewStatus(record),
     officeName: record.office.name,
     updatedAt: record.updatedAt.toISOString(),
   };
@@ -200,7 +211,13 @@ export async function listOrders(actor: Actor, raw: unknown): Promise<OrderRow[]
     where: {
       businessUnitId: { in: unitIds },
       ...(query.from || query.to ? { orderDate: { ...(query.from ? { gte: toDbDate(query.from) } : {}), ...(query.to ? { lte: toDbDate(query.to) } : {}) } } : {}),
-      ...(query.status ? { status: query.status } : {}),
+      ...(query.status === "IN_REVIEW"
+        ? { status: "PENDING_APPROVAL", approvals: { some: REVIEWED } }
+        : query.status === "PENDING_APPROVAL"
+          ? { status: "PENDING_APPROVAL", approvals: { none: REVIEWED } }
+          : query.status
+            ? { status: query.status }
+            : {}),
       ...(query.bomId ? { bomId: query.bomId } : {}),
       ...(search ? { OR: [{ number: search }, { item: { OR: [{ name: search }, { code: search }] } }, { bom: { name: search } }] } : {}),
     },
