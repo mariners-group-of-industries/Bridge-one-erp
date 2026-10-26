@@ -1,9 +1,9 @@
 "use client";
 
-import { ArrowLeft, ChevronDown, Plus, Save } from "lucide-react";
+import { ArrowLeft, ChevronDown, Plus, Save, Search } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { PageContainer, PageHead } from "@/components/layout/page";
 import { Button } from "@/components/ui/button";
 import { SelectField, TextField } from "@/components/ui/form-field";
@@ -17,12 +17,13 @@ import { paths } from "../../paths";
 import {
   workCenterInputSchema,
   type MasterKind,
+  type OperatorOption,
   type Option,
   type WorkCenterDetail,
   type WorkCenterInput,
   type WorkCenterLookups,
 } from "../schemas/work-center.schema";
-import { createWorkCenter, fetchWorkCenter, fetchWorkCenterLookups, updateWorkCenter } from "../services/work-center.api";
+import { createWorkCenter, fetchWorkCenter, fetchWorkCenterLookups, searchOperators, updateWorkCenter } from "../services/work-center.api";
 import { MasterDialog, OperatorTable, WithAddNew } from "./WorkCenterParts";
 
 interface Values {
@@ -70,8 +71,8 @@ function toInput(values: Values): WorkCenterInput {
     ratedCapacityPerHour: requiredNumber(values.ratedCapacityPerHour),
     costPerHour: optionalNumber(values.costPerHour),
     remarks: values.remarks || null,
-    departmentId: values.departmentId || null,
-    departmentSectionId: values.departmentSectionId || null,
+    departmentId: values.departmentId,
+    departmentSectionId: values.departmentSectionId,
     warehouseId: values.warehouseId || null,
     operatorIds: values.operatorIds,
   };
@@ -96,12 +97,34 @@ export function EditWorkCenterView({ id }: { id: string }) {
 function Failed({ message, onRetry }: { message: string; onRetry: () => void }) {
   return (
     <PageContainer className="max-w-none">
-      <PageHead title="Work Center" />
+      <PageHead title="Create Work Center" />
       <Card>
         <ErrorState message={message} onRetry={onRetry} />
       </Card>
     </PageContainer>
   );
+}
+
+/** Employees matching `term` (3+ letters), debounced. */
+function useOperatorSearch(term: string, businessUnitId?: string) {
+  const wanted = term.trim();
+  const key = `${businessUnitId ?? ""}:${wanted}`;
+  const [found, setFound] = useState<{ key: string; rows: OperatorOption[]; error?: string }>({ key: "", rows: [] });
+  useEffect(() => {
+    if (wanted.length < 3) return;
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      searchOperators(wanted, businessUnitId).then(
+        (rows) => !cancelled && setFound({ key, rows }),
+        (error: unknown) => !cancelled && setFound({ key, rows: [], error: errorMessage(error) }),
+      );
+    }, 300);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [wanted, businessUnitId, key]);
+  return { ...found, ready: wanted.length >= 3 && found.key === key };
 }
 
 function WorkCenterForm({ lookups: loaded, record }: { lookups: WorkCenterLookups; record?: WorkCenterDetail }) {
@@ -113,7 +136,9 @@ function WorkCenterForm({ lookups: loaded, record }: { lookups: WorkCenterLookup
   const [busy, setBusy] = useState(false);
   const [adding, setAdding] = useState<MasterKind | null>(null);
   const [operatorsOpen, setOperatorsOpen] = useState(true);
-  const [pickedEmployee, setPickedEmployee] = useState("");
+  const [operatorTerm, setOperatorTerm] = useState("");
+  /** Details of the tagged operators (saved ones, then the ones picked from the search). */
+  const [operators, setOperators] = useState<OperatorOption[]>(() => record?.operators ?? []);
 
   const set = (patch: Partial<Values>) => setValues((current) => ({ ...current, ...patch }));
   const unit = values.businessUnitId;
@@ -122,23 +147,12 @@ function WorkCenterForm({ lookups: loaded, record }: { lookups: WorkCenterLookup
   const departments = inUnit(lookups.departments);
   const sections = lookups.sections.filter((section) => section.departmentId === values.departmentId);
   const warehouses = inUnit(lookups.warehouses);
-  const employees = inUnit(lookups.employees);
-  const tagged = values.operatorIds.map((employeeId) => {
-    const employee = lookups.employees.find((row) => row.id === employeeId);
-    const saved = record?.operators.find((row) => row.employeeId === employeeId);
-    return {
-      employeeId,
-      code: employee?.code ?? saved?.code ?? "",
-      name: employee?.name ?? saved?.name ?? "Unknown employee",
-      designation: employee?.designation ?? saved?.designation ?? null,
-      department: employee?.department ?? saved?.department ?? null,
-    };
-  });
-  const available = employees.filter((employee) => !values.operatorIds.includes(employee.id));
+  const operatorSearch = useOperatorSearch(operatorTerm, unit || undefined);
+  const tagged = operators.filter((row) => values.operatorIds.includes(row.employeeId));
 
   const options = (rows: readonly Option[], placeholder: string) => [{ value: "", label: placeholder }, ...rows.map((row) => ({ value: row.id, label: row.name }))];
 
-  function added(kind: MasterKind, created: Option) {
+  function added(kind: MasterKind, created: Option, departmentId?: string) {
     setAdding(null);
     if (kind === "types") {
       setLookups((current) => ({ ...current, types: [...current.types, { ...created, businessUnitId: unit }] }));
@@ -146,16 +160,18 @@ function WorkCenterForm({ lookups: loaded, record }: { lookups: WorkCenterLookup
     } else if (kind === "departments") {
       setLookups((current) => ({ ...current, departments: [...current.departments, { ...created, businessUnitId: unit }] }));
       set({ departmentId: created.id, departmentSectionId: "" });
-    } else {
-      setLookups((current) => ({ ...current, sections: [...current.sections, { ...created, departmentId: values.departmentId }] }));
-      set({ departmentSectionId: created.id });
+    } else if (departmentId) {
+      setLookups((current) => ({ ...current, sections: [...current.sections, { ...created, departmentId }] }));
+      set({ departmentId, departmentSectionId: created.id });
     }
   }
 
-  function addOperator() {
-    if (!pickedEmployee) return;
-    set({ operatorIds: [...values.operatorIds, pickedEmployee] });
-    setPickedEmployee("");
+  function addOperator(operator: OperatorOption) {
+    if (!values.operatorIds.includes(operator.employeeId)) {
+      setOperators((current) => [...current.filter((row) => row.employeeId !== operator.employeeId), operator]);
+      set({ operatorIds: [...values.operatorIds, operator.employeeId] });
+    }
+    setOperatorTerm("");
   }
 
   async function save() {
@@ -183,7 +199,6 @@ function WorkCenterForm({ lookups: loaded, record }: { lookups: WorkCenterLookup
     }
   }
 
-  const departmentName = lookups.departments.find((department) => department.id === values.departmentId)?.name;
 
   return (
     <PageContainer className="max-w-none">
@@ -277,15 +292,17 @@ function WorkCenterForm({ lookups: loaded, record }: { lookups: WorkCenterLookup
             <WithAddNew label="Department" onAdd={() => setAdding("departments")} disabled={!unit}>
               <SelectField
                 label="Department"
+                required
                 value={values.departmentId}
                 error={errors.departmentId}
                 options={options(departments, "Department")}
                 onChange={(event) => set({ departmentId: event.target.value, departmentSectionId: "" })}
               />
             </WithAddNew>
-            <WithAddNew label="Department Section" onAdd={() => setAdding("sections")} disabled={!values.departmentId}>
+            <WithAddNew label="Department Section" onAdd={() => setAdding("sections")} disabled={!unit}>
               <SelectField
                 label="Department Section"
+                required
                 value={values.departmentSectionId}
                 error={errors.departmentSectionId}
                 disabled={!values.departmentId}
@@ -318,25 +335,52 @@ function WorkCenterForm({ lookups: loaded, record }: { lookups: WorkCenterLookup
             </header>
             {operatorsOpen && (
               <div id="operator-body" className="flex flex-col gap-3 border-t border-line p-4">
-                <div className="grid items-end gap-3 sm:grid-cols-[minmax(0,24rem)_auto]">
-                  <SelectField
-                    label="Operator (Employee)"
-                    value={pickedEmployee}
+                <div className="relative max-w-xl">
+                  <TextField
+                    label="Operator"
+                    required
+                    placeholder="Select/Search Operator (min 3 letters)"
+                    value={operatorTerm}
                     error={errors.operatorIds}
-                    hint={employees.length === 0 ? "No active employee in this business unit." : undefined}
-                    options={[
-                      { value: "", label: available.length ? "Choose an employee" : "No more employees" },
-                      ...available.map((employee) => ({
-                        value: employee.id,
-                        label: `${employee.code} - ${employee.name}${employee.designation ? ` (${employee.designation})` : ""}`,
-                      })),
-                    ]}
-                    onChange={(event) => setPickedEmployee(event.target.value)}
+                    hint="Search employees by name or code, then pick one to add it."
+                    onChange={(event) => setOperatorTerm(event.target.value)}
                   />
-                  <Button variant="accent-soft" onClick={addOperator} disabled={!pickedEmployee}>
-                    <Plus aria-hidden="true" />
-                    Add Operator
-                  </Button>
+                  {operatorTerm.trim().length >= 3 && (
+                    <div role="listbox" aria-label="Matching employees" className="absolute top-12 z-10 max-h-64 w-full overflow-y-auto rounded-md border border-line bg-surface shadow-dropdown">
+                      {!operatorSearch.ready ? (
+                        <p className="flex items-center gap-2 px-3 py-2 text-xs text-ink-faint">
+                          <Search aria-hidden="true" className="size-3.5" />
+                          Searching…
+                        </p>
+                      ) : operatorSearch.error ? (
+                        <p className="px-3 py-2 text-xs text-danger">{operatorSearch.error}</p>
+                      ) : operatorSearch.rows.length === 0 ? (
+                        <p className="px-3 py-2 text-xs text-ink-faint">No active employee matches.</p>
+                      ) : (
+                        operatorSearch.rows.map((operator) => {
+                          const already = values.operatorIds.includes(operator.employeeId);
+                          return (
+                            <button
+                              key={operator.employeeId}
+                              type="button"
+                              role="option"
+                              aria-selected={already}
+                              disabled={already}
+                              onClick={() => addOperator(operator)}
+                              className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-ink hover:bg-hover disabled:cursor-default disabled:text-ink-faint"
+                            >
+                              <Plus aria-hidden="true" className="size-3.5 shrink-0 text-accent-strong" />
+                              <span className="min-w-0 flex-1 truncate">
+                                {operator.code} - {operator.name}
+                                {operator.designation ? ` (${operator.designation})` : ""}
+                              </span>
+                              {already && <span className="text-xs">Added</span>}
+                            </button>
+                          );
+                        })
+                      )}
+                    </div>
+                  )}
                 </div>
                 {tagged.length === 0 ? (
                   <p className="text-sm text-ink-faint">No operator tagged yet.</p>
@@ -352,7 +396,7 @@ function WorkCenterForm({ lookups: loaded, record }: { lookups: WorkCenterLookup
         kind={adding}
         businessUnitId={unit || undefined}
         departmentId={values.departmentId || undefined}
-        departmentName={departmentName}
+        departments={departments}
         onClose={() => setAdding(null)}
         onCreated={added}
       />

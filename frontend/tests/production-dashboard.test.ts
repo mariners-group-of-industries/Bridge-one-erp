@@ -33,14 +33,43 @@ describe("production dashboard", () => {
     const capacity = { typeId, standardRunHour: 16, capacityPerHour: 1500, ratedCapacityPerHour: 1400 };
     const lineA = await prisma.productionWorkCenter.create({ data: { ...bu, ...capacity, officeId, code: "M-01", name: "Fryer Line A" } });
     const lineB = await prisma.productionWorkCenter.create({ data: { ...bu, ...capacity, officeId, code: "M-02", name: "Packing Line B" } });
+    const warehouseId = (await prisma.warehouse.create({ data: { officeId, name: "Factory Store" } })).id;
+    // Entries are booked against an order of a BOM producing the item.
+    const orderOf = new Map<string, string>();
+    for (const itemId of [chanachur.id, chips.id]) {
+      const bom = await prisma.productionBom.create({
+        data: { ...bu, name: `BOM ${itemId}`, createdBy: "test", outputs: { create: [{ lineNo: 1, itemId, outputType: "FINISHED_GOODS", lotSizeQty: 1 }] } },
+      });
+      const order = await prisma.productionOrder.create({
+        data: { ...bu, number: `PRO-${orderOf.size + 1}`, orderDate: day("2026-09-01"), productionDate: day("2026-09-01"), itemId, bomId: bom.id, bomLotSize: 1, orderQty: 100_000, officeId, warehouseId, status: "IN_PROGRESS", createdBy: "test" },
+      });
+      orderOf.set(itemId, order.id);
+    }
     let serial = 0;
-    const entry = (itemId: string, workCenterId: string | null, date: string, qty: number, hours: number) =>
-      prisma.productionEntry.create({ data: { ...bu, officeId, number: `PE-${++serial}`, itemId, workCenterId, productionDate: day(date), qty, hours } });
+    const entry = (itemId: string, workCenterId: string | null, date: string, qty: number, hours: number, status: "POSTED" | "CANCELLED" = "POSTED") =>
+      prisma.productionEntry.create({
+        data: {
+          ...bu,
+          officeId,
+          number: `PE-${++serial}`,
+          orderId: orderOf.get(itemId)!,
+          itemId,
+          workCenterId,
+          sourceWarehouseId: warehouseId,
+          outputWarehouseId: warehouseId,
+          productionDate: day(date),
+          qty,
+          netQty: qty,
+          hours,
+          status,
+        },
+      });
     await entry(chanachur.id, lineA.id, "2026-10-02", 12_000, 8);
     await entry(chanachur.id, lineA.id, "2026-10-03", 9_000, 6);
     await entry(chips.id, lineB.id, "2026-10-03", 4_000, 8);
     await entry(chips.id, null, "2026-10-04", 1_000, 0);
     await entry(chips.id, lineB.id, "2026-09-30", 50_000, 10); // before the range
+    await entry(chips.id, lineB.id, "2026-10-05", 70_000, 10, "CANCELLED"); // cancelled
   });
 
   afterAll(stopTestDb);

@@ -1,7 +1,9 @@
 import { apiRequest } from "@/lib/api/client";
+import { downloadFile } from "../../lib/download";
 import type {
   MasterInput,
   MasterKind,
+  OperatorOption,
   Option,
   WorkCenterDetail,
   WorkCenterInput,
@@ -23,3 +25,7 @@ export const setWorkCenterActive = (id: string, version: string, isActive: boole
   apiRequest<WorkCenterRow>(`${BASE}/${id}/status`, json("PUT", { version, isActive }));
 export const fetchWorkCenterLookups = () => apiRequest<WorkCenterLookups>(`${BASE}/lookups`);
 export const createWorkCenterMaster = (kind: MasterKind, input: MasterInput) => apiRequest<Option>(`${BASE}/masters/${kind}`, json("POST", input));
+export const searchOperators = (search: string, businessUnitId?: string) =>
+  apiRequest<OperatorOption[]>(`${BASE}/operators?${new URLSearchParams({ search, ...(businessUnitId ? { businessUnitId } : {}) })}`);
+export const downloadWorkCenters = (query: WorkCenterListQuery = {}) =>
+  downloadFile(`${BASE}/export?${new URLSearchParams(Object.entries(query).filter(([, value]) => value) as [string, string][])}`, "work-centers.xlsx");

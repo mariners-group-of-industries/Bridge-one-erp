@@ -5,9 +5,11 @@ import {
   createWorkCenter,
   getWorkCenter,
   listWorkCenters,
+  searchOperators,
   setWorkCenterActive,
   updateWorkCenter,
   workCenterLookups,
+  workCentersExcel,
 } from "@/features/production/work-centers/services/work-center.service";
 import { adminActor, businessUnitInput, companyInput, officeInput, scopedActor } from "./helpers/fixtures";
 import { resetTestDb, startTestDb, stopTestDb } from "./helpers/test-db";
@@ -93,7 +95,10 @@ describe("production work centers", () => {
 
     const lookups = await workCenterLookups(adminActor);
     expect(lookups).toMatchObject({ types: [{ name: "Finished Goods" }, { name: "Packaging" }], sections: [{ name: "Juice" }] });
-    expect(lookups.employees).toHaveLength(2);
+    expect((await searchOperators(adminActor, { search: "rah" })).map((row) => [row.code, row.name])).toEqual([["E-001", "Rahim"]]);
+    expect(await searchOperators(adminActor, { search: "E-00" })).toHaveLength(2);
+    await expect(searchOperators(adminActor, { search: "ra" })).rejects.toThrow("3 letters");
+    expect(Buffer.from((await workCentersExcel(adminActor, {})).slice(0, 2)).toString()).toBe("PK");
   });
 
   it("rejects a used code, a section of another department, bad numbers and duplicate masters", async () => {
@@ -108,6 +113,7 @@ describe("production work centers", () => {
     await expect(createWorkCenter(adminActor, input(ids, { code: "JM-005", operatorIds: [operatorIds[0], operatorIds[0]] }))).rejects.toThrow();
     await expect(createMaster(adminActor, "departments", { name: "Production" })).rejects.toThrow("already exists");
     await expect(createMaster(adminActor, "sections", { name: "Snacks" })).rejects.toThrow("department");
+    await expect(createWorkCenter(adminActor, input(ids, { code: "JM-006", departmentId: null, departmentSectionId: null }))).rejects.toThrow("Department is required");
   });
 
   it("updates with the version, replaces operators and toggles active", async () => {
@@ -115,9 +121,9 @@ describe("production work centers", () => {
     const created = await createWorkCenter(adminActor, input(ids));
     const updated = await updateWorkCenter(adminActor, created.id, {
       version: created.updatedAt,
-      data: input(ids, { name: "Juice Maker 2", ratedCapacityPerHour: 290, operatorIds: [operatorIds[1]], departmentSectionId: null, warehouseId: null }),
+      data: input(ids, { name: "Juice Maker 2", ratedCapacityPerHour: 290, operatorIds: [operatorIds[1]], warehouseId: null }),
     });
-    expect(updated).toMatchObject({ name: "Juice Maker 2", ratedCapacityPerHour: 290, sectionName: null, warehouseName: null, operatorCount: 1 });
+    expect(updated).toMatchObject({ name: "Juice Maker 2", ratedCapacityPerHour: 290, sectionName: "Juice", warehouseName: null, operatorCount: 1 });
     expect(updated.operators.map((operator) => operator.name)).toEqual(["Karim"]);
 
     await expect(updateWorkCenter(adminActor, created.id, { version: created.updatedAt, data: input(ids) })).rejects.toThrow("Someone else");

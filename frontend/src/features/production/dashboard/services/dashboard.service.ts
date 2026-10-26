@@ -14,6 +14,7 @@ export async function getProductionDashboard(actor: Actor, raw: unknown): Promis
   const unitIds = await scopedBusinessUnitIds(actor);
   const where: Prisma.ProductionEntryWhereInput = {
     businessUnitId: { in: unitIds },
+    status: "POSTED",
     productionDate: { gte: day(query.from), lte: day(query.to) },
     ...(query.officeId ? { officeId: query.officeId } : {}),
   };

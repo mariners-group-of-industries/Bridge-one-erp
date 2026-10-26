@@ -3,7 +3,7 @@
 import { useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
-import { TextField } from "@/components/ui/form-field";
+import { SelectField, TextField } from "@/components/ui/form-field";
 import { ErrorState, LoadingState } from "@/components/ui/section";
 import { useToast } from "@/components/ui/toast";
 import { useResource } from "@/hooks/use-resource";
@@ -61,72 +61,91 @@ export function WithAddNew({ children, onAdd, disabled, label }: { children: Rea
   );
 }
 
-/** "ADD NEW" dialog for a work center type, department or department section. */
-export function MasterDialog({
-  kind,
-  businessUnitId,
-  departmentId,
-  departmentName,
-  onClose,
-  onCreated,
-}: {
+/**
+ * "ADD NEW" dialog for a work center type, department or department section. A section
+ * dialog asks for its department (from `departments`, preset to `departmentId`).
+ */
+export function MasterDialog(props: {
   kind: MasterKind | null;
   businessUnitId?: string;
   departmentId?: string;
-  departmentName?: string;
+  departments?: readonly { id: string; name: string }[];
   onClose: () => void;
-  onCreated: (kind: MasterKind, record: Option) => void;
+  onCreated: (kind: MasterKind, record: Option, departmentId?: string) => void;
 }) {
+  // Remount per opening so the fields start from the current form values.
+  return props.kind ? <MasterForm key={`${props.kind}:${props.departmentId ?? ""}`} {...props} kind={props.kind} /> : null;
+}
+
+function MasterForm({
+  kind,
+  businessUnitId,
+  departmentId: presetDepartment,
+  departments = [],
+  onClose,
+  onCreated,
+}: Parameters<typeof MasterDialog>[0] & { kind: MasterKind }) {
   const toast = useToast();
   const [name, setName] = useState("");
-  const [error, setError] = useState<string>();
+  const [departmentId, setDepartmentId] = useState(presetDepartment ?? "");
+  const [errors, setErrors] = useState<{ name?: string; departmentId?: string }>({});
   const [busy, setBusy] = useState(false);
-  const title = kind ? MASTER_TITLES[kind] : "";
-
-  function close() {
-    setName("");
-    setError(undefined);
-    onClose();
-  }
+  const title = MASTER_TITLES[kind];
 
   async function submit() {
-    if (!kind) return;
-    const input = { name, ...(businessUnitId ? { businessUnitId } : {}), ...(kind === "sections" && departmentId ? { departmentId } : {}) };
+    if (kind === "sections" && !departmentId) return setErrors({ departmentId: "Department is required." });
+    const input = { name, ...(businessUnitId ? { businessUnitId } : {}), ...(kind === "sections" ? { departmentId } : {}) };
     const parsed = masterInputSchema.safeParse(input);
-    if (!parsed.success) return setError(parsed.error.issues[0]?.message);
+    if (!parsed.success) return setErrors({ name: parsed.error.issues[0]?.message });
     setBusy(true);
     try {
       const record = await createWorkCenterMaster(kind, input);
       toast.success(`${title} ${record.name} added.`);
-      setName("");
-      setError(undefined);
-      onCreated(kind, record);
+      onCreated(kind, record, kind === "sections" ? departmentId : undefined);
     } catch (failure) {
-      setError(errorMessage(failure));
-    } finally {
+      setErrors({ name: errorMessage(failure) });
       setBusy(false);
     }
   }
 
   return (
     <Dialog
-      open={kind !== null}
-      title={`New ${title}`}
-      description={kind === "sections" && departmentName ? `Section of ${departmentName}` : undefined}
-      onClose={busy ? () => undefined : close}
+      open
+      title={`Create ${title}`}
+      onClose={busy ? () => undefined : onClose}
       onSubmit={submit}
       footer={
         <>
-          <Button onClick={close} disabled={busy}>
-            Cancel
+          <Button variant="ghost" className="text-danger" onClick={onClose} disabled={busy}>
+            CLOSE
           </Button>
           <Button type="submit" variant="primary" loading={busy}>
-            Save
+            SAVE
           </Button>
         </>
       }
     >
-      <TextField label={`${title} Name`} required autoFocus maxLength={100} value={name} error={error} onChange={(event) => setName(event.target.value)} />
+      <div className="flex flex-col gap-3">
+        {kind === "sections" && (
+          <SelectField
+            label="Department"
+            required
+            value={departmentId}
+            error={errors.departmentId}
+            options={[{ value: "", label: "Choose the department" }, ...departments.map((department) => ({ value: department.id, label: department.name }))]}
+            onChange={(event) => setDepartmentId(event.target.value)}
+          />
+        )}
+        <TextField
+          label={kind === "departments" ? "Department Name" : title}
+          required
+          autoFocus
+          maxLength={100}
+          value={name}
+          error={errors.name}
+          onChange={(event) => setName(event.target.value)}
+        />
+      </div>
     </Dialog>
   );
 }

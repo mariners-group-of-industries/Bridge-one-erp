@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
-import { ProductionPage } from "@/features/production/components/production-page";
+import { Suspense } from "react";
+import { LoadingState } from "@/components/ui/section";
+import { EntryWorkspaceView } from "@/features/production/entries/components/EntryWorkspaceView";
 import { productionEntry } from "@/features/production/navigation";
 
 // The desk shell renders pages only after the session loads on the client, so the
@@ -8,6 +10,12 @@ export const instant = false;
 
 export const metadata: Metadata = { title: productionEntry.label };
 
-export default function Page() {
-  return <ProductionPage link={productionEntry} />;
+/** /production/entries?tab=queue|list */
+export default function ProductionEntryPage() {
+  // The tab lives in the search params (request-time data): read it inside <Suspense>.
+  return (
+    <Suspense fallback={<LoadingState />}>
+      <EntryWorkspaceView />
+    </Suspense>
+  );
 }
