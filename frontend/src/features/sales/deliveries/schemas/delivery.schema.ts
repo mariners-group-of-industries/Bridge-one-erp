@@ -450,7 +450,7 @@ export interface StockSummary {
     id: string;
     warehouseName: string;
     qty: number;
-    source: "OPENING" | "ADJUSTMENT" | "SALES_DELIVERY" | "SALES_RETURN";
+    source: "OPENING" | "ADJUSTMENT" | "SALES_DELIVERY" | "SALES_RETURN" | "PRODUCTION_CONSUMPTION" | "PRODUCTION_OUTPUT";
     postingDate: string;
     remarks: string | null;
     createdBy: string;

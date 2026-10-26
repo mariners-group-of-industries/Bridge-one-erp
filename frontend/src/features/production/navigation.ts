@@ -59,6 +59,12 @@ export const productionWorkspace: Workspace = {
   routes: [
     { pattern: patterns.newWorkCenter, label: "New Work Center", parent: paths.workCenters },
     { pattern: patterns.editWorkCenter, label: "Edit Work Center", parent: paths.workCenters },
+    { pattern: patterns.newBom, label: "Create Bill Of Material", parent: paths.billOfMaterials },
+    { pattern: patterns.editBom, label: "Edit Bill Of Material", parent: paths.billOfMaterials },
+    { pattern: patterns.newOrder, label: "Create Production Order", parent: paths.orders },
+    { pattern: patterns.editOrder, label: "Edit Production Order", parent: paths.orders },
+    { pattern: patterns.order, label: "Production Order View", parent: paths.orders },
+    { pattern: patterns.newEntry, label: "Create Production Entry", parent: paths.entries },
   ],
   cards: [
     { label: "Planning", links: [workCenter, billOfMaterial, productionOrder] },

@@ -389,6 +389,8 @@ model BusinessUnit {
   productionEntries ProductionEntry[]
   workCenterTypes        ProductionWorkCenterType[]
   productionDepartments  ProductionDepartment[]
+  productionBoms         ProductionBom[]
+  productionOrders       ProductionOrder[]
 
   @@unique([companyId, name])
   @@map("business_units")
@@ -428,6 +430,7 @@ model Office {
   salesWallets         SalesWallet[]
   workCenters       ProductionWorkCenter[]
   productionEntries ProductionEntry[]
+  productionOrders  ProductionOrder[]
 
   @@unique([businessUnitId, name])
   @@map("offices")
@@ -453,6 +456,9 @@ model Warehouse {
   returns      SalesReturn[]
   stockEntries StockEntry[]
   productionWorkCenters ProductionWorkCenter[]
+  productionOrders ProductionOrder[]
+  productionSourceEntries ProductionEntry[] @relation("EntrySourceWarehouse")
+  productionOutputEntries ProductionEntry[] @relation("EntryOutputWarehouse")
 
   @@unique([officeId, name])
   @@map("warehouses")
@@ -628,6 +634,7 @@ model Customer {
   taxBracket    TaxBracket?       @relation(fields: [taxBracketId], references: [id], onDelete: SetNull)
   attachments   CustomerAttachment[]
   priceSetups   CustomerPriceSetup[]
+  productionOrders ProductionOrder[]
 
   @@unique([businessUnitId, code])
   @@index([businessUnitId, name])
@@ -704,6 +711,12 @@ model Item {
   goodsReceiptLines   GoodsReceiptLine[]
   purchaseReturnLines PurchaseReturnLine[]
   productionEntries ProductionEntry[]
+  bomOutputs   ProductionBomOutput[]
+  bomMaterials ProductionBomMaterial[]
+  bomWastages  ProductionBomWastage[]
+  productionOrders        ProductionOrder[]
+  productionOrderMaterials ProductionOrderMaterial[]
+  productionEntryMaterials ProductionEntryMaterial[]
 
   @@unique([businessUnitId, code])
   @@map("items")
@@ -1814,6 +1827,7 @@ model SalesOrder {
   events                SalesOrderEvent[]
   deliveries            SalesDelivery[]
   deliveryPendingReason DeliveryPendingReason? @relation(fields: [deliveryPendingReasonId], references: [id], onDelete: SetNull)
+  productionOrders ProductionOrder[]
 
   @@unique([businessUnitId, number])
   @@index([businessUnitId, orderDate])
@@ -1911,6 +1925,8 @@ enum StockSource {
   ADJUSTMENT
   SALES_DELIVERY
   SALES_RETURN
+  PRODUCTION_CONSUMPTION
+  PRODUCTION_OUTPUT
 }
 
 /// Stock ledger: one signed quantity per movement. Stock = sum(qty) per
@@ -2487,6 +2503,7 @@ model Account {
   updatedAt      DateTime  @updatedAt @db.Timestamptz(3)
 
   voucherLines   JournalVoucherLine[]
+  productionBomOverheads ProductionBomOverhead[]
 
   @@map("accounts")
 }
@@ -2959,6 +2976,7 @@ model ProductionWorkCenter {
   warehouse         Warehouse?                     @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
   operators         ProductionWorkCenterOperator[]
   entries           ProductionEntry[]
+  orders            ProductionOrder[]
 
   @@unique([businessUnitId, code])
   @@map("production_work_centers")
@@ -2966,31 +2984,61 @@ model ProductionWorkCenter {
 
 /// Output of one item on a work center on a day ("Production Entry").
 model ProductionEntry {
-  id             String   @id @default(uuid()) @db.Uuid
-  businessUnitId String   @db.Uuid
-  number         String   @db.VarChar(30)
-  officeId       String   @db.Uuid
-  workCenterId   String?  @db.Uuid
-  itemId         String   @db.Uuid
-  productionDate DateTime @db.Date
-  shift          String?  @db.VarChar(30)
-  /// Good units produced.
-  qty            Decimal  @db.Decimal(14, 3)
+  id                  String                @id @default(uuid()) @db.Uuid
+  businessUnitId      String                @db.Uuid
+  number              String                @db.VarChar(30)
+  orderId             String                @db.Uuid
+  officeId            String                @db.Uuid
+  workCenterId        String?               @db.Uuid
+  departmentId        String?               @db.Uuid
+  departmentSectionId String?               @db.Uuid
+  itemId              String                @db.Uuid
+  /// Raw materials leave this warehouse (the order's warehouse).
+  sourceWarehouseId   String                @db.Uuid
+  /// Finished / semi-finished goods enter this warehouse.
+  outputWarehouseId   String                @db.Uuid
+  productionDate      DateTime              @db.Date
+  shift               String?               @db.VarChar(30)
+  /// Total units produced in this batch.
+  qty                 Decimal               @db.Decimal(14, 3)
+  rejectQty           Decimal               @default(0) @db.Decimal(14, 3)
+  /// Good units: qty − rejectQty. Added to stock and to the order's produced quantity.
+  netQty              Decimal               @db.Decimal(14, 3)
+  /// Good units beyond what the order still needed.
+  excessQty           Decimal               @default(0) @db.Decimal(14, 3)
+  /// netQty × the item's net weight in the BOM.
+  netWeight           Decimal               @default(0) @db.Decimal(16, 4)
+  /// Material cost at BOM rates: standard (scaled BOM) and actual consumption.
+  standardCost        Decimal               @default(0) @db.Decimal(16, 2)
+  actualCost          Decimal               @default(0) @db.Decimal(16, 2)
+  /// actualCost − standardCost (positive = more material used than the BOM allows).
+  variance            Decimal               @default(0) @db.Decimal(16, 2)
   /// Machine hours worked for this output (productivity = qty ÷ hours).
-  hours          Decimal  @default(0) @db.Decimal(10, 2)
-  remarks        String?  @db.VarChar(500)
-  createdBy      String?  @db.VarChar(100)
-  createdAt      DateTime @default(now()) @db.Timestamptz(3)
-  updatedAt      DateTime @updatedAt @db.Timestamptz(3)
+  hours               Decimal               @default(0) @db.Decimal(10, 2)
+  status              ProductionEntryStatus @default(POSTED)
+  remarks             String?               @db.VarChar(500)
+  cancelReason        String?               @db.VarChar(500)
+  cancelledBy         String?               @db.VarChar(100)
+  cancelledAt         DateTime?             @db.Timestamptz(3)
+  createdBy           String?               @db.VarChar(100)
+  createdAt           DateTime              @default(now()) @db.Timestamptz(3)
+  updatedAt           DateTime              @updatedAt @db.Timestamptz(3)
 
-  businessUnit BusinessUnit          @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
-  office       Office                @relation(fields: [officeId], references: [id], onDelete: Restrict)
-  workCenter   ProductionWorkCenter? @relation(fields: [workCenterId], references: [id], onDelete: Restrict)
-  item         Item                  @relation(fields: [itemId], references: [id], onDelete: Restrict)
+  businessUnit      BusinessUnit                 @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  order             ProductionOrder              @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  office            Office                       @relation(fields: [officeId], references: [id], onDelete: Restrict)
+  workCenter        ProductionWorkCenter?        @relation(fields: [workCenterId], references: [id], onDelete: Restrict)
+  department        ProductionDepartment?        @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+  departmentSection ProductionDepartmentSection? @relation(fields: [departmentSectionId], references: [id], onDelete: Restrict)
+  item              Item                         @relation(fields: [itemId], references: [id], onDelete: Restrict)
+  sourceWarehouse   Warehouse                    @relation("EntrySourceWarehouse", fields: [sourceWarehouseId], references: [id], onDelete: Restrict)
+  outputWarehouse   Warehouse                    @relation("EntryOutputWarehouse", fields: [outputWarehouseId], references: [id], onDelete: Restrict)
+  materials         ProductionEntryMaterial[]
 
   @@unique([businessUnitId, number])
   @@index([businessUnitId, productionDate])
   @@index([workCenterId, productionDate])
+  @@index([orderId])
   @@map("production_entries")
 }
 
@@ -3018,6 +3066,8 @@ model ProductionDepartment {
   businessUnit BusinessUnit                  @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
   sections     ProductionDepartmentSection[]
   workCenters  ProductionWorkCenter[]
+  boms        ProductionBom[]
+  entries     ProductionEntry[]
 
   @@unique([businessUnitId, name])
   @@map("production_departments")
@@ -3032,6 +3082,8 @@ model ProductionDepartmentSection {
 
   department  ProductionDepartment   @relation(fields: [departmentId], references: [id], onDelete: Restrict)
   workCenters ProductionWorkCenter[]
+  boms        ProductionBom[]
+  entries     ProductionEntry[]
 
   @@unique([departmentId, name])
   @@map("production_department_sections")
@@ -3050,4 +3102,310 @@ model ProductionWorkCenterOperator {
   @@unique([workCenterId, employeeId])
   @@index([employeeId])
   @@map("production_work_center_operators")
+}
+
+enum ProductionBomType {
+  SINGLE_OUTPUT
+  MULTIPLE_OUTPUT
+}
+
+enum ProductionOutputType {
+  FINISHED_GOODS
+  SEMI_FINISHED_GOODS
+}
+
+/// Bill of Material: input materials, overheads and wastage needed to produce one lot of output items.
+model ProductionBom {
+  id                  String            @id @default(uuid()) @db.Uuid
+  businessUnitId      String            @db.Uuid
+  name                String            @db.VarChar(150)
+  bomType             ProductionBomType @default(SINGLE_OUTPUT)
+  departmentId        String?           @db.Uuid
+  departmentSectionId String?           @db.Uuid
+  /// Output units per lot (sum of the output lot sizes).
+  lotSize             Decimal           @default(1) @db.Decimal(14, 3)
+  /// Allowed variance of actual output, in %.
+  tolerancePercent    Decimal?          @db.Decimal(5, 2)
+  materialCost        Decimal           @default(0) @db.Decimal(16, 2)
+  overheadCost        Decimal           @default(0) @db.Decimal(16, 2)
+  /// BOM value: material + overhead cost of one lot.
+  totalCost           Decimal           @default(0) @db.Decimal(16, 2)
+  remarks             String?           @db.VarChar(500)
+  isActive            Boolean           @default(true)
+  createdBy           String            @db.VarChar(100)
+  createdAt           DateTime          @default(now()) @db.Timestamptz(3)
+  updatedAt           DateTime          @updatedAt @db.Timestamptz(3)
+
+  businessUnit      BusinessUnit                 @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  department        ProductionDepartment?        @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+  departmentSection ProductionDepartmentSection? @relation(fields: [departmentSectionId], references: [id], onDelete: Restrict)
+  outputs           ProductionBomOutput[]
+  materials         ProductionBomMaterial[]
+  wastages          ProductionBomWastage[]
+  overheads         ProductionBomOverhead[]
+  children          ProductionBomLink[]          @relation("BomParent")
+  parents           ProductionBomLink[]          @relation("BomChild")
+  orders            ProductionOrder[]
+
+  @@unique([businessUnitId, name])
+  @@index([businessUnitId, isActive])
+  @@map("production_boms")
+}
+
+/// Finished / semi-finished item produced by a BOM ("Production Items").
+model ProductionBomOutput {
+  id          String               @id @default(uuid()) @db.Uuid
+  bomId       String               @db.Uuid
+  lineNo      Int
+  itemId      String               @db.Uuid
+  outputType  ProductionOutputType
+  netWeight   Decimal              @default(0) @db.Decimal(14, 4)
+  lotSizeQty  Decimal              @db.Decimal(14, 3)
+  /// netWeight × lotSizeQty.
+  totalWeight Decimal              @default(0) @db.Decimal(16, 4)
+  /// Share of the BOM cost carried by this output (outputs add up to 100).
+  costPercent Decimal              @default(100) @db.Decimal(5, 2)
+
+  bom  ProductionBom @relation(fields: [bomId], references: [id], onDelete: Cascade)
+  item Item          @relation(fields: [itemId], references: [id], onDelete: Restrict)
+
+  @@unique([bomId, lineNo])
+  @@unique([bomId, itemId])
+  @@index([itemId])
+  @@map("production_bom_outputs")
+}
+
+/// Raw / packaging material consumed by one lot ("Input Materials").
+model ProductionBomMaterial {
+  id               String   @id @default(uuid()) @db.Uuid
+  bomId            String   @db.Uuid
+  lineNo           Int
+  itemId           String   @db.Uuid
+  materialType     String?  @db.VarChar(50)
+  excludeFromScrap Boolean  @default(false)
+  uom              String   @db.VarChar(20)
+  altUom           String?  @db.VarChar(20)
+  altQty           Decimal? @db.Decimal(14, 4)
+  qty              Decimal  @db.Decimal(14, 4)
+  wastagePercent   Decimal  @default(0) @db.Decimal(5, 2)
+  /// qty × (1 + wastage %).
+  totalQty         Decimal  @db.Decimal(14, 4)
+  rate             Decimal  @default(0) @db.Decimal(14, 4)
+  amount           Decimal  @default(0) @db.Decimal(16, 2)
+
+  bom  ProductionBom @relation(fields: [bomId], references: [id], onDelete: Cascade)
+  item Item          @relation(fields: [itemId], references: [id], onDelete: Restrict)
+
+  @@unique([bomId, lineNo])
+  @@unique([bomId, itemId])
+  @@index([itemId])
+  @@map("production_bom_materials")
+}
+
+enum ProductionWastageType {
+  SCRAP
+  BY_PRODUCT
+  RUNNER
+  REWORK
+  DEFECT
+}
+
+/// Scrap, by-product, runner, rework or defect coming out of one lot ("Other/Wastage Output").
+model ProductionBomWastage {
+  id                  String                @id @default(uuid()) @db.Uuid
+  bomId               String                @db.Uuid
+  lineNo              Int
+  itemId              String                @db.Uuid
+  itemType            String?               @db.VarChar(50)
+  uom                 String                @db.VarChar(20)
+  outputType          ProductionWastageType
+  /// Expected output as % of the base (output net weight, or input material quantity).
+  ratioPercent        Decimal               @db.Decimal(6, 2)
+  isMandatory         Boolean               @default(false)
+  /// Base is the production items' total net weight instead of the input material quantity.
+  calcWithNetWeight   Boolean               @default(false)
+  calcWithProcessRunner Boolean             @default(false)
+
+  bom  ProductionBom @relation(fields: [bomId], references: [id], onDelete: Cascade)
+  item Item          @relation(fields: [itemId], references: [id], onDelete: Restrict)
+
+  @@unique([bomId, lineNo])
+  @@unique([bomId, itemId])
+  @@map("production_bom_wastages")
+}
+
+/// Overhead cost of one lot, booked to an expense account (labour, power, gas …).
+model ProductionBomOverhead {
+  id         String   @id @default(uuid()) @db.Uuid
+  bomId      String   @db.Uuid
+  lineNo     Int
+  accountId  String   @db.Uuid
+  /// % of the material cost; when set, amount = material cost × percentage.
+  percentage Decimal? @db.Decimal(6, 2)
+  amount     Decimal  @db.Decimal(16, 2)
+
+  bom     ProductionBom @relation(fields: [bomId], references: [id], onDelete: Cascade)
+  account Account       @relation(fields: [accountId], references: [id], onDelete: Restrict)
+
+  @@unique([bomId, lineNo])
+  @@unique([bomId, accountId])
+  @@index([accountId])
+  @@map("production_bom_overheads")
+}
+
+/// Child BOM tagged to a parent ("Tag Child BOM", multi-level BOM).
+model ProductionBomLink {
+  id          String   @id @default(uuid()) @db.Uuid
+  parentBomId String   @db.Uuid
+  childBomId  String   @db.Uuid
+  stage       String   @db.VarChar(50)
+  createdAt   DateTime @default(now()) @db.Timestamptz(3)
+
+  parent ProductionBom @relation("BomParent", fields: [parentBomId], references: [id], onDelete: Cascade)
+  child  ProductionBom @relation("BomChild", fields: [childBomId], references: [id], onDelete: Restrict)
+
+  @@unique([parentBomId, childBomId])
+  @@index([childBomId])
+  @@map("production_bom_links")
+}
+
+enum ProductionOrderStatus {
+  PENDING_APPROVAL
+  APPROVED
+  IN_PROGRESS
+  CLOSED
+  REJECTED
+  CANCELLED
+}
+
+enum ProductionApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+/// Order to produce an item with a BOM ("Production Order").
+model ProductionOrder {
+  id                  String                @id @default(uuid()) @db.Uuid
+  businessUnitId      String                @db.Uuid
+  number              String                @db.VarChar(30)
+  orderDate           DateTime              @db.Date
+  productionDate      DateTime              @db.Date
+  customerId          String?               @db.Uuid
+  salesOrderId        String?               @db.Uuid
+  customerPoNo        String?               @db.VarChar(60)
+  itemId              String                @db.Uuid
+  bomId               String                @db.Uuid
+  /// Lot size of the item in the BOM when the order was saved.
+  bomLotSize          Decimal               @db.Decimal(14, 3)
+  /// BOM cost of one unit of the item (its cost share ÷ lot size) when the order was saved.
+  unitCost            Decimal               @default(0) @db.Decimal(16, 4)
+  orderQty            Decimal               @db.Decimal(14, 3)
+  producedQty         Decimal               @default(0) @db.Decimal(14, 3)
+  officeId            String                @db.Uuid
+  warehouseId         String                @db.Uuid
+  workCenterId        String?               @db.Uuid
+  machineName         String?               @db.VarChar(100)
+  narration           String?               @db.VarChar(500)
+  status              ProductionOrderStatus @default(PENDING_APPROVAL)
+  /// Approval pipeline super approver when the order was saved.
+  superApproverUserId String?               @db.Uuid
+  statusReason        String?               @db.VarChar(500)
+  createdBy           String                @db.VarChar(100)
+  createdAt           DateTime              @default(now()) @db.Timestamptz(3)
+  updatedAt           DateTime              @updatedAt @db.Timestamptz(3)
+
+  businessUnit BusinessUnit              @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  customer     Customer?                 @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  salesOrder   SalesOrder?               @relation(fields: [salesOrderId], references: [id], onDelete: Restrict)
+  item         Item                      @relation(fields: [itemId], references: [id], onDelete: Restrict)
+  bom          ProductionBom             @relation(fields: [bomId], references: [id], onDelete: Restrict)
+  office       Office                    @relation(fields: [officeId], references: [id], onDelete: Restrict)
+  warehouse    Warehouse                 @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+  workCenter   ProductionWorkCenter?     @relation(fields: [workCenterId], references: [id], onDelete: Restrict)
+  materials    ProductionOrderMaterial[]
+  approvals    ProductionOrderApproval[]
+  entries      ProductionEntry[]
+
+  @@unique([businessUnitId, number])
+  @@index([businessUnitId, orderDate])
+  @@index([status])
+  @@index([bomId])
+  @@map("production_orders")
+}
+
+/// Material an order needs: the BOM quantity scaled to the order quantity.
+model ProductionOrderMaterial {
+  id          String  @id @default(uuid()) @db.Uuid
+  orderId     String  @db.Uuid
+  lineNo      Int
+  itemId      String  @db.Uuid
+  uom         String  @db.VarChar(20)
+  /// BOM quantity per lot, wastage included.
+  bomQty      Decimal @db.Decimal(14, 4)
+  requiredQty Decimal @db.Decimal(14, 4)
+  issueQty    Decimal @default(0) @db.Decimal(14, 4)
+  usedQty     Decimal @default(0) @db.Decimal(14, 4)
+  returnQty   Decimal @default(0) @db.Decimal(14, 4)
+
+  order ProductionOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  item  Item            @relation(fields: [itemId], references: [id], onDelete: Restrict)
+
+  @@unique([orderId, lineNo])
+  @@index([itemId])
+  @@map("production_order_materials")
+}
+
+/// One approval stage of an order, copied from the approval pipeline when the order was saved.
+model ProductionOrderApproval {
+  id              String                   @id @default(uuid()) @db.Uuid
+  orderId         String                   @db.Uuid
+  stageNo         Int
+  stageName       String                   @db.VarChar(150)
+  /// ANY or SEQUENTIAL (approvers in list order).
+  approvalOrder   String                   @db.VarChar(20)
+  requiredCount   Int                      @default(1)
+  /// Users who may act; empty = anyone with production:approve.
+  approverUserIds String[]                 @db.Uuid
+  /// Actor ids (like createdBy, not always a user uuid).
+  approvedUserIds String[]                 @default([]) @db.VarChar(100)
+  status          ProductionApprovalStatus @default(PENDING)
+  actedBy         String?                  @db.VarChar(100)
+  comment         String?                  @db.VarChar(500)
+  actedAt         DateTime?                @db.Timestamptz(3)
+
+  order ProductionOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@unique([orderId, stageNo])
+  @@map("production_order_approvals")
+}
+
+enum ProductionEntryStatus {
+  POSTED
+  CANCELLED
+}
+
+/// Material consumed by a production entry.
+model ProductionEntryMaterial {
+  id          String  @id @default(uuid()) @db.Uuid
+  entryId     String  @db.Uuid
+  lineNo      Int
+  itemId      String  @db.Uuid
+  uom         String  @db.VarChar(20)
+  /// BOM quantity scaled to the entry's total quantity.
+  standardQty Decimal @db.Decimal(14, 4)
+  /// Quantity taken out of stock.
+  actualQty   Decimal @db.Decimal(14, 4)
+  /// Part of the actual quantity lost as wastage / scrap (recorded, already in actualQty).
+  wastageQty  Decimal @default(0) @db.Decimal(14, 4)
+  scrapQty    Decimal @default(0) @db.Decimal(14, 4)
+  /// BOM rate used for the cost figures.
+  rate        Decimal @default(0) @db.Decimal(14, 4)
+
+  entry ProductionEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  item  Item            @relation(fields: [itemId], references: [id], onDelete: Restrict)
+
+  @@unique([entryId, lineNo])
+  @@index([itemId])
+  @@map("production_entry_materials")
 }
