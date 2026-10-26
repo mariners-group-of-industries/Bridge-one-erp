@@ -1,4 +1,5 @@
-import { ApiClientError, apiRequest } from "@/lib/api/client";
+import { apiRequest } from "@/lib/api/client";
+import { downloadFile } from "../../lib/download";
 import type {
   BomChildrenInput,
   BomDetail,
@@ -25,29 +26,6 @@ export const setBomChildren = (id: string, input: BomChildrenInput) => apiReques
 export const fetchBomLookups = () => apiRequest<BomLookups>(`${BASE}/lookups`);
 export const searchBomOptions = (search: string, exclude?: string) => apiRequest<BomOption[]>(`${BASE}/options?${params({ search, exclude })}`);
 
-/** Downloads a file response (Excel / PDF); API errors are thrown like `apiRequest`. */
-async function download(path: string, fallbackName: string) {
-  let response: Response;
-  try {
-    response = await fetch(path, { cache: "no-store" });
-  } catch {
-    throw new ApiClientError(0, "NETWORK_ERROR", "Unable to reach the server. Check your connection.");
-  }
-  if (!response.ok) {
-    const payload = (await response.json().catch(() => null)) as { error?: { message?: string } } | null;
-    throw new ApiClientError(response.status, "INTERNAL_ERROR", payload?.error?.message ?? `Download failed (${response.status}).`);
-  }
-  const name = /filename="([^"]+)"/.exec(response.headers.get("Content-Disposition") ?? "")?.[1];
-  const url = URL.createObjectURL(await response.blob());
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = name ? decodeURIComponent(name) : fallbackName;
-  document.body.append(link);
-  link.click();
-  link.remove();
-  URL.revokeObjectURL(url);
-}
-
 export const downloadBomList = (format: "xlsx" | "pdf", query: BomListQuery, details: boolean) =>
-  download(`${BASE}/export?${params({ ...query, format, details })}`, `bill-of-material.${format}`);
-export const downloadBomPdf = (id: string) => download(`${BASE}/${id}/pdf`, "bill-of-material.pdf");
+  downloadFile(`${BASE}/export?${params({ ...query, format, details })}`, `bill-of-material.${format}`);
+export const downloadBomPdf = (id: string) => downloadFile(`${BASE}/${id}/pdf`, "bill-of-material.pdf");

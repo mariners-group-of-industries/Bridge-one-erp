@@ -1,3 +1,4 @@
+import ExcelJS from "exceljs";
 import { Prisma } from "@/generated/prisma/client";
 import { badRequest, conflict, notFound } from "@/lib/api/errors";
 import type { Actor } from "@/lib/auth/actor";
@@ -6,11 +7,13 @@ import { scopedBusinessUnitIds } from "@/features/sales/lib/scope";
 import { targetBusinessUnit } from "../../lib/business-unit";
 import {
   masterInputSchema,
+  operatorSearchSchema,
   workCenterInputSchema,
   workCenterListQuerySchema,
   workCenterStatusSchema,
   workCenterUpdateSchema,
   type MasterKind,
+  type OperatorOption,
   type Option,
   type WorkCenterDetail,
   type WorkCenterLookups,
@@ -213,7 +216,7 @@ export async function setWorkCenterActive(actor: Actor, id: string, raw: unknown
 export async function workCenterLookups(actor: Actor): Promise<WorkCenterLookups> {
   const unitIds = await scopedBusinessUnitIds(actor);
   const inUnits = { businessUnitId: { in: unitIds } };
-  const [businessUnits, types, departments, sections, warehouses, employees] = await Promise.all([
+  const [businessUnits, types, departments, sections, warehouses] = await Promise.all([
     db().businessUnit.findMany({ where: { id: { in: unitIds } }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
     db().productionWorkCenterType.findMany({ where: inUnits, select: { id: true, name: true, businessUnitId: true }, orderBy: { name: "asc" } }),
     db().productionDepartment.findMany({ where: inUnits, select: { id: true, name: true, businessUnitId: true }, orderBy: { name: "asc" } }),
@@ -227,11 +230,6 @@ export async function workCenterLookups(actor: Actor): Promise<WorkCenterLookups
       select: { id: true, name: true, office: { select: { name: true, businessUnitId: true } } },
       orderBy: { name: "asc" },
     }),
-    db().employee.findMany({
-      where: { isActive: true, office: inUnits },
-      select: { id: true, employeeCode: true, name: true, designation: true, department: true, office: { select: { businessUnitId: true } } },
-      orderBy: { name: "asc" },
-    }),
   ]);
   return {
     businessUnits,
@@ -239,15 +237,80 @@ export async function workCenterLookups(actor: Actor): Promise<WorkCenterLookups
     departments,
     sections,
     warehouses: warehouses.map((row) => ({ id: row.id, name: row.name, officeName: row.office.name, businessUnitId: row.office.businessUnitId })),
-    employees: employees.map((row) => ({
-      id: row.id,
-      code: row.employeeCode,
-      name: row.name,
-      designation: row.designation,
-      department: row.department,
-      businessUnitId: row.office.businessUnitId,
-    })),
   };
+}
+
+/** Active employees by name or code, for operator tagging. */
+export async function searchOperators(actor: Actor, raw: unknown): Promise<OperatorOption[]> {
+  const query = operatorSearchSchema.parse(raw);
+  const unitIds = await scopedBusinessUnitIds(actor);
+  const text = { contains: query.search, mode: "insensitive" as const };
+  const employees = await db().employee.findMany({
+    where: {
+      isActive: true,
+      office: { businessUnitId: query.businessUnitId && unitIds.includes(query.businessUnitId) ? query.businessUnitId : { in: unitIds } },
+      OR: [{ name: text }, { employeeCode: text }],
+    },
+    select: { id: true, employeeCode: true, name: true, designation: true, department: true },
+    orderBy: { name: "asc" },
+    take: 20,
+  });
+  return employees.map((row) => ({ employeeId: row.id, code: row.employeeCode, name: row.name, designation: row.designation, department: row.department }));
+}
+
+/** The filtered list as a formatted .xlsx file. */
+export async function workCentersExcel(actor: Actor, raw: unknown): Promise<Uint8Array> {
+  const rows = await listWorkCenters(actor, raw);
+  const workbook = new ExcelJS.Workbook();
+  const sheet = workbook.addWorksheet("Work Center");
+  const columns: [string, number][] = [
+    ["SL", 6],
+    ["Department", 18],
+    ["Department Section", 20],
+    ["Work Center Code", 16],
+    ["Work Center Type", 18],
+    ["Work Center", 26],
+    ["Standard Run Hour", 12],
+    ["Capacity Per Hour", 12],
+    ["Rated Capacity Per Hour", 14],
+    ["Cost Per Hour", 12],
+    ["Operator Tagging", 10],
+    ["Warehouse", 18],
+    ["Status", 10],
+    ["Remarks", 24],
+  ];
+  const border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } } as const;
+  const header = sheet.addRow(columns.map(([label]) => label));
+  header.eachCell((cell) => {
+    cell.font = { bold: true };
+    cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFDBEAFE" } };
+    cell.border = border;
+    cell.alignment = { vertical: "middle", wrapText: true };
+  });
+  rows.forEach((row, index) => {
+    sheet
+      .addRow([
+        index + 1,
+        row.departmentName ?? "",
+        row.sectionName ?? "",
+        row.code,
+        row.typeName,
+        row.name,
+        row.standardRunHour,
+        row.capacityPerHour,
+        row.ratedCapacityPerHour,
+        row.costPerHour ?? "",
+        row.operatorCount,
+        row.warehouseName ?? "",
+        row.isActive ? "Active" : "Inactive",
+        row.remarks ?? "",
+      ])
+      .eachCell({ includeEmpty: true }, (cell) => (cell.border = border));
+  });
+  columns.forEach(([, width], index) => (sheet.getColumn(index + 1).width = width));
+  for (const column of [7, 8, 9, 10]) sheet.getColumn(column).numFmt = "#,##0.00";
+  sheet.views = [{ state: "frozen", ySplit: 1 }];
+  return new Uint8Array(await workbook.xlsx.writeBuffer());
 }
 
 /** "ADD NEW" of work center type, department and department section. */

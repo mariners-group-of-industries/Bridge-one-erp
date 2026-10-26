@@ -349,7 +349,6 @@ function BomForm({ lookups: loaded, source, copy }: { lookups: BomLookups; sourc
   const itemById = new Map(lookups.items.map((item) => [item.id, item]));
   const departments = lookups.departments.filter((department) => !unit || department.businessUnitId === unit);
   const sections = lookups.sections.filter((section) => section.departmentId === values.departmentId);
-  const departmentName = lookups.departments.find((department) => department.id === values.departmentId)?.name;
 
   const totals = bomTotals(
     values.materials.map((line) => ({ qty: n(line.qty), wastagePercent: n(line.wastagePercent), rate: n(line.rate) })),
@@ -472,14 +471,14 @@ function BomForm({ lookups: loaded, source, copy }: { lookups: BomLookups; sourc
     setOverheadEntry({ ...overheadEntry, accountId: "", value: "" });
   }
 
-  function added(kind: MasterKind, created: Option) {
+  function added(kind: MasterKind, created: Option, departmentId?: string) {
     setAdding(null);
     if (kind === "departments") {
       setLookups((current) => ({ ...current, departments: [...current.departments, { ...created, businessUnitId: unit }] }));
       set({ departmentId: created.id, departmentSectionId: "" });
-    } else if (kind === "sections") {
-      setLookups((current) => ({ ...current, sections: [...current.sections, { ...created, departmentId: values.departmentId }] }));
-      set({ departmentSectionId: created.id });
+    } else if (kind === "sections" && departmentId) {
+      setLookups((current) => ({ ...current, sections: [...current.sections, { ...created, departmentId }] }));
+      set({ departmentId, departmentSectionId: created.id });
     }
   }
 
@@ -607,7 +606,7 @@ function BomForm({ lookups: loaded, source, copy }: { lookups: BomLookups; sourc
                 onChange={(event) => set({ departmentId: event.target.value, departmentSectionId: "" })}
               />
             </WithAddNew>
-            <WithAddNew label="Section" onAdd={() => setAdding("sections")} disabled={!values.departmentId}>
+            <WithAddNew label="Section" onAdd={() => setAdding("sections")} disabled={!unit}>
               <SelectField
                 label="Section"
                 value={values.departmentSectionId}
@@ -1113,7 +1112,7 @@ function BomForm({ lookups: loaded, source, copy }: { lookups: BomLookups; sourc
         kind={adding}
         businessUnitId={unit || undefined}
         departmentId={values.departmentId || undefined}
-        departmentName={departmentName}
+        departments={departments}
         onClose={() => setAdding(null)}
         onCreated={added}
       />

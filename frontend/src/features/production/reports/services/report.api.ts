@@ -1,4 +1,5 @@
-import { ApiClientError, apiRequest } from "@/lib/api/client";
+import { apiRequest } from "@/lib/api/client";
+import { downloadFile } from "../../lib/download";
 import type { Report, ReportLookups, ReportQuery } from "../schemas/report.schema";
 
 const BASE = "/api/production/reports";
@@ -15,25 +16,5 @@ export const fetchReport = (query: ReportQuery) => apiRequest<Report>(`${BASE}?$
 export const fetchReportLookups = () => apiRequest<ReportLookups>(`${BASE}/lookups`);
 export const reportPdfUrl = (query: ReportQuery) => `${BASE}/export-pdf?${reportParams(query)}`;
 
-/** Downloads the report as Excel; API errors are thrown like `apiRequest`. */
-export async function downloadReportExcel(query: ReportQuery) {
-  let response: Response;
-  try {
-    response = await fetch(`${BASE}/export-excel?${reportParams(query)}`, { cache: "no-store" });
-  } catch {
-    throw new ApiClientError(0, "NETWORK_ERROR", "Unable to reach the server. Check your connection.");
-  }
-  if (!response.ok) {
-    const payload = (await response.json().catch(() => null)) as { error?: { message?: string } } | null;
-    throw new ApiClientError(response.status, "INTERNAL_ERROR", payload?.error?.message ?? `Download failed (${response.status}).`);
-  }
-  const name = /filename="([^"]+)"/.exec(response.headers.get("Content-Disposition") ?? "")?.[1] ?? "production-report.xlsx";
-  const url = URL.createObjectURL(await response.blob());
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = name;
-  document.body.append(link);
-  link.click();
-  link.remove();
-  URL.revokeObjectURL(url);
-}
+/** Downloads the report as Excel. */
+export const downloadReportExcel = (query: ReportQuery) => downloadFile(`${BASE}/export-excel?${reportParams(query)}`, "production-report.xlsx");

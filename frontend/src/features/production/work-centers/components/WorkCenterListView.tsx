@@ -12,10 +12,9 @@ import { useToast } from "@/components/ui/toast";
 import { useResource } from "@/hooks/use-resource";
 import { errorMessage } from "@/lib/api/client";
 import { formatQty } from "@/features/sales/dashboard/lib/format";
-import { downloadCsv } from "@/features/sales/lib/csv";
 import { paths } from "../../paths";
 import type { WorkCenterListQuery, WorkCenterRow } from "../schemas/work-center.schema";
-import { fetchWorkCenterLookups, fetchWorkCenters, setWorkCenterActive } from "../services/work-center.api";
+import { downloadWorkCenters, fetchWorkCenterLookups, fetchWorkCenters, setWorkCenterActive } from "../services/work-center.api";
 import { Switch, WorkCenterDetailsDialog } from "./WorkCenterParts";
 
 const dash = (value: string | null) => value ?? "—";
@@ -31,6 +30,7 @@ export function WorkCenterListView() {
   const list = useResource(`work-centers:${JSON.stringify(query)}`, () => fetchWorkCenters(query));
   const [viewing, setViewing] = useState<string | null>(null);
   const [toggling, setToggling] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
 
   function view(event: FormEvent) {
     event.preventDefault();
@@ -54,28 +54,16 @@ export function WorkCenterListView() {
   }
 
   const rows = list.data;
-  function exportExcel() {
-    if (!rows) return;
-    downloadCsv(
-      "work-centers.csv",
-      ["SL", "Department", "Department Section", "Work Center Code", "Work Center Type", "Work Center", "Standard Run Hour", "Capacity Per Hour", "Rated Capacity Per Hour", "Cost Per Hour", "Operator Tagging", "Warehouse", "Status", "Remarks"],
-      rows.map((row, index) => [
-        index + 1,
-        row.departmentName,
-        row.sectionName,
-        row.code,
-        row.typeName,
-        row.name,
-        row.standardRunHour,
-        row.capacityPerHour,
-        row.ratedCapacityPerHour,
-        row.costPerHour,
-        row.operatorCount,
-        row.warehouseName,
-        row.isActive ? "Active" : "Inactive",
-        row.remarks,
-      ]),
-    );
+  /** Excel (.xlsx) of the list as last viewed. */
+  async function exportExcel() {
+    setExporting(true);
+    try {
+      await downloadWorkCenters(query);
+    } catch (error) {
+      toast.error(errorMessage(error));
+    } finally {
+      setExporting(false);
+    }
   }
 
   const options = lookups.data;
@@ -126,7 +114,7 @@ export function WorkCenterListView() {
         title="Work Center"
         actions={
           <>
-            <Button onClick={exportExcel} disabled={!rows?.length}>
+            <Button onClick={exportExcel} loading={exporting} disabled={!rows?.length}>
               <Download aria-hidden="true" />
               Excel
             </Button>

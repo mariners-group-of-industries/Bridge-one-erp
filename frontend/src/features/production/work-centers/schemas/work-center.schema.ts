@@ -19,14 +19,10 @@ export const workCenterInputSchema = z
     ratedCapacityPerHour: positive("Rated Capacity Per Hour", 99_999_999_999),
     costPerHour: z.number().refine(Number.isFinite, { error: "Cost Per Hour must be a number." }).min(0, { error: "Cost Per Hour cannot be negative." }).max(999_999_999_999).nullish(),
     remarks: z.string().trim().max(500, { error: "Remarks is too long." }).nullish(),
-    departmentId: optionalId,
-    departmentSectionId: optionalId,
+    departmentId: z.uuid({ error: "Department is required." }),
+    departmentSectionId: z.uuid({ error: "Department Section is required." }),
     warehouseId: optionalId,
     operatorIds: z.array(z.uuid()).max(200).default([]),
-  })
-  .refine((input) => !input.departmentSectionId || input.departmentId, {
-    error: "Choose the department of this section.",
-    path: ["departmentId"],
   })
   .refine((input) => new Set(input.operatorIds).size === input.operatorIds.length, {
     error: "An operator is tagged twice.",
@@ -71,7 +67,20 @@ export interface WorkCenterLookups {
   departments: (Option & { businessUnitId: string })[];
   sections: (Option & { departmentId: string })[];
   warehouses: (Option & { officeName: string; businessUnitId: string })[];
-  employees: { id: string; code: string; name: string; designation: string | null; department: string | null; businessUnitId: string }[];
+}
+
+/** GET /api/production/work-centers/operators?search=: employees to tag (3+ letters). */
+export const operatorSearchSchema = z.object({
+  search: z.string().trim().min(3, { error: "Type at least 3 letters." }).max(100),
+  businessUnitId: z.uuid().optional(),
+});
+
+export interface OperatorOption {
+  employeeId: string;
+  code: string;
+  name: string;
+  designation: string | null;
+  department: string | null;
 }
 
 export interface WorkCenterOperator {
