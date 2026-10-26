@@ -61,6 +61,6 @@ describe("home overview", () => {
 
 describe("module order", () => {
   it("follows the agreed sidebar order", () => {
-    expect(workspaces.map((w) => w.label)).toEqual(["Purchase", "Inventory", "Production", "Sales", "Account", "Payroll", "Configuration", "RTM", "CRM", "HR"]);
+    expect(workspaces.map((w) => w.label)).toEqual(["Purchase", "Inventory", "Production", "Sales", "Account", "HRM", "Configuration", "RTM", "CRM"]);
   });
 });

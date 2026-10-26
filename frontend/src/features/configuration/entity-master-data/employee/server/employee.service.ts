@@ -1,5 +1,5 @@
 import type { Prisma } from "@/generated/prisma/client";
-import type { Actor } from "@/lib/auth/actor";
+import { actorUserId, type Actor } from "@/lib/auth/actor";
 import { db } from "@/lib/prisma/client";
 import type {
   CreateEmployeeInput,
@@ -188,7 +188,7 @@ export async function createEmployee(actor: Actor, input: CreateEmployeeInput): 
       holdPayment:        input.holdPayment,
       isReseller:         input.isReseller,
       isUser:             input.isUser,
-      updatedById:        actor.id,
+      updatedById:        actorUserId(actor),
     },
     select: { id: true, employeeCode: true },
   });

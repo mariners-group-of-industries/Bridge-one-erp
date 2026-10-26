@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { UUID_PATTERN } from "@/lib/validation/fields";
 
 // Shared by the Item Profile forms (client validation) and the API (server
 // validation). Items are the same records Sales uses. Optional text fields are
@@ -6,7 +7,7 @@ import { z } from "zod";
 
 const text = (max: number) => z.string().trim().max(max, `Must be ${max} characters or fewer.`);
 const optionalText = (max: number) => text(max).optional().default("");
-const optionalId = z.union([z.uuid("Select a valid option."), z.literal("")]).optional().default("");
+const optionalId = z.union([z.string().regex(UUID_PATTERN, { message: "Select a valid option." }), z.literal("")]).optional().default("");
 
 const amount = (label: string) =>
   z
@@ -58,7 +59,7 @@ export type ItemFlag = (typeof ITEM_FLAGS)[number]["key"];
 
 export const itemInputSchema = z
   .object({
-    businessUnitId: z.uuid("Select a business unit."),
+    businessUnitId: z.string().regex(UUID_PATTERN, { message: "Select a valid business unit." }),
     autoBarcode: z.boolean().default(false),
     canBeSold: z.boolean().default(true),
     canBePurchased: z.boolean().default(true),

@@ -23,4 +23,10 @@ export const employeeApi = {
   filterOptions: () => apiRequest<EmployeeFilterOptions>(`${BASE}/filter-options`),
   formOptions:   () => apiRequest<EmployeeFormOptions>(`${BASE}/form-options`),
   create:        (input: CreateEmployeeInput) => apiRequest<CreateEmployeeResult>(BASE, { method: "POST", body: JSON.stringify(input) }),
+  importTemplateUrl: `${BASE}/import/template`,
+  importFile: (file: File) => {
+    const form = new FormData();
+    form.set("file", file);
+    return apiRequest<{ created: number; errors: { row: number; message: string }[] }>(`${BASE}/import`, { method: "POST", body: form });
+  },
 };
