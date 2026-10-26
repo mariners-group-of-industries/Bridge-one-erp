@@ -98,7 +98,9 @@ export async function bomDetailPdf(actor: Actor, id: string): Promise<{ name: st
       { header: "Net Weight", width: 10, align: "right" },
       { header: "Lot Size/Quantity", width: 12, align: "right" },
       { header: "Total Weight", width: 10, align: "right" },
+      { header: "Tolerance (%)", width: 9, align: "right" },
       { header: "Cost (%)", width: 8, align: "right" },
+      { header: "Primary", width: 7 },
     ],
     bom.outputLines.map((line, index) => [
       String(index + 1),
@@ -107,7 +109,9 @@ export async function bomDetailPdf(actor: Actor, id: string): Promise<{ name: st
       qty(line.netWeight),
       qty(line.lotSizeQty),
       qty(line.totalWeight),
+      line.tolerancePercent === null ? "-" : qty(line.tolerancePercent),
       qty(line.costPercent),
+      line.isPrimary ? "Yes" : "No",
     ]),
   );
 

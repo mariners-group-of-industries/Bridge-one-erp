@@ -2,6 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
 import type { PrismaClient } from "@/generated/prisma/client";
 import type { Actor, Permission } from "@/lib/auth/actor";
 import { createBom } from "@/features/production/bom/services/bom.service";
+import { createMaster } from "@/features/production/work-centers/services/work-center.service";
 import { orderPdf } from "@/features/production/orders/services/order-pdf";
 import {
   actOnOrder,
@@ -57,9 +58,13 @@ describe("production orders", () => {
     await prisma.stockEntry.create({
       data: { businessUnitId, warehouseId, itemId: ids.potato, qty: 50, source: "OPENING", postingDate: new Date("2026-10-01"), createdBy: "test" },
     });
+    const department = await createMaster(adminActor, "departments", { name: "Production" });
+    const section = await createMaster(adminActor, "sections", { name: "Snacks", departmentId: department.id });
     const bom = await createBom(adminActor, {
       name: "SFGSNCHIPS",
       bomType: "SINGLE_OUTPUT",
+      departmentId: department.id,
+      departmentSectionId: section.id,
       outputs: [{ itemId: ids.chips, outputType: "SEMI_FINISHED_GOODS", netWeight: 1, lotSizeQty: 100, costPercent: 100 }],
       materials: [
         { itemId: ids.potato, qty: 80, wastagePercent: 25, rate: 20, excludeFromScrap: false },

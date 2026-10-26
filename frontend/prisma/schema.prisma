@@ -3165,6 +3165,10 @@ model ProductionBomOutput {
   totalWeight Decimal              @default(0) @db.Decimal(16, 4)
   /// Share of the BOM cost carried by this output (outputs add up to 100).
   costPercent Decimal              @default(100) @db.Decimal(5, 2)
+  /// Allowed variance of this item's actual output, in %.
+  tolerancePercent Decimal?        @db.Decimal(5, 2)
+  /// The BOM's main output (exactly one per BOM); its tolerance is the BOM's.
+  isPrimary   Boolean              @default(false)
 
   bom  ProductionBom @relation(fields: [bomId], references: [id], onDelete: Cascade)
   item Item          @relation(fields: [itemId], references: [id], onDelete: Restrict)

@@ -136,6 +136,8 @@ export async function getBom(actor: Actor, id: string): Promise<BomDetail> {
       lotSizeQty: num(line.lotSizeQty),
       totalWeight: num(line.totalWeight),
       costPercent: num(line.costPercent),
+      tolerancePercent: optNum(line.tolerancePercent),
+      isPrimary: line.isPrimary,
     })),
     materials: record.materials.map((line) => ({
       itemId: line.itemId,
@@ -195,19 +197,21 @@ async function prepare(tx: Tx, businessUnitId: string, input: ParsedBomInput) {
   ]);
   if (accounts.length !== accountIds.length) throw badRequest("Overheads must be booked to an active expense account.");
   if (items.length !== itemIds.length) throw badRequest("An item is not part of this business unit.");
-  if (input.departmentId && !department) throw badRequest("Choose a department of this business unit.");
-  if (input.departmentSectionId && section?.departmentId !== input.departmentId) {
+  if (!department) throw badRequest("Choose a department of this business unit.");
+  if (section?.departmentId !== input.departmentId) {
     throw badRequest("The section does not belong to the chosen department.");
   }
   const itemById = new Map(items.map((item) => [item.id, item]));
   const totals = bomTotals(input.materials, input.overheads, input.outputs);
+  // One primary item: the marked one, else the first.
+  const primaryIndex = Math.max(input.outputs.findIndex((line) => line.isPrimary), 0);
   return {
     header: {
       name: input.name,
       bomType: input.bomType,
-      departmentId: input.departmentId ?? null,
-      departmentSectionId: input.departmentSectionId ?? null,
-      tolerancePercent: input.tolerancePercent ?? null,
+      departmentId: input.departmentId,
+      departmentSectionId: input.departmentSectionId,
+      tolerancePercent: input.outputs[primaryIndex]?.tolerancePercent ?? null,
       remarks: input.remarks || null,
       lotSize: totals.lotSize,
       materialCost: totals.materialCost,
@@ -222,6 +226,8 @@ async function prepare(tx: Tx, businessUnitId: string, input: ParsedBomInput) {
       lotSizeQty: line.lotSizeQty,
       totalWeight: outputWeight(line.netWeight, line.lotSizeQty),
       costPercent: line.costPercent,
+      tolerancePercent: line.tolerancePercent ?? null,
+      isPrimary: index === primaryIndex,
     })),
     materials: input.materials.map((line, index) => {
       const item = itemById.get(line.itemId)!;

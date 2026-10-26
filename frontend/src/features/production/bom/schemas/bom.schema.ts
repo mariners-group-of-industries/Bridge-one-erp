@@ -21,6 +21,9 @@ const outputSchema = z.object({
   netWeight: finite("Net Weight").min(0, { error: "Net Weight cannot be negative." }).max(MAX),
   lotSizeQty: finite("Lot Size").gt(0, { error: "Lot Size must be more than 0." }).max(MAX),
   costPercent: finite("Cost %").min(0, { error: "Cost % cannot be negative." }).max(100, { error: "Cost % cannot be over 100." }),
+  tolerancePercent: finite("Tolerance").min(0, { error: "Tolerance cannot be negative." }).max(100, { error: "Tolerance cannot be over 100%." }).nullish(),
+  /** The main output; when none is marked, the first item is. */
+  isPrimary: z.boolean().default(false),
 });
 
 const materialSchema = z.object({
@@ -60,9 +63,8 @@ export const bomInputSchema = z
     businessUnitId: z.uuid().optional(),
     name: z.string({ error: "BoM Name is required." }).trim().min(1, { error: "BoM Name is required." }).max(150, { error: "BoM Name is too long." }),
     bomType: z.enum(BOM_TYPES),
-    departmentId: z.uuid().nullish(),
-    departmentSectionId: z.uuid().nullish(),
-    tolerancePercent: finite("Tolerance").min(0, { error: "Tolerance cannot be negative." }).max(100, { error: "Tolerance cannot be over 100%." }).nullish(),
+    departmentId: z.uuid({ error: "Department is required." }),
+    departmentSectionId: z.uuid({ error: "Section is required." }),
     remarks: z.string().trim().max(500).nullish(),
     outputs: z.array(outputSchema).min(1, { error: "Add at least one production item." }).max(50),
     materials: z.array(materialSchema).min(1, { error: "Add at least one input material." }).max(300),
@@ -81,15 +83,13 @@ export const bomInputSchema = z
       ctx.addIssue({ code: "custom", path: ["outputs"], message: `Cost percentages must add up to 100 (now ${Math.round(share * 100) / 100}).` });
     }
     if (!distinct(input.outputs.map((line) => line.itemId))) ctx.addIssue({ code: "custom", path: ["outputs"], message: "A production item is added twice." });
+    if (input.outputs.filter((line) => line.isPrimary).length > 1) ctx.addIssue({ code: "custom", path: ["outputs"], message: "Only one production item can be the primary item." });
     if (!distinct(input.materials.map((line) => line.itemId))) ctx.addIssue({ code: "custom", path: ["materials"], message: "An input material is added twice." });
     if (!distinct(input.wastages.map((line) => line.itemId))) ctx.addIssue({ code: "custom", path: ["wastages"], message: "A wastage item is added twice." });
     if (!distinct(input.overheads.map((line) => line.accountId))) ctx.addIssue({ code: "custom", path: ["overheads"], message: "An overhead account is added twice." });
     const outputIds = new Set(input.outputs.map((line) => line.itemId));
     if (input.materials.some((line) => outputIds.has(line.itemId))) {
       ctx.addIssue({ code: "custom", path: ["materials"], message: "A production item cannot also be its own input material." });
-    }
-    if (input.departmentSectionId && !input.departmentId) {
-      ctx.addIssue({ code: "custom", path: ["departmentId"], message: "Choose the department of this section." });
     }
   });
 export type BomInput = z.input<typeof bomInputSchema>;
@@ -206,6 +206,8 @@ export interface BomOutputLine {
   lotSizeQty: number;
   totalWeight: number;
   costPercent: number;
+  tolerancePercent: number | null;
+  isPrimary: boolean;
 }
 
 export interface BomMaterialLine {

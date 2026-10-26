@@ -69,8 +69,7 @@ describe("production bill of material", () => {
     bomType: "SINGLE_OUTPUT",
     departmentId: ids.department,
     departmentSectionId: ids.section,
-    tolerancePercent: 2,
-    outputs: [{ itemId: ids.biscuit, outputType: "FINISHED_GOODS", netWeight: 0.05, lotSizeQty: 1000, costPercent: 100 }],
+    outputs: [{ itemId: ids.biscuit, outputType: "FINISHED_GOODS", netWeight: 0.05, lotSizeQty: 1000, costPercent: 100, tolerancePercent: 2 }],
     materials: [
       { itemId: ids.flour, qty: 40, wastagePercent: 2.5, rate: 60, excludeFromScrap: false },
       { itemId: ids.sugar, qty: 10, wastagePercent: 0, rate: 120, excludeFromScrap: false },
@@ -100,7 +99,7 @@ describe("production bill of material", () => {
       totalCost: 4731.5,
       isActive: true,
     });
-    expect(bom.outputLines).toEqual([expect.objectContaining({ code: "FG-001", totalWeight: 50, costPercent: 100 })]);
+    expect(bom.outputLines).toEqual([expect.objectContaining({ code: "FG-001", totalWeight: 50, costPercent: 100, tolerancePercent: 2, isPrimary: true })]);
     expect(bom.materials.map((line) => [line.code, line.totalQty, line.amount, line.altQty, line.materialType])).toEqual([
       ["RM-001", 41, 2460, 0.8, "Raw Material"],
       ["RM-002", 10, 1200, null, null],
@@ -146,8 +145,15 @@ describe("production bill of material", () => {
     const scrap = await createBom(adminActor, input({ name: "J", wastages: [{ itemId: ids.crumbs, outputType: "SCRAP", ratioPercent: 5 }] }));
     expect(scrap.wastages[0]).toMatchObject({ outputType: "SCRAP", calcWithNetWeight: false, expectedQty: 53.05 });
 
-    const multi = await createBom(adminActor, input({ name: "Multi", bomType: "MULTIPLE_OUTPUT", wastages: [], outputs: [two[0], { ...two[1], costPercent: 10 }] }));
+    const multi = await createBom(adminActor, input({ name: "Multi", bomType: "MULTIPLE_OUTPUT", wastages: [], outputs: [two[0], { ...two[1], costPercent: 10, tolerancePercent: 5, isPrimary: true }] }));
     expect(multi.lotSize).toBe(910);
+    // The marked item is primary and its tolerance is the BOM's.
+    expect(multi.outputLines.map((line) => line.isPrimary)).toEqual([false, true]);
+    expect(multi.tolerancePercent).toBe(5);
+    await expect(
+      createBom(adminActor, input({ name: "Two primaries", bomType: "MULTIPLE_OUTPUT", wastages: [], outputs: [{ ...two[0], isPrimary: true }, { ...two[1], costPercent: 10, isPrimary: true }] })),
+    ).rejects.toThrow("Only one production item");
+    await expect(createBom(adminActor, input({ name: "No section", departmentSectionId: undefined }))).rejects.toThrow("Section is required");
   });
 
   it("updates with the version, toggles status and refuses stale writes", async () => {

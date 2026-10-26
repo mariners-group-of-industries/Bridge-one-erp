@@ -62,6 +62,8 @@ describe("production entries", () => {
     const bom = await createBom(adminActor, {
       name: "SFGSNCHIPS",
       bomType: "SINGLE_OUTPUT",
+      departmentId: department.id,
+      departmentSectionId: section.id,
       outputs: [{ itemId: ids.chips, outputType: "SEMI_FINISHED_GOODS", netWeight: 1, lotSizeQty: 100, costPercent: 100 }],
       materials: [
         { itemId: ids.potato, qty: 80, wastagePercent: 25, rate: 20, excludeFromScrap: false },

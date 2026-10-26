@@ -167,7 +167,9 @@ export function BomDetailsDialog({ id, onClose }: { id: string | null; onClose: 
                 { header: "Net Weight", align: "right" },
                 { header: "Lot Size/Quantity", align: "right" },
                 { header: "Total Weight", align: "right" },
+                { header: "Tolerance (%)", align: "right" },
                 { header: "Cost Percentage", align: "right" },
+                { header: "Primary", align: "center" },
               ]}
               rows={bom.outputLines.map((line, index) => [
                 index + 1,
@@ -176,7 +178,9 @@ export function BomDetailsDialog({ id, onClose }: { id: string | null; onClose: 
                 qty(line.netWeight),
                 qty(line.lotSizeQty),
                 qty(line.totalWeight),
+                line.tolerancePercent === null ? "—" : qty(line.tolerancePercent),
                 `${qty(line.costPercent)}%`,
+                line.isPrimary ? "Yes" : "No",
               ])}
             />
           </section>

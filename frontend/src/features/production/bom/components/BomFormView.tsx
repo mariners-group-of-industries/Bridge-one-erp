@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/dialog";
 import { CheckboxField, CONTROL, SelectField, TextField } from "@/components/ui/form-field";
 import { Card, ErrorState, LoadingState } from "@/components/ui/section";
+import { Indicator } from "@/components/ui/indicator";
 import { Tabs } from "@/components/ui/tabs";
 import { useToast } from "@/components/ui/toast";
 import { useResource } from "@/hooks/use-resource";
@@ -45,6 +46,8 @@ interface OutputDraft {
   netWeight: string;
   lotSizeQty: string;
   costPercent: string;
+  tolerancePercent: string;
+  isPrimary: boolean;
 }
 
 interface MaterialDraft {
@@ -79,7 +82,6 @@ interface Values {
   name: string;
   departmentId: string;
   departmentSectionId: string;
-  tolerancePercent: string;
   remarks: string;
   outputs: OutputDraft[];
   materials: MaterialDraft[];
@@ -102,7 +104,6 @@ function initialValues(lookups: BomLookups, record?: BomDetail, copy?: boolean):
     name: record ? (copy ? `${record.name} (Copy)` : record.name) : "",
     departmentId: record?.departmentId ?? "",
     departmentSectionId: record?.departmentSectionId ?? "",
-    tolerancePercent: text(record?.tolerancePercent),
     remarks: record?.remarks ?? "",
     outputs:
       record?.outputLines.map((line) => ({
@@ -111,6 +112,8 @@ function initialValues(lookups: BomLookups, record?: BomDetail, copy?: boolean):
         netWeight: text(line.netWeight),
         lotSizeQty: text(line.lotSizeQty),
         costPercent: text(line.costPercent),
+        tolerancePercent: text(line.tolerancePercent),
+        isPrimary: line.isPrimary,
       })) ?? [],
     materials:
       record?.materials.map((line) => ({
@@ -140,9 +143,8 @@ function toInput(values: Values): BomInput {
     ...(values.businessUnitId ? { businessUnitId: values.businessUnitId } : {}),
     name: values.name,
     bomType: values.bomType,
-    departmentId: values.departmentId || null,
-    departmentSectionId: values.departmentSectionId || null,
-    tolerancePercent: values.tolerancePercent.trim() === "" ? null : Number(values.tolerancePercent),
+    departmentId: values.departmentId,
+    departmentSectionId: values.departmentSectionId,
     remarks: values.remarks || null,
     outputs: values.outputs.map((line) => ({
       itemId: line.itemId,
@@ -150,6 +152,8 @@ function toInput(values: Values): BomInput {
       netWeight: line.netWeight.trim() === "" ? 0 : Number(line.netWeight),
       lotSizeQty: strict(line.lotSizeQty),
       costPercent: strict(line.costPercent),
+      tolerancePercent: line.tolerancePercent.trim() === "" ? null : Number(line.tolerancePercent),
+      isPrimary: line.isPrimary,
     })),
     materials: values.materials.map((line) => ({
       itemId: line.itemId,
@@ -329,7 +333,14 @@ function BomForm({ lookups: loaded, source, copy }: { lookups: BomLookups; sourc
   const [tab, setTab] = useState<Tab>("materials");
 
   const [outputPicker, setOutputPicker] = useState<PickerState>(EMPTY_PICKER);
-  const [outputEntry, setOutputEntry] = useState({ outputType: "FINISHED_GOODS" as OutputType, netWeight: "", lotSizeQty: "" });
+  const [outputEntry, setOutputEntry] = useState({
+    outputType: "FINISHED_GOODS" as OutputType,
+    netWeight: "",
+    lotSizeQty: "",
+    tolerancePercent: "",
+    costPercent: "",
+    isPrimary: false,
+  });
   const [materialPicker, setMaterialPicker] = useState<PickerState>(EMPTY_PICKER);
   const [materialEntry, setMaterialEntry] = useState({ qty: "", wastagePercent: "", rate: "", excludeFromScrap: false });
   const [wastagePicker, setWastagePicker] = useState<PickerState>(EMPTY_PICKER);
@@ -376,24 +387,32 @@ function BomForm({ lookups: loaded, source, copy }: { lookups: BomLookups; sourc
     if (!(n(outputEntry.lotSizeQty) > 0)) errs.outputLot = "Lot Size must be more than 0.";
     if (outputEntry.netWeight && n(outputEntry.netWeight) < 0) errs.outputWeight = "Net Weight cannot be negative.";
     if (single && values.outputs.length >= 1) errs.outputItem = "A single output BOM has one production item. Choose Multiple Output to add more.";
+    const tolerance = n(outputEntry.tolerancePercent);
+    if (tolerance < 0 || tolerance > 100) errs.outputTolerance = "Tolerance must be 0 to 100%.";
+    const cost = n(outputEntry.costPercent);
+    if (outputEntry.costPercent.trim() !== "" && (cost < 0 || cost > 100)) errs.outputCost = "Cost % must be 0 to 100.";
     setEntryError(errs);
     if (Object.keys(errs).length) return;
     const item = itemById.get(outputPicker.itemId);
     const remaining = Math.max(Math.round((100 - costShare) * 100) / 100, 0);
+    // The first item is primary; a new item marked primary takes it over.
+    const primary = values.outputs.length === 0 || outputEntry.isPrimary;
     set({
       outputs: [
-        ...values.outputs,
+        ...values.outputs.map((line) => (primary ? { ...line, isPrimary: false } : line)),
         {
           itemId: outputPicker.itemId,
           outputType: outputEntry.outputType,
           netWeight: outputEntry.netWeight || text(item?.netWeight),
           lotSizeQty: outputEntry.lotSizeQty,
-          costPercent: String(values.outputs.length === 0 ? 100 : remaining),
+          costPercent: outputEntry.costPercent.trim() || String(values.outputs.length === 0 ? 100 : remaining),
+          tolerancePercent: outputEntry.tolerancePercent,
+          isPrimary: primary,
         },
       ],
     });
     setOutputPicker({ ...outputPicker, itemId: "" });
-    setOutputEntry({ ...outputEntry, netWeight: "", lotSizeQty: "" });
+    setOutputEntry({ ...outputEntry, netWeight: "", lotSizeQty: "", tolerancePercent: "", costPercent: "", isPrimary: false });
   }
 
   function addMaterial() {
@@ -600,6 +619,7 @@ function BomForm({ lookups: loaded, source, copy }: { lookups: BomLookups; sourc
             <WithAddNew label="Department" onAdd={() => setAdding("departments")} disabled={!unit}>
               <SelectField
                 label="Department"
+                required
                 value={values.departmentId}
                 error={errors.departmentId}
                 options={[{ value: "", label: "Department" }, ...departments.map((department) => ({ value: department.id, label: department.name }))]}
@@ -609,6 +629,8 @@ function BomForm({ lookups: loaded, source, copy }: { lookups: BomLookups; sourc
             <WithAddNew label="Section" onAdd={() => setAdding("sections")} disabled={!unit}>
               <SelectField
                 label="Section"
+                required
+                error={errors.departmentSectionId}
                 value={values.departmentSectionId}
                 disabled={!values.departmentId}
                 hint={values.departmentId ? undefined : "Choose a department first."}
@@ -661,19 +683,37 @@ function BomForm({ lookups: loaded, source, copy }: { lookups: BomLookups; sourc
               error={entryError.outputLot}
               onChange={(event) => setOutputEntry({ ...outputEntry, lotSizeQty: event.target.value })}
             />
-            <div className="grid grid-cols-[1fr_auto] items-start gap-3">
-              <TextField
-                label="Tolerance (%)"
-                type="number"
-                min={0}
-                max={100}
-                step="any"
-                placeholder="Tolerance"
-                value={values.tolerancePercent}
-                error={errors.tolerancePercent}
-                onChange={(event) => set({ tolerancePercent: event.target.value })}
+            <TextField
+              label="Tolerance (%)"
+              type="number"
+              min={0}
+              max={100}
+              step="any"
+              placeholder="Tolerance"
+              value={outputEntry.tolerancePercent}
+              error={entryError.outputTolerance}
+              onChange={(event) => setOutputEntry({ ...outputEntry, tolerancePercent: event.target.value })}
+            />
+            <TextField
+              label="Cost Percentage"
+              type="number"
+              min={0}
+              max={100}
+              step="any"
+              placeholder={values.outputs.length === 0 ? "100" : String(Math.max(Math.round((100 - costShare) * 100) / 100, 0))}
+              value={outputEntry.costPercent}
+              error={entryError.outputCost}
+              onChange={(event) => setOutputEntry({ ...outputEntry, costPercent: event.target.value })}
+            />
+            <div className="flex items-end justify-between gap-3 lg:mt-5">
+              <CheckboxField
+                label="Is Primary Item"
+                hint={values.outputs.length === 0 ? "The first item is primary." : undefined}
+                checked={values.outputs.length === 0 || outputEntry.isPrimary}
+                disabled={values.outputs.length === 0}
+                onChange={(event) => setOutputEntry({ ...outputEntry, isPrimary: event.target.checked })}
               />
-              <Button variant="accent-soft" className="mt-5" onClick={addOutput}>
+              <Button variant="accent-soft" onClick={addOutput}>
                 <Plus aria-hidden="true" />
                 Add
               </Button>
@@ -692,7 +732,9 @@ function BomForm({ lookups: loaded, source, copy }: { lookups: BomLookups; sourc
               { header: "Net Weight", align: "right" },
               { header: "Lot Size/Quantity", align: "right" },
               { header: "Total Weight", align: "right" },
+              { header: "Tolerance (%)", align: "right" },
               { header: "Cost Percentage", align: "right" },
+              { header: "Is Primary Item", align: "center" },
               { header: "Remove", align: "center", className: "w-16" },
             ]}
             rows={values.outputs.map((line, index) => {
@@ -716,13 +758,39 @@ function BomForm({ lookups: loaded, source, copy }: { lookups: BomLookups; sourc
                 <CellInput key="w" label="Net weight" value={line.netWeight} invalid={!!lineError("outputs", index, "netWeight")} onChange={(value) => updateLine("outputs", index, { netWeight: value })} />,
                 <CellInput key="l" label="Lot size" value={line.lotSizeQty} invalid={!!lineError("outputs", index, "lotSizeQty")} onChange={(value) => updateLine("outputs", index, { lotSizeQty: value })} />,
                 qty(outputWeight(n(line.netWeight), n(line.lotSizeQty))),
+                <CellInput
+                  key="t"
+                  label="Tolerance"
+                  className="w-20"
+                  value={line.tolerancePercent}
+                  invalid={!!lineError("outputs", index, "tolerancePercent")}
+                  onChange={(value) => updateLine("outputs", index, { tolerancePercent: value })}
+                />,
                 <CellInput key="c" label="Cost percentage" value={line.costPercent} invalid={!!lineError("outputs", index, "costPercent")} onChange={(value) => updateLine("outputs", index, { costPercent: value })} />,
-                <RemoveButton key="x" label={`Remove ${item?.name ?? "item"}`} onClick={() => removeLine("outputs", index)} />,
+                <button
+                  key="p"
+                  type="button"
+                  aria-pressed={line.isPrimary}
+                  title={line.isPrimary ? "Primary item" : "Make this the primary item"}
+                  onClick={() => set({ outputs: values.outputs.map((row, at) => ({ ...row, isPrimary: at === index })) })}
+                  className="rounded focus-visible:outline-2"
+                >
+                  <Indicator color={line.isPrimary ? "green" : "gray"}>{line.isPrimary ? "Yes" : "No"}</Indicator>
+                </button>,
+                <RemoveButton
+                  key="x"
+                  label={`Remove ${item?.name ?? "item"}`}
+                  onClick={() => {
+                    const rest = values.outputs.filter((_, at) => at !== index);
+                    // Keep one primary item when the primary one is removed.
+                    set({ outputs: line.isPrimary ? rest.map((row, at) => ({ ...row, isPrimary: at === 0 })) : rest });
+                  }}
+                />,
               ];
             })}
             footer={
               values.outputs.length > 1
-                ? [["", "Total", "", "", qty(totals.lotSize), "", <span key="share" className={Math.abs(costShare - 100) > 0.01 ? "text-danger" : undefined}>{qty(costShare)}%</span>, ""]]
+                ? [["", "Total", "", "", qty(totals.lotSize), "", "", <span key="share" className={Math.abs(costShare - 100) > 0.01 ? "text-danger" : undefined}>{qty(costShare)}%</span>, "", ""]]
                 : []
             }
             empty="Add the finished / semi-finished item this BOM produces."
@@ -838,7 +906,10 @@ function BomForm({ lookups: loaded, source, copy }: { lookups: BomLookups; sourc
                           className="size-4 accent-(--accent-strong)"
                         />,
                         alt === null ? "—" : `${qty(alt)} ${item?.altUom ?? ""}`,
-                        <CellInput key="q" label="Quantity" value={line.qty} invalid={!!lineError("materials", index, "qty")} onChange={(value) => updateLine("materials", index, { qty: value })} />,
+                        <span key="q" className="inline-flex items-center gap-1.5">
+                          <CellInput label="Quantity" value={line.qty} invalid={!!lineError("materials", index, "qty")} onChange={(value) => updateLine("materials", index, { qty: value })} />
+                          <span className="text-xs text-ink-faint">{item?.uom}</span>
+                        </span>,
                         <CellInput key="w" label="Wastage" className="w-20" value={line.wastagePercent} invalid={!!lineError("materials", index, "wastagePercent")} onChange={(value) => updateLine("materials", index, { wastagePercent: value })} />,
                         qty(totalQty(n(line.qty), n(line.wastagePercent))),
                         <CellInput key="r" label="Avg. rate" value={line.rate} invalid={!!lineError("materials", index, "rate")} onChange={(value) => updateLine("materials", index, { rate: value })} />,
