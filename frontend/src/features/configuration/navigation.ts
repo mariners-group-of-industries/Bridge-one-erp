@@ -74,6 +74,12 @@ export const communityGateways: NavCard = {
       description: "Generate and revoke API tokens for other systems.",
       keywords: ["api", "token", "integration", "gateway", "expose"],
     },
+    {
+      label: "Attendance Devices",
+      href: gatewaysPaths.attendanceDevices,
+      description: "Biometric terminals (ZKTeco) whose punches feed HRM attendance.",
+      keywords: ["attendance", "device", "zkteco", "biometric", "fingerprint", "punch"],
+    },
   ],
 };
 

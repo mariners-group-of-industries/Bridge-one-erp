@@ -24,18 +24,11 @@ export const profileLink: NavLink = {
   keywords: ["profile", "employee", "personal", "self service", "documents"],
 };
 
-export const leaveLink: NavLink = {
-  label: "Leave",
-  href: hrmPaths.myLeave,
-  description: "Apply for leaves, view leave balance, track approval status, and holiday list.",
-  keywords: ["leave", "vacation", "holiday", "casual leave", "sick leave", "earned leave"],
-};
-
-export const movementLink: NavLink = {
-  label: "Movement",
-  href: hrmPaths.myMovement,
-  description: "Official duty / field movement applications, client visit logs, and out-of-office requests.",
-  keywords: ["movement", "out of office", "official visit", "tour", "duty", "field work"],
+export const leaveMovementLink: NavLink = {
+  label: "Leave & Movement",
+  href: hrmPaths.leaveMovement,
+  description: "Apply for leave or movement, see your leave balance, and track approval status.",
+  keywords: ["leave", "movement", "vacation", "casual leave", "sick leave", "earned leave", "out of office", "official visit", "field work"],
 };
 
 // ─── Time and Attendance ─────────────────────────────────────────────────────
@@ -70,6 +63,38 @@ export const payrollLink: NavLink = {
   keywords: ["payroll", "salary", "pay run", "payslip", "structure", "deductions", "disbursement"],
 };
 
+// ─── Compensation Adjustments ───────────────────────────────────────────────
+
+export const salaryDisbursementLink: NavLink = {
+  label: "Salary Disbursement",
+  href: hrmPaths.salaryDisbursement,
+  description: "Salary advice and the salary generate sheet for an office and month.",
+  keywords: ["salary disbursement", "salary advice", "salary sheet", "bank advice", "pay sheet"],
+};
+
+export const bonusLink: NavLink = {
+  label: "Bonus",
+  href: hrmPaths.bonus,
+  description: "Generate festival or performance bonuses and the bonus advice.",
+  keywords: ["bonus", "festival bonus", "eid bonus", "bonus advice", "bonus generate"],
+};
+
+// ─── HR Governance ──────────────────────────────────────────────────────────
+
+export const policySettingsLink: NavLink = {
+  label: "Settings / Policies",
+  href: hrmPaths.policySettings,
+  description: "HR settings and policies: leave, salary, bonus, overtime, PF, separation, allowance and more.",
+  keywords: ["settings", "policies", "policy", "hr settings", "holiday", "roster", "pf", "overtime setup", "allowance"],
+};
+
+export const pendingApprovalLink: NavLink = {
+  label: "Pending Approval",
+  href: hrmPaths.pendingApproval,
+  description: "Leave, movement, bonus and increment applications waiting for approval.",
+  keywords: ["pending approval", "approve", "reject", "approval queue"],
+};
+
 // ─── Talent & Offboarding ───────────────────────────────────────────────────
 
 export const incrementLink: NavLink = {
@@ -90,21 +115,22 @@ export const hrmWorkspace: Workspace = {
   status: "active",
   shortcuts: [
     profileLink,
-    leaveLink,
-    movementLink,
+    leaveMovementLink,
     attendanceLink,
     calendarAssignLink,
     overtimeLink,
     payrollLink,
+    salaryDisbursementLink,
+    bonusLink,
     incrementLink,
+    pendingApprovalLink,
   ],
   cards: [
     {
       label: "Employee Self Service",
       links: [
         profileLink,
-        leaveLink,
-        movementLink,
+        leaveMovementLink,
       ],
     },
     {
@@ -122,9 +148,23 @@ export const hrmWorkspace: Workspace = {
       ],
     },
     {
+      label: "Compensation Adjustments",
+      links: [
+        salaryDisbursementLink,
+        bonusLink,
+      ],
+    },
+    {
       label: "Talent Offboarding",
       links: [
         incrementLink,
+      ],
+    },
+    {
+      label: "HR Governance",
+      links: [
+        policySettingsLink,
+        pendingApprovalLink,
       ],
     },
   ],

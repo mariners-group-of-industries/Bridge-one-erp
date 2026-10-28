@@ -32,6 +32,14 @@ const FEATURES: [string, string][] = [
   ["configuration/security/user-groups", "User Group"],
   ["configuration/security/permission-groups", "Permission Group"],
   ["configuration/gateways/api-tokens", "API Configuration"],
+  ["configuration/gateways/attendance-devices", "Attendance Devices"],
+  ["hrm/attendance", "Attendance"],
+  ["hrm/self-service/leaves", "Leave"],
+  ["hrm/self-service/movements", "Movement"],
+  ["hrm/payroll", "Payroll"],
+  ["hrm/bonus", "Bonus"],
+  ["hrm/increments", "Increment"],
+  ["hrm/governance", "HR Governance"],
   ["configuration/system-logs", "Audit Logs"],
   ["sales/quotations", "Sales Quotation"],
   ["sales/orders", "Sales Order"],
@@ -61,6 +69,8 @@ export function featureOf(pathname: string): string {
 export function actionOf(method: string, pathname: string): AuditAction | null {
   const last = pathname.replace(/\/+$/, "").split("/").pop()?.toLowerCase() ?? "";
   const verb = method.toUpperCase();
+  // The attendance agent uploads every few minutes; its sync status is on the device instead.
+  if (verb === "POST" && last === "punches") return null;
   if (verb === "GET" || verb === "HEAD") return ["excel", "export", "pdf"].includes(last) ? "EXPORT" : null;
   if (verb === "DELETE") return "DELETE";
   if (last === "import") return "IMPORT";
