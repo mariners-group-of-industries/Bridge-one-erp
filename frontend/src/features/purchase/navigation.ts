@@ -72,21 +72,16 @@ export const purchaseWorkspace: Workspace = {
   ],
   cards: [
     {
-      label: "Transactions",
+      label: "",
       links: [
         purchaseRequisitions,
         purchaseOrders,
         purchaseReceive,
         purchaseReturns,
+        supplierPayments,
+        purchaseAnalytics,
+        purchaseReports,
       ],
-    },
-    {
-      label: "Payments & Accounting",
-      links: [supplierPayments],
-    },
-    {
-      label: "Analytics & Reports",
-      links: [purchaseAnalytics, purchaseReports],
     },
   ],
   routes: [

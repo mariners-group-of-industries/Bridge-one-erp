@@ -9,7 +9,9 @@ export default defineConfig({
     environment: "node",
     include: ["tests/**/*.test.ts"],
     setupFiles: ["tests/setup.ts"],
-    pool: "vmForks",
+    // "forks" gives every test file its own module cache. With "vmForks", per-file
+    // vi.mock() of the same module leaked between files sharing a worker (CI).
+    pool: "forks",
     testTimeout: 30_000,
     hookTimeout: 60_000,
     snapshotSerializers: [],

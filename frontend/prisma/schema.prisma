@@ -284,6 +284,52 @@ model AuditLog {
   @@map("audit_logs")
 }
 
+// ─── Configuration › Community & Gateways › Attendance Devices ──────────────
+
+/// A biometric terminal (ZKTeco …) on the office LAN. The attendance agent on an
+/// office PC reads it over TCP (`ipAddress`:`port`) and uploads its punches.
+model AttendanceDevice {
+  id            String    @id @default(uuid()) @db.Uuid
+  name          String    @db.VarChar(100)
+  ipAddress     String    @db.VarChar(64)
+  port          Int       @default(4370)
+  serialNumber  String?   @db.VarChar(60)
+  officeId      String?   @db.Uuid
+  isActive      Boolean   @default(true)
+  lastSyncAt    DateTime? @db.Timestamptz(3)
+  lastSyncCount Int?
+  lastError     String?   @db.VarChar(500)
+  createdAt     DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime  @updatedAt @db.Timestamptz(3)
+
+  office  Office?           @relation(fields: [officeId], references: [id], onDelete: SetNull)
+  punches AttendancePunch[]
+
+  @@unique([ipAddress, port])
+  @@map("attendance_devices")
+}
+
+/// One punch from a device. `deviceUserId` is the user number on the device and
+/// is matched to an employee's Attendance ID (else Employee ID). The same punch
+/// uploaded twice is stored once.
+model AttendancePunch {
+  id           String   @id @default(uuid()) @db.Uuid
+  deviceId     String   @db.Uuid
+  deviceUserId String   @db.VarChar(30)
+  employeeId   String?  @db.Uuid
+  punchTime    DateTime @db.Timestamptz(3)
+  punchState   Int?
+  createdAt    DateTime @default(now()) @db.Timestamptz(3)
+
+  device   AttendanceDevice @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  employee Employee?        @relation(fields: [employeeId], references: [id], onDelete: SetNull)
+
+  @@unique([deviceId, deviceUserId, punchTime])
+  @@index([employeeId, punchTime])
+  @@index([punchTime])
+  @@map("attendance_punches")
+}
+
 // ─── Configuration › Business Configuration › Company Profile ───────────────
 
 enum DateFormat {
@@ -432,6 +478,10 @@ model Office {
   openingStockReceipts OpeningStockReceipt[]
   groupPriceSetups     CustomerGroupPriceSetup[]
   salesWallets         SalesWallet[]
+  attendanceDevices    AttendanceDevice[]
+  payrollRuns          PayrollRun[]
+  bonusRuns            BonusRun[]
+  hrPolicyRecords      HrPolicyRecord[]
   workCenters       ProductionWorkCenter[]
   productionEntries ProductionEntry[]
   productionOrders  ProductionOrder[]
@@ -3156,6 +3206,13 @@ model Employee {
   drivenDeliveries     SalesDelivery[]         @relation("DeliveryDriver")
   advanceCollections   SalesCollection[]       @relation("CollectionEmployee")
   approverOf           ApprovalStageApprover[] @relation("ApproverEmployee")
+  attendancePunches    AttendancePunch[]
+  leaveApplications    LeaveApplication[]
+  movementApplications MovementApplication[]
+  payrollRunLines      PayrollRunLine[]
+  bonusLines           BonusLine[]
+  salaryIncrements     SalaryIncrement[]
+  hrPolicyRecords      HrPolicyRecord[]
   workCenterOperators ProductionWorkCenterOperator[]
 
   @@index([officeId])
@@ -3741,4 +3798,215 @@ model ProductionEntryMaterial {
   @@unique([entryId, lineNo])
   @@index([itemId])
   @@map("production_entry_materials")
+}
+
+/// HRM › Self Service › Leave & Movement: a leave application (Pending → Approved / Rejected).
+model LeaveApplication {
+  id            String    @id @default(uuid()) @db.Uuid
+  employeeId    String    @db.Uuid
+  leaveType     String    @db.VarChar(40)
+  fromDate      DateTime  @db.Date
+  toDate        DateTime  @db.Date
+  /// Calendar days, both ends included.
+  days          Int
+  location      String?   @db.VarChar(150)
+  reason        String    @db.VarChar(500)
+  status        String    @default("Pending") @db.VarChar(20)
+  createdById   String?   @db.Uuid
+  decidedByName String?   @db.VarChar(150)
+  decidedAt     DateTime? @db.Timestamptz(3)
+  createdAt     DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime  @updatedAt @db.Timestamptz(3)
+
+  employee    Employee          @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  attachments LeaveAttachment[]
+
+  @@index([employeeId, fromDate])
+  @@index([fromDate])
+  @@map("leave_applications")
+}
+
+model LeaveAttachment {
+  id                 String   @id @default(uuid()) @db.Uuid
+  leaveApplicationId String   @db.Uuid
+  storageKey         String   @db.VarChar(300)
+  originalName       String   @db.VarChar(255)
+  mimeType           String   @db.VarChar(100)
+  size               Int
+  createdAt          DateTime @default(now()) @db.Timestamptz(3)
+
+  leaveApplication LeaveApplication @relation(fields: [leaveApplicationId], references: [id], onDelete: Cascade)
+
+  @@index([leaveApplicationId])
+  @@map("leave_attachments")
+}
+
+/// HRM › Self Service › Leave & Movement: time out of office on duty or personal work. Does not use leave balance.
+model MovementApplication {
+  id            String    @id @default(uuid()) @db.Uuid
+  employeeId    String    @db.Uuid
+  movementType  String    @db.VarChar(40)
+  fromDate      DateTime  @db.Date
+  toDate        DateTime  @db.Date
+  /// HH:MM, 24-hour.
+  startTime     String    @db.VarChar(5)
+  endTime       String    @db.VarChar(5)
+  location      String    @db.VarChar(150)
+  reason        String    @db.VarChar(500)
+  status        String    @default("Pending") @db.VarChar(20)
+  createdById   String?   @db.Uuid
+  decidedByName String?   @db.VarChar(150)
+  decidedAt     DateTime? @db.Timestamptz(3)
+  createdAt     DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime  @updatedAt @db.Timestamptz(3)
+
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([employeeId, fromDate])
+  @@index([fromDate])
+  @@map("movement_applications")
+}
+
+/// HRM › Payroll: a processed (locked) payroll for one office and month. Unprocessed months are calculated live.
+model PayrollRun {
+  id              String    @id @default(uuid()) @db.Uuid
+  officeId        String    @db.Uuid
+  /// YYYY-MM
+  month           String    @db.VarChar(7)
+  fromDate        DateTime  @db.Date
+  toDate          DateTime  @db.Date
+  employeeCount   Int
+  grossAmount     Decimal   @db.Decimal(14, 2)
+  netAmount       Decimal   @db.Decimal(14, 2)
+  status          String    @default("Processed") @db.VarChar(20)
+  processedByName String?   @db.VarChar(150)
+  processedAt     DateTime  @default(now()) @db.Timestamptz(3)
+
+  office Office           @relation(fields: [officeId], references: [id], onDelete: Restrict)
+  lines  PayrollRunLine[]
+
+  @@unique([officeId, month])
+  @@index([month])
+  @@map("payroll_runs")
+}
+
+/// One employee's salary in a processed payroll (a snapshot; later salary changes do not alter it).
+model PayrollRunLine {
+  id               String  @id @default(uuid()) @db.Uuid
+  payrollRunId     String  @db.Uuid
+  employeeId       String  @db.Uuid
+  employeeCode     String  @db.VarChar(50)
+  employeeName     String  @db.VarChar(150)
+  designation      String? @db.VarChar(150)
+  monthDays        Int
+  payableDays      Int
+  grossSalary      Decimal @db.Decimal(14, 2)
+  earnedSalary     Decimal @db.Decimal(14, 2)
+  additions        Decimal @db.Decimal(14, 2)
+  deductions       Decimal @db.Decimal(14, 2)
+  netAmount        Decimal @db.Decimal(14, 2)
+  disbursementMode String  @db.VarChar(20)
+  bankOrProvider   String? @db.VarChar(150)
+  accountNo        String? @db.VarChar(50)
+
+  payrollRun PayrollRun @relation(fields: [payrollRunId], references: [id], onDelete: Cascade)
+  employee   Employee   @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+
+  @@index([payrollRunId])
+  @@index([employeeId])
+  @@map("payroll_run_lines")
+}
+
+/// HRM › Compensation Adjustments › Bonus: a bonus for one office (or all), as a percentage of gross salary.
+model BonusRun {
+  id               String    @id @default(uuid()) @db.Uuid
+  name             String    @db.VarChar(100)
+  officeId         String?   @db.Uuid
+  /// Employees must have joined at least minServiceMonths before this date.
+  bonusDate        DateTime  @db.Date
+  percentOfGross   Decimal   @db.Decimal(6, 2)
+  minServiceMonths Int       @default(0)
+  employeeCount    Int
+  totalAmount      Decimal   @db.Decimal(14, 2)
+  status           String    @default("Pending") @db.VarChar(20)
+  createdByName    String?   @db.VarChar(150)
+  decidedByName    String?   @db.VarChar(150)
+  decidedAt        DateTime? @db.Timestamptz(3)
+  createdAt        DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt        DateTime  @updatedAt @db.Timestamptz(3)
+
+  office Office?     @relation(fields: [officeId], references: [id], onDelete: Restrict)
+  lines  BonusLine[]
+
+  @@index([bonusDate])
+  @@map("bonus_runs")
+}
+
+model BonusLine {
+  id            String  @id @default(uuid()) @db.Uuid
+  bonusRunId    String  @db.Uuid
+  employeeId    String  @db.Uuid
+  employeeCode  String  @db.VarChar(50)
+  employeeName  String  @db.VarChar(150)
+  officeName    String  @db.VarChar(150)
+  serviceMonths Int
+  grossSalary   Decimal @db.Decimal(14, 2)
+  amount        Decimal @db.Decimal(14, 2)
+
+  bonusRun BonusRun @relation(fields: [bonusRunId], references: [id], onDelete: Cascade)
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+
+  @@index([bonusRunId])
+  @@index([employeeId])
+  @@map("bonus_lines")
+}
+
+/// HRM › Talent Offboarding › Increment: a salary raise; approving it updates the employee's salary.
+model SalaryIncrement {
+  id            String    @id @default(uuid()) @db.Uuid
+  employeeId    String    @db.Uuid
+  effectiveDate DateTime  @db.Date
+  /// Amount | Percent
+  incrementType String    @db.VarChar(10)
+  value         Decimal   @db.Decimal(14, 2)
+  previousGross Decimal   @db.Decimal(14, 2)
+  newGross      Decimal   @db.Decimal(14, 2)
+  remarks       String?   @db.VarChar(500)
+  status        String    @default("Pending") @db.VarChar(20)
+  createdByName String?   @db.VarChar(150)
+  decidedByName String?   @db.VarChar(150)
+  decidedAt     DateTime? @db.Timestamptz(3)
+  createdAt     DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime  @updatedAt @db.Timestamptz(3)
+
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([employeeId])
+  @@index([effectiveDate])
+  @@map("salary_increments")
+}
+
+/// HRM › HR Governance › Settings / Policies: one setup record of a tab (holiday,
+/// calendar, PF rule, …). The tab's own fields are in `data`, validated by the
+/// field definitions in features/hrm/governance/policy-fields.ts.
+model HrPolicyRecord {
+  id            String    @id @default(uuid()) @db.Uuid
+  tab           String    @db.VarChar(40)
+  /// Null = every office.
+  officeId      String?   @db.Uuid
+  employeeId    String?   @db.Uuid
+  effectiveFrom DateTime? @db.Date
+  effectiveTo   DateTime? @db.Date
+  data          Json
+  createdByName String?   @db.VarChar(150)
+  updatedByName String?   @db.VarChar(150)
+  createdAt     DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime  @updatedAt @db.Timestamptz(3)
+
+  office   Office?   @relation(fields: [officeId], references: [id], onDelete: Restrict)
+  employee Employee? @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([tab, effectiveFrom])
+  @@index([employeeId])
+  @@map("hr_policy_records")
 }

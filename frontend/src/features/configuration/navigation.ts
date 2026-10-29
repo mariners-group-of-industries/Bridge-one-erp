@@ -44,8 +44,7 @@ export const salesConfig: NavCard = {
     { label: "Sales Setup", href: salesConfigPaths.salesSetup, keywords: ["sales", "setup"] },
     { label: "Standard Price Setup", href: salesConfigPaths.standardPriceSetup, keywords: ["standard price", "price"] },
     { label: "Wallet Setup", href: salesConfigPaths.walletSetup, keywords: ["wallet"] },
-    { label: "Sales Return", href: salesConfigPaths.salesReturn, keywords: ["return", "sales return"] },
-    { label: "Price Setup", href: salesConfigPaths.priceSetup, keywords: ["price"] },
+    { label: "Sales Return Price Setup", href: salesConfigPaths.salesReturn, keywords: ["return", "sales return", "return price"] },
   ],
 };
 
@@ -73,6 +72,12 @@ export const communityGateways: NavCard = {
       href: gatewaysPaths.apiConfiguration,
       description: "Generate and revoke API tokens for other systems.",
       keywords: ["api", "token", "integration", "gateway", "expose"],
+    },
+    {
+      label: "Attendance Devices",
+      href: gatewaysPaths.attendanceDevices,
+      description: "Biometric terminals (ZKTeco) whose punches feed HRM attendance.",
+      keywords: ["attendance", "device", "zkteco", "biometric", "fingerprint", "punch"],
     },
   ],
 };

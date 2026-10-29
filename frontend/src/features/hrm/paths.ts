@@ -7,10 +7,7 @@ export const hrmPaths = {
   // Employee Self Service
   selfService: `${ROOT}/self-service`,
   myProfile: `${ROOT}/self-service/profile`,
-  myLeave: `${ROOT}/self-service/leave`,
-  leaveApply: `${ROOT}/self-service/leave/apply`,
-  myMovement: `${ROOT}/self-service/movement`,
-  movementApply: `${ROOT}/self-service/movement/apply`,
+  leaveMovement: `${ROOT}/self-service/leave-movement`,
 
   // Time and Attendance
   attendance: `${ROOT}/attendance`,
@@ -24,6 +21,14 @@ export const hrmPaths = {
   payslips: `${ROOT}/payroll/payslips`,
   salaryStructures: `${ROOT}/payroll/structures`,
   salaryAdjustments: `${ROOT}/payroll/adjustments`,
+
+  // Compensation Adjustments
+  salaryDisbursement: `${ROOT}/compensation/salary-disbursement`,
+  bonus: `${ROOT}/compensation/bonus`,
+
+  // HR Governance
+  policySettings: `${ROOT}/governance/settings`,
+  pendingApproval: `${ROOT}/governance/pending-approval`,
 
   // Talent & Offboarding
   talent: `${ROOT}/talent`,

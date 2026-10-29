@@ -21,6 +21,14 @@ import { CalendarInfoModal } from "@/features/hrm/calendar-assign/components/Cal
 import { useToast } from "@/components/ui/toast";
 import type { AttendanceRecord, AttendanceFilterState, EmployeeOption } from "../types";
 
+// Days are Dhaka days, so the server and the browser agree on "today".
+const dhakaDay = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Dhaka", year: "numeric", month: "2-digit", day: "2-digit" });
+/** The last 30 days up to today. */
+function defaultRange() {
+  const now = Date.now();
+  return { fromDate: dhakaDay.format(now - 29 * 86_400_000), toDate: dhakaDay.format(now) };
+}
+
 interface DailyAttendanceViewProps {
   initialRecords: AttendanceRecord[];
   initialEmployees: EmployeeOption[];
@@ -34,18 +42,17 @@ export function DailyAttendanceView({
 
   const [records, setRecords] = useState<AttendanceRecord[]>(initialRecords);
   const [employees, setEmployees] = useState<EmployeeOption[]>(initialEmployees);
-  const [loading, setLoading] = useState(false);
+  // The page loads the default range as soon as it opens.
+  const [loading, setLoading] = useState(true);
 
-  // Filters state matching user screenshot: 25/09/2026 to 26/10/2026
-  const [filters, setFilters] = useState<AttendanceFilterState>({
-    fromDate: "2026-09-25",
-    toDate: "2026-10-26",
+  const [filters, setFilters] = useState<AttendanceFilterState>(() => ({
+    ...defaultRange(),
     viewBy: "Employee",
     employeeId: "ALL",
     status: "ALL",
     pageSize: 50,
     page: 1,
-  });
+  }));
 
   // Selected rows
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -74,8 +81,15 @@ export function DailyAttendanceView({
   }, [records]);
 
   // Handle Fetch on View button click
-  const handleView = async () => {
+  const handleView = () => {
     setLoading(true);
+    // New results start on the first page.
+    setFilters((prev) => ({ ...prev, page: 1 }));
+    void load(false);
+  };
+
+  // Fetches the records; state is only set once the response arrives.
+  const load = async (quiet: boolean) => {
     try {
       const searchParams = new URLSearchParams();
       searchParams.set("fromDate", filters.fromDate);
@@ -92,7 +106,9 @@ export function DailyAttendanceView({
       if (data.success && Array.isArray(data.records)) {
         setRecords(data.records);
         if (data.employees) setEmployees(data.employees);
-        if (data.records.length > 0) {
+        if (quiet) {
+          // First load when the page opens: the table speaks for itself.
+        } else if (data.records.length > 0) {
           toast.success(`Loaded ${data.records.length} attendance records.`);
         } else {
           toast.info("No attendance records found.");
@@ -107,6 +123,12 @@ export function DailyAttendanceView({
       setLoading(false);
     }
   };
+
+  // Load the default range when the page opens.
+  useEffect(() => {
+    void load(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once, on open
+  }, []);
 
   // Remove all daily attendance records
   const handleClearAll = async () => {

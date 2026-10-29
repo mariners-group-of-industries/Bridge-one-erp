@@ -21,6 +21,8 @@ import { standardPriceApi } from "../services/standard-price.api";
 const BREADCRUMBS = entityMasterDataBreadcrumbs(salesConfigPaths.standardPriceSetup);
 const EMPTY_FILTER = { itemType: "", categoryId: "", subCategoryId: "", customerId: "", supplierId: "" };
 type Filters = typeof EMPTY_FILTER;
+/** The page opens on sellable items; choose "All item types" to see the rest. */
+const DEFAULT_FILTER: Filters = { ...EMPTY_FILTER, itemType: "Finished Goods" };
 type PriceField = "costPrice" | "increaseValue" | "etpPrice" | "dealerPrice" | "tradingPrice" | "mrp" | "minSalesPrice";
 
 const confirmDiscard = (dirty: number) => dirty === 0 || window.confirm(`Discard ${dirty} unsaved change(s)?`);
@@ -49,8 +51,8 @@ export function StandardPriceView() {
 function PriceSetup({ options }: { options: StandardPriceOptions }) {
   const toast = useToast();
   const [unitId, setUnitId] = useState(options.businessUnits[0].id);
-  const [filters, setFilters] = useState<Filters>(EMPTY_FILTER);
-  const [applied, setApplied] = useState<Filters>(EMPTY_FILTER);
+  const [filters, setFilters] = useState<Filters>(DEFAULT_FILTER);
+  const [applied, setApplied] = useState<Filters>(DEFAULT_FILTER);
   const [searchText, setSearchText] = useState("");
   const [search, setSearch] = useState("");
   const [reloadKey, setReloadKey] = useState(0);
@@ -143,8 +145,8 @@ function PriceSetup({ options }: { options: StandardPriceOptions }) {
                     if (!confirmDiscard(dirty)) return;
                     resetEdits();
                     setUnitId(e.target.value);
-                    setFilters(EMPTY_FILTER);
-                    setApplied(EMPTY_FILTER);
+                    setFilters(DEFAULT_FILTER);
+                    setApplied(DEFAULT_FILTER);
                   }}
                 />
               )}

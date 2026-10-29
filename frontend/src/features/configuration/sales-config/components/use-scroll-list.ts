@@ -45,7 +45,8 @@ export function useScrollList<F, R>(filter: F, reloadKey: number, load: (filter:
       .then((result) => {
         if (cancelled) return;
         setTotal(result.total);
-        setRows((current) => (page === 1 ? result.rows : [...current, ...result.rows]));
+        // Each page fills its own slot, so loading a page again (e.g. after a hot reload) does not duplicate rows.
+        setRows((current) => [...current.slice(0, (page - 1) * pageSize), ...result.rows]);
         setSettled({ key: requestKey, error: null });
       })
       .catch((err) => {
