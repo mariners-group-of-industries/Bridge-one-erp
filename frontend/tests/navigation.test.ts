@@ -112,3 +112,21 @@ describe("sales workspace", () => {
     expect(resolveBreadcrumbs("/sales/orders").map((crumb) => crumb.label)).toEqual(["Sales", "Sales Order"]);
   });
 });
+
+describe("purchase workspace", () => {
+  it("lists purchase pages flat directly under Purchase like Inventory", () => {
+    const purchase = workspaces.find((workspace) => workspace.id === "purchase");
+    expect(purchase?.status).toBe("active");
+    expect(purchase?.cards).toHaveLength(1);
+    expect(purchase?.cards?.[0]?.label).toBe("");
+    expect(purchase?.cards?.[0]?.links.map((link) => link.label)).toEqual([
+      "Purchase Requisition",
+      "Purchase Order",
+      "Purchase Receive",
+      "Purchase Return",
+      "Supplier Payment",
+      "Purchase Analytics",
+      "Purchase Report",
+    ]);
+  });
+});
