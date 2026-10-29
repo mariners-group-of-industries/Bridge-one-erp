@@ -51,7 +51,7 @@ export const paths = {
   editCommission: (id: string) => `${BASE}/targets/commissions/${id}/edit`,
   reports: `${BASE}/reports`,
   analytics: `${BASE}/analytics`,
-  setup: `${BASE}/setup`,
+  reportTab: (tab: "report" | "analytics") => `${BASE}/reports?tab=${tab}`,
 };
 
 /** Route patterns for breadcrumbs ("new" first: it also matches the [id] pattern). */

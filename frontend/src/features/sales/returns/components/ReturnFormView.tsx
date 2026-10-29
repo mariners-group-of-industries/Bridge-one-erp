@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeft, Plus, SaveAll, Settings2, Trash2 } from "lucide-react";
+import { ArrowLeft, List, Plus, SaveAll, Settings2, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useId, useMemo, useState, type ReactNode } from "react";
@@ -23,6 +23,8 @@ import { CATEGORY_LEVEL_LABELS, type ItemOption, type SalesLookups, type SetupLo
 import { fetchCustomers, fetchItems, fetchSalesLookups, fetchSetupLookups } from "../../masters/services/masters.api";
 import { paths } from "../../paths";
 import { SearchPick } from "../../components/SearchPick";
+import { returnRateFor } from "../../pricing/schemas/pricing.schema";
+import { fetchReturnRates } from "../../pricing/services/pricing.api";
 import { round2 } from "../../quotations/lib/totals";
 import { SimpleMastersPanel } from "../../setup/components/SimpleMastersPanel";
 import { discountShare, returnLineAmounts } from "../lib/return-totals";
@@ -324,7 +326,9 @@ function ReferencedEditor({
   const [reasons, setReasons] = useState<Record<string, string>>(() => Object.fromEntries(delivery.lines.map((line) => [line.deliveryLineId, own.get(line.deliveryLineId)?.reason ?? ""])));
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [reasonsOpen, setReasonsOpen] = useState(false);
+  const [kind, setKind] = useState<ReturnKind>(existing?.kind ?? "SALES");
   const set = <K extends keyof HeaderValues>(key: K, value: HeaderValues[K]) => setHeader((current) => ({ ...current, [key]: value }));
+  const reasonNames = (setup.data?.returnReasons ?? []).map((reason) => reason.name);
 
   const nothingLeft = delivery.lines.every((line) => line.returnable <= 0);
   const fullBlocked = mode === "FULL" && delivery.lines.some((line) => line.returnedQty > 0);
@@ -344,6 +348,7 @@ function ReferencedEditor({
     }
     const input = {
       mode,
+      kind,
       deliveryId: delivery.id,
       ...headerInput(header),
       lines: chosen.map((line) => ({ deliveryLineId: line.deliveryLineId, qty: requiredNumber(quantities[line.deliveryLineId]), reason: reasons[line.deliveryLineId] })),
@@ -365,7 +370,7 @@ function ReferencedEditor({
     <PageContainer className="max-w-none">
       <PageHead
         title={<BackTitle href={existing ? paths.salesReturn(existing.id) : paths.returnTab("deliveries")}>{title}</BackTitle>}
-        subtitle={`Invoice ${delivery.number}${delivery.challanNo ? ` · Challan ${delivery.challanNo}` : ""} · ${delivery.customerName} · delivered ${formatDay(delivery.deliveryDate)}`}
+        subtitle={existing ? existing.number : undefined}
         actions={
           <Button variant="primary" onClick={save} loading={busy} disabled={nothingLeft || fullBlocked}>
             Save
@@ -385,8 +390,43 @@ function ReferencedEditor({
       )}
 
       <div className="flex flex-col gap-4">
+        <Card className="p-4">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2 border-b border-line pb-3">
+            <h2 className="flex items-center gap-2 text-base font-semibold text-ink">
+              <List aria-hidden="true" className="size-4" />
+              Return Details
+            </h2>
+            <p className="text-sm text-ink-muted">
+              Total Sales <span className="text-lg font-semibold text-ink tabular-nums">{formatAmount(delivery.totalAmount)}</span>
+            </p>
+          </div>
+          <div className="grid gap-x-8 gap-y-1 text-xs lg:grid-cols-2">
+            <dl className="flex flex-col gap-1">
+              <Info label="Customer" value={delivery.customerName} />
+              <Info label="Customer Code" value={delivery.customerCode} />
+              <Info label="Mobile" value={delivery.customerPhone} />
+              <Info label="Sales Force" value={delivery.salesPersonName} />
+              <Info label="Territory Name" value={delivery.territory} />
+              <Info label="Customer Group Name" value={delivery.customerGroup} />
+            </dl>
+            <dl className="flex flex-col gap-1">
+              <Info label="Date" value={formatDay(delivery.deliveryDate)} />
+              <Info
+                label="Sales Invoice"
+                value={
+                  <Link href={paths.delivery(delivery.id)} className="text-accent-strong hover:underline">
+                    {delivery.number}
+                  </Link>
+                }
+              />
+              <Info label="Challan Number" value={delivery.challanNo} />
+              <Info label="Remarks" value={delivery.remarks} />
+            </dl>
+          </div>
+        </Card>
+
         <Card>
-          <Section>
+          <Section title="Item Lists">
             <HeaderFields
               values={header}
               errors={errors}
@@ -395,7 +435,15 @@ function ReferencedEditor({
               salesPersons={setup.data?.salesPersons ?? []}
               officeField={<TextField label="Office" value={delivery.officeName} readOnly tabIndex={-1} />}
             >
-              <TextField label="Customer" value={`${delivery.customerCode} - ${delivery.customerName}`} readOnly tabIndex={-1} />
+              <SelectField
+                label="Return Type"
+                required
+                value={kind}
+                disabled={Boolean(existing)}
+                hint={kind === "MARKET" ? "Stock comes in after the factory receives it and QC passes it." : undefined}
+                options={RETURN_KINDS.map((value) => ({ value, label: RETURN_KIND_LABELS[value] }))}
+                onChange={(event) => setKind(event.target.value as ReturnKind)}
+              />
             </HeaderFields>
           </Section>
         </Card>
@@ -405,15 +453,40 @@ function ReferencedEditor({
             title="Items"
             description={mode === "FULL" ? "A full return takes back everything delivered." : "Enter the quantity coming back for each item (leave blank to skip)."}
             actions={
-              <Button size="sm" onClick={() => setReasonsOpen(true)}>
-                <Settings2 aria-hidden="true" />
-                Return Reasons
-              </Button>
+              <div className="flex w-72 flex-col gap-1">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="font-semibold text-ink-muted">
+                    Return Reason{" "}
+                    <button type="button" className="ml-2 font-semibold text-success hover:underline" onClick={() => setReasonsOpen(true)}>
+                      See All
+                    </button>
+                  </span>
+                  <button type="button" className="font-medium text-accent-strong hover:underline" onClick={() => setReasonsOpen(true)}>
+                    <Plus aria-hidden="true" className="inline size-3.5" /> ADD
+                  </button>
+                </div>
+                <select
+                  aria-label="Return reason for every item"
+                  value=""
+                  onChange={(event) => {
+                    const reason = event.target.value;
+                    if (reason) setReasons(Object.fromEntries(delivery.lines.map((line) => [line.deliveryLineId, reason])));
+                  }}
+                  className={cn(CONTROL, "h-8")}
+                >
+                  <option value="">Apply a reason to every item…</option>
+                  {reasonNames.map((name) => (
+                    <option key={name} value={name}>
+                      {name}
+                    </option>
+                  ))}
+                </select>
+              </div>
             }
           >
             <div className="overflow-x-auto rounded-lg border border-line">
               <table className="w-full min-w-[1000px] text-sm">
-                <thead className="bg-canvas text-xs text-ink-muted">
+                <thead className="bg-accent-soft text-xs font-semibold text-ink">
                   <tr className="border-b border-line">
                     {["Item Code", "Item Name", "UoM", "Delivered", "Returned", "Returnable", "Return Qty", "Price", "VAT %", "Return Reason", "Total"].map((label, index) => (
                       <th key={label} scope="col" className={cn("px-2 py-2 font-medium", index >= 3 && index !== 9 ? "text-right" : "text-left")}>
@@ -434,6 +507,9 @@ function ReferencedEditor({
                         <td className="px-2 py-2 text-right text-ink-muted tabular-nums">{formatQty(line.returnedQty)}</td>
                         <td className="px-2 py-2 text-right tabular-nums">{formatQty(line.returnable)}</td>
                         <td className="w-28 px-2 py-1.5">
+                          {mode === "FULL" ? (
+                            <span className="block pt-0.5 text-right font-medium tabular-nums">{formatQty(toNumber(quantities[line.deliveryLineId] ?? ""))}</span>
+                          ) : (
                           <input
                             aria-label={`Return quantity of ${line.itemName}`}
                             type="number"
@@ -441,11 +517,11 @@ function ReferencedEditor({
                             max={line.returnable}
                             step="any"
                             value={quantities[line.deliveryLineId] ?? ""}
-                            readOnly={mode === "FULL"}
                             disabled={line.returnable <= 0}
                             onChange={(event) => setQuantities({ ...quantities, [line.deliveryLineId]: event.target.value })}
                             className={cn(CONTROL, "h-7 w-full text-right tabular-nums", error && "ring-1 ring-danger")}
                           />
+                          )}
                           {error && <p className="mt-0.5 text-xs text-danger">{error}</p>}
                         </td>
                         <td className="px-2 py-2 text-right tabular-nums">{line.rate.toFixed(2)}</td>
@@ -746,6 +822,15 @@ function WithoutReferenceEditor({ today, lookups, warehouses, existing }: { toda
               setup={masters.data?.setup}
               disabled={!businessUnitId || masters.loading}
               withoutInvoice={withoutInvoice}
+              returnRate={async (itemId, reason) => {
+                if (!header.officeId) return null;
+                try {
+                  const [rates] = await fetchReturnRates({ officeId: header.officeId, date: header.returnDate, itemIds: [itemId] });
+                  return rates ? returnRateFor(rates, reason) || null : null;
+                } catch {
+                  return null;
+                }
+              }}
               onManageReasons={() => setReasonsOpen(true)}
               onAdd={(line) => setLines((current) => [...current, { ...line, reason: line.reason || bulkReason, key: newKey() }])}
             />
@@ -902,6 +987,7 @@ function ReturnItemEntry({
   setup,
   disabled,
   withoutInvoice,
+  returnRate,
   onManageReasons,
   onAdd,
 }: {
@@ -909,6 +995,8 @@ function ReturnItemEntry({
   setup: SetupLookups | undefined;
   disabled: boolean;
   withoutInvoice: boolean;
+  /** Return Price Setup rate of an item for a reason (null when none is set). */
+  returnRate: (itemId: string, reason: string) => Promise<number | null>;
   onManageReasons: () => void;
   onAdd: (line: Omit<LineValues, "key">) => void;
 }) {
@@ -954,10 +1042,26 @@ function ReturnItemEntry({
   const item = items.find((candidate) => label(candidate) === itemText);
   const tp = item ? rateFor(item, effectivePriceList) : null;
 
+  /** Puts the Return Price Setup rate for the reason on the entry, unless a price was typed meanwhile. */
+  function applyReturnRate(match: ItemOption, reason: string, shown: string) {
+    void returnRate(match.id, reason).then((rate) => {
+      if (!rate) return;
+      setEntry((current) => (current.rate === shown ? { ...current, rate: String(rate) } : current));
+    });
+  }
+
   function pick(text: string) {
     setItemText(text);
     const match = items.find((candidate) => label(candidate) === text);
-    if (match) setEntry((current) => ({ ...current, qty: current.qty || "1", rate: String(rateFor(match, effectivePriceList)), vatPercent: String(match.vatPercent) }));
+    if (!match) return;
+    const fallback = String(rateFor(match, effectivePriceList));
+    setEntry((current) => ({ ...current, qty: current.qty || "1", rate: fallback, vatPercent: String(match.vatPercent) }));
+    applyReturnRate(match, entry.reason, fallback);
+  }
+
+  function changeReason(reason: string) {
+    setEntry({ ...entry, reason });
+    if (item) applyReturnRate(item, reason, entry.rate);
   }
 
   function add() {
@@ -1060,7 +1164,7 @@ function ReturnItemEntry({
           disabled={disabled || withoutInvoice}
           onChange={(event) => setEntry({ ...entry, vatPercent: event.target.value })}
         />
-        <ReasonSelect label="Return Reason" value={entry.reason} reasons={setup?.returnReasons ?? []} onChange={(reason) => setEntry({ ...entry, reason })} onManage={onManageReasons} />
+        <ReasonSelect label="Return Reason" value={entry.reason} reasons={setup?.returnReasons ?? []} onChange={changeReason} onManage={onManageReasons} />
         <Button onClick={add} disabled={disabled}>
           <Plus aria-hidden="true" />
           Add
@@ -1071,6 +1175,15 @@ function ReturnItemEntry({
           {error}
         </p>
       )}
+    </div>
+  );
+}
+
+function Info({ label, value }: { label: string; value: ReactNode }) {
+  return (
+    <div className="grid grid-cols-[11rem_1fr] gap-2">
+      <dt className="font-semibold text-ink">{label}</dt>
+      <dd className="text-ink-muted">: {value || "N/A"}</dd>
     </div>
   );
 }

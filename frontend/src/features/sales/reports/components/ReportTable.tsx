@@ -1,9 +1,11 @@
 "use client";
 
+import { useEffect } from "react";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { EmptyState } from "@/components/ui/section";
 import { cn } from "@/lib/cn";
 import { formatAmount, formatQty } from "../../dashboard/lib/format";
+import type { ExportTable } from "../../lib/export-table";
 import { formatDay } from "../../lib/use-today";
 import type { ReportCell, ReportColumn, ReportResult } from "../schemas/report.schema";
 
@@ -28,11 +30,20 @@ export function formatCell(value: ReportCell, kind: ReportColumn["kind"]) {
 const numeric = (kind: ReportColumn["kind"]) => kind === "amount" || kind === "qty" || kind === "number" || kind === "percent";
 
 /** Header and rows (with SL) for Excel and PDF. */
-export function reportExport(data: ReportResult) {
+export function reportExport(data: ReportResult): { headers: string[]; rows: (string | number | null)[][] } {
   return {
     headers: ["SL", ...data.columns.map((column) => column.label)],
     rows: data.rows.map((row, index) => [index + 1, ...data.columns.map((column) => (row[column.key] === null ? "" : row[column.key]))]),
   };
+}
+
+/** Hands the table on screen to the page head (Excel / PDF), and clears it when the tab closes. */
+export function useReportExport(table: ExportTable | null, onExport: (table: ExportTable | null) => void) {
+  const key = table ? JSON.stringify(table) : "";
+  useEffect(() => {
+    onExport(key ? (JSON.parse(key) as ExportTable) : null);
+  }, [key, onExport]);
+  useEffect(() => () => onExport(null), [onExport]);
 }
 
 /** A report's rows with SL, sorting, search and a total row. */

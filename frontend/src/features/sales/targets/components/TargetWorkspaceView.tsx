@@ -92,7 +92,6 @@ export function TargetWorkspaceView() {
   const toast = useToast();
   const tab: Tab = isTab(params.get("tab")) ? (params.get("tab") as Tab) : "target";
   const [table, setTable] = useState<TableExport | null>(null);
-  const reportTab = tab === "target-report" || tab === "sales-target-report" || tab === "commission-report";
 
   const actions = (
     <>
@@ -235,7 +234,7 @@ function useDelete(remove: (id: string) => Promise<void>, onDone: () => void) {
 // ─── Target ──────────────────────────────────────────────────────────────────
 
 function BudgetsTab() {
-  const list = useResource("target-budgets", fetchBudgets);
+  const list = useResource("target-budgets", fetchBudgets, { refreshOnFocus: true });
   const [viewing, setViewing] = useState<{ id: string; editable: boolean } | null>(null);
   const removal = useDelete(deleteBudget, list.reload);
 
@@ -308,7 +307,7 @@ function TargetReportTab({ today, onExport }: { today: string; onExport: (table:
   const [filters, setFilters] = useState({ searchBy: "ALL", salesPersonId: "", fromMonth: "1", toMonth: today.slice(5, 7).replace(/^0/, ""), year: String(year), basis: "AMOUNT" });
   const [query, setQuery] = useState<TargetReportQuery | null>(null);
   const [filterError, setFilterError] = useState<string>();
-  const report = useResource(query ? `target-report:${JSON.stringify(query)}` : null, () => fetchTargetReport(query!));
+  const report = useResource(query ? `target-report:${JSON.stringify(query)}` : null, () => fetchTargetReport(query!), { refreshOnFocus: true });
   const quantity = query?.basis === "QUANTITY";
   const format = (value: number) => (quantity ? formatQty(value) : formatAmount(value));
 
@@ -396,7 +395,7 @@ function PlansTab({ today }: { today: string }) {
   const toQuery = (values: typeof initial) => Object.fromEntries(Object.entries(values).filter(([, value]) => value)) as PlanListQuery;
   const [query, setQuery] = useState<PlanListQuery>(toQuery(initial));
   const [filterError, setFilterError] = useState<string>();
-  const list = useResource(`target-plans:${JSON.stringify(query)}`, () => fetchPlans(query));
+  const list = useResource(`target-plans:${JSON.stringify(query)}`, () => fetchPlans(query), { refreshOnFocus: true });
   const removal = useDelete(deletePlan, list.reload);
 
   function view(event: FormEvent) {
@@ -619,7 +618,7 @@ function PlanReportTab({ today, onExport }: { today: string; onExport: (table: T
 // ─── Commission Setup ────────────────────────────────────────────────────────
 
 function CommissionsTab() {
-  const list = useResource("commissions", fetchCommissions);
+  const list = useResource("commissions", fetchCommissions, { refreshOnFocus: true });
   const [viewing, setViewing] = useState<string | null>(null);
   const removal = useDelete(deleteCommission, list.reload);
 

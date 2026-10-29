@@ -150,7 +150,7 @@ function DeliveriesTab({ today, search, onQuery }: { today: string; search: stri
   const [query, setQuery] = useState<ReturnableDeliveryQuery>(filters);
   const [filterError, setFilterError] = useState<string>();
   const effective: ReturnableDeliveryQuery = { ...query, ...(search ? { search } : {}) };
-  const list = useResource(`returnable:${JSON.stringify(effective)}`, () => fetchReturnableDeliveries(effective));
+  const list = useResource(`returnable:${JSON.stringify(effective)}`, () => fetchReturnableDeliveries(effective), { refreshOnFocus: true });
   useReportQuery(effective, onQuery);
 
   function view(event: FormEvent) {
@@ -225,7 +225,7 @@ function DeliveriesTab({ today, search, onQuery }: { today: string; search: stri
         <LoadingState />
       ) : (
         <div aria-busy={list.loading} className={list.loading ? "opacity-60 transition-opacity" : undefined}>
-          <DataTable rows={rows} columns={columns} getRowId={(row) => row.id} getRowLabel={(row) => row.number} emptyState={<EmptyState title="No deliveries in this range" />} />
+          <DataTable rows={rows} columns={columns} getRowId={(row) => row.id} getRowLabel={(row) => row.number} pages={RETURN_PAGE_SIZES} emptyState={<EmptyState title="No deliveries in this range" />} />
         </div>
       )}
     </>
@@ -254,7 +254,7 @@ function ReturnsTab({ market, today, search, onQuery }: { market: boolean; today
   const [paging, setPaging] = useState({ page: 1, pageSize: 50 });
   const [filterError, setFilterError] = useState<string>();
   const filtered: ReturnListQuery = { ...query, ...(search ? { search } : {}) };
-  const list = useResource(`returns:${JSON.stringify(filtered)}:${paging.page}:${paging.pageSize}`, () => fetchReturns({ ...filtered, ...paging }));
+  const list = useResource(`returns:${JSON.stringify(filtered)}:${paging.page}:${paging.pageSize}`, () => fetchReturns({ ...filtered, ...paging }), { refreshOnFocus: true });
   // Excel exports every matching return, not just this page.
   useReportQuery(filtered, onQuery);
   const [searchedFor, setSearchedFor] = useState(search);

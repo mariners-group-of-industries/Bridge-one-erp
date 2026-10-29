@@ -6,6 +6,7 @@ import { richTextToPlain, type RichTextNode } from "@/lib/rich-text";
 import { fromDbDate, toDbDate } from "../../lib/dates";
 import { requireOffice, scopedBusinessUnitIds } from "../../lib/scope";
 import { companyDocumentNumber } from "../../lib/sequence";
+import { assertMinPrices, salesPricing } from "../../pricing/services/pricing.service";
 import { quotationTotals } from "../lib/totals";
 import {
   quotationActionSchema,
@@ -210,7 +211,43 @@ async function prepare(actor: Actor, input: ParsedInput) {
     if (!item.isActive) throw badRequest("A selected item is disabled.");
   }
 
-  const totals = quotationTotals(input.lines, input.includingVat);
+  // Sales Config: offer discounts and free items; minimum sales price.
+  const pricing = await salesPricing(
+    { businessUnitId, officeId: input.officeId, customerId: input.customerId, priceListId: null, date: input.quotationDate },
+    input.lines.map((line) => ({ itemId: line.itemId, qty: line.qty, unitPrice: line.rate, discountPercent: line.discountPercent })),
+  );
+  const offerPercent = new Map(pricing.offers.discounts.map((row) => [row.itemId, row.percent]));
+  const paidLines = input.lines
+    .filter((_, index) => !pricing.isOfferLine[index])
+    .map((line) => ({ ...line, discountPercent: Math.max(line.discountPercent, offerPercent.get(line.itemId) ?? 0) }));
+  await assertMinPrices(
+    businessUnitId,
+    paidLines.map((line) => ({ itemId: line.itemId, unitPrice: line.rate, discountPercent: line.discountPercent })),
+    pricing.prices,
+  );
+  const freeIds = pricing.offers.free.map((row) => row.itemId).filter((id) => !itemById.has(id));
+  if (freeIds.length) {
+    const extra = await db().item.findMany({ where: { id: { in: freeIds }, businessUnitId }, select: { id: true, uom: true, isActive: true } });
+    for (const item of extra) itemById.set(item.id, item);
+  }
+  const lines = [
+    ...paidLines,
+    ...pricing.offers.free
+      .filter((row) => itemById.get(row.itemId)?.isActive)
+      .map((row) => ({
+        itemId: row.itemId,
+        description: `Free (${row.offerName})`.slice(0, 500),
+        qty: row.qty,
+        rate: pricing.prices.get(row.itemId)?.rate ?? 0,
+        discountPercent: 100,
+        vatPercent: 0,
+        aitPercent: 0,
+        warranty: "",
+        deliveryDate: null,
+      })),
+  ];
+
+  const totals = quotationTotals(lines, input.includingVat);
   return {
     businessUnitId,
     header: {
@@ -237,7 +274,7 @@ async function prepare(actor: Actor, input: ParsedInput) {
       aitAmount: totals.aitAmount,
       grandTotal: totals.grandTotal,
     },
-    lines: input.lines.map((line, index) => ({
+    lines: lines.map((line, index) => ({
       lineNo: index + 1,
       itemId: line.itemId,
       description: line.description,

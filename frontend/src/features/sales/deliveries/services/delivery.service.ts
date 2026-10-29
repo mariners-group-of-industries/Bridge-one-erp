@@ -4,8 +4,9 @@ import { assertCompanyAccess, type Actor } from "@/lib/auth/actor";
 import { db } from "@/lib/prisma/client";
 import { money } from "../../dashboard/lib/aggregate";
 import { fromDbDate, toDbDate } from "../../lib/dates";
-import { customerBalances } from "../../lib/receivables";
+import { customerLedger } from "../../lib/receivables";
 import { requireOffice, scopedBusinessUnitIds } from "../../lib/scope";
+import { territoryCustomerWhere } from "../../lib/territory";
 import { companyDocumentNumber } from "../../lib/sequence";
 import { userNames } from "../../lib/users";
 import { orderLineAmounts, orderTotals } from "../../orders/lib/order-totals";
@@ -28,7 +29,7 @@ import {
   type PendingNote,
 } from "../schemas/delivery.schema";
 import { deliverySettlements } from "../../collections/services/collection.service";
-import { lockDeliveryReturns, returnNumber } from "../../returns/services/return.service";
+import { approveReturn, createReturn, lockDeliveryReturns, returnNumber } from "../../returns/services/return.service";
 import { assertStockAvailable, lockWarehouse, requireWarehouse, stockLevels } from "./stock.service";
 import { requireDriver } from "./vehicle.service";
 
@@ -68,13 +69,15 @@ function customerFilter(query: {
   customerGroupId?: string;
   zoneId?: string;
   territoryId?: string;
+  /** The Territory filter resolved over the Sales Setup tree. */
+  territory?: Prisma.CustomerWhereInput;
   routeId?: string;
   sectionId?: string;
 }): Prisma.CustomerWhereInput | undefined {
   const filter: Prisma.CustomerWhereInput = {
     ...(query.customerGroupId ? { customerGroupId: query.customerGroupId } : {}),
     ...(query.zoneId ? { zoneId: query.zoneId } : {}),
-    ...(query.territoryId ? { territoryId: query.territoryId } : {}),
+    ...(query.territory ?? (query.territoryId ? { territoryId: query.territoryId } : {})),
     ...(query.routeId ? { routeId: query.routeId } : {}),
     ...(query.sectionId ? { sectionId: query.sectionId } : {}),
   };
@@ -91,7 +94,7 @@ function dateRange(from?: string, to?: string) {
 export async function listApprovedOrders(actor: Actor, raw: unknown): Promise<ApprovedOrderRow[]> {
   const query: ApprovedOrderQuery = approvedOrderQuerySchema.parse(raw);
   const unitIds = await scopedBusinessUnitIds(actor);
-  const customer = customerFilter(query);
+  const customer = customerFilter({ ...query, territory: await territoryCustomerWhere(query.territoryId) });
   const orders = await db().salesOrder.findMany({
     where: {
       businessUnitId: { in: unitIds },
@@ -258,7 +261,8 @@ export async function getOrderForDelivery(actor: Actor, orderId: string, asOf: s
   const reopenedByEdit = order.status === "COMPLETED" && own.size > 0;
   if (order.status !== "APPROVED" && !reopenedByEdit) throw conflict("Only approved orders can be delivered.");
 
-  const balances = await customerBalances({ businessUnitIds: [order.businessUnitId], asOf: toDbDate(asOf), customerIds: [order.customerId] });
+  // Signed, as on Managerium: an advance shows as a negative balance instead of 0.
+  const ledgers = await customerLedger({ businessUnitIds: [order.businessUnitId], asOf: toDbDate(asOf), customerIds: [order.customerId] });
   const delivered = order.lines.some((line) => num(line.deliveredQty) > 0);
 
   return {
@@ -296,7 +300,7 @@ export async function getOrderForDelivery(actor: Actor, orderId: string, asOf: s
     itemsTotal: num(order.itemsTotal),
     deliveryCharge: num(order.deliveryCharge),
     unloadingCharge: num(order.unloadingCharge),
-    ledgerBalance: balances.get(order.customerId)?.outstanding ?? 0,
+    ledgerBalance: ledgers.get(order.customerId) ?? 0,
     creditLimit: optNum(order.customer.creditLimit),
     chargesBilled: order.deliveries.some((delivery) => num(delivery.deliveryCharge) + num(delivery.unloadingCharge) > 0),
     lines: order.lines.map((line) => {
@@ -330,7 +334,7 @@ export async function getOrderForDelivery(actor: Actor, orderId: string, asOf: s
 export async function listDeliveries(actor: Actor, raw: unknown): Promise<DeliveryList> {
   const query = deliveryListQuerySchema.parse(raw);
   const unitIds = await scopedBusinessUnitIds(actor);
-  const customer = customerFilter(query);
+  const customer = customerFilter({ ...query, territory: await territoryCustomerWhere(query.territoryId) });
   const where: Prisma.SalesDeliveryWhereInput = {
     businessUnitId: { in: unitIds },
     officeId: query.officeId ? query.officeId : { not: null },
@@ -452,6 +456,7 @@ const detailInclude = {
   salesOrder: { select: { number: true, orderDate: true, expectedDeliveryDate: true, lines: { select: { qty: true, deliveredQty: true } } } },
   salesPerson: { select: { name: true } },
   driver: { select: { name: true } },
+  vehicle: { select: { vehicleSize: true } },
   customer: {
     select: { code: true, name: true, phone: true, binNumber: true, customerGroup: areaSelect, territory: areaSelect },
   },
@@ -529,6 +534,7 @@ function toDetail(record: DeliveryRecord): DeliveryDetail {
     vehicleId: record.vehicleId,
     driverEmployeeId: record.driverEmployeeId,
     driverEmployeeName: record.driver?.name ?? null,
+    vehicleSize: record.vehicle?.vehicleSize ?? null,
     securityCode: record.securityCode,
     referredBy: record.referredBy,
     buyerName: record.buyerName,
@@ -1050,6 +1056,7 @@ export async function createDelivery(actor: Actor, raw: unknown): Promise<Delive
           data: {
             businessUnitId: p.businessUnitId,
             number: await returnNumber(tx, p.businessUnitId, "SALES", "EXCHANGE", input.deliveryDate),
+            mode: "EXCHANGE",
             customerId: p.header.customerId,
             salesPersonId: p.header.salesPersonId ?? null,
             officeId: p.header.officeId,
@@ -1198,17 +1205,40 @@ export async function updateDeliveryReferences(actor: Actor, id: string, raw: un
 }
 
 export async function confirmDelivery(actor: Actor, id: string, raw: unknown): Promise<DeliveryDetail> {
-  const { version, actualDeliveryDate } = deliveryConfirmSchema.parse(raw);
+  const { version, actualDeliveryDate, returns } = deliveryConfirmSchema.parse(raw);
   const existing = await loadDelivery(actor, id);
   if (actualDeliveryDate < fromDbDate(existing.deliveryDate)) {
     throw badRequest("Actual delivery date cannot be before the delivery date.");
   }
-  await db().$transaction(async (tx) => {
-    await guardEditable(tx, id, version, actor, "confirmed");
-    await tx.salesDelivery.update({
-      where: { id },
-      data: { confirmation: "CONFIRMED", actualDeliveryDate: toDbDate(actualDeliveryDate), confirmedAt: new Date(), confirmedBy: actor.id },
+  if (returns.length > 0 && existing.deliveryType === "EXCHANGE") throw badRequest("Goods of an exchange are not returned on confirmation.");
+  // Return QTY: a partial return of this delivery, dated the actual delivery date.
+  // Made first so its checks (quantities, stock, status) run before anything changes.
+  const salesReturn =
+    returns.length > 0
+      ? await createReturn(actor, {
+          mode: "PARTIAL",
+          deliveryId: id,
+          officeId: existing.officeId,
+          warehouseId: existing.warehouseId,
+          returnDate: actualDeliveryDate,
+          reason: "Returned on delivery confirmation",
+          lines: returns.map((row) => ({ deliveryLineId: row.deliveryLineId, qty: row.qty, reason: "Returned on delivery" })),
+        })
+      : null;
+  try {
+    await db().$transaction(async (tx) => {
+      await guardEditable(tx, id, version, actor, "confirmed");
+      await tx.salesDelivery.update({
+        where: { id },
+        data: { confirmation: "CONFIRMED", actualDeliveryDate: toDbDate(actualDeliveryDate), confirmedAt: new Date(), confirmedBy: actor.id },
+      });
     });
-  });
+  } catch (error) {
+    // Nothing is confirmed: drop the draft return again.
+    if (salesReturn) await db().salesReturn.delete({ where: { id: salesReturn.id } });
+    throw error;
+  }
+  // Approvers settle it at once (stock back, due reduced); otherwise it waits on Sales Return.
+  if (salesReturn && actor.permissions.has("sales:approve")) await approveReturn(actor, salesReturn.id, { version: salesReturn.updatedAt });
   return getDelivery(actor, id);
 }

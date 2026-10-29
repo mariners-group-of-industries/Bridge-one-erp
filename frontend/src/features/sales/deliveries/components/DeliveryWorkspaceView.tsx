@@ -153,6 +153,8 @@ export function useFilterLookups() {
   const setup = useResource("setup:all", () => fetchSetupLookups());
   const areaOptions = (kind: AreaKind) => [
     all,
+    // Sales Setup regions etc. filter every territory below them.
+    ...(kind === "TERRITORY" ? (setup.data?.territoryGroups ?? []).map((node) => ({ value: node.id, label: `${node.layer}: ${node.name} (all)` })) : []),
     ...(setup.data?.areas ?? []).filter((area) => area.kind === kind).map((area) => ({ value: area.id, label: area.name })),
   ];
   return {
@@ -209,7 +211,7 @@ function ApprovedOrdersTab({ today, search, onQuery }: { today: string; search: 
   const [query, setQuery] = useState<ApprovedOrderQuery>({ from: initial.from, to: initial.to });
   const [filterError, setFilterError] = useState<string>();
   const effective: ApprovedOrderQuery = { ...query, ...(search ? { search } : {}) };
-  const list = useResource(`approved:${JSON.stringify(effective)}`, () => fetchApprovedOrders(effective));
+  const list = useResource(`approved:${JSON.stringify(effective)}`, () => fetchApprovedOrders(effective), { refreshOnFocus: true });
   useReportQuery(effective, onQuery);
   const [reasonFor, setReasonFor] = useState<ApprovedOrderRow | null>(null);
   const [closing, setClosing] = useState<ApprovedOrderRow | null>(null);
@@ -457,7 +459,7 @@ function DeliveriesTab({ tab, today, search, onQuery }: { tab: Exclude<Tab, "app
   const [paging, setPaging] = useState({ page: 1, pageSize: 50 });
   const [filterError, setFilterError] = useState<string>();
   const filtered: DeliveryListQuery = { ...query, ...(search ? { search } : {}) };
-  const list = useResource(`deliveries:${JSON.stringify(filtered)}:${paging.page}:${paging.pageSize}`, () => fetchDeliveries({ ...filtered, ...paging }));
+  const list = useResource(`deliveries:${JSON.stringify(filtered)}:${paging.page}:${paging.pageSize}`, () => fetchDeliveries({ ...filtered, ...paging }), { refreshOnFocus: true });
   // Excel exports every matching row, not just this page.
   useReportQuery(filtered, onQuery);
   const [searchedFor, setSearchedFor] = useState(search);

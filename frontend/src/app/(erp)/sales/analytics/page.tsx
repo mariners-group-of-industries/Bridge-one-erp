@@ -1,13 +1,11 @@
-import type { Metadata } from "next";
-import { salesAnalytics } from "@/features/sales/navigation";
-import { SalesAnalyticsView } from "@/features/sales/reports/components/SalesAnalyticsView";
+import { redirect } from "next/navigation";
+import { paths } from "@/features/sales/paths";
 
 // The desk shell renders pages only after the session loads on the client, so the
 // server never renders this segment and instant-navigation validation cannot run.
 export const instant = false;
 
-export const metadata: Metadata = { title: salesAnalytics.label };
-
+/** Sales Analytics moved into Sales Report & Analytics; old links open its Analytics tab. */
 export default function SalesAnalyticsPage() {
-  return <SalesAnalyticsView />;
+  redirect(paths.reportTab("analytics"));
 }

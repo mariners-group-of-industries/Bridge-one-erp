@@ -206,6 +206,8 @@ export interface SetupLookups {
   deliveryReasons: NamedOption[];
   returnReasons: NamedOption[];
   salesPersons: (NamedOption & { code: string; designation: string | null })[];
+  /** Sales Setup tree nodes above the Territory layer (Region, …): a list filter on one covers every territory below. */
+  territoryGroups: (NamedOption & { layer: string })[];
 }
 
 export interface AddressOption {

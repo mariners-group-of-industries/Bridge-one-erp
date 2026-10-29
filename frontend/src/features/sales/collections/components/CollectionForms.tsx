@@ -35,7 +35,7 @@ import {
   type DueInvoice,
   type GlAccountOption,
 } from "../schemas/collection.schema";
-import { createBill, createDueCollection, fetchBill, fetchDueInvoices, fetchGlAccounts } from "../services/collection.api";
+import { createBill, createDueCollection, fetchBill, fetchCollectionWallets, fetchDueInvoices, fetchGlAccounts } from "../services/collection.api";
 import { AdvanceCollectionForm } from "./AdvanceCollectionForm";
 
 type Mode = "invoice" | "advance" | "bill";
@@ -152,6 +152,7 @@ function DueCollection({
     remarks: "",
     bankName: "",
     reference: "",
+    walletId: "",
   });
   const [customerId, setCustomerId] = useState(bill?.customerId ?? initialCustomerId);
   const [picked, setPicked] = useState<string[]>([]);
@@ -184,7 +185,27 @@ function DueCollection({
   const total = round2(rows.reduce((sum, row) => sum + toNumber(row.amount), 0));
   const deductionTotal = round2(deductions.reduce((sum, row) => sum + row.amount, 0));
   const accountOptions = accounts.map((account) => ({ id: account.id, label: accountLabel(account) }));
-  const showBank = header.method === "BANK" || header.method === "CHEQUE";
+  // Bank, cheque and mobile banking keep the bank / wallet name and the transaction no.
+  const showReference = header.method !== "CASH";
+  const wallets = useResource(header.officeId ? `collection-wallets:${header.officeId}` : null, () => fetchCollectionWallets(header.officeId));
+  const wallet = wallets.data?.find((candidate) => candidate.id === header.walletId);
+  const commission = wallet ? round2((total * wallet.commissionPercent) / 100) : 0;
+
+  /** Wallet Setup: the wallet sets the collection type, bank name and its bank account's GL. */
+  function pickWallet(id: string) {
+    const next = wallets.data?.find((candidate) => candidate.id === id);
+    setHeader((current) =>
+      next
+        ? {
+            ...current,
+            walletId: next.id,
+            method: next.isMfs ? "MOBILE_BANKING" : next.isCash ? "CASH" : current.method === "CHEQUE" ? "CHEQUE" : "BANK",
+            bankName: next.name,
+            adjustAccountId: next.glAccountId ?? current.adjustAccountId,
+          }
+        : { ...current, walletId: "" },
+    );
+  }
 
   function selectCustomer(id: string) {
     setCustomerId(id);
@@ -236,11 +257,12 @@ function DueCollection({
       collectionDate: header.collectionDate,
       method: header.method,
       cashType: header.method === "CASH" ? header.cashType : null,
+      walletId: header.walletId || null,
       salesPersonId: header.salesPersonId || null,
       adjustAccountId: header.adjustAccountId || null,
       moneyReceiptNo: header.moneyReceiptNo,
-      bankName: showBank ? header.bankName : null,
-      reference: showBank ? header.reference : null,
+      bankName: showReference ? header.bankName : null,
+      reference: showReference ? header.reference : null,
       remarks: header.remarks,
       deductions: deductions.map(({ expense, accountId, amount }) => ({ expense, accountId, amount })),
       rows: [...byCustomer].map(([id, allocations]) => ({ customerId: id, allocations })),
@@ -285,8 +307,21 @@ function DueCollection({
                 required
                 value={header.method}
                 options={COLLECTION_METHODS.map((value) => ({ value, label: COLLECTION_METHOD_LABELS[value] }))}
-                onChange={(event) => set("method", event.target.value)}
+                onChange={(event) => setHeader((current) => ({ ...current, method: event.target.value as CollectionMethod, walletId: "" }))}
               />
+              {(wallets.data?.length ?? 0) > 0 && (
+                <SelectField
+                  label="Wallet"
+                  value={header.walletId}
+                  hint={
+                    wallet
+                      ? `${wallet.commissionPercent}% commission${commission > 0 ? ` ≈ ${formatAmount(commission)}; add it under Bank Deduction` : ""}${wallet.isReferenceRequired ? " · Ref no required" : ""}`
+                      : "Wallet Setup (Sales Config)"
+                  }
+                  options={[{ value: "", label: "No wallet" }, ...(wallets.data ?? []).map((candidate) => ({ value: candidate.id, label: candidate.name }))]}
+                  onChange={(event) => pickWallet(event.target.value)}
+                />
+              )}
               <SelectField
                 label="Collect By"
                 value={header.salesPersonId}
@@ -329,9 +364,10 @@ function DueCollection({
               />
               <TextField label="Money Receipt No" placeholder="Money Receipt No" value={header.moneyReceiptNo} error={errors.moneyReceiptNo} onChange={(event) => set("moneyReceiptNo", event.target.value)} />
               <TextField label="Remarks" placeholder="Remarks" value={header.remarks} error={errors.remarks} onChange={(event) => set("remarks", event.target.value)} />
-              {showBank && (
+              {showReference && (
                 <TextField
                   label={header.method === "CHEQUE" ? "Cheque No" : "Transaction / Ref No"}
+                  required={wallet?.isReferenceRequired}
                   value={header.reference}
                   error={errors.reference}
                   onChange={(event) => set("reference", event.target.value)}

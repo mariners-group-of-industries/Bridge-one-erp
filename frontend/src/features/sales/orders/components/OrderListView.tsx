@@ -96,7 +96,7 @@ function OrderList({ today }: { today: string }) {
   const searched = useDebounced(search.trim());
   // The header search runs on the server across every matching order, with the filters.
   const effective: OrderListQuery = { ...query, ...(searched ? { search: searched } : {}) };
-  const list = useResource(JSON.stringify(effective), () => fetchOrders(effective));
+  const list = useResource(JSON.stringify(effective), () => fetchOrders(effective), { refreshOnFocus: true });
   const [history, setHistory] = useState<OrderListRow | null>(null);
   const [exporting, setExporting] = useState(false);
   const toast = useToast();
@@ -121,7 +121,12 @@ function OrderList({ today }: { today: string }) {
     value: filters[key],
     onChange: (event: { target: { value: string } }) => setFilters({ ...filters, [key]: event.target.value }),
   });
-  const areaOptions = (kind: AreaKind) => [all, ...(setup.data?.areas ?? []).filter((area) => area.kind === kind).map((area) => ({ value: area.id, label: area.name }))];
+  const areaOptions = (kind: AreaKind) => [
+    all,
+    // Sales Setup regions etc. filter every territory below them.
+    ...(kind === "TERRITORY" ? (setup.data?.territoryGroups ?? []).map((node) => ({ value: node.id, label: `${node.layer}: ${node.name} (all)` })) : []),
+    ...(setup.data?.areas ?? []).filter((area) => area.kind === kind).map((area) => ({ value: area.id, label: area.name })),
+  ];
 
   async function exportExcel() {
     setExporting(true);

@@ -33,6 +33,8 @@ import {
   fetchSetupLookups,
 } from "../../masters/services/masters.api";
 import { paths } from "../../paths";
+import { OfferPanel, usePricing } from "../../pricing/components/OfferPanel";
+import { fetchPricing } from "../../pricing/services/pricing.api";
 import type { QuotationDetail } from "../../quotations/schemas/quotation.schema";
 import { fetchStock, fetchWarehouses } from "../../deliveries/services/delivery.api";
 import { fetchQuotation, fetchQuotations } from "../../quotations/services/quotation.api";
@@ -357,9 +359,55 @@ function OrderEditor({ today, lookups, order, quotation }: EditorProps) {
     },
   );
 
+  // Sales Config: offers the server applies on save, shown while the order is entered.
+  const pricing = usePricing(
+    values.officeId && values.customerId
+      ? {
+          officeId: values.officeId,
+          customerId: values.customerId,
+          priceListId: priceListId || null,
+          date: values.orderDate,
+          lines: values.lines
+            .filter((line) => orZero(line.qty) > 0)
+            .map((line) => ({ itemId: line.itemId, qty: orZero(line.qty), unitPrice: orZero(line.unitPrice), discountPercent: orZero(line.discountPercent) })),
+        }
+      : null,
+  );
+
   const set = <K extends keyof Values>(key: K, value: Values[K]) => setValues((current) => ({ ...current, [key]: value }));
   const setLine = (key: string, patch: Partial<LineValues>) =>
     setValues((current) => ({ ...current, lines: current.lines.map((line) => (line.key === key ? { ...line, ...patch } : line)) }));
+
+  /**
+   * Puts the Sales Config rate (customer → customer group → standard price → price type → sales rate)
+   * on the lines of `only` (every line when null). Offer (free) lines keep theirs.
+   */
+  async function applyConfigRates(customerId: string, nextPriceListId: string, lines: { itemId: string; qty: string }[], only: string[] | null) {
+    if (!values.officeId || !customerId || lines.length === 0) return;
+    try {
+      const result = await fetchPricing({
+        officeId: values.officeId,
+        customerId,
+        priceListId: nextPriceListId || null,
+        date: values.orderDate,
+        lines: lines.map((line) => ({ itemId: line.itemId, qty: orZero(line.qty) })),
+      });
+      const rate = new Map(result.prices.map((price) => [price.itemId, price.rate]));
+      setValues((current) =>
+        current.customerId !== customerId
+          ? current
+          : {
+              ...current,
+              lines: current.lines.map((line) => {
+                const next = rate.get(line.itemId);
+                return next && (!only || only.includes(line.itemId)) && orZero(line.discountPercent) < 100 ? { ...line, unitPrice: String(next) } : line;
+              }),
+            },
+      );
+    } catch {
+      // Keep the rates on screen; the order still saves with them.
+    }
+  }
 
   function changeOffice(officeId: string) {
     const next = lookups.offices.find((candidate) => candidate.id === officeId);
@@ -389,6 +437,7 @@ function OrderEditor({ today, lookups, order, quotation }: EditorProps) {
       paymentTermDays: String(next?.creditDays ?? 0),
       paymentMethod: next && next.creditDays > 0 ? "CREDIT" : current.paymentMethod,
     }));
+    if (next) void applyConfigRates(next.id, priceListId, values.lines, null);
   }
 
   function changePriceList(nextId: string) {
@@ -400,9 +449,16 @@ function OrderEditor({ today, lookups, order, quotation }: EditorProps) {
         return item ? { ...line, unitPrice: String(rateFor(item, nextId)) } : line;
       }),
     }));
+    void applyConfigRates(values.customerId, nextId, values.lines, null);
   }
 
   function addLine(line: Omit<LineValues, "key">) {
+    // A rate typed in the entry row stays; the price type's default is replaced by the Sales Config rate.
+    const item = itemById.get(line.itemId);
+    if (item && line.unitPrice === String(rateFor(item, priceListId))) {
+      const qty = values.lines.find((candidate) => candidate.itemId === line.itemId);
+      void applyConfigRates(values.customerId, priceListId, [{ itemId: line.itemId, qty: String(orZero(line.qty) + orZero(qty?.qty ?? "0")) }], [line.itemId]);
+    }
     setValues((current) => {
       const existing = current.lines.find((candidate) => candidate.itemId === line.itemId);
       if (existing) {
@@ -773,6 +829,7 @@ function OrderEditor({ today, lookups, order, quotation }: EditorProps) {
           </Card>
           <Card>
             <Section title="Summary">
+              <OfferPanel result={pricing.data} itemName={(itemId) => itemById.get(itemId)?.name ?? "Item"} />
               <dl className="flex flex-col gap-2 text-sm">
                 <SummaryRow label="Total" value={formatAmount(totals.itemsTotal)} />
                 <div className="flex items-center justify-between gap-3">

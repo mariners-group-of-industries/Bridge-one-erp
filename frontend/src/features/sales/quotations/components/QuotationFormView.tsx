@@ -25,6 +25,8 @@ import { addDays, useToday } from "../../lib/use-today";
 import type { CustomerOption, SalesLookups } from "../../masters/schemas/masters.schema";
 import { fetchCustomers, fetchItems, fetchSalesLookups, fetchSetupLookups } from "../../masters/services/masters.api";
 import { paths } from "../../paths";
+import { OfferPanel, usePricing } from "../../pricing/components/OfferPanel";
+import { fetchPricing } from "../../pricing/services/pricing.api";
 import { lineFigures, quotationTotals } from "../lib/totals";
 import { QUOTATION_TYPES, quotationInputSchema, type QuotationDetail, type QuotationInput, type QuotationTerm } from "../schemas/quotation.schema";
 import { createQuotation, fetchQuotation, updateQuotation } from "../services/quotation.api";
@@ -327,6 +329,29 @@ function QuotationForm({ today, lookups, source, copy }: { today: string; lookup
     values.includingVat,
   );
 
+  // Sales Config: offers the server applies on save, shown while the quotation is entered.
+  const pricing = usePricing(
+    values.officeId && values.customerId
+      ? {
+          officeId: values.officeId,
+          customerId: values.customerId,
+          date: values.quotationDate,
+          lines: values.lines.map((line) => ({ itemId: line.itemId, qty: n(line.qty), unitPrice: n(line.rate), discountPercent: n(line.discountPercent) })),
+        }
+      : null,
+  );
+
+  /** Sales Config rates (customer → customer group → standard price → sales rate) for `itemIds`. */
+  async function configRates(customerId: string, lines: { itemId: string; qty: number }[]) {
+    if (!values.officeId || !customerId || lines.length === 0) return new Map<string, number | null>();
+    try {
+      const result = await fetchPricing({ officeId: values.officeId, customerId, date: values.quotationDate, lines });
+      return new Map(result.prices.map((price) => [price.itemId, price.rate]));
+    } catch {
+      return new Map<string, number | null>();
+    }
+  }
+
   const term = customerTerm.trim().toLowerCase();
   const customerMatches =
     term.length >= 3
@@ -360,6 +385,14 @@ function QuotationForm({ today, lookups, source, copy }: { today: string; lookup
       billingContactNo: values.billingContactNo || customer.phone || "",
     });
     setCustomerTerm("");
+    // This customer's rates on the lines entered so far (free offer lines keep theirs).
+    void configRates(customer.id, values.lines.map((line) => ({ itemId: line.itemId, qty: n(line.qty) }))).then((rate) =>
+      setValues((current) =>
+        current.customerId !== customer.id
+          ? current
+          : { ...current, lines: current.lines.map((line) => (rate.get(line.itemId) && n(line.discountPercent) < 100 ? { ...line, rate: String(rate.get(line.itemId)) } : line)) },
+      ),
+    );
   }
 
   /**
@@ -394,6 +427,15 @@ function QuotationForm({ today, lookups, source, copy }: { today: string; lookup
       itemText: text,
       ...(item ? { rate: current.rate || String(item.salesRate || ""), vatPercent: item.vatPercent ? String(item.vatPercent) : current.vatPercent, withVat: item.vatPercent > 0 || current.withVat } : {}),
     }));
+    if (!item || !values.customerId) return;
+    // The customer's Sales Config rate replaces the sales rate unless one was typed.
+    void configRates(values.customerId, [{ itemId: item.id, qty: n(entry.qty) }]).then((rate) => {
+      const next = rate.get(item.id);
+      if (!next) return;
+      setEntry((current) =>
+        current.itemText === text && (current.rate === "" || current.rate === String(item.salesRate || "")) ? { ...current, rate: String(next) } : current,
+      );
+    });
   }
 
   function addLine() {
@@ -716,6 +758,9 @@ function QuotationForm({ today, lookups, source, copy }: { today: string; lookup
                 )}
               </tbody>
             </table>
+          </div>
+          <div className="ml-auto w-full max-w-sm">
+            <OfferPanel result={pricing.data} withInvoiceDiscount={false} itemName={(itemId) => values.lines.find((line) => line.itemId === itemId)?.name ?? "Item"} />
           </div>
           <dl className="ml-auto grid w-full max-w-sm grid-cols-[1fr_auto] gap-x-6 gap-y-1 text-sm">
             <dt className="text-ink-muted">Total Qty</dt>

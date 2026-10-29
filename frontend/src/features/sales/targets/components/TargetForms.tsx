@@ -16,7 +16,7 @@ import { cn } from "@/lib/cn";
 import { formatAmount, formatQty } from "../../dashboard/lib/format";
 import { issuesToErrors } from "../../lib/form";
 import { useToday } from "../../lib/use-today";
-import { CATEGORY_LEVEL_LABELS, type ItemOption, type SalesLookups } from "../../masters/schemas/masters.schema";
+import { type ItemOption, type SalesLookups } from "../../masters/schemas/masters.schema";
 import { fetchCustomers, fetchItems, fetchSalesLookups, fetchSetupLookups } from "../../masters/services/masters.api";
 import { paths } from "../../paths";
 import { round2 } from "../../quotations/lib/totals";

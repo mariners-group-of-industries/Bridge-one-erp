@@ -163,6 +163,15 @@ describe("production entries", () => {
     await expect(createEntry(operator, input())).rejects.toThrow("not open");
   });
 
+  it("keeps consumption at stock precision so the entry and stock agree", async () => {
+    const entry = await createEntry(operator, input({ materials: [{ itemId: ids.potato, actualQty: 125.4567, wastageQty: 1.2345 }, { itemId: ids.oil, actualQty: 12.0004 }] }));
+    expect(entry.materials.map((line) => [line.code, line.actualQty])).toEqual([
+      ["RM-00529", 125.457],
+      ["RM-00100", 12],
+    ]);
+    expect(Object.fromEntries(await stockLevels(ids.rmStore, [ids.potato, ids.oil]))).toEqual({ [ids.potato]: 374.543, [ids.oil]: 38 });
+  });
+
   it("refuses short stock, wrong materials and bad quantities", async () => {
     await expect(createEntry(operator, input({ materials: [{ itemId: ids.potato, actualQty: 600 }, { itemId: ids.oil, actualQty: 1 }] }))).rejects.toThrow("Not enough stock");
     await expect(createEntry(operator, input({ materials: [{ itemId: ids.potato, actualQty: 1 }] }))).rejects.toThrow("exactly the materials");
