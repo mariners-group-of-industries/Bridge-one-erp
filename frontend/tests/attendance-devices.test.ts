@@ -9,6 +9,7 @@ import { saveCompany } from "@/features/configuration/business-config/company-pr
 import { createOffice } from "@/features/configuration/business-config/company-profile/server/office.service";
 import { createDevice, deleteDevice, listDevices, updateDevice, uploadPunches } from "@/features/configuration/gateways/attendance-device/server/attendance-device.service";
 import { getDailyAttendance } from "@/features/hrm/attendance/services/attendance.service";
+import { createPolicyRecord } from "@/features/hrm/governance/server/policy-records.service";
 import { actionOf } from "@/lib/audit/record";
 import { AppError } from "@/lib/api/errors";
 import { adminActor, businessUnitInput, companyInput, officeInput } from "./helpers/fixtures";
@@ -102,5 +103,26 @@ describe("HRM daily attendance from punches", () => {
     expect((await getDailyAttendance({ ...filters, employeeId: rahimId })).records).toHaveLength(1);
     expect((await getDailyAttendance({ ...filters, fromDate: "2026-10-27", toDate: "2026-10-27" })).records.map((r) => r.inTime)).toEqual(["11:30 PM"]);
     await expect(getDailyAttendance({ ...filters, fromDate: "2026-01-01" })).rejects.toThrow(/at most/);
+  });
+
+  it("marks Late after 9:25 and Absent after 12:00 by default, and follows the office's own rule", async () => {
+    const { id } = await device();
+    await uploadPunches(adminActor, id, {
+      punches: [
+        { userId: "101", time: "2026-10-26T09:25:59+06:00" },
+        { userId: "101", time: "2026-10-27T09:26:00+06:00" },
+        { userId: "101", time: "2026-10-28T12:01:00+06:00" },
+        // Early arrivals are on time.
+        { userId: "202", time: "2026-10-28T07:40:00+06:00" },
+      ],
+    });
+    const status = async () =>
+      (await getDailyAttendance({ ...filters, fromDate: "2026-10-26", toDate: "2026-10-28" })).records.map((r) => `${r.employeeCode} ${r.date} ${r.actualAttendance}`).sort();
+    expect(await status()).toEqual(["202 2026-10-28 Present", "E-1 2026-10-26 Present", "E-1 2026-10-27 Late", "E-1 2026-10-28 Absent"]);
+
+    // An office rule from the 27th: late after 9:30, absent after 12:30.
+    await createPolicyRecord(adminActor, "attendance-process", { officeId, effectiveFrom: "2026-10-27", data: { dayStart: "08:00", lateAfter: "09:30", absentAfter: "12:30" } });
+    expect(await status()).toEqual(["202 2026-10-28 Present", "E-1 2026-10-26 Present", "E-1 2026-10-27 Present", "E-1 2026-10-28 Late"]);
+    await expect(createPolicyRecord(adminActor, "attendance-process", { effectiveFrom: "2026-10-27", data: { dayStart: "08:00", lateAfter: "12:00", absentAfter: "09:00" } })).rejects.toThrow(/later than Late After/);
   });
 });

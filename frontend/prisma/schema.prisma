@@ -481,6 +481,7 @@ model Office {
   attendanceDevices    AttendanceDevice[]
   payrollRuns          PayrollRun[]
   bonusRuns            BonusRun[]
+  hrPolicyRecords      HrPolicyRecord[]
   workCenters       ProductionWorkCenter[]
   productionEntries ProductionEntry[]
   productionOrders  ProductionOrder[]
@@ -3211,6 +3212,7 @@ model Employee {
   payrollRunLines      PayrollRunLine[]
   bonusLines           BonusLine[]
   salaryIncrements     SalaryIncrement[]
+  hrPolicyRecords      HrPolicyRecord[]
   workCenterOperators ProductionWorkCenterOperator[]
 
   @@index([officeId])
@@ -3982,4 +3984,29 @@ model SalaryIncrement {
   @@index([employeeId])
   @@index([effectiveDate])
   @@map("salary_increments")
+}
+
+/// HRM › HR Governance › Settings / Policies: one setup record of a tab (holiday,
+/// calendar, PF rule, …). The tab's own fields are in `data`, validated by the
+/// field definitions in features/hrm/governance/policy-fields.ts.
+model HrPolicyRecord {
+  id            String    @id @default(uuid()) @db.Uuid
+  tab           String    @db.VarChar(40)
+  /// Null = every office.
+  officeId      String?   @db.Uuid
+  employeeId    String?   @db.Uuid
+  effectiveFrom DateTime? @db.Date
+  effectiveTo   DateTime? @db.Date
+  data          Json
+  createdByName String?   @db.VarChar(150)
+  updatedByName String?   @db.VarChar(150)
+  createdAt     DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime  @updatedAt @db.Timestamptz(3)
+
+  office   Office?   @relation(fields: [officeId], references: [id], onDelete: Restrict)
+  employee Employee? @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([tab, effectiveFrom])
+  @@index([employeeId])
+  @@map("hr_policy_records")
 }

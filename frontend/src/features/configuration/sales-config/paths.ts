@@ -13,6 +13,4 @@ export const salesConfigPaths = {
   walletSetup: `${ROOT}/wallet-setup`,
   walletNew: `${ROOT}/wallet-setup/new`,
   walletEdit: (id: string) => `${ROOT}/wallet-setup/${id}`,
-  salesReturn: `${ROOT}/sales-return`,
-  priceSetup: `${ROOT}/price-setup`,
-} as const;
+  salesReturn: `${ROOT}/sales-return`,} as const;

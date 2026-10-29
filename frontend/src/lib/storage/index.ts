@@ -1,3 +1,4 @@
+import { CloudinaryStorage, cloudinaryConfigFromEnv } from "./cloudinary";
 import { LocalDiskStorage } from "./local-disk";
 
 /**
@@ -19,6 +20,10 @@ export function getStorage(): ObjectStorage {
   switch (driver) {
     case "local":
       storage = new LocalDiskStorage(process.env.STORAGE_LOCAL_DIR);
+      return storage;
+    case "cloudinary":
+      // Use this on serverless hosting (Vercel), where the local disk is not kept.
+      storage = new CloudinaryStorage(cloudinaryConfigFromEnv());
       return storage;
     default:
       // S3-compatible drivers (AWS S3, Cloudflare R2, ...) plug in here.

@@ -48,6 +48,49 @@ export async function getAttendanceEmployees(): Promise<EmployeeOption[]> {
   }));
 }
 
+// ─── Attendance rules (HR Governance › Settings / Policies › Atten Process) ──
+
+/** Used when no rule applies: late after 9:25 AM, absent after 12:00 PM. */
+export const DEFAULT_ATTENDANCE_RULE = { dayStart: "08:00", lateAfter: "09:25", absentAfter: "12:00" } as const;
+
+interface AttendanceRule {
+  officeId: string | null;
+  from: string;
+  to: string | null;
+  lateAfter: string;
+  absentAfter: string;
+}
+
+const hhmm = new Intl.DateTimeFormat("en-GB", { timeZone: TIME_ZONE, hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+const isTime = (value: unknown): value is string => typeof value === "string" && /^\d{2}:\d{2}$/.test(value);
+
+async function attendanceRules(toDate: string): Promise<AttendanceRule[]> {
+  const records = await db().hrPolicyRecord.findMany({
+    where: { tab: "attendance-process", OR: [{ effectiveFrom: null }, { effectiveFrom: { lte: new Date(`${toDate}T00:00:00Z`) } }] },
+    select: { officeId: true, effectiveFrom: true, effectiveTo: true, data: true },
+  });
+  return records.flatMap((r) => {
+    const data = (r.data ?? {}) as Record<string, unknown>;
+    if (!isTime(data.lateAfter) || !isTime(data.absentAfter)) return [];
+    return [{ officeId: r.officeId, from: r.effectiveFrom?.toISOString().slice(0, 10) ?? "", to: r.effectiveTo?.toISOString().slice(0, 10) ?? null, lateAfter: data.lateAfter, absentAfter: data.absentAfter }];
+  });
+}
+
+/** The office's own rule in force on the day, else the all-office one (latest effective date first). */
+function ruleFor(rules: AttendanceRule[], officeId: string, date: string) {
+  const inForce = rules.filter((r) => r.from <= date && (!r.to || r.to >= date));
+  const pick = (list: AttendanceRule[]) => list.sort((a, b) => b.from.localeCompare(a.from))[0];
+  return pick(inForce.filter((r) => r.officeId === officeId)) ?? pick(inForce.filter((r) => r.officeId === null)) ?? DEFAULT_ATTENDANCE_RULE;
+}
+
+/** Present, Late or Absent from the first punch's local time (minutes; 9:25:59 is still 9:25). */
+export function statusOf(firstPunch: Date, rule: { lateAfter: string; absentAfter: string }): "Present" | "Late" | "Absent" {
+  const at = hhmm.format(firstPunch);
+  if (at > rule.absentAfter) return "Absent";
+  if (at > rule.lateAfter) return "Late";
+  return "Present";
+}
+
 /** False for a missing or reversed range; throws when the range is too long. */
 function validRange(filters: AttendanceFilterState): boolean {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(filters.fromDate) || !/^\d{4}-\d{2}-\d{2}$/.test(filters.toDate) || filters.fromDate > filters.toDate) return false;
@@ -58,8 +101,9 @@ function validRange(filters: AttendanceFilterState): boolean {
 
 /**
  * One row per employee and day that has device punches: first punch = in,
- * last punch = out (when there is more than one). Manual adjustments saved
- * through the edit dialog replace the row for that employee and day.
+ * last punch = out (when there is more than one), and the status from the
+ * attendance rule. Manual adjustments saved through the edit dialog replace
+ * the row for that employee and day.
  */
 async function punchRecords(filters: AttendanceFilterState): Promise<AttendanceRecord[]> {
   if (!validRange(filters)) return [];
@@ -70,15 +114,18 @@ async function punchRecords(filters: AttendanceFilterState): Promise<AttendanceR
   const chosen = filters.employeeId && filters.employeeId !== "ALL" ? filters.employeeId : "";
   const employeeFilter = chosen ? { OR: [...(/^[0-9a-f-]{36}$/i.test(chosen) ? [{ id: chosen }] : []), { employeeCode: chosen }] } : {};
 
-  const punches = await db().attendancePunch.findMany({
-    where: { punchTime: { gte: from, lt: to }, employeeId: { not: null }, employee: employeeFilter },
-    orderBy: { punchTime: "asc" },
-    select: {
-      punchTime: true,
-      device: { select: { name: true } },
-      employee: { select: { id: true, employeeCode: true, name: true, designation: true, department: true, departmentSection: true } },
-    },
-  });
+  const [punches, rules] = await Promise.all([
+    db().attendancePunch.findMany({
+      where: { punchTime: { gte: from, lt: to }, employeeId: { not: null }, employee: employeeFilter },
+      orderBy: { punchTime: "asc" },
+      select: {
+        punchTime: true,
+        device: { select: { name: true } },
+        employee: { select: { id: true, officeId: true, employeeCode: true, name: true, designation: true, department: true, departmentSection: true } },
+      },
+    }),
+    attendanceRules(filters.toDate),
+  ]);
 
   const rows = new Map<string, { employee: NonNullable<(typeof punches)[number]["employee"]>; date: string; times: { at: Date; device: string }[] }>();
   for (const punch of punches) {
@@ -109,7 +156,7 @@ async function punchRecords(filters: AttendanceFilterState): Promise<AttendanceR
       outTime: last ? clock.format(last.at) : null,
       inTimeLocation: first.device,
       outTimeLocation: last?.device ?? null,
-      actualAttendance: "Present",
+      actualAttendance: statusOf(first.at, ruleFor(rules, employee.officeId, date)),
       requestAttendance: null,
       remarks: times.length > 2 ? `${times.length} punches` : null,
       lastActionBy: "Device",

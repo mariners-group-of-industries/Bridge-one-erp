@@ -12,11 +12,12 @@ import { useResource } from "@/hooks/use-resource";
 import { apiRequest, errorMessage } from "@/lib/api/client";
 import { cn } from "@/lib/cn";
 import { resolveBreadcrumbs } from "@/lib/navigation/registry";
-import { EmptyBlock, Input, Select, TABLE } from "@/features/configuration/entity-master-data/employee/components/kit";
+import { EmptyBlock, Input, Panel, Select, TABLE } from "@/features/configuration/entity-master-data/employee/components/kit";
 import type { EmployeeOption } from "../../self-service/leave-movement/schemas/leave-movement.schema";
 import { EmployeeField, Grid } from "../../self-service/leave-movement/components/shared";
 import { hrmPaths } from "../../paths";
 import { FilterBar, FilterField, OfficeSelect, useHrOptions } from "../../shared/hr-ui";
+import { PolicyRecordsPanel } from "./PolicyRecordsPanel";
 import { PENDING_KINDS, POLICY_TABS, type GridColumn, type PendingKind, type PendingList, type PolicyGrid, type PolicyTab } from "../types";
 
 function DataRows({ columns, rows, numbered = true }: { columns: GridColumn[]; rows: Record<string, string | number>[]; numbered?: boolean }) {
@@ -67,25 +68,27 @@ export function PolicySettingsView() {
               </FilterField>
             </FilterBar>
 
+            <PolicyRecordsPanel key={tab} tab={tab} label={POLICY_TABS.find((t) => t.id === tab)!.label} filter={applied} options={options.data} />
+
+            {/* Tabs backed by employee records also show what is stored there. */}
             {grid.error ? (
               <ErrorState message={grid.error.message} onRetry={grid.reload} />
             ) : !grid.data ? (
               <LoadingState />
-            ) : !grid.data.configured ? (
-              <EmptyBlock icon={<Settings2 />} title="Not set up yet">
-                {grid.data.note}
-              </EmptyBlock>
             ) : (
-              <>
-                {grid.data.note && <p className="text-xs text-ink-faint">{grid.data.note}</p>}
-                {grid.data.rows.length === 0 ? (
-                  <EmptyBlock icon={<Settings2 />} title="Nothing matches these filters" />
-                ) : (
-                  <Grid headers={["SL", ...grid.data.columns.map((c) => c.label)]} loading={grid.loading}>
-                    <DataRows columns={grid.data.columns} rows={grid.data.rows} />
-                  </Grid>
-                )}
-              </>
+              grid.data.configured && (
+                <Panel title="From employee records" description={grid.data.note} flush>
+                  <div className="p-4">
+                    {grid.data.rows.length === 0 ? (
+                      <EmptyBlock icon={<Settings2 />} title="Nothing matches these filters" />
+                    ) : (
+                      <Grid headers={["SL", ...grid.data.columns.map((c) => c.label)]} loading={grid.loading}>
+                        <DataRows columns={grid.data.columns} rows={grid.data.rows} />
+                      </Grid>
+                    )}
+                  </div>
+                </Panel>
+              )
             )}
           </div>
         </Tabs>
