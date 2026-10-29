@@ -111,6 +111,12 @@ export const customerInputSchema = z
     contactNo: optionalText(30),
     taxBracketId: optionalId,
     remarks: optionalText(1000),
+    // Partner Bank Information
+    bankType: optionalText(50),
+    bankAccountNo: optionalText(50),
+    bankBranch: optionalText(100),
+    bankName: optionalText(100),
+    bankRoutingNo: optionalText(30),
     // Shipping Details list
     shipping: z.array(shippingSchema).max(200, "Up to 200 shipping addresses per customer.").default([]),
   })

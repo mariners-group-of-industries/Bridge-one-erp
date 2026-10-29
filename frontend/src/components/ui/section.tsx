@@ -51,12 +51,29 @@ export function FieldGrid({ children, className }: { children: ReactNode; classN
   return <div className={cn("grid gap-x-8 gap-y-4 md:grid-cols-2", className)}>{children}</div>;
 }
 
-export function EmptyState({ title, icon, children }: { title: string; icon?: ReactNode; children?: ReactNode }) {
+export function EmptyState({ title, subtitle, icon, children }: { title: string; subtitle?: string; icon?: ReactNode; children?: ReactNode }) {
   return (
-    <div className="flex flex-col items-center gap-2 px-4 py-10 text-center">
-      {icon && <div className="text-ink-faint [&_svg]:size-8">{icon}</div>}
-      <p className="text-xs font-medium text-ink-muted">{title}</p>
-      {children && <div className="text-sm text-ink-faint">{children}</div>}
+    <div className="flex flex-col items-center justify-center gap-2 px-4 py-16 text-center select-none bg-surface">
+      {icon ? (
+        <div className="text-ink-faint [&_svg]:size-8">{icon}</div>
+      ) : (
+        <div className="mb-2 flex flex-col items-center justify-center">
+          <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-tr from-blue-700 via-indigo-600 to-sky-500 font-black text-xl text-white shadow-md shadow-blue-500/20">
+            B1
+          </div>
+          <div className="mt-3 flex items-center gap-1.5">
+            <span className="font-black text-lg tracking-tight text-[#0f2d59]">
+              Bridge<span className="text-blue-600">One</span>
+            </span>
+            <span className="rounded border border-blue-200 bg-blue-50 px-1.5 py-0.5 font-bold text-[10px] text-blue-700">
+              ERP
+            </span>
+          </div>
+        </div>
+      )}
+      <h3 className="text-sm font-bold text-ink">{title}</h3>
+      {subtitle && <p className="max-w-sm text-xs text-ink-muted">{subtitle}</p>}
+      {children && <div className="text-xs text-ink-muted">{children}</div>}
     </div>
   );
 }

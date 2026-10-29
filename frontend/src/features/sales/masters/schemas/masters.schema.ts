@@ -234,6 +234,8 @@ export interface CustomerOption {
   creditDays: number;
   creditLimit: number | null;
   isActive: boolean;
+  /** The walk-in customer (direct deliveries default to it). */
+  isAnonymous: boolean;
   addresses: AddressOption[];
 }
 
@@ -245,6 +247,10 @@ export interface ItemOption {
   altUom: string | null;
   altUomFactor: number | null;
   categoryId: string | null;
+  itemType: string | null;
+  brand: string | null;
+  /** Purchase (cost) price from the item profile. */
+  costPrice: number | null;
   mrp: number | null;
   vatPercent: number;
   deliveryTolerancePercent: number;

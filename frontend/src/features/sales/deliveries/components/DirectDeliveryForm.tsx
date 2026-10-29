@@ -1,12 +1,13 @@
 "use client";
 
-import { ArrowLeft, Plus, Trash2, UserPlus } from "lucide-react";
+import { ArrowLeft, FileText, Plus, Printer, SaveAll, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useId, useMemo, useState } from "react";
 import { PageContainer, PageHead } from "@/components/layout/page";
 import { Button, buttonClasses } from "@/components/ui/button";
-import { CONTROL, CheckboxField, SelectField, TextField } from "@/components/ui/form-field";
+import { Dialog } from "@/components/ui/dialog";
+import { CONTROL, CheckboxField, SelectField, TextAreaField, TextField } from "@/components/ui/form-field";
 import { Indicator } from "@/components/ui/indicator";
 import { Card, EmptyState, ErrorState, LoadingState, Section } from "@/components/ui/section";
 import { useToast } from "@/components/ui/toast";
@@ -14,18 +15,22 @@ import { useResource } from "@/hooks/use-resource";
 import { useSaveShortcut } from "@/hooks/use-save-shortcut";
 import { errorMessage } from "@/lib/api/client";
 import { cn } from "@/lib/cn";
+import { CustomerFormView } from "@/features/configuration/entity-master-data/customer/components/CustomerFormView";
+import type { CustomerDto } from "@/features/configuration/entity-master-data/customer/schemas/customer.schema";
+import { SearchPick } from "../../components/SearchPick";
 import { formatAmount } from "../../dashboard/lib/format";
 import { issuesToErrors, requiredNumber } from "../../lib/form";
 import type { CustomerOption, ItemOption, SalesLookups } from "../../masters/schemas/masters.schema";
 import { fetchCustomerCredit, fetchCustomers, fetchItems, fetchSalesLookups, fetchSetupLookups } from "../../masters/services/masters.api";
 import { ItemEntry, LinesGrid, type LineValues } from "../../orders/components/OrderFormView";
 import { orderTotals } from "../../orders/lib/order-totals";
+import { ORDER_TYPES, ORDER_TYPE_LABELS, type OrderType } from "../../orders/schemas/order.schema";
 import { paths } from "../../paths";
 import { round2 } from "../../quotations/lib/totals";
-import { CustomerDialog } from "../../setup/components/CustomerDialog";
 import { directDeliverySchema, exchangeSchema, type DeliveryDetail, type WarehouseOption } from "../schemas/delivery.schema";
-import { createDelivery, fetchDelivery, fetchWarehouses, updateDelivery } from "../services/delivery.api";
-import { DeliverySummary, TransportSection, blankHeader, headerFromDelivery, headerInput, nowTime, type HeaderValues } from "./DeliveryFormParts";
+import { createDelivery, fetchDelivery, fetchVehicles, fetchWarehouses, updateDelivery } from "../services/delivery.api";
+import { DeliverySummary, blankHeader, headerFromDelivery, headerInput, nowTime, type HeaderValues } from "./DeliveryFormParts";
+import { VehicleSection } from "./DeliveryVehicle";
 
 type Mode = "DIRECT" | "EXCHANGE";
 
@@ -35,7 +40,7 @@ export function DirectDeliveryFormView({ mode, deliveryId, today }: { mode: Mode
   const warehouses = useResource("warehouses", fetchWarehouses);
   const delivery = useResource(deliveryId ?? null, () => fetchDelivery(deliveryId!));
   const error = lookups.error ?? warehouses.error ?? delivery.error;
-  const title = mode === "EXCHANGE" ? "Exchange" : "Direct Delivery";
+  const title = mode === "EXCHANGE" ? "Exchange" : "Create Direct Delivery";
 
   if (error) {
     return (
@@ -81,6 +86,21 @@ const toNumber = (value: string) => {
 const newKey = () => crypto.randomUUID();
 /** Rate of an item for a price type (falls back to the default rate). */
 const rateFor = (item: ItemOption, priceListId: string) => item.prices[priceListId] ?? item.salesRate;
+const customerLabel = (customer: { name: string; code: string; isAnonymous?: boolean }) => (customer.isAnonymous ? customer.name : `${customer.name} (${customer.code})`);
+
+function newHeader(today: string, lookups: SalesLookups, warehouses: WarehouseOption[], keep?: HeaderValues): HeaderValues {
+  const office = lookups.offices.find((candidate) => candidate.id === keep?.officeId) ?? lookups.offices[0];
+  return {
+    ...blankHeader(today, nowTime()),
+    officeId: office?.id ?? "",
+    warehouseId: keep?.warehouseId || (warehouses.find((warehouse) => warehouse.officeId === office?.id)?.id ?? ""),
+    deliveryDate: keep?.deliveryDate ?? today,
+    terms: keep?.terms ?? (office ? (lookups.orderTerms[office.businessUnitId] ?? "") : ""),
+  };
+}
+
+type SaveMode = "close" | "new" | "print";
+type PartnerDialog = "customer" | "promoter" | null;
 
 function DirectEditor({
   mode,
@@ -97,17 +117,9 @@ function DirectEditor({
 }) {
   const router = useRouter();
   const toast = useToast();
+  const fieldId = useId();
 
-  const [header, setHeader] = useState<HeaderValues>(() => {
-    if (delivery) return headerFromDelivery(delivery);
-    const office = lookups.offices[0];
-    return {
-      ...blankHeader(today, nowTime()),
-      officeId: office?.id ?? "",
-      warehouseId: warehouses.find((warehouse) => warehouse.officeId === office?.id)?.id ?? "",
-      terms: office ? (lookups.orderTerms[office.businessUnitId] ?? "") : "",
-    };
-  });
+  const [header, setHeader] = useState<HeaderValues>(() => (delivery ? headerFromDelivery(delivery) : newHeader(today, lookups, warehouses)));
   const [customerId, setCustomerId] = useState(delivery?.customerId ?? "");
   const [priceIncludesVat, setPriceIncludesVat] = useState(delivery?.priceIncludesVat ?? true);
   const [priceListId, setPriceListId] = useState("");
@@ -129,7 +141,9 @@ function DirectEditor({
   );
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
-  const [customerDialog, setCustomerDialog] = useState(false);
+  const [partnerDialog, setPartnerDialog] = useState<PartnerDialog>(null);
+  const [termsOpen, setTermsOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(Boolean(delivery && (delivery.refCustomerPo || delivery.refInvoice || delivery.contactPerson)));
 
   const office = lookups.offices.find((candidate) => candidate.id === header.officeId);
   const businessUnitId = office?.businessUnitId ?? null;
@@ -137,14 +151,54 @@ function DirectEditor({
     const [setup, customers, items] = await Promise.all([fetchSetupLookups(businessUnitId!), fetchCustomers(businessUnitId!), fetchItems(businessUnitId!)]);
     return { setup, customers, items };
   });
+  const vehicles = useResource(businessUnitId && `vehicles:${businessUnitId}`, () => fetchVehicles(businessUnitId!));
   const customers = useMemo(() => masters.data?.customers ?? [], [masters.data]);
   const items = useMemo(() => masters.data?.items ?? [], [masters.data]);
   const itemById = useMemo(() => new Map(items.map((item) => [item.id, item])), [items]);
   const customer = customers.find((candidate) => candidate.id === customerId);
-  const credit = useResource(customerId ? `credit:${customerId}:${today}` : null, () => fetchCustomerCredit(customerId, today));
+  const credit = useResource(customerId && !customer?.isAnonymous ? `credit:${customerId}:${today}` : null, () => fetchCustomerCredit(customerId, today));
   const effectivePriceList = priceListId || masters.data?.setup.priceLists.find((list) => list.isDefault)?.id || "";
+  const officeWarehouses = warehouses.filter((warehouse) => warehouse.officeId === header.officeId);
 
   const set = <K extends keyof HeaderValues>(key: K, value: HeaderValues[K]) => setHeader((current) => ({ ...current, [key]: value }));
+
+  function selectCustomer(next: CustomerOption | undefined) {
+    setCustomerId(next?.id ?? "");
+    setHeader((current) => ({
+      ...current,
+      salesPersonId: next?.salesPersonId ?? current.salesPersonId,
+      shipToAddressId: next?.addresses.find((address) => address.isDefault)?.id ?? "",
+      contactPerson: next?.contactPerson ?? "",
+      paymentTermDays: String(next?.creditDays ?? 0),
+      paymentMethod: next && next.creditDays > 0 ? "CREDIT" : "CASH",
+    }));
+  }
+
+  // New deliveries start with the business unit's anonymous (walk-in) customer, as in Managerium.
+  const [defaultedFor, setDefaultedFor] = useState<string | null>(delivery ? businessUnitId : null);
+  if (!delivery && masters.data && businessUnitId && defaultedFor !== businessUnitId) {
+    setDefaultedFor(businessUnitId);
+    const anonymous = masters.data.customers.find((candidate) => candidate.isAnonymous && candidate.isActive);
+    if (!customerId && anonymous) selectCustomer(anonymous);
+  }
+
+  function changeOffice(officeId: string) {
+    const next = lookups.offices.find((candidate) => candidate.id === officeId);
+    const sameUnit = next?.businessUnitId === businessUnitId;
+    setHeader((current) => ({
+      ...current,
+      officeId,
+      warehouseId: warehouses.find((warehouse) => warehouse.officeId === officeId)?.id ?? "",
+      ...(sameUnit ? {} : { salesPersonId: "", shipToAddressId: "", vehicleId: "", driverEmployeeId: "", driverEmployeeName: "" }),
+    }));
+    if (!sameUnit) {
+      // Customers, items and vehicles belong to one business unit.
+      setCustomerId("");
+      setLines([]);
+      setReceived([]);
+      setPriceListId("");
+    }
+  }
 
   const totals = orderTotals(
     lines.map((line) => ({
@@ -158,18 +212,6 @@ function DirectEditor({
   );
   const returnTotal = round2(received.reduce((sum, line) => sum + toNumber(line.qty) * toNumber(line.rate), 0));
 
-  function selectCustomer(next: CustomerOption | undefined) {
-    setCustomerId(next?.id ?? "");
-    setHeader((current) => ({
-      ...current,
-      salesPersonId: next?.salesPersonId ?? current.salesPersonId,
-      shipToAddressId: next?.addresses.find((address) => address.isDefault)?.id ?? "",
-      contactPerson: next?.contactPerson ?? "",
-      paymentTermDays: String(next?.creditDays ?? 0),
-      paymentMethod: next && next.creditDays > 0 ? "CREDIT" : current.paymentMethod,
-    }));
-  }
-
   function addLine(line: Omit<LineValues, "key">) {
     setLines((current) => {
       const existing = current.find((candidate) => candidate.itemId === line.itemId);
@@ -180,7 +222,37 @@ function DirectEditor({
     });
   }
 
-  async function save() {
+  function partnerSaved(saved: CustomerDto) {
+    const kind = partnerDialog;
+    setPartnerDialog(null);
+    masters.reload();
+    if (kind === "promoter") {
+      set("referredBy", saved.name);
+      toast.success(`Promoter ${saved.name} added.`);
+      return;
+    }
+    setCustomerId(saved.id);
+    setHeader((current) => ({
+      ...current,
+      salesPersonId: saved.salesPersonId ?? current.salesPersonId,
+      contactPerson: saved.contactPerson ?? current.contactPerson,
+      paymentTermDays: saved.creditDays || "0",
+    }));
+    toast.success(`Customer ${saved.name} added and selected.`);
+  }
+
+  function resetForNext() {
+    setHeader((current) => newHeader(today, lookups, warehouses, current));
+    setCustomerId("");
+    setDefaultedFor(null);
+    setLines([]);
+    setReceived([]);
+    setDiscount("0");
+    setReason("");
+    setErrors({});
+  }
+
+  async function save(saveMode: SaveMode = "close") {
     if (busy) return;
     const common = {
       customerId,
@@ -217,16 +289,39 @@ function DirectEditor({
     try {
       const saved = delivery ? await updateDelivery(delivery.id, delivery.updatedAt, input) : await createDelivery(input);
       toast.success(`${saved.number} saved (challan ${saved.challanNo}).`);
-      router.replace(paths.delivery(saved.id));
+      if (saveMode === "new") {
+        resetForNext();
+        setBusy(false);
+      } else if (saveMode === "print") {
+        router.push(paths.printDelivery(saved.id, "invoice"));
+      } else {
+        router.replace(paths.delivery(saved.id));
+      }
     } catch (error) {
       toast.error(errorMessage(error));
       setBusy(false);
     }
   }
 
-  useSaveShortcut(save, true);
+  useSaveShortcut(() => save(), true);
 
-  const title = delivery ? `Edit ${mode === "EXCHANGE" ? "Exchange" : "Delivery"} ${delivery.number}` : mode === "EXCHANGE" ? "Exchange" : "Direct Delivery";
+  const title = delivery ? `Edit ${mode === "EXCHANGE" ? "Exchange" : "Delivery"} ${delivery.number}` : mode === "EXCHANGE" ? "Exchange" : "Create Direct Delivery";
+  const field = (key: keyof HeaderValues) => ({
+    value: header[key] as string,
+    error: errors[key],
+    onChange: (event: { target: { value: string } }) => set(key, event.target.value as never),
+  });
+  const addNew = (kind: Exclude<PartnerDialog, null>) => (
+    <button
+      type="button"
+      className="absolute top-0 right-0 text-xs font-medium text-accent-strong hover:underline disabled:text-ink-faint"
+      disabled={!businessUnitId}
+      onClick={() => setPartnerDialog(kind)}
+    >
+      <Plus aria-hidden="true" className="inline size-3.5" /> ADD NEW
+    </button>
+  );
+  const addresses = customer?.addresses ?? [];
 
   return (
     <PageContainer className="max-w-none">
@@ -243,11 +338,25 @@ function DirectEditor({
             {title}
           </span>
         }
-        subtitle={mode === "EXCHANGE" ? "Take damaged or expired goods back and give replacements." : "Deliver without a sales order."}
+        subtitle={mode === "EXCHANGE" ? "Take damaged or expired goods back and give replacements." : undefined}
         actions={
-          <Button variant="primary" onClick={save} loading={busy}>
-            Save
-          </Button>
+          <>
+            {!delivery && (
+              <>
+                <Button variant="accent-soft" onClick={() => save("new")} disabled={busy}>
+                  <SaveAll aria-hidden="true" />
+                  Save &amp; New
+                </Button>
+                <Button variant="accent-soft" onClick={() => save("print")} disabled={busy}>
+                  <Printer aria-hidden="true" />
+                  Save &amp; Print
+                </Button>
+              </>
+            )}
+            <Button variant="primary" onClick={() => save()} loading={busy}>
+              SAVE
+            </Button>
+          </>
         }
       />
 
@@ -265,47 +374,125 @@ function DirectEditor({
               )}
             </div>
             <div className="grid gap-x-4 gap-y-3 sm:grid-cols-2 lg:grid-cols-4">
-              <div className="flex items-end gap-1.5 lg:col-span-2">
-                <SelectField
+              <TextField label="Create Date" type="date" required {...field("deliveryDate")} />
+              <SelectField
+                label="Office"
+                required
+                value={header.officeId}
+                error={errors.officeId}
+                options={[
+                  { value: "", label: "Select office" },
+                  ...lookups.offices
+                    .filter((candidate) => !delivery || candidate.businessUnitId === delivery.businessUnitId)
+                    .map((candidate) => ({ value: candidate.id, label: candidate.name })),
+                ]}
+                onChange={(event) => changeOffice(event.target.value)}
+              />
+              <SelectField
+                label="Warehouse"
+                required
+                value={header.warehouseId}
+                error={errors.warehouseId}
+                hint={header.officeId && officeWarehouses.length === 0 ? "This office has no warehouse. Add one in Configuration." : undefined}
+                options={[{ value: "", label: "Select Warehouse" }, ...officeWarehouses.map((warehouse) => ({ value: warehouse.id, label: warehouse.name }))]}
+                onChange={(event) => set("warehouseId", event.target.value)}
+              />
+              <div className="relative">
+                <SearchPick
+                  key={`${businessUnitId}:${customers.length}`}
                   label="Customer"
                   required
-                  className="min-w-0 flex-1"
-                  value={customerId}
                   error={errors.customerId}
                   disabled={!businessUnitId || masters.loading}
+                  placeholder={masters.loading ? "Loading…" : "Select/Search Customer (min 3 letters)"}
                   options={[
-                    { value: "", label: masters.loading ? "Loading…" : "Select customer" },
-                    ...(delivery && !customers.some((candidate) => candidate.id === delivery.customerId) ? [{ value: delivery.customerId, label: delivery.customerName }] : []),
-                    ...customers.map((candidate) => ({ value: candidate.id, label: `${candidate.code} - ${candidate.name}${candidate.phone ? ` (${candidate.phone})` : ""}` })),
+                    ...(delivery && !customers.some((candidate) => candidate.id === delivery.customerId) ? [{ id: delivery.customerId, label: delivery.customerName }] : []),
+                    ...customers.map((candidate) => ({ id: candidate.id, label: customerLabel(candidate) })),
                   ]}
-                  onChange={(event) => selectCustomer(customers.find((candidate) => candidate.id === event.target.value))}
+                  selectedId={customerId}
+                  onPick={(id) => selectCustomer(customers.find((candidate) => candidate.id === id))}
                 />
-                <Button size="icon" aria-label="New customer" title="New customer" disabled={!masters.data} onClick={() => setCustomerDialog(true)}>
-                  <UserPlus />
-                </Button>
+                {addNew("customer")}
+              </div>
+
+              <div className="relative">
+                <SearchPick
+                  label="Referred By"
+                  freeText
+                  error={errors.referredBy}
+                  disabled={!businessUnitId}
+                  placeholder="Select/Search Customer (min 3 letters)"
+                  options={customers.filter((candidate) => candidate.id !== customerId && !candidate.isAnonymous).map((candidate) => ({ id: candidate.id, label: candidate.name }))}
+                  text={header.referredBy}
+                  onText={(text) => set("referredBy", text)}
+                />
+                {addNew("promoter")}
               </div>
               <SelectField
-                label="Price Type"
-                value={effectivePriceList}
-                options={[{ value: "", label: "Default sales rate" }, ...(masters.data?.setup.priceLists ?? []).map((list) => ({ value: list.id, label: list.name }))]}
-                onChange={(event) => setPriceListId(event.target.value)}
+                label="Sales Force"
+                value={header.salesPersonId}
+                error={errors.salesPersonId}
+                options={[{ value: "", label: "Sales Force" }, ...(masters.data?.setup.salesPersons ?? []).map((person) => ({ value: person.id, label: person.name }))]}
+                onChange={(event) => set("salesPersonId", event.target.value)}
               />
-              {mode === "EXCHANGE" && <TextField label="Reason" placeholder="Damaged, expired …" value={reason} error={errors.reason} onChange={(event) => setReason(event.target.value)} />}
+              <TextField label="Name" placeholder="Name" hint={customer?.isAnonymous ? "Buyer of this walk-in sale." : undefined} {...field("buyerName")} />
+              <TextField label="Mobile No" type="tel" placeholder="Mobile No" {...field("buyerMobile")} />
+
+              {addresses.length > 0 && (
+                <SelectField
+                  label="Shipping Address"
+                  value={header.shipToAddressId}
+                  options={[{ value: "", label: "Type another address…" }, ...addresses.map((address) => ({ value: address.id, label: `${address.label}: ${address.address}` }))]}
+                  onChange={(event) => set("shipToAddressId", event.target.value)}
+                />
+              )}
+              {(addresses.length === 0 || !header.shipToAddressId) && (
+                <TextField label={addresses.length ? "Shipping Address (other)" : "Shipping Address"} placeholder="Shipping Address" {...field("shippingAddress")} />
+              )}
+              <TextField label="Challan No" placeholder="Blank = next number" {...field("challanNo")} />
+              <TextField label="VAT Challan No" placeholder="VAT Challan No" {...field("vatChallanNo")} />
+              <SelectField
+                label="Type"
+                value={header.salesType}
+                options={ORDER_TYPES.map((value) => ({ value, label: ORDER_TYPE_LABELS[value] }))}
+                onChange={(event) => set("salesType", event.target.value as OrderType)}
+              />
+
+              <TextField label="Project/Outlet/Ref." placeholder="Project/Outlet/Ref." {...field("refProjectOutlet")} />
+              <TextField label="Payment Term Days" type="number" min={0} max={365} placeholder="Payment Term Days" {...field("paymentTermDays")} />
+              <TextField label="Remarks" placeholder="Remarks" {...field("remarks")} />
+              <TextField label="Delivery Time" type="time" {...field("deliveryTime")} />
+              {mode === "EXCHANGE" && <TextField label="Exchange Reason" placeholder="Damaged, expired …" value={reason} error={errors.reason} onChange={(event) => setReason(event.target.value)} />}
             </div>
+            <div className="flex flex-wrap items-center gap-3">
+              <Button variant="primary" size="sm" onClick={() => setTermsOpen(true)}>
+                <FileText aria-hidden="true" />
+                Terms &amp; Conditions
+              </Button>
+              <button type="button" className="text-xs text-accent-strong hover:underline" aria-expanded={moreOpen} aria-controls={`${fieldId}-more`} onClick={() => setMoreOpen((value) => !value)}>
+                {moreOpen ? "Hide references" : "Contact & customer PO references"}
+              </button>
+            </div>
+            {moreOpen && (
+              <div id={`${fieldId}-more`} className="grid gap-x-4 gap-y-3 sm:grid-cols-2 lg:grid-cols-4">
+                <TextField label="Contact To" {...field("contactPerson")} />
+                <TextField label="Ref Customer PO" {...field("refCustomerPo")} />
+                <TextField label="Ref Customer PO Date" type="date" {...field("refCustomerPoDate")} />
+                <TextField label="Ref Invoice" {...field("refInvoice")} />
+              </div>
+            )}
           </Section>
         </Card>
 
         <Card>
-          <Section title="Transportation Details">
-            <TransportSection
+          <Section>
+            <VehicleSection
               values={header}
               errors={errors}
               set={set}
-              offices={lookups.offices}
-              businessUnitId={delivery?.businessUnitId}
-              warehouses={warehouses}
-              salesPersons={masters.data?.setup.salesPersons ?? []}
-              addresses={customer?.addresses ?? []}
+              businessUnitId={businessUnitId}
+              vehicles={vehicles.data ?? []}
+              onVehicleCreated={(vehicle) => vehicles.mutate((current) => [...(current ?? []), vehicle])}
             />
           </Section>
         </Card>
@@ -319,8 +506,23 @@ function DirectEditor({
         )}
 
         <Card>
-          <Section title={mode === "EXCHANGE" ? "Replacement Goods Given" : "Items"}>
-            <ItemEntry items={items} setup={masters.data?.setup} priceListId={effectivePriceList} disabled={!businessUnitId || masters.loading} onAdd={addLine} warehouseId={header.warehouseId} />
+          <Section title={mode === "EXCHANGE" ? "Replacement Goods Given" : undefined}>
+            <ItemEntry
+              items={items}
+              setup={masters.data?.setup}
+              priceListId={effectivePriceList}
+              disabled={!businessUnitId || masters.loading}
+              onAdd={addLine}
+              warehouseId={header.warehouseId}
+              filterExtra={
+                <SelectField
+                  label="Price Type"
+                  value={effectivePriceList}
+                  options={[{ value: "", label: "Select Price Type" }, ...(masters.data?.setup.priceLists ?? []).map((list) => ({ value: list.id, label: list.name }))]}
+                  onChange={(event) => setPriceListId(event.target.value)}
+                />
+              }
+            />
             <LinesGrid
               lines={lines}
               itemById={itemById}
@@ -357,20 +559,28 @@ function DirectEditor({
         </div>
       </div>
 
-      {customerDialog && businessUnitId && masters.data && (
-        <CustomerDialog
-          open
-          businessUnitId={businessUnitId}
-          lookups={masters.data.setup}
-          customer={null}
-          onClose={() => setCustomerDialog(false)}
-          onSaved={(saved) => {
-            setCustomerDialog(false);
-            masters.mutate((data) => ({ ...data!, customers: [...data!.customers, saved].sort((a, b) => a.name.localeCompare(b.name)) }));
-            selectCustomer(saved);
-          }}
-        />
-      )}
+      <Dialog
+        open={termsOpen}
+        title="Terms & Conditions"
+        size="lg"
+        onClose={() => setTermsOpen(false)}
+        footer={
+          <Button variant="primary" onClick={() => setTermsOpen(false)}>
+            DONE
+          </Button>
+        }
+      >
+        <TextAreaField label="Terms & Conditions" rows={12} maxLength={4000} value={header.terms} error={errors.terms} onChange={(event) => set("terms", event.target.value)} />
+      </Dialog>
+
+      <Dialog open={partnerDialog !== null} title={partnerDialog === "promoter" ? "Add Promoter" : "Add Customer"} size="xl" className="max-w-7xl" onClose={() => setPartnerDialog(null)}>
+        {partnerDialog && (
+          <CustomerFormView
+            defaultOfficeId={header.officeId}
+            embedded={{ defaultOfficeId: header.officeId, onSaved: partnerSaved, onCancel: () => setPartnerDialog(null) }}
+          />
+        )}
+      </Dialog>
     </PageContainer>
   );
 }

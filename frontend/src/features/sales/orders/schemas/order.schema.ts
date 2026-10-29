@@ -150,6 +150,9 @@ export const orderListQuerySchema = z
     createdBy: z.string().trim().min(1).max(100).optional(),
     paymentMethod: z.enum(PAYMENT_METHODS).optional(),
     orderType: z.enum(ORDER_TYPES).optional(),
+    customerId: optionalUuid,
+    /** SO no, customer name / code, customer PO or project/outlet. */
+    search: z.string().trim().max(100).optional(),
     from: z.iso.date().optional(),
     to: z.iso.date().optional(),
   })

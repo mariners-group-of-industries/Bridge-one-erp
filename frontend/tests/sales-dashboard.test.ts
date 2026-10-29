@@ -152,12 +152,13 @@ describe("getSalesDashboard", () => {
         { ...bu, number: "COL-2", customerId: sobuj.id, collectionDate: day("2026-10-12"), amount: 999, status: "SUBMITTED" },
       ],
     });
+    const budgetId = (await prisma.salesTargetBudget.create({ data: { ...bu, basis: "AMOUNT", year: 2026 } })).id;
     await prisma.salesTarget.createMany({
       data: [
-        { ...bu, salesPersonId: anarul.id, month: day("2026-10-01"), amount: 1000 },
-        { ...bu, salesPersonId: younus.id, month: day("2026-10-01"), amount: 2000 },
+        { ...bu, budgetId, salesPersonId: anarul.id, month: day("2026-10-01"), amount: 1000 },
+        { ...bu, budgetId, salesPersonId: younus.id, month: day("2026-10-01"), amount: 2000 },
         // Outside the range.
-        { ...bu, salesPersonId: younus.id, month: day("2026-08-01"), amount: 500 },
+        { ...bu, budgetId, salesPersonId: younus.id, month: day("2026-08-01"), amount: 500 },
       ],
     });
   });

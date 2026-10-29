@@ -1,5 +1,5 @@
 import { apiRequest } from "@/lib/api/client";
-import { downloadFile } from "../../lib/download";
+import { downloadFile } from "@/lib/download";
 import type { Report, ReportLookups, ReportQuery } from "../schemas/report.schema";
 
 const BASE = "/api/production/reports";

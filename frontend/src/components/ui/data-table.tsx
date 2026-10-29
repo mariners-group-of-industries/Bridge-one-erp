@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowDownNarrowWide, ArrowUpNarrowWide, ChevronDown, Search } from "lucide-react";
+import { ArrowDownNarrowWide, ArrowUpNarrowWide, ChevronDown, ChevronLeft, ChevronRight, Search } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useMemo, useState, type MouseEvent, type ReactNode } from "react";
 import { cn } from "@/lib/cn";
@@ -38,6 +38,18 @@ interface DataTableProps<T> {
   emptyState?: ReactNode;
   /** Total row under the table: content per column id, computed from the searched rows. */
   footer?: (rows: readonly T[]) => Partial<Record<string, ReactNode>>;
+  /** Rows are one page fetched by the server: show them all and page through the server instead. */
+  serverPage?: ServerPage;
+  /** Page the rows here with numbered pages ("Rows per page", "1–50 of N") instead of "Load more". */
+  pages?: readonly number[];
+}
+
+export interface ServerPage {
+  page: number;
+  pageSize: number;
+  total: number;
+  sizes: readonly number[];
+  onChange: (page: number, pageSize: number) => void;
 }
 
 const PAGE_SIZES = [20, 100, 500] as const;
@@ -64,6 +76,8 @@ export function DataTable<T>({
   bulkActions,
   emptyState,
   footer,
+  serverPage,
+  pages,
 }: DataTableProps<T>) {
   const router = useRouter();
   const [query, setQuery] = useState("");
@@ -95,7 +109,10 @@ export function DataTable<T>({
     return matches;
   }, [rows, query, search, sortBy, descending, sortable, modifiedAt]);
 
-  const shown = filtered.slice(0, visible);
+  const [clientPage, setClientPage] = useState({ page: 1, pageSize: pages?.[1] ?? pages?.[0] ?? 50 });
+  const lastPage = Math.max(1, Math.ceil(filtered.length / clientPage.pageSize));
+  const page = Math.min(clientPage.page, lastPage);
+  const shown = serverPage ? filtered : pages ? filtered.slice((page - 1) * clientPage.pageSize, page * clientPage.pageSize) : filtered.slice(0, visible);
   const footerCells = footer?.(filtered);
   const ids = new Set(rows.map(getRowId));
   const selectedRows = rows.filter((row) => selected.has(getRowId(row)));
@@ -288,7 +305,11 @@ export function DataTable<T>({
         </div>
       )}
 
-      {filtered.length > 0 && (
+      {serverPage && <ServerPager {...serverPage} />}
+      {!serverPage && pages && filtered.length > 0 && (
+        <ServerPager page={page} pageSize={clientPage.pageSize} total={filtered.length} sizes={pages} onChange={(next, pageSize) => setClientPage({ page: next, pageSize })} />
+      )}
+      {!serverPage && !pages && filtered.length > 0 && (
         <div className="flex flex-wrap items-center gap-2 border-t border-line bg-canvas px-3 py-2">
           <div role="group" aria-label="Rows per page" className="flex">
             {PAGE_SIZES.map((size, index) => (
@@ -316,6 +337,36 @@ export function DataTable<T>({
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+function ServerPager({ page, pageSize, total, sizes, onChange }: ServerPage) {
+  const first = total === 0 ? 0 : (page - 1) * pageSize + 1;
+  const last = Math.min(page * pageSize, total);
+  return (
+    <div className="flex flex-wrap items-center justify-end gap-x-6 gap-y-2 border-t border-line bg-canvas px-3 py-2 text-xs text-ink-muted">
+      <label className="flex items-center gap-2">
+        Rows per page:
+        <select value={pageSize} onChange={(event) => onChange(1, Number(event.target.value))} className={cn(CONTROL, "h-7 w-20")}>
+          {sizes.map((size) => (
+            <option key={size} value={size}>
+              {size}
+            </option>
+          ))}
+        </select>
+      </label>
+      <span className="tabular-nums">
+        {first}–{last} of {total}
+      </span>
+      <span className="flex gap-1">
+        <Button variant="ghost" size="icon" aria-label="Previous page" disabled={page <= 1} onClick={() => onChange(page - 1, pageSize)}>
+          <ChevronLeft />
+        </Button>
+        <Button variant="ghost" size="icon" aria-label="Next page" disabled={last >= total} onClick={() => onChange(page + 1, pageSize)}>
+          <ChevronRight />
+        </Button>
+      </span>
     </div>
   );
 }

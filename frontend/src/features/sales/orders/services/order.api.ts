@@ -1,4 +1,5 @@
 import { apiRequest } from "@/lib/api/client";
+import { downloadFile } from "@/lib/download";
 import type { OrderAction, OrderDetail, OrderInput, OrderList, OrderListQuery } from "../schemas/order.schema";
 
 const BASE = "/api/sales/orders";
@@ -19,7 +20,19 @@ export const updateOrder = (id: string, version: string, data: OrderInput) =>
 
 export const deleteOrder = (id: string) => apiRequest<void>(`${BASE}/${id}`, { method: "DELETE" });
 
-export const changeOrderStatus = (id: string, action: OrderAction, version: string, today: string, remarks?: string) =>
+/** The order as a PDF: opened in a tab to print, or saved with `download`. */
+export const orderPdfUrl = (id: string, download = false) => `${BASE}/${id}/pdf${download ? "?download=1" : ""}`;
+
+export const downloadOrderExcel = (id: string, number: string) => downloadFile(`${BASE}/${id}/excel`, `${number}.xlsx`);
+
+/** Order Management (.xlsx) for the same filters as the list. */
+export function downloadOrdersExcel(query: OrderListQuery) {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(query)) if (value) params.set(key, value);
+  return downloadFile(`${BASE}/export?${params}`, "sales-orders.xlsx");
+}
+
+export const changeOrderStatus =(id: string, action: OrderAction, version: string, today: string, remarks?: string) =>
   apiRequest<OrderDetail>(`${BASE}/${id}/status`, {
     method: "POST",
     body: JSON.stringify({ action, version, today, remarks }),

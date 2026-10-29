@@ -37,7 +37,8 @@ describe("home overview", () => {
     await entry("-30", "SALES_DELIVERY", "2026-09-02");
     await entry("5", "SALES_RETURN", "2026-09-03");
     const person = await testPrisma().salesPerson.create({ data: { businessUnitId: unitId, code: "SP-1", name: "Rahim" } });
-    await testPrisma().salesTarget.create({ data: { businessUnitId: unitId, salesPersonId: person.id, month: new Date("2026-10-01"), amount: "50000" } });
+    const budget = await testPrisma().salesTargetBudget.create({ data: { businessUnitId: unitId, basis: "AMOUNT", year: 2026 } });
+    await testPrisma().salesTarget.create({ data: { businessUnitId: unitId, budgetId: budget.id, salesPersonId: person.id, month: new Date("2026-10-01"), amount: "50000" } });
 
     const overview = await getBusinessOverview(adminActor);
     expect(overview.trading).toBeNull();

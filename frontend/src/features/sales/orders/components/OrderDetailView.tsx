@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeft, Ban, Check, CircleCheckBig, Download, Ellipsis, Pencil, Printer, RefreshCw, Send, Trash2, Undo2 } from "lucide-react";
+import { ArrowLeft, Ban, Check, CircleCheckBig, Download, Ellipsis, FileDown, Pencil, Printer, RefreshCw, Send, Trash2, Undo2 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, type ReactNode } from "react";
@@ -19,7 +19,6 @@ import { cn } from "@/lib/cn";
 import { formatDateTime } from "@/lib/format";
 import { formatAmount, formatQty } from "../../dashboard/lib/format";
 import { amountInWords } from "../../lib/amount-in-words";
-import { downloadCsv } from "../../lib/csv";
 import { formatDay, useToday } from "../../lib/use-today";
 import { paths } from "../../paths";
 import { altQty } from "../lib/order-totals";
@@ -32,7 +31,7 @@ import {
   type OrderAction,
   type OrderDetail,
 } from "../schemas/order.schema";
-import { changeOrderStatus, deleteOrder, fetchOrder } from "../services/order.api";
+import { changeOrderStatus, deleteOrder, downloadOrderExcel, fetchOrder, orderPdfUrl } from "../services/order.api";
 import { OrderStatusIndicator } from "./OrderStatusIndicator";
 
 /** Actions that need a written reason. */
@@ -133,26 +132,12 @@ function OrderDetailBody({
     }
   }
 
-  function exportItems() {
-    downloadCsv(
-      `${order.number}.csv`,
-      ["SL", "Code", "Name", "UOM", "Quantity", "Alt. UOM", "Alt. Qty", "Rem. Qty", "Price", "Discount %", "VAT %", "AIT %", "Total"],
-      order.lines.map((line) => [
-        line.lineNo,
-        line.itemCode,
-        line.itemName,
-        line.uom,
-        line.qty,
-        line.altUom,
-        altQty(line.qty, line.altUomFactor),
-        line.qty - line.deliveredQty,
-        line.unitPrice,
-        line.discountPercent,
-        line.vatPercent,
-        line.aitPercent,
-        line.lineTotal.toFixed(2),
-      ]),
-    );
+  async function exportItems() {
+    try {
+      await downloadOrderExcel(order.id, order.number);
+    } catch (error) {
+      toast.error(errorMessage(error));
+    }
   }
 
   const primary: ReactNode =
@@ -182,8 +167,10 @@ function OrderDetailBody({
 
   const menu: MenuItem[] = [
     { label: "Reload", icon: <RefreshCw />, onSelect: onReload },
-    { label: "Print", icon: <Printer />, href: paths.printOrder(order.id) },
-    { label: "Excel (CSV)", icon: <Download />, onSelect: exportItems },
+    { label: "Print (PDF)", icon: <Printer />, onSelect: () => window.open(orderPdfUrl(order.id), "_blank", "noopener") },
+    { label: "Print layout", icon: <Printer />, href: paths.printOrder(order.id) },
+    { label: "Download PDF", icon: <FileDown />, onSelect: () => window.location.assign(orderPdfUrl(order.id, true)) },
+    { label: "Excel", icon: <Download />, onSelect: exportItems },
     ...(order.status === "APPROVED"
       ? ([{ label: "Close Order", icon: <CircleCheckBig />, onSelect: () => ask("complete") }] satisfies MenuItem[])
       : []),
@@ -245,13 +232,16 @@ function OrderDetailBody({
               <span className="text-ink-muted">
                 SO No. <span className="font-semibold text-ink">{order.number}</span>
               </span>
-              <Link href={paths.printOrder(order.id)} aria-label="Print order" title="Print" className={buttonClasses("ghost", "icon")}>
+              <a href={orderPdfUrl(order.id)} target="_blank" rel="noopener" aria-label="Print order" title="Print (PDF)" className={buttonClasses("ghost", "icon")}>
                 <Printer />
-              </Link>
+              </a>
               <Button size="sm" onClick={exportItems}>
                 <Download aria-hidden="true" />
                 Excel
               </Button>
+              <a href={orderPdfUrl(order.id, true)} aria-label="Download PDF" title="Download PDF" className={buttonClasses("ghost", "icon")}>
+                <FileDown />
+              </a>
             </div>
           </div>
           <div className="grid gap-x-8 gap-y-1 md:grid-cols-2 xl:grid-cols-3">
@@ -469,7 +459,8 @@ function ItemsTable({ order }: { order: OrderDetail }) {
   );
 }
 
-function ApprovalTimeline({ order }: { order: OrderDetail }) {
+/** Approval status / audit trail of an order, newest first. */
+export function ApprovalTimeline({ order }: { order: OrderDetail }) {
   if (order.events.length === 0) return <EmptyState title="No history yet" />;
   return (
     <ol className="flex flex-col gap-3 p-4">

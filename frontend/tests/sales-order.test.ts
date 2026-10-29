@@ -23,6 +23,7 @@ import {
   listOrders,
   updateOrder,
 } from "@/features/sales/orders/services/order.service";
+import { orderExcel, orderPdf, ordersExcel } from "@/features/sales/orders/services/order-export";
 import { changeQuotationStatus, createQuotation, getQuotation } from "@/features/sales/quotations/services/quotation.service";
 import type { Actor } from "@/lib/auth/actor";
 import { adminActor, businessUnitInput, companyInput, officeInput, scopedActor } from "./helpers/fixtures";
@@ -236,7 +237,7 @@ describe("sales orders", () => {
   it("creates a draft with server-computed totals, snapshots and history", async () => {
     const order = await createOrder(adminActor, { ...input(), shippingAddress: "ignored when an address is chosen" });
     expect(order).toMatchObject({
-      number: "SO-2026-00001",
+      number: "SO-MG260000001",
       status: "DRAFT",
       customerName: "M/S Sadia Enterprise-Sherpur",
       territory: "Nabinagar",
@@ -339,12 +340,10 @@ describe("sales orders", () => {
       customerId,
       quotationDate: TODAY,
       validTill: "2026-10-20",
-      discountAmount: 0,
-      vatPercent: 0,
       lines: [{ itemId: muriId, qty: 10, rate: 46.7, discountPercent: 0 }],
     });
     await expect(createOrder(adminActor, input({ quotationId: quotation.id }))).rejects.toMatchObject({ status: 409 });
-    quotation = await changeQuotationStatus(adminActor, quotation.id, { action: "submit", version: quotation.updatedAt });
+    quotation = await changeQuotationStatus(adminActor, quotation.id, { action: "approve", version: quotation.updatedAt });
 
     const order = await createOrder(adminActor, input({ quotationId: quotation.id, paymentMethod: "CASH" }));
     expect(order.quotationNumber).toBe(quotation.number);
@@ -364,11 +363,21 @@ describe("sales orders", () => {
     const all = await listOrders(adminActor, {});
     expect(all.totalCount).toBe(2);
     expect(all.totalAmount).toBe(32696);
-    expect(all.rows[0]).toMatchObject({ number: "SO-2026-00001", territory: "Nabinagar", salesPersonName: "TSM Azharul Islam" });
-    expect((await listOrders(adminActor, { status: "APPROVED" })).rows.map((row) => row.number)).toEqual(["SO-2026-00001"]);
+    expect(all.rows[0]).toMatchObject({ number: "SO-MG260000001", territory: "Nabinagar", salesPersonName: "TSM Azharul Islam" });
+    expect((await listOrders(adminActor, { status: "APPROVED" })).rows.map((row) => row.number)).toEqual(["SO-MG260000001"]);
     expect((await listOrders(adminActor, { paymentMethod: "CASH" })).totalCount).toBe(1);
     expect((await listOrders(adminActor, { from: "2026-10-10" })).totalCount).toBe(1);
     expect((await listOrders(adminActor, { territoryId })).totalCount).toBe(2);
+    expect((await listOrders(adminActor, { search: "mg260000002" })).rows.map((row) => row.number)).toEqual(["SO-MG260000002"]);
+    expect((await listOrders(adminActor, { search: all.rows[0].customerName.slice(0, 4) })).totalCount).toBe(2);
+    expect((await listOrders(adminActor, { search: "no such order" })).totalCount).toBe(0);
+
+    const pk = (bytes: Uint8Array) => Buffer.from(bytes.slice(0, 2)).toString();
+    expect(pk(await ordersExcel(adminActor, { status: "APPROVED" }))).toBe("PK");
+    expect(pk((await orderExcel(adminActor, a.id)).bytes)).toBe("PK");
+    const pdf = await orderPdf(adminActor, a.id);
+    expect(pdf.number).toBe("SO-MG260000001");
+    expect(Buffer.from(pdf.bytes.slice(0, 5)).toString()).toBe("%PDF-");
     expect((await listOrders(scopedActor([OTHER_COMPANY]), {})).totalCount).toBe(0);
     await expect(getOrder(scopedActor([OTHER_COMPANY]), a.id)).rejects.toMatchObject({ status: 404 });
   });

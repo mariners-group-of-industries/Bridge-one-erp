@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeft, Plus, Settings2, Trash2 } from "lucide-react";
+import { ArrowLeft, Plus, SaveAll, Settings2, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useId, useMemo, useState, type ReactNode } from "react";
@@ -22,6 +22,7 @@ import { formatDay, useToday } from "../../lib/use-today";
 import { CATEGORY_LEVEL_LABELS, type ItemOption, type SalesLookups, type SetupLookups } from "../../masters/schemas/masters.schema";
 import { fetchCustomers, fetchItems, fetchSalesLookups, fetchSetupLookups } from "../../masters/services/masters.api";
 import { paths } from "../../paths";
+import { SearchPick } from "../../components/SearchPick";
 import { round2 } from "../../quotations/lib/totals";
 import { SimpleMastersPanel } from "../../setup/components/SimpleMastersPanel";
 import { discountShare, returnLineAmounts } from "../lib/return-totals";
@@ -262,11 +263,16 @@ function useSaver(existing: ReturnDetail | null) {
   const router = useRouter();
   const toast = useToast();
   const [busy, setBusy] = useState(false);
-  async function submit(input: ReturnInput) {
+  async function submit(input: ReturnInput, onSavedNew?: () => void) {
     setBusy(true);
     try {
       const saved = existing ? await updateReturn(existing.id, existing.updatedAt, input) : await createReturn(input);
       toast.success(`${saved.number} saved. It credits the customer once approved.`);
+      if (onSavedNew) {
+        onSavedNew();
+        setBusy(false);
+        return;
+      }
       router.replace(paths.salesReturn(saved.id));
     } catch (error) {
       toast.error(errorMessage(error));
@@ -549,6 +555,8 @@ function WithoutReferenceEditor({ today, lookups, warehouses, existing }: { toda
   );
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [reasonsOpen, setReasonsOpen] = useState(false);
+  /** Reason given to every line at once (and to new lines). */
+  const [bulkReason, setBulkReason] = useState("");
   const set = <K extends keyof HeaderValues>(key: K, value: HeaderValues[K]) => setHeader((current) => ({ ...current, [key]: value }));
 
   const office = lookups.offices.find((candidate) => candidate.id === header.officeId);
@@ -593,7 +601,15 @@ function WithoutReferenceEditor({ today, lookups, warehouses, existing }: { toda
     if (next?.salesPersonId) set("salesPersonId", next.salesPersonId);
   }
 
-  async function save() {
+  function resetForNext() {
+    setHeader((current) => ({ ...current, reason: "", refNo: "", refDate: "", refAmount: "", requestNo: "", remarks: "" }));
+    setCustomerId("");
+    setShippingAddress("");
+    setLines([]);
+    setErrors({});
+  }
+
+  async function save(next = false) {
     if (busy) return;
     const input = {
       mode: "WITHOUT_REFERENCE" as const,
@@ -619,28 +635,43 @@ function WithoutReferenceEditor({ today, lookups, warehouses, existing }: { toda
       return;
     }
     setErrors({});
-    await submit(input);
+    await submit(input, next ? resetForNext : undefined);
   }
-  useSaveShortcut(save, true);
+  useSaveShortcut(() => save(), true);
 
   const update = (key: string, patch: Partial<LineValues>) => setLines((current) => current.map((line) => (line.key === key ? { ...line, ...patch } : line)));
-  const title = existing ? `Edit ${existing.number}` : "Create Sales Return Without Ref.";
+  const title = existing ? "Edit Sales Return WithOut Ref." : "Create Sales Return WithOut Ref.";
+  const reasonNames = (masters.data?.setup.returnReasons ?? []).map((reason) => reason.name);
+  const area = (id: string | null | undefined) => (id ? masters.data?.setup.areas.find((candidate) => candidate.id === id)?.name : undefined);
+  const group = customer?.customerGroupId ? masters.data?.setup.customerGroups.find((candidate) => candidate.id === customer.customerGroupId)?.name : undefined;
 
   return (
     <PageContainer className="max-w-none">
       <PageHead
         title={<BackTitle href={existing ? paths.salesReturn(existing.id) : paths.returnTab("returns")}>{title}</BackTitle>}
-        subtitle="Goods returned without a delivery to refer to."
+        subtitle={existing ? existing.number : undefined}
         actions={
-          <Button variant="primary" onClick={save} loading={busy}>
-            Save
-          </Button>
+          <>
+            <Button variant="accent-soft" onClick={() => save(true)} disabled={busy}>
+              <SaveAll aria-hidden="true" />
+              Save &amp; New
+            </Button>
+            <Button variant="primary" onClick={() => save()} loading={busy}>
+              SAVE
+            </Button>
+          </>
         }
       />
 
       <div className="flex flex-col gap-4">
         <Card>
           <Section>
+            {customer && (
+              <p className="flex flex-wrap justify-end gap-x-6 text-sm text-ink">
+                <span>Customer Group : {group ?? "N/A"}</span>
+                <span>Territory Name : {area(customer.territoryId) ?? "N/A"}</span>
+              </p>
+            )}
             <div className="flex flex-wrap gap-x-6 gap-y-2">
               <CheckboxField label="Price Including VAT" checked={priceIncludesVat} onChange={(event) => setPriceIncludesVat(event.target.checked)} />
               <CheckboxField
@@ -677,20 +708,22 @@ function WithoutReferenceEditor({ today, lookups, warehouses, existing }: { toda
                 options={RETURN_KINDS.map((value) => ({ value, label: RETURN_KIND_LABELS[value] }))}
                 onChange={(event) => setKind(event.target.value as ReturnKind)}
               />
-              <SelectField
-                label="Customer"
-                required
-                className="lg:col-span-2"
-                value={customerId}
-                error={errors.customerId}
-                disabled={!businessUnitId || masters.loading}
-                options={[
-                  { value: "", label: masters.loading ? "Loading…" : "Select customer" },
-                  ...(existing && !customers.some((candidate) => candidate.id === existing.customerId) ? [{ value: existing.customerId, label: existing.customerName }] : []),
-                  ...customers.map((candidate) => ({ value: candidate.id, label: `${candidate.code} - ${candidate.name}${candidate.phone ? ` (${candidate.phone})` : ""}` })),
-                ]}
-                onChange={(event) => selectCustomer(event.target.value)}
-              />
+              <div className="lg:col-span-2">
+                <SearchPick
+                  key={`${businessUnitId}:${customers.length}`}
+                  label="Select Customer"
+                  required
+                  error={errors.customerId}
+                  disabled={!businessUnitId || masters.loading}
+                  placeholder={masters.loading ? "Loading…" : "Select Partner (min 3 letters)"}
+                  options={[
+                    ...(existing && !customers.some((candidate) => candidate.id === existing.customerId) ? [{ id: existing.customerId, label: existing.customerName }] : []),
+                    ...customers.map((candidate) => ({ id: candidate.id, label: `${candidate.code}-${candidate.name}${candidate.phone ? ` (${candidate.phone})` : ""}` })),
+                  ]}
+                  selectedId={customerId}
+                  onPick={(id) => selectCustomer(id ?? "")}
+                />
+              </div>
               <SelectField
                 label="Shipping Address"
                 value={shippingAddress}
@@ -707,24 +740,56 @@ function WithoutReferenceEditor({ today, lookups, warehouses, existing }: { toda
         </Card>
 
         <Card>
-          <Section title="Items">
+          <Section>
             <ReturnItemEntry
               items={items}
               setup={masters.data?.setup}
               disabled={!businessUnitId || masters.loading}
               withoutInvoice={withoutInvoice}
               onManageReasons={() => setReasonsOpen(true)}
-              onAdd={(line) => setLines((current) => [...current, { ...line, key: newKey() }])}
+              onAdd={(line) => setLines((current) => [...current, { ...line, reason: line.reason || bulkReason, key: newKey() }])}
             />
+            <div className="flex flex-wrap items-end justify-end gap-x-4 gap-y-2 border-t border-line pt-3">
+              <div className="flex w-full max-w-md flex-col gap-1">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="font-semibold text-ink-muted">
+                    Return Reason{" "}
+                    <button type="button" className="ml-2 font-semibold text-success hover:underline" disabled={!businessUnitId} onClick={() => setReasonsOpen(true)}>
+                      See All
+                    </button>
+                  </span>
+                  <button type="button" className="font-medium text-accent-strong hover:underline" disabled={!businessUnitId} onClick={() => setReasonsOpen(true)}>
+                    <Plus aria-hidden="true" className="inline size-3.5" /> ADD
+                  </button>
+                </div>
+                <select
+                  aria-label="Return reason for all items"
+                  value={bulkReason}
+                  onChange={(event) => {
+                    setBulkReason(event.target.value);
+                    if (event.target.value) setLines((current) => current.map((line) => ({ ...line, reason: event.target.value })));
+                  }}
+                  className={cn(CONTROL, "h-8")}
+                >
+                  <option value="">returnReason</option>
+                  {reasonNames.map((name) => (
+                    <option key={name} value={name}>
+                      {name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <p className="text-lg font-semibold text-ink tabular-nums">Total Amount :{formatAmount(total)}</p>
+            </div>
             {lines.length === 0 ? (
               <EmptyState title="No items yet" />
             ) : (
               <div className="overflow-x-auto rounded-lg border border-line">
                 <table className="w-full min-w-[960px] text-sm">
-                  <thead className="bg-canvas text-xs text-ink-muted">
+                  <thead className="bg-accent-soft text-xs text-ink">
                     <tr className="border-b border-line">
-                      {["Item Code", "Name", "Return Reason", "Return Qty", "Return Price", "VAT %", "VAT", "Total", ""].map((label, index) => (
-                        <th key={index} scope="col" className={cn("px-2 py-2 font-medium", index >= 3 && index < 8 ? "text-right" : "text-left")}>
+                      {["Item Code", "Name", "Return Reason", "Return Qty", "Cost Price (BDT)", "Return Price (BDT)", "VAT %", "VAT", "Total", ""].map((label, index) => (
+                        <th key={index} scope="col" className={cn("px-2 py-2 font-semibold", index >= 3 && index < 9 ? "text-right" : "text-left")}>
                           {label || <span className="sr-only">Remove</span>}
                         </th>
                       ))}
@@ -754,6 +819,7 @@ function WithoutReferenceEditor({ today, lookups, warehouses, existing }: { toda
                           <td className="w-28 px-2 py-1.5">
                             <input aria-label={`Quantity, row ${index + 1}`} type="number" min={0} step="any" value={line.qty} onChange={(event) => update(line.key, { qty: event.target.value })} className={cn(CONTROL, "h-7 w-full text-right tabular-nums")} />
                           </td>
+                          <td className="px-2 py-2 text-right tabular-nums">{item?.costPrice === null || item?.costPrice === undefined ? "—" : formatAmount(item.costPrice)}</td>
                           <td className="w-28 px-2 py-1.5">
                             <input aria-label={`Return price, row ${index + 1}`} type="number" min={0} step="any" value={line.rate} onChange={(event) => update(line.key, { rate: event.target.value })} className={cn(CONTROL, "h-7 w-full text-right tabular-nums")} />
                           </td>
@@ -787,7 +853,7 @@ function WithoutReferenceEditor({ today, lookups, warehouses, existing }: { toda
                         Total
                       </td>
                       <td className="px-2 py-2 text-right tabular-nums">{formatQty(Math.round(totalQty * 1000) / 1000)}</td>
-                      <td colSpan={2} />
+                      <td colSpan={3} />
                       <td className="px-2 py-2 text-right tabular-nums">{formatAmount(totalVat)}</td>
                       <td className="px-2 py-2 text-right tabular-nums">{formatAmount(total)}</td>
                       <td />
@@ -848,9 +914,14 @@ function ReturnItemEntry({
 }) {
   const listId = useId();
   const [category, setCategory] = useState<[string, string, string]>(["", "", ""]);
+  const [itemType, setItemType] = useState("");
+  const [brand, setBrand] = useState("");
   const [priceListId, setPriceListId] = useState("");
   const [itemText, setItemText] = useState("");
   const [entry, setEntry] = useState({ qty: "", rate: "", vatPercent: "", reason: "" });
+  const distinct = (values: (string | null)[]) => [...new Set(values.filter((value): value is string => Boolean(value)))].sort();
+  const itemTypes = useMemo(() => distinct(items.map((candidate) => candidate.itemType)), [items]);
+  const brands = useMemo(() => distinct(items.map((candidate) => candidate.brand)), [items]);
   const [error, setError] = useState<string>();
 
   const categories = useMemo(() => setup?.categories ?? [], [setup]);
@@ -871,7 +942,14 @@ function ReturnItemEntry({
     }
     return ids;
   }, [chosen, categories]);
-  const visible = allowed ? items.filter((item) => item.categoryId && allowed.has(item.categoryId)) : items;
+  const visible = items.filter(
+    (candidate) =>
+      (!allowed || (candidate.categoryId && allowed.has(candidate.categoryId))) &&
+      (!itemType || candidate.itemType === itemType) &&
+      (!brand || candidate.brand === brand),
+  );
+  // As in Managerium, suggestions start after 3 letters.
+  const searching = itemText.trim().length >= 3;
   const label = (item: ItemOption) => `${item.code} — ${item.name}`;
   const item = items.find((candidate) => label(candidate) === itemText);
   const tp = item ? rateFor(item, effectivePriceList) : null;
@@ -913,10 +991,24 @@ function ReturnItemEntry({
 
   return (
     <div className="flex flex-col gap-3 rounded-lg bg-canvas p-3">
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-6">
+        <SelectField
+          label="Item Type"
+          value={itemType}
+          disabled={disabled}
+          options={[{ value: "", label: "Item Type" }, ...itemTypes.map((value) => ({ value, label: value }))]}
+          onChange={(event) => setItemType(event.target.value)}
+        />
         {level(0)}
         {level(1)}
         {level(2)}
+        <SelectField
+          label="Brand"
+          value={brand}
+          disabled={disabled}
+          options={[{ value: "", label: "Brand" }, ...brands.map((value) => ({ value, label: value }))]}
+          onChange={(event) => setBrand(event.target.value)}
+        />
         <SelectField
           label="Price Type"
           value={effectivePriceList}
@@ -926,7 +1018,7 @@ function ReturnItemEntry({
         />
       </div>
       <div
-        className="grid items-end gap-3 sm:grid-cols-3 lg:grid-cols-[minmax(16rem,2fr)_repeat(5,minmax(5rem,1fr))_minmax(10rem,1.5fr)_auto]"
+        className="grid items-end gap-3 sm:grid-cols-3 lg:grid-cols-[minmax(16rem,2fr)_repeat(6,minmax(5rem,1fr))_minmax(10rem,1.5fr)_auto]"
         onKeyDown={(event) => {
           if (event.key === "Enter" && (event.target as HTMLElement).tagName === "INPUT") {
             event.preventDefault();
@@ -943,20 +1035,21 @@ function ReturnItemEntry({
             list={listId}
             value={itemText}
             disabled={disabled}
-            placeholder={disabled ? "Select an office first" : `Search ${visible.length} items by code or name`}
+            placeholder={disabled ? "Select an office first" : "Select/Search Item (min 3 letters)"}
             onChange={(event) => pick(event.target.value)}
             className={cn(CONTROL, "h-7")}
           />
           <datalist id={listId}>
-            {visible.map((candidate) => (
+            {(searching ? visible : []).map((candidate) => (
               <option key={candidate.id} value={label(candidate)} />
             ))}
           </datalist>
         </div>
-        <TextField label="Quantity" type="number" min={0} step="any" value={entry.qty} disabled={disabled} onChange={(event) => setEntry({ ...entry, qty: event.target.value })} />
+        <TextField label="Quantity" required type="number" min={0} step="any" value={entry.qty} disabled={disabled} onChange={(event) => setEntry({ ...entry, qty: event.target.value })} />
+        <TextField label="Cost Price (BDT)" value={item?.costPrice === null || !item ? "" : formatAmount(item.costPrice)} readOnly tabIndex={-1} />
         <TextField label="MRP" value={item?.mrp === null || !item ? "" : formatAmount(item.mrp)} readOnly tabIndex={-1} />
         <TextField label="TP" value={tp === null ? "" : formatAmount(tp)} readOnly tabIndex={-1} />
-        <TextField label="Return Price" type="number" min={0} step="any" value={entry.rate} disabled={disabled} onChange={(event) => setEntry({ ...entry, rate: event.target.value })} />
+        <TextField label="Return Price (BDT)" required type="number" min={0} step="any" value={entry.rate} disabled={disabled} onChange={(event) => setEntry({ ...entry, rate: event.target.value })} />
         <TextField
           label="VAT (%)"
           type="number"

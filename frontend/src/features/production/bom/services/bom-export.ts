@@ -1,6 +1,6 @@
 import ExcelJS from "exceljs";
 import type { Actor } from "@/lib/auth/actor";
-import { pdfWriter } from "../../lib/pdf";
+import { pdfWriter } from "@/lib/pdf";
 import { BOM_TYPE_LABELS, OUTPUT_TYPE_LABELS, WASTAGE_TYPE_LABELS, type BomDetail, type BomRow } from "../schemas/bom.schema";
 import { getBom, listBoms } from "./bom.service";
 
