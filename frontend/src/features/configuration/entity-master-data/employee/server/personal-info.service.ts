@@ -1,6 +1,6 @@
 import * as argon2 from "argon2";
 import { AppError, conflict, notFound } from "@/lib/api/errors";
-import type { Actor } from "@/lib/auth/actor";
+import { actorUserId, type Actor } from "@/lib/auth/actor";
 import { db } from "@/lib/prisma/client";
 import type {
   AccountSettingsDto,
@@ -130,7 +130,7 @@ export async function updatePersonalInfo(
       permanentAddress:  orNull(input.permanentAddress),
       supervisor:        orNull(input.supervisor),
       lineManager:       orNull(input.lineManager),
-      updatedById:       actor.id,
+      updatedById:       actorUserId(actor),
     },
   });
   return getPersonalInfo(id, actor);
@@ -162,7 +162,7 @@ export async function updateAccountSettings(
   await loadEmployee(id, actor);
   await db().employee.update({
     where: { id },
-    data: { ...input, updatedById: actor.id },
+    data: { ...input, updatedById: actorUserId(actor) },
   });
   return getAccountSettings(id, actor);
 }
@@ -223,7 +223,7 @@ export async function updateCredentials(
     });
     await db().employee.update({
       where: { id },
-      data: { userId: user.id, isUser: true, updatedById: actor.id },
+      data: { userId: user.id, isUser: true, updatedById: actorUserId(actor) },
     });
   } else {
     // Update existing user

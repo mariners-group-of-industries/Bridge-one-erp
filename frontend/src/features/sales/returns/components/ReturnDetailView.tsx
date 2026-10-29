@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeft, CircleCheckBig, ClipboardCheck, Ellipsis, Factory, Pencil, Printer, RefreshCw, Trash2 } from "lucide-react";
+import { ArrowLeft, CircleCheckBig, ClipboardCheck, Ellipsis, Factory, FileText, List, Pencil, Printer, RefreshCw, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, type ReactNode } from "react";
@@ -21,7 +21,7 @@ import { formatAmount, formatQty } from "../../dashboard/lib/format";
 import { formatDay } from "../../lib/use-today";
 import { paths } from "../../paths";
 import { MARKET_STAGE_LABELS, RETURN_KIND_LABELS, RETURN_MODE_LABELS, RETURN_STATUS_LABELS, type ReturnDetail } from "../schemas/return.schema";
-import { approveReturn, deleteReturn, fetchReturn, qcMarketReturn, receiveMarketReturn } from "../services/return.api";
+import { approveReturn, deleteReturn, fetchReturn, qcMarketReturn, receiveMarketReturn, returnChallanPdfUrl } from "../services/return.api";
 import { STAGE_COLORS, STATUS_COLORS } from "./ReturnWorkspaceView";
 
 export function ReturnDetailView({ id }: { id: string }) {
@@ -102,6 +102,8 @@ function ReturnBody({ record, onChanged, onReload }: { record: ReturnDetail; onC
   const menu: MenuItem[] = [
     { label: "Reload", icon: <RefreshCw />, onSelect: onReload },
     { label: "Print", icon: <Printer />, href: paths.printReturn(record.id) },
+    { label: "Return Note/Challan (PDF)", icon: <FileText />, onSelect: () => window.open(returnChallanPdfUrl(record.id), "_blank", "noopener") },
+    { label: "Download Return Challan", icon: <FileText />, onSelect: () => window.location.assign(returnChallanPdfUrl(record.id, true)) },
     ...(!deleted && !exchange
       ? (["separator", { label: "Delete", icon: <Trash2 />, danger: true, onSelect: () => { setReason(""); setDialog("delete"); } }] satisfies MenuItem[])
       : []),
@@ -179,11 +181,17 @@ function ReturnBody({ record, onChanged, onReload }: { record: ReturnDetail; onC
 
       <div className="flex flex-col gap-4">
         <Card className="p-4">
-          <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
-            <h2 className="text-base font-semibold text-ink">Office Name: {record.officeName ?? "N/A"}</h2>
-            <p className="text-sm text-ink-muted">
-              Total Amount <span className="font-semibold text-ink tabular-nums">{formatAmount(record.totalAmount)}</span> | Return No{" "}
-              <span className="font-semibold text-ink">{record.number}</span>
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2 border-b border-line pb-3">
+            <h2 className="flex items-center gap-2 text-base text-ink">
+              <List aria-hidden="true" className="size-4" />
+              Office Name : <span className="font-semibold">{record.officeName ?? "N/A"}</span>
+            </h2>
+            <p className="flex items-center gap-1 text-sm text-ink-muted">
+              Total Amount <span className="font-semibold text-ink tabular-nums">{formatAmount(-record.totalAmount)}</span> | Invoice No{" "}
+              <span className="font-semibold text-accent-strong">{record.number}</span>
+              <a href={returnChallanPdfUrl(record.id)} target="_blank" rel="noopener" aria-label="Print return challan" title="Return Note/Challan (PDF)" className={buttonClasses("ghost", "icon")}>
+                <Printer />
+              </a>
             </p>
           </div>
           <div className="grid gap-x-8 gap-y-1 md:grid-cols-2">
@@ -209,6 +217,7 @@ function ReturnBody({ record, onChanged, onReload }: { record: ReturnDetail; onC
               <Detail label="Return Req. No" value={record.requestNo} />
               <Detail label="Without Invoice" value={record.withoutInvoice ? "Yes (no VAT credited)" : "No"} />
               <Detail label="Created By" value={record.createdBy} />
+              <Detail label="Return Ref. Date" value={record.refDate && formatDay(record.refDate)} />
             </dl>
           </div>
         </Card>
@@ -235,13 +244,17 @@ function ReturnBody({ record, onChanged, onReload }: { record: ReturnDetail; onC
                 <dt className="text-ink-muted">Price Including VAT</dt>
                 <dd className="text-ink">{record.priceIncludesVat ? "Yes" : "No"}</dd>
               </div>
-              <Total label="Item Total" value={record.itemsTotal} />
-              <Total label="Discount" value={record.discountAmount} />
-              <Total label="Total VAT" value={record.vatAmount} />
-              {record.aitAmount > 0 && <Total label="Total AIT" value={record.aitAmount} />}
-              <Total label="Item Total (Without VAT)" value={record.itemsBase} />
+              <Total label="Item Total :" value={record.itemsTotal} />
+              <Total label="Discount :" value={record.discountAmount} />
+              <Total label="Special Discount :" value={0} />
+              <Total label="Total VAT:" value={record.vatAmount} />
+              {record.aitAmount > 0 && <Total label="Total AIT:" value={record.aitAmount} />}
+              <Total label="Item Total (With VAT):" value={record.itemsTotal} />
+              <Total label="Total SD:" value={0} />
+              <Total label="Delivery Charge:" value={0} />
+              <Total label="Other Charge:" value={0} />
               <div className="mt-1 border-t border-line pt-2">
-                <Total label="Return Total" value={record.totalAmount} strong />
+                <Total label="Return Total :" value={record.totalAmount} strong />
               </div>
             </dl>
           </Card>
@@ -366,14 +379,14 @@ function ReturnBody({ record, onChanged, onReload }: { record: ReturnDetail; onC
 
 function ItemTable({ record }: { record: ReturnDetail }) {
   const market = record.kind === "MARKET";
-  const headers = ["Item Code", "Item Name", "UoM", "Return Reason", "Quantity", "Price", "VAT %", "VAT", "Total", ...(market ? ["Factory Rec.", "QC Passed"] : [])];
+  const headers = ["Item Code", "Item Name", "UoM", "Return Reason", "Quantity", "Actual Price", "Price", "VAT", "Total", ...(market ? ["Factory Rec.", "QC Passed"] : [])];
   return (
     <div className="overflow-x-auto">
       <table className="w-full min-w-[900px] text-sm">
-        <thead className="bg-canvas text-xs text-ink-muted">
+        <thead className="bg-accent-soft text-xs text-ink">
           <tr className="border-b border-line">
             {headers.map((label, index) => (
-              <th key={label} scope="col" className={cn("px-3 py-2 font-medium", index >= 4 ? "text-right" : "text-left")}>
+              <th key={label} scope="col" className={cn("px-3 py-2 font-semibold", index >= 4 ? "text-right" : "text-left")}>
                 {label}
               </th>
             ))}
@@ -386,9 +399,9 @@ function ItemTable({ record }: { record: ReturnDetail }) {
               <td className="px-3 py-2 text-ink">{line.itemName}</td>
               <td className="px-3 py-2 text-ink-muted">{line.uom ?? "—"}</td>
               <td className="px-3 py-2 text-ink-muted">{line.reason ?? "—"}</td>
-              <td className="px-3 py-2 text-right tabular-nums">{formatQty(line.qty)}</td>
+              <td className="px-3 py-2 text-right tabular-nums">{formatQty(-line.qty)}</td>
               <td className="px-3 py-2 text-right tabular-nums">{line.rate.toFixed(2)}</td>
-              <td className="px-3 py-2 text-right tabular-nums">{line.vatPercent.toFixed(2)}</td>
+              <td className="px-3 py-2 text-right tabular-nums">{formatAmount(line.qty * line.rate)}</td>
               <td className="px-3 py-2 text-right tabular-nums">{formatAmount(line.vatAmount)}</td>
               <td className="px-3 py-2 text-right font-medium text-ink tabular-nums">{formatAmount(line.amount)}</td>
               {market && <td className="px-3 py-2 text-right tabular-nums">{line.receivedQty === null ? "—" : formatQty(line.receivedQty)}</td>}
@@ -401,7 +414,7 @@ function ItemTable({ record }: { record: ReturnDetail }) {
             <td colSpan={4} className="px-3 py-2 text-right">
               Total
             </td>
-            <td className="px-3 py-2 text-right tabular-nums">{formatQty(record.totalQty)}</td>
+            <td className="px-3 py-2 text-right tabular-nums">{formatQty(-record.totalQty)}</td>
             <td colSpan={2} />
             <td className="px-3 py-2 text-right tabular-nums">{formatAmount(record.vatAmount)}</td>
             <td className="px-3 py-2 text-right tabular-nums">{formatAmount(record.itemsTotal)}</td>

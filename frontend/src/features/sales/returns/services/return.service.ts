@@ -6,7 +6,7 @@ import { money } from "../../dashboard/lib/aggregate";
 import { assertStockAvailable, lockWarehouse, requireWarehouse } from "../../deliveries/services/stock.service";
 import { fromDbDate, toDbDate } from "../../lib/dates";
 import { requireOffice, scopedBusinessUnitIds } from "../../lib/scope";
-import { formatNumber, nextNumber } from "../../lib/sequence";
+import { companyDocumentNumber } from "../../lib/sequence";
 import { userNames } from "../../lib/users";
 import { round2 } from "../../quotations/lib/totals";
 import { discountShare, returnLineAmounts } from "../lib/return-totals";
@@ -27,6 +27,20 @@ import {
 
 /** Rows a list returns; totals cover every match. */
 export const RETURN_LIST_LIMIT = 1000;
+
+/** Managerium's return numbers: RWF- without reference, SRF- / SRP- full / partial, SRE- exchange, MRT- market. */
+const RETURN_PREFIXES: Record<"FULL" | "PARTIAL" | "WITHOUT_REFERENCE" | "EXCHANGE", string> = {
+  FULL: "SRF-",
+  PARTIAL: "SRP-",
+  WITHOUT_REFERENCE: "RWF-",
+  EXCHANGE: "SRE-",
+};
+
+/** Next return number, e.g. "RWF-MG260000001" (prefix + company initials + year + serial). */
+export function returnNumber(tx: Tx, businessUnitId: string, kind: "SALES" | "MARKET", mode: keyof typeof RETURN_PREFIXES, date: string) {
+  const prefix = kind === "MARKET" ? "MRT-" : RETURN_PREFIXES[mode];
+  return companyDocumentNumber(tx, businessUnitId, `SALES_RETURN_${prefix.slice(0, -1)}`, prefix, date);
+}
 
 type Tx = Prisma.TransactionClient;
 type Client = Tx | ReturnType<typeof db>;
@@ -91,6 +105,17 @@ export async function listReturnableDeliveries(actor: Actor, raw: unknown): Prom
       officeId: query.officeId ? query.officeId : { not: null },
       ...(query.customerId ? { customerId: query.customerId } : {}),
       ...(range ? { deliveryDate: range } : {}),
+      ...(query.search
+        ? {
+            OR: [
+              { number: { contains: query.search, mode: "insensitive" } },
+              { challanNo: { contains: query.search, mode: "insensitive" } },
+              { salesOrder: { number: { contains: query.search, mode: "insensitive" } } },
+              { customer: { name: { contains: query.search, mode: "insensitive" } } },
+              { customer: { code: { contains: query.search, mode: "insensitive" } } },
+            ],
+          }
+        : {}),
     },
     select: {
       id: true,
@@ -203,6 +228,18 @@ export async function listReturns(actor: Actor, raw: unknown): Promise<ReturnLis
     ...(query.salesPersonId ? { salesPersonId: query.salesPersonId } : {}),
     ...(range ? { returnDate: range } : {}),
     ...(Object.keys(customer).length ? { customer } : {}),
+    ...(query.search
+      ? {
+          OR: [
+            { number: { contains: query.search, mode: "insensitive" } },
+            { refNo: { contains: query.search, mode: "insensitive" } },
+            { requestNo: { contains: query.search, mode: "insensitive" } },
+            { delivery: { number: { contains: query.search, mode: "insensitive" } } },
+            { customer: { name: { contains: query.search, mode: "insensitive" } } },
+            { customer: { code: { contains: query.search, mode: "insensitive" } } },
+          ],
+        }
+      : {}),
   };
 
   const [rows, aggregate] = await Promise.all([
@@ -231,7 +268,8 @@ export async function listReturns(actor: Actor, raw: unknown): Promise<ReturnLis
         lines: { select: { receivedQty: true, qcQty: true } },
       },
       orderBy: [{ returnDate: "desc" }, { number: "desc" }],
-      take: RETURN_LIST_LIMIT,
+      skip: query.page ? (query.page - 1) * (query.pageSize ?? 50) : 0,
+      take: query.page ? (query.pageSize ?? 50) : RETURN_LIST_LIMIT,
     }),
     db().salesReturn.aggregate({ where, _sum: { totalQty: true, totalAmount: true }, _count: true }),
   ]);
@@ -636,16 +674,13 @@ const onlyStatus = (allowed: string[], verb: string) => (current: { status: stri
 export async function createReturn(actor: Actor, raw: unknown): Promise<ReturnDetail> {
   const input = returnInputSchema.parse(raw);
   const p = await plan(actor, input);
-  const year = Number(input.returnDate.slice(0, 4));
-  const market = p.header.kind === "MARKET";
   const id = await db().$transaction(async (tx) => {
     await assertReturnable(tx, p, null);
-    const serial = await nextNumber(tx, p.businessUnitId, market ? "MARKET_RETURN" : "SALES_RETURN", year);
     const created = await tx.salesReturn.create({
       data: {
         ...p.header,
         businessUnitId: p.businessUnitId,
-        number: formatNumber(market ? "MR" : "SR", year, serial),
+        number: await returnNumber(tx, p.businessUnitId, p.header.kind ?? "SALES", input.mode, input.returnDate),
         status: "DRAFT",
         createdBy: actor.id,
         updatedBy: actor.id,

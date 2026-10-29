@@ -4,6 +4,7 @@ import { z } from "zod";
 import { db } from "@/lib/prisma/client";
 import { signToken } from "@/lib/auth/jwt";
 import { setAuthCookie } from "@/lib/auth/cookies";
+import { clientOf, recordAudit } from "@/lib/audit/record";
 
 const Body = z.object({
   phone: z.string().min(1),
@@ -20,12 +21,17 @@ export async function POST(req: NextRequest) {
     const { phone, password } = parsed.data;
 
     const user = await db().user.findUnique({ where: { phone } });
+    // Failed attempts are audited by account (never by the typed phone number).
+    const audit = (actionType: "LOGIN" | "LOGIN_FAILED", status: number) =>
+      recordAudit({ feature: "Authentication", actionType, userId: user?.id ?? null, userName: user?.name ?? "Unknown user", method: "POST", path: "/api/auth/login", status, ...clientOf(req) });
     if (!user || !user.isActive) {
+      await audit("LOGIN_FAILED", 401);
       return NextResponse.json({ error: "Invalid phone number or password." }, { status: 401 });
     }
 
     const valid = await argon2.verify(user.passwordHash, password);
     if (!valid) {
+      await audit("LOGIN_FAILED", 401);
       return NextResponse.json({ error: "Invalid phone number or password." }, { status: 401 });
     }
 
@@ -44,6 +50,7 @@ export async function POST(req: NextRequest) {
     await db().user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
 
     await setAuthCookie(token, expiresAt);
+    await audit("LOGIN", 200);
 
     return NextResponse.json({
       id: user.id,

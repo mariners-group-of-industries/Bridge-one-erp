@@ -47,8 +47,8 @@ export const salesCollection: NavLink = {
 export const salesTarget: NavLink = {
   label: "Sales Target",
   href: paths.targets,
-  description: "Sales targets by person, team and period.",
-  keywords: ["target", "goal", "budget"],
+  description: "Targets by sales force and month, campaign targets with commission, and item commissions.",
+  keywords: ["target", "goal", "budget", "commission", "incentive"],
 };
 
 export const salesReport: NavLink = {
@@ -103,7 +103,8 @@ export const salesWorkspace: Workspace = {
     { label: "Setup", links: [salesSetup] },
   ],
   routes: [
-    { pattern: patterns.newQuotation, label: "New Sales Quotation", parent: paths.quotations },
+    { pattern: patterns.newQuotation, label: "Create Sales Quotation", parent: paths.quotations },
+    { pattern: patterns.editQuotation, label: "Edit Sales Quotation", parent: paths.quotations },
     { pattern: patterns.quotation, label: "Quotation", parent: paths.quotations },
     { pattern: patterns.newOrder, label: "Create Sales Order", parent: paths.orders },
     { pattern: patterns.editOrder, label: "Edit", parent: paths.orders },
@@ -111,14 +112,23 @@ export const salesWorkspace: Workspace = {
     { pattern: patterns.newDelivery, label: "New Delivery", parent: paths.deliveries },
     { pattern: patterns.exchange, label: "Exchange", parent: paths.deliveries },
     { pattern: patterns.editDelivery, label: "Edit Delivery", parent: paths.deliveries },
-    { pattern: patterns.delivery, label: "Challan Details", parent: paths.deliveries },
+    { pattern: patterns.deliveryChallan, label: "Challan Details", parent: paths.deliveries },
+    { pattern: patterns.delivery, label: "Delivery Details", parent: paths.deliveries },
     { pattern: patterns.newReturn, label: "New Return", parent: paths.returns },
     { pattern: patterns.editReturn, label: "Edit Return", parent: paths.returns },
     { pattern: patterns.salesReturn, label: "Return Details", parent: paths.returns },
-    { pattern: patterns.collectByInvoice, label: "Collection By Invoice", parent: paths.collections },
+    { pattern: patterns.collectByInvoice, label: "Due Collection", parent: paths.collections },
     { pattern: patterns.newAdvance, label: "Advance Collection", parent: paths.collections },
-    { pattern: patterns.newBill, label: "Create Bill", parent: paths.collections },
+    { pattern: patterns.newBill, label: "Bill Create", parent: paths.collections },
     { pattern: patterns.bill, label: "Bill", parent: paths.collections },
     { pattern: patterns.collection, label: "Money Receipt", parent: paths.collections },
+    { pattern: patterns.newBudget, label: "Create Target", parent: paths.targets },
+    { pattern: patterns.editBudget, label: "Edit Target", parent: paths.targets },
+    { pattern: patterns.newPlan, label: "Create Sales Target", parent: paths.targets },
+    { pattern: patterns.editPlan, label: "Edit Sales Target", parent: paths.targets },
+    { pattern: patterns.plan, label: "Sales Target", parent: paths.targets },
+    { pattern: patterns.assignPlan, label: "Assign Sales Force", parent: paths.targets },
+    { pattern: patterns.newCommission, label: "Create Commission Setup", parent: paths.targets },
+    { pattern: patterns.editCommission, label: "Edit Commission Setup", parent: paths.targets },
   ],
 };

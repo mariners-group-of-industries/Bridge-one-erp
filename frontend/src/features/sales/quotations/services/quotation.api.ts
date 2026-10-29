@@ -1,4 +1,5 @@
 import { apiRequest } from "@/lib/api/client";
+import { downloadFile } from "@/lib/download";
 import type {
   QuotationAction,
   QuotationDetail,
@@ -30,3 +31,13 @@ export const changeQuotationStatus = (id: string, action: QuotationAction, versi
     method: "POST",
     body: JSON.stringify({ action, version, reason }),
   });
+
+/** The printable quotation (PDF) opens in a new tab. */
+export const quotationPdfUrl = (id: string) => `${BASE}/${id}/pdf`;
+
+/** Excel (.xlsx) of the list for the same filters. */
+export function downloadQuotationsExcel(query: QuotationListQuery) {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(query)) if (value) params.set(key, value);
+  return downloadFile(`${BASE}/export?${params}`, "sales-quotations.xlsx");
+}

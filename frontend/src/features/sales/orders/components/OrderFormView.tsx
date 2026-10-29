@@ -1,9 +1,9 @@
 "use client";
 
-import { ArrowLeft, Pencil, Plus, Trash2, UserPlus } from "lucide-react";
+import { ArrowLeft, CirclePlus, Pencil, Plus, SaveAll, Trash2, UserPlus } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useId, useMemo, useState } from "react";
+import { useId, useMemo, useState, type ReactNode } from "react";
 import { PageContainer, PageHead } from "@/components/layout/page";
 import { Button, buttonClasses } from "@/components/ui/button";
 import { CONTROL, CheckboxField, SelectField, TextAreaField, TextField } from "@/components/ui/form-field";
@@ -34,9 +34,10 @@ import {
 } from "../../masters/services/masters.api";
 import { paths } from "../../paths";
 import type { QuotationDetail } from "../../quotations/schemas/quotation.schema";
-import { fetchStock } from "../../deliveries/services/delivery.api";
-import { fetchQuotation } from "../../quotations/services/quotation.api";
+import { fetchStock, fetchWarehouses } from "../../deliveries/services/delivery.api";
+import { fetchQuotation, fetchQuotations } from "../../quotations/services/quotation.api";
 import { CustomerDialog } from "../../setup/components/CustomerDialog";
+import { SearchPick } from "../../components/SearchPick";
 import { altQty, orderTotals } from "../lib/order-totals";
 import {
   ORDER_TYPES,
@@ -209,8 +210,8 @@ function blank(today: string, lookups: SalesLookups, quotation?: QuotationDetail
     paymentMethod: "CASH",
     orderDate: today,
     expectedDeliveryDate: addDays(today, 1),
-    // Quotation rates exclude VAT (VAT is a header % there).
-    priceIncludesVat: !quotation,
+    // A quotation says whether its unit prices include VAT.
+    priceIncludesVat: quotation ? quotation.includingVat : true,
     isForeign: false,
     refCustomerPo: "",
     refCustomerPoDate: "",
@@ -221,7 +222,8 @@ function blank(today: string, lookups: SalesLookups, quotation?: QuotationDetail
     dueLimit: "0",
     remarks: quotation?.remarks ?? "",
     terms: quotation?.terms ?? (office ? (lookups.orderTerms[office.businessUnitId] ?? "") : ""),
-    discountAmount: String(quotation?.discountAmount ?? 0),
+    // Quotation discounts are per line (carried in the lines), not a header amount.
+    discountAmount: "0",
     deliveryCharge: "0",
     unloadingCharge: "0",
     lines: (quotation?.lines ?? []).map((line) => ({
@@ -230,8 +232,8 @@ function blank(today: string, lookups: SalesLookups, quotation?: QuotationDetail
       qty: String(line.qty),
       unitPrice: String(line.rate),
       discountPercent: String(line.discountPercent),
-      vatPercent: String(quotation?.vatPercent ?? 0),
-      aitPercent: "0",
+      vatPercent: String(line.vatPercent),
+      aitPercent: String(line.aitPercent),
     })),
   };
 }
@@ -301,6 +303,9 @@ function OrderEditor({ today, lookups, order, quotation }: EditorProps) {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [customerDialog, setCustomerDialog] = useState<CustomerOption | "new" | null>(null);
+  /** Whether a customer added in the dialog is the order's customer or who referred it. */
+  const [dialogFor, setDialogFor] = useState<"customer" | "referrer">("customer");
+  const [fromQuotation, setFromQuotation] = useState(Boolean(quotation));
   const initialJson = useMemo(() => JSON.stringify(initial, (name, value) => (name === "key" ? undefined : value)), [initial]);
   const dirty = !order || JSON.stringify(values, (name, value) => (name === "key" ? undefined : value)) !== initialJson;
   const quotationId = order?.quotationId ?? quotation?.id ?? null;
@@ -320,6 +325,14 @@ function OrderEditor({ today, lookups, order, quotation }: EditorProps) {
   const items = useMemo(() => masters.data?.items ?? [], [masters.data]);
   const itemById = useMemo(() => new Map(items.map((item) => [item.id, item])), [items]);
   const customer = customers.find((candidate) => candidate.id === values.customerId);
+  // Live stock is read from the office's first warehouse.
+  const warehouses = useResource("sales-warehouses", fetchWarehouses);
+  const warehouseId = warehouses.data?.find((candidate) => candidate.officeId === values.officeId)?.id ?? null;
+  const openQuotations = useResource(
+    !order && fromQuotation && !quotation && values.officeId ? `open-quotations:${values.officeId}:${today}` : null,
+    () => fetchQuotations({ officeId: values.officeId, status: "SUBMITTED", today }),
+  );
+  const quotationChoices = (openQuotations.data ?? []).filter((row) => !values.customerId || row.customerId === values.customerId);
   const credit = useResource(values.customerId ? `credit:${values.customerId}:${today}` : null, () =>
     fetchCustomerCredit(values.customerId, today),
   );
@@ -405,7 +418,8 @@ function OrderEditor({ today, lookups, order, quotation }: EditorProps) {
     });
   }
 
-  async function save() {
+  /** SAVE goes to the list (back to the order when editing); Save & New keeps office and dates for the next order. */
+  async function save(mode: "close" | "new" = "close") {
     if (busy) return;
     const input = toInput({ ...values, priceListId }, quotationId);
     const parsed = orderInputSchema.safeParse(input);
@@ -418,15 +432,32 @@ function OrderEditor({ today, lookups, order, quotation }: EditorProps) {
     setBusy(true);
     try {
       const saved = order ? await updateOrder(order.id, order.updatedAt, input) : await createOrder(input);
-      toast.success(`${saved.number} saved as draft.`);
-      router.replace(paths.order(saved.id));
+      toast.success(`${saved.number} saved as draft. Open it to submit for approval.`);
+      if (order) {
+        router.replace(paths.order(saved.id));
+      } else if (mode === "new") {
+        const fresh = blank(today, lookups);
+        setValues({
+          ...fresh,
+          officeId: values.officeId,
+          orderDate: values.orderDate,
+          expectedDeliveryDate: values.expectedDeliveryDate,
+          priceIncludesVat: values.priceIncludesVat,
+        });
+        setErrors({});
+        setFromQuotation(false);
+        setBusy(false);
+        if (quotation) router.replace(paths.newOrder);
+      } else {
+        router.push(paths.orders);
+      }
     } catch (error) {
       toast.error(errorMessage(error));
       setBusy(false);
     }
   }
 
-  useSaveShortcut(save, dirty);
+  useSaveShortcut(() => save(), dirty);
 
   const persons = setup?.salesPersons ?? [];
   const err = (path: string) => errors[path];
@@ -446,9 +477,17 @@ function OrderEditor({ today, lookups, order, quotation }: EditorProps) {
         indicator={dirty ? <Indicator color="orange">Not Saved</Indicator> : undefined}
         subtitle={quotation ? `From quotation ${quotation.number}` : order?.quotationNumber ? `From quotation ${order.quotationNumber}` : undefined}
         actions={
-          <Button variant="primary" onClick={save} loading={busy}>
-            Save
-          </Button>
+          <>
+            {!order && (
+              <Button variant="accent-soft" onClick={() => save("new")} disabled={busy}>
+                <SaveAll aria-hidden="true" />
+                Save &amp; New
+              </Button>
+            )}
+            <Button variant="primary" onClick={() => save()} loading={busy}>
+              SAVE
+            </Button>
+          </>
         }
       />
 
@@ -456,6 +495,32 @@ function OrderEditor({ today, lookups, order, quotation }: EditorProps) {
         <Card>
           <Section>
             <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+              {!order && (
+                <CheckboxField
+                  label={quotation ? `Order From Quotation (${quotation.number})` : "Order From Quotation"}
+                  checked={fromQuotation}
+                  onChange={(event) => {
+                    setFromQuotation(event.target.checked);
+                    if (!event.target.checked && quotation) router.replace(paths.newOrder);
+                  }}
+                />
+              )}
+              {!order && fromQuotation && !quotation && (
+                <SelectField
+                  label="Quotation"
+                  className="w-72"
+                  value=""
+                  disabled={openQuotations.loading}
+                  hint={openQuotations.data && quotationChoices.length === 0 ? "No approved quotation for this office / customer." : undefined}
+                  options={[
+                    { value: "", label: openQuotations.loading ? "Loading…" : "Select approved quotation" },
+                    ...quotationChoices.map((row) => ({ value: row.id, label: `${row.number} · ${row.customerName} · ${formatAmount(row.grandTotal)}` })),
+                  ]}
+                  onChange={(event) => {
+                    if (event.target.value) router.replace(`${paths.newOrder}?quotation=${event.target.value}`);
+                  }}
+                />
+              )}
               <CheckboxField label="Price Including VAT" checked={values.priceIncludesVat} onChange={(event) => set("priceIncludesVat", event.target.checked)} />
               <CheckboxField label="Is Foreign" checked={values.isForeign} onChange={(event) => set("isForeign", event.target.checked)} />
               {customer && (
@@ -493,27 +558,63 @@ function OrderEditor({ today, lookups, order, quotation }: EditorProps) {
                 onChange={(event) => changeOffice(event.target.value)}
               />
               <div className="flex items-end gap-1.5 lg:col-span-1">
-                <SelectField
+                <SearchPick
+                  key={customers.length}
                   label="Customer"
                   required
-                  className="min-w-0 flex-1"
-                  value={values.customerId}
                   error={err("customerId")}
                   disabled={!businessUnitId || masters.loading}
+                  placeholder={masters.loading ? "Loading…" : "Select/Search Customer (min 3 letters)"}
                   options={[
-                    { value: "", label: masters.loading ? "Loading…" : "Select customer" },
                     ...(order && !customers.some((candidate) => candidate.id === order.customerId)
-                      ? [{ value: order.customerId, label: order.customerName }]
+                      ? [{ id: order.customerId, label: order.customerName }]
                       : []),
-                    ...customers.map((candidate) => ({ value: candidate.id, label: `${candidate.name} (${candidate.code})` })),
+                    ...customers.map((candidate) => ({ id: candidate.id, label: `${candidate.name} (${candidate.code})` })),
                   ]}
-                  onChange={(event) => selectCustomer(customers.find((candidate) => candidate.id === event.target.value))}
+                  selectedId={values.customerId}
+                  onPick={(id) => selectCustomer(customers.find((candidate) => candidate.id === id))}
                 />
-                <Button size="icon" aria-label="New customer" title="New customer" disabled={!setup} onClick={() => setCustomerDialog("new")}>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="text-accent-strong"
+                  aria-label="Add customer"
+                  title="Add customer"
+                  disabled={!setup}
+                  onClick={() => {
+                    setDialogFor("customer");
+                    setCustomerDialog("new");
+                  }}
+                >
+                  <CirclePlus />
+                </Button>
+              </div>
+              <div className="flex items-end gap-1.5">
+                <SearchPick
+                  label="Referred By"
+                  freeText
+                  error={err("referredBy")}
+                  disabled={!businessUnitId}
+                  placeholder="Select/Search Customer (min 3 letters)"
+                  options={customers.filter((candidate) => candidate.id !== values.customerId).map((candidate) => ({ id: candidate.id, label: candidate.name }))}
+                  text={values.referredBy}
+                  onText={(text) => set("referredBy", text)}
+                />
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="text-accent-strong"
+                  aria-label="Add referrer"
+                  title="Add a customer as referrer"
+                  disabled={!setup}
+                  onClick={() => {
+                    setDialogFor("referrer");
+                    setCustomerDialog("new");
+                  }}
+                >
                   <UserPlus />
                 </Button>
               </div>
-              <TextField label="Referred By" value={values.referredBy} error={err("referredBy")} onChange={(event) => set("referredBy", event.target.value)} />
               <div className="flex items-end gap-1.5">
                 {customer && customer.addresses.length > 0 ? (
                   <SelectField
@@ -536,7 +637,15 @@ function OrderEditor({ today, lookups, order, quotation }: EditorProps) {
                   />
                 )}
                 {customer && (
-                  <Button size="icon" aria-label="Edit customer addresses" title="Edit customer / addresses" onClick={() => setCustomerDialog(customer)}>
+                  <Button
+                  size="icon"
+                  aria-label="Edit customer addresses"
+                  title="Edit customer / addresses"
+                  onClick={() => {
+                    setDialogFor("customer");
+                    setCustomerDialog(customer);
+                  }}
+                >
                     <Pencil />
                   </Button>
                 )}
@@ -636,6 +745,7 @@ function OrderEditor({ today, lookups, order, quotation }: EditorProps) {
               setup={setup}
               priceListId={priceListId}
               disabled={!businessUnitId || masters.loading}
+              warehouseId={warehouseId}
               onAdd={addLine}
             />
             <LinesGrid
@@ -745,7 +855,8 @@ function OrderEditor({ today, lookups, order, quotation }: EditorProps) {
                   }
                 : data!,
             );
-            selectCustomer(saved);
+            if (dialogFor === "referrer") set("referredBy", saved.name);
+            else selectCustomer(saved);
           }}
         />
       )}
@@ -791,6 +902,7 @@ export function ItemEntry({
   disabled,
   onAdd,
   warehouseId,
+  filterExtra,
 }: {
   items: ItemOption[];
   setup: SetupLookups | undefined;
@@ -798,11 +910,18 @@ export function ItemEntry({
   disabled: boolean;
   onAdd: (line: Omit<LineValues, "key">) => void;
   warehouseId?: string | null;
+  /** Shown after the category filters (e.g. Price Type). */
+  filterExtra?: ReactNode;
 }) {
   const listId = useId();
   const [category, setCategory] = useState<[string, string, string]>(["", "", ""]);
+  const [itemType, setItemType] = useState("");
+  const itemTypes = useMemo(() => [...new Set(items.map((candidate) => candidate.itemType).filter((value): value is string => Boolean(value)))].sort(), [items]);
   const [itemText, setItemText] = useState("");
   const [entry, setEntry] = useState({ qty: "", unitPrice: "", discountPercent: "0", vatPercent: "0", aitPercent: "0" });
+  const [warning, setWarning] = useState<string>();
+  /** Quantity in the item's packing unit (Ctn, Bag …); sets Quantity = packs × pieces per pack. */
+  const [pack, setPack] = useState("");
   const [error, setError] = useState<string>();
 
   const categories = useMemo(() => setup?.categories ?? [], [setup]);
@@ -823,7 +942,11 @@ export function ItemEntry({
     }
     return ids;
   }, [chosen, categories]);
-  const visible = allowed ? items.filter((item) => item.categoryId && allowed.has(item.categoryId)) : items;
+  const visible = items.filter(
+    (candidate) => (!allowed || (candidate.categoryId && allowed.has(candidate.categoryId))) && (!itemType || candidate.itemType === itemType),
+  );
+  // As in Managerium, suggestions start after 3 letters.
+  const searching = itemText.trim().length >= 3;
   const label = (item: ItemOption) => `${item.code} — ${item.name}`;
   const item = visible.find((candidate) => label(candidate) === itemText) ?? items.find((candidate) => label(candidate) === itemText);
   const pending = useResource(item ? `pending:${item.id}` : null, () => fetchItemPending(item!.id));
@@ -851,10 +974,15 @@ export function ItemEntry({
       setError("Quantity must be more than 0.");
       return;
     }
+    // Orders may exceed stock (production plans from them); the shortfall is only flagged.
+    const available = stock.data?.[0]?.qty;
+    const shortfall = available !== undefined && orZero(entry.qty) > available;
     onAdd({ itemId: item.id, ...entry });
     setItemText("");
     setEntry({ qty: "", unitPrice: "", discountPercent: "0", vatPercent: "0", aitPercent: "0" });
+    setPack("");
     setError(undefined);
+    setWarning(shortfall ? `Insufficient stock for ${item.code}: ordered ${formatQty(orZero(entry.qty))}, available ${formatQty(available)}.` : undefined);
   }
 
   const level = (depth: 0 | 1 | 2) => {
@@ -880,13 +1008,21 @@ export function ItemEntry({
 
   return (
     <div className="flex flex-col gap-3 rounded-lg bg-canvas p-3">
-      <div className="grid gap-3 sm:grid-cols-3">
+      <div className={cn("grid gap-3 sm:grid-cols-4", Boolean(filterExtra) && "lg:grid-cols-5")}>
+        <SelectField
+          label="Item Type"
+          value={itemType}
+          disabled={disabled}
+          options={[{ value: "", label: "All" }, ...itemTypes.map((value) => ({ value, label: value }))]}
+          onChange={(event) => setItemType(event.target.value)}
+        />
         {level(0)}
         {level(1)}
         {level(2)}
+        {filterExtra}
       </div>
       <div
-        className="grid items-end gap-3 sm:grid-cols-4 lg:grid-cols-[minmax(16rem,2fr)_repeat(7,minmax(5rem,1fr))_auto]"
+        className="grid items-end gap-3 sm:grid-cols-4 lg:grid-cols-[minmax(16rem,2fr)_repeat(8,minmax(5rem,1fr))_auto]"
         onKeyDown={(event) => {
           if (event.key === "Enter" && (event.target as HTMLElement).tagName === "INPUT") {
             event.preventDefault();
@@ -903,17 +1039,42 @@ export function ItemEntry({
             list={listId}
             value={itemText}
             disabled={disabled}
-            placeholder={disabled ? "Select an office first" : `Search ${visible.length} items by code or name`}
+            placeholder={disabled ? "Select an office first" : "Select/Search item (min 3 letters)"}
             onChange={(event) => pick(event.target.value)}
             className={cn(CONTROL, "h-7")}
           />
           <datalist id={listId}>
-            {visible.map((candidate) => (
+            {(searching ? visible : []).map((candidate) => (
               <option key={candidate.id} value={label(candidate)} />
             ))}
           </datalist>
         </div>
-        <TextField label="Quantity" type="number" min={0} step="any" value={entry.qty} disabled={disabled} onChange={(event) => setEntry({ ...entry, qty: event.target.value })} />
+        <TextField
+          label="Quantity"
+          required
+          type="number"
+          min={0}
+          step="any"
+          value={entry.qty}
+          disabled={disabled}
+          onChange={(event) => {
+            setEntry({ ...entry, qty: event.target.value });
+            setPack(item?.altUomFactor && event.target.value ? String(Math.round((orZero(event.target.value) / item.altUomFactor) * 1000) / 1000) : "");
+          }}
+        />
+        <TextField
+          label={item?.altUom ? `Pack Qty (${item.altUom})` : "Pack Qty"}
+          type="number"
+          min={0}
+          step="any"
+          value={pack}
+          disabled={disabled || !item?.altUomFactor}
+          hint={item && !item.altUomFactor ? "No packing unit" : undefined}
+          onChange={(event) => {
+            setPack(event.target.value);
+            if (item?.altUomFactor) setEntry({ ...entry, qty: event.target.value ? String(Math.round(orZero(event.target.value) * item.altUomFactor * 1000) / 1000) : "" });
+          }}
+        />
         <TextField label="Rate" type="number" min={0} step="any" value={entry.unitPrice} disabled={disabled} onChange={(event) => setEntry({ ...entry, unitPrice: event.target.value })} />
         <TextField label="MRP" value={item?.mrp === null || !item ? "" : formatAmount(item.mrp)} readOnly tabIndex={-1} />
         <TextField label="Total Amount" value={entryTotal ? formatAmount(entryTotal) : ""} readOnly tabIndex={-1} />
@@ -941,17 +1102,18 @@ export function ItemEntry({
               {item.uom}
               {item.altUom ? ` · ${item.altUomFactor} per ${item.altUom}` : ""}
             </Indicator>
-            {warehouseId && (
-              <Indicator color={stock.data && stock.data[0].qty > 0 ? "green" : "red"}>
-                Stock: {stock.data ? formatQty(stock.data[0].qty) : "…"}
-              </Indicator>
-            )}
-            <Indicator color="orange">Pending in orders: {pending.data ? formatQty(pending.data.pendingQty) : "…"}</Indicator>
+            <Indicator color="yellow">Stock : {!warehouseId ? "No warehouse" : stock.data ? formatQty(stock.data[0].qty) : "…"}</Indicator>
+            <Indicator color="orange">Pending : {pending.data ? formatQty(pending.data.pendingQty) : "…"}</Indicator>
           </>
         )}
         {error && (
           <p role="alert" className="text-danger">
             {error}
+          </p>
+        )}
+        {!error && warning && (
+          <p role="status" className="text-warning">
+            {warning}
           </p>
         )}
       </div>
@@ -989,7 +1151,7 @@ export function LinesGrid({
   return (
     <div className="overflow-x-auto rounded-lg border border-line">
       <table className="w-full min-w-[1100px] text-sm">
-        <thead className="bg-canvas text-xs text-ink-muted">
+        <thead className="bg-accent-soft text-xs font-semibold text-ink">
           <tr className="border-b border-line">
             {["SL", "Code", "Name", "UOM", "Quantity", "Alt. UOM", "Alt. Qty", "Unit Price", "Disc %", "Net Unit Price", "VAT %", "AIT %", "Total", "Net Total", ""].map(
               (header, index) => (
@@ -1068,3 +1230,4 @@ export function LinesGrid({
     </div>
   );
 }
+

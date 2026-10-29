@@ -39,53 +39,109 @@ async function main() {
     },
   });
 
-  const dhakaOffice = await prisma.office.create({
-    data: {
-      businessUnitId: bu.id,
+  const GULFESHA_ADDRESS = "Gulfesha Plaza (Level-10), 69 Outer Circuler Road, Boro Moghbazar, Dhaka";
+
+  const officesData: { name: string; address: string; warehouses: string[] }[] = [
+    {
       name: "Dhaka Head Office",
       address: "10th Floor, MG SAM Center, 12 Bir Uttam A. K. Khandakar Road, Mohakhali C/A, Dhaka-1212, Bangladesh",
-      email: null,
-      phone: null,
-      binNumber: null,
+      warehouses: ["Head Office WH", "ASSET WH HO"],
     },
-  });
-
-  await prisma.warehouse.createMany({
-    data: [
-      { officeId: dhakaOffice.id, name: "Head Office WH" },
-      { officeId: dhakaOffice.id, name: "ASSET WH HO" },
-    ],
-  });
-
-  const factoryOffice = await prisma.office.create({
-    data: {
-      businessUnitId: bu.id,
+    {
       name: "MG Sirajganj Factory",
-      address: "Nalka, Shengati, Raiganj, Sirajganj-6703",
-      email: null,
-      phone: null,
-      binNumber: null,
+      address: "Nalka,Shengati, Raiganj, Sirajganj-6703",
+      warehouses: [
+        "Material WH",
+        "Finished Goods (FG) WH",
+        "Maintenance WH",
+        "ASSET WH FAC",
+        "PD Snacks Store",
+        "PD Biscuit Store",
+        "Recycle WH",
+        "Stationary WH",
+      ],
     },
-  });
+    {
+      name: "MFAL-HO",
+      address: GULFESHA_ADDRESS,
+      warehouses: [],
+    },
+    {
+      name: "MFIL-HO",
+      address: GULFESHA_ADDRESS,
+      warehouses: [],
+    },
+    {
+      name: "MCTL-HO",
+      address: GULFESHA_ADDRESS,
+      warehouses: [],
+    },
+    {
+      name: "BMPL-HO",
+      address: GULFESHA_ADDRESS,
+      warehouses: [],
+    },
+    {
+      name: "MGV-PLC",
+      address: GULFESHA_ADDRESS,
+      warehouses: [],
+    },
+    {
+      name: "MOHS-Eco",
+      address: GULFESHA_ADDRESS,
+      warehouses: ["MOHS_ECO_MW", "MOHS_ECO_CW"],
+    },
+    {
+      name: "MFGL-HO",
+      address: GULFESHA_ADDRESS,
+      warehouses: [],
+    },
+    {
+      name: "Marinozz",
+      address: GULFESHA_ADDRESS,
+      warehouses: ["MZ-M14-MW", "MZ-M14-PD"],
+    },
+    {
+      name: "CFF-Chapai",
+      address: GULFESHA_ADDRESS,
+      warehouses: ["Fish Firm-MW", "Fish Firm-PD"],
+    },
+    {
+      name: "MBBL-HO",
+      address: GULFESHA_ADDRESS,
+      warehouses: [],
+    },
+  ];
 
-  await prisma.warehouse.createMany({
-    data: [
-      { officeId: factoryOffice.id, name: "Material WH" },
-      { officeId: factoryOffice.id, name: "Finished Goods (FG) WH" },
-      { officeId: factoryOffice.id, name: "Maintenance WH" },
-      { officeId: factoryOffice.id, name: "ASSET WH FAC" },
-      { officeId: factoryOffice.id, name: "PD Snacks Store" },
-      { officeId: factoryOffice.id, name: "PD Biscuit Store" },
-      { officeId: factoryOffice.id, name: "Recycle WH" },
-      { officeId: factoryOffice.id, name: "Stationary WH" },
-    ],
-  });
+  let totalWarehouses = 0;
+  for (const item of officesData) {
+    const office = await prisma.office.create({
+      data: {
+        businessUnitId: bu.id,
+        name: item.name,
+        address: item.address,
+        email: null,
+        phone: null,
+        binNumber: null,
+      },
+    });
+
+    if (item.warehouses.length > 0) {
+      await prisma.warehouse.createMany({
+        data: item.warehouses.map((whName) => ({
+          officeId: office.id,
+          name: whName,
+        })),
+      });
+      totalWarehouses += item.warehouses.length;
+    }
+  }
 
   console.log("Seed complete");
   console.log(`  Company:       ${company.name}`);
   console.log(`  Business Unit: ${bu.name}`);
-  console.log(`  Offices:       Dhaka Head Office, MG Sirajganj Factory`);
-  console.log(`  Warehouses:    10 total`);
+  console.log(`  Offices:       ${officesData.length} total`);
+  console.log(`  Warehouses:    ${totalWarehouses} total`);
 
   const seedPhone = process.env.SEED_ADMIN_PHONE;
   const seedPassword = process.env.SEED_ADMIN_PASSWORD;

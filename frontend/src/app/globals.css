@@ -98,7 +98,7 @@
   --color-grid-line: var(--grid-line);
   --color-grid-hover: var(--grid-hover);
 
-  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-sans: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
@@ -260,4 +260,25 @@
   font-size: 11px !important;
   font-weight: 700 !important;
   margin-bottom: 2px !important;
+}
+
+/* ─── Rich text editor content (src/components/ui/rich-text-editor.tsx) ───── */
+.prose-editor > * + * { margin-top: 0.5rem; }
+.prose-editor h2 { font-size: 1.125rem; font-weight: 600; }
+.prose-editor h3 { font-size: 1rem; font-weight: 600; }
+.prose-editor ul { list-style: disc; padding-left: 1.5rem; }
+.prose-editor ol { list-style: decimal; padding-left: 1.5rem; }
+.prose-editor blockquote { border-left: 3px solid var(--line-strong); padding-left: 0.75rem; color: var(--ink-muted); }
+.prose-editor hr { border: 0; border-top: 1px solid var(--line-strong); margin: 0.75rem 0; }
+.prose-editor a { color: var(--accent-strong); text-decoration: underline; }
+.prose-editor table { border-collapse: collapse; width: 100%; table-layout: fixed; }
+.prose-editor th, .prose-editor td { border: 1px solid var(--line-strong); padding: 0.25rem 0.5rem; vertical-align: top; }
+.prose-editor th { background: var(--accent-soft); font-weight: 600; }
+.prose-editor .selectedCell { background: var(--accent-soft); }
+.prose-editor p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  color: var(--ink-faint);
+  float: left;
+  height: 0;
+  pointer-events: none;
 }

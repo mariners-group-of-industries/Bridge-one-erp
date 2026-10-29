@@ -1,67 +1,107 @@
 "use client";
 
-import { Copy, Ellipsis, ExternalLink, Plus, RefreshCw, Send, Trash2 } from "lucide-react";
+import { Download, Eye, Pencil, Plus, RefreshCw, Search } from "lucide-react";
 import Link from "next/link";
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { PageContainer, PageHead } from "@/components/layout/page";
 import { buttonClasses, Button } from "@/components/ui/button";
 import { DataTable, type Column } from "@/components/ui/data-table";
-import { ConfirmDialog } from "@/components/ui/dialog";
-import { DropdownMenu, type MenuItem } from "@/components/ui/dropdown-menu";
-import { SelectField, TextField } from "@/components/ui/form-field";
+import { CONTROL, SelectField, TextField } from "@/components/ui/form-field";
 import { Card, EmptyState, ErrorState, LoadingState } from "@/components/ui/section";
 import { useToast } from "@/components/ui/toast";
 import { useResource } from "@/hooks/use-resource";
 import { errorMessage } from "@/lib/api/client";
+import { cn } from "@/lib/cn";
 import { formatAmount } from "../../dashboard/lib/format";
 import { formatDay, useToday } from "../../lib/use-today";
 import { fetchSalesLookups } from "../../masters/services/masters.api";
 import { paths } from "../../paths";
-import {
-  QUOTATION_STATUSES,
-  STATUS_LABELS,
-  displayStatus,
-  quotationListQuerySchema,
-  type QuotationListQuery,
-  type QuotationListRow,
-} from "../schemas/quotation.schema";
-import { changeQuotationStatus, deleteQuotation, fetchQuotations } from "../services/quotation.api";
+import { STATUS_LABELS, displayStatus, quotationListQuerySchema, type QuotationListQuery, type QuotationListRow } from "../schemas/quotation.schema";
+import { downloadQuotationsExcel, fetchQuotations } from "../services/quotation.api";
 import { QuotationStatusIndicator } from "./QuotationStatusIndicator";
 
+/** Managerium's status filter (Approved, Pending, Reject) plus the other stages. */
 const STATUS_OPTIONS = [
   { value: "", label: "All" },
-  ...[...QUOTATION_STATUSES, "EXPIRED" as const].map((status) => ({ value: status, label: STATUS_LABELS[status] })),
+  { value: "SUBMITTED", label: STATUS_LABELS.SUBMITTED },
+  { value: "DRAFT", label: STATUS_LABELS.DRAFT },
+  { value: "LOST", label: STATUS_LABELS.LOST },
+  { value: "ORDERED", label: STATUS_LABELS.ORDERED },
+  { value: "EXPIRED", label: STATUS_LABELS.EXPIRED },
+  { value: "CANCELLED", label: STATUS_LABELS.CANCELLED },
 ];
+
+/** `value` once it has stopped changing for 400 ms. */
+function useDebounced(value: string) {
+  const [settled, setSettled] = useState(value);
+  useEffect(() => {
+    const timer = setTimeout(() => setSettled(value), 400);
+    return () => clearTimeout(timer);
+  }, [value]);
+  return settled;
+}
 
 export function QuotationListView() {
   const today = useToday();
+  const [search, setSearch] = useState("");
+  const [exportQuery, setExportQuery] = useState<QuotationListQuery | null>(null);
+  const [exporting, setExporting] = useState(false);
+  const toast = useToast();
+
+  async function exportExcel() {
+    if (!exportQuery) return;
+    setExporting(true);
+    try {
+      await downloadQuotationsExcel(exportQuery);
+    } catch (error) {
+      toast.error(errorMessage(error));
+    } finally {
+      setExporting(false);
+    }
+  }
+
   return (
-    <PageContainer>
+    <PageContainer className="max-w-none">
       <PageHead
         title="Sales Quotation"
         actions={
-          <Link href={paths.newQuotation} className={buttonClasses("primary")}>
-            <Plus aria-hidden="true" />
-            Create Quotation
-          </Link>
+          <>
+            <label className="relative w-56">
+              <span className="sr-only">Search quotations</span>
+              <Search aria-hidden="true" className="pointer-events-none absolute top-1.5 left-2 size-4 text-ink-faint" />
+              <input type="search" value={search} placeholder="Search…" onChange={(event) => setSearch(event.target.value)} className={cn(CONTROL, "h-7 pl-7")} />
+            </label>
+            <Button onClick={exportExcel} loading={exporting} disabled={!exportQuery}>
+              <Download aria-hidden="true" />
+              Excel
+            </Button>
+            <Link href={paths.newQuotation} className={buttonClasses("primary")}>
+              <Plus aria-hidden="true" />
+              Create Quotation
+            </Link>
+          </>
         }
       />
-      {today ? <QuotationList today={today} /> : <LoadingState />}
+      {today ? <QuotationList today={today} search={search} onQuery={setExportQuery} /> : <LoadingState />}
     </PageContainer>
   );
 }
 
 type Filters = { officeId: string; from: string; to: string; status: string };
 
-function QuotationList({ today }: { today: string }) {
-  const toast = useToast();
+function QuotationList({ today, search, onQuery }: { today: string; search: string; onQuery: (query: QuotationListQuery) => void }) {
   const lookups = useResource("lookups", fetchSalesLookups);
   const [filters, setFilters] = useState<Filters>({ officeId: "", from: "", to: "", status: "" });
-  const [query, setQuery] = useState<QuotationListQuery>({ today });
+  const [applied, setApplied] = useState<Omit<QuotationListQuery, "search">>({ today });
   const [filterError, setFilterError] = useState<string>();
-  const list = useResource(JSON.stringify(query), () => fetchQuotations(query));
-  const [toDelete, setToDelete] = useState<QuotationListRow[]>([]);
-  const [busy, setBusy] = useState(false);
+  const searched = useDebounced(search.trim());
+  const query: QuotationListQuery = { ...applied, ...(searched ? { search: searched } : {}) };
+  const key = JSON.stringify(query);
+  const list = useResource(`quotations:${key}`, () => fetchQuotations(query));
+
+  useEffect(() => {
+    onQuery(JSON.parse(key) as QuotationListQuery);
+  }, [key, onQuery]);
 
   function view(event: FormEvent) {
     event.preventDefault();
@@ -77,50 +117,28 @@ function QuotationList({ today }: { today: string }) {
       return;
     }
     setFilterError(undefined);
-    if (JSON.stringify(parsed.data) === JSON.stringify(query)) list.reload();
-    else setQuery(parsed.data);
+    if (JSON.stringify(parsed.data) === JSON.stringify(applied)) list.reload();
+    else setApplied(parsed.data);
   }
-
-  async function submit(row: QuotationListRow) {
-    try {
-      await changeQuotationStatus(row.id, "submit", row.updatedAt);
-      toast.success(`${row.number} submitted.`);
-      list.reload();
-    } catch (error) {
-      toast.error(errorMessage(error));
-    }
-  }
-
-  async function confirmDelete() {
-    setBusy(true);
-    const results = await Promise.allSettled(toDelete.map((row) => deleteQuotation(row.id)));
-    setBusy(false);
-    const failed = results.filter((result) => result.status === "rejected");
-    const deleted = results.length - failed.length;
-    if (deleted > 0) toast.success(`${deleted} quotation${deleted === 1 ? "" : "s"} deleted.`);
-    if (failed.length > 0) toast.error(errorMessage((failed[0] as PromiseRejectedResult).reason));
-    setToDelete([]);
-    list.reload();
-  }
-
-  const rowActions = (row: QuotationListRow): MenuItem[] => [
-    { label: "Open", icon: <ExternalLink />, href: paths.quotation(row.id) },
-    { label: "Duplicate", icon: <Copy />, href: `${paths.newQuotation}?copy=${row.id}` },
-    ...(row.status === "DRAFT"
-      ? ([
-          { label: "Submit", icon: <Send />, onSelect: () => submit(row) },
-          "separator",
-          { label: "Delete", icon: <Trash2 />, danger: true, onSelect: () => setToDelete([row]) },
-        ] satisfies MenuItem[])
-      : []),
-  ];
 
   const columns: Column<QuotationListRow>[] = [
+    { id: "sl", header: "SL", cell: (_row, index) => index + 1, className: "w-10 tabular-nums" },
     {
-      id: "number",
-      header: "Quotation Code",
-      cell: (row) => <span className="font-medium text-ink">{row.number}</span>,
-      sortValue: (row) => row.number,
+      id: "actions",
+      header: "Actions",
+      className: "w-20",
+      cell: (row) => (
+        <span className="flex items-center gap-1">
+          <Link href={paths.quotation(row.id)} aria-label={`View ${row.number}`} title="View" className={buttonClasses("ghost", "icon")}>
+            <Eye aria-hidden="true" />
+          </Link>
+          {row.status === "DRAFT" && (
+            <Link href={paths.editQuotation(row.id)} aria-label={`Edit ${row.number}`} title="Edit" className={buttonClasses("ghost", "icon")}>
+              <Pencil aria-hidden="true" />
+            </Link>
+          )}
+        </span>
+      ),
     },
     {
       id: "status",
@@ -128,23 +146,12 @@ function QuotationList({ today }: { today: string }) {
       cell: (row) => <QuotationStatusIndicator status={displayStatus(row.status, row.validTill, today)} />,
       sortValue: (row) => displayStatus(row.status, row.validTill, today),
     },
+    { id: "number", header: "Quotation Code", cell: (row) => <span className="font-medium whitespace-nowrap text-ink">{row.number}</span>, sortValue: (row) => row.number },
     { id: "office", header: "Office Name", cell: (row) => row.officeName, sortValue: (row) => row.officeName, hideBelow: "lg" },
     { id: "customer", header: "Customer Name", cell: (row) => row.customerName, sortValue: (row) => row.customerName },
     { id: "mobile", header: "Mobile No.", cell: (row) => row.contactMobile ?? "—", hideBelow: "md" },
-    {
-      id: "date",
-      header: "Quotation Date",
-      cell: (row) => formatDay(row.quotationDate),
-      sortValue: (row) => row.quotationDate,
-      hideBelow: "sm",
-    },
-    {
-      id: "validTill",
-      header: "Valid Till Date",
-      cell: (row) => formatDay(row.validTill),
-      sortValue: (row) => row.validTill,
-      hideBelow: "md",
-    },
+    { id: "date", header: "Quotation Date", cell: (row) => <span className="whitespace-nowrap">{formatDay(row.quotationDate)}</span>, sortValue: (row) => row.quotationDate, hideBelow: "sm" },
+    { id: "validTill", header: "Valid Till Date", cell: (row) => <span className="whitespace-nowrap">{formatDay(row.validTill)}</span>, sortValue: (row) => row.validTill, hideBelow: "md" },
     {
       id: "amount",
       header: "Amount",
@@ -152,24 +159,6 @@ function QuotationList({ today }: { today: string }) {
       sortValue: (row) => row.grandTotal,
       className: "text-right",
     },
-    {
-      id: "actions",
-      header: "Actions",
-      cell: (row) => (
-        <DropdownMenu
-          trigger={<Ellipsis />}
-          triggerLabel={`Actions for ${row.number}`}
-          triggerClassName={buttonClasses("ghost", "icon")}
-          items={rowActions(row)}
-        />
-      ),
-      className: "w-12 text-right",
-    },
-  ];
-
-  const officeOptions = [
-    { value: "", label: "All" },
-    ...(lookups.data?.offices ?? []).map((office) => ({ value: office.id, label: office.name })),
   ];
 
   return (
@@ -179,30 +168,13 @@ function QuotationList({ today }: { today: string }) {
           <SelectField
             label="Office"
             value={filters.officeId}
-            options={officeOptions}
+            options={[{ value: "", label: "All" }, ...(lookups.data?.offices ?? []).map((office) => ({ value: office.id, label: office.name }))]}
             disabled={!lookups.data}
             onChange={(event) => setFilters({ ...filters, officeId: event.target.value })}
           />
-          <TextField
-            label="From Date"
-            type="date"
-            value={filters.from}
-            max={filters.to || undefined}
-            onChange={(event) => setFilters({ ...filters, from: event.target.value })}
-          />
-          <TextField
-            label="To Date"
-            type="date"
-            value={filters.to}
-            min={filters.from || undefined}
-            onChange={(event) => setFilters({ ...filters, to: event.target.value })}
-          />
-          <SelectField
-            label="Status"
-            value={filters.status}
-            options={STATUS_OPTIONS}
-            onChange={(event) => setFilters({ ...filters, status: event.target.value })}
-          />
+          <TextField label="From Date" type="date" value={filters.from} max={filters.to || undefined} onChange={(event) => setFilters({ ...filters, from: event.target.value })} />
+          <TextField label="To Date" type="date" value={filters.to} min={filters.from || undefined} onChange={(event) => setFilters({ ...filters, to: event.target.value })} />
+          <SelectField label="Status" value={filters.status} options={STATUS_OPTIONS} onChange={(event) => setFilters({ ...filters, status: event.target.value })} />
           <Button type="submit" variant="primary" disabled={list.loading}>
             <RefreshCw aria-hidden="true" />
             View
@@ -228,27 +200,7 @@ function QuotationList({ today }: { today: string }) {
               getRowId={(row) => row.id}
               getRowLabel={(row) => row.number}
               rowHref={(row) => paths.quotation(row.id)}
-              search={{
-                placeholder: "Search code, customer or mobile",
-                match: (row, needle) =>
-                  row.number.toLowerCase().includes(needle) ||
-                  row.customerName.toLowerCase().includes(needle) ||
-                  (row.contactMobile ?? "").includes(needle),
-              }}
-              bulkActions={(selected, clear) => {
-                const drafts = selected.filter((row) => row.status === "DRAFT");
-                return [
-                  {
-                    label: drafts.length === selected.length ? "Delete" : `Delete ${drafts.length} draft(s)`,
-                    danger: true,
-                    disabled: drafts.length === 0,
-                    onSelect: () => {
-                      setToDelete(drafts);
-                      clear();
-                    },
-                  },
-                ];
-              }}
+              footer={(rows) => ({ number: `${rows.length} quotations`, amount: formatAmount(rows.reduce((sum, row) => sum + row.grandTotal, 0)) })}
               emptyState={
                 <EmptyState title="No quotations found">
                   <Link href={paths.newQuotation} className="font-medium text-ink underline underline-offset-2">
@@ -261,15 +213,6 @@ function QuotationList({ today }: { today: string }) {
           </div>
         )}
       </Card>
-
-      <ConfirmDialog
-        open={toDelete.length > 0}
-        title={toDelete.length === 1 ? `Delete ${toDelete[0].number}?` : `Delete ${toDelete.length} quotations?`}
-        message="Only draft quotations can be deleted. This cannot be undone."
-        busy={busy}
-        onConfirm={confirmDelete}
-        onClose={() => setToDelete([])}
-      />
     </div>
   );
 }

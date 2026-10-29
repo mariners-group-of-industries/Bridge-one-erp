@@ -3,7 +3,7 @@
 import { ArrowLeft, Crosshair, Download, ListPlus, Paperclip, Pencil, Save, Trash2, X } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { PageContainer, PageHead } from "@/components/layout/page";
 import { Button, buttonClasses } from "@/components/ui/button";
 import { ErrorState, LoadingState } from "@/components/ui/section";
@@ -93,6 +93,11 @@ type FormState = {
   contactNo: string;
   taxBracketId: string;
   remarks: string;
+  bankType: string;
+  bankAccountNo: string;
+  bankBranch: string;
+  bankName: string;
+  bankRoutingNo: string;
   shipping: ShippingRow[];
 } & Record<CustomerFlag, boolean>;
 
@@ -142,6 +147,11 @@ const EMPTY: FormState = {
   contactNo: "",
   taxBracketId: "",
   remarks: "",
+  bankType: "",
+  bankAccountNo: "",
+  bankBranch: "",
+  bankName: "",
+  bankRoutingNo: "",
   shipping: [],
   ...(Object.fromEntries(CUSTOMER_FLAGS.map((flag) => [flag.key, false])) as Record<CustomerFlag, boolean>),
 };
@@ -173,8 +183,22 @@ const formatSize = (bytes: number) =>
 
 // ─── Loader ───────────────────────────────────────────────────────────────────
 
+export interface EmbeddedCustomerForm {
+  defaultOfficeId?: string;
+  onSaved: (customer: CustomerDto) => void;
+  onCancel: () => void;
+}
+
 /** Add Customer (no id) or edit an existing customer profile. */
-export function CustomerFormView({ customerId }: { customerId?: string }) {
+export function CustomerFormView({
+  customerId,
+  defaultOfficeId,
+  embedded,
+}: {
+  customerId?: string;
+  defaultOfficeId?: string;
+  embedded?: EmbeddedCustomerForm;
+}) {
   const options = useResource("customer-form-options", customerApi.formOptions);
   const customer = useResource(customerId ? `customer:${customerId}` : null, () => customerApi.get(customerId!));
   const title = customerId ? "Edit Customer" : "Add Customer";
@@ -185,15 +209,20 @@ export function CustomerFormView({ customerId }: { customerId?: string }) {
       href: customerId ? entityMasterDataPaths.customerEdit(customerId) : entityMasterDataPaths.customerCreate,
     },
   ];
-  const initial = useMemo(() => (customer.data ? fromDto(customer.data) : EMPTY), [customer.data]);
+  const effectiveOfficeId = defaultOfficeId ?? embedded?.defaultOfficeId ?? "";
+  const initial = useMemo(
+    () => (customer.data ? fromDto(customer.data) : { ...EMPTY, officeId: effectiveOfficeId }),
+    [customer.data, effectiveOfficeId],
+  );
   const error = options.error ?? customer.error;
   const ready = options.data && (!customerId || customer.data);
 
+  const Shell = embedded ? EmbeddedShell : FullPageShell;
   return (
-    <PageContainer full>
+    <Shell>
       {error || !ready ? (
         <>
-          <PageHead title={title} breadcrumbs={breadcrumbs} />
+          {!embedded && <PageHead title={title} breadcrumbs={breadcrumbs} />}
           <section className="rounded border border-line bg-surface">
             {error ? (
               <ErrorState
@@ -218,11 +247,15 @@ export function CustomerFormView({ customerId }: { customerId?: string }) {
           attachments={customer.data?.attachments ?? []}
           options={options.data!}
           onOptionsChange={(update) => options.mutate((current) => update(current!))}
+          embedded={embedded}
         />
       )}
-    </PageContainer>
+    </Shell>
   );
 }
+
+const FullPageShell = ({ children }: { children: ReactNode }) => <PageContainer full>{children}</PageContainer>;
+const EmbeddedShell = ({ children }: { children: ReactNode }) => <div className="flex flex-col gap-4">{children}</div>;
 
 // ─── Editor ───────────────────────────────────────────────────────────────────
 
@@ -234,9 +267,10 @@ interface EditorProps {
   attachments: CustomerAttachmentDto[];
   options: CustomerFormOptions;
   onOptionsChange: (update: (current: CustomerFormOptions) => CustomerFormOptions) => void;
+  embedded?: EmbeddedCustomerForm;
 }
 
-function CustomerEditor({ customerId, title, breadcrumbs, initial, attachments, options, onOptionsChange }: EditorProps) {
+function CustomerEditor({ customerId, title, breadcrumbs, initial, attachments, options, onOptionsChange, embedded }: EditorProps) {
   const router = useRouter();
   const toast = useToast();
   const [form, setForm] = useState<FormState>(initial);
@@ -337,7 +371,8 @@ function CustomerEditor({ customerId, title, breadcrumbs, initial, attachments, 
       }
       if (failed.length) toast.error(`Saved, but some attachments failed. ${failed.join(" ")}`);
       else toast.success(`Customer ${saved.code} saved.`);
-      router.push(entityMasterDataPaths.customerProfile);
+      if (embedded) embedded.onSaved(saved);
+      else router.push(entityMasterDataPaths.customerProfile);
     } catch (err) {
       if (err instanceof ApiClientError && err.fieldErrors) {
         setErrors(Object.fromEntries(Object.entries(err.fieldErrors).map(([key, list]) => [key, list[0] ?? ""])));
@@ -387,6 +422,7 @@ function CustomerEditor({ customerId, title, breadcrumbs, initial, attachments, 
 
   return (
     <>
+      {!embedded && (
       <PageHead
         title={title}
         subtitle={customerId ? `Partner code ${initial.code}` : "Partner, billing and shipping details."}
@@ -397,6 +433,7 @@ function CustomerEditor({ customerId, title, breadcrumbs, initial, attachments, 
           </Link>
         }
       />
+      )}
 
       <form
         noValidate
@@ -663,11 +700,38 @@ function CustomerEditor({ customerId, title, breadcrumbs, initial, attachments, 
           onAddSection={addSection}
         />
 
+        {/* ─── 5. Partner Bank Information ─────────────────────────────── */}
+        <Panel title="Partner Bank Information">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5">
+            <Field label="Type" error={err("bankType")}>
+              {(id) => <Input id={id} placeholder="Type" value={form.bankType} maxLength={50} onChange={text("bankType")} />}
+            </Field>
+            <Field label="Account No" error={err("bankAccountNo")}>
+              {(id) => <Input id={id} placeholder="Account No" value={form.bankAccountNo} maxLength={50} onChange={text("bankAccountNo")} />}
+            </Field>
+            <Field label="Branch" error={err("bankBranch")}>
+              {(id) => <Input id={id} placeholder="Branch" value={form.bankBranch} maxLength={100} onChange={text("bankBranch")} />}
+            </Field>
+            <Field label="Bank" error={err("bankName")}>
+              {(id) => <Input id={id} placeholder="Bank" value={form.bankName} maxLength={100} onChange={text("bankName")} />}
+            </Field>
+            <Field label="Routing No" error={err("bankRoutingNo")}>
+              {(id) => <Input id={id} placeholder="Routing No" value={form.bankRoutingNo} maxLength={30} onChange={text("bankRoutingNo")} />}
+            </Field>
+          </div>
+        </Panel>
+
         <div className="sticky bottom-0 z-10 flex flex-wrap items-center justify-end gap-2 rounded border border-line bg-surface/95 px-4 py-2.5 shadow-xs backdrop-blur">
           <SaveState dirty={dirty} />
-          <Link href={entityMasterDataPaths.customerProfile} className={buttonClasses("secondary", "md")}>
-            Cancel
-          </Link>
+          {embedded ? (
+            <Button variant="ghost" className="text-danger" onClick={embedded.onCancel} disabled={saving}>
+              CLOSE
+            </Button>
+          ) : (
+            <Link href={entityMasterDataPaths.customerProfile} className={buttonClasses("secondary", "md")}>
+              Cancel
+            </Link>
+          )}
           <Button type="submit" variant="accent" loading={saving}>
             {!saving && <Save />} Save Customer
           </Button>

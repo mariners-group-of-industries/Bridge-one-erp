@@ -16,6 +16,7 @@ export const APPROVAL_FEATURES = [
   "Sales Collection",
   "Customer Price Setup",
   "Offer Setup",
+  "Production Order",
 ] as const;
 
 export const USER_TYPES = [

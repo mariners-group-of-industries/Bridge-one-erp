@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { optionalPhone, optionalText } from "@/lib/validation/fields";
-import { PAYMENT_METHODS, type OrderType, type PaymentMethod } from "../../orders/schemas/order.schema";
+import { ORDER_TYPES, PAYMENT_METHODS, type OrderType, type PaymentMethod } from "../../orders/schemas/order.schema";
 
 // ─── Enums ───────────────────────────────────────────────────────────────────
 
@@ -11,6 +11,8 @@ export const DELIVERY_TYPE_LABELS: Record<DeliveryType, string> = {
   DIRECT: "Direct",
   EXCHANGE: "Exchange",
 };
+
+export const DELIVERY_PAGE_SIZES = [25, 50, 100, 200] as const;
 
 export const CONFIRMATIONS = ["PENDING", "CONFIRMED"] as const;
 export type Confirmation = (typeof CONFIRMATIONS)[number];
@@ -64,6 +66,17 @@ const headerFields = {
   driverName: optionalText("Driver name", 100),
   driverPhone: optionalPhone("Driver mobile"),
   transporterName: optionalText("Transporter", 150),
+  /** Registered vehicle; its number is copied into vehicleNo. */
+  vehicleId: optionalId,
+  /** Driver (Employee); driverName is for an external driver. */
+  driverEmployeeId: optionalId,
+  securityCode: optionalText("Security code", 40),
+  referredBy: optionalText("Referred by", 150),
+  /** Buyer's name and mobile (walk-in / anonymous customer). */
+  buyerName: optionalText("Name", 150),
+  buyerMobile: optionalPhone("Mobile no"),
+  /** "Type": Sales, Sample or Export. */
+  salesType: z.enum(ORDER_TYPES).default("SALES"),
   paymentMethod: z.enum(PAYMENT_METHODS),
   paymentTermDays: z
     .number({ error: "Payment term days must be a number." })
@@ -138,6 +151,16 @@ export const deliveryDeleteSchema = z.object({
   reason: optionalText("Reason", 500).refine((value) => value !== null, "Enter why the delivery is deleted."),
 });
 
+/** Delivery Details: references that may still change before confirmation. */
+export const deliveryReferenceSchema = z.object({
+  version: z.iso.datetime({ error: "Reload the delivery and try again." }),
+  vatChallanNo: optionalText("VAT challan no", 40),
+  refCustomerPo: optionalText("Ref customer PO", 60),
+  refCustomerPoDate: z.iso.date().nullish().transform((value) => value ?? null),
+  refInvoice: optionalText("Ref invoice", 60),
+  remarks: optionalText("Remarks", 500),
+});
+
 export const deliveryConfirmSchema = z.object({
   version: z.iso.datetime({ error: "Reload the delivery and try again." }),
   actualDeliveryDate: isoDate("Actual delivery date"),
@@ -178,6 +201,8 @@ export const approvedOrderQuerySchema = z
     status: z.enum(APPROVED_ORDER_STATUSES).optional(),
     customerId: optionalUuid,
     salesPersonId: optionalUuid,
+    /** SO no, customer name / code or customer PO. */
+    search: z.string().trim().max(100).optional(),
   })
   .refine(validRange, rangeMessage);
 export type ApprovedOrderQuery = z.infer<typeof approvedOrderQuerySchema>;
@@ -189,6 +214,16 @@ export const deliveryListQuerySchema = z
     confirmation: z.enum(CONFIRMATIONS).optional(),
     paymentMethod: z.enum(PAYMENT_METHODS).optional(),
     vehicleNo: z.string().trim().max(40).optional(),
+    customerId: optionalUuid,
+    /** Invoice, challan, SO no, customer name / code. */
+    search: z.string().trim().max(100).optional(),
+    /** Server paging (the screens); without a page the first DELIVERY_LIST_LIMIT rows (exports). */
+    page: z.coerce.number().int().min(1).optional(),
+    pageSize: z.coerce
+      .number()
+      .int()
+      .refine((value) => DELIVERY_PAGE_SIZES.includes(value as (typeof DELIVERY_PAGE_SIZES)[number]), "Invalid page size.")
+      .optional(),
     deleted: z
       .enum(["true", "false"])
       .optional()
@@ -217,6 +252,7 @@ export interface ApprovedOrderRow {
   salesPersonName: string | null;
   orderType: OrderType;
   pendingReasonId: string | null;
+  pendingReasonName: string | null;
   salesTotal: number;
   /** Share of the ordered quantity already delivered (0–100). */
   deliveredPercent: number;
@@ -352,6 +388,10 @@ export interface DeliveryLine {
   vatAmount: number;
   aitAmount: number;
   amount: number;
+  /** Returned so far by approved sales returns. */
+  returnedQty: number;
+  /** Stock now in the delivery's warehouse (null without one). */
+  stock: number | null;
 }
 
 export interface DeliveryDetail {
@@ -401,6 +441,14 @@ export interface DeliveryDetail {
   driverName: string | null;
   driverPhone: string | null;
   transporterName: string | null;
+  vehicleId: string | null;
+  driverEmployeeId: string | null;
+  driverEmployeeName: string | null;
+  securityCode: string | null;
+  referredBy: string | null;
+  buyerName: string | null;
+  buyerMobile: string | null;
+  salesType: OrderType;
   totalQty: number;
   itemsTotal: number;
   itemsBase: number;
@@ -411,6 +459,10 @@ export interface DeliveryDetail {
   unloadingCharge: number;
   totalAmount: number;
   paidAmount: number;
+  /** Goods taken back (exchange) plus approved sales returns. */
+  returnAmount: number;
+  /** totalAmount − returnAmount − paidAmount, never below 0. */
+  pendingAmount: number;
   /** "Paid" when collected in full on delivery, else "Due". */
   invoiceType: "Paid" | "Due";
   /** Order fully delivered after this delivery? (SO deliveries only.) */
@@ -450,7 +502,7 @@ export interface StockSummary {
     id: string;
     warehouseName: string;
     qty: number;
-    source: "OPENING" | "ADJUSTMENT" | "SALES_DELIVERY" | "SALES_RETURN";
+    source: "OPENING" | "ADJUSTMENT" | "SALES_DELIVERY" | "SALES_RETURN" | "PRODUCTION_CONSUMPTION" | "PRODUCTION_OUTPUT";
     postingDate: string;
     remarks: string | null;
     createdBy: string;
@@ -463,3 +515,15 @@ export interface WarehouseOption {
   officeId: string;
 }
 
+
+/** Pending Reason dialog: a free-text reason (also kept as a reusable reason). */
+export const pendingNoteSchema = z.object({
+  reason: z.string({ error: "Enter the pending reason." }).trim().min(1, "Enter the pending reason.").max(100, "Pending reason must be at most 100 characters."),
+});
+
+export interface PendingNote {
+  id: string;
+  reason: string;
+  createdByName: string | null;
+  createdAt: string;
+}

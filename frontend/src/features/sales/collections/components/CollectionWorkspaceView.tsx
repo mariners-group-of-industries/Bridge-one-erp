@@ -1,13 +1,13 @@
 "use client";
 
-import { Download, Eye, FilePlus2, HandCoins, Printer, Wallet } from "lucide-react";
+import { Download, Eye, FilePlus2, HandCoins, Printer, Search, Wallet } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { createContext, useContext, useEffect, useRef, useState, type FormEvent } from "react";
 import { PageContainer, PageHead } from "@/components/layout/page";
 import { Button, buttonClasses } from "@/components/ui/button";
 import { DataTable, type Column } from "@/components/ui/data-table";
-import { CheckboxField, SelectField, TextField } from "@/components/ui/form-field";
+import { CONTROL, CheckboxField, SelectField, TextField } from "@/components/ui/form-field";
 import { Card, EmptyState, ErrorState, LoadingState } from "@/components/ui/section";
 import { Tabs } from "@/components/ui/tabs";
 import { useToast } from "@/components/ui/toast";
@@ -16,8 +16,6 @@ import { errorMessage } from "@/lib/api/client";
 import { cn } from "@/lib/cn";
 import { formatAmount } from "../../dashboard/lib/format";
 import { FilterForm, useFilterLookups } from "../../deliveries/components/DeliveryWorkspaceView";
-import { downloadCsv } from "../../lib/csv";
-import { printTable } from "../../lib/print-table";
 import { addDays, formatDay, useToday } from "../../lib/use-today";
 import { fetchCustomers } from "../../masters/services/masters.api";
 import { paths } from "../../paths";
@@ -34,7 +32,18 @@ import {
   type DueListRow,
   type LedgerRow,
 } from "../schemas/collection.schema";
-import { fetchBills, fetchCollections, fetchDueInvoices, fetchDueList, fetchLedger } from "../services/collection.api";
+import { exportTable, fetchBills, fetchCollections, fetchDueInvoices, fetchDueList, fetchLedger } from "../services/collection.api";
+import { AdvanceCollectionDialog } from "./AdvanceCollectionForm";
+
+/** The header search, applied to whichever tab is open. */
+const SearchContext = createContext("");
+const PAGES = [25, 50, 100, 200] as const;
+/** Rows whose shown values contain the search text. */
+function searched<T>(rows: readonly T[], needle: string): T[] {
+  if (!needle) return [...rows];
+  const text = needle.toLowerCase();
+  return rows.filter((row) => JSON.stringify(row).toLowerCase().includes(text));
+}
 
 type Tab = "due" | "bills" | "collected" | "due-report" | "ledger" | "advance";
 const TABS: { id: Tab; label: string }[] = [
@@ -70,6 +79,21 @@ export function CollectionWorkspaceView() {
   const toast = useToast();
   const tab: Tab = isTab(params.get("tab")) ? (params.get("tab") as Tab) : "due";
   const [table, setTable] = useState<TableExport | null>(null);
+  const [search, setSearch] = useState("");
+  const [advanceOpen, setAdvanceOpen] = useState(false);
+  const [exporting, setExporting] = useState<"xlsx" | "pdf" | null>(null);
+
+  async function download(format: "xlsx" | "pdf") {
+    if (!table) return;
+    setExporting(format);
+    try {
+      await exportTable(format, table.title, table.headers, table.rows.map((row) => row.map((cell) => (cell === undefined ? null : cell))));
+    } catch (error) {
+      toast.error(errorMessage(error));
+    } finally {
+      setExporting(null);
+    }
+  }
 
   return (
     <PageContainer className="max-w-none">
@@ -77,30 +101,42 @@ export function CollectionWorkspaceView() {
         title="Sales Collection"
         actions={
           <>
-            <Button onClick={() => table && downloadCsv(`${table.name}-${today}.csv`, table.headers, table.rows)} disabled={!table}>
+            {tab !== "ledger" && (
+              <label className="relative w-52">
+                <span className="sr-only">Search</span>
+                <Search aria-hidden="true" className="pointer-events-none absolute top-1.5 left-2 size-4 text-ink-faint" />
+                <input type="search" value={search} placeholder="Search…" onChange={(event) => setSearch(event.target.value)} className={cn(CONTROL, "h-7 pl-7")} />
+              </label>
+            )}
+            <Button variant="primary" onClick={() => download("xlsx")} loading={exporting === "xlsx"} disabled={!table || exporting !== null}>
               <Download aria-hidden="true" />
               Excel
             </Button>
-            <Button onClick={() => table && !printTable(table.title, table.headers, table.rows) && toast.error("Allow pop-ups to print or save as PDF.")} disabled={!table}>
+            <Button variant="primary" onClick={() => download("pdf")} loading={exporting === "pdf"} disabled={!table || exporting !== null}>
               <Printer aria-hidden="true" />
               PDF
             </Button>
-            <Link href={paths.newAdvance} className={buttonClasses("secondary")}>
-              <Wallet aria-hidden="true" />
-              Advance
-            </Link>
-            <Link href={paths.newBill()} className={buttonClasses("secondary")}>
+            {tab !== "ledger" && (
+              <>
+                <Button variant="primary" onClick={() => setAdvanceOpen(true)}>
+                  <Wallet aria-hidden="true" />
+                  Advance
+                </Button>
+                <Link href={paths.newBill()} className={buttonClasses("primary")}>
               <FilePlus2 aria-hidden="true" />
               Create Bill
-            </Link>
-            <Link href={paths.collectByInvoice()} className={buttonClasses("primary")}>
-              <HandCoins aria-hidden="true" />
-              Collection By Invoice
-            </Link>
+                </Link>
+                <Link href={paths.collectByInvoice()} className={buttonClasses("primary")}>
+                  <HandCoins aria-hidden="true" />
+                  Collection By Invoice
+                </Link>
+              </>
+            )}
           </>
         }
       />
       <Card>
+        <SearchContext.Provider value={search.trim()}>
         <Tabs<Tab> label="Collection lists" tabs={TABS} value={tab} onChange={(next) => router.replace(`${pathname}?tab=${next}`)}>
           {!today ? (
             <LoadingState />
@@ -116,7 +152,9 @@ export function CollectionWorkspaceView() {
             <LedgerTab key={tab} today={today} onExport={setTable} />
           )}
         </Tabs>
+        </SearchContext.Provider>
       </Card>
+      {advanceOpen && today && <AdvanceCollectionDialog today={today} onClose={() => setAdvanceOpen(false)} />}
     </PageContainer>
   );
 }
@@ -154,6 +192,7 @@ function Results<T>({ resource, children }: { resource: { data?: T; error?: Erro
 // ─── Due List ────────────────────────────────────────────────────────────────
 
 function DueTab({ today, onExport }: { today: string; onExport: (table: TableExport | null) => void }) {
+  const needle = useContext(SearchContext);
   const { offices } = useFilterLookups();
   const [officeId, setOfficeId] = useState("");
   const [query, setQuery] = useState({ officeId: "", asOf: today });
@@ -216,11 +255,11 @@ function DueTab({ today, onExport }: { today: string; onExport: (table: TableExp
       <Results resource={list}>
         {(data) => (
           <DataTable
-            rows={data}
+            rows={searched(data, needle)}
+            pages={PAGES}
             columns={columns}
             getRowId={(row) => row.customerId}
             getRowLabel={(row) => row.customerName}
-            search={{ placeholder: "Search customer", match: (row, needle) => `${row.customerCode} ${row.customerName}`.toLowerCase().includes(needle) }}
             footer={(shown) => ({
               customer: "Total:",
               due: amountCell(sum(shown, (row) => row.due)),
@@ -239,6 +278,7 @@ function DueTab({ today, onExport }: { today: string; onExport: (table: TableExp
 // ─── Due Bill ────────────────────────────────────────────────────────────────
 
 function BillsTab({ today, onExport }: { today: string; onExport: (table: TableExport | null) => void }) {
+  const needle = useContext(SearchContext);
   const { offices } = useFilterLookups();
   const [officeId, setOfficeId] = useState("");
   const [query, setQuery] = useState({ officeId: "", asOf: today });
@@ -312,12 +352,12 @@ function BillsTab({ today, onExport }: { today: string; onExport: (table: TableE
       <Results resource={list}>
         {(data) => (
           <DataTable
-            rows={data}
+            rows={searched(data, needle)}
+            pages={PAGES}
             columns={columns}
             getRowId={(row) => row.id}
             getRowLabel={(row) => row.number}
             rowHref={(row) => paths.bill(row.id)}
-            search={{ placeholder: "Search bill no or customer", match: (row, needle) => `${row.number} ${row.customerName} ${row.customerCode}`.toLowerCase().includes(needle) }}
             footer={(shown) => ({
               customer: "Total:",
               amount: amountCell(sum(shown, (row) => row.billAmount)),
@@ -341,6 +381,7 @@ function BillsTab({ today, onExport }: { today: string; onExport: (table: TableE
 // ─── Collected Invoice / Advance Collection ──────────────────────────────────
 
 function CollectionsTab({ kind, today, onExport }: { kind: "INVOICE" | "ADVANCE"; today: string; onExport: (table: TableExport | null) => void }) {
+  const needle = useContext(SearchContext);
   const { offices, persons } = useFilterLookups();
   const customers = useCustomers();
   const advance = kind === "ADVANCE";
@@ -471,22 +512,22 @@ function CollectionsTab({ kind, today, onExport }: { kind: "INVOICE" | "ADVANCE"
         {(result) =>
           details ? (
             <DataTable
-              rows={result.allocations.map((row) => ({ ...row, key: `${row.collectionId}:${row.deliveryId}` }))}
+              rows={searched(result.allocations.map((row) => ({ ...row, key: `${row.collectionId}:${row.deliveryId}` })), needle)}
+              pages={PAGES}
               columns={detailColumns}
               getRowId={(row) => row.key}
               getRowLabel={(row) => `${row.collectionNumber} ${row.invoiceNumber}`}
-              search={{ placeholder: "Search receipt, invoice, customer", match: (row, needle) => `${row.collectionNumber} ${row.invoiceNumber} ${row.customerName}`.toLowerCase().includes(needle) }}
               footer={(shown) => ({ customer: "Total:", amount: amountCell(sum(shown, (row) => row.amount)) })}
               emptyState={<EmptyState title={advance ? "No advance adjusted in this range" : "No invoices collected in this range"} />}
             />
           ) : (
             <DataTable
-              rows={result.rows}
+              rows={searched(result.rows, needle)}
+              pages={PAGES}
               columns={columns}
               getRowId={(row) => row.id}
               getRowLabel={(row) => row.number}
               rowHref={(row) => paths.collection(row.id)}
-              search={{ placeholder: "Search receipt, customer, reference", match: (row, needle) => `${row.number} ${row.customerName} ${row.customerCode} ${row.reference ?? ""}`.toLowerCase().includes(needle) }}
               footer={(shown) => ({
                 customer: "Total:",
                 amount: amountCell(sum(shown, (row) => row.amount)),
@@ -511,6 +552,7 @@ function CollectionsTab({ kind, today, onExport }: { kind: "INVOICE" | "ADVANCE"
 // ─── Due Invoice Report ──────────────────────────────────────────────────────
 
 function DueInvoicesTab({ today, onExport }: { today: string; onExport: (table: TableExport | null) => void }) {
+  const needle = useContext(SearchContext);
   const { offices, persons } = useFilterLookups();
   const customers = useCustomers();
   const initial = { officeId: "", customerId: "", salesPersonId: "", from: addDays(today, -30), to: today, notSubmitted: false };
@@ -620,11 +662,11 @@ function DueInvoicesTab({ today, onExport }: { today: string; onExport: (table: 
       <Results resource={list}>
         {(data) => (
           <DataTable
-            rows={data}
+            rows={searched(data, needle)}
+            pages={PAGES}
             columns={columns}
             getRowId={(row) => row.deliveryId}
             getRowLabel={(row) => row.number}
-            search={{ placeholder: "Search invoice, challan, customer", match: (row, needle) => `${row.number} ${row.challanNo ?? ""} ${row.customerName} ${row.customerCode}`.toLowerCase().includes(needle) }}
             footer={(shown) => ({
               customer: "Total:",
               amount: amountCell(sum(shown, (row) => row.totalAmount)),
@@ -643,6 +685,7 @@ function DueInvoicesTab({ today, onExport }: { today: string; onExport: (table: 
 // ─── Customer Sales vs Ledger Balance ────────────────────────────────────────
 
 function LedgerTab({ today, onExport }: { today: string; onExport: (table: TableExport | null) => void }) {
+  const needle = useContext(SearchContext);
   const list = useResource(`ledger:${today}`, () => fetchLedger({ asOf: today }));
   const rows = list.data;
 
@@ -677,11 +720,11 @@ function LedgerTab({ today, onExport }: { today: string; onExport: (table: Table
       <Results resource={list}>
         {(data) => (
           <DataTable
-            rows={data}
+            rows={searched(data, needle)}
+            pages={PAGES}
             columns={columns}
             getRowId={(row) => row.customerId}
             getRowLabel={(row) => row.customerName}
-            search={{ placeholder: "Search customer", match: (row, needle) => `${row.customerCode} ${row.customerName}`.toLowerCase().includes(needle) }}
             footer={(shown) => ({
               customer: "Total:",
               sales: amountCell(sum(shown, (row) => row.salesDue)),

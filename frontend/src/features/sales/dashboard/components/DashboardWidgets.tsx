@@ -1,4 +1,4 @@
-import { ChartNoAxesCombined } from "lucide-react";
+import { TrendingUp } from "lucide-react";
 import type { ReactNode } from "react";
 import { Card, EmptyState } from "@/components/ui/section";
 import { cn } from "@/lib/cn";
@@ -23,16 +23,23 @@ export function Widget({ title, subtitle, className, children }: { title: string
   );
 }
 
-/** Headline number with a chart icon (Total Sales, Total Collection …). */
+/** Headline number with a chart icon (Total Sales, Total Collection …), as its own card. */
 export function StatTile({ label, value, hint }: { label: string; value: number; hint?: string }) {
   return (
-    <div className="flex flex-col gap-0.5" title={hint}>
-      <ChartNoAxesCombined aria-hidden="true" className="mb-1 size-6 text-accent" />
-      <p className="text-lg font-semibold text-ink tabular-nums">{formatAmount(value)}</p>
-      <p className="text-xs text-ink-muted">{label}</p>
+    <div className="flex items-center gap-3 rounded-xl border border-line p-4 shadow-sm" title={hint}>
+      <span aria-hidden="true" className="flex size-11 shrink-0 items-center justify-center rounded-full bg-accent-soft text-accent-strong">
+        <TrendingUp className="size-5" />
+      </span>
+      <span className="flex min-w-0 flex-col gap-0.5">
+        <span className="truncate text-xl font-bold text-ink tabular-nums">{formatAmount(value)}</span>
+        <span className="text-xs font-medium text-ink-muted">{label}</span>
+      </span>
     </div>
   );
 }
+
+/** Avatar tints of the Top 10 lists, in turn: blue, green, red. */
+const AVATAR_TINTS = ["bg-accent-soft text-accent-strong", "bg-success/10 text-success", "bg-danger/10 text-danger"];
 
 const RADIUS = 70;
 const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
@@ -164,7 +171,10 @@ export function RankedWidget({ title, rows, empty, className }: { title: string;
               title={`${index + 1}. ${row.name}${row.detail ? ` (${row.detail})` : ""}: ${formatAmount(row.amount)} · ${formatQty(row.qty)} Qty`}
               className="flex items-center gap-3 rounded-lg border border-line bg-canvas px-3 py-2"
             >
-              <span aria-hidden="true" className="flex size-8 shrink-0 items-center justify-center rounded-full bg-accent-soft text-sm font-semibold text-accent-strong">
+              <span
+                aria-hidden="true"
+                className={cn("flex size-8 shrink-0 items-center justify-center rounded-full text-sm font-semibold", AVATAR_TINTS[index % AVATAR_TINTS.length])}
+              >
                 {row.name.replace(/^(M\/S|Md\.|Mst\.)\s*/i, "").charAt(0).toUpperCase()}
               </span>
               <span className="flex min-w-0 flex-1 flex-col">

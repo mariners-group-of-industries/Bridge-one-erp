@@ -1,9 +1,9 @@
 "use client";
 
-import { CircleAlert, CircleCheck, X } from "lucide-react";
+import { CircleAlert, CircleCheck, Info, X } from "lucide-react";
 import { createContext, useCallback, useContext, useMemo, useRef, useState, type ReactNode } from "react";
 
-type ToastTone = "success" | "error";
+type ToastTone = "success" | "error" | "info";
 interface Toast {
   id: number;
   tone: ToastTone;
@@ -13,6 +13,7 @@ interface Toast {
 interface ToastApi {
   success: (message: string) => void;
   error: (message: string) => void;
+  info: (message: string) => void;
 }
 
 const ToastContext = createContext<ToastApi | null>(null);
@@ -39,6 +40,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     () => ({
       success: (message) => push("success", message),
       error: (message) => push("error", message),
+      info: (message) => push("info", message),
     }),
     [push],
   );
@@ -58,8 +60,10 @@ export function ToastProvider({ children }: { children: ReactNode }) {
           >
             {toast.tone === "success" ? (
               <CircleCheck aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-success" />
-            ) : (
+            ) : toast.tone === "error" ? (
               <CircleAlert aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-danger" />
+            ) : (
+              <Info aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-accent" />
             )}
             <span className="flex-1">{toast.message}</span>
             <button

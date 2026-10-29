@@ -37,3 +37,7 @@ export const optionalPhone = (label = "Phone") =>
   optionalText(label, 30).refine((value) => value === null || PHONE.test(value), {
     message: `Enter a valid ${label.toLowerCase()}.`,
   });
+
+export const UUID_PATTERN = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+export const uuidField = (label = "UUID") =>
+  z.string().regex(UUID_PATTERN, { message: `Invalid ${label}` });

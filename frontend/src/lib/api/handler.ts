@@ -1,6 +1,7 @@
 import { unstable_rethrow } from "next/navigation";
 import { z, ZodError, type ZodType } from "zod";
 import { Prisma } from "@/generated/prisma/client";
+import { auditRequest } from "@/lib/audit/record";
 import { requireActor, type Actor, type Permission } from "@/lib/auth/actor";
 import { AppError, badRequest, notFound, type ApiErrorBody } from "./errors";
 
@@ -14,7 +15,9 @@ export function apiHandler<C>(permission: Permission, handler: Handler<C>) {
   return async (request: Request, context: C): Promise<Response> => {
     try {
       const actor = await requireActor(request, permission);
-      return await handler(request, context, actor);
+      const response = await handler(request, context, actor);
+      await auditRequest(request, response, actor);
+      return response;
     } catch (error) {
       // Next.js control-flow errors (prerender bail-out, notFound, redirect) must propagate.
       unstable_rethrow(error);

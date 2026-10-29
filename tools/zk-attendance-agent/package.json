@@ -1,0 +1,18 @@
+{
+  "name": "zk-attendance-agent",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Reads punches from ZKTeco attendance devices on the office LAN and uploads them to BridgeOne ERP.",
+  "type": "module",
+  "main": "agent.mjs",
+  "scripts": {
+    "start": "node agent.mjs",
+    "once": "node agent.mjs --once"
+  },
+  "engines": {
+    "node": ">=20.12"
+  },
+  "dependencies": {
+    "node-zklib": "1.3.0"
+  }
+}

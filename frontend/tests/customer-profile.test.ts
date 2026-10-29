@@ -76,6 +76,11 @@ describe("customer profile", () => {
         maritalStatus: "Married",
         marriageDate: "2020-02-14",
         billingName: "Lovely Store Ltd",
+        bankType: "Current",
+        bankAccountNo: "1234567890",
+        bankBranch: "Gulshan",
+        bankName: "Dutch-Bangla Bank",
+        bankRoutingNo: "090261725",
         shipping: [
           { outlet: "Main Outlet", address: "12 Bazar Road", districtId: 1, sectionId: section.id },
           { address: "Warehouse 2" },
@@ -84,6 +89,7 @@ describe("customer profile", () => {
     );
     expect(created.code).toBe("CUST-00001");
     expect(created).toMatchObject({ creditLimit: "50000.5", isDistributor: true, billingName: "Lovely Store Ltd" });
+    expect(created).toMatchObject({ bankType: "Current", bankAccountNo: "1234567890", bankBranch: "Gulshan", bankName: "Dutch-Bangla Bank", bankRoutingNo: "090261725" });
     expect(created.shipping.map((row) => row.outlet)).toEqual(["Main Outlet", "Outlet 2"]);
 
     const addresses = await testPrisma().customerAddress.findMany({ where: { customerId: created.id }, orderBy: { sortOrder: "asc" } });

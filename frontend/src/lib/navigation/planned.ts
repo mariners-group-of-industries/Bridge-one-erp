@@ -16,7 +16,6 @@ const planned = (id: string, label: string, icon: Workspace["icon"], description
 });
 
 export const productionWorkspace = planned("production", "Production", Factory, "Bills of materials, work orders and production output.");
-export const payrollWorkspace = planned("payroll", "Payroll", Banknote, "Salary processing, allowances, deductions and payslips.");
 export const rtmWorkspace = planned("rtm", "RTM", Route, "Route to market: distributors, routes, outlets and field force.");
 export const crmWorkspace = planned("crm", "CRM", Handshake, "Leads, opportunities, customer follow-ups and campaigns.");
-export const hrWorkspace = planned("hr", "HR", Users, "Employees, attendance, leave and HR operations.");
+

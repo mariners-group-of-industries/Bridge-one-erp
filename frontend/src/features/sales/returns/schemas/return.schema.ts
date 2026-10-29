@@ -117,8 +117,17 @@ const optionalUuid = z.uuid().optional();
 const validRange = (query: { from?: string; to?: string }) => !query.from || !query.to || query.from <= query.to;
 const rangeMessage = { error: "From Date must be on or before To Date.", path: ["to"] };
 
+export const RETURN_PAGE_SIZES = [25, 50, 100, 200] as const;
+const search = z.string().trim().max(100).optional();
+const page = z.coerce.number().int().min(1).optional();
+const pageSize = z.coerce
+  .number()
+  .int()
+  .refine((value) => RETURN_PAGE_SIZES.includes(value as (typeof RETURN_PAGE_SIZES)[number]), "Invalid page size.")
+  .optional();
+
 export const returnableDeliveryQuerySchema = z
-  .object({ officeId: optionalUuid, customerId: optionalUuid, from: z.iso.date().optional(), to: z.iso.date().optional() })
+  .object({ officeId: optionalUuid, customerId: optionalUuid, from: z.iso.date().optional(), to: z.iso.date().optional(), search })
   .refine(validRange, rangeMessage);
 export type ReturnableDeliveryQuery = z.infer<typeof returnableDeliveryQuerySchema>;
 
@@ -133,6 +142,11 @@ export const returnListQuerySchema = z
     salesPersonId: optionalUuid,
     from: z.iso.date().optional(),
     to: z.iso.date().optional(),
+    /** Return no, delivery no, customer, ref / request no. */
+    search,
+    /** Server paging (the screen); without a page the first RETURN_LIST_LIMIT rows (exports). */
+    page,
+    pageSize,
   })
   .refine(validRange, rangeMessage);
 export type ReturnListQuery = z.input<typeof returnListQuerySchema>;

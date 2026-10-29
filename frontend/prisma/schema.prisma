@@ -239,6 +239,97 @@ model PermissionGroupEntry {
   @@map("permission_group_entries")
 }
 
+// ─── Configuration › Community & Gateways › API Configuration ───────────────
+
+/// A token for calling the API from other systems (`Authorization: Bearer …`).
+/// Only a SHA-256 hash is stored; the token is shown once when generated.
+/// `access` READ (GET only) or READ_WRITE.
+model ApiToken {
+  id            String    @id @default(uuid()) @db.Uuid
+  name          String    @db.VarChar(100)
+  tokenPrefix   String    @db.VarChar(16)
+  tokenHash     String    @unique @db.VarChar(64)
+  access        String    @default("READ") @db.VarChar(20)
+  expiresAt     DateTime? @db.Timestamptz(3)
+  lastUsedAt    DateTime? @db.Timestamptz(3)
+  revokedAt     DateTime? @db.Timestamptz(3)
+  createdById   String?   @db.VarChar(100)
+  createdByName String?   @db.VarChar(150)
+  createdAt     DateTime  @default(now()) @db.Timestamptz(3)
+
+  @@map("api_tokens")
+}
+
+// ─── Configuration › System Logs › Audit Logs ───────────────────────────────
+
+/// One recorded action: a successful change through the API, an export, or a
+/// sign-in / sign-out. Request bodies are never stored.
+model AuditLog {
+  id         String   @id @default(uuid()) @db.Uuid
+  feature    String   @db.VarChar(100)
+  actionType String   @db.VarChar(20)
+  userId     String?  @db.VarChar(100)
+  userName   String?  @db.VarChar(150)
+  method     String   @db.VarChar(10)
+  path       String   @db.VarChar(300)
+  entityId   String?  @db.VarChar(100)
+  status     Int
+  ipAddress  String?  @db.VarChar(64)
+  userAgent  String?  @db.VarChar(300)
+  createdAt  DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([createdAt])
+  @@index([feature, createdAt])
+  @@index([userId, createdAt])
+  @@map("audit_logs")
+}
+
+// ─── Configuration › Community & Gateways › Attendance Devices ──────────────
+
+/// A biometric terminal (ZKTeco …) on the office LAN. The attendance agent on an
+/// office PC reads it over TCP (`ipAddress`:`port`) and uploads its punches.
+model AttendanceDevice {
+  id            String    @id @default(uuid()) @db.Uuid
+  name          String    @db.VarChar(100)
+  ipAddress     String    @db.VarChar(64)
+  port          Int       @default(4370)
+  serialNumber  String?   @db.VarChar(60)
+  officeId      String?   @db.Uuid
+  isActive      Boolean   @default(true)
+  lastSyncAt    DateTime? @db.Timestamptz(3)
+  lastSyncCount Int?
+  lastError     String?   @db.VarChar(500)
+  createdAt     DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime  @updatedAt @db.Timestamptz(3)
+
+  office  Office?           @relation(fields: [officeId], references: [id], onDelete: SetNull)
+  punches AttendancePunch[]
+
+  @@unique([ipAddress, port])
+  @@map("attendance_devices")
+}
+
+/// One punch from a device. `deviceUserId` is the user number on the device and
+/// is matched to an employee's Attendance ID (else Employee ID). The same punch
+/// uploaded twice is stored once.
+model AttendancePunch {
+  id           String   @id @default(uuid()) @db.Uuid
+  deviceId     String   @db.Uuid
+  deviceUserId String   @db.VarChar(30)
+  employeeId   String?  @db.Uuid
+  punchTime    DateTime @db.Timestamptz(3)
+  punchState   Int?
+  createdAt    DateTime @default(now()) @db.Timestamptz(3)
+
+  device   AttendanceDevice @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  employee Employee?        @relation(fields: [employeeId], references: [id], onDelete: SetNull)
+
+  @@unique([deviceId, deviceUserId, punchTime])
+  @@index([employeeId, punchTime])
+  @@index([punchTime])
+  @@map("attendance_punches")
+}
+
 // ─── Configuration › Business Configuration › Company Profile ───────────────
 
 enum DateFormat {
@@ -316,6 +407,7 @@ model BusinessUnit {
   priceLists       PriceList[]
   salesOrders      SalesOrder[]
   deliveryReasons  DeliveryPendingReason[]
+  vehicles         Vehicle[]
   stockEntries     StockEntry[]
   returnReasons    SalesReturnReason[]
   salesBills       SalesBill[]
@@ -340,6 +432,15 @@ model BusinessUnit {
   openingStockReceipts OpeningStockReceipt[]
   territoryLayers      SalesTerritoryLayer[]
   territoryNodes       SalesTerritoryNode[]
+  workCenters       ProductionWorkCenter[]
+  productionEntries ProductionEntry[]
+  workCenterTypes        ProductionWorkCenterType[]
+  productionDepartments  ProductionDepartment[]
+  productionBoms         ProductionBom[]
+  productionOrders       ProductionOrder[]
+  targetBudgets    SalesTargetBudget[]
+  targetPlans      SalesTargetPlan[]
+  commissions      SalesCommission[]
 
   @@unique([companyId, name])
   @@map("business_units")
@@ -377,6 +478,14 @@ model Office {
   openingStockReceipts OpeningStockReceipt[]
   groupPriceSetups     CustomerGroupPriceSetup[]
   salesWallets         SalesWallet[]
+  attendanceDevices    AttendanceDevice[]
+  payrollRuns          PayrollRun[]
+  bonusRuns            BonusRun[]
+  hrPolicyRecords      HrPolicyRecord[]
+  workCenters       ProductionWorkCenter[]
+  productionEntries ProductionEntry[]
+  productionOrders  ProductionOrder[]
+  targetPlans  SalesTargetPlan[]
 
   @@unique([businessUnitId, name])
   @@map("offices")
@@ -401,6 +510,10 @@ model Warehouse {
   deliveries   SalesDelivery[]
   returns      SalesReturn[]
   stockEntries StockEntry[]
+  productionWorkCenters ProductionWorkCenter[]
+  productionOrders ProductionOrder[]
+  productionSourceEntries ProductionEntry[] @relation("EntrySourceWarehouse")
+  productionOutputEntries ProductionEntry[] @relation("EntryOutputWarehouse")
 
   @@unique([officeId, name])
   @@map("warehouses")
@@ -492,6 +605,8 @@ model SalesPerson {
   targets      SalesTarget[]
   quotations   SalesQuotation[]
   salesOrders  SalesOrder[]
+  targetAssignments SalesTargetAssignment[]
+  commissions       SalesCommission[]
 
   @@unique([businessUnitId, code])
   @@map("sales_persons")
@@ -553,6 +668,12 @@ model Customer {
   billingContactNo           String?   @db.VarChar(30)
   taxBracketId               String?   @db.Uuid
   remarks                    String?   @db.VarChar(1000)
+  /// Partner Bank Information.
+  bankAccountType            String?   @db.VarChar(50)
+  bankAccountNo              String?   @db.VarChar(50)
+  bankBranch                 String?   @db.VarChar(100)
+  bankName                   String?   @db.VarChar(100)
+  bankRoutingNo              String?   @db.VarChar(30)
 
   businessUnit  BusinessUnit      @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
   salesPerson   SalesPerson?      @relation(fields: [salesPersonId], references: [id], onDelete: SetNull)
@@ -576,6 +697,8 @@ model Customer {
   taxBracket    TaxBracket?       @relation(fields: [taxBracketId], references: [id], onDelete: SetNull)
   attachments   CustomerAttachment[]
   priceSetups   CustomerPriceSetup[]
+  productionOrders ProductionOrder[]
+  targetPlanLines SalesTargetPlanLine[]
 
   @@unique([businessUnitId, code])
   @@index([businessUnitId, name])
@@ -651,6 +774,15 @@ model Item {
   purchaseOrderLines  PurchaseOrderLine[]
   goodsReceiptLines   GoodsReceiptLine[]
   purchaseReturnLines PurchaseReturnLine[]
+  productionEntries ProductionEntry[]
+  bomOutputs   ProductionBomOutput[]
+  bomMaterials ProductionBomMaterial[]
+  bomWastages  ProductionBomWastage[]
+  productionOrders        ProductionOrder[]
+  productionOrderMaterials ProductionOrderMaterial[]
+  productionEntryMaterials ProductionEntryMaterial[]
+  targetPlanLines SalesTargetPlanLine[]
+  commissionLines SalesCommissionLine[]
 
   @@unique([businessUnitId, code])
   @@map("items")
@@ -696,6 +828,16 @@ model SalesDelivery {
   driverName         String?              @db.VarChar(100)
   driverPhone        String?              @db.VarChar(30)
   transporterName    String?              @db.VarChar(150)
+  /// Registered vehicle (vehicleNo keeps its number as it was).
+  vehicleId          String?              @db.Uuid
+  /// Driver (Employee); driverName is the external driver's name.
+  driverEmployeeId   String?              @db.Uuid
+  securityCode       String?              @db.VarChar(40)
+  referredBy         String?              @db.VarChar(150)
+  /// Buyer's name and mobile when the customer is the anonymous (walk-in) one.
+  buyerName          String?              @db.VarChar(150)
+  buyerMobile        String?              @db.VarChar(30)
+  salesType          SalesOrderType       @default(SALES)
   totalQty           Decimal              @default(0) @db.Decimal(14, 3)
   itemsTotal         Decimal              @default(0) @db.Decimal(14, 2)
   itemsBase          Decimal              @default(0) @db.Decimal(14, 2)
@@ -731,6 +873,8 @@ model SalesDelivery {
   salesPerson    SalesPerson?                @relation(fields: [salesPersonId], references: [id], onDelete: Restrict)
   shipTo         CustomerAddress?            @relation(fields: [shipToAddressId], references: [id], onDelete: SetNull)
   exchangeReturn SalesReturn?                @relation("ExchangeReturn", fields: [exchangeReturnId], references: [id], onDelete: Restrict)
+  vehicle        Vehicle?                    @relation(fields: [vehicleId], references: [id], onDelete: SetNull)
+  driver         Employee?                   @relation("DeliveryDriver", fields: [driverEmployeeId], references: [id], onDelete: SetNull)
   lines          SalesDeliveryLine[]
   returns        SalesReturn[]
   collections    SalesCollection[]
@@ -743,7 +887,54 @@ model SalesDelivery {
   @@index([customerId, status, dueDate])
   @@index([salesOrderId])
   @@index([officeId, deliveryType, deliveryDate])
+  @@index([vehicleId])
   @@map("sales_deliveries")
+}
+
+/// Vehicles that carry deliveries (own or rented), with their default driver.
+model Vehicle {
+  id               String   @id @default(uuid()) @db.Uuid
+  businessUnitId   String   @db.Uuid
+  vehicleNumber    String   @db.VarChar(40)
+  vehicleSize      String?  @db.VarChar(50)
+  chassisNumber    String?  @db.VarChar(60)
+  vehicleName      String?  @db.VarChar(100)
+  serviceProvider  String?  @db.VarChar(150)
+  contactNumber    String?  @db.VarChar(30)
+  isRent           Boolean  @default(false)
+  isCargo          Boolean  @default(false)
+  driverEmployeeId String?  @db.Uuid
+  driverName       String?  @db.VarChar(100)
+  driverContact    String?  @db.VarChar(30)
+  securityCode     String?  @db.VarChar(40)
+  isActive         Boolean  @default(true)
+  createdBy        String   @db.VarChar(100)
+  createdAt        DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt        DateTime @updatedAt @db.Timestamptz(3)
+
+  businessUnit BusinessUnit         @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  driver       Employee?            @relation("VehicleDriver", fields: [driverEmployeeId], references: [id], onDelete: SetNull)
+  compartments VehicleCompartment[]
+  deliveries   SalesDelivery[]
+
+  @@unique([businessUnitId, vehicleNumber])
+  @@map("vehicles")
+}
+
+/// Compartments of a vehicle (e.g. tanks of a tanker) and what each holds.
+model VehicleCompartment {
+  id              String  @id @default(uuid()) @db.Uuid
+  vehicleId       String  @db.Uuid
+  compartmentNo   Int
+  compartmentType String  @db.VarChar(60)
+  compartmentName String  @db.VarChar(60)
+  capacity        Decimal @db.Decimal(14, 3)
+  uom             String  @db.VarChar(20)
+
+  vehicle Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+
+  @@unique([vehicleId, compartmentNo])
+  @@map("vehicle_compartments")
 }
 
 model SalesDeliveryLine {
@@ -929,6 +1120,27 @@ model SalesCollection {
   kind           CollectionKind   @default(INVOICE)
   officeId       String?          @db.Uuid
   bankName       String?          @db.VarChar(100)
+  /// Money Receipt No (Due Collection).
+  moneyReceiptNo String?          @db.VarChar(60)
+  /// Cash Type on Due Collection (e.g. Cash in Hand, Petty Cash).
+  cashType       String?          @db.VarChar(30)
+  /// "Adjust With GL": the GL the collection is posted against.
+  adjustAccountId String?         @db.Uuid
+  /// Advance Collection voucher: Cash / Bank Receive, cash account, project, narration.
+  voucherType    String?          @db.VarChar(30)
+  cashAccountId  String?          @db.Uuid
+  cashRemarks    String?          @db.VarChar(300)
+  project        String?          @db.VarChar(150)
+  narration      String?          @db.VarChar(500)
+  controlAmount  Decimal?         @db.Decimal(14, 2)
+  /// Advance row: part of the amount adjusted at once.
+  adjustmentAmount Decimal        @default(0) @db.Decimal(14, 2)
+  /// Advance taken against a sales order (SO No).
+  salesOrderId   String?          @db.Uuid
+  /// Employee who took the advance.
+  employeeId     String?          @db.Uuid
+  /// Bank charges deducted from the money received (sum of deductions).
+  deductionAmount Decimal         @default(0) @db.Decimal(14, 2)
   createdBy      String?          @db.VarChar(100)
   cancelledAt    DateTime?        @db.Timestamptz(3)
   cancelledBy    String?          @db.VarChar(100)
@@ -941,7 +1153,12 @@ model SalesCollection {
   salesPerson  SalesPerson?                @relation(fields: [salesPersonId], references: [id], onDelete: Restrict)
   delivery     SalesDelivery?              @relation(fields: [deliveryId], references: [id], onDelete: Restrict)
   office       Office?                     @relation(fields: [officeId], references: [id], onDelete: Restrict)
+  adjustAccount Account?                   @relation("CollectionAdjustAccount", fields: [adjustAccountId], references: [id], onDelete: SetNull)
+  cashAccount   Account?                   @relation("CollectionCashAccount", fields: [cashAccountId], references: [id], onDelete: SetNull)
+  salesOrder    SalesOrder?                @relation(fields: [salesOrderId], references: [id], onDelete: SetNull)
+  employee      Employee?                  @relation("CollectionEmployee", fields: [employeeId], references: [id], onDelete: SetNull)
   allocations  SalesCollectionAllocation[]
+  deductions   SalesCollectionDeduction[]
 
   @@unique([businessUnitId, number])
   @@index([businessUnitId, status, collectionDate])
@@ -950,22 +1167,179 @@ model SalesCollection {
 }
 
 /// Monthly sales target for one sales person.
+/// One month of a sales force's budget target (see SalesTargetBudget).
 model SalesTarget {
   id             String   @id @default(uuid()) @db.Uuid
   businessUnitId String   @db.Uuid
+  budgetId       String   @db.Uuid
   salesPersonId  String   @db.Uuid
   /// First day of the target month.
   month          DateTime @db.Date
+  /// Target value in taka (AMOUNT budgets; 0 for QUANTITY budgets).
   amount         Decimal  @db.Decimal(14, 2)
+  /// Target quantity (QUANTITY budgets).
+  qty            Decimal? @db.Decimal(14, 3)
   createdAt      DateTime @default(now()) @db.Timestamptz(3)
   updatedAt      DateTime @updatedAt @db.Timestamptz(3)
 
-  businessUnit BusinessUnit @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
-  salesPerson  SalesPerson  @relation(fields: [salesPersonId], references: [id], onDelete: Cascade)
+  businessUnit BusinessUnit      @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  budget       SalesTargetBudget @relation(fields: [budgetId], references: [id], onDelete: Cascade)
+  salesPerson  SalesPerson       @relation(fields: [salesPersonId], references: [id], onDelete: Cascade)
 
-  @@unique([salesPersonId, month])
+  @@unique([budgetId, salesPersonId, month])
   @@index([businessUnitId, month])
+  @@index([salesPersonId, month])
   @@map("sales_targets")
+}
+
+enum TargetBasis {
+  AMOUNT
+  QUANTITY
+}
+
+enum CommissionBasis {
+  /// Taka per unit sold (commission setup) or a fixed sum (target assignment).
+  AMOUNT
+  /// Percent of the sales value.
+  PERCENT
+}
+
+/// "Target" tab: a year's monthly targets for the sales force, in taka or quantity.
+model SalesTargetBudget {
+  id             String      @id @default(uuid()) @db.Uuid
+  businessUnitId String      @db.Uuid
+  /// Who the targets are for (Employee = sales force).
+  targetType     String      @default("EMPLOYEE") @db.VarChar(20)
+  basis          TargetBasis
+  year           Int
+  createdBy      String?     @db.VarChar(100)
+  updatedBy      String?     @db.VarChar(100)
+  createdAt      DateTime    @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime    @updatedAt @db.Timestamptz(3)
+
+  businessUnit BusinessUnit  @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  lines        SalesTarget[]
+
+  @@unique([businessUnitId, year, basis])
+  @@map("sales_target_budgets")
+}
+
+/// "Sales Target" tab: a named target for a period, with its customers / items.
+/// SUBMITTED = live, CANCELLED = deleted.
+model SalesTargetPlan {
+  id                String         @id @default(uuid()) @db.Uuid
+  businessUnitId    String         @db.Uuid
+  number            String         @db.VarChar(30)
+  officeId          String         @db.Uuid
+  createDate        DateTime       @db.Date
+  basis             TargetBasis
+  name              String         @db.VarChar(150)
+  targetAmount      Decimal        @db.Decimal(14, 2)
+  startDate         DateTime       @db.Date
+  endDate           DateTime       @db.Date
+  remarks           String?        @db.VarChar(500)
+  /// Lines name customer groups instead of customers.
+  customerGroupWise Boolean        @default(false)
+  status            SalesDocStatus @default(SUBMITTED)
+  createdBy         String?        @db.VarChar(100)
+  updatedBy         String?        @db.VarChar(100)
+  createdAt         DateTime       @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime       @updatedAt @db.Timestamptz(3)
+
+  businessUnit BusinessUnit            @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  office       Office                  @relation(fields: [officeId], references: [id], onDelete: Restrict)
+  lines        SalesTargetPlanLine[]
+  assignments  SalesTargetAssignment[]
+
+  @@unique([businessUnitId, number])
+  @@index([officeId, startDate])
+  @@map("sales_target_plans")
+}
+
+model SalesTargetPlanLine {
+  id              String   @id @default(uuid()) @db.Uuid
+  planId          String   @db.Uuid
+  lineNo          Int
+  customerId      String?  @db.Uuid
+  customerGroupId String?  @db.Uuid
+  itemId          String?  @db.Uuid
+  rate            Decimal? @db.Decimal(14, 2)
+  qty             Decimal? @db.Decimal(14, 3)
+  amount          Decimal  @db.Decimal(14, 2)
+
+  plan          SalesTargetPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  customer      Customer?       @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  customerGroup CustomerGroup?  @relation(fields: [customerGroupId], references: [id], onDelete: Restrict)
+  item          Item?           @relation(fields: [itemId], references: [id], onDelete: Restrict)
+
+  @@unique([planId, lineNo])
+  @@map("sales_target_plan_lines")
+}
+
+/// A sales force's share of a target plan, with its commission.
+model SalesTargetAssignment {
+  id                String          @id @default(uuid()) @db.Uuid
+  planId            String          @db.Uuid
+  salesPersonId     String          @db.Uuid
+  customerGroupId   String?         @db.Uuid
+  targetAmount      Decimal         @db.Decimal(14, 2)
+  commissionBasis   CommissionBasis
+  commissionRate    Decimal         @db.Decimal(14, 4)
+  /// Commission is earned only if collections reach this.
+  minimumCollection Decimal         @db.Decimal(14, 2)
+  createdBy         String?         @db.VarChar(100)
+  createdAt         DateTime        @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime        @updatedAt @db.Timestamptz(3)
+
+  plan          SalesTargetPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  salesPerson   SalesPerson     @relation(fields: [salesPersonId], references: [id], onDelete: Restrict)
+  customerGroup CustomerGroup?  @relation(fields: [customerGroupId], references: [id], onDelete: Restrict)
+
+  @@unique([planId, salesPersonId])
+  @@index([salesPersonId])
+  @@map("sales_target_assignments")
+}
+
+/// "Commission Setup": item commission of a sales force for a period.
+/// SUBMITTED = live, CANCELLED = deleted.
+model SalesCommission {
+  id              String         @id @default(uuid()) @db.Uuid
+  businessUnitId  String         @db.Uuid
+  name            String         @db.VarChar(150)
+  salesPersonId   String         @db.Uuid
+  /// Only sales to customers of this group earn it (null = all customers).
+  customerGroupId String?        @db.Uuid
+  fromDate        DateTime       @db.Date
+  toDate          DateTime       @db.Date
+  status          SalesDocStatus @default(SUBMITTED)
+  createdBy       String?        @db.VarChar(100)
+  updatedBy       String?        @db.VarChar(100)
+  createdAt       DateTime       @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime       @updatedAt @db.Timestamptz(3)
+
+  businessUnit  BusinessUnit          @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  salesPerson   SalesPerson           @relation(fields: [salesPersonId], references: [id], onDelete: Restrict)
+  customerGroup CustomerGroup?        @relation(fields: [customerGroupId], references: [id], onDelete: Restrict)
+  lines         SalesCommissionLine[]
+
+  @@index([salesPersonId, fromDate])
+  @@map("sales_commissions")
+}
+
+model SalesCommissionLine {
+  id           String          @id @default(uuid()) @db.Uuid
+  commissionId String          @db.Uuid
+  itemId       String          @db.Uuid
+  basis        CommissionBasis
+  /// Taka per unit (AMOUNT) or percent of the line value (PERCENT).
+  value        Decimal         @db.Decimal(14, 4)
+
+  commission SalesCommission @relation(fields: [commissionId], references: [id], onDelete: Cascade)
+  item       Item            @relation(fields: [itemId], references: [id], onDelete: Restrict)
+
+  @@unique([commissionId, itemId])
+  @@index([itemId])
+  @@map("sales_commission_lines")
 }
 
 /// Last number issued per business unit, document type and year. Incremented
@@ -1007,15 +1381,31 @@ model SalesQuotation {
   status         QuotationStatus @default(DRAFT)
   /// Customer's mobile at the time of the quotation (editable per document).
   contactMobile  String?         @db.VarChar(30)
-  remarks        String?         @db.VarChar(500)
-  terms          String?         @db.VarChar(4000)
+  billingAddress       String?   @db.VarChar(500)
+  billingContactPerson String?   @db.VarChar(150)
+  billingContactNo     String?   @db.VarChar(30)
+  reference            String?   @db.VarChar(150)
+  subject              String?   @db.VarChar(300)
+  quotationType        String    @default("Quotation") @db.VarChar(30)
+  /// Unit prices include VAT (VAT is taken out of them instead of added).
+  includingVat         Boolean   @default(false)
+  /// Rich text (editor JSON document) shown above and below the items.
+  remarksBody          Json?
+  remarksFooter        Json?
+  /// Numbered terms: [{ text, optional }].
+  termsList            Json?
   totalQty       Decimal         @default(0) @db.Decimal(14, 3)
+  /// Sum of qty × rate before discounts.
   subTotal       Decimal         @default(0) @db.Decimal(14, 2)
+  /// Sum of the line discounts.
   discountAmount Decimal         @default(0) @db.Decimal(14, 2)
-  vatPercent     Decimal         @default(0) @db.Decimal(5, 2)
   vatAmount      Decimal         @default(0) @db.Decimal(14, 2)
+  aitAmount      Decimal         @default(0) @db.Decimal(14, 2)
   grandTotal     Decimal         @default(0) @db.Decimal(14, 2)
+  /// Reject reason (status LOST).
   lostReason     String?         @db.VarChar(500)
+  /// Approved (status SUBMITTED) by and when.
+  approvedBy     String?         @db.VarChar(100)
   submittedAt    DateTime?       @db.Timestamptz(3)
   cancelledAt    DateTime?       @db.Timestamptz(3)
   createdBy      String          @db.VarChar(100)
@@ -1046,7 +1436,15 @@ model SalesQuotationLine {
   qty             Decimal @db.Decimal(14, 3)
   rate            Decimal @db.Decimal(14, 2)
   discountPercent Decimal @default(0) @db.Decimal(5, 2)
+  discountAmount  Decimal @default(0) @db.Decimal(14, 2)
+  vatPercent      Decimal @default(0) @db.Decimal(5, 2)
+  vatAmount       Decimal @default(0) @db.Decimal(14, 2)
+  aitPercent      Decimal @default(0) @db.Decimal(5, 2)
+  aitAmount       Decimal @default(0) @db.Decimal(14, 2)
+  /// Line total: (qty × rate − discount) + VAT (unless prices include it) + AIT.
   amount          Decimal @db.Decimal(14, 2)
+  warranty        String? @db.VarChar(100)
+  deliveryDate    DateTime? @db.Date
 
   quotation SalesQuotation @relation(fields: [quotationId], references: [id], onDelete: Cascade)
   item      Item           @relation(fields: [itemId], references: [id], onDelete: Restrict)
@@ -1113,6 +1511,9 @@ model CustomerGroup {
   offers            SalesOffer[]            @relation("OfferCustomerGroup")
   offerSpecialLines SalesOfferSpecialLine[] @relation("OfferSpecialGroup")
   groupPriceSetups  CustomerGroupPriceSetup[]
+  targetPlanLines   SalesTargetPlanLine[]
+  targetAssignments SalesTargetAssignment[]
+  commissions       SalesCommission[]
 
   @@unique([businessUnitId, name])
   @@map("customer_groups")
@@ -1761,6 +2162,9 @@ model SalesOrder {
   events                SalesOrderEvent[]
   deliveries            SalesDelivery[]
   deliveryPendingReason DeliveryPendingReason? @relation(fields: [deliveryPendingReasonId], references: [id], onDelete: SetNull)
+  productionOrders ProductionOrder[]
+  pendingNotes     SalesOrderPendingNote[]
+  advanceCollections SalesCollection[]
 
   @@unique([businessUnitId, number])
   @@index([businessUnitId, orderDate])
@@ -1768,6 +2172,20 @@ model SalesOrder {
   @@index([customerId, status])
   @@index([quotationId])
   @@map("sales_orders")
+}
+
+/// Why an approved order is not delivered yet, each time someone records it ("Previous Pending Reason").
+model SalesOrderPendingNote {
+  id        String   @id @default(uuid()) @db.Uuid
+  orderId   String   @db.Uuid
+  reason    String   @db.VarChar(300)
+  createdBy String   @db.VarChar(100)
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  order SalesOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId, createdAt])
+  @@map("sales_order_pending_notes")
 }
 
 model SalesOrderLine {
@@ -1858,6 +2276,8 @@ enum StockSource {
   ADJUSTMENT
   SALES_DELIVERY
   SALES_RETURN
+  PRODUCTION_CONSUMPTION
+  PRODUCTION_OUTPUT
 }
 
 /// Stock ledger: one signed quantity per movement. Stock = sum(qty) per
@@ -1892,6 +2312,21 @@ enum CollectionKind {
 }
 
 /// Part of a collection applied to one invoice (delivery).
+/// Bank Deduction Details of a collection: charges the bank kept (expense, GL, amount).
+model SalesCollectionDeduction {
+  id           String  @id @default(uuid()) @db.Uuid
+  collectionId String  @db.Uuid
+  expense      String  @db.VarChar(150)
+  accountId    String  @db.Uuid
+  amount       Decimal @db.Decimal(14, 2)
+
+  collection SalesCollection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+  account    Account         @relation(fields: [accountId], references: [id], onDelete: Restrict)
+
+  @@index([collectionId])
+  @@map("sales_collection_deductions")
+}
+
 model SalesCollectionAllocation {
   id           String   @id @default(uuid()) @db.Uuid
   collectionId String   @db.Uuid
@@ -1920,6 +2355,9 @@ model SalesBill {
   status         SalesDocStatus @default(SUBMITTED)
   /// Sum of the invoices' dues when billed.
   totalAmount    Decimal        @default(0) @db.Decimal(14, 2)
+  /// NORMAL bill or FACTORING bill (sold to a factoring company).
+  billType       String         @default("NORMAL") @db.VarChar(20)
+  terms          String?        @db.VarChar(4000)
   remarks        String?        @db.VarChar(500)
   createdBy      String?        @db.VarChar(100)
   cancelledAt    DateTime?      @db.Timestamptz(3)
@@ -1944,6 +2382,10 @@ model SalesBillLine {
   deliveryId String  @db.Uuid
   /// The invoice's due when billed.
   amount     Decimal @db.Decimal(14, 2)
+  /// Challan no as written on the customer's copy.
+  challanManual  String?   @db.VarChar(60)
+  grnNumber      String?   @db.VarChar(60)
+  submissionDate DateTime? @db.Date
 
   bill     SalesBill     @relation(fields: [billId], references: [id], onDelete: Cascade)
   delivery SalesDelivery @relation(fields: [deliveryId], references: [id], onDelete: Restrict)
@@ -2434,6 +2876,10 @@ model Account {
   updatedAt      DateTime  @updatedAt @db.Timestamptz(3)
 
   voucherLines   JournalVoucherLine[]
+  productionBomOverheads ProductionBomOverhead[]
+  collectionCashAccounts   SalesCollection[]          @relation("CollectionCashAccount")
+  collectionAdjustAccounts SalesCollection[]          @relation("CollectionAdjustAccount")
+  collectionDeductions     SalesCollectionDeduction[]
 
   @@map("accounts")
 }
@@ -2756,7 +3202,18 @@ model Employee {
   employmentHistories EmploymentHistory[]
   territoryAssignments SalesTerritoryEmployee[]
   superApproverOf      ApprovalPipeline[]      @relation("PipelineSuperEmployee")
+  drivenVehicles       Vehicle[]               @relation("VehicleDriver")
+  drivenDeliveries     SalesDelivery[]         @relation("DeliveryDriver")
+  advanceCollections   SalesCollection[]       @relation("CollectionEmployee")
   approverOf           ApprovalStageApprover[] @relation("ApproverEmployee")
+  attendancePunches    AttendancePunch[]
+  leaveApplications    LeaveApplication[]
+  movementApplications MovementApplication[]
+  payrollRunLines      PayrollRunLine[]
+  bonusLines           BonusLine[]
+  salaryIncrements     SalaryIncrement[]
+  hrPolicyRecords      HrPolicyRecord[]
+  workCenterOperators ProductionWorkCenterOperator[]
 
   @@index([officeId])
   @@index([employeeCode])
@@ -2868,4 +3325,688 @@ model EmploymentHistory {
 
   @@index([employeeId])
   @@map("employment_histories")
+}
+
+// ─── Production ──────────────────────────────────────────────────────────────
+
+/// A machine or line where items are produced ("Work Center").
+model ProductionWorkCenter {
+  id                   String   @id @default(uuid()) @db.Uuid
+  businessUnitId       String   @db.Uuid
+  /// Office of the warehouse, when one is set.
+  officeId             String?  @db.Uuid
+  code                 String   @db.VarChar(30)
+  name                 String   @db.VarChar(150)
+  typeId               String   @db.Uuid
+  departmentId         String?  @db.Uuid
+  departmentSectionId  String?  @db.Uuid
+  warehouseId          String?  @db.Uuid
+  /// Planned running hours per day.
+  standardRunHour      Decimal  @db.Decimal(5, 2)
+  /// Standard output in units per hour.
+  capacityPerHour      Decimal  @db.Decimal(14, 3)
+  /// Rated (achievable) output in units per hour.
+  ratedCapacityPerHour Decimal  @db.Decimal(14, 3)
+  costPerHour          Decimal? @db.Decimal(14, 2)
+  remarks              String?  @db.VarChar(500)
+  isActive             Boolean  @default(true)
+  createdBy            String?  @db.VarChar(100)
+  createdAt            DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt            DateTime @updatedAt @db.Timestamptz(3)
+
+  businessUnit      BusinessUnit                   @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  office            Office?                        @relation(fields: [officeId], references: [id], onDelete: Restrict)
+  type              ProductionWorkCenterType       @relation(fields: [typeId], references: [id], onDelete: Restrict)
+  department        ProductionDepartment?          @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+  departmentSection ProductionDepartmentSection?   @relation(fields: [departmentSectionId], references: [id], onDelete: Restrict)
+  warehouse         Warehouse?                     @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+  operators         ProductionWorkCenterOperator[]
+  entries           ProductionEntry[]
+  orders            ProductionOrder[]
+
+  @@unique([businessUnitId, code])
+  @@map("production_work_centers")
+}
+
+/// Output of one item on a work center on a day ("Production Entry").
+model ProductionEntry {
+  id                  String                @id @default(uuid()) @db.Uuid
+  businessUnitId      String                @db.Uuid
+  number              String                @db.VarChar(30)
+  orderId             String                @db.Uuid
+  officeId            String                @db.Uuid
+  workCenterId        String?               @db.Uuid
+  departmentId        String?               @db.Uuid
+  departmentSectionId String?               @db.Uuid
+  itemId              String                @db.Uuid
+  /// Raw materials leave this warehouse (the order's warehouse).
+  sourceWarehouseId   String                @db.Uuid
+  /// Finished / semi-finished goods enter this warehouse.
+  outputWarehouseId   String                @db.Uuid
+  productionDate      DateTime              @db.Date
+  shift               String?               @db.VarChar(30)
+  /// Total units produced in this batch.
+  qty                 Decimal               @db.Decimal(14, 3)
+  rejectQty           Decimal               @default(0) @db.Decimal(14, 3)
+  /// Good units: qty − rejectQty. Added to stock and to the order's produced quantity.
+  netQty              Decimal               @db.Decimal(14, 3)
+  /// Good units beyond what the order still needed.
+  excessQty           Decimal               @default(0) @db.Decimal(14, 3)
+  /// netQty × the item's net weight in the BOM.
+  netWeight           Decimal               @default(0) @db.Decimal(16, 4)
+  /// Material cost at BOM rates: standard (scaled BOM) and actual consumption.
+  standardCost        Decimal               @default(0) @db.Decimal(16, 2)
+  actualCost          Decimal               @default(0) @db.Decimal(16, 2)
+  /// actualCost − standardCost (positive = more material used than the BOM allows).
+  variance            Decimal               @default(0) @db.Decimal(16, 2)
+  /// Machine hours worked for this output (productivity = qty ÷ hours).
+  hours               Decimal               @default(0) @db.Decimal(10, 2)
+  status              ProductionEntryStatus @default(POSTED)
+  remarks             String?               @db.VarChar(500)
+  cancelReason        String?               @db.VarChar(500)
+  cancelledBy         String?               @db.VarChar(100)
+  cancelledAt         DateTime?             @db.Timestamptz(3)
+  createdBy           String?               @db.VarChar(100)
+  createdAt           DateTime              @default(now()) @db.Timestamptz(3)
+  updatedAt           DateTime              @updatedAt @db.Timestamptz(3)
+
+  businessUnit      BusinessUnit                 @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  order             ProductionOrder              @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  office            Office                       @relation(fields: [officeId], references: [id], onDelete: Restrict)
+  workCenter        ProductionWorkCenter?        @relation(fields: [workCenterId], references: [id], onDelete: Restrict)
+  department        ProductionDepartment?        @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+  departmentSection ProductionDepartmentSection? @relation(fields: [departmentSectionId], references: [id], onDelete: Restrict)
+  item              Item                         @relation(fields: [itemId], references: [id], onDelete: Restrict)
+  sourceWarehouse   Warehouse                    @relation("EntrySourceWarehouse", fields: [sourceWarehouseId], references: [id], onDelete: Restrict)
+  outputWarehouse   Warehouse                    @relation("EntryOutputWarehouse", fields: [outputWarehouseId], references: [id], onDelete: Restrict)
+  materials         ProductionEntryMaterial[]
+
+  @@unique([businessUnitId, number])
+  @@index([businessUnitId, productionDate])
+  @@index([workCenterId, productionDate])
+  @@index([orderId])
+  @@map("production_entries")
+}
+
+/// Kind of work center ("Finished Goods", "Packaging", ...).
+model ProductionWorkCenterType {
+  id             String   @id @default(uuid()) @db.Uuid
+  businessUnitId String   @db.Uuid
+  name           String   @db.VarChar(100)
+  createdAt      DateTime @default(now()) @db.Timestamptz(3)
+
+  businessUnit BusinessUnit           @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  workCenters  ProductionWorkCenter[]
+
+  @@unique([businessUnitId, name])
+  @@map("production_work_center_types")
+}
+
+/// Department a work center belongs to.
+model ProductionDepartment {
+  id             String   @id @default(uuid()) @db.Uuid
+  businessUnitId String   @db.Uuid
+  name           String   @db.VarChar(100)
+  createdAt      DateTime @default(now()) @db.Timestamptz(3)
+
+  businessUnit BusinessUnit                  @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  sections     ProductionDepartmentSection[]
+  workCenters  ProductionWorkCenter[]
+  boms        ProductionBom[]
+  entries     ProductionEntry[]
+
+  @@unique([businessUnitId, name])
+  @@map("production_departments")
+}
+
+/// Section within a department ("Juice", "Snacks", ...).
+model ProductionDepartmentSection {
+  id           String   @id @default(uuid()) @db.Uuid
+  departmentId String   @db.Uuid
+  name         String   @db.VarChar(100)
+  createdAt    DateTime @default(now()) @db.Timestamptz(3)
+
+  department  ProductionDepartment   @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+  workCenters ProductionWorkCenter[]
+  boms        ProductionBom[]
+  entries     ProductionEntry[]
+
+  @@unique([departmentId, name])
+  @@map("production_department_sections")
+}
+
+/// Employee tagged as an operator of a work center ("Operator Tagging").
+model ProductionWorkCenterOperator {
+  id           String   @id @default(uuid()) @db.Uuid
+  workCenterId String   @db.Uuid
+  employeeId   String   @db.Uuid
+  createdAt    DateTime @default(now()) @db.Timestamptz(3)
+
+  workCenter ProductionWorkCenter @relation(fields: [workCenterId], references: [id], onDelete: Cascade)
+  employee   Employee             @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+
+  @@unique([workCenterId, employeeId])
+  @@index([employeeId])
+  @@map("production_work_center_operators")
+}
+
+enum ProductionBomType {
+  SINGLE_OUTPUT
+  MULTIPLE_OUTPUT
+}
+
+enum ProductionOutputType {
+  FINISHED_GOODS
+  SEMI_FINISHED_GOODS
+}
+
+/// Bill of Material: input materials, overheads and wastage needed to produce one lot of output items.
+model ProductionBom {
+  id                  String            @id @default(uuid()) @db.Uuid
+  businessUnitId      String            @db.Uuid
+  name                String            @db.VarChar(150)
+  bomType             ProductionBomType @default(SINGLE_OUTPUT)
+  departmentId        String?           @db.Uuid
+  departmentSectionId String?           @db.Uuid
+  /// Output units per lot (sum of the output lot sizes).
+  lotSize             Decimal           @default(1) @db.Decimal(14, 3)
+  /// Allowed variance of actual output, in %.
+  tolerancePercent    Decimal?          @db.Decimal(5, 2)
+  materialCost        Decimal           @default(0) @db.Decimal(16, 2)
+  overheadCost        Decimal           @default(0) @db.Decimal(16, 2)
+  /// BOM value: material + overhead cost of one lot.
+  totalCost           Decimal           @default(0) @db.Decimal(16, 2)
+  remarks             String?           @db.VarChar(500)
+  isActive            Boolean           @default(true)
+  createdBy           String            @db.VarChar(100)
+  createdAt           DateTime          @default(now()) @db.Timestamptz(3)
+  updatedAt           DateTime          @updatedAt @db.Timestamptz(3)
+
+  businessUnit      BusinessUnit                 @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  department        ProductionDepartment?        @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+  departmentSection ProductionDepartmentSection? @relation(fields: [departmentSectionId], references: [id], onDelete: Restrict)
+  outputs           ProductionBomOutput[]
+  materials         ProductionBomMaterial[]
+  wastages          ProductionBomWastage[]
+  overheads         ProductionBomOverhead[]
+  children          ProductionBomLink[]          @relation("BomParent")
+  parents           ProductionBomLink[]          @relation("BomChild")
+  orders            ProductionOrder[]
+
+  @@unique([businessUnitId, name])
+  @@index([businessUnitId, isActive])
+  @@map("production_boms")
+}
+
+/// Finished / semi-finished item produced by a BOM ("Production Items").
+model ProductionBomOutput {
+  id          String               @id @default(uuid()) @db.Uuid
+  bomId       String               @db.Uuid
+  lineNo      Int
+  itemId      String               @db.Uuid
+  outputType  ProductionOutputType
+  netWeight   Decimal              @default(0) @db.Decimal(14, 4)
+  lotSizeQty  Decimal              @db.Decimal(14, 3)
+  /// netWeight × lotSizeQty.
+  totalWeight Decimal              @default(0) @db.Decimal(16, 4)
+  /// Share of the BOM cost carried by this output (outputs add up to 100).
+  costPercent Decimal              @default(100) @db.Decimal(5, 2)
+  /// Allowed variance of this item's actual output, in %.
+  tolerancePercent Decimal?        @db.Decimal(5, 2)
+  /// The BOM's main output (exactly one per BOM); its tolerance is the BOM's.
+  isPrimary   Boolean              @default(false)
+
+  bom  ProductionBom @relation(fields: [bomId], references: [id], onDelete: Cascade)
+  item Item          @relation(fields: [itemId], references: [id], onDelete: Restrict)
+
+  @@unique([bomId, lineNo])
+  @@unique([bomId, itemId])
+  @@index([itemId])
+  @@map("production_bom_outputs")
+}
+
+/// Raw / packaging material consumed by one lot ("Input Materials").
+model ProductionBomMaterial {
+  id               String   @id @default(uuid()) @db.Uuid
+  bomId            String   @db.Uuid
+  lineNo           Int
+  itemId           String   @db.Uuid
+  materialType     String?  @db.VarChar(50)
+  excludeFromScrap Boolean  @default(false)
+  uom              String   @db.VarChar(20)
+  altUom           String?  @db.VarChar(20)
+  altQty           Decimal? @db.Decimal(14, 4)
+  qty              Decimal  @db.Decimal(14, 4)
+  wastagePercent   Decimal  @default(0) @db.Decimal(5, 2)
+  /// qty × (1 + wastage %).
+  totalQty         Decimal  @db.Decimal(14, 4)
+  rate             Decimal  @default(0) @db.Decimal(14, 4)
+  amount           Decimal  @default(0) @db.Decimal(16, 2)
+
+  bom  ProductionBom @relation(fields: [bomId], references: [id], onDelete: Cascade)
+  item Item          @relation(fields: [itemId], references: [id], onDelete: Restrict)
+
+  @@unique([bomId, lineNo])
+  @@unique([bomId, itemId])
+  @@index([itemId])
+  @@map("production_bom_materials")
+}
+
+enum ProductionWastageType {
+  SCRAP
+  BY_PRODUCT
+  RUNNER
+  REWORK
+  DEFECT
+}
+
+/// Scrap, by-product, runner, rework or defect coming out of one lot ("Other/Wastage Output").
+model ProductionBomWastage {
+  id                  String                @id @default(uuid()) @db.Uuid
+  bomId               String                @db.Uuid
+  lineNo              Int
+  itemId              String                @db.Uuid
+  itemType            String?               @db.VarChar(50)
+  uom                 String                @db.VarChar(20)
+  outputType          ProductionWastageType
+  /// Expected output as % of the base (output net weight, or input material quantity).
+  ratioPercent        Decimal               @db.Decimal(6, 2)
+  isMandatory         Boolean               @default(false)
+  /// Base is the production items' total net weight instead of the input material quantity.
+  calcWithNetWeight   Boolean               @default(false)
+  calcWithProcessRunner Boolean             @default(false)
+
+  bom  ProductionBom @relation(fields: [bomId], references: [id], onDelete: Cascade)
+  item Item          @relation(fields: [itemId], references: [id], onDelete: Restrict)
+
+  @@unique([bomId, lineNo])
+  @@unique([bomId, itemId])
+  @@map("production_bom_wastages")
+}
+
+/// Overhead cost of one lot, booked to an expense account (labour, power, gas …).
+model ProductionBomOverhead {
+  id         String   @id @default(uuid()) @db.Uuid
+  bomId      String   @db.Uuid
+  lineNo     Int
+  accountId  String   @db.Uuid
+  /// % of the material cost; when set, amount = material cost × percentage.
+  percentage Decimal? @db.Decimal(6, 2)
+  amount     Decimal  @db.Decimal(16, 2)
+
+  bom     ProductionBom @relation(fields: [bomId], references: [id], onDelete: Cascade)
+  account Account       @relation(fields: [accountId], references: [id], onDelete: Restrict)
+
+  @@unique([bomId, lineNo])
+  @@unique([bomId, accountId])
+  @@index([accountId])
+  @@map("production_bom_overheads")
+}
+
+/// Child BOM tagged to a parent ("Tag Child BOM", multi-level BOM).
+model ProductionBomLink {
+  id          String   @id @default(uuid()) @db.Uuid
+  parentBomId String   @db.Uuid
+  childBomId  String   @db.Uuid
+  stage       String   @db.VarChar(50)
+  createdAt   DateTime @default(now()) @db.Timestamptz(3)
+
+  parent ProductionBom @relation("BomParent", fields: [parentBomId], references: [id], onDelete: Cascade)
+  child  ProductionBom @relation("BomChild", fields: [childBomId], references: [id], onDelete: Restrict)
+
+  @@unique([parentBomId, childBomId])
+  @@index([childBomId])
+  @@map("production_bom_links")
+}
+
+enum ProductionOrderStatus {
+  PENDING_APPROVAL
+  APPROVED
+  IN_PROGRESS
+  CLOSED
+  REJECTED
+  CANCELLED
+}
+
+enum ProductionApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+/// Order to produce an item with a BOM ("Production Order").
+model ProductionOrder {
+  id                  String                @id @default(uuid()) @db.Uuid
+  businessUnitId      String                @db.Uuid
+  number              String                @db.VarChar(30)
+  orderDate           DateTime              @db.Date
+  productionDate      DateTime              @db.Date
+  customerId          String?               @db.Uuid
+  salesOrderId        String?               @db.Uuid
+  customerPoNo        String?               @db.VarChar(60)
+  itemId              String                @db.Uuid
+  bomId               String                @db.Uuid
+  /// Lot size of the item in the BOM when the order was saved.
+  bomLotSize          Decimal               @db.Decimal(14, 3)
+  /// BOM cost of one unit of the item (its cost share ÷ lot size) when the order was saved.
+  unitCost            Decimal               @default(0) @db.Decimal(16, 4)
+  orderQty            Decimal               @db.Decimal(14, 3)
+  producedQty         Decimal               @default(0) @db.Decimal(14, 3)
+  officeId            String                @db.Uuid
+  warehouseId         String                @db.Uuid
+  workCenterId        String?               @db.Uuid
+  machineName         String?               @db.VarChar(100)
+  narration           String?               @db.VarChar(500)
+  status              ProductionOrderStatus @default(PENDING_APPROVAL)
+  /// Approval pipeline super approver when the order was saved.
+  superApproverUserId String?               @db.Uuid
+  statusReason        String?               @db.VarChar(500)
+  createdBy           String                @db.VarChar(100)
+  createdAt           DateTime              @default(now()) @db.Timestamptz(3)
+  updatedAt           DateTime              @updatedAt @db.Timestamptz(3)
+
+  businessUnit BusinessUnit              @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  customer     Customer?                 @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  salesOrder   SalesOrder?               @relation(fields: [salesOrderId], references: [id], onDelete: Restrict)
+  item         Item                      @relation(fields: [itemId], references: [id], onDelete: Restrict)
+  bom          ProductionBom             @relation(fields: [bomId], references: [id], onDelete: Restrict)
+  office       Office                    @relation(fields: [officeId], references: [id], onDelete: Restrict)
+  warehouse    Warehouse                 @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+  workCenter   ProductionWorkCenter?     @relation(fields: [workCenterId], references: [id], onDelete: Restrict)
+  materials    ProductionOrderMaterial[]
+  approvals    ProductionOrderApproval[]
+  entries      ProductionEntry[]
+
+  @@unique([businessUnitId, number])
+  @@index([businessUnitId, orderDate])
+  @@index([status])
+  @@index([bomId])
+  @@map("production_orders")
+}
+
+/// Material an order needs: the BOM quantity scaled to the order quantity.
+model ProductionOrderMaterial {
+  id          String  @id @default(uuid()) @db.Uuid
+  orderId     String  @db.Uuid
+  lineNo      Int
+  itemId      String  @db.Uuid
+  uom         String  @db.VarChar(20)
+  /// BOM quantity per lot, wastage included.
+  bomQty      Decimal @db.Decimal(14, 4)
+  requiredQty Decimal @db.Decimal(14, 4)
+  issueQty    Decimal @default(0) @db.Decimal(14, 4)
+  usedQty     Decimal @default(0) @db.Decimal(14, 4)
+  returnQty   Decimal @default(0) @db.Decimal(14, 4)
+
+  order ProductionOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  item  Item            @relation(fields: [itemId], references: [id], onDelete: Restrict)
+
+  @@unique([orderId, lineNo])
+  @@index([itemId])
+  @@map("production_order_materials")
+}
+
+/// One approval stage of an order, copied from the approval pipeline when the order was saved.
+model ProductionOrderApproval {
+  id              String                   @id @default(uuid()) @db.Uuid
+  orderId         String                   @db.Uuid
+  stageNo         Int
+  stageName       String                   @db.VarChar(150)
+  /// ANY or SEQUENTIAL (approvers in list order).
+  approvalOrder   String                   @db.VarChar(20)
+  requiredCount   Int                      @default(1)
+  /// Users who may act; empty = anyone with production:approve.
+  approverUserIds String[]                 @db.Uuid
+  /// Actor ids (like createdBy, not always a user uuid).
+  approvedUserIds String[]                 @default([]) @db.VarChar(100)
+  status          ProductionApprovalStatus @default(PENDING)
+  actedBy         String?                  @db.VarChar(100)
+  comment         String?                  @db.VarChar(500)
+  actedAt         DateTime?                @db.Timestamptz(3)
+
+  order ProductionOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@unique([orderId, stageNo])
+  @@map("production_order_approvals")
+}
+
+enum ProductionEntryStatus {
+  POSTED
+  CANCELLED
+}
+
+/// Material consumed by a production entry.
+model ProductionEntryMaterial {
+  id          String  @id @default(uuid()) @db.Uuid
+  entryId     String  @db.Uuid
+  lineNo      Int
+  itemId      String  @db.Uuid
+  uom         String  @db.VarChar(20)
+  /// BOM quantity scaled to the entry's total quantity.
+  standardQty Decimal @db.Decimal(14, 4)
+  /// Quantity taken out of stock.
+  actualQty   Decimal @db.Decimal(14, 4)
+  /// Part of the actual quantity lost as wastage / scrap (recorded, already in actualQty).
+  wastageQty  Decimal @default(0) @db.Decimal(14, 4)
+  scrapQty    Decimal @default(0) @db.Decimal(14, 4)
+  /// BOM rate used for the cost figures.
+  rate        Decimal @default(0) @db.Decimal(14, 4)
+
+  entry ProductionEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  item  Item            @relation(fields: [itemId], references: [id], onDelete: Restrict)
+
+  @@unique([entryId, lineNo])
+  @@index([itemId])
+  @@map("production_entry_materials")
+}
+
+/// HRM › Self Service › Leave & Movement: a leave application (Pending → Approved / Rejected).
+model LeaveApplication {
+  id            String    @id @default(uuid()) @db.Uuid
+  employeeId    String    @db.Uuid
+  leaveType     String    @db.VarChar(40)
+  fromDate      DateTime  @db.Date
+  toDate        DateTime  @db.Date
+  /// Calendar days, both ends included.
+  days          Int
+  location      String?   @db.VarChar(150)
+  reason        String    @db.VarChar(500)
+  status        String    @default("Pending") @db.VarChar(20)
+  createdById   String?   @db.Uuid
+  decidedByName String?   @db.VarChar(150)
+  decidedAt     DateTime? @db.Timestamptz(3)
+  createdAt     DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime  @updatedAt @db.Timestamptz(3)
+
+  employee    Employee          @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  attachments LeaveAttachment[]
+
+  @@index([employeeId, fromDate])
+  @@index([fromDate])
+  @@map("leave_applications")
+}
+
+model LeaveAttachment {
+  id                 String   @id @default(uuid()) @db.Uuid
+  leaveApplicationId String   @db.Uuid
+  storageKey         String   @db.VarChar(300)
+  originalName       String   @db.VarChar(255)
+  mimeType           String   @db.VarChar(100)
+  size               Int
+  createdAt          DateTime @default(now()) @db.Timestamptz(3)
+
+  leaveApplication LeaveApplication @relation(fields: [leaveApplicationId], references: [id], onDelete: Cascade)
+
+  @@index([leaveApplicationId])
+  @@map("leave_attachments")
+}
+
+/// HRM › Self Service › Leave & Movement: time out of office on duty or personal work. Does not use leave balance.
+model MovementApplication {
+  id            String    @id @default(uuid()) @db.Uuid
+  employeeId    String    @db.Uuid
+  movementType  String    @db.VarChar(40)
+  fromDate      DateTime  @db.Date
+  toDate        DateTime  @db.Date
+  /// HH:MM, 24-hour.
+  startTime     String    @db.VarChar(5)
+  endTime       String    @db.VarChar(5)
+  location      String    @db.VarChar(150)
+  reason        String    @db.VarChar(500)
+  status        String    @default("Pending") @db.VarChar(20)
+  createdById   String?   @db.Uuid
+  decidedByName String?   @db.VarChar(150)
+  decidedAt     DateTime? @db.Timestamptz(3)
+  createdAt     DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime  @updatedAt @db.Timestamptz(3)
+
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([employeeId, fromDate])
+  @@index([fromDate])
+  @@map("movement_applications")
+}
+
+/// HRM › Payroll: a processed (locked) payroll for one office and month. Unprocessed months are calculated live.
+model PayrollRun {
+  id              String    @id @default(uuid()) @db.Uuid
+  officeId        String    @db.Uuid
+  /// YYYY-MM
+  month           String    @db.VarChar(7)
+  fromDate        DateTime  @db.Date
+  toDate          DateTime  @db.Date
+  employeeCount   Int
+  grossAmount     Decimal   @db.Decimal(14, 2)
+  netAmount       Decimal   @db.Decimal(14, 2)
+  status          String    @default("Processed") @db.VarChar(20)
+  processedByName String?   @db.VarChar(150)
+  processedAt     DateTime  @default(now()) @db.Timestamptz(3)
+
+  office Office           @relation(fields: [officeId], references: [id], onDelete: Restrict)
+  lines  PayrollRunLine[]
+
+  @@unique([officeId, month])
+  @@index([month])
+  @@map("payroll_runs")
+}
+
+/// One employee's salary in a processed payroll (a snapshot; later salary changes do not alter it).
+model PayrollRunLine {
+  id               String  @id @default(uuid()) @db.Uuid
+  payrollRunId     String  @db.Uuid
+  employeeId       String  @db.Uuid
+  employeeCode     String  @db.VarChar(50)
+  employeeName     String  @db.VarChar(150)
+  designation      String? @db.VarChar(150)
+  monthDays        Int
+  payableDays      Int
+  grossSalary      Decimal @db.Decimal(14, 2)
+  earnedSalary     Decimal @db.Decimal(14, 2)
+  additions        Decimal @db.Decimal(14, 2)
+  deductions       Decimal @db.Decimal(14, 2)
+  netAmount        Decimal @db.Decimal(14, 2)
+  disbursementMode String  @db.VarChar(20)
+  bankOrProvider   String? @db.VarChar(150)
+  accountNo        String? @db.VarChar(50)
+
+  payrollRun PayrollRun @relation(fields: [payrollRunId], references: [id], onDelete: Cascade)
+  employee   Employee   @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+
+  @@index([payrollRunId])
+  @@index([employeeId])
+  @@map("payroll_run_lines")
+}
+
+/// HRM › Compensation Adjustments › Bonus: a bonus for one office (or all), as a percentage of gross salary.
+model BonusRun {
+  id               String    @id @default(uuid()) @db.Uuid
+  name             String    @db.VarChar(100)
+  officeId         String?   @db.Uuid
+  /// Employees must have joined at least minServiceMonths before this date.
+  bonusDate        DateTime  @db.Date
+  percentOfGross   Decimal   @db.Decimal(6, 2)
+  minServiceMonths Int       @default(0)
+  employeeCount    Int
+  totalAmount      Decimal   @db.Decimal(14, 2)
+  status           String    @default("Pending") @db.VarChar(20)
+  createdByName    String?   @db.VarChar(150)
+  decidedByName    String?   @db.VarChar(150)
+  decidedAt        DateTime? @db.Timestamptz(3)
+  createdAt        DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt        DateTime  @updatedAt @db.Timestamptz(3)
+
+  office Office?     @relation(fields: [officeId], references: [id], onDelete: Restrict)
+  lines  BonusLine[]
+
+  @@index([bonusDate])
+  @@map("bonus_runs")
+}
+
+model BonusLine {
+  id            String  @id @default(uuid()) @db.Uuid
+  bonusRunId    String  @db.Uuid
+  employeeId    String  @db.Uuid
+  employeeCode  String  @db.VarChar(50)
+  employeeName  String  @db.VarChar(150)
+  officeName    String  @db.VarChar(150)
+  serviceMonths Int
+  grossSalary   Decimal @db.Decimal(14, 2)
+  amount        Decimal @db.Decimal(14, 2)
+
+  bonusRun BonusRun @relation(fields: [bonusRunId], references: [id], onDelete: Cascade)
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+
+  @@index([bonusRunId])
+  @@index([employeeId])
+  @@map("bonus_lines")
+}
+
+/// HRM › Talent Offboarding › Increment: a salary raise; approving it updates the employee's salary.
+model SalaryIncrement {
+  id            String    @id @default(uuid()) @db.Uuid
+  employeeId    String    @db.Uuid
+  effectiveDate DateTime  @db.Date
+  /// Amount | Percent
+  incrementType String    @db.VarChar(10)
+  value         Decimal   @db.Decimal(14, 2)
+  previousGross Decimal   @db.Decimal(14, 2)
+  newGross      Decimal   @db.Decimal(14, 2)
+  remarks       String?   @db.VarChar(500)
+  status        String    @default("Pending") @db.VarChar(20)
+  createdByName String?   @db.VarChar(150)
+  decidedByName String?   @db.VarChar(150)
+  decidedAt     DateTime? @db.Timestamptz(3)
+  createdAt     DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime  @updatedAt @db.Timestamptz(3)
+
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([employeeId])
+  @@index([effectiveDate])
+  @@map("salary_increments")
+}
+
+/// HRM › HR Governance › Settings / Policies: one setup record of a tab (holiday,
+/// calendar, PF rule, …). The tab's own fields are in `data`, validated by the
+/// field definitions in features/hrm/governance/policy-fields.ts.
+model HrPolicyRecord {
+  id            String    @id @default(uuid()) @db.Uuid
+  tab           String    @db.VarChar(40)
+  /// Null = every office.
+  officeId      String?   @db.Uuid
+  employeeId    String?   @db.Uuid
+  effectiveFrom DateTime? @db.Date
+  effectiveTo   DateTime? @db.Date
+  data          Json
+  createdByName String?   @db.VarChar(150)
+  updatedByName String?   @db.VarChar(150)
+  createdAt     DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime  @updatedAt @db.Timestamptz(3)
+
+  office   Office?   @relation(fields: [officeId], references: [id], onDelete: Restrict)
+  employee Employee? @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([tab, effectiveFrom])
+  @@index([employeeId])
+  @@map("hr_policy_records")
 }

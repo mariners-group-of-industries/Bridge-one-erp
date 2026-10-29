@@ -30,6 +30,7 @@ import { EmployeeProfileDialog } from "./EmployeeProfileDialog";
 import { EmployeeTable } from "./EmployeeTable";
 import { EmployeeStatusTabs, EmployeeToolbar, type EmployeeFilters } from "./EmployeeToolbar";
 import { EmptyBlock } from "./kit";
+import { BulkUploadDialog } from "../../components/BulkUploadDialog";
 
 const SEARCH_DEBOUNCE_MS = 300;
 const BREADCRUMBS = entityMasterDataBreadcrumbs(entityMasterDataPaths.employee);
@@ -92,6 +93,7 @@ export function EmployeeListView() {
 
   const params: EmployeeListParams = { page, pageSize, search: debouncedSearch, ...filters };
   const list = useResource(`employees?${employeeListSearch(params)}`, () => employeeApi.list(params));
+  const [uploadOpen, setUploadOpen] = useState(false);
   const options = useResource("employee-filter-options", employeeApi.filterOptions);
 
   // Keep the last page on screen while the next one loads (no flashing).
@@ -148,8 +150,8 @@ export function EmployeeListView() {
             <Button loading={exporting} onClick={handleExport} title="Download the filtered list as CSV">
               <Download /> Export
             </Button>
-            <Button disabled title="Bulk import is not available yet">
-              <Upload /> Bulk Import
+            <Button onClick={() => setUploadOpen(true)} title="Add many employees from an Excel file">
+              <Upload /> Bulk Upload
             </Button>
             <Link href={entityMasterDataPaths.employeeCreate} className={buttonClasses("accent", "md")}>
               <UserPlus /> New Employee
@@ -227,6 +229,20 @@ export function EmployeeListView() {
       <EmployeeActionPanel current={openAction} onClose={() => setOpenAction(null)} />
       <EmployeeDetailPanel employee={detailEmployee} onClose={() => setDetailEmployee(null)} />
       <EmployeeProfileDialog employee={profileTarget} onClose={() => setProfileTarget(null)} />
+
+      <BulkUploadDialog
+        open={uploadOpen}
+        onClose={() => setUploadOpen(false)}
+        onImported={() => {
+          list.reload();
+          options.reload();
+        }}
+        noun="employees"
+        templateUrl={employeeApi.importTemplateUrl}
+        maxRows={2000}
+        matchHint="Office must match an office name; Employee ID must be new in that business unit."
+        upload={employeeApi.importFile}
+      />
     </PageContainer>
   );
 }

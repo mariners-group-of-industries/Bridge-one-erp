@@ -117,6 +117,11 @@ function toDto(record: CustomerRecord): CustomerDto {
     contactNo: str(record.billingContactNo),
     taxBracketId: str(record.taxBracketId),
     remarks: str(record.remarks),
+    bankType: str(record.bankAccountType),
+    bankAccountNo: str(record.bankAccountNo),
+    bankBranch: str(record.bankBranch),
+    bankName: str(record.bankName),
+    bankRoutingNo: str(record.bankRoutingNo),
     shipping: record.addresses.map((address) => ({
       id: address.id,
       code: str(address.code),
@@ -168,6 +173,11 @@ function columns(data: CustomerData) {
     billingContactNo: orNull(data.contactNo),
     taxBracketId: orNull(data.taxBracketId),
     remarks: orNull(data.remarks),
+    bankAccountType: orNull(data.bankType),
+    bankAccountNo: orNull(data.bankAccountNo),
+    bankBranch: orNull(data.bankBranch),
+    bankName: orNull(data.bankName),
+    bankRoutingNo: orNull(data.bankRoutingNo),
   };
 }
 
