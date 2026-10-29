@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, ChevronDown, ChevronRight, Download, MapPinned, Pencil, Plus, Search, Trash2, Upload, Users, X } from "lucide-react";
+import { Check, Download, MapPinned, Pencil, Plus, Search, SquareMinus, SquarePlus, Trash2, Upload, Users, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import { PageContainer, PageHead } from "@/components/layout/page";
 import { Button, buttonClasses } from "@/components/ui/button";
@@ -204,7 +204,7 @@ function TerritoryTab({ tree, view, onView, search, onChanged }: { tree: Territo
             </label>
           ))}
         </div>
-        {view !== "layers" && tree.layers[0] && (
+        {view === "tree" && tree.layers[0] && (
           <Button variant="accent-soft" className="ml-auto" onClick={() => actions.add(null)}>
             <Plus /> Add {tree.layers[0].name}
           </Button>
@@ -212,7 +212,7 @@ function TerritoryTab({ tree, view, onView, search, onChanged }: { tree: Territo
       </div>
 
       {view === "tree" && <TreeView tree={tree} search={search} actions={actions} />}
-      {view === "table" && <TableView tree={tree} search={search} actions={actions} />}
+      {view === "table" && <TableView tree={tree} search={search} />}
       {view === "layers" && <LayerSetup tree={tree} onChanged={onChanged} />}
 
       <NodeDialog state={dialog} onClose={() => setDialog(null)} onSaved={onChanged} />
@@ -249,15 +249,27 @@ type Actions = {
   remove: (node: NodeDto) => void;
 };
 
-function NodeButtons({ node, tree, actions }: { node: NodeDto; tree: TerritoryTree; actions: Actions }) {
+function NodeButtons({ node, tree, actions, compact = false }: { node: NodeDto; tree: TerritoryTree; actions: Actions; compact?: boolean }) {
   const child = tree.layers.find((layer) => layer.level === node.level + 1);
   return (
     <div className="flex items-center justify-end gap-0.5 whitespace-nowrap">
-      {child && (
-        <Button size="sm" variant="ghost" className="hover:text-accent-strong" onClick={() => actions.add(node)} title={`Add ${child.name} under ${node.name}`}>
-          <Plus /> {child.name}
-        </Button>
-      )}
+      {child &&
+        (compact ? (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="hover:text-accent-strong"
+            aria-label={`Add ${child.name} under ${node.name}`}
+            title={`Add ${child.name}`}
+            onClick={() => actions.add(node)}
+          >
+            <Plus />
+          </Button>
+        ) : (
+          <Button size="sm" variant="ghost" className="hover:text-accent-strong" onClick={() => actions.add(node)} title={`Add ${child.name} under ${node.name}`}>
+            <Plus /> {child.name}
+          </Button>
+        ))}
       <Button size="sm" variant="ghost" className="hover:text-accent-strong" onClick={() => actions.assign(node)} title="Assign employees">
         <Users /> {node.employeeCount}
       </Button>
@@ -296,146 +308,174 @@ function TreeView({ tree, search, actions }: { tree: TerritoryTree; search: stri
     return map;
   }, [tree.nodes]);
 
-  // Flatten the expanded tree into rows (searching expands everything that matches).
-  const rows: NodeDto[] = [];
-  const walk = (parentId: string) => {
-    for (const node of childrenOf.get(parentId) ?? []) {
-      if (visible && !visible.has(node.id)) continue;
-      rows.push(node);
-      if (visible || !collapsed.has(node.id)) walk(node.id);
-    }
-  };
-  walk("");
-  const scroll = useScrollLoad(rows.length, `${search}|${collapsed.size}|${tree.nodes.length}`);
+  const toggle = (id: string) =>
+    setCollapsed((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
 
-  if (tree.nodes.length === 0) {
+  // A classic outline (as in Managerium): ⊟ / ⊞ boxes and guide lines, names only;
+  // the entry's buttons show on hover / focus. Searching opens every match.
+  const branch = (parentId: string, root: boolean) => {
+    const nodes = (childrenOf.get(parentId) ?? []).filter((node) => !visible || visible.has(node.id));
+    if (nodes.length === 0) return null;
     return (
-      <div className="p-5">
-        <EmptyBlock icon={<MapPinned />} title="No territories yet">
-          Start with “Add {tree.layers[0]?.name ?? "National"}”, then add the levels below it.
-        </EmptyBlock>
-      </div>
-    );
-  }
-  if (rows.length === 0) return <p className="px-4 py-8 text-center text-sm text-ink-faint">Nothing matches “{search}”.</p>;
-
-  return (
-    <div>
-      <ul role="tree" aria-label="Sales territories" className="divide-y divide-line">
-        {rows.slice(0, scroll.count).map((node) => {
+      <ul role={root ? "tree" : "group"} aria-label={root ? "Sales territories" : undefined} className={cn(!root && "ml-2 border-l border-line-strong pl-4")}>
+        {nodes.map((node) => {
           const hasChildren = (childrenOf.get(node.id) ?? []).length > 0;
           const open = !!visible || !collapsed.has(node.id);
           const layer = tree.layers.find((l) => l.level === node.level);
+          const Box = open ? SquareMinus : SquarePlus;
           return (
-            <li
-              key={node.id}
-              role="treeitem"
-              aria-level={node.level}
-              aria-expanded={hasChildren ? open : undefined}
-              aria-selected={false}
-              className="flex items-center gap-2 px-3 py-1.5 hover:bg-grid-hover"
-            >
-              <span style={{ width: `${(node.level - 1) * 1.5}rem` }} className="shrink-0" />
-              <button
-                type="button"
-                disabled={!hasChildren}
-                aria-label={hasChildren ? `${open ? "Collapse" : "Expand"} ${node.name}` : undefined}
-                onClick={() =>
-                  setCollapsed((current) => {
-                    const next = new Set(current);
-                    if (next.has(node.id)) next.delete(node.id);
-                    else next.add(node.id);
-                    return next;
-                  })
-                }
-                className="flex size-5 items-center justify-center rounded text-ink-faint hover:bg-control disabled:invisible"
+            <li key={node.id} role="treeitem" aria-level={node.level} aria-expanded={hasChildren ? open : undefined} aria-selected={false}>
+              <div
+                className={cn(
+                  "group relative flex min-h-8 items-center gap-2 rounded pr-1 hover:bg-grid-hover",
+                  !root && "before:absolute before:top-1/2 before:-left-4 before:w-3.5 before:border-t before:border-line-strong",
+                )}
               >
-                {open ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />}
-              </button>
-              <span className="rounded border border-accent-line bg-accent-soft px-1.5 text-[10px] font-semibold text-accent-strong uppercase dark:text-accent">{layer?.name}</span>
-              <span className="text-xs text-ink-faint tabular-nums">{node.code}</span>
-              <span className="min-w-0 flex-1 truncate text-sm font-medium text-ink">{node.name}</span>
-              {node.customerCount !== null && <span className="text-xs text-ink-faint">{node.customerCount} customer(s)</span>}
-              <NodeButtons node={node} tree={tree} actions={actions} />
+                {hasChildren ? (
+                  <button
+                    type="button"
+                    aria-label={`${open ? "Collapse" : "Expand"} ${node.name}`}
+                    onClick={() => toggle(node.id)}
+                    className="flex size-4 shrink-0 items-center justify-center text-ink-muted hover:text-accent-strong"
+                  >
+                    <Box className="size-3.5" aria-hidden="true" />
+                  </button>
+                ) : (
+                  <span className="size-4 shrink-0" />
+                )}
+                <span className="text-sm text-ink" title={`${layer?.name ?? ""} · ${node.code}`}>
+                  {node.name}
+                </span>
+                {node.customerCount !== null && <span className="text-xs text-ink-faint">({node.customerCount} customers)</span>}
+                <div className="ml-auto opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100">
+                  <NodeButtons node={node} tree={tree} actions={actions} compact />
+                </div>
+              </div>
+              {hasChildren && open && branch(node.id, false)}
             </li>
           );
         })}
       </ul>
-      <ScrollMore sentinel={scroll.sentinel} hasMore={scroll.hasMore} shown={scroll.count} total={rows.length} noun="entries" />
+    );
+  };
+
+  return (
+    <div className="grid gap-4 p-4 xl:grid-cols-[minmax(0,1fr)_20rem]">
+      <div className="min-w-0 overflow-x-auto rounded-md border border-line px-3 py-2">
+        {tree.nodes.length === 0 ? (
+          <div className="p-3">
+            <EmptyBlock icon={<MapPinned />} title="No territories yet">
+              Start with “Add {tree.layers[0]?.name ?? "National"}”, then add the levels below it.
+            </EmptyBlock>
+          </div>
+        ) : (
+          (branch("", true) ?? <p className="px-4 py-8 text-center text-sm text-ink-faint">Nothing matches “{search}”.</p>)
+        )}
+      </div>
+      <LayersPanel layers={tree.layers} />
     </div>
   );
 }
 
-function TableView({ tree, search, actions }: { tree: TerritoryTree; search: string; actions: Actions }) {
+/**
+ * One row per entry in tree order, the name under its own layer's column (a stepped
+ * table, as in Managerium), with the layers listed beside it. Read only: entries are
+ * added and changed in the Tree View.
+ */
+function TableView({ tree, search }: { tree: TerritoryTree; search: string }) {
   const visible = useVisibleIds(tree, search);
-  // One row per path ending at an entry without children.
-  const paths = useMemo(() => {
-    const byId = new Map(tree.nodes.map((n) => [n.id, n]));
-    const parents = new Set(tree.nodes.map((n) => n.parentId).filter(Boolean));
-    return tree.nodes
-      .filter((node) => !parents.has(node.id) && (!visible || visible.has(node.id)))
-      .map((leaf) => {
-        const path: NodeDto[] = [];
-        for (let current: NodeDto | undefined = leaf; current; current = current.parentId ? byId.get(current.parentId) : undefined) path.unshift(current);
-        return { leaf, byLevel: new Map(path.map((n) => [n.level, n])) };
-      })
-      .sort((a, b) =>
-        tree.layers
-          .map((l) => a.byLevel.get(l.level)?.name ?? "")
-          .join("|")
-          .localeCompare(tree.layers.map((l) => b.byLevel.get(l.level)?.name ?? "").join("|")),
-      );
-  }, [tree, visible]);
-  const scroll = useScrollLoad(paths.length, `${search}|${tree.nodes.length}`);
+  const rows = useMemo(() => {
+    const childrenOf = new Map<string, NodeDto[]>();
+    for (const node of tree.nodes) childrenOf.set(node.parentId ?? "", [...(childrenOf.get(node.parentId ?? "") ?? []), node]);
+    const ordered: NodeDto[] = [];
+    const walk = (parentId: string) => {
+      for (const node of childrenOf.get(parentId) ?? []) {
+        if (visible && !visible.has(node.id)) continue;
+        ordered.push(node);
+        walk(node.id);
+      }
+    };
+    walk("");
+    return ordered;
+  }, [tree.nodes, visible]);
+  const scroll = useScrollLoad(rows.length, `${search}|${tree.nodes.length}`);
 
-  if (paths.length === 0) return <p className="px-4 py-8 text-center text-sm text-ink-faint">{search ? `Nothing matches “${search}”.` : "No territories yet."}</p>;
   return (
-    <div>
-      <div className="overflow-x-auto">
-        <table className="data-grid w-full min-w-max">
-          <thead>
-            <tr>
-              <th scope="col" className="w-12 px-2.5 py-2 text-left">
-                SL
-              </th>
-              {tree.layers.map((layer) => (
-                <th key={layer.id} scope="col" className="px-2.5 py-2 text-left">
-                  {layer.name}
-                </th>
-              ))}
-              <th scope="col" className="px-2.5 py-2 text-left">
-                Action
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {paths.slice(0, scroll.count).map(({ leaf, byLevel }, index) => (
-              <tr key={leaf.id}>
-                <td className="px-2.5 py-2 text-right text-ink-faint tabular-nums">{index + 1}</td>
-                {tree.layers.map((layer) => {
-                  const node = byLevel.get(layer.level);
-                  return (
-                    <td key={layer.id} className="px-2.5 py-2 whitespace-nowrap">
-                      {node ? (
-                        <>
-                          <span className="font-medium text-ink">{node.name}</span> <span className="text-xs text-ink-faint">{node.code}</span>
-                        </>
-                      ) : (
-                        <span className="text-ink-faint">—</span>
-                      )}
-                    </td>
-                  );
-                })}
-                <td className="px-1.5 py-1">
-                  <NodeButtons node={leaf} tree={tree} actions={actions} />
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+    <div className="grid gap-4 p-4 xl:grid-cols-[minmax(0,1fr)_20rem]">
+      <div className="min-w-0 overflow-hidden rounded-md border border-line">
+        {rows.length === 0 ? (
+          <p className="px-4 py-8 text-center text-sm text-ink-faint">{search ? `Nothing matches “${search}”.` : "No territories yet. Add them in the Tree View."}</p>
+        ) : (
+          <>
+            <div className="overflow-x-auto">
+              <table className="data-grid w-full min-w-max">
+                <thead>
+                  <tr>
+                    {tree.layers.map((layer) => (
+                      <th key={layer.id} scope="col" className="px-2.5 py-2 text-left">
+                        {layer.name}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.slice(0, scroll.count).map((node) => (
+                    <tr key={node.id}>
+                      {tree.layers.map((layer) => (
+                        <td key={layer.id} className="px-2.5 py-1.5 whitespace-nowrap">
+                          {layer.level === node.level && (
+                            <>
+                              <span className="font-medium text-ink">{node.name}</span> <span className="text-xs text-ink-faint">{node.code}</span>
+                            </>
+                          )}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <ScrollMore sentinel={scroll.sentinel} hasMore={scroll.hasMore} shown={scroll.count} total={rows.length} noun="entries" />
+          </>
+        )}
       </div>
-      <ScrollMore sentinel={scroll.sentinel} hasMore={scroll.hasMore} shown={scroll.count} total={paths.length} noun="rows" />
+
+      <LayersPanel layers={tree.layers} />
     </div>
+  );
+}
+
+/** The layers beside the tree and table views (SL, code, name). */
+function LayersPanel({ layers }: { layers: LayerDto[] }) {
+  return (
+    <section aria-label="Layers" className="self-start overflow-hidden rounded-md border border-line">
+      <h3 className="border-b border-line px-3 py-2 text-sm font-semibold text-ink">Layers</h3>
+      <table className="data-grid w-full">
+        <thead>
+          <tr>
+            {["SL", "Code", "Layer Name"].map((h) => (
+              <th key={h} scope="col" className="px-2.5 py-2 text-left">
+                {h}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {layers.map((layer) => (
+            <tr key={layer.id}>
+              <td className="w-10 px-2.5 py-1.5 text-right text-ink-faint tabular-nums">{layer.level}</td>
+              <td className="px-2.5 py-1.5 font-medium">{layer.code}</td>
+              <td className="px-2.5 py-1.5">{layer.name}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </section>
   );
 }
 

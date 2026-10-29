@@ -19,6 +19,13 @@ const code = (max: number) =>
     .min(1, "Code is required.")
     .max(max, `Code must be ${max} characters or fewer.`)
     .regex(/^[A-Za-z0-9._\-/]+$/, "Use letters, digits, . _ - / only.");
+const optionalCode = z
+  .string()
+  .trim()
+  .max(30, "Code must be 30 characters or fewer.")
+  .regex(/^[A-Za-z0-9._\-/]*$/, "Use letters, digits, . _ - / only.")
+  .optional()
+  .default("");
 const name = (max: number) => z.string().trim().min(1, "Name is required.").max(max, `Name must be ${max} characters or fewer.`);
 
 export const layerInputSchema = z.object({ code: code(20), name: name(50) });
@@ -29,19 +36,23 @@ export const nodeInputSchema = z.object({
     .union([z.uuid(), z.literal("")])
     .optional()
     .default(""),
-  code: code(30),
+  /** Optional: left empty, a code like "REG-001" is made from the layer code. */
+  code: optionalCode,
   name: name(100),
 });
-export const nodeUpdateSchema = z.object({ code: code(30), name: name(100) });
+/** An empty code keeps the current one. */
+export const nodeUpdateSchema = z.object({ code: optionalCode, name: name(100) });
 export const assignEmployeeSchema = z.object({
   employeeId: z.uuid("Select an employee."),
   distributionChannel: z.string().trim().max(100).optional().default(""),
 });
+export const assignmentUpdateSchema = z.object({ distributionChannel: z.string().trim().max(100).optional().default("") });
 
 export type LayerInput = z.input<typeof layerInputSchema>;
 export type NodeInput = z.input<typeof nodeInputSchema>;
 export type NodeUpdate = z.input<typeof nodeUpdateSchema>;
 export type AssignEmployeeInput = z.input<typeof assignEmployeeSchema>;
+export type AssignmentUpdateInput = z.input<typeof assignmentUpdateSchema>;
 
 export const customerListQuerySchema = z.object({
   businessUnitId: z.uuid(),
@@ -132,4 +143,46 @@ export interface TerritoryImportResult {
   created: number;
   updated: number;
   errors: { row: number; message: string }[];
+}
+
+/** Territory Wise Customer List: every territory (or those under `nodeId`), each with its customers. */
+export const customerGroupQuerySchema = z.object({
+  businessUnitId: z.uuid(),
+  /** One Sales territory (the territory customers are linked to). */
+  territoryId: z
+    .union([z.uuid(), z.literal("")])
+    .optional()
+    .default(""),
+  /** A tree entry: the Sales territories linked below it. */
+  nodeId: z
+    .union([z.uuid(), z.literal("")])
+    .optional()
+    .default(""),
+  customerId: z
+    .union([z.uuid(), z.literal("")])
+    .optional()
+    .default(""),
+  search: z.string().trim().max(100).optional(),
+});
+export type TerritoryCustomerGroupQuery = z.input<typeof customerGroupQuerySchema>;
+
+export interface TerritoryCustomerGroup {
+  /** The Sales territory. */
+  id: string;
+  /** Code of its Sales Setup tree entry ("" when it is not in the tree). */
+  code: string;
+  name: string;
+  rows: TerritoryCustomerRow[];
+  creditTotal: number;
+}
+
+export interface TerritoryCustomerGroups {
+  /** Every Sales territory of the business unit (for the Territory filter). */
+  territories: { id: string; name: string }[];
+  groups: TerritoryCustomerGroup[];
+  /** Customers of the territories shown (for the Customer filter). */
+  customers: { id: string; code: string; name: string }[];
+  total: number;
+  /** More customers matched than are listed. */
+  truncated: boolean;
 }
