@@ -1973,15 +1973,18 @@ model SalesOfferPairLine {
   id         String   @id @default(uuid()) @db.Uuid
   offerId    String   @db.Uuid
   sortOrder  Int
+  /// Item (Multiple): the pair this selling condition belongs to (1, 2, …).
+  pairNo     Int      @default(1)
   categoryId String?  @db.Uuid
-  itemId     String   @db.Uuid
+  /// Null = every item of the category ("All").
+  itemId     String?  @db.Uuid
   quantity   Decimal  @db.Decimal(14, 3)
   minQty     Decimal? @db.Decimal(14, 3)
   maxQty     Decimal? @db.Decimal(14, 3)
 
   offer    SalesOffer    @relation(fields: [offerId], references: [id], onDelete: Cascade)
   category ItemCategory? @relation("OfferPairCategory", fields: [categoryId], references: [id], onDelete: SetNull)
-  item     Item          @relation("OfferPairItem", fields: [itemId], references: [id], onDelete: Restrict)
+  item     Item?         @relation("OfferPairItem", fields: [itemId], references: [id], onDelete: Restrict)
 
   @@index([offerId])
   @@map("sales_offer_pair_lines")
@@ -1992,6 +1995,8 @@ model SalesOfferBonusLine {
   id        String  @id @default(uuid()) @db.Uuid
   offerId   String  @db.Uuid
   sortOrder Int
+  /// Item (Multiple): the pair whose selling condition earns this bonus.
+  pairNo    Int     @default(1)
   itemId    String  @db.Uuid
   quantity  Decimal @db.Decimal(14, 3)
 

@@ -26,25 +26,28 @@ describe("computeOffers", () => {
     { itemId: "muri", qty: 20, unitPrice: 40, discountPercent: 5 },
   ];
 
-  it("gives free items per whole multiple and for a full item set", () => {
+  it("gives free items per whole multiple, pair by pair (a category pair counts its items together)", () => {
     const rules: OfferRule[] = [
       { kind: "ITEM", name: "Buy 24 get 2", lines: [{ sellingItemId: "noodles", sellingQty: 24, offerItemId: "noodles", offerQty: 2 }] },
       {
         kind: "ITEM_MULTIPLE",
         name: "Combo",
         pairs: [
-          { itemId: "noodles", quantity: 10, minQty: null, maxQty: null },
-          { itemId: "muri", quantity: 10, minQty: null, maxQty: null },
+          // 50 noodles → 2 × 25
+          { itemIds: ["noodles"], quantity: 25, minQty: null, maxQty: null, bonus: [{ itemId: "bag", quantity: 1 }] },
+          // "All": 50 + 20 = 70 → 2 × 30
+          { itemIds: ["noodles", "muri"], quantity: 30, minQty: null, maxQty: 100, bonus: [{ itemId: "bag", quantity: 1 }] },
+          // Below its minimum: nothing.
+          { itemIds: ["muri"], quantity: 10, minQty: 50, maxQty: null, bonus: [{ itemId: "cap", quantity: 1 }] },
         ],
-        bonus: [{ itemId: "bag", quantity: 1 }],
       },
     ];
     const result = computeOffers(rules, lines);
     expect(result.free).toEqual([
       { itemId: "noodles", qty: 4, offerName: "Buy 24 get 2" },
-      { itemId: "bag", qty: 2, offerName: "Combo" },
+      { itemId: "bag", qty: 4, offerName: "Combo" },
     ]);
-    expect(result.freeItemIds.sort()).toEqual(["bag", "noodles"]);
+    expect(result.freeItemIds.sort()).toEqual(["bag", "cap", "noodles"]);
   });
 
   it("takes the best line discount and an invoice discount on the discounted total", () => {
@@ -268,6 +271,46 @@ describe("sales pricing from Sales Config", () => {
       ["Marine Noodles 120 gm", 24, 0, 336],
       ["Marine Shopping Bag", 1, 100, 0],
     ]);
+  });
+
+  it("applies Item (Multiple) pairs on an order, a category pair counting all its items", async () => {
+    const snacks = (await createSetupRecord(adminActor, "categories", { businessUnitId, name: "Snacks" })).id;
+    const chips = (await createItem(adminActor, { businessUnitId, name: "Marine Chips 25g", uom: "PCS", salesRate: 10, categoryId: snacks })).id;
+    const chanachur = (await createItem(adminActor, { businessUnitId, name: "Marine Chanachur 25g", uom: "PCS", salesRate: 10, categoryId: snacks })).id;
+    await prisma.salesOffer.create({
+      data: {
+        businessUnitId,
+        kind: "ITEM_MULTIPLE",
+        name: "Snacks Pairs",
+        basedOn: "All Customers",
+        fromDate: day("2026-10-01"),
+        toDate: day("2026-10-31"),
+        pairLines: {
+          create: [
+            { sortOrder: 0, pairNo: 1, categoryId: snacks, itemId: null, quantity: 20 },
+            { sortOrder: 1, pairNo: 2, itemId: muriId, quantity: 10, minQty: 10 },
+          ],
+        },
+        bonusLines: {
+          create: [
+            { sortOrder: 0, pairNo: 1, itemId: bagId, quantity: 1 },
+            { sortOrder: 0, pairNo: 2, itemId: bagId, quantity: 2 },
+          ],
+        },
+      },
+    });
+    // Snacks: 25 chips + 15 chanachur = 40 → 2 × 20 → 2 bags; muri 10 → 1 × 10 → 2 bags.
+    const order = await createOrder(
+      adminActor,
+      orderInput({
+        lines: [
+          { itemId: chips, qty: 25, unitPrice: 10, discountPercent: 0, vatPercent: 0, aitPercent: 0 },
+          { itemId: chanachur, qty: 15, unitPrice: 10, discountPercent: 0, vatPercent: 0, aitPercent: 0 },
+          { itemId: muriId, qty: 10, unitPrice: 45, discountPercent: 0, vatPercent: 0, aitPercent: 0 },
+        ],
+      }),
+    );
+    expect(order.lines.at(-1)).toMatchObject({ itemName: "Marine Shopping Bag", qty: 4, discountPercent: 100 });
   });
 
   it("returns the Return Price Setup rates effective on the return date", async () => {

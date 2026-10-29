@@ -128,6 +128,28 @@ async function loadOfferRules(ctx: PricingContext, scope: Scope): Promise<OfferR
     return true;
   };
   const n = (value: Prisma.Decimal | null) => num(value);
+  // Item (Multiple) "All" pairs: every active item of the category and the ones below it.
+  const allCategoryIds = [...new Set(offers.flatMap((offer) => offer.pairLines.filter((line) => !line.itemId && line.categoryId).map((line) => line.categoryId!)))];
+  const itemsUnder = new Map<string, string[]>();
+  if (allCategoryIds.length) {
+    const [categories, items] = await Promise.all([
+      db().itemCategory.findMany({ where: { businessUnitId: ctx.businessUnitId }, select: { id: true, parentId: true } }),
+      db().item.findMany({ where: { businessUnitId: ctx.businessUnitId, isActive: true, categoryId: { not: null } }, select: { id: true, categoryId: true } }),
+    ]);
+    for (const root of allCategoryIds) {
+      const ids = new Set([root]);
+      for (let grew = true; grew; ) {
+        grew = false;
+        for (const category of categories) {
+          if (category.parentId && ids.has(category.parentId) && !ids.has(category.id)) {
+            ids.add(category.id);
+            grew = true;
+          }
+        }
+      }
+      itemsUnder.set(root, items.filter((item) => ids.has(item.categoryId!)).map((item) => item.id));
+    }
+  }
   return offers.filter(fits).flatMap((offer): OfferRule[] => {
     switch (offer.kind) {
       case "ITEM":
@@ -137,8 +159,13 @@ async function loadOfferRules(ctx: PricingContext, scope: Scope): Promise<OfferR
           {
             kind: "ITEM_MULTIPLE",
             name: offer.name,
-            pairs: offer.pairLines.map((line) => ({ itemId: line.itemId, quantity: line.quantity.toNumber(), minQty: n(line.minQty), maxQty: n(line.maxQty) })),
-            bonus: offer.bonusLines.map((line) => ({ itemId: line.itemId, quantity: line.quantity.toNumber() })),
+            pairs: offer.pairLines.map((line) => ({
+              itemIds: line.itemId ? [line.itemId] : (itemsUnder.get(line.categoryId ?? "") ?? []),
+              quantity: line.quantity.toNumber(),
+              minQty: n(line.minQty),
+              maxQty: n(line.maxQty),
+              bonus: offer.bonusLines.filter((bonus) => bonus.pairNo === line.pairNo).map((bonus) => ({ itemId: bonus.itemId, quantity: bonus.quantity.toNumber() })),
+            })),
           },
         ];
       case "DISCOUNT":

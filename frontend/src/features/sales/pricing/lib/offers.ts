@@ -6,8 +6,17 @@ export type OfferRule =
   | {
       kind: "ITEM_MULTIPLE";
       name: string;
-      pairs: { itemId: string; quantity: number; minQty: number | null; maxQty: number | null }[];
-      bonus: { itemId: string; quantity: number }[];
+      /**
+       * Each pair stands alone: buying `quantity` of its items (one item, or every item of a
+       * category for "All", counted together) within min/max earns its bonus per whole multiple.
+       */
+      pairs: {
+        itemIds: string[];
+        quantity: number;
+        minQty: number | null;
+        maxQty: number | null;
+        bonus: { itemId: string; quantity: number }[];
+      }[];
     }
   | {
       kind: "DISCOUNT";
@@ -67,7 +76,8 @@ export function computeOffers(rules: readonly OfferRule[], lines: readonly PaidL
   const addFree = (itemId: string, qty: number, offerName: string) => {
     if (qty <= 0) return;
     const current = free.get(itemId);
-    free.set(itemId, { qty: round3((current?.qty ?? 0) + qty), offerName: current ? `${current.offerName}, ${offerName}` : offerName });
+    const names = current && !current.offerName.split(", ").includes(offerName) ? `${current.offerName}, ${offerName}` : (current?.offerName ?? offerName);
+    free.set(itemId, { qty: round3((current?.qty ?? 0) + qty), offerName: names });
   };
   const freeItemIds = new Set<string>();
   const best = new Map<string, { percent: number; offerName: string }>();
@@ -79,11 +89,12 @@ export function computeOffers(rules: readonly OfferRule[], lines: readonly PaidL
         addFree(row.offerItemId, sets(qtyOf.get(row.sellingItemId) ?? 0, row.sellingQty) * row.offerQty, rule.name);
       }
     } else if (rule.kind === "ITEM_MULTIPLE") {
-      for (const row of rule.bonus) freeItemIds.add(row.itemId);
-      if (rule.pairs.length === 0) continue;
-      const fits = rule.pairs.every((pair) => within(qtyOf.get(pair.itemId) ?? 0, pair.minQty, pair.maxQty));
-      const times = fits ? Math.min(...rule.pairs.map((pair) => sets(qtyOf.get(pair.itemId) ?? 0, pair.quantity))) : 0;
-      for (const row of rule.bonus) addFree(row.itemId, times * row.quantity, rule.name);
+      for (const pair of rule.pairs) {
+        for (const row of pair.bonus) freeItemIds.add(row.itemId);
+        const qty = pair.itemIds.reduce((sum, itemId) => sum + (qtyOf.get(itemId) ?? 0), 0);
+        const times = within(qty, pair.minQty, pair.maxQty) ? sets(qty, pair.quantity) : 0;
+        for (const row of pair.bonus) addFree(row.itemId, times * row.quantity, rule.name);
+      }
     } else if (rule.kind === "DISCOUNT") {
       for (const row of rule.lines) {
         const qty = qtyOf.get(row.itemId) ?? 0;

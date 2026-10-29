@@ -83,23 +83,31 @@ export const itemLineSchema = z.object({
   offerQty: qty("Offer qty"),
 });
 
-export const pairLineSchema = z
-  .object({
-    categoryId: optionalId,
-    itemId: z.uuid("Select an item."),
-    quantity: qty("Qty"),
-    minQty: optionalQty("Minimum sales qty"),
-    maxQty: optionalQty("Maximum sales qty"),
-  })
-  .refine((row) => !row.minQty || !row.maxQty || Number(row.minQty) <= Number(row.maxQty), {
-    message: "Minimum sales qty cannot exceed the maximum.",
-    path: ["maxQty"],
-  });
-
 export const bonusLineSchema = z.object({
   itemId: z.uuid("Select a bonus item."),
   quantity: qty("Quantity"),
 });
+
+/**
+ * One pair of an Item (Multiple) offer: buy `quantity` of the selling item — or of any items
+ * of the category when "All" (no item) — within the min/max to get the pair's bonus items.
+ */
+export const pairSchema = z
+  .object({
+    /** Deepest category chosen (category or sub category). */
+    categoryId: optionalId,
+    /** Empty = every item of the category ("All"). */
+    itemId: optionalId,
+    quantity: qty("Quantity"),
+    minQty: optionalQty("Minimum sales qty"),
+    maxQty: optionalQty("Maximum sales qty"),
+    bonusLines: z.array(bonusLineSchema).min(1, "Add at least one bonus item.").max(200),
+  })
+  .refine((pair) => !!pair.itemId || !!pair.categoryId, { message: "Select the selling item, or a category with All.", path: ["itemId"] })
+  .refine((pair) => !pair.minQty || !pair.maxQty || Number(pair.minQty) <= Number(pair.maxQty), {
+    message: "Minimum sales qty cannot exceed the maximum.",
+    path: ["maxQty"],
+  });
 
 export const discountLineSchema = z
   .object({
@@ -172,11 +180,11 @@ export const itemMultipleOfferSchema = z
     fromDate: requiredDate("From date"),
     toDate: requiredDate("To date"),
     priceListId: optionalId,
-    basedOn: z.union([z.enum(OFFER_BASED_ON), z.literal("")]).optional().default(""),
-    pairLines: z.array(pairLineSchema).min(1, "Add at least one selling item.").max(200),
-    bonusLines: z.array(bonusLineSchema).min(1, "Add at least one bonus item.").max(200),
+    basedOn: z.enum(OFFER_BASED_ON, { error: "Select what the offer is based on." }),
+    pairs: z.array(pairSchema).min(1, "Add at least one pair.").max(50),
   })
-  .refine(datesInOrder, datesMessage);
+  .refine(datesInOrder, datesMessage)
+  .refine((offer) => offer.basedOn !== "Price Type" || !!offer.priceListId, { message: "Select the price type.", path: ["priceListId"] });
 
 export const discountOfferSchema = z
   .object({
