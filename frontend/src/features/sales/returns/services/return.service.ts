@@ -6,6 +6,7 @@ import { money } from "../../dashboard/lib/aggregate";
 import { assertStockAvailable, lockWarehouse, requireWarehouse } from "../../deliveries/services/stock.service";
 import { fromDbDate, toDbDate } from "../../lib/dates";
 import { requireOffice, scopedBusinessUnitIds } from "../../lib/scope";
+import { territoryCustomerWhere } from "../../lib/territory";
 import { companyDocumentNumber } from "../../lib/sequence";
 import { userNames } from "../../lib/users";
 import { round2 } from "../../quotations/lib/totals";
@@ -161,7 +162,7 @@ export async function getDeliveryForReturn(actor: Actor, deliveryId: string, edi
     include: {
       businessUnit: { select: { companyId: true } },
       office: { select: { name: true } },
-      customer: { select: { code: true, name: true } },
+      customer: { select: { code: true, name: true, phone: true, customerGroup: { select: { name: true } }, territory: { select: { name: true } } } },
       salesPerson: { select: { name: true } },
       lines: { orderBy: { lineNo: "asc" }, include: { item: { select: { code: true, name: true } } } },
     },
@@ -183,10 +184,15 @@ export async function getDeliveryForReturn(actor: Actor, deliveryId: string, edi
     customerId: delivery.customerId,
     customerCode: delivery.customer.code,
     customerName: delivery.customer.name,
+    customerPhone: delivery.customer.phone,
+    customerGroup: delivery.customer.customerGroup?.name ?? null,
+    territory: delivery.customer.territory?.name ?? null,
     salesPersonId: delivery.salesPersonId,
     salesPersonName: delivery.salesPerson?.name ?? null,
     priceIncludesVat: delivery.priceIncludesVat,
     refProjectOutlet: delivery.refProjectOutlet,
+    remarks: delivery.remarks,
+    totalAmount: num(delivery.totalAmount),
     itemsTotal: num(delivery.itemsTotal),
     discountAmount: num(delivery.discountAmount),
     lines: delivery.lines.map((line) => {
@@ -217,7 +223,7 @@ export async function listReturns(actor: Actor, raw: unknown): Promise<ReturnLis
   const range = dateRange(query.from, query.to);
   const customer: Prisma.CustomerWhereInput = {
     ...(query.customerGroupId ? { customerGroupId: query.customerGroupId } : {}),
-    ...(query.territoryId ? { territoryId: query.territoryId } : {}),
+    ...(await territoryCustomerWhere(query.territoryId)),
   };
   const where: Prisma.SalesReturnWhereInput = {
     businessUnitId: { in: unitIds },
@@ -562,7 +568,7 @@ async function plan(actor: Actor, input: ParsedInput): Promise<Plan> {
     header: {
       ...common,
       ...totalsOf(lines, discount),
-      kind: "SALES",
+      kind: input.kind,
       mode: input.mode,
       customerId: delivery.customerId,
       salesPersonId: input.salesPersonId ?? delivery.salesPersonId,
@@ -701,7 +707,7 @@ export async function updateReturn(actor: Actor, id: string, raw: unknown): Prom
     throw badRequest("A return against a delivery cannot become a return without reference, or the other way round.");
   }
   if (data.mode !== "WITHOUT_REFERENCE" && data.deliveryId !== existing.deliveryId) throw badRequest("The delivery of a return cannot change.");
-  if (data.mode === "WITHOUT_REFERENCE" && data.kind !== existing.kind) throw badRequest("A sales return cannot become a market return, or the other way round.");
+  if ((data.kind ?? "SALES") !== existing.kind) throw badRequest("A sales return cannot become a market return, or the other way round.");
   const p = await plan(actor, data);
   if (p.businessUnitId !== existing.businessUnitId) throw badRequest("The office must stay in the same business unit.");
 

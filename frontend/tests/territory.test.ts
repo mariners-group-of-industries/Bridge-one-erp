@@ -17,8 +17,10 @@ import {
   deleteNode,
   getTree,
   removeAssignment,
+  territoryCustomerGroups,
   territoryCustomers,
   updateLayer,
+  updateAssignment,
   updateNode,
 } from "@/features/configuration/sales-config/territory/server/territory.service";
 import { AppError } from "@/lib/api/errors";
@@ -110,7 +112,18 @@ describe("sales territory", () => {
     const rows = await assignEmployee(adminActor, ids.territory, { employeeId: employee.id, distributionChannel: "General Trade" });
     expect(rows).toEqual([expect.objectContaining({ name: "Rahim", distributionChannel: "General Trade" })]);
     await expect(assignEmployee(adminActor, ids.territory, { employeeId: employee.id, distributionChannel: "" })).rejects.toBeInstanceOf(AppError);
+    expect(await updateAssignment(adminActor, ids.territory, rows[0].id, { distributionChannel: "SKU-1" })).toEqual([expect.objectContaining({ distributionChannel: "SKU-1" })]);
     expect(await removeAssignment(adminActor, ids.territory, rows[0].id)).toEqual([]);
+    await expect(updateAssignment(adminActor, ids.territory, rows[0].id, { distributionChannel: "" })).rejects.toBeInstanceOf(AppError);
+  });
+
+  it("makes a code from the layer code when none is given, and keeps it on an empty update", async () => {
+    const ids = await chain();
+    const first = await createNode(adminActor, { businessUnitId: unitId, parentId: ids.national, name: "Khulna Region" });
+    const second = await createNode(adminActor, { businessUnitId: unitId, parentId: ids.national, code: "", name: "Rajshahi Region" });
+    // "R-DHK" already sits on the Region layer, so numbering starts at 2.
+    expect([first.code, second.code]).toEqual(["REG-002", "REG-003"]);
+    expect(await updateNode(adminActor, first.id, { code: "", name: "Khulna" })).toMatchObject({ code: "REG-002", name: "Khulna" });
   });
 
   it("lists territory-wise customers including everything below, page by page", async () => {
@@ -124,6 +137,41 @@ describe("sales territory", () => {
     expect(first.customers).toHaveLength(3);
     const searched = await territoryCustomers(adminActor, { businessUnitId: unitId, nodeId: ids.territory, customerId: "", search: "store 3", page: 1, pageSize: 30 });
     expect(searched.rows.map((r) => r.code)).toEqual(["C-3"]);
+  });
+
+  it("groups customers by territory with a credit limit total", async () => {
+    const ids = await chain();
+    const other = await createNode(adminActor, { businessUnitId: unitId, parentId: ids.region, code: "T-GZP", name: "Gazipur" });
+    const area = async (nodeId: string) => (await testPrisma().salesTerritoryNode.findUniqueOrThrow({ where: { id: nodeId } })).salesAreaId;
+    const savar = await area(ids.territory);
+    for (const [code, territoryId, creditLimit] of [
+      ["C-1", savar, "5000"],
+      ["C-2", savar, "2500.50"],
+      ["C-3", await area(other.id), null],
+    ] as const) {
+      await testPrisma().customer.create({ data: { businessUnitId: unitId, code, name: `Store ${code}`, territoryId, creditLimit } });
+    }
+    // Empty territories are left out; a Sales territory not in the tree yet still lists its customers.
+    await createNode(adminActor, { businessUnitId: unitId, parentId: ids.region, code: "T-EMP", name: "Empty" });
+    const outside = await testPrisma().salesArea.create({ data: { businessUnitId: unitId, kind: "TERRITORY", name: "Fatullah" } });
+    await testPrisma().customer.create({ data: { businessUnitId: unitId, code: "C-4", name: "Store C-4", territoryId: outside.id } });
+
+    const all = await territoryCustomerGroups(adminActor, { businessUnitId: unitId });
+    expect(all.groups.map((group) => [group.name, group.code, group.rows.map((row) => row.code), group.creditTotal])).toEqual([
+      ["Fatullah", "", ["C-4"], 0],
+      ["Gazipur", "T-GZP", ["C-3"], 0],
+      ["Savar", "T-SAV", ["C-1", "C-2"], 7500.5],
+    ]);
+    expect(all).toMatchObject({ total: 4, truncated: false });
+    expect(all.customers).toHaveLength(4);
+    expect(all.territories.map((territory) => territory.name)).toEqual(["Empty", "Fatullah", "Gazipur", "Savar"]);
+
+    const one = await territoryCustomerGroups(adminActor, { businessUnitId: unitId, territoryId: outside.id });
+    expect(one.groups.map((group) => group.name)).toEqual(["Fatullah"]);
+    expect((await territoryCustomerGroups(adminActor, { businessUnitId: unitId, nodeId: ids.territory })).groups.map((group) => group.name)).toEqual(["Savar"]);
+    expect((await territoryCustomerGroups(adminActor, { businessUnitId: unitId, nodeId: ids.region })).groups).toHaveLength(2);
+    expect((await territoryCustomerGroups(adminActor, { businessUnitId: unitId, search: "c-2" })).groups.map((group) => group.rows.length)).toEqual([1]);
+    await expect(territoryCustomerGroups(scopedActor([]), { businessUnitId: unitId })).rejects.toBeInstanceOf(AppError);
   });
 
   it("imports the tree and customer assignments from Excel and exports them back", async () => {

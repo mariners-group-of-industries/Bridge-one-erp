@@ -27,6 +27,8 @@ const OPEN_STATUSES = ["APPROVED", "IN_PROGRESS"] as const;
 const STALE = "Someone else changed this production entry. Reload and try again.";
 
 const num = (value: Prisma.Decimal | null | undefined) => (value ? value.toNumber() : 0);
+/** Stock is kept to 3 decimals; consumption is rounded the same so entry and stock agree. */
+const round3 = (value: number) => Math.round(value * 1000) / 1000;
 
 /** Serialises entries of one production order (produced quantity and status). */
 async function lockOrder(tx: Tx, orderId: string) {
@@ -300,9 +302,9 @@ export async function createEntry(actor: Actor, raw: unknown): Promise<EntryDeta
       itemId: line.itemId,
       uom: base.uom,
       standardQty: round4((num(base.bomQty) / lotSize) * input.totalQty),
-      actualQty: line.actualQty,
-      wastageQty: line.wastageQty,
-      scrapQty: line.scrapQty,
+      actualQty: round3(line.actualQty),
+      wastageQty: round3(line.wastageQty),
+      scrapQty: round3(line.scrapQty),
       rate: rateOf.get(line.itemId) ?? 0,
     };
   });

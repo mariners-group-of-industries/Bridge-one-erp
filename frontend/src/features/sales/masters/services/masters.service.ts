@@ -127,7 +127,17 @@ export async function getSetupLookups(actor: Actor, businessUnitId?: string): Pr
     db().deliveryPendingReason.findMany({ where, select: { id: true, businessUnitId: true, name: true }, orderBy: { name: "asc" } }),
     db().salesReturnReason.findMany({ where, select: { id: true, businessUnitId: true, name: true }, orderBy: { name: "asc" } }),
   ]);
-  return { customerGroups, areas, categories, priceLists, salesPersons, deliveryReasons, returnReasons };
+  // Sales Setup: nodes of the layers above each unit's Territory layer.
+  const territoryLayers = await db().salesTerritoryLayer.findMany({ where: { ...where, isTerritory: true }, select: { businessUnitId: true, level: true } });
+  const groupNodes = territoryLayers.length
+    ? await db().salesTerritoryNode.findMany({
+        where: { isActive: true, OR: territoryLayers.map((layer) => ({ businessUnitId: layer.businessUnitId, layer: { level: { lt: layer.level } } })) },
+        select: { id: true, businessUnitId: true, name: true, layer: { select: { name: true, level: true } } },
+        orderBy: [{ layer: { level: "asc" } }, { name: "asc" }],
+      })
+    : [];
+  const territoryGroups = groupNodes.map((node) => ({ id: node.id, businessUnitId: node.businessUnitId, name: node.name, layer: node.layer.name }));
+  return { customerGroups, areas, categories, priceLists, salesPersons, deliveryReasons, returnReasons, territoryGroups };
 }
 
 // ─── Codes ───────────────────────────────────────────────────────────────────

@@ -77,28 +77,35 @@ describe("offers", () => {
     expect((await listOffers(adminActor, { kind: "DISCOUNT", page: 1, pageSize: 10 })).total).toBe(0);
   });
 
-  it("requires dates and both selling and bonus rows for Item (Multiple)", async () => {
-    await expect(createOffer(adminActor, { kind: "ITEM_MULTIPLE", ...head(), pairLines: [], bonusLines: [] } as never)).rejects.toThrow();
+  it("saves Item (Multiple) pairs, each with its own selling item (or a whole category) and bonus items", async () => {
+    const [feed] = (await getOfferOptions(adminActor)).categories;
+    const dates = { fromDate: "2026-02-01", toDate: "2026-02-28" };
+    await expect(createOffer(adminActor, { kind: "ITEM_MULTIPLE", ...head(dates), basedOn: "All Customers", pairs: [] } as never)).rejects.toThrow();
     const offer = await createOffer(adminActor, {
       kind: "ITEM_MULTIPLE",
-      ...head({ fromDate: "2026-02-01", toDate: "2026-02-28", basedOn: "Price Type" }),
-      pairLines: [
-        { itemId: feedId, quantity: "5", minQty: "5", maxQty: "50" },
-        { itemId: bagId, quantity: "2" },
+      ...head(dates),
+      basedOn: "All Customers",
+      pairs: [
+        { itemId: feedId, quantity: "5", minQty: "5", maxQty: "50", bonusLines: [{ itemId: bagId, quantity: "1" }] },
+        // "All": any items of the category count together.
+        { categoryId: feed.id, itemId: "", quantity: "10", bonusLines: [{ itemId: bagId, quantity: "2" }, { itemId: feedId, quantity: "1" }] },
       ],
-      bonusLines: [{ itemId: bagId, quantity: "1" }],
     });
     if (offer.kind !== "ITEM_MULTIPLE") throw new Error("kind");
-    expect(offer.pairLines).toHaveLength(2);
-    expect(offer.bonusLines[0].quantity).toBe("1");
-    await expect(
-      createOffer(adminActor, {
-        kind: "ITEM_MULTIPLE",
-        ...head({ fromDate: "2026-02-01", toDate: "2026-01-01" }),
-        pairLines: [{ itemId: feedId, quantity: "5", minQty: "9", maxQty: "2" }],
-        bonusLines: [{ itemId: bagId, quantity: "1" }],
-      }),
-    ).rejects.toThrow();
+    expect(offer.pairs.map((pair) => [pair.itemId, pair.categoryId, pair.quantity, pair.bonusLines.map((line) => line.quantity)])).toEqual([
+      [feedId, "", "5", ["1"]],
+      ["", feed.id, "10", ["2", "1"]],
+    ]);
+    expect((await getOffer(adminActor, offer.id)).kind).toBe("ITEM_MULTIPLE");
+
+    const invalid = (changes: Record<string, unknown>) =>
+      createOffer(adminActor, { kind: "ITEM_MULTIPLE", ...head(dates), basedOn: "All Customers", pairs: [{ itemId: feedId, quantity: "5", bonusLines: [{ itemId: bagId, quantity: "1" }] }], ...changes } as never);
+    await expect(invalid({ fromDate: "2026-03-01" })).rejects.toThrow();
+    await expect(invalid({ basedOn: "" })).rejects.toThrow();
+    await expect(invalid({ basedOn: "Price Type" })).rejects.toThrow();
+    await expect(invalid({ pairs: [{ itemId: "", quantity: "5", bonusLines: [{ itemId: bagId, quantity: "1" }] }] })).rejects.toThrow();
+    await expect(invalid({ pairs: [{ itemId: feedId, quantity: "5", bonusLines: [] }] })).rejects.toThrow();
+    await expect(invalid({ pairs: [{ itemId: feedId, quantity: "5", minQty: "9", maxQty: "2", bonusLines: [{ itemId: bagId, quantity: "1" }] }] })).rejects.toThrow();
   });
 
   it("validates discount rows: percentage cap, contribution split and duplicate items", async () => {

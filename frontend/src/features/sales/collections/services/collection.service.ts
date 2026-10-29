@@ -23,6 +23,7 @@ import {
   type CollectionDetail,
   type CollectionList,
   type CollectionRow,
+  type CollectionWallet,
   type DueInvoice,
   type DueListRow,
   type GlAccountOption,
@@ -531,6 +532,17 @@ export async function createDueCollection(actor: Actor, raw: unknown): Promise<{
     const person = await db().salesPerson.findFirst({ where: { id: input.salesPersonId, businessUnitId: office.businessUnitId } });
     if (!person) throw badRequest("Collect By does not belong to the office's business unit.");
   }
+  // Wallet Setup: the wallet names the receipt and gives its bank account's GL.
+  if (input.walletId) {
+    const wallet = await db().salesWallet.findFirst({
+      where: { id: input.walletId, businessUnitId: office.businessUnitId, isActive: true, OR: [{ officeId: null }, { officeId: office.id }] },
+      select: { name: true, isReferenceRequired: true, bankAccount: { select: { glAccountId: true } } },
+    });
+    if (!wallet) throw badRequest("The wallet is not active for this office.");
+    if (wallet.isReferenceRequired && !input.reference) throw badRequest(`Enter the transaction / reference no for ${wallet.name}.`);
+    input.bankName = wallet.name;
+    input.adjustAccountId ??= wallet.bankAccount?.glAccountId ?? null;
+  }
   await requireAccounts(db(), [input.adjustAccountId, ...input.deductions.map((row) => row.accountId)]);
   const deductionAmount = money(input.deductions.reduce((sum, row) => sum + row.amount, 0));
 
@@ -726,4 +738,23 @@ export async function deliverySettlements(tx: Tx, deliveryId: string): Promise<{
     tx.salesBillLine.count({ where: { deliveryId, bill: { status: LIVE } } }),
   ]);
   return { collections, bills };
+}
+
+/** Active Wallet Setup wallets of the office's business unit (all offices or this one). */
+export async function collectionWallets(actor: Actor, officeId: string): Promise<CollectionWallet[]> {
+  const office = await requireOffice(actor, officeId);
+  const wallets = await db().salesWallet.findMany({
+    where: { businessUnitId: office.businessUnitId, isActive: true, OR: [{ officeId: null }, { officeId: office.id }] },
+    select: { id: true, name: true, commissionPercent: true, isCash: true, isMfs: true, isReferenceRequired: true, bankAccount: { select: { glAccountId: true } } },
+    orderBy: { name: "asc" },
+  });
+  return wallets.map((wallet) => ({
+    id: wallet.id,
+    name: wallet.name,
+    commissionPercent: wallet.commissionPercent.toNumber(),
+    isCash: wallet.isCash,
+    isMfs: wallet.isMfs,
+    isReferenceRequired: wallet.isReferenceRequired,
+    glAccountId: wallet.bankAccount?.glAccountId ?? null,
+  }));
 }

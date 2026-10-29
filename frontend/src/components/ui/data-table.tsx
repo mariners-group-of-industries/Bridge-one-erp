@@ -346,7 +346,7 @@ function ServerPager({ page, pageSize, total, sizes, onChange }: ServerPage) {
   const last = Math.min(page * pageSize, total);
   return (
     <div className="flex flex-wrap items-center justify-end gap-x-6 gap-y-2 border-t border-line bg-canvas px-3 py-2 text-xs text-ink-muted">
-      <label className="flex items-center gap-2">
+      <label className="flex items-center gap-2 whitespace-nowrap">
         Rows per page:
         <select value={pageSize} onChange={(event) => onChange(1, Number(event.target.value))} className={cn(CONTROL, "h-7 w-20")}>
           {sizes.map((size) => (

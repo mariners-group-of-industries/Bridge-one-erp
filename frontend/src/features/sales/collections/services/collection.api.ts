@@ -1,5 +1,4 @@
 import { apiRequest } from "@/lib/api/client";
-import { downloadFile } from "@/lib/download";
 import type {
   BillDetail,
   BillInput,
@@ -9,6 +8,7 @@ import type {
   CollectionInput,
   CollectionList,
   CollectionListQuery,
+  CollectionWallet,
   DueInvoice,
   DueCollectionInput,
   DueInvoiceQuery,
@@ -41,13 +41,7 @@ export const createDueCollection = (input: DueCollectionInput) => apiRequest<{ i
 export const createAdvanceVoucher = (input: AdvanceVoucherInput) => apiRequest<{ id: string; number: string }[]>(`${C}/advance-voucher`, json("POST", input));
 export const fetchGlAccounts = () => apiRequest<GlAccountOption[]>("/api/sales/gl-accounts");
 
-/** The table on screen as an Excel or PDF file. */
-export const exportTable = (format: "xlsx" | "pdf", title: string, headers: string[], rows: (string | number | null)[][]) =>
-  downloadFile("/api/sales/table-export", `${title}.${format}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ format, title, headers, rows }),
-  });
+export { exportTable } from "../../lib/export-table";
 
 export const adjustAdvance = (id: string, version: string, allocations: { deliveryId: string; amount: number }[]) =>
   apiRequest<CollectionDetail>(`${C}/${id}/adjust`, json("POST", { version, allocations }));
@@ -59,3 +53,6 @@ export const fetchBill = (id: string, asOf: string) => apiRequest<BillDetail>(`$
 export const createBill = (input: BillInput, asOf: string) => apiRequest<BillDetail>(`${B}${query({ asOf })}`, json("POST", input));
 export const cancelBill = (id: string, version: string, reason: string, asOf: string) =>
   apiRequest<BillDetail>(`${B}/${id}/cancel${query({ asOf })}`, json("POST", { version, reason }));
+
+/** Wallet Setup wallets the office can collect through. */
+export const fetchCollectionWallets = (officeId: string) => apiRequest<CollectionWallet[]>(`${C}/wallets?officeId=${officeId}`);

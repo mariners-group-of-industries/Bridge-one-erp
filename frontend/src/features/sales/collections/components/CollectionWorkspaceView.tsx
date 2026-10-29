@@ -196,7 +196,7 @@ function DueTab({ today, onExport }: { today: string; onExport: (table: TableExp
   const { offices } = useFilterLookups();
   const [officeId, setOfficeId] = useState("");
   const [query, setQuery] = useState({ officeId: "", asOf: today });
-  const list = useResource(`due:${JSON.stringify(query)}`, () => fetchDueList(query));
+  const list = useResource(`due:${JSON.stringify(query)}`, () => fetchDueList(query), { refreshOnFocus: true });
   const rows = list.data;
 
   useTableExport(
@@ -282,7 +282,7 @@ function BillsTab({ today, onExport }: { today: string; onExport: (table: TableE
   const { offices } = useFilterLookups();
   const [officeId, setOfficeId] = useState("");
   const [query, setQuery] = useState({ officeId: "", asOf: today });
-  const list = useResource(`bills:${JSON.stringify(query)}`, () => fetchBills(query));
+  const list = useResource(`bills:${JSON.stringify(query)}`, () => fetchBills(query), { refreshOnFocus: true });
   const rows = list.data;
 
   useTableExport(
@@ -394,7 +394,7 @@ function CollectionsTab({ kind, today, onExport }: { kind: "INVOICE" | "ADVANCE"
   });
   const [query, setQuery] = useState<CollectionListQuery>(toQuery(initial));
   const [filterError, setFilterError] = useState<string>();
-  const list = useResource(`collections:${JSON.stringify(query)}`, () => fetchCollections(query));
+  const list = useResource(`collections:${JSON.stringify(query)}`, () => fetchCollections(query), { refreshOnFocus: true });
   const data = list.data;
 
   function view(event: FormEvent) {
@@ -686,7 +686,7 @@ function DueInvoicesTab({ today, onExport }: { today: string; onExport: (table: 
 
 function LedgerTab({ today, onExport }: { today: string; onExport: (table: TableExport | null) => void }) {
   const needle = useContext(SearchContext);
-  const list = useResource(`ledger:${today}`, () => fetchLedger({ asOf: today }));
+  const list = useResource(`ledger:${today}`, () => fetchLedger({ asOf: today }), { refreshOnFocus: true });
   const rows = list.data;
 
   useTableExport(

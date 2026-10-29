@@ -87,6 +87,8 @@ export const dueCollectionSchema = z
     collectionDate: isoDate("Date"),
     method: z.enum(COLLECTION_METHODS),
     cashType: optionalText("Cash type", 30),
+    /** Wallet Setup (Sales Config): bank / MFS wallet the money came through. */
+    walletId: optionalId,
     salesPersonId: optionalId,
     adjustAccountId: optionalId,
     moneyReceiptNo: optionalText("Money receipt no", 60),
@@ -398,4 +400,16 @@ export interface BillDetail extends BillRow {
     billedAmount: number;
     due: number;
   }[];
+}
+
+/** A Wallet Setup wallet offered on Due Collection (GET /api/sales/collections/wallets?officeId). */
+export interface CollectionWallet {
+  id: string;
+  name: string;
+  commissionPercent: number;
+  isCash: boolean;
+  isMfs: boolean;
+  isReferenceRequired: boolean;
+  /** GL of the wallet's bank account, used as "Adjust With GL". */
+  glAccountId: string | null;
 }

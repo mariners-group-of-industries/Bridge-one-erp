@@ -11,11 +11,13 @@ import { scopedBusinessUnitIds } from "../../lib/scope";
 import { RETURN_KIND_LABELS, RETURN_MODE_LABELS, RETURN_STATUS_LABELS } from "../../returns/schemas/return.schema";
 import { ORDER_STATUS_LABELS, PAYMENT_METHOD_LABELS } from "../../orders/schemas/order.schema";
 import { CONFIRMATION_LABELS, DELIVERY_TYPE_LABELS } from "../../deliveries/schemas/delivery.schema";
+import { territoryCustomerWhere } from "../../lib/territory";
 import { MONTH_NAMES } from "../../targets/schemas/target.schema";
 import { targetReport } from "../../targets/services/target.service";
 import { ALL_REPORTS, ANALYTICS, REPORTS, reportQuerySchema, type ReportCell, type ReportColumn, type ReportKey, type ReportResult } from "../schemas/report.schema";
 
-type Query = ReturnType<typeof reportQuerySchema.parse>;
+/** The parsed query; `territory` is the Territory filter resolved over the Sales Setup tree (see getReport). */
+type Query = ReturnType<typeof reportQuerySchema.parse> & { territory?: Prisma.CustomerWhereInput };
 type Row = Record<string, ReportCell>;
 
 /** Most rows a report reads from one table. */
@@ -38,7 +40,7 @@ function dateRange(query: Query) {
 function customerFilter(query: Query): Prisma.CustomerWhereInput | undefined {
   const filter: Prisma.CustomerWhereInput = {
     ...(query.customerGroupId ? { customerGroupId: query.customerGroupId } : {}),
-    ...(query.territoryId ? { territoryId: query.territoryId } : {}),
+    ...(query.territory ?? (query.territoryId ? { territoryId: query.territoryId } : {})),
     ...(query.zoneId ? { zoneId: query.zoneId } : {}),
     ...(query.routeId ? { routeId: query.routeId } : {}),
   };
@@ -305,7 +307,7 @@ const SALES_BUILDERS: Record<(typeof REPORTS)[number]["key"], Builder> = {
         creditLimit: { gt: 0 },
         ...(query.customerId ? { id: query.customerId } : {}),
         ...(query.customerGroupId ? { customerGroupId: query.customerGroupId } : {}),
-        ...(query.territoryId ? { territoryId: query.territoryId } : {}),
+        ...(query.territory ?? (query.territoryId ? { territoryId: query.territoryId } : {})),
         ...(query.salesPersonId ? { salesPersonId: query.salesPersonId } : {}),
         ...(query.officeId ? { deliveries: { some: { officeId: query.officeId } } } : {}),
       },
@@ -1140,6 +1142,6 @@ export async function getReport(actor: Actor, raw: unknown): Promise<ReportResul
   );
   if (missing.length) throw badRequest(`Select ${missing.map((filter) => (filter === "months" ? "the months" : filter === "from" ? "From Date" : filter === "to" ? "To Date" : filter)).join(", ")} for this report.`);
   const unitIds = await scopedBusinessUnitIds(actor);
-  const result = await BUILDERS[query.report](actor, unitIds, query);
+  const result = await BUILDERS[query.report](actor, unitIds, { ...query, territory: await territoryCustomerWhere(query.territoryId) });
   return { title: definition.label, ...result };
 }

@@ -97,7 +97,7 @@ function QuotationList({ today, search, onQuery }: { today: string; search: stri
   const searched = useDebounced(search.trim());
   const query: QuotationListQuery = { ...applied, ...(searched ? { search: searched } : {}) };
   const key = JSON.stringify(query);
-  const list = useResource(`quotations:${key}`, () => fetchQuotations(query));
+  const list = useResource(`quotations:${key}`, () => fetchQuotations(query), { refreshOnFocus: true });
 
   useEffect(() => {
     onQuery(JSON.parse(key) as QuotationListQuery);

@@ -1,6 +1,6 @@
 "use client";
 
-import { Trash2, UserPlus } from "lucide-react";
+import { Check, Pencil, Trash2, UserPlus, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
@@ -108,11 +108,19 @@ export function NodeDialog({ state, onClose, onSaved }: { state: NodeDialogState
       <div className="flex flex-col gap-3">
         {error && <Notice tone="error">{error}</Notice>}
         <FormGrid cols={2}>
-          <Field label={`${noun} Code`} required>
-            {(id) => <Input id={id} autoFocus value={values.code} maxLength={30} onChange={(e) => setValues({ ...values, code: e.target.value })} />}
+          <Field label={`${noun} Code`}>
+            {(id) => (
+              <Input
+                id={id}
+                value={values.code}
+                maxLength={30}
+                placeholder={state?.mode === "edit" ? "Keep current code" : "Auto-generated if empty"}
+                onChange={(e) => setValues({ ...values, code: e.target.value })}
+              />
+            )}
           </Field>
           <Field label={`${noun} Name`} required>
-            {(id) => <Input id={id} value={values.name} maxLength={100} onChange={(e) => setValues({ ...values, name: e.target.value })} />}
+            {(id) => <Input id={id} autoFocus value={values.name} maxLength={100} placeholder={`${noun} name`} onChange={(e) => setValues({ ...values, name: e.target.value })} />}
           </Field>
         </FormGrid>
       </div>
@@ -129,6 +137,15 @@ export function AssignEmployeesDialog({ node, onClose, onChanged }: { node: { id
   const [employeeId, setEmployeeId] = useState("");
   const [channel, setChannel] = useState("");
   const [busy, setBusy] = useState(false);
+  const [adding, setAdding] = useState(false);
+  /** Row whose distribution channel is being edited, with the draft value. */
+  const [editing, setEditing] = useState<{ id: string; channel: string } | null>(null);
+  const [seenNode, setSeenNode] = useState(node);
+  if (node !== seenNode) {
+    setSeenNode(node);
+    setAdding(false);
+    setEditing(null);
+  }
 
   const run = async (action: () => Promise<AssignmentDto[]>, message: string) => {
     setBusy(true);
@@ -147,9 +164,24 @@ export function AssignEmployeesDialog({ node, onClose, onChanged }: { node: { id
 
   const taken = new Set((assigned.data ?? []).map((row) => row.employeeId));
   return (
-    <Dialog open={node !== null} size="xl" title={`Assign Employees · ${node?.name ?? ""}`} onClose={onClose} footer={<Button onClick={onClose}>Close</Button>}>
+    <Dialog
+      open={node !== null}
+      size="xl"
+      title="Employee List"
+      description={node?.name}
+      onClose={onClose}
+      footer={<Button onClick={onClose}>Close</Button>}
+    >
       <div className="flex flex-col gap-4">
-        <div className="flex flex-wrap items-end gap-2">
+        {!adding && (
+          <div className="flex justify-end">
+            <Button variant="accent" onClick={() => setAdding(true)}>
+              <UserPlus /> Add Employee
+            </Button>
+          </div>
+        )}
+        {adding && (
+        <div className="flex flex-wrap items-end gap-2 rounded-md border border-line p-3">
           <Field label="Employee" className="min-w-64 flex-1">
             {(id) => (
               <Select
@@ -181,13 +213,18 @@ export function AssignEmployeesDialog({ node, onClose, onChanged }: { node: { id
                 });
                 setEmployeeId("");
                 setChannel("");
+                setAdding(false);
                 return result;
               }, "Employee assigned.")
             }
           >
-            <UserPlus /> Add Employee
+            <UserPlus /> Add
+          </Button>
+          <Button variant="ghost" onClick={() => setAdding(false)}>
+            Cancel
           </Button>
         </div>
+        )}
 
         {assigned.error ? (
           <ErrorState message={assigned.error.message} onRetry={assigned.reload} />
@@ -214,8 +251,54 @@ export function AssignEmployeesDialog({ node, onClose, onChanged }: { node: { id
                     <td className={TABLE.td}>{row.designation ?? "—"}</td>
                     <td className={`${TABLE.td} tabular-nums`}>{row.phone ?? "—"}</td>
                     <td className={TABLE.td}>{row.email ?? "—"}</td>
-                    <td className={TABLE.td}>{row.distributionChannel ?? "—"}</td>
-                    <td className={`${TABLE.td} text-center`}>
+                    <td className={TABLE.td}>
+                      {editing?.id === row.id ? (
+                        <Input
+                          aria-label={`Distribution channel of ${row.name}`}
+                          autoFocus
+                          value={editing.channel}
+                          maxLength={100}
+                          onChange={(e) => setEditing({ id: row.id, channel: e.target.value })}
+                          onKeyDown={(e) => e.key === "Escape" && setEditing(null)}
+                        />
+                      ) : (
+                        (row.distributionChannel ?? "—")
+                      )}
+                    </td>
+                    <td className={`${TABLE.td} text-center whitespace-nowrap`}>
+                      {editing?.id === row.id ? (
+                        <>
+                          <Button
+                            variant="accent"
+                            size="icon"
+                            aria-label={`Save ${row.name}`}
+                            loading={busy}
+                            onClick={() =>
+                              run(async () => {
+                                const result = await territoryApi.updateAssignment(node!.id, row.id, { distributionChannel: editing.channel });
+                                setEditing(null);
+                                return result;
+                              }, `${row.name} updated.`)
+                            }
+                          >
+                            {!busy && <Check />}
+                          </Button>
+                          <Button variant="ghost" size="icon" aria-label="Cancel" onClick={() => setEditing(null)}>
+                            <X />
+                          </Button>
+                        </>
+                      ) : (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="hover:text-accent-strong"
+                          aria-label={`Edit ${row.name}`}
+                          disabled={busy}
+                          onClick={() => setEditing({ id: row.id, channel: row.distributionChannel ?? "" })}
+                        >
+                          <Pencil />
+                        </Button>
+                      )}
                       <Button
                         variant="ghost"
                         size="icon"

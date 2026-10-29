@@ -1,46 +1,29 @@
 "use client";
 
-import { Download, Printer, RefreshCw } from "lucide-react";
+import { RefreshCw } from "lucide-react";
 import { useState, type FormEvent } from "react";
-import { PageContainer, PageHead } from "@/components/layout/page";
 import { Button } from "@/components/ui/button";
 import { CheckboxField, SelectField, TextField } from "@/components/ui/form-field";
-import { Card, EmptyState, ErrorState, LoadingState } from "@/components/ui/section";
-import { useToast } from "@/components/ui/toast";
+import { EmptyState, ErrorState, LoadingState } from "@/components/ui/section";
 import { useResource } from "@/hooks/use-resource";
 import { errorMessage } from "@/lib/api/client";
 import { useFilterLookups } from "../../deliveries/components/DeliveryWorkspaceView";
-import { downloadCsv } from "../../lib/csv";
-import { printTable } from "../../lib/print-table";
-import { addDays, formatDay, useToday } from "../../lib/use-today";
+import type { ExportTable } from "../../lib/export-table";
+import { addDays, formatDay } from "../../lib/use-today";
 import { CATEGORY_LEVEL_LABELS } from "../../masters/schemas/masters.schema";
 import { fetchCustomers } from "../../masters/services/masters.api";
 import { MONTH_NAMES } from "../../targets/schemas/target.schema";
 import { REPORTS, reportQuerySchema, type ReportFilter, type ReportKey, type ReportQuery, type ReportResult } from "../schemas/report.schema";
 import { fetchReport } from "../services/report.api";
-import { ReportTable, reportExport } from "./ReportTable";
+import { ReportTable, reportExport, useReportExport } from "./ReportTable";
 
 type Filters = Record<"officeId" | "priceListId" | "customerGroupId" | "customerId" | "salesPersonId" | "territoryId" | "categoryId" | "from" | "to" | "utilization" | "year" | "fromMonth" | "toMonth", string> & {
   summary: boolean;
 };
 
 const all = { value: "", label: "All" };
-/** Sales Report: one "View By" list of reports, each with its own filters. */
-export function SalesReportView() {
-  const today = useToday();
-  if (!today) {
-    return (
-      <PageContainer>
-        <PageHead title="Sales Report" />
-        <LoadingState />
-      </PageContainer>
-    );
-  }
-  return <Reports today={today} />;
-}
-
-function Reports({ today }: { today: string }) {
-  const toast = useToast();
+/** Sales Report tab: one "View By" list of reports, each with its own filters. */
+export function SalesReportPanel({ today, onExport }: { today: string; onExport: (table: ExportTable | null) => void }) {
   const { lookups, setup, offices, groups, persons, areaOptions } = useFilterLookups();
   const units = [...new Set((lookups.data?.offices ?? []).map((office) => office.businessUnitId))];
   const customers = useResource(units.length ? `report-customers:${units.join(",")}` : null, async () => (await Promise.all(units.map((unit) => fetchCustomers(unit, true)))).flat());
@@ -64,7 +47,7 @@ function Reports({ today }: { today: string }) {
   });
   const [query, setQuery] = useState<ReportQuery | null>(null);
   const [filterError, setFilterError] = useState<string>();
-  const result = useResource(query ? `report:${JSON.stringify(query)}` : null, () => fetchReport(query!));
+  const result = useResource(query ? `report:${JSON.stringify(query)}` : null, () => fetchReport(query!), { refreshOnFocus: true });
 
   const definition = REPORTS.find((candidate) => candidate.key === report)!;
   const shows = (filter: ReportFilter) => (definition.filters as readonly ReportFilter[]).includes(filter);
@@ -105,31 +88,15 @@ function Reports({ today }: { today: string }) {
   }
 
   const data: ReportResult | undefined = query?.report === report ? result.data : undefined;
-  const { headers, rows: tableRows } = data ? reportExport(data) : { headers: [], rows: [] };
   const period = shows("from") ? ` ${formatDay(filters.from)} – ${formatDay(filters.to)}` : "";
+  useReportExport(data && data.rows.length ? { title: `${data.title}${period}`, ...reportExport(data) } : null, onExport);
 
   const categories = (setup.data?.categories ?? []).map((category) => ({ value: category.id, label: `${category.name} (${CATEGORY_LEVEL_LABELS[category.level]})` }));
   const years = Array.from({ length: 5 }, (_, index) => String(Number(today.slice(0, 4)) - 3 + index));
   const months = MONTH_NAMES.map((name, index) => ({ value: String(index + 1), label: name }));
 
   return (
-    <PageContainer className="max-w-none">
-      <PageHead
-        title="Sales Report"
-        actions={
-          <>
-            <Button onClick={() => data && downloadCsv(`${report}-${today}.csv`, headers, tableRows)} disabled={!data || data.rows.length === 0}>
-              <Download aria-hidden="true" />
-              Excel
-            </Button>
-            <Button onClick={() => data && !printTable(`${data.title}${period}`, headers, tableRows) && toast.error("Allow pop-ups to print or save as PDF.")} disabled={!data || data.rows.length === 0}>
-              <Printer aria-hidden="true" />
-              PDF
-            </Button>
-          </>
-        }
-      />
-      <Card>
+    <>
         <form onSubmit={view} className="flex flex-col gap-3 border-b border-line p-4">
           <SelectField
             label="View By"
@@ -196,7 +163,6 @@ function Reports({ today }: { today: string }) {
             <ReportTable data={data} />
           </div>
         )}
-      </Card>
-    </PageContainer>
+    </>
   );
 }
