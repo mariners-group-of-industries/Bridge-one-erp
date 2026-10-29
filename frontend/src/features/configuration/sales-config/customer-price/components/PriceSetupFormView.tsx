@@ -33,7 +33,8 @@ type GroupForm = Required<Omit<GroupPriceInput, "lines">> & { lines: Required<Gr
 type Errors = Record<string, string>;
 
 const today = () => new Date().toISOString().slice(0, 10);
-const FILTER = { itemType: "", categoryId: "", subCategoryId: "", minorCategoryId: "" } as const;
+/** New setups start on sellable items; choose "All item types" to see the rest. */
+const FILTER = { itemType: "Finished Goods", categoryId: "", subCategoryId: "", minorCategoryId: "" } as const;
 const blankGroupLine = (itemId = ""): GroupForm["lines"][number] => ({ itemId, fromDate: "", toDate: "", fromQty: "", toQty: "", dpPrice: "", tpPrice: "" });
 
 /** Items of a business unit matching the item type and the deepest selected category (incl. children). */
