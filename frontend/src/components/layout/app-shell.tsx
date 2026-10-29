@@ -4,6 +4,7 @@ import { Menu, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { Suspense, useEffect, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
+import { AssistantWidget } from "@/features/assistant/components/assistant-widget";
 import { ToastProvider } from "@/components/ui/toast";
 import { SessionProvider, useSession } from "@/lib/auth/session";
 import { cn } from "@/lib/cn";
@@ -100,6 +101,7 @@ function ShellInner({ children }: { children: ReactNode }) {
       </div>
 
       <Awesomebar open={searchOpen} onClose={() => setSearchOpen(false)} />
+      <AssistantWidget />
     </>
   );
 }
