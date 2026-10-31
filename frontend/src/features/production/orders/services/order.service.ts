@@ -179,7 +179,9 @@ function viewStatus(record: { status: OrderStatus; approvals: { status: string; 
 
 type RowRecord = Prisma.ProductionOrderGetPayload<{ include: typeof ROW_INCLUDE }>;
 
-function toRow(record: RowRecord): OrderRow {
+/** `canWrite`: the actor holds production:write (a not-yet-reviewed pending order is then editable). */
+function toRow(record: RowRecord, canWrite = false): OrderRow {
+  const status = viewStatus(record);
   const orderQty = num(record.orderQty);
   const producedQty = num(record.producedQty);
   return {
@@ -197,7 +199,8 @@ function toRow(record: RowRecord): OrderRow {
     producedQty,
     remainingQty: Math.max(round4(orderQty - producedQty), 0),
     producedValue: round2(producedQty * num(record.unitCost)),
-    status: viewStatus(record),
+    status,
+    canEdit: canWrite && status === "PENDING_APPROVAL",
     officeName: record.office.name,
     updatedAt: record.updatedAt.toISOString(),
   };
@@ -225,7 +228,8 @@ export async function listOrders(actor: Actor, raw: unknown): Promise<OrderRow[]
     orderBy: [{ orderDate: "desc" }, { number: "desc" }],
     take: ORDER_LIST_LIMIT,
   });
-  return records.map(toRow);
+  const canWrite = actor.permissions.has("production:write");
+  return records.map((record) => toRow(record, canWrite));
 }
 
 async function findInScope(actor: Actor, id: string, client: Client = db()) {
@@ -486,10 +490,10 @@ export async function searchCustomers(actor: Actor, raw: unknown): Promise<Custo
   const unitIds = await scopedBusinessUnitIds(actor);
   const text = { contains: search, mode: "insensitive" as const };
   return db().customer.findMany({
-    where: { businessUnitId: { in: unitIds }, isActive: true, OR: [{ name: text }, { code: text }] },
-    select: { id: true, code: true, name: true },
+    where: { businessUnitId: { in: unitIds }, isActive: true, ...(search ? { OR: [{ name: text }, { code: text }, { phone: text }] } : {}) },
+    select: { id: true, code: true, name: true, phone: true },
     orderBy: { name: "asc" },
-    take: 20,
+    take: 50,
   });
 }
 

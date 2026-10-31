@@ -1,12 +1,12 @@
 "use client";
 
-import { ArrowLeft, Save, Search, X } from "lucide-react";
+import { ArrowLeft, Save } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { PageContainer, PageHead } from "@/components/layout/page";
 import { Button } from "@/components/ui/button";
-import { SelectField, TextField } from "@/components/ui/form-field";
+import { TextField } from "@/components/ui/form-field";
 import { Card, ErrorState, LoadingState } from "@/components/ui/section";
 import { useToast } from "@/components/ui/toast";
 import { useResource } from "@/hooks/use-resource";
@@ -15,6 +15,7 @@ import { cn } from "@/lib/cn";
 import { LineTable } from "@/features/production/bom/components/BomDialogs";
 import { issuesToErrors } from "@/features/sales/lib/form";
 import { useToday } from "@/features/sales/lib/use-today";
+import { Combobox } from "../../components/Combobox";
 import { paths } from "../../paths";
 import { orderInputSchema, type CustomerOption, type OrderDetail, type OrderInput, type OrderLookups } from "../schemas/order.schema";
 import { createOrder, fetchCustomerSalesOrders, fetchOrder, fetchOrderLookups, fetchOrderPreview, searchOrderCustomers, updateOrder } from "../services/order.api";
@@ -41,12 +42,12 @@ function initialValues(lookups: OrderLookups, today: string, record?: OrderDetai
   return {
     orderDate: record?.orderDate ?? today,
     productionDate: record?.productionDate ?? today,
-    customer: record?.customerId ? { id: record.customerId, code, name: rest.join(" - ") } : null,
+    customer: record?.customerId ? { id: record.customerId, code, name: rest.join(" - "), phone: null } : null,
     salesOrderId: record?.salesOrderId ?? "",
     customerPoNo: record?.customerPoNo ?? "",
     itemId: record?.itemId ?? "",
     bomId: record?.bomId ?? "",
-    quantity: record ? String(record.orderQty) : "",
+    quantity: record ? String(record.orderQty) : "1",
     officeId: record?.officeId ?? (lookups.offices.length === 1 ? lookups.offices[0].id : ""),
     warehouseId: record?.warehouseId ?? "",
     workCenterId: record?.workCenterId ?? "",
@@ -117,26 +118,34 @@ function Failed({ message, onRetry, backTo }: { message: string; onRetry?: () =>
   );
 }
 
-/** Customers matching `term` (3+ letters), debounced. */
+/** Customers matching `term` (3+ letters), or the first ones when it is empty; debounced. */
 function useCustomerSearch(term: string) {
   const wanted = term.trim();
-  const [found, setFound] = useState<{ term: string; rows: CustomerOption[]; error?: string }>({ term: "", rows: [] });
+  const searchable = wanted.length === 0 || wanted.length >= 3;
+  const [found, setFound] = useState<{ term: string; rows: CustomerOption[]; error?: string } | null>(null);
   useEffect(() => {
-    if (wanted.length < 3) return;
+    if (!searchable) return;
     let cancelled = false;
-    const timer = setTimeout(() => {
-      searchOrderCustomers(wanted).then(
-        (rows) => !cancelled && setFound({ term: wanted, rows }),
-        (error: unknown) => !cancelled && setFound({ term: wanted, rows: [], error: errorMessage(error) }),
-      );
-    }, 300);
+    const timer = setTimeout(
+      () => {
+        searchOrderCustomers(wanted).then(
+          (rows) => !cancelled && setFound({ term: wanted, rows }),
+          (error: unknown) => !cancelled && setFound({ term: wanted, rows: [], error: errorMessage(error) }),
+        );
+      },
+      wanted ? 300 : 0,
+    );
     return () => {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [wanted]);
-  return { ...found, ready: wanted.length >= 3 && found.term === wanted };
+  }, [wanted, searchable]);
+  return { rows: found?.rows ?? [], error: found?.error, searchable, ready: searchable && found?.term === wanted };
 }
+
+const customerLabel = (customer: CustomerOption) => `${customer.code ? `${customer.code} - ` : ""}${customer.name}${customer.phone ? ` (${customer.phone})` : ""}`;
+/** One "Item" choice per item and BOM, as in Managerium ("code - name (uom) - (BOM name)"). */
+const itemBomKey = (itemId: string, bomId: string) => (itemId && bomId ? `${itemId}|${bomId}` : "");
 
 /** `value` once it has stopped changing for `delay` ms. */
 function useDebounced<T>(value: T, delay = 400): T {
@@ -155,7 +164,7 @@ function OrderForm({ lookups, today, record }: { lookups: OrderLookups; today: s
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [customerTerm, setCustomerTerm] = useState("");
-  const customerSearch = useCustomerSearch(values.customer ? "" : customerTerm);
+  const customerSearch = useCustomerSearch(customerTerm);
   const salesOrders = useResource(values.customer ? `customer-sales-orders:${values.customer.id}` : null, () => fetchCustomerSalesOrders(values.customer!.id));
 
   const set = (patch: Partial<Values>) => setValues((current) => ({ ...current, ...patch }));
@@ -173,9 +182,15 @@ function OrderForm({ lookups, today, record }: { lookups: OrderLookups; today: s
     fetchOrderPreview({ bomId: values.bomId, itemId: values.itemId, quantity, ...(values.warehouseId ? { warehouseId: values.warehouseId } : {}) }),
   );
 
-  function chooseItem(itemId: string) {
-    const next = lookups.items.find((row) => row.itemId === itemId);
-    set({ itemId, bomId: next?.boms.length === 1 ? next.boms[0].id : "" });
+  const itemOptions = items.flatMap((option) =>
+    option.boms.map((bom) => ({ value: itemBomKey(option.itemId, bom.id), label: `${option.code} - ${option.name} (${option.uom}) - (${bom.name})` })),
+  );
+  // Work centers of the chosen office (or of no office in particular), by name as in Managerium.
+  const officeWorkCenters = values.officeId ? workCenters.map((center) => ({ value: center.id, label: center.name })) : [];
+
+  function chooseItem(key: string) {
+    const [itemId = "", bomId = ""] = key.split("|");
+    set({ itemId, bomId });
   }
 
   function chooseSalesOrder(salesOrderId: string) {
@@ -255,98 +270,41 @@ function OrderForm({ lookups, today, record }: { lookups: OrderLookups; today: s
               error={errors.productionDate}
               onChange={(event) => set({ productionDate: event.target.value })}
             />
-            <div className="relative">
-              {values.customer ? (
-                <div className="flex flex-col gap-1">
-                  <span className="text-xs text-ink-muted">Customer</span>
-                  <span className="flex h-7 items-center gap-2 rounded-md bg-control px-2 text-sm text-ink">
-                    <span className="min-w-0 flex-1 truncate">
-                      {values.customer.code ? `${values.customer.code} - ` : ""}
-                      {values.customer.name}
-                    </span>
-                    <button
-                      type="button"
-                      aria-label="Clear customer"
-                      onClick={() => {
-                        set({ customer: null, salesOrderId: "" });
-                        setCustomerTerm("");
-                      }}
-                      className="text-ink-faint hover:text-ink"
-                    >
-                      <X aria-hidden="true" className="size-3.5" />
-                    </button>
-                  </span>
-                  {errors.customerId && <p className="text-xs text-danger">{errors.customerId}</p>}
-                </div>
-              ) : (
-                <TextField
-                  label="Customer"
-                  placeholder="Select/Search Customer (min 3 letters)"
-                  value={customerTerm}
-                  error={errors.customerId}
-                  onChange={(event) => setCustomerTerm(event.target.value)}
-                />
-              )}
-              {!values.customer && customerTerm.trim().length >= 3 && (
-                <div role="listbox" aria-label="Matching customers" className="absolute top-12 z-10 max-h-56 w-full overflow-y-auto rounded-md border border-line bg-surface shadow-dropdown">
-                  {!customerSearch.ready ? (
-                    <p className="flex items-center gap-2 px-3 py-2 text-xs text-ink-faint">
-                      <Search aria-hidden="true" className="size-3.5" />
-                      Searching…
-                    </p>
-                  ) : customerSearch.error ? (
-                    <p className="px-3 py-2 text-xs text-danger">{customerSearch.error}</p>
-                  ) : customerSearch.rows.length === 0 ? (
-                    <p className="px-3 py-2 text-xs text-ink-faint">No customer matches.</p>
-                  ) : (
-                    customerSearch.rows.map((customer) => (
-                      <button
-                        key={customer.id}
-                        type="button"
-                        role="option"
-                        aria-selected={false}
-                        onClick={() => set({ customer, salesOrderId: "" })}
-                        className="block w-full px-3 py-2 text-left text-sm text-ink hover:bg-hover"
-                      >
-                        {customer.code} - {customer.name}
-                      </button>
-                    ))
-                  )}
-                </div>
-              )}
-            </div>
-            <SelectField
+            <Combobox
+              label="Customer"
+              placeholder="Select/Search Customer (min 3 letters)"
+              value={values.customer?.id ?? ""}
+              selectedLabels={values.customer ? { [values.customer.id]: customerLabel(values.customer) } : undefined}
+              error={errors.customerId}
+              filter={false}
+              options={customerSearch.rows.map((customer) => ({ value: customer.id, label: customerLabel(customer) }))}
+              loading={customerSearch.searchable && !customerSearch.ready}
+              emptyText={!customerSearch.searchable ? "Type at least 3 letters." : (customerSearch.error ?? "No customer matches.")}
+              onQueryChange={setCustomerTerm}
+              onChange={(id) => set({ customer: customerSearch.rows.find((row) => row.id === id) ?? null, salesOrderId: "" })}
+            />
+            <Combobox
               label="Sales Order Number"
+              placeholder="Customer Order"
               value={values.salesOrderId}
               disabled={!values.customer}
               hint={!values.customer ? "Choose a customer first." : salesOrders.data?.length === 0 ? "This customer has no confirmed sales order." : undefined}
-              options={[
-                { value: "", label: salesOrders.loading ? "Loading…" : "Sales Order Number" },
-                ...(salesOrders.data ?? []).map((order) => ({ value: order.id, label: `${order.number} (${order.orderDate.split("-").reverse().join("-")})` })),
-              ]}
-              onChange={(event) => chooseSalesOrder(event.target.value)}
+              loading={salesOrders.loading}
+              options={(salesOrders.data ?? []).map((order) => ({ value: order.id, label: `${order.number} (${order.orderDate.split("-").reverse().join("-")})` }))}
+              emptyText="No sales order matches."
+              onChange={chooseSalesOrder}
             />
 
-            <SelectField
+            <Combobox
               label="Item"
               required
-              value={values.itemId}
-              error={errors.itemId}
-              hint={items.length === 0 ? "No item has an active bill of material yet." : undefined}
-              options={[{ value: "", label: "FG/SFG item with an active BOM" }, ...items.map((option) => ({ value: option.itemId, label: `${option.code} - ${option.name} (${option.uom})` }))]}
-              onChange={(event) => chooseItem(event.target.value)}
-            />
-            <SelectField
-              label="Bill Of Material"
-              required
-              value={values.bomId}
-              error={errors.bomId}
-              disabled={!item}
-              options={[
-                { value: "", label: item ? "Choose the BOM" : "Choose the item first" },
-                ...(item?.boms ?? []).map((bom) => ({ value: bom.id, label: `${bom.name} (lot ${qty2(bom.lotSize)})` })),
-              ]}
-              onChange={(event) => set({ bomId: event.target.value })}
+              placeholder="Item"
+              value={itemBomKey(values.itemId, values.bomId)}
+              error={errors.itemId ?? errors.bomId}
+              hint={items.length === 0 ? "No FG/SFG item has an active bill of material yet." : undefined}
+              options={itemOptions}
+              emptyText="No item matches."
+              onChange={chooseItem}
             />
             <TextField
               label="Quantity"
@@ -359,32 +317,41 @@ function OrderForm({ lookups, today, record }: { lookups: OrderLookups; today: s
               error={errors.quantity}
               onChange={(event) => set({ quantity: event.target.value })}
             />
-            <SelectField
+            <Combobox
               label="Office"
               required
+              placeholder="Office"
               value={values.officeId}
               error={errors.officeId}
-              options={[{ value: "", label: "Factory / Branch" }, ...lookups.offices.map((row) => ({ value: row.id, label: row.name }))]}
-              onChange={(event) => set({ officeId: event.target.value, warehouseId: "", workCenterId: "" })}
+              options={lookups.offices.map((row) => ({ value: row.id, label: row.name }))}
+              emptyText="No office matches."
+              onChange={(officeId) => set({ officeId, warehouseId: officeId === values.officeId ? values.warehouseId : "", workCenterId: officeId === values.officeId ? values.workCenterId : "" })}
             />
-            <SelectField
+            <Combobox
               label="Warehouse"
               required
+              placeholder="Warehouse"
               value={values.warehouseId}
               error={errors.warehouseId}
               disabled={!values.officeId}
-              hint={values.officeId && warehouses.length === 0 ? "This office has no warehouse." : undefined}
-              options={[{ value: "", label: values.officeId ? "Storage location" : "Choose the office first" }, ...warehouses.map((row) => ({ value: row.id, label: row.name }))]}
-              onChange={(event) => set({ warehouseId: event.target.value })}
+              hint={!values.officeId ? "Choose the office first." : warehouses.length === 0 ? "This office has no warehouse." : undefined}
+              options={warehouses.map((row) => ({ value: row.id, label: row.name }))}
+              emptyText="No warehouse matches."
+              onChange={(warehouseId) => set({ warehouseId })}
             />
-            <SelectField
+
+            <Combobox
               label="Work Center"
+              placeholder="Work Center"
               value={values.workCenterId}
               error={errors.workCenterId}
-              options={[{ value: "", label: "N/A" }, ...workCenters.map((center) => ({ value: center.id, label: `${center.code} - ${center.name}` }))]}
-              onChange={(event) => {
-                const center = lookups.workCenters.find((row) => row.id === event.target.value);
-                set({ workCenterId: event.target.value, machineName: values.machineName || center?.name || "" });
+              disabled={!values.officeId}
+              hint={values.officeId ? undefined : "Choose the office first."}
+              options={officeWorkCenters}
+              emptyText="No active work center for this office."
+              onChange={(workCenterId) => {
+                const center = lookups.workCenters.find((row) => row.id === workCenterId);
+                set({ workCenterId, machineName: values.machineName || center?.name || "" });
               }}
             />
             <TextField
@@ -401,16 +368,8 @@ function OrderForm({ lookups, today, record }: { lookups: OrderLookups; today: s
                 <option key={center.id} value={center.name} />
               ))}
             </datalist>
+            <TextField label="Remarks" maxLength={500} placeholder="Remarks" value={values.narration} error={errors.narration} onChange={(event) => set({ narration: event.target.value })} />
             <TextField label="Customer PO No" maxLength={60} placeholder="Customer PO No" value={values.customerPoNo} onChange={(event) => set({ customerPoNo: event.target.value })} />
-            <TextField
-              label="Remarks"
-              className="sm:col-span-2"
-              maxLength={500}
-              placeholder="Narration / remarks"
-              value={values.narration}
-              error={errors.narration}
-              onChange={(event) => set({ narration: event.target.value })}
-            />
           </div>
         </Card>
 
@@ -425,7 +384,7 @@ function OrderForm({ lookups, today, record }: { lookups: OrderLookups; today: s
             )}
           </div>
           {!previewKey ? (
-            <p className="text-sm text-ink-faint">Choose the item, its BOM and a quantity to see the materials this order needs.</p>
+            <p className="text-sm text-ink-faint">Choose the item (with its BOM) and a quantity to see the materials this order needs.</p>
           ) : preview.error ? (
             <ErrorState message={errorMessage(preview.error)} onRetry={preview.reload} />
           ) : !preview.data ? (
