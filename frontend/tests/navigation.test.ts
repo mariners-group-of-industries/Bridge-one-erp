@@ -120,6 +120,7 @@ describe("purchase workspace", () => {
     expect(purchase?.cards).toHaveLength(1);
     expect(purchase?.cards?.[0]?.label).toBe("");
     expect(purchase?.cards?.[0]?.links.map((link) => link.label)).toEqual([
+      "Purchase Dashboard",
       "Purchase Requisition",
       "Purchase Order",
       "Purchase Receive",
