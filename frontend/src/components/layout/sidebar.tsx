@@ -9,6 +9,8 @@ import { findWorkspace, workspaces } from "@/lib/navigation/registry";
 import type { NavLink } from "@/lib/navigation/types";
 
 const isWithin = (pathname: string | null, href: string) => pathname === href || !!pathname?.startsWith(`${href}/`);
+const isPageActive = (pathname: string | null, href: string) =>
+  workspaces.some((workspace) => workspace.href === href) ? pathname === href : isWithin(pathname, href);
 
 export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   return <SidebarNav pathname={usePathname()} onNavigate={onNavigate} />;
@@ -155,7 +157,7 @@ function Collapsible({ active, trigger, triggerClass, children }: { active: bool
 
 /** Second level: a group of pages with a filled bullet. */
 function GroupItem({ label, links, groupHref, pathname, onNavigate }: { label: string; links: readonly NavLink[]; groupHref?: string; pathname: string | null; onNavigate?: () => void }) {
-  const active = (!!groupHref && isWithin(pathname, groupHref)) || links.some((link) => isWithin(pathname, link.href));
+  const active = (!!groupHref && isWithin(pathname, groupHref)) || links.some((link) => isPageActive(pathname, link.href));
   return (
     <li>
       <Collapsible
@@ -181,7 +183,7 @@ function GroupItem({ label, links, groupHref, pathname, onNavigate }: { label: s
 
 /** A page: hollow bullet (filled and highlighted when it is the current page). */
 function PageLink({ link, pathname, onNavigate, level }: { link: NavLink; pathname: string | null; onNavigate?: () => void; level: 1 | 2 }) {
-  const active = isWithin(pathname, link.href);
+  const active = isPageActive(pathname, link.href);
   return (
     <li>
       <Link
