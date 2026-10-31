@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, Download, MapPinned, Pencil, Plus, Search, SquareMinus, SquarePlus, Trash2, Upload, Users, X } from "lucide-react";
+import { Check, Download, MapPinned, Pencil, Plus, Search, SquareMinus, SquarePlus, Trash2, Upload, User, Users, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import { PageContainer, PageHead } from "@/components/layout/page";
 import { Button, buttonClasses } from "@/components/ui/button";
@@ -212,7 +212,7 @@ function TerritoryTab({ tree, view, onView, search, onChanged }: { tree: Territo
       </div>
 
       {view === "tree" && <TreeView tree={tree} search={search} actions={actions} />}
-      {view === "table" && <TableView tree={tree} search={search} />}
+      {view === "table" && <TableView tree={tree} search={search} actions={actions} />}
       {view === "layers" && <LayerSetup tree={tree} onChanged={onChanged} />}
 
       <NodeDialog state={dialog} onClose={() => setDialog(null)} onSaved={onChanged} />
@@ -384,10 +384,11 @@ function TreeView({ tree, search, actions }: { tree: TerritoryTree; search: stri
 
 /**
  * One row per entry in tree order, the name under its own layer's column (a stepped
- * table, as in Managerium), with the layers listed beside it. Read only: entries are
- * added and changed in the Tree View.
+ * table, as in Managerium), with the layers listed beside it. Each row adds the next
+ * layer below it (+), opens its Employee List (not on the two deepest layers, e.g.
+ * Route and Market) and updates the entry; deleting stays in the Tree View.
  */
-function TableView({ tree, search }: { tree: TerritoryTree; search: string }) {
+function TableView({ tree, search, actions }: { tree: TerritoryTree; search: string; actions: Actions }) {
   const visible = useVisibleIds(tree, search);
   const rows = useMemo(() => {
     const childrenOf = new Map<string, NodeDto[]>();
@@ -404,12 +405,23 @@ function TableView({ tree, search }: { tree: TerritoryTree; search: string }) {
     return ordered;
   }, [tree.nodes, visible]);
   const scroll = useScrollLoad(rows.length, `${search}|${tree.nodes.length}`);
+  const top = tree.layers[0];
+  const deepestLevel = tree.layers[tree.layers.length - 1]?.level ?? 0;
+  const iconButton = "hover:text-accent-strong";
 
   return (
     <div className="grid gap-4 p-4 xl:grid-cols-[minmax(0,1fr)_20rem]">
       <div className="min-w-0 overflow-hidden rounded-md border border-line">
+        {top && (
+          <div className="flex items-center justify-between border-b border-line px-3 py-1.5">
+            <h3 className="text-sm font-semibold text-ink">Add {top.name}</h3>
+            <Button variant="ghost" size="icon" className={iconButton} aria-label={`Add ${top.name}`} title={`Add ${top.name}`} onClick={() => actions.add(null)}>
+              <Plus />
+            </Button>
+          </div>
+        )}
         {rows.length === 0 ? (
-          <p className="px-4 py-8 text-center text-sm text-ink-faint">{search ? `Nothing matches “${search}”.` : "No territories yet. Add them in the Tree View."}</p>
+          <p className="px-4 py-8 text-center text-sm text-ink-faint">{search ? `Nothing matches “${search}”.` : `No territories yet. Start with “Add ${top?.name ?? "National"}”.`}</p>
         ) : (
           <>
             <div className="overflow-x-auto">
@@ -421,22 +433,59 @@ function TableView({ tree, search }: { tree: TerritoryTree; search: string }) {
                         {layer.name}
                       </th>
                     ))}
+                    <th scope="col" className="w-24 px-2.5 py-2">
+                      <span className="sr-only">Action</span>
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
-                  {rows.slice(0, scroll.count).map((node) => (
-                    <tr key={node.id}>
-                      {tree.layers.map((layer) => (
-                        <td key={layer.id} className="px-2.5 py-1.5 whitespace-nowrap">
-                          {layer.level === node.level && (
-                            <>
-                              <span className="font-medium text-ink">{node.name}</span> <span className="text-xs text-ink-faint">{node.code}</span>
-                            </>
-                          )}
+                  {rows.slice(0, scroll.count).map((node) => {
+                    const child = tree.layers.find((layer) => layer.level === node.level + 1);
+                    return (
+                      <tr key={node.id}>
+                        {tree.layers.map((layer) => (
+                          <td key={layer.id} className="px-2.5 py-1.5 whitespace-nowrap">
+                            {layer.level === node.level && (
+                              <>
+                                <span className="font-medium text-ink">{node.name}</span> <span className="text-xs text-ink-faint">{node.code}</span>
+                              </>
+                            )}
+                          </td>
+                        ))}
+                        <td className="px-1.5 py-0.5">
+                          <div className="flex items-center justify-end gap-0.5 whitespace-nowrap">
+                            {child && (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className={iconButton}
+                                aria-label={`Add ${child.name} under ${node.name}`}
+                                title={`Add ${child.name}`}
+                                onClick={() => actions.add(node)}
+                              >
+                                <Plus />
+                              </Button>
+                            )}
+                            {node.level <= deepestLevel - 2 && (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className={iconButton}
+                                aria-label={`Employee list of ${node.name}`}
+                                title={`Employee List (${node.employeeCount})`}
+                                onClick={() => actions.assign(node)}
+                              >
+                                <User />
+                              </Button>
+                            )}
+                            <Button variant="ghost" size="icon" className={iconButton} aria-label={`Update ${node.name}`} title="Update Territory" onClick={() => actions.edit(node)}>
+                              <Pencil />
+                            </Button>
+                          </div>
                         </td>
-                      ))}
-                    </tr>
-                  ))}
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

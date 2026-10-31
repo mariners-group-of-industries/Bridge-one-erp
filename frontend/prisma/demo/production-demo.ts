@@ -123,7 +123,7 @@ export async function seedProductionDemo(today: string, log: (line: string) => v
       remarks: "Demo work center",
       departmentId: department.id,
       departmentSectionId: section(index).id,
-      warehouseId: index === 0 ? outputWh.id : null,
+      warehouseIds: index === 0 ? [materialWh.id, outputWh.id] : [],
       operatorIds: operators.slice(index * 2, index * 2 + 2).map((employee) => employee.id),
     });
     summary.workCenters.push(`${created.code} ${created.name}`);

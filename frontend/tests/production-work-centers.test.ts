@@ -63,7 +63,7 @@ describe("production work centers", () => {
     remarks: "Test",
     departmentId: ids.department.id,
     departmentSectionId: ids.section.id,
-    warehouseId,
+    warehouseIds: [warehouseId],
     operatorIds,
     ...overrides,
   });
@@ -113,7 +113,39 @@ describe("production work centers", () => {
     await expect(createWorkCenter(adminActor, input(ids, { code: "JM-005", operatorIds: [operatorIds[0], operatorIds[0]] }))).rejects.toThrow();
     await expect(createMaster(adminActor, "departments", { name: "Production" })).rejects.toThrow("already exists");
     await expect(createMaster(adminActor, "sections", { name: "Snacks" })).rejects.toThrow("department");
-    await expect(createWorkCenter(adminActor, input(ids, { code: "JM-006", departmentId: null, departmentSectionId: null }))).rejects.toThrow("Department is required");
+    const noDepartment = await createWorkCenter(adminActor, input(ids, { code: "JM-006", departmentId: null, departmentSectionId: null }));
+    expect(noDepartment).toMatchObject({ departmentName: null, sectionName: null });
+    await expect(createWorkCenter(adminActor, input(ids, { code: "JM-007", departmentId: null }))).rejects.toThrow("does not belong");
+  });
+
+  it("keeps several warehouses, the first as the main one, and the office only when they share one", async () => {
+    const ids = await masters();
+    const businessUnitId = (await prisma.office.findUniqueOrThrow({ where: { id: officeId } })).businessUnitId;
+    const material = (await prisma.warehouse.create({ data: { officeId, name: "Material WH" } })).id;
+    const factory = (await prisma.office.create({ data: { ...officeInput, name: "Factory", businessUnitId } })).id;
+    const fgWh = (await prisma.warehouse.create({ data: { officeId: factory, name: "Finished Goods (FG) WH" } })).id;
+
+    const created = await createWorkCenter(adminActor, input(ids, { warehouseIds: [warehouseId, material] }));
+    expect(created.warehouseIds).toEqual([warehouseId, material]);
+    expect(created.warehouseName).toBe("Factory Store, Material WH");
+    expect(await prisma.productionWorkCenter.findUniqueOrThrow({ where: { id: created.id } })).toMatchObject({ warehouseId, officeId });
+
+    const updated = await updateWorkCenter(adminActor, created.id, { version: created.updatedAt, data: input(ids, { warehouseIds: [material, fgWh] }) });
+    expect(updated.warehouseIds).toEqual([material, fgWh]);
+    expect(await prisma.productionWorkCenter.findUniqueOrThrow({ where: { id: created.id } })).toMatchObject({ warehouseId: material, officeId: null });
+    expect(await prisma.productionWorkCenterWarehouse.count({ where: { workCenterId: created.id } })).toBe(2);
+
+    await expect(createWorkCenter(adminActor, input(ids, { code: "JM-002", warehouseIds: [material, material] }))).rejects.toThrow();
+  });
+
+  it("lists operators with phone numbers, by name, code or phone, and the first ones with no search", async () => {
+    await prisma.employee.update({ where: { id: operatorIds[1] }, data: { mobile: "01325088145" } });
+    const all = await searchOperators(adminActor, {});
+    expect(all.map((row) => [row.name, row.phone])).toEqual([
+      ["Karim", "01325088145"],
+      ["Rahim", null],
+    ]);
+    expect((await searchOperators(adminActor, { search: "088145" })).map((row) => row.name)).toEqual(["Karim"]);
   });
 
   it("updates with the version, replaces operators and toggles active", async () => {
@@ -121,7 +153,7 @@ describe("production work centers", () => {
     const created = await createWorkCenter(adminActor, input(ids));
     const updated = await updateWorkCenter(adminActor, created.id, {
       version: created.updatedAt,
-      data: input(ids, { name: "Juice Maker 2", ratedCapacityPerHour: 290, operatorIds: [operatorIds[1]], warehouseId: null }),
+      data: input(ids, { name: "Juice Maker 2", ratedCapacityPerHour: 290, operatorIds: [operatorIds[1]], warehouseIds: [] }),
     });
     expect(updated).toMatchObject({ name: "Juice Maker 2", ratedCapacityPerHour: 290, sectionName: "Juice", warehouseName: null, operatorCount: 1 });
     expect(updated.operators.map((operator) => operator.name)).toEqual(["Karim"]);

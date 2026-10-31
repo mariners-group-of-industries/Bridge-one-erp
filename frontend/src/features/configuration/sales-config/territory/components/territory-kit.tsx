@@ -91,7 +91,7 @@ export function NodeDialog({ state, onClose, onSaved }: { state: NodeDialogState
   return (
     <Dialog
       open={state !== null}
-      title={state?.mode === "edit" ? `Update ${noun}` : `Add ${noun}`}
+      title={state?.mode === "edit" ? "Update Territory" : `Add ${noun}`}
       onClose={onClose}
       onSubmit={save}
       footer={
