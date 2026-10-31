@@ -20,13 +20,15 @@ function toTotals<K extends string>(
   rows: ({ _sum: { amount?: Prisma.Decimal | null; totalAmount?: Prisma.Decimal | null; qty?: Prisma.Decimal | null; totalQty?: Prisma.Decimal | null } } & Record<K, string | null>)[],
   key: K,
 ): Map<string, Totals> {
+  // Rows sharing a key (e.g. one sales person across customers) are summed.
   const map = new Map<string, Totals>();
   for (const row of rows) {
     const id = row[key];
     if (id === null) continue;
+    const current = map.get(id) ?? { amount: 0, qty: 0 };
     map.set(id, {
-      amount: num(row._sum.amount ?? row._sum.totalAmount),
-      qty: num(row._sum.qty ?? row._sum.totalQty),
+      amount: current.amount + num(row._sum.amount ?? row._sum.totalAmount),
+      qty: current.qty + num(row._sum.qty ?? row._sum.totalQty),
     });
   }
   return map;
@@ -102,13 +104,13 @@ export async function getSalesDashboard(actor: Actor, query: DashboardQuery): Pr
       _sum: { totalAmount: true, totalQty: true },
     }),
     db().salesDelivery.groupBy({
-      by: ["salesPersonId"],
-      where: { ...scope, deliveryDate: inRange, salesPersonId: { not: null } },
+      by: ["salesPersonId", "customerId"],
+      where: { ...scope, deliveryDate: inRange },
       _sum: { totalAmount: true, totalQty: true },
     }),
     db().salesReturn.groupBy({
-      by: ["salesPersonId"],
-      where: { ...scope, returnDate: inRange, salesPersonId: { not: null } },
+      by: ["salesPersonId", "customerId"],
+      where: { ...scope, returnDate: inRange },
       _sum: { totalAmount: true, totalQty: true },
     }),
     db().salesTarget.groupBy({
@@ -133,7 +135,32 @@ export async function getSalesDashboard(actor: Actor, query: DashboardQuery): Pr
   // ── Rankings (net of returns) ──
   const itemTotals = netOfReturns(toTotals(itemSales, "itemId"), toTotals(itemReturns, "itemId"));
   const customerTotals = netOfReturns(toTotals(customerSales, "customerId"), toTotals(customerReturns, "customerId"));
-  const personTotals = netOfReturns(toTotals(personSales, "salesPersonId"), toTotals(personReturns, "salesPersonId"));
+  // A document without a sales person counts for the customer's default sales person,
+  // else for whoever made the customer's latest delivery up to the To Date.
+  const unattributed = [
+    ...new Set([...personSales, ...personReturns].filter((row) => row.salesPersonId === null).map((row) => row.customerId)),
+  ];
+  const [defaults, latest] = unattributed.length
+    ? await Promise.all([
+        db().customer.findMany({ where: { id: { in: unattributed }, salesPersonId: { not: null } }, select: { id: true, salesPersonId: true } }),
+        db().salesDelivery.findMany({
+          where: { ...scope, customerId: { in: unattributed }, salesPersonId: { not: null }, deliveryDate: { lte: to } },
+          orderBy: [{ deliveryDate: "desc" }, { createdAt: "desc" }],
+          distinct: ["customerId"],
+          select: { customerId: true, salesPersonId: true },
+        }),
+      ])
+    : [[], []];
+  const customerDefaults = new Map<string, string | null>([
+    ...latest.map((row) => [row.customerId, row.salesPersonId] as const),
+    ...defaults.map((row) => [row.id, row.salesPersonId] as const),
+  ]);
+  const attributed = <T extends { salesPersonId: string | null; customerId: string }>(rows: T[]) =>
+    rows.map((row) => ({ ...row, salesPersonId: row.salesPersonId ?? customerDefaults.get(row.customerId) ?? null }));
+  const personTotals = netOfReturns(
+    toTotals(attributed(personSales), "salesPersonId"),
+    toTotals(attributed(personReturns), "salesPersonId"),
+  );
 
   const targetByPerson = new Map(
     targets.map((row) => [row.salesPersonId, num(row._sum.amount)] as const).filter(([, amount]) => amount > 0),

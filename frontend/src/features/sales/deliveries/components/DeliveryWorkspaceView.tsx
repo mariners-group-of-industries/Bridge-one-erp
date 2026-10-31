@@ -1,6 +1,6 @@
 "use client";
 
-import { Ban, Download, EllipsisVertical, Eye, Info, Pencil, Plus, Printer, RefreshCw, Repeat, Search, Truck } from "lucide-react";
+import { Ban, Download, EllipsisVertical, Eye, History, Info, Pencil, Plus, Printer, RefreshCw, Repeat, Search, Truck } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
@@ -10,15 +10,16 @@ import { DataTable, type Column } from "@/components/ui/data-table";
 import { Dialog } from "@/components/ui/dialog";
 import { DropdownMenu, type MenuItem } from "@/components/ui/dropdown-menu";
 import { CONTROL, CheckboxField, SelectField, TextAreaField, TextField } from "@/components/ui/form-field";
-import { Card, EmptyState, ErrorState, LoadingState } from "@/components/ui/section";
+import { Card, ErrorState, LoadingState } from "@/components/ui/section";
+import { EmptyState } from "@/features/sales/components/EmptyState";
 import { Tabs } from "@/components/ui/tabs";
 import { useToast } from "@/components/ui/toast";
 import { useResource } from "@/hooks/use-resource";
 import { errorMessage } from "@/lib/api/client";
 import { cn } from "@/lib/cn";
 import { formatAmount } from "../../dashboard/lib/format";
-import { addDays, formatDay, useToday } from "../../lib/use-today";
-import type { AreaKind, SetupLookups } from "../../masters/schemas/masters.schema";
+import { formatDay, useToday } from "../../lib/use-today";
+import type { AreaKind, CustomerOption, SetupLookups } from "../../masters/schemas/masters.schema";
 import { fetchCustomers, fetchSalesLookups, fetchSetupLookups } from "../../masters/services/masters.api";
 import { SearchPick } from "../../components/SearchPick";
 import { ORDER_TYPE_LABELS, PAYMENT_METHODS, PAYMENT_METHOD_LABELS } from "../../orders/schemas/order.schema";
@@ -40,7 +41,7 @@ import {
   type DeliveryListQuery,
   type DeliveryListRow,
 } from "../schemas/delivery.schema";
-import { addPendingNote, challanPdfUrl, downloadDeliveryExcel, fetchApprovedOrders, fetchDeliveries, fetchPendingNotes } from "../services/delivery.api";
+import { addPendingNote, challanPdfUrl, downloadDeliveryExcel, fetchApprovedOrders, fetchDeliveries, fetchPendingNotes, setPendingReason } from "../services/delivery.api";
 
 type Tab = "approved" | "deliveries" | "exchanges" | "challans";
 const TABS: { id: Tab; label: string }[] = [
@@ -53,7 +54,18 @@ const isTab = (value: string | null): value is Tab => TABS.some((tab) => tab.id 
 
 const all = { value: "", label: "All" };
 const options = <T extends string>(values: readonly T[], labels: Record<T, string>) => [all, ...values.map((value) => ({ value, label: labels[value] }))];
-const text = (value: string | null) => value ?? "N/A";
+/** Customer filter choices as in Managerium: "Name (mobile)", the code when there is no mobile. */
+const customerOptions = (customers: CustomerOption[] | undefined) =>
+  (customers ?? []).map((customer) => ({ id: customer.id, label: `${customer.name} (${customer.phone || customer.code})` }));
+
+/** Lists open from the 1st of the current month ("YYYY-MM-01"). */
+const monthStart = (today: string) => `${today.slice(0, 7)}-01`;
+
+// Empty cells stay blank, as in Managerium.
+const text = (value: string | null) => value ?? "";
+
+/** Compact, vertically centred rows like Managerium. */
+const compact = <T,>(columns: Column<T>[]) => columns.map((column) => ({ ...column, className: cn("py-1.5! align-middle!", column.className) }));
 type Query = Record<string, unknown>;
 
 /** `value` once it has stopped changing for 400 ms. */
@@ -202,7 +214,7 @@ function ApprovedOrdersTab({ today, search, onQuery }: { today: string; search: 
     zoneId: "",
     routeId: "",
     sectionId: "",
-    from: addDays(today, -30),
+    from: monthStart(today),
     to: today,
     salesPersonId: "",
     customerId: "",
@@ -236,6 +248,21 @@ function ApprovedOrdersTab({ today, search, onQuery }: { today: string; search: 
     setFilterError(undefined);
     if (JSON.stringify(parsed.data) === JSON.stringify(query)) list.reload();
     else setQuery(parsed.data);
+  }
+
+  const [savingReason, setSavingReason] = useState<string | null>(null);
+  async function changeReason(row: ApprovedOrderRow, reasonId: string) {
+    setSavingReason(row.id);
+    try {
+      await setPendingReason(row.id, reasonId || null);
+      const name = filterLists.setup.data?.deliveryReasons.find((reason) => reason.id === reasonId)?.name ?? null;
+      list.mutate((current) => (current ?? []).map((candidate) => (candidate.id === row.id ? { ...candidate, pendingReasonId: reasonId || null, pendingReasonName: name } : candidate)));
+      toast.success(reasonId ? `Pending reason saved for ${row.number}.` : `Pending reason cleared for ${row.number}.`);
+    } catch (error) {
+      toast.error(errorMessage(error));
+    } finally {
+      setSavingReason(null);
+    }
   }
 
   async function closeOrder() {
@@ -292,7 +319,7 @@ function ApprovedOrdersTab({ today, search, onQuery }: { today: string; search: 
           {row.status === "PARTIALLY_DELIVERED" && ` ${row.deliveredPercent}%`}
         </span>
       ),
-      sortValue: (row) => row.status,
+      // Not sortable, so the list opens newest SO date first (the first sortable column).
     },
     { id: "date", header: "SO Date", cell: (row) => <DayCell day={row.orderDate} />, sortValue: (row) => row.orderDate, className: "whitespace-nowrap" },
     { id: "exp", header: "Exp. Delivery Date", cell: (row) => <DayCell day={row.expectedDeliveryDate} />, sortValue: (row) => row.expectedDeliveryDate, className: "whitespace-nowrap" },
@@ -320,10 +347,31 @@ function ApprovedOrdersTab({ today, search, onQuery }: { today: string; search: 
     {
       id: "reason",
       header: "Pending Reason",
+      className: "min-w-64",
+      // As in Managerium: pick one of the business unit's reasons ("Create Reason" adds more).
       cell: (row) => (
-        <Button variant="ghost" size="sm" className={cn("min-w-28 justify-start", row.pendingReasonName ? "text-warning" : "text-accent-strong")} onClick={() => setReasonFor(row)}>
-          {row.pendingReasonName ?? "Add reason"}
-        </Button>
+        <span className="flex items-center gap-1">
+          <select
+            aria-label={`Pending reason of ${row.number}`}
+            value={row.pendingReasonId ?? ""}
+            disabled={savingReason === row.id}
+            onChange={(event) => void changeReason(row, event.target.value)}
+            title={row.pendingReasonName ?? undefined}
+            className={cn(CONTROL, "h-7 w-52 shrink-0", row.pendingReasonId ? "text-warning" : "text-ink-faint")}
+          >
+            <option value="">Select a Reason</option>
+            {(filterLists.setup.data?.deliveryReasons ?? [])
+              .filter((reason) => reason.businessUnitId === row.businessUnitId)
+              .map((reason) => (
+                <option key={reason.id} value={reason.id} className="text-ink">
+                  {reason.name}
+                </option>
+              ))}
+          </select>
+          <Button variant="ghost" size="icon" aria-label={`Reason history of ${row.number}`} title="Write a reason / previous reasons" onClick={() => setReasonFor(row)}>
+            <History />
+          </Button>
+        </span>
       ),
     },
   ];
@@ -352,8 +400,9 @@ function ApprovedOrdersTab({ today, search, onQuery }: { today: string; search: 
         <SearchPick
           key={customers.data?.length ?? 0}
           label="Customer"
-          placeholder="Select/Search Customer (min 3 letters)"
-          options={(customers.data ?? []).map((customer) => ({ id: customer.id, label: `${customer.name} (${customer.code})` }))}
+          placeholder="Select/Search Customer"
+          options={customerOptions(customers.data)}
+          minChars={0}
           selectedId={filters.customerId}
           onPick={(id) => setFilters((current) => ({ ...current, customerId: id ?? "" }))}
         />
@@ -366,9 +415,10 @@ function ApprovedOrdersTab({ today, search, onQuery }: { today: string; search: 
       ) : (
         <DataTable
           rows={rows}
-          columns={columns}
+          columns={compact(columns)}
           getRowId={(row) => row.id}
           getRowLabel={(row) => row.number}
+          pages={DELIVERY_PAGE_SIZES}
           emptyState={<EmptyState title="No approved orders waiting for delivery" />}
         />
       )}
@@ -378,7 +428,11 @@ function ApprovedOrdersTab({ today, search, onQuery }: { today: string; search: 
           key={reasonFor.id}
           order={reasonFor}
           onClose={() => setReasonFor(null)}
-          onSaved={(name) => list.mutate((current) => (current ?? []).map((row) => (row.id === reasonFor.id ? { ...row, pendingReasonName: name } : row)))}
+          onSaved={() => {
+            // A typed reason becomes one of the business unit's reasons: refresh both lists.
+            list.reload();
+            filterLists.setup.reload();
+          }}
         />
       )}
 
@@ -445,7 +499,7 @@ function DeliveriesTab({ tab, today, search, onQuery }: { tab: Exclude<Tab, "app
     zoneId: "",
     routeId: "",
     sectionId: "",
-    from: addDays(today, -7),
+    from: monthStart(today),
     to: today,
     paymentMethod: "",
     vehicleNo: "",
@@ -536,10 +590,10 @@ function DeliveriesTab({ tab, today, search, onQuery }: { tab: Exclude<Tab, "app
       ) : (
         <span className={cn("font-medium", row.confirmation === "CONFIRMED" ? "text-success" : "text-warning")}>{CONFIRMATION_LABELS[row.confirmation]}</span>
       ),
-    sortValue: (row) => row.confirmation,
+    // Not sortable, so the list opens newest delivery date first (the first sortable column).
   };
   const dateCol: Column<DeliveryListRow> = { id: "date", header: "Delivery Date", cell: (row) => <DayCell day={row.deliveryDate} />, sortValue: (row) => row.deliveryDate, className: "whitespace-nowrap" };
-  const orderDateCol: Column<DeliveryListRow> = { id: "orderDate", header: "Order Date", cell: (row) => (row.orderDate ? formatDay(row.orderDate) : "N/A"), className: "whitespace-nowrap", hideBelow: "lg" };
+  const orderDateCol: Column<DeliveryListRow> = { id: "orderDate", header: "Order Date", cell: (row) => (row.orderDate ? formatDay(row.orderDate) : ""), className: "whitespace-nowrap", hideBelow: "lg" };
   const soCol: Column<DeliveryListRow> = {
     id: "so",
     header: "SO No",
@@ -549,7 +603,7 @@ function DeliveriesTab({ tab, today, search, onQuery }: { tab: Exclude<Tab, "app
           {row.orderNumber}
         </Link>
       ) : (
-        "N/A"
+        ""
       ),
     hideBelow: "md",
   };
@@ -581,7 +635,7 @@ function DeliveriesTab({ tab, today, search, onQuery }: { tab: Exclude<Tab, "app
 
   const columns: Column<DeliveryListRow>[] =
     tab === "exchanges"
-      ? [sl, dateCol, orderDateCol, soCol, invoiceCol, challanCol, groupCol, codeCol, customerCol, outletCol, shipCol, money("total", "Total Amount", (row) => row.totalAmount), money("pending", "Pending Amount", (row) => row.pendingAmount), salesForceCol, paymentCol, confirmationCol, typeCol, actions]
+      ? [sl, dateCol, orderDateCol, soCol, invoiceCol, challanCol, groupCol, codeCol, customerCol, outletCol, shipCol, money("total", "Total Amount", (row) => row.totalAmount), money("returned", "Return Amount", (row) => row.returnAmount), money("paid", "Paid Amount", (row) => row.paidAmount), money("pending", "Pending Amount", (row) => row.pendingAmount), salesForceCol, paymentCol, confirmationCol, typeCol, actions]
       : [
           sl,
           actions,
@@ -594,7 +648,7 @@ function DeliveriesTab({ tab, today, search, onQuery }: { tab: Exclude<Tab, "app
           invoiceCol,
           { id: "vat", header: "Vat Challan No", cell: (row) => text(row.vatChallanNo), hideBelow: "lg" },
           challanCol,
-          { id: "vehicle", header: "Vehicle No", cell: (row) => <span className="min-w-24">{row.vehicleNo ?? ""}</span>, hideBelow: "lg" },
+          { id: "vehicle", header: "Vehicle No", cell: (row) => <span className="whitespace-nowrap">{row.vehicleNo ?? ""}</span>, hideBelow: "lg" },
           groupCol,
           codeCol,
           customerCol,
@@ -604,7 +658,7 @@ function DeliveriesTab({ tab, today, search, onQuery }: { tab: Exclude<Tab, "app
           { id: "route", header: "Route", cell: (row) => row.route ?? "", hideBelow: "lg" },
           { id: "section", header: "Section", cell: (row) => row.section ?? "", hideBelow: "lg" },
           { id: "po", header: "Ref Customer PO", cell: (row) => text(row.refCustomerPo), hideBelow: "lg" },
-          { id: "poDate", header: "Ref Customer PO Date", cell: (row) => (row.refCustomerPoDate ? formatDay(row.refCustomerPoDate) : "N/A"), hideBelow: "lg" },
+          { id: "poDate", header: "Ref Customer PO Date", cell: (row) => (row.refCustomerPoDate ? formatDay(row.refCustomerPoDate) : ""), hideBelow: "lg" },
           { id: "refInvoice", header: "Ref Invoice", cell: (row) => text(row.refInvoice), hideBelow: "lg" },
           paymentCol,
           money("amount", "Amount", (row) => row.totalAmount),
@@ -637,8 +691,9 @@ function DeliveriesTab({ tab, today, search, onQuery }: { tab: Exclude<Tab, "app
           <SearchPick
             key={customers.data?.length ?? 0}
             label="Customer"
-            placeholder="Select Customer (min 3 letters)"
-            options={(customers.data ?? []).map((customer) => ({ id: customer.id, label: `${customer.name} (${customer.code})` }))}
+            placeholder="Select/Search Customer"
+            options={customerOptions(customers.data)}
+            minChars={0}
             selectedId={filters.customerId}
             onPick={(id) => setFilters((current) => ({ ...current, customerId: id ?? "" }))}
           />
@@ -660,7 +715,7 @@ function DeliveriesTab({ tab, today, search, onQuery }: { tab: Exclude<Tab, "app
         <div aria-busy={list.loading} className={list.loading ? "opacity-60 transition-opacity" : undefined}>
           <DataTable
             rows={data.rows}
-            columns={columns}
+            columns={compact(columns)}
             getRowId={(row) => row.id}
             getRowLabel={(row) => row.number}
             rowHref={viewHref}
@@ -669,6 +724,8 @@ function DeliveriesTab({ tab, today, search, onQuery }: { tab: Exclude<Tab, "app
                 ? {
                     customer: "Total",
                     total: formatAmount(rows.reduce((sum, row) => sum + row.totalAmount, 0)),
+                    returned: formatAmount(rows.reduce((sum, row) => sum + row.returnAmount, 0)),
+                    paid: formatAmount(rows.reduce((sum, row) => sum + row.paidAmount, 0)),
                     pending: formatAmount(rows.reduce((sum, row) => sum + row.pendingAmount, 0)),
                   }
                 : { customer: "Total", amount: formatAmount(rows.reduce((sum, row) => sum + row.totalAmount, 0)) }

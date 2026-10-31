@@ -49,7 +49,7 @@ beforeEach(async () => {
   unitId = (await createBusinessUnit(adminActor, businessUnitInput)).id;
   const feed = await createCategory(adminActor, { businessUnitId: unitId, name: "Feed" });
   const item = (code: string, name: string) =>
-    createItem(adminActor, { businessUnitId: unitId, code, printedCode: code, name, printedName: name, uom: "Bag", altUom: "Kg", altUnit: "25", categoryId: feed.id });
+    createItem(adminActor, { businessUnitId: unitId, code, printedCode: code, name, printedName: name, itemType: "Finished Goods", uom: "Bag", altUom: "Kg", altUnit: "25", categoryId: feed.id });
   feedId = (await item("F-1", "Broiler Feed")).id;
   bagId = (await item("F-2", "Layer Feed")).id;
   groupId = (await testPrisma().customerGroup.create({ data: { businessUnitId: unitId, name: "Dealer" } })).id;

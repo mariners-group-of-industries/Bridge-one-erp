@@ -32,6 +32,8 @@ export const pricingQuerySchema = z.object({
   priceListId: z.uuid().nullish(),
   date: z.iso.date(),
   lines: z.array(pricingLineSchema).max(300).default([]),
+  /** Custom Offer: apply only this offer (orders). */
+  offerId: z.uuid().nullish(),
 });
 export type PricingQuery = z.input<typeof pricingQuerySchema>;
 
@@ -72,9 +74,17 @@ export interface OfferResult {
   freeItemIds: string[];
 }
 
+/** An offer that applies to the customer on the date; a Custom Offer choice. */
+export interface AvailableOffer {
+  id: string;
+  name: string;
+  kind: string;
+}
+
 export interface PricingResult {
   prices: ResolvedPrice[];
   offers: OfferResult;
+  availableOffers: AvailableOffer[];
 }
 
 /** Body of POST /api/sales/pricing/return-rates: Return Price Setup rates on a return date. */

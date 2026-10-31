@@ -296,18 +296,21 @@ export async function seedSalesDemo(today: string, log: (line: string) => void =
     deductions: accounts[1] ? [{ expense: "Bank charge (demo)", accountId: accounts[1].id, amount: 50 }] : [],
     rows: [{ customerId: customers[0].id, allocations: [{ deliveryId: part.id, amount: Math.round(partDue * 0.6) }] }],
   });
-  const advance = await createAdvanceVoucher(actor, {
-    officeId: office.id,
-    collectionDate: day(-4),
-    employeeId: driver?.id ?? null,
-    voucherType: "CASH_RECEIVE",
-    narration: "Demo advance",
-    cashAccountId: accounts[0].id,
-    rows: [
-      { customerId: customers[1].id, salesOrderId: waiting.id, amount: 5000, adjustmentAmount: 0, remarks: "Against order" },
-      { customerId: customers[2].id, amount: 3000, adjustmentAmount: 0 },
-    ],
-  });
+  // An advance needs the employee who took it: skipped when the unit has none.
+  const advance = !driver
+    ? []
+    : await createAdvanceVoucher(actor, {
+        officeId: office.id,
+        collectionDate: day(-4),
+        employeeId: driver.id,
+        voucherType: "CASH_RECEIVE",
+        narration: "Demo advance",
+        cashAccountId: accounts[0].id,
+        rows: [
+          { customerId: customers[1].id, salesOrderId: waiting.id, amount: 5000, adjustmentAmount: 0, remarks: "Against order" },
+          { customerId: customers[2].id, amount: 3000, adjustmentAmount: 0 },
+        ],
+      });
   summary.collections.push(...collected.map((row) => row.number), ...advance.map((row) => row.number));
   log(`Collections: ${summary.collections.join(", ")}.`);
 

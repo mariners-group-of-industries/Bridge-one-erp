@@ -5,7 +5,7 @@ import { db } from "@/lib/prisma/client";
 import { toDbDate } from "../../lib/dates";
 import { requireOffice } from "../../lib/scope";
 import { computeOffers, type ComputedOffers, type OfferRule, type PaidLine } from "../lib/offers";
-import { pricingQuerySchema, returnRatesQuerySchema, type PriceTier, type PricingResult, type ResolvedPrice, type ReturnRates } from "../schemas/pricing.schema";
+import { pricingQuerySchema, returnRatesQuerySchema, type AvailableOffer, type PriceTier, type PricingResult, type ResolvedPrice, type ReturnRates } from "../schemas/pricing.schema";
 
 const num = (value: Prisma.Decimal | null | undefined) => (value === null || value === undefined ? null : value.toNumber());
 const dateIn = (day: Date) => ({ OR: [{ fromDate: null }, { fromDate: { lte: day } }], AND: [{ OR: [{ toDate: null }, { toDate: { gte: day } }] }] });
@@ -18,6 +18,8 @@ export interface PricingContext {
   priceListId: string | null;
   /** "YYYY-MM-DD" the prices and offers must be valid on. */
   date: string;
+  /** Custom Offer: only this offer applies. Every applicable offer when not set. */
+  offerId?: string | null;
 }
 
 /** Dealer price for a "Dealer"/"DP" price type, trading price otherwise. */
@@ -114,7 +116,7 @@ async function resolvePrices(ctx: PricingContext, scope: Scope, qtyOf: Map<strin
 }
 
 /** Active offers valid on the date for this customer's group and price type. */
-async function loadOfferRules(ctx: PricingContext, scope: Scope): Promise<OfferRule[]> {
+async function loadOfferRules(ctx: PricingContext, scope: Scope): Promise<{ rules: OfferRule[]; available: AvailableOffer[] }> {
   const day = toDbDate(ctx.date);
   const offers = await db().salesOffer.findMany({
     where: { businessUnitId: ctx.businessUnitId, isActive: true, ...dateIn(day) },
@@ -150,7 +152,11 @@ async function loadOfferRules(ctx: PricingContext, scope: Scope): Promise<OfferR
       itemsUnder.set(root, items.filter((item) => ids.has(item.categoryId!)).map((item) => item.id));
     }
   }
-  return offers.filter(fits).flatMap((offer): OfferRule[] => {
+  const applicable = offers.filter(fits);
+  const available = applicable.map((offer) => ({ id: offer.id, name: offer.name, kind: offer.kind }));
+  // A custom offer that does not apply gives no offers; saving an order rejects it.
+  const chosen = ctx.offerId ? applicable.filter((offer) => offer.id === ctx.offerId) : applicable;
+  const rules = chosen.flatMap((offer): OfferRule[] => {
     switch (offer.kind) {
       case "ITEM":
         return [{ kind: "ITEM", name: offer.name, lines: offer.itemLines.map((line) => ({ sellingItemId: line.sellingItemId, sellingQty: line.sellingQty.toNumber(), offerItemId: line.offerItemId, offerQty: line.offerQty.toNumber() })) }];
@@ -198,6 +204,7 @@ async function loadOfferRules(ctx: PricingContext, scope: Scope): Promise<OfferR
         return [];
     }
   });
+  return { rules, available };
 }
 
 export interface AppliedPricing {
@@ -205,6 +212,8 @@ export interface AppliedPricing {
   offers: ComputedOffers;
   /** Per input line: true when it is a free line an offer gave (replaced on every save). */
   isOfferLine: boolean[];
+  /** Offers that apply to the customer on the date (the Custom Offer choices). */
+  available: AvailableOffer[];
 }
 
 /**
@@ -214,7 +223,7 @@ export interface AppliedPricing {
  */
 export async function salesPricing(ctx: PricingContext, lines: readonly PaidLine[]): Promise<AppliedPricing> {
   const scope = await customerScope(ctx);
-  const rules = await loadOfferRules(ctx, scope);
+  const { rules, available } = await loadOfferRules(ctx, scope);
   const candidates = new Set(computeOffers(rules, []).freeItemIds);
   const isOfferLine = lines.map((line) => line.discountPercent >= 100 && candidates.has(line.itemId));
   const paid = lines.filter((_, index) => !isOfferLine[index]);
@@ -222,7 +231,7 @@ export async function salesPricing(ctx: PricingContext, lines: readonly PaidLine
   const qtyOf = new Map<string, number>();
   for (const line of [...paid, ...offers.free.map((row) => ({ itemId: row.itemId, qty: 0 }))]) qtyOf.set(line.itemId, (qtyOf.get(line.itemId) ?? 0) + line.qty);
   const prices = await resolvePrices(ctx, scope, qtyOf);
-  return { prices, offers, isOfferLine };
+  return { prices, offers, isOfferLine, available };
 }
 
 /** Throws when a paid line is priced below its Standard Price minimum. */
@@ -246,8 +255,15 @@ export async function assertMinPrices(
 export async function previewPricing(actor: Actor, raw: unknown): Promise<PricingResult> {
   const query = pricingQuerySchema.parse(raw);
   const office = await requireOffice(actor, query.officeId);
-  const ctx: PricingContext = { businessUnitId: office.businessUnitId, officeId: office.id, customerId: query.customerId, priceListId: query.priceListId ?? null, date: query.date };
-  const { prices, offers } = await salesPricing(ctx, query.lines);
+  const ctx: PricingContext = {
+    businessUnitId: office.businessUnitId,
+    officeId: office.id,
+    customerId: query.customerId,
+    priceListId: query.priceListId ?? null,
+    date: query.date,
+    offerId: query.offerId ?? null,
+  };
+  const { prices, offers, available } = await salesPricing(ctx, query.lines);
   const freeItems = await db().item.findMany({ where: { id: { in: offers.free.map((row) => row.itemId) } }, select: { id: true, code: true, name: true, salesRate: true } });
   const itemById = new Map(freeItems.map((item) => [item.id, item]));
   return {
@@ -262,6 +278,7 @@ export async function previewPricing(actor: Actor, raw: unknown): Promise<Pricin
       invoiceOfferName: offers.invoiceOfferName,
       freeItemIds: offers.freeItemIds,
     },
+    availableOffers: available,
   };
 }
 

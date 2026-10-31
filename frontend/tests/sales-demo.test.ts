@@ -31,6 +31,8 @@ describe("sales demo data", () => {
     const businessUnitId = (await prisma.businessUnit.create({ data: { ...businessUnitInput, companyId } })).id;
     const officeId = (await prisma.office.create({ data: { ...officeInput, businessUnitId } })).id;
     warehouseId = (await prisma.warehouse.create({ data: { officeId, name: "FG WH" } })).id;
+    // Driver on deliveries and the employee who takes the advance.
+    await prisma.employee.create({ data: { officeId, employeeCode: "E-1", name: "Md. Usuf Ali", joiningDate: new Date("2024-01-01") } });
     const person = (await createSalesPerson(adminActor, { businessUnitId, name: "Md. Manik Miah" })).id;
     const customers = [];
     for (const name of ["Arif Enterprise", "Saleha Electric", "Rasel Store", "Bismillah Traders"]) customers.push((await createCustomer(adminActor, { businessUnitId, name, creditDays: 15, salesPersonId: person })).id);

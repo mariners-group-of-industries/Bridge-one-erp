@@ -1,6 +1,6 @@
 import { apiRequest } from "@/lib/api/client";
 import { downloadFile } from "@/lib/download";
-import type { OrderAction, OrderDetail, OrderInput, OrderList, OrderListQuery } from "../schemas/order.schema";
+import type { OrderAction, OrderAttachment, OrderDetail, OrderInput, OrderList, OrderListQuery } from "../schemas/order.schema";
 
 const BASE = "/api/sales/orders";
 
@@ -37,3 +37,15 @@ export const changeOrderStatus =(id: string, action: OrderAction, version: strin
     method: "POST",
     body: JSON.stringify({ action, version, today, remarks }),
   });
+
+/** Upload one file to the order (multipart, field `file`). */
+export function addOrderAttachment(id: string, file: File) {
+  const form = new FormData();
+  form.set("file", file);
+  return apiRequest<OrderAttachment>(`${BASE}/${id}/attachments`, { method: "POST", body: form });
+}
+
+export const deleteOrderAttachment = (id: string, attachmentId: string) =>
+  apiRequest<void>(`${BASE}/${id}/attachments/${attachmentId}`, { method: "DELETE" });
+
+export const orderAttachmentUrl = (id: string, attachmentId: string) => `${BASE}/${id}/attachments/${attachmentId}`;

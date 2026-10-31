@@ -7,7 +7,8 @@ import { PageContainer, PageHead } from "@/components/layout/page";
 import { buttonClasses, Button } from "@/components/ui/button";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { CONTROL, SelectField, TextField } from "@/components/ui/form-field";
-import { Card, EmptyState, ErrorState, LoadingState } from "@/components/ui/section";
+import { Card, ErrorState, LoadingState } from "@/components/ui/section";
+import { EmptyState } from "@/features/sales/components/EmptyState";
 import { useToast } from "@/components/ui/toast";
 import { useResource } from "@/hooks/use-resource";
 import { errorMessage } from "@/lib/api/client";
@@ -16,7 +17,7 @@ import { formatAmount } from "../../dashboard/lib/format";
 import { formatDay, useToday } from "../../lib/use-today";
 import { fetchSalesLookups } from "../../masters/services/masters.api";
 import { paths } from "../../paths";
-import { STATUS_LABELS, displayStatus, quotationListQuerySchema, type QuotationListQuery, type QuotationListRow } from "../schemas/quotation.schema";
+import { QUOTATION_PAGE_SIZES, STATUS_LABELS, displayStatus, quotationListQuerySchema, type QuotationListQuery, type QuotationListRow } from "../schemas/quotation.schema";
 import { downloadQuotationsExcel, fetchQuotations } from "../services/quotation.api";
 import { QuotationStatusIndicator } from "./QuotationStatusIndicator";
 
@@ -144,7 +145,7 @@ function QuotationList({ today, search, onQuery }: { today: string; search: stri
       id: "status",
       header: "Status",
       cell: (row) => <QuotationStatusIndicator status={displayStatus(row.status, row.validTill, today)} />,
-      sortValue: (row) => displayStatus(row.status, row.validTill, today),
+      // Not sortable, so the list opens newest quotation first (the first sortable column).
     },
     { id: "number", header: "Quotation Code", cell: (row) => <span className="font-medium whitespace-nowrap text-ink">{row.number}</span>, sortValue: (row) => row.number },
     { id: "office", header: "Office Name", cell: (row) => row.officeName, sortValue: (row) => row.officeName, hideBelow: "lg" },
@@ -200,6 +201,7 @@ function QuotationList({ today, search, onQuery }: { today: string; search: stri
               getRowId={(row) => row.id}
               getRowLabel={(row) => row.number}
               rowHref={(row) => paths.quotation(row.id)}
+              pages={QUOTATION_PAGE_SIZES}
               footer={(rows) => ({ number: `${rows.length} quotations`, amount: formatAmount(rows.reduce((sum, row) => sum + row.grandTotal, 0)) })}
               emptyState={
                 <EmptyState title="No quotations found">

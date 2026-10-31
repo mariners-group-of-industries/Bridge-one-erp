@@ -164,6 +164,8 @@ const detailInclude = {
   salesPerson: { select: { name: true } },
   quotation: { select: { number: true } },
   priceList: { select: { name: true } },
+  offer: { select: { name: true } },
+  attachments: { select: { id: true, originalName: true, mimeType: true, size: true, createdAt: true }, orderBy: { createdAt: "asc" } },
   deliveryPendingReason: { select: { name: true } },
   lines: { orderBy: { lineNo: "asc" }, include: { item: { select: { code: true, name: true } } } },
   events: { orderBy: { createdAt: "asc" } },
@@ -195,6 +197,9 @@ function toDetail(record: OrderRecord, nameOf: (id: string | null | undefined) =
     quotationNumber: record.quotation?.number ?? null,
     priceListId: record.priceListId,
     priceListName: record.priceList?.name ?? null,
+    offerId: record.offerId,
+    offerName: record.offer?.name ?? null,
+    attachments: record.attachments.map((file) => ({ ...file, createdAt: file.createdAt.toISOString() })),
     shipToAddressId: record.shipToAddressId,
     orderType: record.orderType,
     paymentMethod: record.paymentMethod,
@@ -339,9 +344,12 @@ async function prepare(actor: Actor, input: ParsedInput, currentOrderId?: string
 
   // Sales Config: offer discounts, free items and invoice discount; minimum sales price.
   const pricing = await salesPricing(
-    { businessUnitId, officeId: input.officeId, customerId: input.customerId, priceListId: input.priceListId, date: input.orderDate },
+    { businessUnitId, officeId: input.officeId, customerId: input.customerId, priceListId: input.priceListId, date: input.orderDate, offerId: input.offerId },
     input.lines,
   );
+  if (input.offerId && !pricing.available.some((offer) => offer.id === input.offerId)) {
+    throw badRequest("The custom offer does not apply to this customer on this date.");
+  }
   const offerPercent = new Map(pricing.offers.discounts.map((row) => [row.itemId, row.percent]));
   const paidLines = input.lines
     .filter((_, index) => !pricing.isOfferLine[index])
@@ -371,6 +379,7 @@ async function prepare(actor: Actor, input: ParsedInput, currentOrderId?: string
       customerId: input.customerId,
       salesPersonId: input.salesPersonId,
       priceListId: input.priceListId,
+      offerId: input.offerId,
       shipToAddressId: input.shipToAddressId,
       orderType: input.orderType,
       paymentMethod: input.paymentMethod,

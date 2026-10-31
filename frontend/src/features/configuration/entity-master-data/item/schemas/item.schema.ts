@@ -39,16 +39,20 @@ export const ITEM_TYPES = [
   "Service",
 ] as const;
 
+/** Pre-selected on a new item, as in Managerium ("Finished/Trading Goods"). */
+export const DEFAULT_ITEM_TYPE = "Finished Goods" satisfies (typeof ITEM_TYPES)[number];
+
 export const RESTRICTED_AGES = ["None", "16+", "18+", "21+"] as const;
 export const TRACKING_OPTIONS = [
   { value: "NONE", label: "None" },
-  { value: "BOTH", label: "Both (batch & serial)" },
+  { value: "BATCH", label: "Batch" },
 ] as const;
 
 export const ITEM_FLAGS = [
   { key: "autoBarcode", label: "Auto Barcode" },
   { key: "canBeSold", label: "Can be Sold" },
   { key: "canBePurchased", label: "Can be Purchased" },
+  { key: "canBeProduced", label: "Can be Produced" },
   { key: "canBeRented", label: "Can be Rented" },
   { key: "noDecimal", label: "Is Not Allow Decimal" },
   { key: "allowEbt", label: "Is Allow EBT" },
@@ -63,6 +67,7 @@ export const itemInputSchema = z
     autoBarcode: z.boolean().default(false),
     canBeSold: z.boolean().default(true),
     canBePurchased: z.boolean().default(true),
+    canBeProduced: z.boolean().default(false),
     canBeRented: z.boolean().default(false),
     noDecimal: z.boolean().default(false),
     allowEbt: z.boolean().default(false),
@@ -72,7 +77,7 @@ export const itemInputSchema = z
     printedCode: text(30).min(1, "Printed item code is required."),
     name: text(200).min(1, "Master item name is required."),
     printedName: text(200).min(1, "Printed / customer name is required."),
-    itemType: z.union([z.enum(ITEM_TYPES), z.literal("")]).optional().default(""),
+    itemType: z.enum(ITEM_TYPES, { error: "Select an item type." }),
     uom: text(20).min(1, "UOM is required."),
     divisionId: optionalId,
     categoryId: optionalId,
@@ -83,7 +88,7 @@ export const itemInputSchema = z
     netWeight: quantity3("Net weight"),
     netWeightUnit: optionalText(20),
     restrictedAge: z.union([z.enum(RESTRICTED_AGES), z.literal("")]).optional().default(""),
-    tracking: z.enum(["NONE", "BOTH"]).default("NONE"),
+    tracking: z.enum(["NONE", "BATCH"]).default("NONE"),
     // Additional Information
     barcode: optionalText(60),
     brand: optionalText(100),

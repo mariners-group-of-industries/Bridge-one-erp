@@ -8,7 +8,8 @@ import { Button, buttonClasses } from "@/components/ui/button";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { Dialog } from "@/components/ui/dialog";
 import { CONTROL, SelectField, TextField } from "@/components/ui/form-field";
-import { Card, EmptyState, ErrorState, LoadingState } from "@/components/ui/section";
+import { Card, ErrorState, LoadingState } from "@/components/ui/section";
+import { EmptyState } from "@/features/sales/components/EmptyState";
 import { Tabs } from "@/components/ui/tabs";
 import { useToast } from "@/components/ui/toast";
 import { useResource } from "@/hooks/use-resource";
@@ -21,6 +22,7 @@ import { fetchSalesLookups, fetchSetupLookups } from "../../masters/services/mas
 import { paths } from "../../paths";
 import {
   HOLD_REASON_LABELS,
+  ORDER_PAGE_SIZES,
   ORDER_STATUSES,
   ORDER_STATUS_LABELS,
   ORDER_TYPES,
@@ -30,11 +32,11 @@ import {
   orderListQuerySchema,
   type OrderListQuery,
   type OrderListRow,
+  type OrderStatus,
   type OrderType,
 } from "../schemas/order.schema";
 import { downloadOrdersExcel, fetchOrder, fetchOrders, orderPdfUrl } from "../services/order.api";
 import { ApprovalTimeline } from "./OrderDetailView";
-import { OrderStatusIndicator } from "./OrderStatusIndicator";
 
 type Filters = Record<
   "officeId" | "territoryId" | "customerGroupId" | "salesPersonId" | "createdBy" | "status" | "pendingReasonId" | "from" | "to" | "paymentMethod" | "zoneId" | "routeId" | "sectionId",
@@ -43,7 +45,20 @@ type Filters = Record<
 
 const all = { value: "", label: "All" };
 const options = <T extends string>(values: readonly T[], labels: Record<T, string>) => [all, ...values.map((value) => ({ value, label: labels[value] }))];
-const text = (value: string | null) => value ?? "N/A";
+// Empty cells stay blank, as in Managerium.
+const text = (value: string | null) => value ?? "";
+
+/** Status as coloured text (Managerium): Pending orange, Approved green … */
+const STATUS_TEXT: Record<OrderStatus, string> = {
+  DRAFT: "text-ink-muted",
+  PENDING_APPROVAL: "text-warning",
+  APPROVED: "text-success",
+  COMPLETED: "text-accent",
+  CANCELLED: "text-danger",
+};
+
+/** Compact, vertically centred rows like Managerium. */
+const ROW_CELL = "py-1.5! align-middle!";
 
 /** `value` once it has stopped changing for 400 ms. */
 function useDebounced(value: string) {
@@ -172,10 +187,11 @@ function OrderList({ today }: { today: string }) {
       header: "Status",
       cell: (row) => (
         <span title={row.pendingReasonName ?? (row.holdReason ? HOLD_REASON_LABELS[row.holdReason] : undefined)}>
-          <OrderStatusIndicator status={row.status} />
+          <span className={cn("font-medium", STATUS_TEXT[row.status])}>{ORDER_STATUS_LABELS[row.status]}</span>
         </span>
       ),
-      sortValue: (row) => row.status,
+      // Not sortable, so the list opens newest SO date first (the first sortable column).
+      className: "text-center",
     },
     { id: "date", header: "SO Date", cell: (row) => formatDay(row.orderDate), sortValue: (row) => row.orderDate, className: "whitespace-nowrap" },
     { id: "delivery", header: "Exp. Delivery Date", cell: (row) => formatDay(row.expectedDeliveryDate), sortValue: (row) => row.expectedDeliveryDate, className: "whitespace-nowrap", hideBelow: "lg" },
@@ -198,7 +214,7 @@ function OrderList({ today }: { today: string }) {
     { id: "route", header: "Route", cell: (row) => text(row.route), hideBelow: "lg" },
     { id: "section", header: "Section", cell: (row) => text(row.section), hideBelow: "lg" },
     { id: "po", header: "Ref Customer PO", cell: (row) => text(row.refCustomerPo), hideBelow: "lg" },
-    { id: "poDate", header: "Ref Customer PO Date", cell: (row) => (row.refCustomerPoDate ? formatDay(row.refCustomerPoDate) : "N/A"), className: "whitespace-nowrap", hideBelow: "lg" },
+    { id: "poDate", header: "Ref Customer PO Date", cell: (row) => (row.refCustomerPoDate ? formatDay(row.refCustomerPoDate) : ""), className: "whitespace-nowrap", hideBelow: "lg" },
     { id: "poAmount", header: "Ref Customer PO Amount", cell: (row) => formatAmount(row.refCustomerPoAmount ?? 0), className: "text-right tabular-nums", hideBelow: "lg" },
     { id: "invoice", header: "Ref Invoice", cell: (row) => text(row.refInvoice), hideBelow: "lg" },
     { id: "amount", header: "Amount (BDT)", cell: (row) => <span className="text-ink">{formatAmount(row.salesTotal)}</span>, sortValue: (row) => row.salesTotal, className: "text-right tabular-nums" },
@@ -293,10 +309,11 @@ function OrderList({ today }: { today: string }) {
               )}
               <DataTable
                 rows={list.data.rows}
-                columns={columns}
+                columns={columns.map((column) => ({ ...column, className: cn(ROW_CELL, column.className) }))}
                 getRowId={(row) => row.id}
                 getRowLabel={(row) => row.number}
                 rowHref={(row) => paths.order(row.id)}
+                pages={ORDER_PAGE_SIZES}
                 footer={(rows) => ({
                   customer: "Total:",
                   amount: formatAmount(rows.reduce((sum, row) => sum + row.salesTotal, 0)),

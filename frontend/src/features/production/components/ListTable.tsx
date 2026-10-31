@@ -2,6 +2,7 @@
 
 import { DataTable } from "@/components/ui/data-table";
 import { cn } from "@/lib/cn";
+import { EmptyState } from "./EmptyState";
 
 type Props<T> = Parameters<typeof DataTable<T>>[0];
 
@@ -14,6 +15,6 @@ export const ROW_CELL = "whitespace-nowrap py-1.5! align-middle!";
  * A Production list as in Managerium: compact one-line rows and numbered pages
  * ("Rows per page: 50 · 1–50 of N · ‹ ›") instead of "Load more".
  */
-export function ListTable<T>({ columns, pages = PAGE_SIZES, ...props }: Props<T>) {
-  return <DataTable {...props} pages={pages} columns={columns.map((column) => ({ ...column, className: cn(ROW_CELL, column.className) }))} />;
+export function ListTable<T>({ columns, pages = PAGE_SIZES, emptyState = <EmptyState title="No Data Found" />, ...props }: Props<T>) {
+  return <DataTable {...props} pages={pages} emptyState={emptyState} columns={columns.map((column) => ({ ...column, className: cn(ROW_CELL, column.className) }))} />;
 }

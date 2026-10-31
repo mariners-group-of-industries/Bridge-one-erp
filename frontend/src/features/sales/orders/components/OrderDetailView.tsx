@@ -10,7 +10,8 @@ import { ConfirmDialog, Dialog } from "@/components/ui/dialog";
 import { DropdownMenu, type MenuItem } from "@/components/ui/dropdown-menu";
 import { TextAreaField } from "@/components/ui/form-field";
 import { Indicator } from "@/components/ui/indicator";
-import { Card, EmptyState, ErrorState, LoadingState } from "@/components/ui/section";
+import { Card, ErrorState, LoadingState } from "@/components/ui/section";
+import { EmptyState } from "@/features/sales/components/EmptyState";
 import { Tabs } from "@/components/ui/tabs";
 import { useToast } from "@/components/ui/toast";
 import { useResource } from "@/hooks/use-resource";
@@ -31,7 +32,7 @@ import {
   type OrderAction,
   type OrderDetail,
 } from "../schemas/order.schema";
-import { changeOrderStatus, deleteOrder, downloadOrderExcel, fetchOrder, orderPdfUrl } from "../services/order.api";
+import { changeOrderStatus, deleteOrder, downloadOrderExcel, fetchOrder, orderAttachmentUrl, orderPdfUrl } from "../services/order.api";
 import { OrderStatusIndicator } from "./OrderStatusIndicator";
 
 /** Actions that need a written reason. */
@@ -257,6 +258,7 @@ function OrderDetailBody({
               <Detail label="Sales Force" value={order.salesPersonName} />
               <Detail label="Project/Outlet/Ref." value={order.refProjectOutlet} />
               <Detail label="Price Type" value={order.priceListName ?? "Default sales rate"} />
+              <Detail label="Custom Offer" value={order.offerName ?? (order.offerId ? "Removed offer" : "All applicable offers")} />
             </dl>
             <dl className="flex flex-col gap-1">
               <Detail label="Payment Term Days" value={String(order.paymentTermDays)} />
@@ -293,6 +295,20 @@ function OrderDetailBody({
               <Detail label="Closed Remarks" value={order.closedRemarks} />
               <Detail label="Created By" value={order.createdByName} />
               <Detail label="Last Modified By" value={order.updatedByName} />
+              <Detail
+                label="Attachments"
+                value={
+                  order.attachments.length > 0 && (
+                    <span className="flex flex-col">
+                      {order.attachments.map((file) => (
+                        <a key={file.id} href={orderAttachmentUrl(order.id, file.id)} className="text-ink underline underline-offset-2">
+                          {file.originalName}
+                        </a>
+                      ))}
+                    </span>
+                  )
+                }
+              />
             </dl>
           </div>
         </Card>

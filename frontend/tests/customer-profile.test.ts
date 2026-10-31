@@ -37,6 +37,7 @@ async function expectAppError(promise: Promise<unknown>, status: number) {
 
 let officeId: string;
 let unitId: string;
+let territoryId: string;
 
 beforeAll(async () => {
   await startTestDb();
@@ -50,12 +51,15 @@ beforeEach(async () => {
   await saveCompany(adminActor, companyInput);
   unitId = (await createBusinessUnit(adminActor, businessUnitInput)).id;
   officeId = (await createOffice(adminActor, unitId, officeInput)).id;
+  territoryId = (await testPrisma().salesArea.create({ data: { businessUnitId: unitId, kind: "TERRITORY", name: "Sadar" } })).id;
 });
 
 const base = (overrides: Partial<CustomerInput> = {}): CustomerInput => ({
   officeId,
   name: "Lovely Store",
   mobile: "01700000000",
+  billingName: "Lovely Store",
+  territoryId,
   ...overrides,
 });
 
@@ -96,9 +100,11 @@ describe("customer profile", () => {
     expect(addresses.map((address) => address.isDefault)).toEqual([true, false]);
   });
 
-  it("requires office, partner name and mobile, and rejects a single person's marriage date", async () => {
+  it("requires office, partner name, billing name, mobile and territory, and rejects a single person's marriage date", async () => {
     await expect(createCustomer(adminActor, base({ mobile: "" }))).rejects.toThrow();
     await expect(createCustomer(adminActor, base({ name: "" }))).rejects.toThrow();
+    await expect(createCustomer(adminActor, base({ billingName: "" }))).rejects.toThrow("Partner billing name is required.");
+    await expect(createCustomer(adminActor, base({ territoryId: "" }))).rejects.toThrow("Select a territory.");
     await expect(createCustomer(adminActor, base({ maritalStatus: "Single", marriageDate: "2020-01-01" }))).rejects.toThrow();
   });
 
@@ -192,7 +198,7 @@ describe("customer profile", () => {
     await createSection(adminActor, { officeId, name: "Bazar Road" });
     const options = await getFormOptions(adminActor);
     expect(options.groups.find((g) => g.name === "Pharmacy")?.parentId).toBe(group.id);
-    expect(options.territories.map((t) => t.name)).toEqual(["North"]);
+    expect(options.territories.map((t) => t.name)).toEqual(["North", "Sadar"]);
     expect(options.sections.map((s) => s.name)).toEqual(["Bazar Road"]);
   });
 });
@@ -205,7 +211,7 @@ describe("customer bulk upload", () => {
     const sheet = workbook.getWorksheet("Customers")!;
     const header = (sheet.getRow(1).values as string[]).slice(1);
     const row = (values: Record<string, string>) => header.map((name) => values[name] ?? "");
-    sheet.addRow(row({ "Partner Name *": "Imported", "Office *": "head office", "Mobile Number *": "019", "Default Sales Representative": "sr-1", "Is Distributor": "yes", Gender: "female" }));
+    sheet.addRow(row({ "Partner Name *": "Imported", "Office *": "head office", "Mobile Number *": "019", "Territory *": "sadar", "Default Sales Representative": "sr-1", "Is Distributor": "yes", Gender: "female" }));
     sheet.addRow(row({ "Partner Name *": "No Mobile", "Office *": officeInput.name }));
     sheet.addRow(row({ "Partner Name *": "Bad Gender", "Office *": officeInput.name, "Mobile Number *": "018", Gender: "x" }));
 
@@ -214,6 +220,6 @@ describe("customer bulk upload", () => {
     expect(result.errors.map((error) => error.row)).toEqual([3, 4]);
     expect(result.errors[1].message).toBe("Gender: use Male, Female, Other.");
     const [customer] = (await listCustomers(adminActor, { page: 1, pageSize: 10 })).rows;
-    expect(customer).toMatchObject({ name: "Imported", salesPersonName: "Amin Ali" });
+    expect(customer).toMatchObject({ name: "Imported", salesPersonName: "Amin Ali", territoryName: "Sadar" });
   });
 });

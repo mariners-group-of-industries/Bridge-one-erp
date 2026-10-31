@@ -370,6 +370,8 @@ const itemSelect = {
   id: true,
   code: true,
   name: true,
+  printedCode: true,
+  printedName: true,
   uom: true,
   altUom: true,
   altUomFactor: true,

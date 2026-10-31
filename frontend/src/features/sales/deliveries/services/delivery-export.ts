@@ -110,6 +110,7 @@ export async function deliveryTabExcel(actor: Actor, tab: DeliveryExportTab, raw
       ["Section", 14],
       ["Payment Method", 14],
       ["Total Amount", 15],
+      ["Return Amount", 15],
       ["Paid", 14],
       ["Pending Amount", 15],
     ],
@@ -134,10 +135,11 @@ export async function deliveryTabExcel(actor: Actor, tab: DeliveryExportTab, raw
       row.section ?? "",
       PAYMENT_METHOD_LABELS[row.paymentMethod],
       row.totalAmount,
+      row.returnAmount,
       row.paidAmount,
       row.pendingAmount,
     ]),
-    [19, 20, 21],
+    [19, 20, 21, 22],
   );
 }
 

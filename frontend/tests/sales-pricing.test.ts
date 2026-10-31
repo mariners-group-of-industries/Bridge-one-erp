@@ -273,6 +273,41 @@ describe("sales pricing from Sales Config", () => {
     ]);
   });
 
+  it("applies only the Custom Offer when one is chosen, and rejects one that does not apply", async () => {
+    const bagOffer = await prisma.salesOffer.create({
+      data: {
+        businessUnitId,
+        kind: "ITEM",
+        name: "Buy 24 Noodles get 1 Bag",
+        customerGroupId: groupId,
+        itemLines: { create: [{ sortOrder: 1, sellingItemId: noodlesId, sellingUom: "PCS", sellingQty: 24, offerItemId: bagId, offerUom: "PCS", offerQty: 1 }] },
+      },
+    });
+    const muriOffer = await prisma.salesOffer.create({
+      data: { businessUnitId, kind: "DISCOUNT", name: "Muri 10%", basedOn: "All Customers", discountLines: { create: [{ sortOrder: 1, itemId: muriId, discountType: "PERCENT", amount: 10 }] } },
+    });
+    const expired = await prisma.salesOffer.create({
+      data: { businessUnitId, kind: "DISCOUNT", name: "Expired", toDate: day("2026-09-30"), discountLines: { create: [{ sortOrder: 1, itemId: noodlesId, discountType: "PERCENT", amount: 50 }] } },
+    });
+
+    const shown = await previewPricing(adminActor, { officeId, customerId, priceListId: dealerListId, date: TODAY, offerId: muriOffer.id, lines: [{ itemId: noodlesId, qty: 48, unitPrice: 14 }, { itemId: muriId, qty: 10, unitPrice: 45 }] });
+    // The choices are the offers that apply today; only the chosen one is applied.
+    expect(shown.availableOffers.map((offer) => offer.name).sort()).toEqual(["Buy 24 Noodles get 1 Bag", "Muri 10%"]);
+    expect(shown.offers).toMatchObject({ freeLines: [], discounts: [{ itemId: muriId, percent: 10 }] });
+
+    const order = await createOrder(adminActor, orderInput({ offerId: muriOffer.id }));
+    expect(order).toMatchObject({ offerId: muriOffer.id, offerName: "Muri 10%" });
+    expect(order.lines.map((line) => [line.itemName, line.discountPercent])).toEqual([
+      ["Marine Noodles 120 gm", 0],
+      ["Marine Muri 400g", 10],
+    ]);
+    // Without a custom offer every applicable offer applies (the free bag comes back).
+    expect((await createOrder(adminActor, orderInput())).lines.map((line) => line.itemName)).toContain("Marine Shopping Bag");
+    expect(shown.availableOffers.map((offer) => offer.id)).toContain(bagOffer.id);
+
+    await expect(createOrder(adminActor, orderInput({ offerId: expired.id }))).rejects.toThrow("The custom offer does not apply");
+  });
+
   it("applies Item (Multiple) pairs on an order, a category pair counting all its items", async () => {
     const snacks = (await createSetupRecord(adminActor, "categories", { businessUnitId, name: "Snacks" })).id;
     const chips = (await createItem(adminActor, { businessUnitId, name: "Marine Chips 25g", uom: "PCS", salesRate: 10, categoryId: snacks })).id;

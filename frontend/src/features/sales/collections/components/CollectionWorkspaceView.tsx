@@ -1,6 +1,6 @@
 "use client";
 
-import { Download, Eye, FilePlus2, HandCoins, Printer, Search, Wallet } from "lucide-react";
+import { Download, Eye, FilePlus2, HandCoins, Paperclip, Printer, Search, Wallet } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { createContext, useContext, useEffect, useRef, useState, type FormEvent } from "react";
@@ -8,7 +8,8 @@ import { PageContainer, PageHead } from "@/components/layout/page";
 import { Button, buttonClasses } from "@/components/ui/button";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { CONTROL, CheckboxField, SelectField, TextField } from "@/components/ui/form-field";
-import { Card, EmptyState, ErrorState, LoadingState } from "@/components/ui/section";
+import { Card, ErrorState, LoadingState } from "@/components/ui/section";
+import { EmptyState } from "@/features/sales/components/EmptyState";
 import { Tabs } from "@/components/ui/tabs";
 import { useToast } from "@/components/ui/toast";
 import { useResource } from "@/hooks/use-resource";
@@ -32,7 +33,7 @@ import {
   type DueListRow,
   type LedgerRow,
 } from "../schemas/collection.schema";
-import { exportTable, fetchBills, fetchCollections, fetchDueInvoices, fetchDueList, fetchLedger } from "../services/collection.api";
+import { collectionAttachmentUrl, exportTable, fetchBills, fetchCollections, fetchDueInvoices, fetchDueList, fetchLedger } from "../services/collection.api";
 import { AdvanceCollectionDialog } from "./AdvanceCollectionForm";
 
 /** The header search, applied to whichever tab is open. */
@@ -65,7 +66,8 @@ interface TableExport {
 }
 
 const all = { value: "", label: "All" };
-const text = (value: string | null) => value ?? "N/A";
+// Empty cells stay blank, as in Managerium.
+const text = (value: string | null) => value ?? "";
 const sum = <T,>(rows: readonly T[], pick: (row: T) => number) => rows.reduce((total, row) => total + pick(row), 0);
 const amountCell = (value: number) => <span className={cn("tabular-nums", value < 0 && "text-danger")}>{formatAmount(value)}</span>;
 const sl = <T,>(): Column<T> => ({ id: "sl", header: "SL", cell: (_row, index) => <span className="text-ink-faint tabular-nums">{index + 1}</span>, className: "w-10" });
@@ -431,7 +433,7 @@ function CollectionsTab({ kind, today, onExport }: { kind: "INVOICE" | "ADVANCE"
               COLLECTION_METHOD_LABELS[row.method],
               row.reference,
               row.bankName,
-              row.salesPersonName,
+              advance ? (row.employeeName ?? row.salesPersonName) : row.salesPersonName,
               row.invoices,
               row.amount.toFixed(2),
               ...(advance ? [row.allocated.toFixed(2), row.unallocated.toFixed(2)] : []),
@@ -454,14 +456,29 @@ function CollectionsTab({ kind, today, onExport }: { kind: "INVOICE" | "ADVANCE"
     { id: "code", header: "Customer Code", cell: (row) => row.customerCode, hideBelow: "lg" },
     { id: "customer", header: "Customer", cell: (row) => row.customerName, sortValue: (row) => row.customerName },
     { id: "method", header: "Method", cell: (row) => COLLECTION_METHOD_LABELS[row.method], hideBelow: "md" },
-    { id: "reference", header: "Reference", cell: (row) => [row.reference, row.bankName].filter(Boolean).join(" · ") || "N/A", hideBelow: "lg" },
-    { id: "by", header: "Collect By", cell: (row) => text(row.salesPersonName), hideBelow: "md" },
+    { id: "reference", header: "Reference", cell: (row) => [row.reference, row.bankName].filter(Boolean).join(" · "), hideBelow: "lg" },
+    // An advance is collected by the employee on the voucher.
+    { id: "by", header: "Collect By", cell: (row) => text(advance ? (row.employeeName ?? row.salesPersonName) : row.salesPersonName), hideBelow: "md" },
     { id: "invoices", header: advance ? "Adjusted Invoices" : "Invoices", cell: (row) => (row.onDelivery ? `${row.invoices} (on delivery)` : row.invoices), className: "text-right tabular-nums", hideBelow: "md" },
     { id: "amount", header: "Amount", cell: (row) => amountCell(row.amount), sortValue: (row) => row.amount, className: "text-right" },
     ...(advance
       ? ([
           { id: "adjusted", header: "Adjusted", cell: (row) => amountCell(row.allocated), className: "text-right" },
           { id: "balance", header: "Balance", cell: (row) => amountCell(row.unallocated), sortValue: (row) => row.unallocated, className: "text-right" },
+          {
+            id: "attachment",
+            header: "Attachment",
+            cell: (row) => (
+              <span className="flex flex-col">
+                {row.attachments.map((file) => (
+                  <a key={file.id} href={collectionAttachmentUrl(row.id, file.id)} title={file.originalName} className="inline-flex max-w-40 items-center gap-1 truncate text-ink underline underline-offset-2">
+                    <Paperclip aria-hidden="true" className="size-3 shrink-0" />
+                    {file.originalName}
+                  </a>
+                ))}
+              </span>
+            ),
+          },
         ] satisfies Column<CollectionRow>[])
       : []),
   ];

@@ -1,5 +1,6 @@
 import { apiRequest } from "@/lib/api/client";
 import type {
+  CollectionAttachment,
   BillDetail,
   BillInput,
   AdvanceVoucherInput,
@@ -56,3 +57,12 @@ export const cancelBill = (id: string, version: string, reason: string, asOf: st
 
 /** Wallet Setup wallets the office can collect through. */
 export const fetchCollectionWallets = (officeId: string) => apiRequest<CollectionWallet[]>(`${C}/wallets?officeId=${officeId}`);
+
+/** Upload one file to a collection (multipart, field `file`). */
+export function addCollectionAttachment(id: string, file: File) {
+  const form = new FormData();
+  form.set("file", file);
+  return apiRequest<CollectionAttachment>(`${C}/${id}/attachments`, { method: "POST", body: form });
+}
+
+export const collectionAttachmentUrl = (id: string, attachmentId: string) => `${C}/${id}/attachments/${attachmentId}`;

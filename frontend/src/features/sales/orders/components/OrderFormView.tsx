@@ -1,14 +1,16 @@
 "use client";
 
-import { ArrowLeft, CirclePlus, Pencil, Plus, SaveAll, Trash2, UserPlus } from "lucide-react";
+import { ArrowLeft, CirclePlus, ClipboardList, Paperclip, Pencil, Plus, SaveAll, Trash2, UserPlus, X } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useId, useMemo, useState, type ReactNode } from "react";
 import { PageContainer, PageHead } from "@/components/layout/page";
+import { ALLOWED_SUPPLIER_ATTACHMENT_TYPES, MAX_SUPPLIER_ATTACHMENT_BYTES } from "@/features/configuration/entity-master-data/supplier/schemas/supplier.schema";
 import { Button, buttonClasses } from "@/components/ui/button";
 import { CONTROL, CheckboxField, SelectField, TextAreaField, TextField } from "@/components/ui/form-field";
 import { Indicator } from "@/components/ui/indicator";
-import { Card, EmptyState, ErrorState, LoadingState, Section } from "@/components/ui/section";
+import { Card, ErrorState, LoadingState, Section } from "@/components/ui/section";
+import { EmptyState } from "@/features/sales/components/EmptyState";
 import { useToast } from "@/components/ui/toast";
 import { useResource } from "@/hooks/use-resource";
 import { useSaveShortcut } from "@/hooks/use-save-shortcut";
@@ -47,12 +49,13 @@ import {
   PAYMENT_METHODS,
   PAYMENT_METHOD_LABELS,
   orderInputSchema,
+  type OrderAttachment,
   type OrderDetail,
   type OrderInput,
   type OrderType,
   type PaymentMethod,
 } from "../schemas/order.schema";
-import { createOrder, fetchOrder, updateOrder } from "../services/order.api";
+import { addOrderAttachment, createOrder, deleteOrderAttachment, fetchOrder, orderAttachmentUrl, updateOrder } from "../services/order.api";
 import { OrderStatusIndicator } from "./OrderStatusIndicator";
 
 // ─── Entry points ────────────────────────────────────────────────────────────
@@ -115,6 +118,13 @@ function Failed({ title, error, onRetry }: { title: string; error: Error; onRetr
 
 // ─── Form state ──────────────────────────────────────────────────────────────
 
+/** Order attachments follow the customer / supplier rules: PDF or images, 5 MB each. */
+const ATTACHMENT_TYPES = ALLOWED_SUPPLIER_ATTACHMENT_TYPES;
+const MAX_ATTACHMENT_BYTES = MAX_SUPPLIER_ATTACHMENT_BYTES;
+
+const formatSize = (bytes: number) =>
+  bytes >= 1024 * 1024 ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
+
 export interface LineValues {
   key: string;
   itemId: string;
@@ -130,6 +140,7 @@ interface Values {
   customerId: string;
   salesPersonId: string;
   priceListId: string;
+  offerId: string;
   shipToAddressId: string;
   shippingAddress: string;
   contactPerson: string;
@@ -163,6 +174,7 @@ function fromOrder(order: OrderDetail): Values {
     customerId: order.customerId,
     salesPersonId: order.salesPersonId ?? "",
     priceListId: order.priceListId ?? "",
+    offerId: order.offerId ?? "",
     shipToAddressId: order.shipToAddressId ?? "",
     shippingAddress: order.shipToAddressId ? "" : (order.shippingAddress ?? ""),
     contactPerson: order.contactPerson ?? "",
@@ -204,6 +216,7 @@ function blank(today: string, lookups: SalesLookups, quotation?: QuotationDetail
     customerId: quotation?.customerId ?? "",
     salesPersonId: quotation?.salesPersonId ?? "",
     priceListId: "",
+    offerId: "",
     shipToAddressId: "",
     shippingAddress: "",
     contactPerson: "",
@@ -252,6 +265,7 @@ function toInput(values: Values, quotationId: string | null): OrderInput {
     salesPersonId: values.salesPersonId || null,
     quotationId,
     priceListId: values.priceListId || null,
+    offerId: values.offerId || null,
     shipToAddressId: values.shipToAddressId || null,
     shippingAddress: values.shippingAddress,
     contactPerson: values.contactPerson,
@@ -366,6 +380,7 @@ function OrderEditor({ today, lookups, order, quotation }: EditorProps) {
           officeId: values.officeId,
           customerId: values.customerId,
           priceListId: priceListId || null,
+          offerId: values.offerId || null,
           date: values.orderDate,
           lines: values.lines
             .filter((line) => orZero(line.qty) > 0)
@@ -373,6 +388,55 @@ function OrderEditor({ today, lookups, order, quotation }: EditorProps) {
         }
       : null,
   );
+
+  // Custom Offer: the offers that apply to this customer on the order date.
+  const availableOffers = pricing.data?.availableOffers ?? [];
+  const offerMissing = !!values.offerId && !!pricing.data && !availableOffers.some((offer) => offer.id === values.offerId);
+
+  // Attachments: saved ones are removed at once; new files upload when the order is saved.
+  const termsId = useId();
+  const [savedFiles, setSavedFiles] = useState<OrderAttachment[]>(order?.attachments ?? []);
+  const [queued, setQueued] = useState<File[]>([]);
+  const attachmentCount = savedFiles.length + queued.length;
+
+  function queueFiles(files: FileList | null) {
+    const accepted = Array.from(files ?? []).filter((file) => {
+      if (!(ATTACHMENT_TYPES as readonly string[]).includes(file.type)) {
+        toast.error(`${file.name}: only PDF, PNG, JPEG or WebP files are allowed.`);
+        return false;
+      }
+      if (file.size > MAX_ATTACHMENT_BYTES) {
+        toast.error(`${file.name}: files must be 5 MB or smaller.`);
+        return false;
+      }
+      return true;
+    });
+    if (accepted.length) setQueued((current) => [...current, ...accepted]);
+  }
+
+  async function removeSaved(file: OrderAttachment) {
+    if (!order) return;
+    try {
+      await deleteOrderAttachment(order.id, file.id);
+      setSavedFiles((current) => current.filter((candidate) => candidate.id !== file.id));
+      toast.success(`${file.originalName} removed.`);
+    } catch (error) {
+      toast.error(errorMessage(error));
+    }
+  }
+
+  /** Uploads the queued files to the saved order; returns the ones that failed. */
+  async function uploadQueued(orderId: string) {
+    const failed: string[] = [];
+    for (const file of queued) {
+      try {
+        await addOrderAttachment(orderId, file);
+      } catch (error) {
+        failed.push(`${file.name}: ${errorMessage(error)}`);
+      }
+    }
+    return failed;
+  }
 
   const set = <K extends keyof Values>(key: K, value: Values[K]) => setValues((current) => ({ ...current, [key]: value }));
   const setLine = (key: string, patch: Partial<LineValues>) =>
@@ -420,6 +484,7 @@ function OrderEditor({ today, lookups, order, quotation }: EditorProps) {
             customerId: "",
             salesPersonId: "",
             priceListId: "",
+            offerId: "",
             shipToAddressId: "",
             terms: current.terms || (lookups.orderTerms[next.businessUnitId] ?? ""),
             lines: [],
@@ -488,7 +553,10 @@ function OrderEditor({ today, lookups, order, quotation }: EditorProps) {
     setBusy(true);
     try {
       const saved = order ? await updateOrder(order.id, order.updatedAt, input) : await createOrder(input);
-      toast.success(`${saved.number} saved as draft. Open it to submit for approval.`);
+      const failed = await uploadQueued(saved.id);
+      setQueued([]);
+      if (failed.length) toast.error(`${saved.number} saved, but some attachments failed. ${failed.join(" ")}`);
+      else toast.success(`${saved.number} saved as draft. Open it to submit for approval.`);
       if (order) {
         router.replace(paths.order(saved.id));
       } else if (mode === "new") {
@@ -790,7 +858,88 @@ function OrderEditor({ today, lookups, order, quotation }: EditorProps) {
                 ]}
                 onChange={(event) => changePriceList(event.target.value)}
               />
+              <div className="flex items-end gap-1.5">
+                <SelectField
+                  label="Custom Offer"
+                  className="min-w-0 flex-1"
+                  value={values.offerId}
+                  disabled={!values.customerId}
+                  error={err("offerId") ?? (offerMissing ? "This offer does not apply to the customer on this date." : undefined)}
+                  hint={values.customerId ? undefined : "Select a customer first."}
+                  options={[
+                    { value: "", label: "All applicable offers" },
+                    ...(offerMissing && order?.offerId ? [{ value: order.offerId, label: order.offerName ?? "Chosen offer" }] : []),
+                    ...availableOffers.map((offer) => ({ value: offer.id, label: offer.name })),
+                  ]}
+                  onChange={(event) => set("offerId", event.target.value)}
+                />
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="text-accent-strong"
+                  aria-label="Terms and conditions"
+                  title="Terms and conditions"
+                  onClick={() => {
+                    const terms = document.getElementById(termsId);
+                    terms?.scrollIntoView({ behavior: "smooth", block: "center" });
+                    terms?.querySelector("textarea")?.focus({ preventScroll: true });
+                  }}
+                >
+                  <ClipboardList />
+                </Button>
+                <label
+                  title="Attach files (PDF, PNG, JPEG or WebP, up to 5 MB each)"
+                  className={cn(buttonClasses("ghost", "icon"), "relative cursor-pointer text-accent-strong")}
+                >
+                  <Paperclip aria-hidden="true" />
+                  <span className="sr-only">Attach files</span>
+                  {attachmentCount > 0 && (
+                    <span className="absolute -top-1 -right-1 rounded-full bg-accent px-1 text-[10px] leading-4 text-primary-fg">{attachmentCount}</span>
+                  )}
+                  <input
+                    type="file"
+                    multiple
+                    accept={ATTACHMENT_TYPES.join(",")}
+                    className="sr-only"
+                    onChange={(event) => {
+                      queueFiles(event.target.files);
+                      event.target.value = "";
+                    }}
+                  />
+                </label>
+              </div>
             </div>
+            {attachmentCount > 0 && (
+              <ul aria-label="Attachments" className="flex flex-wrap gap-2 text-xs">
+                {savedFiles.map((file) => (
+                  <li key={file.id} className="flex items-center gap-1 rounded border border-line bg-canvas px-2 py-1">
+                    <Paperclip aria-hidden="true" className="size-3 text-ink-faint" />
+                    <a href={orderAttachmentUrl(order!.id, file.id)} className="text-ink hover:underline">
+                      {file.originalName}
+                    </a>
+                    <span className="text-ink-faint">({formatSize(file.size)})</span>
+                    <button type="button" aria-label={`Remove ${file.originalName}`} className="text-ink-faint hover:text-danger" onClick={() => void removeSaved(file)}>
+                      <X className="size-3" />
+                    </button>
+                  </li>
+                ))}
+                {queued.map((file, index) => (
+                  <li key={`${file.name}-${index}`} className="flex items-center gap-1 rounded border border-dashed border-line px-2 py-1">
+                    <Paperclip aria-hidden="true" className="size-3 text-ink-faint" />
+                    <span className="text-ink">{file.name}</span>
+                    <span className="text-ink-faint">({formatSize(file.size)}, uploaded on save)</span>
+                    <button
+                      type="button"
+                      aria-label={`Remove ${file.name}`}
+                      className="text-ink-faint hover:text-danger"
+                      onClick={() => setQueued((current) => current.filter((_, at) => at !== index))}
+                    >
+                      <X className="size-3" />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
           </Section>
         </Card>
 
@@ -822,11 +971,13 @@ function OrderEditor({ today, lookups, order, quotation }: EditorProps) {
         </Card>
 
         <div className="grid gap-4 lg:grid-cols-[1fr_24rem]">
-          <Card>
-            <Section title="Terms & Conditions">
-              <TextAreaField label="Terms and Conditions" rows={8} value={values.terms} error={err("terms")} onChange={(event) => set("terms", event.target.value)} />
-            </Section>
-          </Card>
+          <div id={termsId}>
+            <Card className="h-full">
+              <Section title="Terms & Conditions">
+                <TextAreaField label="Terms and Conditions" rows={8} value={values.terms} error={err("terms")} onChange={(event) => set("terms", event.target.value)} />
+              </Section>
+            </Card>
+          </div>
           <Card>
             <Section title="Summary">
               <OfferPanel result={pricing.data} itemName={(itemId) => itemById.get(itemId)?.name ?? "Item"} />
@@ -1004,7 +1155,10 @@ export function ItemEntry({
   );
   // As in Managerium, suggestions start after 3 letters.
   const searching = itemText.trim().length >= 3;
-  const label = (item: ItemOption) => `${item.code} — ${item.name}`;
+  /** "is Customer": search by the printed / customer item code and name. */
+  const [byCustomer, setByCustomer] = useState(false);
+  const label = (item: ItemOption) =>
+    byCustomer ? `${item.printedCode || item.code} — ${item.printedName || item.name}` : `${item.code} — ${item.name}`;
   const item = visible.find((candidate) => label(candidate) === itemText) ?? items.find((candidate) => label(candidate) === itemText);
   const pending = useResource(item ? `pending:${item.id}` : null, () => fetchItemPending(item!.id));
   const stock = useResource(item && warehouseId ? `stock:${warehouseId}:${item.id}` : null, () => fetchStock(warehouseId!, [item!.id]));
@@ -1088,15 +1242,29 @@ export function ItemEntry({
         }}
       >
         <div className="flex flex-col gap-1 sm:col-span-4 lg:col-span-1">
-          <label htmlFor={`${listId}-item`} className="text-xs text-ink-muted">
-            Item <span className="text-danger">*</span>
-          </label>
+          <div className="flex items-center justify-between gap-2">
+            <label htmlFor={`${listId}-item`} className="text-xs text-ink-muted">
+              Item <span className="text-danger">*</span>
+            </label>
+            <label className="flex items-center gap-1 text-xs text-ink-muted" title="Search by the printed / customer item code and name">
+              <input
+                type="checkbox"
+                checked={byCustomer}
+                disabled={disabled}
+                onChange={(event) => {
+                  setByCustomer(event.target.checked);
+                  setItemText("");
+                }}
+              />
+              is Customer
+            </label>
+          </div>
           <input
             id={`${listId}-item`}
             list={listId}
             value={itemText}
             disabled={disabled}
-            placeholder={disabled ? "Select an office first" : "Select/Search item (min 3 letters)"}
+            placeholder={disabled ? "Select an office first" : byCustomer ? "Search customer item code / name (min 3 letters)" : "Select/Search item (min 3 letters)"}
             onChange={(event) => pick(event.target.value)}
             className={cn(CONTROL, "h-7")}
           />
@@ -1154,15 +1322,16 @@ export function ItemEntry({
       </div>
       <div className="flex flex-wrap items-center gap-2 text-xs">
         {item && (
-          <>
-            <Indicator color="blue">
-              {item.uom}
-              {item.altUom ? ` · ${item.altUomFactor} per ${item.altUom}` : ""}
-            </Indicator>
-            <Indicator color="yellow">Stock : {!warehouseId ? "No warehouse" : stock.data ? formatQty(stock.data[0].qty) : "…"}</Indicator>
-            <Indicator color="orange">Pending : {pending.data ? formatQty(pending.data.pendingQty) : "…"}</Indicator>
-          </>
+          <Indicator color="blue">
+            {item.uom}
+            {item.altUom ? ` · ${item.altUomFactor} per ${item.altUom}` : ""}
+          </Indicator>
         )}
+        {/* Always shown, as in Managerium; filled once an item is picked. */}
+        <Indicator color="yellow">
+          Stock : {!item ? formatQty(0) : !warehouseId ? "No warehouse" : stock.data ? formatQty(stock.data[0].qty) : "…"}
+        </Indicator>
+        <Indicator color="orange">Pending : {!item ? "" : pending.data ? formatQty(pending.data.pendingQty) : "…"}</Indicator>
         {error && (
           <p role="alert" className="text-danger">
             {error}
@@ -1199,9 +1368,6 @@ export function LinesGrid({
   onChange: (key: string, patch: Partial<LineValues>) => void;
   onRemove: (key: string) => void;
 }) {
-  if (lines.length === 0) {
-    return <EmptyState title="No items yet">Pick an item above and press Add (or Enter).</EmptyState>;
-  }
   const storedById = new Map(storedLines.map((line) => [line.itemId, line]));
   let altTotal = 0;
 
@@ -1220,6 +1386,14 @@ export function LinesGrid({
           </tr>
         </thead>
         <tbody className="divide-y divide-line">
+          {/* The header stays visible with no items, as in Managerium. */}
+          {lines.length === 0 && (
+            <tr>
+              <td colSpan={15} className="px-2 py-6 text-center text-ink-muted">
+                No items yet. Pick an item above and press Add (or Enter).
+              </td>
+            </tr>
+          )}
           {lines.map((line, index) => {
             const item = itemById.get(line.itemId);
             const stored = storedById.get(line.itemId);

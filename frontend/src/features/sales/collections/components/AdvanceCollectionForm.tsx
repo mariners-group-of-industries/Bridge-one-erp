@@ -1,9 +1,10 @@
 "use client";
 
-import { Plus, Trash2 } from "lucide-react";
+import { Paperclip, Plus, Trash2, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { Button } from "@/components/ui/button";
+import { Button, buttonClasses } from "@/components/ui/button";
+import { ALLOWED_SUPPLIER_ATTACHMENT_TYPES, MAX_SUPPLIER_ATTACHMENT_BYTES } from "@/features/configuration/entity-master-data/supplier/schemas/supplier.schema";
 import { Dialog } from "@/components/ui/dialog";
 import { CONTROL, SelectField, TextField } from "@/components/ui/form-field";
 import { LoadingState } from "@/components/ui/section";
@@ -20,7 +21,7 @@ import { fetchCustomers, fetchSalesLookups } from "../../masters/services/master
 import { fetchOrders } from "../../orders/services/order.api";
 import { paths } from "../../paths";
 import { VOUCHER_TYPES, VOUCHER_TYPE_LABELS, advanceVoucherSchema, type GlAccountOption, type VoucherType } from "../schemas/collection.schema";
-import { createAdvanceVoucher, fetchGlAccounts } from "../services/collection.api";
+import { addCollectionAttachment, createAdvanceVoucher, fetchGlAccounts } from "../services/collection.api";
 
 interface Row {
   key: string;
@@ -84,6 +85,23 @@ export function AdvanceCollectionForm({
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const set = (key: keyof typeof header, value: string) => setHeader((current) => ({ ...current, [key]: value }));
+  /** Attachment: uploaded once the voucher is saved. */
+  const [files, setFiles] = useState<File[]>([]);
+
+  function queueFiles(list: FileList | null) {
+    const accepted = Array.from(list ?? []).filter((file) => {
+      if (!(ALLOWED_SUPPLIER_ATTACHMENT_TYPES as readonly string[]).includes(file.type)) {
+        toast.error(`${file.name}: only PDF, PNG, JPEG or WebP files are allowed.`);
+        return false;
+      }
+      if (file.size > MAX_SUPPLIER_ATTACHMENT_BYTES) {
+        toast.error(`${file.name}: files must be 5 MB or smaller.`);
+        return false;
+      }
+      return true;
+    });
+    if (accepted.length) setFiles((current) => [...current, ...accepted]);
+  }
 
   const businessUnitId = lookups.offices.find((office) => office.id === header.officeId)?.businessUnitId ?? null;
   const customers = useResource(businessUnitId && `customers:${businessUnitId}`, () => fetchCustomers(businessUnitId!));
@@ -99,7 +117,7 @@ export function AdvanceCollectionForm({
     const input = {
       officeId: header.officeId,
       collectionDate: header.collectionDate,
-      employeeId: employee?.id ?? null,
+      employeeId: employee?.id ?? "",
       voucherType: header.voucherType,
       project: header.project,
       narration: header.narration,
@@ -126,7 +144,19 @@ export function AdvanceCollectionForm({
     setBusy(true);
     try {
       const saved = await createAdvanceVoucher(input);
-      toast.success(`Advance saved: ${saved.map((row) => row.number).join(", ")}.`);
+      // The voucher saves one collection per row: each keeps a copy of the files.
+      const failed: string[] = [];
+      for (const collection of saved) {
+        for (const file of files) {
+          try {
+            await addCollectionAttachment(collection.id, file);
+          } catch (error) {
+            failed.push(`${collection.number} · ${file.name}: ${errorMessage(error)}`);
+          }
+        }
+      }
+      if (failed.length) toast.error(`Advance saved, but some attachments failed. ${failed.join(" ")}`);
+      else toast.success(`Advance saved: ${saved.map((row) => row.number).join(", ")}.`);
       onSaved();
       router.replace(paths.collectionTab("advance"));
     } catch (error) {
@@ -138,7 +168,15 @@ export function AdvanceCollectionForm({
   return (
     <div className="flex flex-col gap-4">
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
-        <DriverPick businessUnitId={businessUnitId} label="Employee" selected={employee} onChange={(next) => setEmployee(next ? { id: next.id, name: next.name } : null)} />
+        <DriverPick
+          businessUnitId={businessUnitId}
+          label="Employee"
+          required
+          placeholder="Select/Search Employee (min 3 letters)"
+          error={errors.employeeId}
+          selected={employee}
+          onChange={(next) => setEmployee(next ? { id: next.id, name: next.name } : null)}
+        />
         <TextField label="Date" type="date" required value={header.collectionDate} error={errors.collectionDate} onChange={(event) => set("collectionDate", event.target.value)} />
         <SelectField
           label="Office"
@@ -170,6 +208,34 @@ export function AdvanceCollectionForm({
           error={errors.controlAmount}
           onChange={(event) => set("controlAmount", event.target.value)}
         />
+        <div className="flex flex-col gap-1 sm:col-span-2 lg:col-span-5">
+          <span className="text-xs text-ink-muted">Attachment</span>
+          <div className="flex flex-wrap items-center gap-2">
+            <label title="Attach files (PDF, PNG, JPEG or WebP, up to 5 MB each)" className={cn(buttonClasses("ghost", "icon"), "cursor-pointer text-accent-strong")}>
+              <Paperclip aria-hidden="true" />
+              <span className="sr-only">Attach files</span>
+              <input
+                type="file"
+                multiple
+                accept={ALLOWED_SUPPLIER_ATTACHMENT_TYPES.join(",")}
+                className="sr-only"
+                onChange={(event) => {
+                  queueFiles(event.target.files);
+                  event.target.value = "";
+                }}
+              />
+            </label>
+            {files.length === 0 && <span className="text-xs text-ink-faint">PDF or image, up to 5 MB each. Uploaded when you save.</span>}
+            {files.map((file, index) => (
+              <span key={`${file.name}-${index}`} className="flex items-center gap-1 rounded border border-dashed border-line px-2 py-1 text-xs">
+                {file.name}
+                <button type="button" aria-label={`Remove ${file.name}`} className="text-ink-faint hover:text-danger" onClick={() => setFiles((current) => current.filter((_, at) => at !== index))}>
+                  <X className="size-3" />
+                </button>
+              </span>
+            ))}
+          </div>
+        </div>
       </div>
 
       <div className="flex flex-col gap-3 rounded-lg border border-line p-3">

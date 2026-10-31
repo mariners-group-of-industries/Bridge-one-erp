@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 import { DataTable, type Column } from "@/components/ui/data-table";
-import { EmptyState } from "@/components/ui/section";
+import { EmptyState } from "@/features/sales/components/EmptyState";
 import { cn } from "@/lib/cn";
 import { formatAmount, formatQty } from "../../dashboard/lib/format";
 import type { ExportTable } from "../../lib/export-table";

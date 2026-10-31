@@ -245,6 +245,9 @@ export interface ItemOption {
   id: string;
   code: string;
   name: string;
+  /** Printed / customer item code and name (the "is Customer" item search). */
+  printedCode: string | null;
+  printedName: string | null;
   uom: string;
   altUom: string | null;
   altUomFactor: number | null;

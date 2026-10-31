@@ -90,10 +90,11 @@ describe("items", () => {
         retailPrice: "1250",
         dealerPrice: "1150",
         vatPercent: "5",
-        tracking: "BOTH",
+        tracking: "BATCH",
+        canBeProduced: true,
       }),
     );
-    expect(created).toMatchObject({ categoryId: category.id, subCategoryId: sub.id, minorCategoryId: minor.id, tracking: "BOTH", sellingPrice: "1200" });
+    expect(created).toMatchObject({ categoryId: category.id, subCategoryId: sub.id, minorCategoryId: minor.id, tracking: "BATCH", canBeProduced: true, sellingPrice: "1200" });
     expect(created.barcode).toMatch(/^20\d{11}$/);
     const digits = created.barcode.split("").map(Number);
     const sum = digits.slice(0, 12).reduce((total, digit, index) => total + digit * (index % 2 === 0 ? 1 : 3), 0);
@@ -222,12 +223,13 @@ describe("item bulk upload", () => {
     const required = { "Printed Item Code *": "P", "Printed / Customer Name *": "Printed", "UOM *": "Pcs" };
     sheet.addRow(row({ ...required, "Master Item Code *": "A1", "Master Item Name *": "Good", Category: "feed", "Sub Category": "POULTRY", "Minor Category": "Broiler", "Selling Price": "10" }));
     sheet.addRow(row({ ...required, "Master Item Code *": "A2", "Master Item Name *": "Bad Sub", "Sub Category": "Poultry" }));
-    sheet.addRow(row({ ...required, "Master Item Code *": "A3", "Master Item Name *": "Bad Type", "Item Type": "Gadget" }));
+    sheet.addRow(row({ ...required, "Master Item Code *": "A3", "Master Item Name *": "Bad Type", "Item Type *": "Gadget" }));
 
     const result = await importItems(adminActor, new Uint8Array(await workbook.xlsx.writeBuffer()));
     expect(result.created).toBe(1);
     expect(result.errors.map((error) => error.row)).toEqual([3, 4]);
     const [item] = (await listItems(adminActor, { page: 1, pageSize: 10 })).rows;
-    expect(item).toMatchObject({ code: "A1", minorCategoryName: "Broiler", sellingPrice: "10" });
+    // A blank Item Type gets the form's default.
+    expect(item).toMatchObject({ code: "A1", itemType: "Finished Goods", minorCategoryName: "Broiler", sellingPrice: "10" });
   });
 });

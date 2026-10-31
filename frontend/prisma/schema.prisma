@@ -742,11 +742,12 @@ model Item {
   netWeight      Decimal? @db.Decimal(14, 3)
   netWeightUnit  String?  @db.VarChar(20)
   restrictedAge  String?  @db.VarChar(10)
-  /// NONE or BOTH (batch and serial tracking).
+  /// NONE or BATCH (batch tracking).
   tracking       String   @default("NONE") @db.VarChar(10)
   autoBarcode    Boolean  @default(false)
   canBeSold      Boolean  @default(true)
   canBePurchased Boolean  @default(true)
+  canBeProduced  Boolean  @default(false)
   canBeRented    Boolean  @default(false)
   noDecimal      Boolean  @default(false)
   allowEbt       Boolean  @default(false)
@@ -1162,11 +1163,28 @@ model SalesCollection {
   employee      Employee?                  @relation("CollectionEmployee", fields: [employeeId], references: [id], onDelete: SetNull)
   allocations  SalesCollectionAllocation[]
   deductions   SalesCollectionDeduction[]
+  attachments  SalesCollectionAttachment[]
 
   @@unique([businessUnitId, number])
   @@index([businessUnitId, status, collectionDate])
   @@index([customerId, status])
   @@map("sales_collections")
+}
+
+/// Files attached to a collection (the Advance Collection voucher's attachment).
+model SalesCollectionAttachment {
+  id           String   @id @default(uuid()) @db.Uuid
+  collectionId String   @db.Uuid
+  storageKey   String   @unique @db.VarChar(300)
+  originalName String   @db.VarChar(255)
+  mimeType     String   @db.VarChar(100)
+  size         Int
+  createdAt    DateTime @default(now()) @db.Timestamptz(3)
+
+  collection SalesCollection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+
+  @@index([collectionId])
+  @@map("sales_collection_attachments")
 }
 
 /// Monthly sales target for one sales person.
@@ -1713,6 +1731,7 @@ model SalesOffer {
   bonusLines    SalesOfferBonusLine[]
   discountLines SalesOfferDiscountLine[]
   specialLines  SalesOfferSpecialLine[]
+  salesOrders   SalesOrder[]
 
   @@index([businessUnitId, kind])
   @@map("sales_offers")
@@ -2115,6 +2134,8 @@ model SalesOrder {
   salesPersonId           String?          @db.Uuid
   quotationId             String?          @db.Uuid
   priceListId             String?          @db.Uuid
+  /// Custom Offer: the one offer applied; every applicable offer when null.
+  offerId                 String?          @db.Uuid
   shipToAddressId         String?          @db.Uuid
   orderType               SalesOrderType   @default(SALES)
   paymentMethod           PaymentMethod    @default(CASH)
@@ -2168,6 +2189,8 @@ model SalesOrder {
   shipTo                CustomerAddress?       @relation(fields: [shipToAddressId], references: [id], onDelete: SetNull)
   lines                 SalesOrderLine[]
   events                SalesOrderEvent[]
+  offer                 SalesOffer?            @relation(fields: [offerId], references: [id], onDelete: SetNull)
+  attachments           SalesOrderAttachment[]
   deliveries            SalesDelivery[]
   deliveryPendingReason DeliveryPendingReason? @relation(fields: [deliveryPendingReasonId], references: [id], onDelete: SetNull)
   productionOrders ProductionOrder[]
@@ -2180,6 +2203,22 @@ model SalesOrder {
   @@index([customerId, status])
   @@index([quotationId])
   @@map("sales_orders")
+}
+
+/// Files attached to a sales order (the paperclip on the order form).
+model SalesOrderAttachment {
+  id           String   @id @default(uuid()) @db.Uuid
+  orderId      String   @db.Uuid
+  storageKey   String   @unique @db.VarChar(300)
+  originalName String   @db.VarChar(255)
+  mimeType     String   @db.VarChar(100)
+  size         Int
+  createdAt    DateTime @default(now()) @db.Timestamptz(3)
+
+  order SalesOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+  @@map("sales_order_attachments")
 }
 
 /// Why an approved order is not delivered yet, each time someone records it ("Previous Pending Reason").

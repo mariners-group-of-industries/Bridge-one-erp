@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { PageContainer, PageHead } from "@/components/layout/page";
-import { Card, EmptyState, ErrorState, LoadingState } from "@/components/ui/section";
+import { Card, ErrorState, LoadingState } from "@/components/ui/section";
+import { EmptyState } from "@/features/sales/components/EmptyState";
 import { useResource } from "@/hooks/use-resource";
 import { errorMessage } from "@/lib/api/client";
 import { useToday } from "../../lib/use-today";

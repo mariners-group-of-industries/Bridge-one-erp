@@ -9,7 +9,8 @@ import { Button, buttonClasses } from "@/components/ui/button";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { CONTROL, SelectField, TextField } from "@/components/ui/form-field";
 import { type IndicatorColor } from "@/components/ui/indicator";
-import { Card, EmptyState, ErrorState, LoadingState } from "@/components/ui/section";
+import { Card, ErrorState, LoadingState } from "@/components/ui/section";
+import { EmptyState } from "@/features/sales/components/EmptyState";
 import { Tabs } from "@/components/ui/tabs";
 import { useToast } from "@/components/ui/toast";
 import { useResource } from "@/hooks/use-resource";
@@ -19,7 +20,7 @@ import { SearchPick } from "../../components/SearchPick";
 import { formatAmount, formatQty } from "../../dashboard/lib/format";
 import { DayCell, FilterForm, useDebounced, useFilterLookups } from "../../deliveries/components/DeliveryWorkspaceView";
 import { DELIVERY_TYPE_LABELS } from "../../deliveries/schemas/delivery.schema";
-import { addDays, useToday } from "../../lib/use-today";
+import { useToday } from "../../lib/use-today";
 import { paths } from "../../paths";
 import {
   MARKET_STAGE_LABELS,
@@ -50,7 +51,14 @@ const TABS: { id: Tab; label: string }[] = [
 const isTab = (value: string | null): value is Tab => TABS.some((tab) => tab.id === value);
 
 const all = { value: "", label: "All" };
-const text = (value: string | null) => value ?? "N/A";
+// Empty cells stay blank, as in Managerium.
+const text = (value: string | null) => value ?? "";
+
+/** Lists open from the 1st of the current month ("YYYY-MM-01"). */
+const monthStart = (today: string) => `${today.slice(0, 7)}-01`;
+
+/** Compact, vertically centred rows like Managerium. */
+const compact = <T,>(columns: Column<T>[]) => columns.map((column) => ({ ...column, className: cn("py-1.5! align-middle!", column.className) }));
 type Query = Record<string, unknown>;
 
 export const STATUS_COLORS: Record<ReturnStatus, IndicatorColor> = { DRAFT: "orange", SUBMITTED: "green", CANCELLED: "red" };
@@ -146,7 +154,7 @@ export function ReturnWorkspaceView() {
 // ─── Delivery List: deliveries that can be returned ─────────────────────────
 
 function DeliveriesTab({ today, search, onQuery }: { today: string; search: string; onQuery: (query: Query | null) => void }) {
-  const [filters, setFilters] = useState({ from: addDays(today, -30), to: today });
+  const [filters, setFilters] = useState({ from: monthStart(today), to: today });
   const [query, setQuery] = useState<ReturnableDeliveryQuery>(filters);
   const [filterError, setFilterError] = useState<string>();
   const effective: ReturnableDeliveryQuery = { ...query, ...(search ? { search } : {}) };
@@ -225,7 +233,7 @@ function DeliveriesTab({ today, search, onQuery }: { today: string; search: stri
         <LoadingState />
       ) : (
         <div aria-busy={list.loading} className={list.loading ? "opacity-60 transition-opacity" : undefined}>
-          <DataTable rows={rows} columns={columns} getRowId={(row) => row.id} getRowLabel={(row) => row.number} pages={RETURN_PAGE_SIZES} emptyState={<EmptyState title="No deliveries in this range" />} />
+          <DataTable rows={rows} columns={compact(columns)} getRowId={(row) => row.id} getRowLabel={(row) => row.number} pages={RETURN_PAGE_SIZES} emptyState={<EmptyState title="No deliveries in this range" />} />
         </div>
       )}
     </>
@@ -244,7 +252,7 @@ function ReturnsTab({ market, today, search, onQuery }: { market: boolean; today
     salesPersonId: "",
     mode: "",
     status: "",
-    from: addDays(today, market ? 0 : -30),
+    from: monthStart(today),
     to: today,
   };
   const [filters, setFilters] = useState(initial);
@@ -329,7 +337,7 @@ function ReturnsTab({ market, today, search, onQuery }: { market: boolean; today
     ),
     sortValue: (row) => row.number,
   });
-  const mode: Column<ReturnListRow> = { id: "mode", header: "Return Type", cell: (row) => <span className="font-medium text-warning">{RETURN_MODE_LABELS[row.mode]}</span> };
+  const mode: Column<ReturnListRow> = { id: "mode", header: "Return Type", cell: (row) => <span className="font-medium whitespace-nowrap text-warning">{RETURN_MODE_LABELS[row.mode]}</span> };
 
   const columns: Column<ReturnListRow>[] = market
     ? [
@@ -404,7 +412,7 @@ function ReturnsTab({ market, today, search, onQuery }: { market: boolean; today
         <div aria-busy={list.loading} className={list.loading ? "opacity-60 transition-opacity" : undefined}>
           <DataTable
             rows={data.rows}
-            columns={columns}
+            columns={compact(columns)}
             getRowId={(row) => row.id}
             getRowLabel={(row) => row.number}
             rowHref={(row) => paths.salesReturn(row.id)}

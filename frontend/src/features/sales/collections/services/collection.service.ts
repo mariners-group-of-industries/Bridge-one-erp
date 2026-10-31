@@ -327,6 +327,7 @@ const collectionInclude = {
   cashAccount: { select: { code: true, name: true } },
   salesOrder: { select: { number: true } },
   employee: { select: { name: true } },
+  attachments: { select: { id: true, originalName: true, mimeType: true, size: true, createdAt: true }, orderBy: { createdAt: "asc" } },
   deductions: { include: { account: { select: { code: true, name: true } } } },
 } satisfies Prisma.SalesCollectionInclude;
 type CollectionRecord = Prisma.SalesCollectionGetPayload<{ include: typeof collectionInclude }>;
@@ -348,6 +349,8 @@ function toRow(record: CollectionRecord): CollectionRow {
     reference: record.reference,
     bankName: record.bankName,
     salesPersonName: record.salesPerson?.name ?? null,
+    employeeName: record.employee?.name ?? null,
+    attachments: record.attachments.map((file) => ({ ...file, createdAt: file.createdAt.toISOString() })),
     amount,
     allocated,
     unallocated: money(Math.max(0, amount - allocated)),

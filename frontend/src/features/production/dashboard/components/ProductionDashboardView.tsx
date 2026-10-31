@@ -1,11 +1,12 @@
 "use client";
 
-import { Cpu, Package, RefreshCw, TrendingUp } from "lucide-react";
+import { Package, RefreshCw, TrendingUp } from "lucide-react";
 import { useState, type FormEvent, type ReactNode } from "react";
 import { PageContainer, PageHead } from "@/components/layout/page";
 import { Button } from "@/components/ui/button";
 import { SelectField, TextField } from "@/components/ui/form-field";
-import { Card, EmptyState, ErrorState, LoadingState } from "@/components/ui/section";
+import { Card, ErrorState, LoadingState } from "@/components/ui/section";
+import { EmptyState } from "@/features/production/components/EmptyState";
 import { useResource } from "@/hooks/use-resource";
 import { cn } from "@/lib/cn";
 import { errorMessage } from "@/lib/api/client";
@@ -93,7 +94,6 @@ function Dashboard({ today }: { today: string }) {
           <TopList
             title="Machine"
             empty="No machine has logged runtime in this range"
-            emptyIcon={<Cpu aria-hidden="true" className="size-8 text-ink-faint" />}
             hint="Ranked by output; run hours from production entries"
             rows={data.topWorkCenters.map((row) => ({
               key: row.workCenterId,
@@ -133,13 +133,11 @@ function Stat({ icon, value, label, hint, tone }: { icon: ReactNode; value: stri
 function TopList({
   title,
   empty,
-  emptyIcon,
   hint,
   rows,
 }: {
   title: string;
   empty: string;
-  emptyIcon?: ReactNode;
   hint: string;
   rows: { key: string; initial: string; title: string; value: string; detail?: string }[];
 }) {
@@ -156,7 +154,7 @@ function TopList({
           </p>
         </header>
         {rows.length === 0 ? (
-          <EmptyState title={empty} icon={emptyIcon} />
+          <EmptyState title={empty} />
         ) : (
           <ol className="flex flex-col divide-y divide-line">
             {rows.map((row) => (

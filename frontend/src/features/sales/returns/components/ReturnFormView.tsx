@@ -8,7 +8,8 @@ import { PageContainer, PageHead } from "@/components/layout/page";
 import { Button, buttonClasses } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { CONTROL, CheckboxField, SelectField, TextField } from "@/components/ui/form-field";
-import { Card, EmptyState, ErrorState, LoadingState, Section } from "@/components/ui/section";
+import { Card, ErrorState, LoadingState, Section } from "@/components/ui/section";
+import { EmptyState } from "@/features/sales/components/EmptyState";
 import { useToast } from "@/components/ui/toast";
 import { useResource } from "@/hooks/use-resource";
 import { useSaveShortcut } from "@/hooks/use-save-shortcut";
@@ -180,8 +181,8 @@ function HeaderFields({
         required
         value={values.warehouseId}
         error={errors.warehouseId}
-        hint="Returned goods go back into this warehouse."
-        options={[{ value: "", label: "Select a warehouse" }, ...officeWarehouses.map((warehouse) => ({ value: warehouse.id, label: warehouse.name }))]}
+        hint={officeWarehouses.length ? "Returned goods go back into this warehouse." : "This office has no warehouse. Add one in Configuration › Business Config, or choose another office."}
+        options={[{ value: "", label: officeWarehouses.length ? "Select a warehouse" : "No warehouse for this office" }, ...officeWarehouses.map((warehouse) => ({ value: warehouse.id, label: warehouse.name }))]}
         onChange={(event) => set("warehouseId", event.target.value)}
       />
       <SelectField
@@ -791,7 +792,8 @@ function WithoutReferenceEditor({ today, lookups, warehouses, existing }: { toda
                   required
                   error={errors.customerId}
                   disabled={!businessUnitId || masters.loading}
-                  placeholder={masters.loading ? "Loading…" : "Select Partner (min 3 letters)"}
+                  placeholder={masters.loading ? "Loading customers…" : "Select Partner"}
+                  minChars={0}
                   options={[
                     ...(existing && !customers.some((candidate) => candidate.id === existing.customerId) ? [{ id: existing.customerId, label: existing.customerName }] : []),
                     ...customers.map((candidate) => ({ id: candidate.id, label: `${candidate.code}-${candidate.name}${candidate.phone ? ` (${candidate.phone})` : ""}` })),
@@ -815,11 +817,18 @@ function WithoutReferenceEditor({ today, lookups, warehouses, existing }: { toda
           </Section>
         </Card>
 
+        {masters.error && (
+          <Card>
+            <ErrorState message={`Customers and items could not be loaded: ${errorMessage(masters.error)}`} onRetry={masters.reload} />
+          </Card>
+        )}
+
         <Card>
           <Section>
             <ReturnItemEntry
               items={items}
               setup={masters.data?.setup}
+              loading={masters.loading}
               disabled={!businessUnitId || masters.loading}
               withoutInvoice={withoutInvoice}
               returnRate={async (itemId, reason) => {
@@ -856,7 +865,7 @@ function WithoutReferenceEditor({ today, lookups, warehouses, existing }: { toda
                   }}
                   className={cn(CONTROL, "h-8")}
                 >
-                  <option value="">returnReason</option>
+                  <option value="">Select return reason</option>
                   {reasonNames.map((name) => (
                     <option key={name} value={name}>
                       {name}
@@ -866,87 +875,91 @@ function WithoutReferenceEditor({ today, lookups, warehouses, existing }: { toda
               </div>
               <p className="text-lg font-semibold text-ink tabular-nums">Total Amount :{formatAmount(total)}</p>
             </div>
-            {lines.length === 0 ? (
-              <EmptyState title="No items yet" />
-            ) : (
-              <div className="overflow-x-auto rounded-lg border border-line">
-                <table className="w-full min-w-[960px] text-sm">
-                  <thead className="bg-accent-soft text-xs text-ink">
-                    <tr className="border-b border-line">
-                      {["Item Code", "Name", "Return Reason", "Return Qty", "Cost Price (BDT)", "Return Price (BDT)", "VAT %", "VAT", "Total", ""].map((label, index) => (
-                        <th key={index} scope="col" className={cn("px-2 py-2 font-semibold", index >= 3 && index < 9 ? "text-right" : "text-left")}>
-                          {label || <span className="sr-only">Remove</span>}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-line">
-                    {computed.map(({ line, vatAmount, amount }, index) => {
-                      const item = itemById.get(line.itemId);
-                      const rowError = ["itemId", "qty", "rate", "vatPercent"].map((field) => errors[`lines.${index}.${field}`]).find(Boolean);
-                      return (
-                        <tr key={line.key} className="align-top">
-                          <td className="px-2 py-2 whitespace-nowrap text-ink-muted">{item?.code ?? "—"}</td>
-                          <td className="px-2 py-2 text-ink">
-                            {item?.name ?? existing?.lines.find((candidate) => candidate.itemId === line.itemId)?.itemName ?? "—"}
-                            {rowError && <p className="mt-0.5 text-xs text-danger">{rowError}</p>}
-                          </td>
-                          <td className="w-44 px-2 py-1.5">
-                            <select aria-label={`Return reason, row ${index + 1}`} value={line.reason} onChange={(event) => update(line.key, { reason: event.target.value })} className={cn(CONTROL, "h-7 w-full")}>
-                              <option value="">—</option>
-                              {[...new Set([...(masters.data?.setup.returnReasons ?? []).map((reason) => reason.name), line.reason].filter(Boolean))].map((name) => (
-                                <option key={name} value={name}>
-                                  {name}
-                                </option>
-                              ))}
-                            </select>
-                          </td>
-                          <td className="w-28 px-2 py-1.5">
-                            <input aria-label={`Quantity, row ${index + 1}`} type="number" min={0} step="any" value={line.qty} onChange={(event) => update(line.key, { qty: event.target.value })} className={cn(CONTROL, "h-7 w-full text-right tabular-nums")} />
-                          </td>
-                          <td className="px-2 py-2 text-right tabular-nums">{item?.costPrice === null || item?.costPrice === undefined ? "—" : formatAmount(item.costPrice)}</td>
-                          <td className="w-28 px-2 py-1.5">
-                            <input aria-label={`Return price, row ${index + 1}`} type="number" min={0} step="any" value={line.rate} onChange={(event) => update(line.key, { rate: event.target.value })} className={cn(CONTROL, "h-7 w-full text-right tabular-nums")} />
-                          </td>
-                          <td className="w-24 px-2 py-1.5">
-                            <input
-                              aria-label={`VAT %, row ${index + 1}`}
-                              type="number"
-                              min={0}
-                              max={100}
-                              step="any"
-                              value={withoutInvoice ? "0" : line.vatPercent}
-                              disabled={withoutInvoice}
-                              onChange={(event) => update(line.key, { vatPercent: event.target.value })}
-                              className={cn(CONTROL, "h-7 w-full text-right tabular-nums")}
-                            />
-                          </td>
-                          <td className="px-2 py-2 text-right tabular-nums">{formatAmount(vatAmount)}</td>
-                          <td className="px-2 py-2 text-right font-medium text-ink tabular-nums">{formatAmount(amount)}</td>
-                          <td className="px-2 py-1.5">
-                            <Button variant="ghost" size="icon" aria-label={`Remove row ${index + 1}`} onClick={() => setLines((current) => current.filter((candidate) => candidate.key !== line.key))}>
-                              <Trash2 />
-                            </Button>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                  <tfoot className="border-t border-line-strong bg-canvas font-medium text-ink">
+            {/* The header and Total stay visible with no items, as in Managerium. */}
+            <div className="overflow-x-auto rounded-lg border border-line">
+              <table className="w-full min-w-[960px] text-sm">
+                <thead className="bg-accent-soft text-xs text-ink">
+                  <tr className="border-b border-line">
+                    {["Item Code", "Name", "Return Reason", "Return Qty", "Cost Price (BDT)", "Return Price (BDT)", "VAT %", "VAT", "Total", ""].map((label, index) => (
+                      <th key={index} scope="col" className={cn("px-2 py-2 font-semibold", index >= 3 && index < 9 ? "text-right" : "text-left")}>
+                        {label || <span className="sr-only">Remove</span>}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-line">
+                  {lines.length === 0 && (
                     <tr>
-                      <td colSpan={3} className="px-2 py-2 text-right">
-                        Total
+                      <td colSpan={10} className="px-2 py-6 text-center text-ink-muted">
+                        No items yet. Select an item above and press Add.
                       </td>
-                      <td className="px-2 py-2 text-right tabular-nums">{formatQty(Math.round(totalQty * 1000) / 1000)}</td>
-                      <td colSpan={3} />
-                      <td className="px-2 py-2 text-right tabular-nums">{formatAmount(totalVat)}</td>
-                      <td className="px-2 py-2 text-right tabular-nums">{formatAmount(total)}</td>
-                      <td />
                     </tr>
-                  </tfoot>
-                </table>
-              </div>
-            )}
+                  )}
+                  {computed.map(({ line, vatAmount, amount }, index) => {
+                    const item = itemById.get(line.itemId);
+                    const rowError = ["itemId", "qty", "rate", "vatPercent"].map((field) => errors[`lines.${index}.${field}`]).find(Boolean);
+                    return (
+                      <tr key={line.key} className="align-top">
+                        <td className="px-2 py-2 whitespace-nowrap text-ink-muted">{item?.code ?? "—"}</td>
+                        <td className="px-2 py-2 text-ink">
+                          {item?.name ?? existing?.lines.find((candidate) => candidate.itemId === line.itemId)?.itemName ?? "—"}
+                          {rowError && <p className="mt-0.5 text-xs text-danger">{rowError}</p>}
+                        </td>
+                        <td className="w-44 px-2 py-1.5">
+                          <select aria-label={`Return reason, row ${index + 1}`} value={line.reason} onChange={(event) => update(line.key, { reason: event.target.value })} className={cn(CONTROL, "h-7 w-full")}>
+                            <option value="">—</option>
+                            {[...new Set([...(masters.data?.setup.returnReasons ?? []).map((reason) => reason.name), line.reason].filter(Boolean))].map((name) => (
+                              <option key={name} value={name}>
+                                {name}
+                              </option>
+                            ))}
+                          </select>
+                        </td>
+                        <td className="w-28 px-2 py-1.5">
+                          <input aria-label={`Quantity, row ${index + 1}`} type="number" min={0} step="any" value={line.qty} onChange={(event) => update(line.key, { qty: event.target.value })} className={cn(CONTROL, "h-7 w-full text-right tabular-nums")} />
+                        </td>
+                        <td className="px-2 py-2 text-right tabular-nums">{item?.costPrice === null || item?.costPrice === undefined ? "—" : formatAmount(item.costPrice)}</td>
+                        <td className="w-28 px-2 py-1.5">
+                          <input aria-label={`Return price, row ${index + 1}`} type="number" min={0} step="any" value={line.rate} onChange={(event) => update(line.key, { rate: event.target.value })} className={cn(CONTROL, "h-7 w-full text-right tabular-nums")} />
+                        </td>
+                        <td className="w-24 px-2 py-1.5">
+                          <input
+                            aria-label={`VAT %, row ${index + 1}`}
+                            type="number"
+                            min={0}
+                            max={100}
+                            step="any"
+                            value={withoutInvoice ? "0" : line.vatPercent}
+                            disabled={withoutInvoice}
+                            onChange={(event) => update(line.key, { vatPercent: event.target.value })}
+                            className={cn(CONTROL, "h-7 w-full text-right tabular-nums")}
+                          />
+                        </td>
+                        <td className="px-2 py-2 text-right tabular-nums">{formatAmount(vatAmount)}</td>
+                        <td className="px-2 py-2 text-right font-medium text-ink tabular-nums">{formatAmount(amount)}</td>
+                        <td className="px-2 py-1.5">
+                          <Button variant="ghost" size="icon" aria-label={`Remove row ${index + 1}`} onClick={() => setLines((current) => current.filter((candidate) => candidate.key !== line.key))}>
+                            <Trash2 />
+                          </Button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+                <tfoot className="border-t border-line-strong bg-canvas font-medium text-ink">
+                  <tr>
+                    <td colSpan={3} className="px-2 py-2 text-right">
+                      Total
+                    </td>
+                    <td className="px-2 py-2 text-right tabular-nums">{formatQty(Math.round(totalQty * 1000) / 1000)}</td>
+                    <td colSpan={3} />
+                    <td className="px-2 py-2 text-right tabular-nums">{formatAmount(totalVat)}</td>
+                    <td className="px-2 py-2 text-right tabular-nums">{formatAmount(total)}</td>
+                    <td />
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
             {errors.lines && <p className="text-xs text-danger">{errors.lines}</p>}
           </Section>
         </Card>
@@ -985,6 +998,7 @@ function WithoutReferenceEditor({ today, lookups, warehouses, existing }: { toda
 function ReturnItemEntry({
   items,
   setup,
+  loading = false,
   disabled,
   withoutInvoice,
   returnRate,
@@ -993,6 +1007,8 @@ function ReturnItemEntry({
 }: {
   items: ItemOption[];
   setup: SetupLookups | undefined;
+  /** Items still loading: says so instead of "Select an office first". */
+  loading?: boolean;
   disabled: boolean;
   withoutInvoice: boolean;
   /** Return Price Setup rate of an item for a reason (null when none is set). */
@@ -1139,7 +1155,7 @@ function ReturnItemEntry({
             list={listId}
             value={itemText}
             disabled={disabled}
-            placeholder={disabled ? "Select an office first" : "Select/Search Item (min 3 letters)"}
+            placeholder={loading ? "Loading items…" : disabled ? "Select an office first" : "Select/Search Item (min 3 letters)"}
             onChange={(event) => pick(event.target.value)}
             className={cn(CONTROL, "h-7")}
           />
