@@ -26,6 +26,8 @@ type Common = {
   loading?: boolean;
   emptyText?: string;
   className?: string;
+  /** Label for screen readers only (e.g. inside a table cell). */
+  hideLabel?: boolean;
 };
 
 type Props = Common & ({ multiple?: false; value: string; onChange: (value: string) => void } | { multiple: true; value: string[]; onChange: (value: string[]) => void });
@@ -35,7 +37,7 @@ type Props = Common & ({ multiple?: false; value: string; onChange: (value: stri
  * `multiple`, each option has a checkbox and the list stays open while picking.
  */
 export function Combobox(props: Props) {
-  const { label, required, error, hint, placeholder, disabled, options, selectedLabels, onQueryChange, filter = true, loading, emptyText = "No match.", className } = props;
+  const { label, required, error, hint, placeholder, disabled, options, selectedLabels, onQueryChange, filter = true, loading, emptyText = "No match.", className, hideLabel } = props;
   const id = useId();
   const listId = `${id}-list`;
   const messageId = `${id}-message`;
@@ -104,7 +106,7 @@ export function Combobox(props: Props) {
   const summary = chosen.map(labelOf).filter(Boolean).join(", ");
   return (
     <div ref={root} className={cn("flex flex-col gap-1", className)}>
-      <label htmlFor={id} className="text-xs font-semibold text-ink-muted">
+      <label htmlFor={id} className={cn("text-xs font-semibold text-ink-muted", hideLabel && "sr-only")}>
         {label}
         {required && (
           <span className="ml-0.5 text-danger" aria-hidden="true">

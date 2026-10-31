@@ -5,11 +5,13 @@ import Link from "next/link";
 import { useState, type FormEvent } from "react";
 import { PageContainer, PageHead } from "@/components/layout/page";
 import { Button, buttonClasses } from "@/components/ui/button";
-import { DataTable, type Column } from "@/components/ui/data-table";
+import type { Column } from "@/components/ui/data-table";
+import { ListTable } from "@/features/production/components/ListTable";
 import { SelectField, TextField } from "@/components/ui/form-field";
 import { Card, EmptyState, ErrorState, LoadingState } from "@/components/ui/section";
 import { useResource } from "@/hooks/use-resource";
 import { errorMessage } from "@/lib/api/client";
+import { cn } from "@/lib/cn";
 import { addDays, useToday } from "@/features/sales/lib/use-today";
 import { paths } from "../../paths";
 import { ORDER_STATUS_LABELS, ORDER_VIEW_STATUSES, orderListQuerySchema, type OrderListQuery, type OrderRow } from "../schemas/order.schema";
@@ -62,10 +64,20 @@ function OrderList({ today }: { today: string }) {
       className: "w-20",
       cell: (row) => (
         <span className="flex items-center gap-1">
-          {row.status === "PENDING_APPROVAL" && (
+          {/* As in Managerium the pencil is always there; once an order is approved, closed, … it is view only. */}
+          {row.canEdit ? (
             <Link href={paths.editOrder(row.id)} aria-label={`Edit ${row.number}`} title="Edit Order" className={buttonClasses("ghost", "icon")}>
               <Pencil aria-hidden="true" />
             </Link>
+          ) : (
+            <span
+              role="img"
+              aria-label={`${row.number} cannot be edited (${ORDER_STATUS_LABELS[row.status]})`}
+              title={`${ORDER_STATUS_LABELS[row.status]} – view only`}
+              className={cn(buttonClasses("ghost", "icon"), "cursor-not-allowed text-ink-faint opacity-50 hover:bg-transparent")}
+            >
+              <Pencil aria-hidden="true" />
+            </span>
           )}
           <Link href={paths.order(row.id)} aria-label={`View ${row.number}`} title="View" className={buttonClasses("ghost", "icon")}>
             <Eye aria-hidden="true" />
@@ -122,7 +134,7 @@ function OrderList({ today }: { today: string }) {
         <LoadingState label="Loading production orders…" />
       ) : (
         <div className={list.loading ? "opacity-60 transition-opacity" : undefined} aria-busy={list.loading}>
-          <DataTable
+          <ListTable
             rows={rows}
             columns={columns}
             getRowId={(row) => row.id}

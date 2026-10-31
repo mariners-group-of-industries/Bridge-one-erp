@@ -5,7 +5,8 @@ import Link from "next/link";
 import { useState, type FormEvent } from "react";
 import { PageContainer, PageHead } from "@/components/layout/page";
 import { Button, buttonClasses } from "@/components/ui/button";
-import { DataTable, type Column } from "@/components/ui/data-table";
+import type { Column } from "@/components/ui/data-table";
+import { ListTable } from "@/features/production/components/ListTable";
 import { SelectField } from "@/components/ui/form-field";
 import { Card, EmptyState, ErrorState, LoadingState } from "@/components/ui/section";
 import { useToast } from "@/components/ui/toast";
@@ -95,9 +96,9 @@ export function WorkCenterListView() {
       id: "name",
       header: "Work Center",
       cell: (row) => (
-        <span className="flex flex-col">
+        <span className="flex items-center gap-1.5">
           <span className="text-ink">{row.name}</span>
-          {!row.isActive && <span className="text-xs text-danger">Inactive</span>}
+          {!row.isActive && <span className="text-xs text-danger">(Inactive)</span>}
         </span>
       ),
       sortValue: (row) => row.name,
@@ -156,7 +157,7 @@ export function WorkCenterListView() {
           <LoadingState label="Loading work centers…" />
         ) : (
           <div className={list.loading ? "opacity-60 transition-opacity" : undefined} aria-busy={list.loading}>
-            <DataTable
+            <ListTable
               rows={rows}
               columns={columns}
               getRowId={(row) => row.id}

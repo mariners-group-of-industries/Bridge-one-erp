@@ -1,5 +1,5 @@
 import { apiRequest } from "@/lib/api/client";
-import type { EntryDetail, EntryForm, EntryInput, EntryListQuery, EntryRow, QueueRow } from "../schemas/entry.schema";
+import type { EntryDetail, EntryForm, EntryInput, EntryListQuery, EntryRow, EntryWastageForm, EntryWastageInput, ProcessOption, QueueRow } from "../schemas/entry.schema";
 
 const BASE = "/api/production/entries";
 const json = (method: string, body: unknown): RequestInit => ({ method, body: JSON.stringify(body) });
@@ -14,3 +14,6 @@ export const createEntry = (input: EntryInput) => apiRequest<EntryDetail>(BASE, 
 export const cancelEntry = (id: string, version: string, reason: string) => apiRequest<EntryDetail>(`${BASE}/${id}/cancel`, json("POST", { version, reason }));
 /** The printable slip opens in a new tab. */
 export const entryPdfUrl = (id: string) => `${BASE}/${id}/pdf`;
+export const fetchEntryWastage = (id: string) => apiRequest<EntryWastageForm>(`${BASE}/${id}/wastage`);
+export const saveEntryWastage = (id: string, input: EntryWastageInput) => apiRequest<EntryWastageForm>(`${BASE}/${id}/wastage`, json("PUT", input));
+export const createProcess = (name: string, businessUnitId: string) => apiRequest<ProcessOption>("/api/production/processes", json("POST", { name, businessUnitId }));

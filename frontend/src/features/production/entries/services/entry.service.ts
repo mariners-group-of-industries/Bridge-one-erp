@@ -8,6 +8,7 @@ import { scopedBusinessUnitIds } from "@/features/sales/lib/scope";
 import { userNames } from "@/features/sales/lib/users";
 import { round2, round4 } from "../../bom/lib/bom-totals";
 import { productionNumber } from "../../lib/numbering";
+import { WASTAGE_INCLUDE, toWastageLine } from "./wastage.service";
 import {
   entryCancelSchema,
   entryInputSchema,
@@ -229,13 +230,23 @@ export async function getEntry(actor: Actor, id: string): Promise<EntryDetail> {
       office: { select: { name: true } },
       sourceWarehouse: { select: { name: true } },
       outputWarehouse: { select: { name: true } },
-      materials: { include: { item: { select: { code: true, name: true } } }, orderBy: { lineNo: "asc" } },
+      // Order date, BOM and machine ("Equipment") of the order; operators tagged on the work center.
+      order: { select: { number: true, orderDate: true, machineName: true, salesOrder: { select: { number: true } }, bom: { select: { name: true } } } },
+      workCenter: { select: { code: true, name: true, operators: { select: { employee: { select: { name: true } } }, orderBy: { createdAt: "asc" } } } },
+      materials: { include: { item: { select: { code: true, name: true, category: CATEGORY } } }, orderBy: { lineNo: "asc" } },
+      wastages: { include: WASTAGE_INCLUDE, orderBy: { lineNo: "asc" } },
     },
   });
   if (!record) throw notFound("Production entry");
   const nameOf = await userNames([record.createdBy, record.cancelledBy]);
+  const netQty = num(record.netQty);
   return {
     ...toRow(record, nameOf),
+    orderDate: fromDbDate(record.order.orderDate),
+    bomName: record.order.bom.name,
+    equipment: record.order.machineName,
+    operatorNames: record.workCenter?.operators.map((operator) => operator.employee.name) ?? [],
+    unitCost: netQty > 0 ? round4(num(record.actualCost) / netQty) : 0,
     officeName: record.office.name,
     sourceWarehouseName: record.sourceWarehouse.name,
     outputWarehouseName: record.outputWarehouse.name,
@@ -250,6 +261,7 @@ export async function getEntry(actor: Actor, id: string): Promise<EntryDetail> {
       itemId: line.itemId,
       code: line.item.code,
       name: line.item.name,
+      ...categoryNames(line.item.category),
       uom: line.uom,
       standardQty: num(line.standardQty),
       actualQty: num(line.actualQty),
@@ -258,6 +270,7 @@ export async function getEntry(actor: Actor, id: string): Promise<EntryDetail> {
       varianceQty: round4(num(line.actualQty) - num(line.standardQty)),
       rate: num(line.rate),
     })),
+    wastages: record.wastages.map(toWastageLine),
     canCancel: record.status === "POSTED" && actor.permissions.has("production:write"),
   };
 }
