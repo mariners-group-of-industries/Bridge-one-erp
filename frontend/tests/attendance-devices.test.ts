@@ -67,6 +67,14 @@ describe("attendance devices", () => {
     expect(row.lastSyncAt).not.toBeNull();
   });
 
+  it("does not match a device user to an employee whose Employee ID equals the number but who has another Attendance ID", async () => {
+    const { id } = await device();
+    // Rahim (Attendance ID 101) also has Employee ID "E-1"; give someone else's device number his code.
+    await testPrisma().employee.update({ where: { id: rahimId }, data: { employeeCode: "555" } });
+    expect(await uploadPunches(adminActor, id, { punches: [{ userId: "555", time: "2026-10-28T09:00:00+06:00" }] })).toMatchObject({ unmatched: 1 });
+    expect(await testPrisma().attendancePunch.count({ where: { employeeId: rahimId } })).toBe(0);
+  });
+
   it("records agent errors on the device, refuses inactive devices and keeps history on delete", async () => {
     const { id } = await device();
     await uploadPunches(adminActor, id, { punches: [], error: "Agent: connect ETIMEDOUT 192.168.0.119:4370" });
