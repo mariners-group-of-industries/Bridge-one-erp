@@ -1,11 +1,12 @@
 import type { Prisma } from "@/generated/prisma/client";
-import type { Actor } from "@/lib/auth/actor";
+import { badRequest, notFound } from "@/lib/api/errors";
+import { actorUserId, type Actor } from "@/lib/auth/actor";
 import { db } from "@/lib/prisma/client";
 import { decideBonus, decideIncrement, listBonusRuns, listIncrements } from "../../compensation/server/compensation.service";
 import { grossOf } from "../../payroll/server/payroll.service";
 import { decideLeave, decideMovement, listLeaves, listMovements } from "../../self-service/leave-movement/server/leave-movement.service";
 import { employeeScope, isoDate, money, requireHr, toDate } from "../../shared/hr-access";
-import type { GridColumn, PendingKind, PendingList, PolicyFilter, PolicyGrid, PolicyTab } from "../types";
+import type { ChecklistFlag, ChecklistRow, GridColumn, PendingKind, PendingList, PolicyFilter, PolicyGrid, PolicyTab } from "../types";
 
 const LIMIT = 500;
 const col = (key: string, label: string, align?: "right"): GridColumn => ({ key, label, ...(align ? { align } : {}) });
@@ -99,14 +100,6 @@ export async function policyGrid(actor: Actor, tab: PolicyTab, filter: PolicyFil
         rows: list.map((e) => ({ ...base(e), designation: e.designation ?? "—", gross: money(grossOf(e.salary)) })),
       };
     }
-    case "employee-assign": {
-      const list = await employees();
-      return {
-        configured: true,
-        columns: [...EMPLOYEE_COLS, col("department", "Department"), col("designation", "Designation"), col("supervisor", "Supervisor"), col("lineManager", "Line Manager")],
-        rows: list.map((e) => ({ ...base(e), department: e.department ?? "—", designation: e.designation ?? "—", supervisor: e.supervisor ?? "—", lineManager: e.lineManager ?? "—" })),
-      };
-    }
     case "policy": {
       const list = await employees();
       return {
@@ -143,6 +136,81 @@ export async function policyGrid(actor: Actor, tab: PolicyTab, filter: PolicyFil
     default:
       return notStored(tab.replace(/-/g, " ").replace(/^\w/, (c) => c.toUpperCase()));
   }
+}
+
+// ─── Employee Assign › checklist ──────────────────────────────────────────────
+
+const DAY_MS = 86_400_000;
+
+/** Active employees with their OverTime, PF and Hold Salary flags, narrowed by office and employee. */
+export async function employeeChecklist(actor: Actor, filter: PolicyFilter, today = new Date()): Promise<ChecklistRow[]> {
+  requireHr(actor);
+  const day = isoDate(today);
+  const [list, assignments] = await Promise.all([
+    db().employee.findMany({
+      where: { ...employeeWhere(actor, filter), isActive: true },
+      orderBy: { employeeCode: "asc" },
+      take: LIMIT,
+      select: {
+        id: true,
+        employeeCode: true,
+        name: true,
+        designation: true,
+        department: true,
+        joiningDate: true,
+        terminationDate: true,
+        employeePolicy: true,
+        holdSalary: true,
+        salary: { select: { eligibleOT: true, eligiblePF: true } },
+      },
+    }),
+    // Assignments in force today, latest first, so the first one per employee wins.
+    db().hrPolicyRecord.findMany({
+      where: {
+        tab: "employee-assign",
+        employeeId: { not: null },
+        OR: [{ effectiveFrom: null }, { effectiveFrom: { lte: toDate(day) } }],
+        AND: [{ OR: [{ effectiveTo: null }, { effectiveTo: { gte: toDate(day) } }] }],
+      },
+      orderBy: { effectiveFrom: "desc" },
+      select: { employeeId: true, data: true },
+    }),
+  ]);
+  const assigned = new Map<string, string>();
+  for (const a of assignments) {
+    const policy = (a.data as Record<string, unknown> | null)?.policy;
+    if (a.employeeId && typeof policy === "string" && policy && !assigned.has(a.employeeId)) assigned.set(a.employeeId, policy);
+  }
+  return list.map((e) => {
+    const end = e.terminationDate && e.terminationDate < toDate(day) ? e.terminationDate : toDate(day);
+    return {
+      id: e.id,
+      code: e.employeeCode,
+      name: e.name,
+      designation: e.designation ?? "—",
+      joiningDate: isoDate(e.joiningDate),
+      department: e.department ?? "—",
+      policy: assigned.get(e.id) ?? e.employeePolicy ?? "—",
+      serviceDays: Math.max(0, Math.round((end.getTime() - e.joiningDate.getTime()) / DAY_MS)),
+      hasSalary: e.salary !== null,
+      overtime: e.salary?.eligibleOT ?? false,
+      pf: e.salary?.eligiblePF ?? false,
+      holdSalary: e.holdSalary,
+    };
+  });
+}
+
+/** Ticks or clears one checklist flag. OverTime and PF need the employee's salary set up first. */
+export async function setChecklistFlag(actor: Actor, employeeId: string, flag: ChecklistFlag, value: boolean): Promise<void> {
+  requireHr(actor);
+  const employee = await db().employee.findFirst({ where: { id: employeeId, ...employeeScope(actor) }, select: { id: true, salary: { select: { id: true } } } });
+  if (!employee) throw notFound("Employee");
+  if (flag === "holdSalary") {
+    await db().employee.update({ where: { id: employeeId }, data: { holdSalary: value, updatedById: actorUserId(actor) } });
+    return;
+  }
+  if (!employee.salary) throw badRequest("Set up this employee's salary in Employee › Salary first.");
+  await db().employeeSalary.update({ where: { employeeId }, data: flag === "overtime" ? { eligibleOT: value } : { eligiblePF: value } });
 }
 
 // ─── Pending approval ─────────────────────────────────────────────────────────
