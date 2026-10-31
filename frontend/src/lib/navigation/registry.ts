@@ -2,6 +2,7 @@ import { accountWorkspace } from "@/features/accounts/navigation";
 import { configurationWorkspace } from "@/features/configuration/navigation";
 import { hrmWorkspace } from "@/features/hrm/navigation";
 import { inventoryWorkspace } from "@/features/inventory/navigation";
+import { posWorkspace } from "@/features/pos/navigation";
 import { productionWorkspace } from "@/features/production/navigation";
 import { purchaseWorkspace } from "@/features/purchase/navigation";
 import { salesWorkspace } from "@/features/sales/navigation";
@@ -15,6 +16,7 @@ import type { Breadcrumb, NavLink, NavRoute, Workspace } from "./types";
  */
 export const workspaces: readonly Workspace[] = [
   purchaseWorkspace,
+  posWorkspace,
   inventoryWorkspace,
   productionWorkspace,
   salesWorkspace,

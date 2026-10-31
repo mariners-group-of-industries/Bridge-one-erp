@@ -131,3 +131,16 @@ describe("purchase workspace", () => {
     ]);
   });
 });
+
+
+describe("pos workspace", () => {
+  it("lists POS Dashboard, Setup, and Reports under POS", () => {
+    const pos = workspaces.find((workspace) => workspace.id === "pos");
+    expect(pos?.status).toBe("active");
+    expect(pos?.cards?.[0]?.links.map((link) => link.label)).toEqual([
+      "POS Dashboard",
+      "Setup",
+      "Reports",
+    ]);
+  });
+});
