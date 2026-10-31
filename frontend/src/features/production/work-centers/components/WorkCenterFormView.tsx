@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeft, ChevronDown, Plus, Save, Search } from "lucide-react";
+import { ArrowLeft, ChevronDown, Plus, Save } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -24,6 +24,7 @@ import {
   type WorkCenterLookups,
 } from "../schemas/work-center.schema";
 import { createWorkCenter, fetchWorkCenter, fetchWorkCenterLookups, searchOperators, updateWorkCenter } from "../services/work-center.api";
+import { Combobox } from "./Combobox";
 import { MasterDialog, OperatorTable, WithAddNew } from "./WorkCenterParts";
 
 interface Values {
@@ -38,7 +39,7 @@ interface Values {
   remarks: string;
   departmentId: string;
   departmentSectionId: string;
-  warehouseId: string;
+  warehouseIds: string[];
   operatorIds: string[];
 }
 
@@ -55,7 +56,7 @@ function initialValues(lookups: WorkCenterLookups, record?: WorkCenterDetail): V
     remarks: record?.remarks ?? "",
     departmentId: record?.departmentId ?? "",
     departmentSectionId: record?.departmentSectionId ?? "",
-    warehouseId: record?.warehouseId ?? "",
+    warehouseIds: record?.warehouseIds ?? [],
     operatorIds: record?.operators.map((operator) => operator.employeeId) ?? [],
   };
 }
@@ -71,9 +72,9 @@ function toInput(values: Values): WorkCenterInput {
     ratedCapacityPerHour: requiredNumber(values.ratedCapacityPerHour),
     costPerHour: optionalNumber(values.costPerHour),
     remarks: values.remarks || null,
-    departmentId: values.departmentId,
-    departmentSectionId: values.departmentSectionId,
-    warehouseId: values.warehouseId || null,
+    departmentId: values.departmentId || null,
+    departmentSectionId: values.departmentSectionId || null,
+    warehouseIds: values.warehouseIds,
     operatorIds: values.operatorIds,
   };
 }
@@ -105,27 +106,33 @@ function Failed({ message, onRetry }: { message: string; onRetry: () => void }) 
   );
 }
 
-/** Employees matching `term` (3+ letters), debounced. */
+/** Active employees matching `term` (3+ letters), or the first ones when it is empty; debounced. */
 function useOperatorSearch(term: string, businessUnitId?: string) {
   const wanted = term.trim();
+  const searchable = wanted.length === 0 || wanted.length >= 3;
   const key = `${businessUnitId ?? ""}:${wanted}`;
   const [found, setFound] = useState<{ key: string; rows: OperatorOption[]; error?: string }>({ key: "", rows: [] });
   useEffect(() => {
-    if (wanted.length < 3) return;
+    if (!searchable) return;
     let cancelled = false;
-    const timer = setTimeout(() => {
-      searchOperators(wanted, businessUnitId).then(
-        (rows) => !cancelled && setFound({ key, rows }),
-        (error: unknown) => !cancelled && setFound({ key, rows: [], error: errorMessage(error) }),
-      );
-    }, 300);
+    const timer = setTimeout(
+      () => {
+        searchOperators(wanted, businessUnitId).then(
+          (rows) => !cancelled && setFound({ key, rows }),
+          (error: unknown) => !cancelled && setFound({ key, rows: [], error: errorMessage(error) }),
+        );
+      },
+      wanted ? 300 : 0,
+    );
     return () => {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [wanted, businessUnitId, key]);
-  return { ...found, ready: wanted.length >= 3 && found.key === key };
+  }, [wanted, searchable, businessUnitId, key]);
+  return { ...found, searchable, ready: searchable && found.key === key };
 }
+
+const operatorLabel = (operator: OperatorOption) => `${operator.name} (${operator.phone ?? operator.code})`;
 
 function WorkCenterForm({ lookups: loaded, record }: { lookups: WorkCenterLookups; record?: WorkCenterDetail }) {
   const router = useRouter();
@@ -137,6 +144,8 @@ function WorkCenterForm({ lookups: loaded, record }: { lookups: WorkCenterLookup
   const [adding, setAdding] = useState<MasterKind | null>(null);
   const [operatorsOpen, setOperatorsOpen] = useState(true);
   const [operatorTerm, setOperatorTerm] = useState("");
+  /** Operator picked in the dropdown, added to the table with "Add". */
+  const [picked, setPicked] = useState<OperatorOption | null>(null);
   /** Details of the tagged operators (saved ones, then the ones picked from the search). */
   const [operators, setOperators] = useState<OperatorOption[]>(() => record?.operators ?? []);
 
@@ -150,7 +159,15 @@ function WorkCenterForm({ lookups: loaded, record }: { lookups: WorkCenterLookup
   const operatorSearch = useOperatorSearch(operatorTerm, unit || undefined);
   const tagged = operators.filter((row) => values.operatorIds.includes(row.employeeId));
 
-  const options = (rows: readonly Option[], placeholder: string) => [{ value: "", label: placeholder }, ...rows.map((row) => ({ value: row.id, label: row.name }))];
+  const options = (rows: readonly Option[]) => rows.map((row) => ({ value: row.id, label: row.name }));
+  // A warehouse name used in two offices is told apart by its office.
+  const warehouseOptions = warehouses.map((warehouse) => ({
+    value: warehouse.id,
+    label: warehouses.some((other) => other.id !== warehouse.id && other.name === warehouse.name) ? `${warehouse.name} (${warehouse.officeName})` : warehouse.name,
+  }));
+  const operatorOptions = operatorSearch.rows
+    .filter((operator) => !values.operatorIds.includes(operator.employeeId))
+    .map((operator) => ({ value: operator.employeeId, label: operatorLabel(operator) }));
 
   function added(kind: MasterKind, created: Option, departmentId?: string) {
     setAdding(null);
@@ -166,12 +183,17 @@ function WorkCenterForm({ lookups: loaded, record }: { lookups: WorkCenterLookup
     }
   }
 
-  function addOperator(operator: OperatorOption) {
-    if (!values.operatorIds.includes(operator.employeeId)) {
-      setOperators((current) => [...current.filter((row) => row.employeeId !== operator.employeeId), operator]);
-      set({ operatorIds: [...values.operatorIds, operator.employeeId] });
+  function addOperator() {
+    if (!picked) {
+      setErrors((current) => ({ ...current, operatorIds: "Select an operator first." }));
+      return;
     }
-    setOperatorTerm("");
+    if (!values.operatorIds.includes(picked.employeeId)) {
+      setOperators((current) => [...current.filter((row) => row.employeeId !== picked.employeeId), picked]);
+      set({ operatorIds: [...values.operatorIds, picked.employeeId] });
+    }
+    setErrors(({ operatorIds: _, ...rest }) => rest);
+    setPicked(null);
   }
 
   async function save() {
@@ -233,15 +255,23 @@ function WorkCenterForm({ lookups: loaded, record }: { lookups: WorkCenterLookup
                 required
                 value={values.businessUnitId}
                 error={errors.businessUnitId}
-                options={options(lookups.businessUnits, "Business Unit")}
+                options={[{ value: "", label: "Business Unit" }, ...options(lookups.businessUnits)]}
                 onChange={(event) =>
-                  set({ businessUnitId: event.target.value, typeId: "", departmentId: "", departmentSectionId: "", warehouseId: "", operatorIds: [] })
+                  set({ businessUnitId: event.target.value, typeId: "", departmentId: "", departmentSectionId: "", warehouseIds: [], operatorIds: [] })
                 }
               />
             )}
             <TextField label="Work Center Name" required maxLength={150} placeholder="Work Center Name" value={values.name} error={errors.name} onChange={(event) => set({ name: event.target.value })} />
             <WithAddNew label="Work Center Type" onAdd={() => setAdding("types")} disabled={!unit}>
-              <SelectField label="Work Center Type" required value={values.typeId} error={errors.typeId} options={options(types, "Work Center Type")} onChange={(event) => set({ typeId: event.target.value })} />
+              <Combobox
+                label="Work Center Type"
+                required
+                placeholder="Work Center Type"
+                value={values.typeId}
+                error={errors.typeId}
+                options={options(types)}
+                onChange={(typeId) => set({ typeId })}
+              />
             </WithAddNew>
             <TextField label="Work Center Code" required maxLength={30} placeholder="Work Center Code" value={values.code} error={errors.code} onChange={(event) => set({ code: event.target.value })} />
             <TextField
@@ -290,33 +320,37 @@ function WorkCenterForm({ lookups: loaded, record }: { lookups: WorkCenterLookup
             />
             <TextField label="Remarks" maxLength={500} placeholder="Remarks" value={values.remarks} error={errors.remarks} onChange={(event) => set({ remarks: event.target.value })} />
             <WithAddNew label="Department" onAdd={() => setAdding("departments")} disabled={!unit}>
-              <SelectField
+              <Combobox
                 label="Department"
-                required
+                placeholder="Department"
                 value={values.departmentId}
                 error={errors.departmentId}
-                options={options(departments, "Department")}
-                onChange={(event) => set({ departmentId: event.target.value, departmentSectionId: "" })}
+                options={options(departments)}
+                onChange={(departmentId) => set({ departmentId, departmentSectionId: departmentId === values.departmentId ? values.departmentSectionId : "" })}
               />
             </WithAddNew>
             <WithAddNew label="Department Section" onAdd={() => setAdding("sections")} disabled={!unit}>
-              <SelectField
+              <Combobox
                 label="Department Section"
-                required
+                placeholder="Department Section"
                 value={values.departmentSectionId}
                 error={errors.departmentSectionId}
                 disabled={!values.departmentId}
                 hint={values.departmentId ? undefined : "Choose a department first."}
-                options={options(sections, "Department Section")}
-                onChange={(event) => set({ departmentSectionId: event.target.value })}
+                options={options(sections)}
+                emptyText="No section in this department yet."
+                onChange={(departmentSectionId) => set({ departmentSectionId })}
               />
             </WithAddNew>
-            <SelectField
+            <Combobox
               label="Warehouse"
-              value={values.warehouseId}
-              error={errors.warehouseId}
-              options={[{ value: "", label: "Warehouse" }, ...warehouses.map((warehouse) => ({ value: warehouse.id, label: `${warehouse.name} (${warehouse.officeName})` }))]}
-              onChange={(event) => set({ warehouseId: event.target.value })}
+              multiple
+              placeholder="Warehouse"
+              value={values.warehouseIds}
+              error={errors.warehouseIds}
+              options={warehouseOptions}
+              emptyText="No warehouse matches."
+              onChange={(warehouseIds) => set({ warehouseIds })}
             />
           </div>
         </Card>
@@ -335,52 +369,27 @@ function WorkCenterForm({ lookups: loaded, record }: { lookups: WorkCenterLookup
             </header>
             {operatorsOpen && (
               <div id="operator-body" className="flex flex-col gap-3 border-t border-line p-4">
-                <div className="relative max-w-xl">
-                  <TextField
+                <div className="flex max-w-2xl items-start gap-2">
+                  <Combobox
+                    className="min-w-0 flex-1"
                     label="Operator"
                     required
                     placeholder="Select/Search Operator (min 3 letters)"
-                    value={operatorTerm}
+                    value={picked?.employeeId ?? ""}
+                    selectedLabels={picked ? { [picked.employeeId]: operatorLabel(picked) } : undefined}
                     error={errors.operatorIds}
-                    hint="Search employees by name or code, then pick one to add it."
-                    onChange={(event) => setOperatorTerm(event.target.value)}
+                    hint="Search by name, code or phone, pick an employee, then press Add."
+                    filter={false}
+                    options={operatorOptions}
+                    loading={operatorSearch.searchable && !operatorSearch.ready}
+                    emptyText={!operatorSearch.searchable ? "Type at least 3 letters." : (operatorSearch.error ?? "No active employee matches.")}
+                    onQueryChange={setOperatorTerm}
+                    onChange={(employeeId) => setPicked(operatorSearch.rows.find((row) => row.employeeId === employeeId) ?? null)}
                   />
-                  {operatorTerm.trim().length >= 3 && (
-                    <div role="listbox" aria-label="Matching employees" className="absolute top-12 z-10 max-h-64 w-full overflow-y-auto rounded-md border border-line bg-surface shadow-dropdown">
-                      {!operatorSearch.ready ? (
-                        <p className="flex items-center gap-2 px-3 py-2 text-xs text-ink-faint">
-                          <Search aria-hidden="true" className="size-3.5" />
-                          Searching…
-                        </p>
-                      ) : operatorSearch.error ? (
-                        <p className="px-3 py-2 text-xs text-danger">{operatorSearch.error}</p>
-                      ) : operatorSearch.rows.length === 0 ? (
-                        <p className="px-3 py-2 text-xs text-ink-faint">No active employee matches.</p>
-                      ) : (
-                        operatorSearch.rows.map((operator) => {
-                          const already = values.operatorIds.includes(operator.employeeId);
-                          return (
-                            <button
-                              key={operator.employeeId}
-                              type="button"
-                              role="option"
-                              aria-selected={already}
-                              disabled={already}
-                              onClick={() => addOperator(operator)}
-                              className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-ink hover:bg-hover disabled:cursor-default disabled:text-ink-faint"
-                            >
-                              <Plus aria-hidden="true" className="size-3.5 shrink-0 text-accent-strong" />
-                              <span className="min-w-0 flex-1 truncate">
-                                {operator.code} - {operator.name}
-                                {operator.designation ? ` (${operator.designation})` : ""}
-                              </span>
-                              {already && <span className="text-xs">Added</span>}
-                            </button>
-                          );
-                        })
-                      )}
-                    </div>
-                  )}
+                  <Button variant="primary" className="mt-5" onClick={addOperator} disabled={!picked}>
+                    <Plus aria-hidden="true" />
+                    Add
+                  </Button>
                 </div>
                 {tagged.length === 0 ? (
                   <p className="text-sm text-ink-faint">No operator tagged yet.</p>
