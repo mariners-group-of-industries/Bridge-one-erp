@@ -105,7 +105,11 @@ export async function deleteDevice(actor: Actor, id: string) {
 
 // ─── Punches ──────────────────────────────────────────────────────────────────
 
-/** Device user number → employee id, by Attendance ID first, then Employee ID, within the device's business unit. */
+/**
+ * Device user number → employee id, by Attendance ID first, then Employee ID, within the device's business unit.
+ * The Employee ID only counts for employees without an Attendance ID: one who has one punches with that number,
+ * so another device user whose number equals their Employee ID is someone else.
+ */
 async function employeeMap(device: { office: { businessUnitId: string } | null }, userIds: string[]) {
   if (userIds.length === 0) return new Map<string, string>();
   const where: Prisma.EmployeeWhereInput = {
@@ -114,7 +118,7 @@ async function employeeMap(device: { office: { businessUnitId: string } | null }
   };
   const employees = await db().employee.findMany({ where, select: { id: true, attendanceId: true, employeeCode: true, isActive: true }, orderBy: { isActive: "desc" } });
   const map = new Map<string, string>();
-  for (const e of employees) if (e.employeeCode && !map.has(e.employeeCode)) map.set(e.employeeCode, e.id);
+  for (const e of employees) if (e.employeeCode && !e.attendanceId && !map.has(e.employeeCode)) map.set(e.employeeCode, e.id);
   // Attendance ID wins over Employee ID.
   for (const e of employees) if (e.attendanceId) map.set(e.attendanceId, e.id);
   return map;

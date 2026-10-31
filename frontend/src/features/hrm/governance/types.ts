@@ -43,6 +43,31 @@ export interface PolicyGrid {
   rows: Record<string, string | number>[];
 }
 
+/** Employee Assign › checklist flags; OverTime and PF live on the employee's salary, Hold Salary on the employee. */
+export const CHECKLIST_FLAGS = [
+  { key: "overtime", label: "OverTime" },
+  { key: "pf", label: "PF" },
+  { key: "holdSalary", label: "Hold Salary" },
+] as const;
+export type ChecklistFlag = (typeof CHECKLIST_FLAGS)[number]["key"];
+
+export interface ChecklistRow {
+  id: string;
+  code: string;
+  name: string;
+  designation: string;
+  joiningDate: string;
+  department: string;
+  /** Policy assigned in Employee Assign today, else the one on the employee profile. */
+  policy: string;
+  serviceDays: number;
+  /** OverTime and PF need a salary set up in Employee › Salary. */
+  hasSalary: boolean;
+  overtime: boolean;
+  pf: boolean;
+  holdSalary: boolean;
+}
+
 export const PENDING_KINDS = [
   { id: "leave", label: "Leave" },
   { id: "movement", label: "Movement" },

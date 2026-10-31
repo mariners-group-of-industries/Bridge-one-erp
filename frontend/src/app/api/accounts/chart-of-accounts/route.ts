@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/prisma/client";
+import { apiHandler } from "@/lib/api/handler";
 
-export async function GET() {
+async function handleGET() {
   try {
     const prisma = db();
     const accounts = await prisma.account.findMany({
@@ -17,7 +18,7 @@ export async function GET() {
   }
 }
 
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   try {
     const body = await request.json();
     const prisma = db();
@@ -48,3 +49,7 @@ export async function POST(request: Request) {
     );
   }
 }
+
+// Signed-in users with the accounts permission only.
+export const GET = apiHandler("accounts:read", handleGET);
+export const POST = apiHandler("accounts:write", handlePOST);

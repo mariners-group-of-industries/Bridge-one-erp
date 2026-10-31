@@ -4,6 +4,7 @@ import { Check, ClipboardCheck, Settings2, X } from "lucide-react";
 import { useState } from "react";
 import { PageContainer, PageHead } from "@/components/layout/page";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/form-field";
 import { ConfirmDialog } from "@/components/ui/dialog";
 import { ErrorState, LoadingState } from "@/components/ui/section";
 import { Tabs } from "@/components/ui/tabs";
@@ -18,7 +19,7 @@ import { EmployeeField, Grid } from "../../self-service/leave-movement/component
 import { hrmPaths } from "../../paths";
 import { FilterBar, FilterField, OfficeSelect, useHrOptions } from "../../shared/hr-ui";
 import { PolicyRecordsPanel } from "./PolicyRecordsPanel";
-import { PENDING_KINDS, POLICY_TABS, type GridColumn, type PendingKind, type PendingList, type PolicyGrid, type PolicyTab } from "../types";
+import { CHECKLIST_FLAGS, PENDING_KINDS, POLICY_TABS, type ChecklistFlag, type ChecklistRow, type GridColumn, type PendingKind, type PendingList, type PolicyGrid, type PolicyTab } from "../types";
 
 function DataRows({ columns, rows, numbered = true }: { columns: GridColumn[]; rows: Record<string, string | number>[]; numbered?: boolean }) {
   return rows.map((row, i) => (
@@ -70,6 +71,8 @@ export function PolicySettingsView() {
 
             <PolicyRecordsPanel key={tab} tab={tab} label={POLICY_TABS.find((t) => t.id === tab)!.label} filter={applied} options={options.data} />
 
+            {tab === "employee-assign" && <EmployeeChecklist filter={applied} />}
+
             {/* Tabs backed by employee records also show what is stored there. */}
             {grid.error ? (
               <ErrorState message={grid.error.message} onRetry={grid.reload} />
@@ -94,6 +97,78 @@ export function PolicySettingsView() {
         </Tabs>
       </section>
     </PageContainer>
+  );
+}
+
+// ─── Employee Assign › checklist ──────────────────────────────────────────────
+
+/** OverTime / PF / Hold Salary per employee; each tick is saved at once. */
+function EmployeeChecklist({ filter }: { filter: Record<string, string> }) {
+  const toast = useToast();
+  const query = new URLSearchParams(Object.fromEntries(Object.entries(filter).filter(([k]) => k === "officeId" || k === "employeeId"))).toString();
+  const list = useResource(`hrm-checklist?${query}`, () => apiRequest<ChecklistRow[]>(`/api/hrm/governance/checklist?${query}`));
+  const [saving, setSaving] = useState<string | null>(null);
+
+  async function toggle(row: ChecklistRow, flag: ChecklistFlag) {
+    const value = !row[flag];
+    const apply = (v: boolean) => list.mutate((rows) => (rows ?? []).map((r) => (r.id === row.id ? { ...r, [flag]: v } : r)));
+    apply(value);
+    setSaving(`${row.id}:${flag}`);
+    try {
+      await apiRequest(`/api/hrm/governance/checklist/${row.id}`, { method: "PATCH", body: JSON.stringify({ flag, value }) });
+    } catch (error) {
+      apply(!value);
+      toast.error(errorMessage(error));
+    } finally {
+      setSaving(null);
+    }
+  }
+
+  return (
+    <Panel title="Employee Checklist" description="Tick OverTime, PF or Hold Salary for each employee; changes are saved immediately." flush>
+      <div className="p-4">
+        {list.error ? (
+          <ErrorState message={list.error.message} onRetry={list.reload} />
+        ) : !list.data ? (
+          <LoadingState />
+        ) : list.data.length === 0 ? (
+          <EmptyBlock icon={<Settings2 />} title="No employees match these filters" />
+        ) : (
+          <Grid
+            headers={["SL", "Employee Id", "Employee Name", "Designation", "Joining Date", "Department", "Policy No", "Service Length (Days)", ...CHECKLIST_FLAGS.map((f) => f.label)]}
+            loading={list.loading}
+          >
+            {list.data.map((row, i) => (
+              <tr key={row.id} className={TABLE.row}>
+                <td className={`${TABLE.td} text-right text-ink-faint tabular-nums`}>{i + 1}</td>
+                <td className={`${TABLE.td} whitespace-nowrap`}>{row.code}</td>
+                <td className={`${TABLE.td} whitespace-nowrap`}>{row.name}</td>
+                <td className={`${TABLE.td} whitespace-nowrap`}>{row.designation}</td>
+                <td className={`${TABLE.td} whitespace-nowrap tabular-nums`}>{row.joiningDate}</td>
+                <td className={`${TABLE.td} whitespace-nowrap`}>{row.department}</td>
+                <td className={`${TABLE.td} whitespace-nowrap`}>{row.policy}</td>
+                <td className={`${TABLE.td} text-right tabular-nums`}>{row.serviceDays.toLocaleString("en-IN")}</td>
+                {CHECKLIST_FLAGS.map(({ key, label }) => {
+                  const needsSalary = key !== "holdSalary" && !row.hasSalary;
+                  return (
+                    <td key={key} className={`${TABLE.td} text-center`}>
+                      <Checkbox
+                        tone="accent"
+                        checked={row[key]}
+                        disabled={needsSalary || saving === `${row.id}:${key}`}
+                        title={needsSalary ? "Set up this employee's salary in Employee › Salary first." : undefined}
+                        aria-label={`${label} for ${row.name}`}
+                        onChange={() => void toggle(row, key)}
+                      />
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </Grid>
+        )}
+      </div>
+    </Panel>
   );
 }
 

@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/prisma/client";
+import { apiHandler } from "@/lib/api/handler";
 
-export async function PUT(
+async function handlePUT(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
@@ -64,7 +65,7 @@ export async function PUT(
   }
 }
 
-export async function DELETE(
+async function handleDELETE(
   _request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
@@ -82,3 +83,7 @@ export async function DELETE(
     );
   }
 }
+
+// Signed-in users with the accounts permission only.
+export const PUT = apiHandler("accounts:write", handlePUT);
+export const DELETE = apiHandler("accounts:write", handleDELETE);
