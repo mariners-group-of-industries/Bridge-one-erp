@@ -2,17 +2,17 @@ import { z } from "zod";
 
 /** "View By" options, in Managerium's order. */
 export const REPORT_TYPES = [
-  { id: "work-center", label: "Work Center Report" },
-  { id: "cogs", label: "COGS Calculation Report" },
-  { id: "process-date", label: "Process And Date Wise Production Report" },
   { id: "production", label: "Production Report" },
   { id: "consumption", label: "Consumption Report" },
   { id: "performance", label: "Performance Report" },
+  { id: "process-date", label: "Process And Date Wise Production Report" },
   { id: "details", label: "Production Report Details" },
   { id: "details-view", label: "Production Report Details View" },
   { id: "demand", label: "Production VS Demand Report" },
+  { id: "cogs", label: "COGS Calculation Report" },
   { id: "utilization", label: "Work Center Utilization Report" },
   { id: "downtime", label: "Downtime Report" },
+  { id: "work-center", label: "Work Center Report" },
   { id: "output-consumption", label: "Production Output vs Material Consumption" },
   { id: "so-planning", label: "Sales Order VS Production Planning" },
   { id: "defect", label: "Defect Report Monthly" },
@@ -37,6 +37,17 @@ const flag = z
   .transform((value) => value === true || value === "true");
 const optionalId = z.uuid().optional();
 
+/** Work center status filter (Work Center Utilization Report). */
+export const WORK_CENTER_STATUSES = [
+  { id: "ACTIVE", label: "Active" },
+  { id: "INACTIVE", label: "Inactive" },
+] as const;
+/** Downtime reason, derived from the entries: hours short of the plan, or no entry on the day. */
+export const DOWNTIME_REASONS = [
+  { id: "SHORT_RUN", label: "Short run (reason not recorded)" },
+  { id: "NO_PRODUCTION", label: "No production recorded" },
+] as const;
+
 const daysBetween = (from: string, to: string) => Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000) + 1;
 
 /** Query of GET /api/production/reports (and its Excel / PDF exports); shared by the route and the browser. */
@@ -56,6 +67,9 @@ export const reportQuerySchema = z
     subCategoryId: optionalId,
     minorCategoryId: optionalId,
     bomId: optionalId,
+    shift: z.string().trim().max(30).optional(),
+    workCenterStatus: z.enum(["ACTIVE", "INACTIVE"]).optional(),
+    downtimeReason: z.enum(["SHORT_RUN", "NO_PRODUCTION"]).optional(),
     summary: flag,
     materialsVariance: flag,
     monthly: flag,
@@ -109,4 +123,6 @@ export interface ReportLookups {
   boms: { id: string; name: string }[];
   items: { id: string; code: string; name: string; uom: string; itemType: string | null }[];
   itemTypes: string[];
+  /** Shifts recorded on production entries. */
+  shifts: string[];
 }
