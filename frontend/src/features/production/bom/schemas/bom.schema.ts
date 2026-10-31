@@ -63,8 +63,9 @@ export const bomInputSchema = z
     businessUnitId: z.uuid().optional(),
     name: z.string({ error: "BoM Name is required." }).trim().min(1, { error: "BoM Name is required." }).max(150, { error: "BoM Name is too long." }),
     bomType: z.enum(BOM_TYPES),
-    departmentId: z.uuid({ error: "Department is required." }),
-    departmentSectionId: z.uuid({ error: "Section is required." }),
+    /** Required for a multiple output BOM; optional for a single output one (as in Managerium). */
+    departmentId: z.uuid().nullish(),
+    departmentSectionId: z.uuid().nullish(),
     remarks: z.string().trim().max(500).nullish(),
     outputs: z.array(outputSchema).min(1, { error: "Add at least one production item." }).max(50),
     materials: z.array(materialSchema).min(1, { error: "Add at least one input material." }).max(300),
@@ -78,6 +79,9 @@ export const bomInputSchema = z
     if (input.bomType === "MULTIPLE_OUTPUT" && input.outputs.length < 2) {
       ctx.addIssue({ code: "custom", path: ["outputs"], message: "A multiple output BOM needs at least two production items." });
     }
+    if (input.bomType === "MULTIPLE_OUTPUT" && !input.departmentId) ctx.addIssue({ code: "custom", path: ["departmentId"], message: "Department is required." });
+    if (input.bomType === "MULTIPLE_OUTPUT" && !input.departmentSectionId) ctx.addIssue({ code: "custom", path: ["departmentSectionId"], message: "Section is required." });
+    if (input.departmentSectionId && !input.departmentId) ctx.addIssue({ code: "custom", path: ["departmentId"], message: "Choose the department of the section." });
     const share = input.outputs.reduce((sum, line) => sum + line.costPercent, 0);
     if (input.outputs.length > 0 && Math.abs(share - 100) > 0.01) {
       ctx.addIssue({ code: "custom", path: ["outputs"], message: `Cost percentages must add up to 100 (now ${Math.round(share * 100) / 100}).` });
@@ -126,9 +130,17 @@ export const bomListQuerySchema = z.object({
 });
 export type BomListQuery = z.input<typeof bomListQuerySchema>;
 
-/** GET /api/production/bill-of-materials/options: child BOM search (at least 3 letters). */
+/**
+ * GET /api/production/bill-of-materials/options: child BOM search. An empty search lists
+ * the first ones (by name) for the open dropdown; otherwise at least 3 letters.
+ */
 export const bomOptionsQuerySchema = z.object({
-  search: z.string().trim().min(3, { error: "Type at least 3 letters." }).max(100),
+  search: z
+    .string()
+    .trim()
+    .max(100)
+    .default("")
+    .refine((search) => search.length === 0 || search.length >= 3, { error: "Type at least 3 letters." }),
   exclude: z.uuid().optional(),
 });
 

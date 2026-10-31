@@ -24,7 +24,7 @@ import {
   type WorkCenterLookups,
 } from "../schemas/work-center.schema";
 import { createWorkCenter, fetchWorkCenter, fetchWorkCenterLookups, searchOperators, updateWorkCenter } from "../services/work-center.api";
-import { Combobox } from "./Combobox";
+import { Combobox } from "../../components/Combobox";
 import { MasterDialog, OperatorTable, WithAddNew } from "./WorkCenterParts";
 
 interface Values {

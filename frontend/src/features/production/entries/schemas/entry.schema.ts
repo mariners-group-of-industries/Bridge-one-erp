@@ -143,6 +143,8 @@ export interface EntryMaterialLine {
   itemId: string;
   code: string;
   name: string;
+  categoryName: string | null;
+  subCategoryName: string | null;
   uom: string;
   standardQty: number;
   actualQty: number;
@@ -154,6 +156,15 @@ export interface EntryMaterialLine {
 }
 
 export interface EntryDetail extends EntryRow {
+  /** Order ("Prod Order/Sche") date. */
+  orderDate: string;
+  bomName: string;
+  /** The order's machine name ("Equipment"). */
+  equipment: string | null;
+  /** Operators tagged on the entry's work center. */
+  operatorNames: string[];
+  /** Actual material cost per good unit. */
+  unitCost: number;
   officeName: string;
   sourceWarehouseName: string;
   outputWarehouseName: string;
@@ -165,5 +176,59 @@ export interface EntryDetail extends EntryRow {
   cancelledAt: string | null;
   createdAt: string;
   materials: EntryMaterialLine[];
+  /** Process Wise Wastage Entry lines. */
+  wastages: EntryWastageLine[];
   canCancel: boolean;
+}
+
+// ─── Process Wise Wastage Entry ──────────────────────────────────────────────
+
+/** PUT /api/production/entries/[entryId]/wastage: replaces the entry's wastage lines. */
+export const entryWastageSchema = z
+  .object({
+    lines: z
+      .array(
+        z.object({
+          processId: z.uuid({ error: "Choose the process." }),
+          itemId: z.uuid({ error: "Choose the item." }),
+          qty: z.number({ error: "Wastage Quantity is required." }).refine(Number.isFinite, { error: "Wastage Quantity must be a number." }).gt(0, { error: "Wastage Quantity must be more than 0." }).max(9_999_999_999),
+        }),
+      )
+      .max(100),
+  })
+  .refine((input) => new Set(input.lines.map((line) => `${line.processId}|${line.itemId}`)).size === input.lines.length, {
+    error: "The same item is entered twice for one process.",
+    path: ["lines"],
+  });
+export type EntryWastageInput = z.input<typeof entryWastageSchema>;
+
+/** POST /api/production/processes ("ADD NEW" process). */
+export const processInputSchema = z.object({
+  businessUnitId: z.uuid().optional(),
+  name: z.string({ error: "Process Name is required." }).trim().min(1, { error: "Process Name is required." }).max(100, { error: "Process Name is too long." }),
+});
+
+export interface ProcessOption {
+  id: string;
+  name: string;
+}
+
+export interface EntryWastageLine {
+  processId: string;
+  processName: string;
+  itemId: string;
+  code: string;
+  name: string;
+  uom: string;
+  qty: number;
+}
+
+/** GET /api/production/entries/[entryId]/wastage: the popup's header, saved lines and choices. */
+export interface EntryWastageForm {
+  entry: { id: string; businessUnitId: string; number: string; entryDate: string; orderNumber: string; itemCode: string; itemName: string; uom: string; status: "POSTED" | "CANCELLED" };
+  lines: EntryWastageLine[];
+  processes: ProcessOption[];
+  /** Active items of the business unit. */
+  items: { id: string; code: string; name: string; uom: string }[];
+  canEdit: boolean;
 }

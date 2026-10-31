@@ -6,7 +6,8 @@ import { useRouter } from "next/navigation";
 import { useMemo, useState, type FormEvent } from "react";
 import { PageContainer, PageHead } from "@/components/layout/page";
 import { Button, buttonClasses } from "@/components/ui/button";
-import { DataTable, type Column } from "@/components/ui/data-table";
+import type { Column } from "@/components/ui/data-table";
+import { ListTable } from "@/features/production/components/ListTable";
 import { CheckboxField, SelectField } from "@/components/ui/form-field";
 import { Card, EmptyState, ErrorState, LoadingState } from "@/components/ui/section";
 import { useToast } from "@/components/ui/toast";
@@ -122,11 +123,11 @@ export function BomListView() {
       id: "name",
       header: "BOM Name",
       cell: ({ bom }) => (
-        <span className="flex flex-col">
+        <span className="flex items-center gap-1.5">
           <Link href={paths.editBom(bom.id)} className="font-semibold text-ink hover:underline">
             {bom.name}
           </Link>
-          {bom.childCount > 0 && <span className="text-xs text-ink-faint">{bom.childCount} child BOM</span>}
+          {bom.childCount > 0 && <span className="text-xs text-ink-faint">({bom.childCount} child BOM)</span>}
         </span>
       ),
       sortValue: ({ bom }) => bom.name,
@@ -241,7 +242,7 @@ export function BomListView() {
           <LoadingState label="Loading bills of material…" />
         ) : (
           <div className={list.loading ? "opacity-60 transition-opacity" : undefined} aria-busy={list.loading}>
-            <DataTable
+            <ListTable
               rows={rows}
               columns={columns}
               getRowId={(row) => row.key}
