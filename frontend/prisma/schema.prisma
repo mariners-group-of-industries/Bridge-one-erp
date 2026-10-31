@@ -434,6 +434,7 @@ model BusinessUnit {
   territoryNodes       SalesTerritoryNode[]
   workCenters       ProductionWorkCenter[]
   productionEntries ProductionEntry[]
+  productionProcesses ProductionProcess[]
   workCenterTypes        ProductionWorkCenterType[]
   productionDepartments  ProductionDepartment[]
   productionBoms         ProductionBom[]
@@ -782,6 +783,7 @@ model Item {
   productionOrders        ProductionOrder[]
   productionOrderMaterials ProductionOrderMaterial[]
   productionEntryMaterials ProductionEntryMaterial[]
+  productionEntryWastages  ProductionEntryWastage[]
   targetPlanLines SalesTargetPlanLine[]
   commissionLines SalesCommissionLine[]
 
@@ -3428,6 +3430,7 @@ model ProductionEntry {
   sourceWarehouse   Warehouse                    @relation("EntrySourceWarehouse", fields: [sourceWarehouseId], references: [id], onDelete: Restrict)
   outputWarehouse   Warehouse                    @relation("EntryOutputWarehouse", fields: [outputWarehouseId], references: [id], onDelete: Restrict)
   materials         ProductionEntryMaterial[]
+  wastages          ProductionEntryWastage[]
 
   @@unique([businessUnitId, number])
   @@index([businessUnitId, productionDate])
@@ -3821,6 +3824,42 @@ model ProductionEntryMaterial {
   @@unique([entryId, lineNo])
   @@index([itemId])
   @@map("production_entry_materials")
+}
+
+/// Production process wastage is booked against ("Mixing", "Frying", "Packing" …).
+model ProductionProcess {
+  id             String   @id @default(uuid()) @db.Uuid
+  businessUnitId String   @db.Uuid
+  name           String   @db.VarChar(100)
+  createdAt      DateTime @default(now()) @db.Timestamptz(3)
+
+  businessUnit BusinessUnit             @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  wastages     ProductionEntryWastage[]
+
+  @@unique([businessUnitId, name])
+  @@map("production_processes")
+}
+
+/// "Process Wise Wastage Entry" line of a production entry. Recorded for reporting; stock is not moved.
+model ProductionEntryWastage {
+  id        String   @id @default(uuid()) @db.Uuid
+  entryId   String   @db.Uuid
+  lineNo    Int
+  processId String   @db.Uuid
+  itemId    String   @db.Uuid
+  uom       String   @db.VarChar(20)
+  qty       Decimal  @db.Decimal(14, 4)
+  createdBy String?  @db.VarChar(100)
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  entry   ProductionEntry   @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  process ProductionProcess @relation(fields: [processId], references: [id], onDelete: Restrict)
+  item    Item              @relation(fields: [itemId], references: [id], onDelete: Restrict)
+
+  @@unique([entryId, lineNo])
+  @@index([processId])
+  @@index([itemId])
+  @@map("production_entry_wastages")
 }
 
 /// HRM › Self Service › Leave & Movement: a leave application (Pending → Approved / Rejected).

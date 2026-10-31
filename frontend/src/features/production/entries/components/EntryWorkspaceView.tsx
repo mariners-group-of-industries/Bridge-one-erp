@@ -1,12 +1,13 @@
 "use client";
 
-import { Ban, Eye, Plus, Printer, RefreshCw, Search } from "lucide-react";
+import { Ban, CirclePlus, Eye, Plus, Printer, RefreshCw, Search } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { PageContainer, PageHead } from "@/components/layout/page";
 import { Button, buttonClasses } from "@/components/ui/button";
-import { DataTable, type Column } from "@/components/ui/data-table";
+import type { Column } from "@/components/ui/data-table";
+import { ListTable } from "@/features/production/components/ListTable";
 import { Dialog } from "@/components/ui/dialog";
 import { CONTROL, SelectField, TextAreaField, TextField } from "@/components/ui/form-field";
 import { Indicator } from "@/components/ui/indicator";
@@ -21,8 +22,9 @@ import { OrderStatusBadge, day, money, qty2, stamp } from "@/features/production
 import { fetchWorkCenterLookups } from "@/features/production/work-centers/services/work-center.api";
 import { addDays, useToday } from "@/features/sales/lib/use-today";
 import { paths } from "../../paths";
-import { entryListQuerySchema, type EntryListQuery, type EntryRow, type QueueRow } from "../schemas/entry.schema";
+import { entryListQuerySchema, type EntryDetail, type EntryListQuery, type EntryRow, type QueueRow } from "../schemas/entry.schema";
 import { cancelEntry, entryPdfUrl, fetchEntries, fetchEntry, fetchEntryQueue } from "../services/entry.api";
+import { EntryWastageDialog } from "./EntryWastageDialog";
 
 type Tab = "queue" | "list";
 const TABS = [
@@ -82,7 +84,7 @@ export function EntryWorkspaceView() {
 function QueueTab({ search }: { search: string }) {
   const queue = useResource(`production-entry-queue:${search}`, () => fetchEntryQueue(search || undefined));
   const columns: Column<QueueRow>[] = [
-    { id: "sl", header: "SL", cell: (_row, index) => index + 1, className: "w-10 tabular-nums" },
+    { id: "sl", header: "SL", cell: (_row, index) => index + 1, className: `w-10 tabular-nums` },
     {
       id: "number",
       header: "Order Number",
@@ -98,11 +100,8 @@ function QueueTab({ search }: { search: string }) {
       id: "item",
       header: "Item",
       cell: (row) => (
-        <span className="flex flex-col">
-          <span className="text-ink">{row.itemName}</span>
-          <span className="text-xs text-ink-faint">
-            {row.itemCode} · {row.bomName}
-          </span>
+        <span className="text-ink">
+          {`${row.itemCode} - ${row.itemName} (${row.bomName})`}
         </span>
       ),
       sortValue: (row) => row.itemName,
@@ -126,7 +125,7 @@ function QueueTab({ search }: { search: string }) {
   if (!queue.data) return <LoadingState label="Loading approved orders…" />;
   return (
     <div className={queue.loading ? "opacity-60 transition-opacity" : undefined}>
-      <DataTable
+      <ListTable
         rows={queue.data}
         columns={columns}
         getRowId={(row) => row.id}
@@ -152,6 +151,7 @@ function ListTab({ search, today }: { search: string; today: string }) {
   const query = Object.fromEntries(Object.entries({ ...applied, search }).filter(([, value]) => value)) as EntryListQuery;
   const list = useResource(`production-entries:${JSON.stringify(query)}`, () => fetchEntries(query));
   const [viewing, setViewing] = useState<string | null>(null);
+  const [wastageFor, setWastageFor] = useState<string | null>(null);
 
   function view(event: FormEvent) {
     event.preventDefault();
@@ -165,15 +165,18 @@ function ListTab({ search, today }: { search: string; today: string }) {
   const sections = (lookups.data?.sections ?? []).filter((section) => !filters.departmentId || section.departmentId === filters.departmentId);
   const right = "text-right tabular-nums";
   const columns: Column<EntryRow>[] = [
-    { id: "sl", header: "SL", cell: (_row, index) => index + 1, className: "w-10 tabular-nums" },
+    { id: "sl", header: "SL", cell: (_row, index) => index + 1, className: `w-10 tabular-nums` },
     {
       id: "action",
       header: "Action",
-      className: "w-20",
+      className: `w-28`,
       cell: (row) => (
         <span className="flex items-center gap-1">
           <Button size="icon" variant="ghost" aria-label={`View ${row.number}`} title="View" onClick={() => setViewing(row.id)}>
             <Eye aria-hidden="true" />
+          </Button>
+          <Button size="icon" variant="ghost" aria-label={`Process wise wastage of ${row.number}`} title="Process Wise Wastage Entry" onClick={() => setWastageFor(row.id)}>
+            <CirclePlus aria-hidden="true" />
           </Button>
           <a href={entryPdfUrl(row.id)} target="_blank" rel="noopener" aria-label={`Print ${row.number}`} title="Print slip" className={buttonClasses("ghost", "icon")}>
             <Printer aria-hidden="true" />
@@ -181,14 +184,14 @@ function ListTab({ search, today }: { search: string; today: string }) {
         </span>
       ),
     },
-    { id: "date", header: "Production Entry Date", cell: (row) => <span className="whitespace-nowrap">{day(row.entryDate)}</span>, sortValue: (row) => row.entryDate },
+    { id: "date", header: "Production Entry Date", cell: (row) => day(row.entryDate), sortValue: (row) => row.entryDate },
     {
       id: "number",
       header: "Production Entry Code",
       cell: (row) => (
-        <span className="flex flex-col whitespace-nowrap">
+        <span className="flex items-center gap-1.5 whitespace-nowrap">
           <span className={cn("font-medium text-ink", row.status === "CANCELLED" && "line-through")}>{row.number}</span>
-          {row.status === "CANCELLED" && <span className="text-xs text-danger">Cancelled</span>}
+          {row.status === "CANCELLED" && <span className="text-xs text-danger">(Cancelled)</span>}
         </span>
       ),
       sortValue: (row) => row.number,
@@ -208,7 +211,7 @@ function ListTab({ search, today }: { search: string; today: string }) {
     { id: "section", header: "Section", cell: (row) => row.sectionName ?? "N/A", sortValue: (row) => row.sectionName ?? "", hideBelow: "md" },
     { id: "workCenter", header: "Work Center", cell: (row) => row.workCenterName ?? "N/A", hideBelow: "lg" },
     { id: "shift", header: "Shift", cell: (row) => row.shift ?? "N/A", hideBelow: "lg" },
-    { id: "item", header: "Item Name", cell: (row) => <span className="text-ink">{row.itemName}</span>, sortValue: (row) => row.itemName },
+    { id: "item", header: "Item Name", cell: (row) => `${row.itemCode} - ${row.itemName} (${row.uom})`, sortValue: (row) => row.itemName },
     { id: "category", header: "Category", cell: (row) => row.categoryName ?? "N/A", hideBelow: "lg" },
     { id: "subCategory", header: "Sub Category", cell: (row) => row.subCategoryName ?? "N/A", hideBelow: "lg" },
     { id: "total", header: "Total QTY", cell: (row) => qty2(row.totalQty), sortValue: (row) => row.totalQty, className: right },
@@ -263,7 +266,7 @@ function ListTab({ search, today }: { search: string; today: string }) {
         <LoadingState label="Loading production entries…" />
       ) : (
         <div className={list.loading ? "opacity-60 transition-opacity" : undefined} aria-busy={list.loading}>
-          <DataTable
+          <ListTable
             rows={list.data}
             columns={columns}
             getRowId={(row) => row.id}
@@ -292,6 +295,7 @@ function ListTab({ search, today }: { search: string; today: string }) {
           list.reload();
         }}
       />
+      <EntryWastageDialog id={wastageFor} onClose={() => setWastageFor(null)} onSaved={list.reload} />
     </>
   );
 }
@@ -345,7 +349,7 @@ function EntryDetailsDialog({ id, onClose, onCancelled }: { id: string | null; o
       open={id !== null}
       title="Production Entry Details"
       size="xl"
-      className="max-w-6xl"
+      className="max-w-7xl"
       onClose={busy ? () => undefined : close}
       footer={
         <>
@@ -358,12 +362,6 @@ function EntryDetailsDialog({ id, onClose, onCancelled }: { id: string | null; o
               Cancel Entry
             </Button>
           )}
-          {entry && (
-            <a href={entryPdfUrl(entry.id)} target="_blank" rel="noopener" className={buttonClasses("primary")}>
-              <Printer aria-hidden="true" />
-              Print
-            </a>
-          )}
         </>
       }
     >
@@ -372,85 +370,217 @@ function EntryDetailsDialog({ id, onClose, onCancelled }: { id: string | null; o
       ) : !entry ? (
         <LoadingState />
       ) : (
-        <div className="flex flex-col gap-4">
-          <div className="flex items-center gap-2">
-            <h3 className="flex-1 text-base font-semibold text-ink">{entry.number}</h3>
-            <Indicator color={entry.status === "POSTED" ? "green" : "gray"}>{entry.status === "POSTED" ? "Posted" : "Cancelled"}</Indicator>
-          </div>
-          <dl className="grid gap-x-10 gap-y-1.5 md:grid-cols-2">
-            <Pair label="Entry Date" value={day(entry.entryDate)} />
-            <Pair label="Prod. Order No" value={entry.orderNumber} />
-            <Pair label="Item" value={`${entry.itemCode} - ${entry.itemName}`} />
-            <Pair label="Sales Order" value={entry.salesOrderNumber ?? "N/A"} />
-            <Pair label="Department / Section" value={[entry.departmentName, entry.sectionName].filter(Boolean).join(" / ") || "N/A"} />
-            <Pair label="Work Center / Shift" value={`${entry.workCenterName ?? "N/A"} · ${entry.shift ?? "N/A"}`} />
-            <Pair label="Material From" value={entry.sourceWarehouseName} />
-            <Pair label="Output To" value={entry.outputWarehouseName} />
-            <Pair label="Total / Reject QTY" value={`${qty2(entry.totalQty)} / ${qty2(entry.rejectQty)} ${entry.uom}`} />
-            <Pair label="Net / Excess QTY" value={`${qty2(entry.netQty)} / ${qty2(entry.excessQty)} ${entry.uom}`} />
-            <Pair label="Net Weight" value={qty2(entry.netWeight)} />
-            <Pair label="Machine Hours" value={qty2(entry.hours)} />
-            <Pair label="Material Cost" value={`${money(entry.actualCost)} (standard ${money(entry.standardCost)})`} />
-            <Pair label="Variance" value={money(entry.variance)} />
-            <Pair label="Created By" value={`${entry.createdByName} · ${stamp(entry.createdAt)}`} />
-            {entry.remarks && <Pair label="Remarks" value={entry.remarks} />}
-          </dl>
-          {entry.cancelReason && (
-            <p className="rounded-md bg-control px-3 py-2 text-sm text-ink-muted">
-              Cancelled by <span className="font-medium text-ink">{entry.cancelledByName}</span>
-              {entry.cancelledAt ? ` on ${stamp(entry.cancelledAt)}` : ""}: {entry.cancelReason}
-            </p>
-          )}
-          <LineTable
-            columns={[
-              { header: "SL", className: "w-12" },
-              { header: "Item Code" },
-              { header: "Item Name" },
-              { header: "UoM" },
-              { header: "Standard QTY", align: "right" },
-              { header: "Actual QTY", align: "right" },
-              { header: "Wastage", align: "right" },
-              { header: "Scrap", align: "right" },
-              { header: "Variance QTY", align: "right" },
-            ]}
-            rows={entry.materials.map((line, index) => [
-              index + 1,
-              line.code,
-              <span key="name" className="text-ink">{line.name}</span>,
-              line.uom,
-              qty2(line.standardQty),
-              qty2(line.actualQty),
-              qty2(line.wastageQty),
-              qty2(line.scrapQty),
-              <span key="v" className={line.varianceQty > 0 ? "text-danger" : line.varianceQty < 0 ? "text-success" : undefined}>
-                {qty2(line.varianceQty)}
-              </span>,
-            ])}
-            empty="No material was consumed."
+        <EntryDetailsBody entry={entry} />
+      )}
+      {entry && cancelling && (
+        <div className="mt-4 flex flex-col gap-2 rounded-md border border-danger/30 p-3">
+          <TextAreaField
+            label="Reason for cancelling"
+            required
+            maxLength={500}
+            value={reason}
+            error={error}
+            hint="Materials go back to stock, the output leaves stock and the order's produced quantity goes down."
+            onChange={(event) => setReason(event.target.value)}
           />
-          {cancelling && (
-            <div className="flex flex-col gap-2 rounded-md border border-danger/30 p-3">
-              <TextAreaField
-                label="Reason for cancelling"
-                required
-                maxLength={500}
-                value={reason}
-                error={error}
-                hint="Materials go back to stock, the output leaves stock and the order's produced quantity goes down."
-                onChange={(event) => setReason(event.target.value)}
-              />
-              <div className="flex justify-end gap-2">
-                <Button onClick={() => setCancelling(false)} disabled={busy}>
-                  Back
-                </Button>
-                <Button variant="danger" onClick={cancel} loading={busy}>
-                  Confirm Cancel
-                </Button>
-              </div>
-            </div>
-          )}
+          <div className="flex justify-end gap-2">
+            <Button onClick={() => setCancelling(false)} disabled={busy}>
+              Back
+            </Button>
+            <Button variant="danger" onClick={cancel} loading={busy}>
+              Confirm Cancel
+            </Button>
+          </div>
         </div>
       )}
     </Dialog>
+  );
+}
+
+function SectionHeading({ id, children }: { id: string; children: ReactNode }) {
+  return (
+    <h3 id={id} className="text-base font-semibold text-ink">
+      {children}
+    </h3>
+  );
+}
+
+/** Body of "Production Entry Details", laid out as in Managerium. */
+function EntryDetailsBody({ entry }: { entry: EntryDetail }) {
+  const na = (value: string | null | undefined) => value || "N/A";
+  // Weight of one good unit (BOM net weight), for the defect (rejected) weight.
+  const unitWeight = entry.netQty > 0 ? entry.netWeight / entry.netQty : 0;
+  const variancePercent = entry.standardCost > 0 ? (entry.variance / entry.standardCost) * 100 : 0;
+  const sum = (pick: (line: EntryDetail["materials"][number]) => number) => entry.materials.reduce((total, line) => total + pick(line), 0);
+  const outputRow = [
+    qty2(entry.totalQty),
+    qty2(entry.excessQty),
+    qty2(entry.netQty),
+    `${qty2(variancePercent)}%`,
+    qty2(entry.netWeight),
+    qty2(entry.rejectQty),
+    qty2(entry.rejectQty * unitWeight),
+  ];
+  return (
+    <div className="flex flex-col gap-5">
+      <div className="flex flex-wrap items-center gap-2">
+        <Indicator color={entry.status === "POSTED" ? "green" : "gray"}>{entry.status === "POSTED" ? "Posted" : "Cancelled"}</Indicator>
+        <a href={entryPdfUrl(entry.id)} target="_blank" rel="noopener" className={cn(buttonClasses("secondary", "sm"), "ml-auto text-accent-strong")}>
+          <Printer aria-hidden="true" />
+          PRINT/PDF
+        </a>
+      </div>
+
+      <dl className="grid gap-x-10 gap-y-1.5 md:grid-cols-2">
+        <div className="flex flex-col gap-1.5">
+          <Pair label="Prod Order/Sche NO" value={entry.orderNumber} />
+          <Pair label="Order/Sche Date" value={day(entry.orderDate)} />
+          <Pair label="Prod Entry NO" value={entry.number} />
+          <Pair label="Entry Date" value={day(entry.entryDate)} />
+          <Pair label="Bom Name" value={entry.bomName} />
+          <Pair label="Operator Name" value={entry.operatorNames.join(", ") || "N/A"} />
+          <Pair label="Sales Order" value={na(entry.salesOrderNumber)} />
+          <Pair label="Material From" value={entry.sourceWarehouseName} />
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <Pair label="Department" value={na(entry.departmentName)} />
+          <Pair label="Section" value={na(entry.sectionName)} />
+          <Pair label="Work Center" value={na(entry.workCenterName)} />
+          <Pair label="Equipment" value={na(entry.equipment)} />
+          <Pair label="Shift" value={na(entry.shift)} />
+          <Pair label="Created By" value={`${entry.createdByName} · ${stamp(entry.createdAt)}`} />
+          <Pair label="Output To" value={entry.outputWarehouseName} />
+          <Pair label="Machine Hours" value={qty2(entry.hours)} />
+        </div>
+        {entry.remarks && (
+          <div className="md:col-span-2">
+            <Pair label="Remarks" value={entry.remarks} />
+          </div>
+        )}
+      </dl>
+
+      <section aria-labelledby="entry-output" className="flex flex-col gap-2">
+        <SectionHeading id="entry-output">Output/Produce Item</SectionHeading>
+        <LineTable
+          columns={[
+            { header: "SL", className: "w-12" },
+            { header: "Code" },
+            { header: "Item Name" },
+            { header: "Category" },
+            { header: "Sub Category" },
+            { header: "UOM" },
+            { header: "Total Qty", align: "right" },
+            { header: "Excess Qty", align: "right" },
+            { header: "Net Qty", align: "right" },
+            { header: "Variance", align: "right" },
+            { header: "Total Weight", align: "right" },
+            { header: "Defect Qty", align: "right" },
+            { header: "Defect Weight", align: "right" },
+            { header: "Unit Cost", align: "right" },
+            { header: "Total Cost", align: "right" },
+          ]}
+          rows={[
+            [
+              1,
+              <span key="code" className="whitespace-nowrap">{entry.itemCode}</span>,
+              <span key="name" className="inline-block min-w-48 text-ink">{`${entry.itemCode} - ${entry.itemName} (${entry.uom})`}</span>,
+              na(entry.categoryName),
+              na(entry.subCategoryName),
+              entry.uom,
+              ...outputRow,
+              money(entry.unitCost),
+              money(entry.actualCost),
+            ],
+          ]}
+          footerLabelSpan={6}
+          footer={[["Total", ...outputRow, "", money(entry.actualCost)]]}
+        />
+      </section>
+
+      <section aria-labelledby="entry-materials" className="flex flex-col gap-2">
+        <SectionHeading id="entry-materials">Materials Information</SectionHeading>
+        <LineTable
+          columns={[
+            { header: "SL", className: "w-12" },
+            { header: "Code" },
+            { header: "Item Name" },
+            { header: "Category" },
+            { header: "Sub Category" },
+            { header: "UOM" },
+            { header: "Standard Qty", align: "right" },
+            { header: "Actual Qty", align: "right" },
+            { header: "Wastage", align: "right" },
+            { header: "Scrap", align: "right" },
+            { header: "Variance Qty", align: "right" },
+            { header: "Unit Cost", align: "right" },
+            { header: "Actual Total Cost", align: "right" },
+          ]}
+          rows={entry.materials.map((line, index) => [
+            index + 1,
+            <span key="code" className="whitespace-nowrap">{line.code}</span>,
+            <span key="name" className="text-ink">{line.name}</span>,
+            na(line.categoryName),
+            na(line.subCategoryName),
+            line.uom,
+            qty2(line.standardQty),
+            qty2(line.actualQty),
+            qty2(line.wastageQty),
+            qty2(line.scrapQty),
+            <span key="v" className={line.varianceQty > 0 ? "text-danger" : line.varianceQty < 0 ? "text-success" : undefined}>
+              {qty2(line.varianceQty)}
+            </span>,
+            money(line.rate),
+            money(line.actualQty * line.rate),
+          ])}
+          footerLabelSpan={6}
+          footer={[
+            [
+              "Total",
+              qty2(sum((line) => line.standardQty)),
+              qty2(sum((line) => line.actualQty)),
+              qty2(sum((line) => line.wastageQty)),
+              qty2(sum((line) => line.scrapQty)),
+              qty2(sum((line) => line.varianceQty)),
+              "",
+              money(sum((line) => line.actualQty * line.rate)),
+            ],
+          ]}
+          empty="No material was consumed."
+        />
+      </section>
+
+      {entry.wastages.length > 0 && (
+        <section aria-labelledby="entry-wastage" className="flex flex-col gap-2">
+          <SectionHeading id="entry-wastage">Process Wise Wastage</SectionHeading>
+          <LineTable
+            columns={[{ header: "SL", className: "w-12" }, { header: "Process Name" }, { header: "Code" }, { header: "Item Name" }, { header: "UOM" }, { header: "Wastage Quantity", align: "right" }]}
+            rows={entry.wastages.map((line, index) => [
+              index + 1,
+              <span key="process" className="text-ink">{line.processName}</span>,
+              <span key="code" className="whitespace-nowrap">{line.code}</span>,
+              line.name,
+              line.uom,
+              qty2(line.qty),
+            ])}
+          />
+        </section>
+      )}
+
+      <section aria-labelledby="entry-approval" className="flex flex-col gap-2">
+        <SectionHeading id="entry-approval">Approval Status</SectionHeading>
+        {entry.status === "CANCELLED" ? (
+          <p className="rounded-md bg-control px-3 py-2 text-sm text-ink-muted">
+            Cancelled by <span className="font-medium text-ink">{entry.cancelledByName ?? "N/A"}</span>
+            {entry.cancelledAt ? ` on ${stamp(entry.cancelledAt)}` : ""}
+            {entry.cancelReason ? `: ${entry.cancelReason}` : ""}
+          </p>
+        ) : (
+          <p className="text-sm text-ink-muted">
+            Posted by <span className="font-medium text-ink">{entry.createdByName}</span> on {stamp(entry.createdAt)}. The production order was approved before this entry; the entry itself needs no
+            further approval.
+          </p>
+        )}
+      </section>
+    </div>
   );
 }
