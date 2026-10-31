@@ -1,4 +1,4 @@
-import { Banknote, Factory, Handshake, Route, Users } from "lucide-react";
+import { Factory, Handshake, Route } from "lucide-react";
 import type { Workspace } from "./types";
 
 /**
