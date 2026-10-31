@@ -1,4 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
+import { apiHandler } from "@/lib/api/handler";
 import { purchaseStore } from "@/lib/purchase-store/store";
 import {
   CreateRequisitionSchema,
@@ -8,13 +9,13 @@ import {
   ReportQuerySchema,
 } from "@bridgeone/contracts";
 
-export async function GET(
-  request: NextRequest,
+async function handleGET(
+  request: Request,
   { params }: { params: Promise<{ route: string[] }> }
 ) {
   const { route } = await params;
   const path = route.join("/");
-  const searchParams = request.nextUrl.searchParams;
+  const searchParams = new URL(request.url).searchParams;
 
   try {
     // 1. MASTER DATA
@@ -245,8 +246,8 @@ export async function GET(
   }
 }
 
-export async function POST(
-  request: NextRequest,
+async function handlePOST(
+  request: Request,
   { params }: { params: Promise<{ route: string[] }> }
 ) {
   const { route } = await params;
@@ -325,8 +326,8 @@ export async function POST(
   }
 }
 
-export async function PUT(
-  request: NextRequest,
+async function handlePUT(
+  request: Request,
   { params }: { params: Promise<{ route: string[] }> }
 ) {
   const { route } = await params;
@@ -353,3 +354,8 @@ export async function PUT(
     );
   }
 }
+
+// Signed-in users with the purchase permission only.
+export const GET = apiHandler("purchase:read", handleGET);
+export const POST = apiHandler("purchase:write", handlePOST);
+export const PUT = apiHandler("purchase:write", handlePUT);

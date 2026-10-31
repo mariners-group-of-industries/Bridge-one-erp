@@ -3,7 +3,12 @@ import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   resolve: {
-    alias: { "@": path.resolve(import.meta.dirname, "src") },
+    // Mirrors the "paths" in tsconfig.json.
+    alias: {
+      "@bridgeone/contracts": path.resolve(import.meta.dirname, "src/contracts"),
+      "@bridgeone/purchase-calculations": path.resolve(import.meta.dirname, "src/lib/calculations"),
+      "@": path.resolve(import.meta.dirname, "src"),
+    },
   },
   test: {
     environment: "node",

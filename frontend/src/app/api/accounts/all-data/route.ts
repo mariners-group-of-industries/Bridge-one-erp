@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/prisma/client";
+import { apiHandler } from "@/lib/api/handler";
 
-export async function GET() {
+async function handleGET() {
   try {
     const prisma = db();
     const [
@@ -51,3 +52,6 @@ export async function GET() {
     );
   }
 }
+
+// Signed-in users with the accounts permission only.
+export const GET = apiHandler("accounts:read", handleGET);

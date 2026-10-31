@@ -15,7 +15,9 @@ export type Permission =
   | "accounts:write"
   | "production:read"
   | "production:write"
-  | "production:approve";
+  | "production:approve"
+  | "purchase:read"
+  | "purchase:write";
 
 export interface Actor {
   id: string;
@@ -41,6 +43,8 @@ export const ALL_PERMISSIONS: readonly Permission[] = [
   "production:read",
   "production:write",
   "production:approve",
+  "purchase:read",
+  "purchase:write",
 ];
 
 /**

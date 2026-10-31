@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/prisma/client";
+import { apiHandler } from "@/lib/api/handler";
 
-export async function POST() {
+async function handlePOST() {
   try {
     const prisma = db();
 
@@ -337,3 +338,6 @@ export async function POST() {
     );
   }
 }
+
+// Signed-in users with the accounts permission only.
+export const POST = apiHandler("accounts:write", handlePOST);
