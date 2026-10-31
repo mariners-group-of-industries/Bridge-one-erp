@@ -16,7 +16,6 @@ import type { Breadcrumb, NavLink, NavRoute, Workspace } from "./types";
  */
 export const workspaces: readonly Workspace[] = [
   purchaseWorkspace,
-  posWorkspace,
   inventoryWorkspace,
   productionWorkspace,
   salesWorkspace,
@@ -25,6 +24,7 @@ export const workspaces: readonly Workspace[] = [
   configurationWorkspace,
   rtmWorkspace,
   crmWorkspace,
+  posWorkspace,
 ];
 
 export interface SearchEntry extends NavLink {
