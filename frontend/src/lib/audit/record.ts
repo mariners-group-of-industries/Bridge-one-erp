@@ -71,8 +71,6 @@ export function actionOf(method: string, pathname: string): AuditAction | null {
   const verb = method.toUpperCase();
   // The attendance agent uploads every few minutes; its sync status is on the device instead.
   if (verb === "POST" && last === "punches") return null;
-  // Business Analyst questions only read data.
-  if (verb === "POST" && last === "assistant") return null;
   if (verb === "GET" || verb === "HEAD") return ["excel", "export", "pdf"].includes(last) ? "EXPORT" : null;
   if (verb === "DELETE") return "DELETE";
   if (last === "import") return "IMPORT";

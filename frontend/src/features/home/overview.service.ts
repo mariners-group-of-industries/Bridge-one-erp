@@ -156,7 +156,7 @@ export async function getBusinessOverview(actor: Actor): Promise<BusinessOvervie
 }
 
 /** Last 12 months of sales, returns, collections and purchases; null when there are no such documents. */
-export async function tradingMonths(businessUnitId: { in: string[] }): Promise<SalesMonth[] | null> {
+async function tradingMonths(businessUnitId: { in: string[] }): Promise<SalesMonth[] | null> {
   const now = new Date();
   const keys = Array.from({ length: 12 }, (_, i) => monthKey(new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 11 + i, 1))));
   const from = new Date(`${keys[0]}-01T00:00:00.000Z`);
