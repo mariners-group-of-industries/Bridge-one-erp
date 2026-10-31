@@ -65,6 +65,7 @@ export const purchaseWorkspace: Workspace = {
   description: "Requisitions, purchase orders, goods receipts, returns and supplier settlements.",
   status: "active",
   shortcuts: [
+    purchaseDashboard,
     purchaseRequisitions,
     purchaseOrders,
     purchaseReceive,
@@ -74,6 +75,7 @@ export const purchaseWorkspace: Workspace = {
     {
       label: "",
       links: [
+        purchaseDashboard,
         purchaseRequisitions,
         purchaseOrders,
         purchaseReceive,

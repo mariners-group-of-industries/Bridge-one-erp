@@ -120,6 +120,7 @@ describe("purchase workspace", () => {
     expect(purchase?.cards).toHaveLength(1);
     expect(purchase?.cards?.[0]?.label).toBe("");
     expect(purchase?.cards?.[0]?.links.map((link) => link.label)).toEqual([
+      "Purchase Dashboard",
       "Purchase Requisition",
       "Purchase Order",
       "Purchase Receive",
@@ -127,6 +128,19 @@ describe("purchase workspace", () => {
       "Supplier Payment",
       "Purchase Analytics",
       "Purchase Report",
+    ]);
+  });
+});
+
+
+describe("pos workspace", () => {
+  it("lists POS Dashboard, Setup, and Reports under POS", () => {
+    const pos = workspaces.find((workspace) => workspace.id === "pos");
+    expect(pos?.status).toBe("active");
+    expect(pos?.cards?.[0]?.links.map((link) => link.label)).toEqual([
+      "POS Dashboard",
+      "Setup",
+      "Reports",
     ]);
   });
 });

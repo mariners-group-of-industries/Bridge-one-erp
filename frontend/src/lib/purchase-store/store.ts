@@ -820,13 +820,18 @@ class PurchaseDataStore {
     }));
 
     // Monthly expenditure
-    const monthlyExpenditure = [
-      { month: "Jun 2026", expenditure: 680000, budget: 750000 },
-      { month: "Jul 2026", expenditure: 820000, budget: 800000 },
-      { month: "Aug 2026", expenditure: 950000, budget: 1000000 },
-      { month: "Sep 2026", expenditure: 442118, budget: 600000 },
-      { month: "Oct 2026", expenditure: totalSpendAmount, budget: 850000 },
-    ];
+    const monthlyMap: Record<string, number> = {};
+    for (const po of filteredPOs) {
+      const m = po.orderDate ? po.orderDate.slice(0, 7) : "Unknown";
+      monthlyMap[m] = (monthlyMap[m] || 0) + po.totalAmount;
+    }
+    const monthlyExpenditure = Object.entries(monthlyMap)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([month, expenditure]) => ({
+        month,
+        expenditure,
+        budget: 0,
+      }));
 
     // PO Status distribution
     const statusCounts: Record<string, number> = {};
@@ -920,7 +925,7 @@ class PurchaseDataStore {
       poStatusDistribution,
       topSuppliers,
       topPurchasedItems,
-      procurementCycleTimeDays: 4.8,
+      procurementCycleTimeDays: 0,
       pendingApprovalItems,
       isSampleData: false,
     };
@@ -1078,10 +1083,7 @@ class PurchaseDataStore {
               }
             }
           }
-          if (totalQty === 0) {
-            totalQty = 50;
-            totalCost = item.standardPrice * 50;
-          }
+          
           const avgPrice = totalQty > 0 ? Math.round(totalCost / totalQty) : item.standardPrice;
           return {
             SL: i + 1,
@@ -1143,14 +1145,7 @@ class PurchaseDataStore {
 
       case "EXPENDITURE_SUMMARY_REPORT": {
         columns = ["SL", "Fiscal Month", "Requisitions Approved", "POs Committed (BDT)", "GRN Receipts (BDT)", "Disbursements (BDT)", "Commitment Balance"];
-        const monthlyData = [
-          { month: "May 2026", reqCount: 18, poVal: 6200000, grnVal: 5800000, paidVal: 5400000 },
-          { month: "Jun 2026", reqCount: 22, poVal: 7450000, grnVal: 7100000, paidVal: 6800000 },
-          { month: "Jul 2026", reqCount: 20, poVal: 6900000, grnVal: 6600000, paidVal: 6200000 },
-          { month: "Aug 2026", reqCount: 26, poVal: 8800000, grnVal: 8200000, paidVal: 7900000 },
-          { month: "Sep 2026", reqCount: 24, poVal: 8150000, grnVal: 7950000, paidVal: 7500000 },
-          { month: "Oct 2026", reqCount: 15, poVal: 5400000, grnVal: 4900000, paidVal: 4600000 },
-        ];
+        const monthlyData: Array<{ month: string; reqCount: number; poVal: number; grnVal: number; paidVal: number }> = [];
         rows = monthlyData.map((m, i) => ({
           SL: i + 1,
           "Fiscal Month": m.month,

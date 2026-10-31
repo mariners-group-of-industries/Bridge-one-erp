@@ -56,16 +56,7 @@ interface StrategicPO {
   paymentStatus: "PAID" | "PARTIALLY_PAID" | "UNPAID";
 }
 
-const STRATEGIC_POS_DATA: StrategicPO[] = [
-  { poNumber: "PO-2026-00089", orderDate: "2026-10-03", supplierName: "Bengal Polymer & Plastic Industries", facility: "Gazipur Complex", category: "Raw Materials", amount: 1508400, deliveryStatus: "SCHEDULED", paymentStatus: "UNPAID" },
-  { poNumber: "PO-2026-00088", orderDate: "2026-09-28", supplierName: "Freshpack Packaging Industries Ltd", facility: "Gazipur Complex", category: "Packaging", amount: 407480, deliveryStatus: "PARTIALLY_RECEIVED", paymentStatus: "PARTIALLY_PAID" },
-  { poNumber: "PO-2026-00091", orderDate: "2026-10-09", supplierName: "BridgeOne Technologies Ltd", facility: "Tejgaon Head Office", category: "Power & Electrical", amount: 292556.25, deliveryStatus: "SCHEDULED", paymentStatus: "UNPAID" },
-  { poNumber: "PO-2026-00090", orderDate: "2026-10-05", supplierName: "Standard Steel & Engineering Works", facility: "Gazipur Complex", category: "Engineering Spares", amount: 185250, deliveryStatus: "SCHEDULED", paymentStatus: "UNPAID" },
-  { poNumber: "PO-2026-00087", orderDate: "2026-09-15", supplierName: "Freshpack Packaging Industries Ltd", facility: "Tejgaon Head Office", category: "Safety & PPE", amount: 149060, deliveryStatus: "COMPLETED", paymentStatus: "PAID" },
-  { poNumber: "PO-2026-00084", orderDate: "2026-09-22", supplierName: "Royal Print & Packaging Ltd", facility: "Tejgaon Head Office", category: "Packaging", amount: 246788.94, deliveryStatus: "COMPLETED", paymentStatus: "UNPAID" },
-  { poNumber: "PO-2026-00083", orderDate: "2026-09-26", supplierName: "Apex Commodities International", facility: "Chattogram Terminal", category: "Raw Materials", amount: 270000, deliveryStatus: "COMPLETED", paymentStatus: "UNPAID" },
-  { poNumber: "PO-2026-00082", orderDate: "2026-09-18", supplierName: "Kohinoor Chemicals & Solvents Ltd", facility: "Gazipur Complex", category: "Chemicals", amount: 146330, deliveryStatus: "COMPLETED", paymentStatus: "PARTIALLY_PAID" },
-];
+const STRATEGIC_POS_DATA: StrategicPO[] = [];
 
 export default function PurchaseAnalyticsPage() {
   const [fromDate, setFromDate] = useState("2026-06-01");
@@ -106,75 +97,48 @@ export default function PurchaseAnalyticsPage() {
 
   // Aggregate stats from API or realistic enterprise fallback
   const stats = useMemo(() => {
-    const totalSpend = apiData?.kpis.totalSpendAmount ?? 2542746.25;
-    const poCount = apiData?.kpis.openPurchaseOrders
-      ? (apiData.kpis.openPurchaseOrders + (apiData.kpis.partiallyReceivedOrders ?? 0) + (apiData.kpis.completedOrders ?? 0))
-      : 8;
-    const totalOutstanding = apiData?.kpis.totalOutstandingAmount ?? 3685389.67;
+    const totalSpend = apiData?.kpis.totalSpendAmount ?? 0;
+    const poCount =
+      (apiData?.kpis.openPurchaseOrders ?? 0) +
+      (apiData?.kpis.partiallyReceivedOrders ?? 0) +
+      (apiData?.kpis.completedOrders ?? 0);
+    const totalOutstanding = apiData?.kpis.totalOutstandingAmount ?? 0;
 
     return {
       totalSpend,
       poCount,
       totalOutstanding,
-      cycleTimeDays: apiData?.procurementCycleTimeDays ?? 3.8,
-      approvalTurnaroundHours: apiData?.averageApprovalTurnaroundHours ?? 16.4,
-      acceptanceRate: "99.2%",
-      costSavings: 184500,
+      cycleTimeDays: apiData?.procurementCycleTimeDays ?? 0,
+      approvalTurnaroundHours: apiData?.averageApprovalTurnaroundHours ?? 0,
+      acceptanceRate: poCount > 0 ? "100%" : "0%",
+      costSavings: 0,
     };
   }, [apiData]);
 
   // Monthly trend data
   const monthlyData = useMemo(() => {
-    if (apiData?.monthlyExpenditure && apiData.monthlyExpenditure.length > 0) {
-      return apiData.monthlyExpenditure;
-    }
-    return [
-      { month: "Jun 2026", expenditure: 680000, budget: 750000 },
-      { month: "Jul 2026", expenditure: 820000, budget: 800000 },
-      { month: "Aug 2026", expenditure: 950000, budget: 1000000 },
-      { month: "Sep 2026", expenditure: 842118, budget: 900000 },
-      { month: "Oct 2026", expenditure: stats.totalSpend, budget: 2800000 },
-    ];
-  }, [apiData, stats.totalSpend]);
+    return apiData?.monthlyExpenditure ?? [];
+  }, [apiData]);
 
   // Category breakdown
   const categoryData = useMemo(() => {
-    return [
-      { name: "Raw Materials", value: 1508400, percent: "46%" },
-      { name: "Packaging", value: 654268.94, percent: "20%" },
-      { name: "Engineering Spares", value: 370500, percent: "11%" },
-      { name: "Power & Electrical", value: 292556.25, percent: "9%" },
-      { name: "Chemicals", value: 265000, percent: "8%" },
-      { name: "Safety & PPE", value: 149060, percent: "6%" },
-    ];
-  }, []);
+    const raw = apiData?.typeWisePurchase ?? [];
+    const total = raw.reduce((s, r) => s + r.amount, 0);
+    return raw.map((r) => ({
+      name: r.name,
+      value: r.amount,
+      percent: total > 0 ? `${Math.round((r.amount / total) * 100)}%` : "0%",
+    }));
+  }, [apiData]);
 
   // Top strategic suppliers
   const supplierSpendData = useMemo(() => {
-    if (apiData?.topSuppliers && apiData.topSuppliers.length > 0) {
-      return apiData.topSuppliers;
-    }
-    return [
-      { supplier: "Bengal Polymer & Plastic", totalSpend: 1508400, poCount: 1 },
-      { supplier: "Freshpack Packaging", totalSpend: 556540, poCount: 2 },
-      { supplier: "BridgeOne Technologies", totalSpend: 292556.25, poCount: 1 },
-      { supplier: "Apex Commodities Int.", totalSpend: 270000, poCount: 1 },
-      { supplier: "Royal Print & Pack", totalSpend: 246788.94, poCount: 1 },
-      { supplier: "Standard Steel Works", totalSpend: 185250, poCount: 1 },
-    ];
+    return apiData?.topSuppliers ?? [];
   }, [apiData]);
 
   // Warehouse distribution
   const warehouseData = useMemo(() => {
-    if (apiData?.warehouseWisePurchase && apiData.warehouseWisePurchase.length > 0) {
-      return apiData.warehouseWisePurchase;
-    }
-    return [
-      { warehouse: "Factory Floor Gazipur", amount: 2101130, count: 5 },
-      { warehouse: "Central Distribution Dhaka", amount: 441616.25, count: 3 },
-      { warehouse: "Port Terminal Storage CTG", amount: 270000, count: 1 },
-      { warehouse: "Northern Silo Bogura", amount: 185000, count: 1 },
-    ];
+    return apiData?.warehouseWisePurchase ?? [];
   }, [apiData]);
 
   // Export analytics summary to CSV
@@ -701,7 +665,7 @@ export default function PurchaseAnalyticsPage() {
             </p>
           </div>
           <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
-            Overall Turnaround: 3.8 Days (Optimal)
+            Overall Turnaround: {stats.cycleTimeDays} Days
           </span>
         </div>
 
@@ -710,7 +674,7 @@ export default function PurchaseAnalyticsPage() {
             <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
               Step 1: Requisition Review
             </div>
-            <div className="text-sm font-bold text-slate-800 mt-1 font-mono">14.2 Hours</div>
+            <div className="text-sm font-bold text-slate-800 mt-1 font-mono">0 Hours</div>
             <p className="text-[11px] text-slate-500 mt-0.5">Manager validation & budget audit</p>
           </div>
 
@@ -718,7 +682,7 @@ export default function PurchaseAnalyticsPage() {
             <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
               Step 2: PO Issuance & RFQ
             </div>
-            <div className="text-sm font-bold text-slate-800 mt-1 font-mono">18.6 Hours</div>
+            <div className="text-sm font-bold text-slate-800 mt-1 font-mono">0 Hours</div>
             <p className="text-[11px] text-slate-500 mt-0.5">Commercial bidding & PO release</p>
           </div>
 
@@ -726,7 +690,7 @@ export default function PurchaseAnalyticsPage() {
             <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
               Step 3: Vendor Dispatch & Transit
             </div>
-            <div className="text-sm font-bold text-slate-800 mt-1 font-mono">2.4 Days</div>
+            <div className="text-sm font-bold text-slate-800 mt-1 font-mono">0 Days</div>
             <p className="text-[11px] text-slate-500 mt-0.5">In-transit tracking & gate entry</p>
           </div>
 
@@ -734,7 +698,7 @@ export default function PurchaseAnalyticsPage() {
             <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
               Step 4: QC & GRN Stock In
             </div>
-            <div className="text-sm font-bold text-slate-800 mt-1 font-mono">6.5 Hours</div>
+            <div className="text-sm font-bold text-slate-800 mt-1 font-mono">0 Hours</div>
             <p className="text-[11px] text-slate-500 mt-0.5">QA inspection & inventory sync</p>
           </div>
         </div>
