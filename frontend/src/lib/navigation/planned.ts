@@ -21,7 +21,7 @@ export const crmWorkspace: Workspace = {
   id: "crm",
   label: "CRM",
   icon: Handshake,
-  href: "https://brg1.io",
+  href: "https://crm.brg1.io",
   description: "Leads, opportunities, customer follow-ups and campaigns.",
   status: "active",
 };
