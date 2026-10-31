@@ -9,6 +9,7 @@ import { saveCompany } from "@/features/configuration/business-config/company-pr
 import { createOffice } from "@/features/configuration/business-config/company-profile/server/office.service";
 import { createPolicyRecord, deletePolicyRecord, importCalendarInfo, listPolicyRecords, refOptions, updatePolicyRecord } from "@/features/hrm/governance/server/policy-records.service";
 import { POLICY_TAB_DEFS } from "@/features/hrm/governance/policy-fields";
+import { employeeChecklist, policyGrid, setChecklistFlag } from "@/features/hrm/governance/server/governance.service";
 import { POLICY_TABS } from "@/features/hrm/governance/types";
 import { adminActor, businessUnitInput, companyInput, officeInput } from "./helpers/fixtures";
 import { resetTestDb, startTestDb, stopTestDb, testPrisma } from "./helpers/test-db";
@@ -99,5 +100,40 @@ describe("Settings / Policies records", () => {
 
   it("is for HR only", async () => {
     await expect(listPolicyRecords(staff, "holidays")).rejects.toThrow(/Only HR/);
+  });
+});
+
+describe("Employee Assign checklist", () => {
+  it("lists employees with service length, assigned policy and OverTime / PF / Hold Salary, and saves ticks", async () => {
+    await testPrisma().employee.update({ where: { id: employeeId }, data: { designation: "Officer", department: "HR", employeePolicy: "Profile Policy" } });
+    const second = await testPrisma().employee.create({ data: { officeId, employeeCode: "E-2", name: "Karim", joiningDate: new Date("2026-10-01"), employeePolicy: "Profile Policy" } });
+    await testPrisma().employeeSalary.create({ data: { employeeId, salaryType: "regular", salaryOption: "gross", grossOnly: 30000, disbursementMode: "cash" } });
+    await testPrisma().hrPolicyRecord.createMany({
+      data: [
+        { tab: "employee-assign", employeeId, effectiveFrom: new Date("2026-01-01"), data: { calendar: "General", policy: "Head Office Policy" } },
+        { tab: "employee-assign", employeeId, effectiveFrom: new Date("2025-01-01"), effectiveTo: new Date("2025-12-31"), data: { calendar: "General", policy: "Old Policy" } },
+      ],
+    });
+
+    const today = new Date("2026-10-31T00:00:00Z");
+    const rows = await employeeChecklist(adminActor, {}, today);
+    expect(rows.map((r) => [r.code, r.policy, r.serviceDays, r.hasSalary, r.overtime, r.pf, r.holdSalary])).toEqual([
+      ["E-1", "Head Office Policy", 1034, true, false, false, false],
+      ["E-2", "Profile Policy", 30, false, false, false, false],
+    ]);
+
+    await setChecklistFlag(adminActor, employeeId, "overtime", true);
+    await setChecklistFlag(adminActor, employeeId, "pf", true);
+    await setChecklistFlag(adminActor, second.id, "holdSalary", true);
+    // PF lives on the salary, which Karim does not have yet.
+    await expect(setChecklistFlag(adminActor, second.id, "pf", true)).rejects.toThrow(/salary/);
+    expect((await employeeChecklist(adminActor, {}, today)).map((r) => [r.overtime, r.pf, r.holdSalary])).toEqual([
+      [true, true, false],
+      [false, false, true],
+    ]);
+
+    // Employee Assign no longer shows the "From employee records" grid.
+    expect((await policyGrid(adminActor, "employee-assign", {})).configured).toBe(false);
+    await expect(employeeChecklist(staff, {})).rejects.toThrow(/Only HR/);
   });
 });
