@@ -73,6 +73,8 @@ export default function HomePage() {
                   {workspace.status === "active" ? (
                     <Link
                       href={workspace.href}
+                      target={workspace.href.startsWith("http") ? "_blank" : undefined}
+                      rel={workspace.href.startsWith("http") ? "noopener noreferrer" : undefined}
                       className="flex h-full gap-3 rounded border border-line bg-surface p-4 transition-shadow hover:shadow-sm focus-visible:outline-2"
                     >
                       {body}

@@ -66,6 +66,29 @@ export function SidebarNav({ pathname, onNavigate }: { pathname: string | null; 
           const cards = workspace.cards ?? [];
           // Flat page lists (Sales) and unnamed cards sit directly under the module.
           const flat: readonly NavLink[] | null = workspace.sidebarLinks ?? null;
+          if (cards.length === 0 && (!flat || flat.length === 0)) {
+            const external = workspace.href.startsWith("http");
+            return (
+              <li key={workspace.id}>
+                <Link
+                  href={workspace.href}
+                  target={external ? "_blank" : undefined}
+                  rel={external ? "noopener noreferrer" : undefined}
+                  onClick={onNavigate}
+                  className={cn(
+                    "flex h-9 w-full items-center gap-2.5 rounded-md px-2 transition-colors focus-visible:outline-2",
+                    active ? "text-ink" : "text-ink-muted hover:bg-control hover:text-ink",
+                  )}
+                >
+                  <IconTile active={active}>
+                    <Icon />
+                  </IconTile>
+                  <span className={cn("flex-1 truncate text-left", active ? "font-semibold text-ink" : "font-medium")}>{workspace.label}</span>
+                  <Chevron open={false} />
+                </Link>
+              </li>
+            );
+          }
           return (
             <li key={workspace.id}>
               <Collapsible

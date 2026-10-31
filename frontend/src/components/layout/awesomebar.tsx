@@ -50,7 +50,11 @@ function SearchPanel({ onClose }: { onClose: () => void }) {
 
   function go(href: string) {
     onClose();
-    router.push(href);
+    if (href.startsWith("http")) {
+      window.open(href, "_blank", "noopener,noreferrer");
+    } else {
+      router.push(href);
+    }
   }
 
   function onKeyDown(event: KeyboardEvent<HTMLInputElement>) {
