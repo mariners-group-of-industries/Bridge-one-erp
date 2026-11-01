@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useMemo, useEffect } from "react";
+import { SalesSetupSection } from "./sales-setup";
 import {
   ArrowLeft,
   Plus,
@@ -251,7 +252,7 @@ const SETUP_CARDS: Array<{
 ];
 
 export default function PosSetupPage() {
-  const [activeSection, setActiveSection] = useState<SetupSection>("FLOOR_TABLE_SETUP");
+  const [activeSection, setActiveSection] = useState<SetupSection>("SALES_SETUP");
 
   // Floor & Table specific states
   const [activeTab, setActiveTab] = useState<"FLOOR" | "FLOOR_LAYOUT">("FLOOR");
@@ -638,6 +639,10 @@ export default function PosSetupPage() {
         </div>
       </div>
     );
+  }
+
+  if (activeSection === "SALES_SETUP") {
+    return <SalesSetupSection onBack={() => setActiveSection(null)} />;
   }
 
   // --- FLOOR & TABLE SETUP FULL VIEW ---
