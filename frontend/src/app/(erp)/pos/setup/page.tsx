@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import {
   ArrowLeft,
   Plus,
@@ -9,6 +9,11 @@ import {
   UtensilsCrossed,
   Bell,
   Search,
+  Trash2,
+  CheckCircle,
+  AlertCircle,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 
 type SetupSection =
@@ -257,6 +262,61 @@ export default function PosSetupPage() {
   const [floors, setFloors] = useState<FloorRecord[]>(INITIAL_FLOORS);
   const [tables, setTables] = useState<TableRecord[]>(INITIAL_TABLES);
 
+  // Pagination for FLOOR tab
+  const [rowsPerPage, setRowsPerPage] = useState(15);
+  const [currentPage, setCurrentPage] = useState(1);
+
+  // Toast alert feedback
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const showToast = (msg: string) => {
+    setToastMessage(msg);
+    setTimeout(() => {
+      setToastMessage((cur) => (cur === msg ? null : cur));
+    }, 3000);
+  };
+
+  // 1. Initial Load from LocalStorage
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const storedFloors = localStorage.getItem("erp_pos_floors_v1");
+      const storedTables = localStorage.getItem("erp_pos_tables_v1");
+      if (storedFloors) {
+        const parsed = JSON.parse(storedFloors);
+        if (Array.isArray(parsed) && parsed.length > 0) setFloors(parsed);
+      }
+      if (storedTables) {
+        const parsed = JSON.parse(storedTables);
+        if (Array.isArray(parsed) && parsed.length > 0) setTables(parsed);
+      }
+    } catch (e) {
+      console.warn("Could not load from localStorage:", e);
+    }
+  }, []);
+
+  // Persistence helpers
+  const saveFloors = (newFloors: FloorRecord[]) => {
+    setFloors(newFloors);
+    if (typeof window !== "undefined") {
+      try {
+        localStorage.setItem("erp_pos_floors_v1", JSON.stringify(newFloors));
+      } catch (e) {
+        console.warn("Could not save floors to localStorage:", e);
+      }
+    }
+  };
+
+  const saveTables = (newTables: TableRecord[]) => {
+    setTables(newTables);
+    if (typeof window !== "undefined") {
+      try {
+        localStorage.setItem("erp_pos_tables_v1", JSON.stringify(newTables));
+      } catch (e) {
+        console.warn("Could not save tables to localStorage:", e);
+      }
+    }
+  };
+
   // Modals state
   const [isFloorModalOpen, setIsFloorModalOpen] = useState(false);
   const [isTableModalOpen, setIsTableModalOpen] = useState(false);
@@ -270,23 +330,43 @@ export default function PosSetupPage() {
   const [tableFloorInput, setTableFloorInput] = useState("ROOF TOP");
   const [tableNameInput, setTableNameInput] = useState("");
   const [tableSeatsInput, setTableSeatsInput] = useState("2");
+  const [tableStatusInput, setTableStatusInput] = useState<"Available" | "Occupied" | "Reserved">("Available");
 
   // Toggle active status for Floor
   const handleToggleFloorStatus = (id: string) => {
-    setFloors((prev) =>
-      prev.map((f) =>
-        f.id === id
-          ? { ...f, status: f.status === "Active" ? "Inactive" : "Active" }
-          : f
-      )
+    const updated = floors.map((f) =>
+      f.id === id
+        ? { ...f, status: f.status === "Active" ? ("Inactive" as const) : ("Active" as const) }
+        : f
     );
+    saveFloors(updated);
+    const target = updated.find((f) => f.id === id);
+    showToast(`Floor ${target?.floorName} is now ${target?.status}`);
   };
 
   // Toggle active status for Table
   const handleToggleTableActive = (id: string) => {
-    setTables((prev) =>
-      prev.map((t) => (t.id === id ? { ...t, isActive: !t.isActive } : t))
+    const updated = tables.map((t) =>
+      t.id === id ? { ...t, isActive: !t.isActive } : t
     );
+    saveTables(updated);
+    const target = updated.find((t) => t.id === id);
+    showToast(`Table ${target?.tableName} is now ${target?.isActive ? "Active" : "Inactive"}`);
+  };
+
+  // Quick cycle Table status: Available -> Occupied -> Reserved -> Available
+  const cycleTableStatus = (id: string) => {
+    const updated = tables.map((t) => {
+      if (t.id !== id) return t;
+      let nextStatus: "Available" | "Occupied" | "Reserved" = "Available";
+      if (t.status === "Available") nextStatus = "Occupied";
+      else if (t.status === "Occupied") nextStatus = "Reserved";
+      else nextStatus = "Available";
+      return { ...t, status: nextStatus };
+    });
+    saveTables(updated);
+    const target = updated.find((t) => t.id === id);
+    showToast(`Table ${target?.tableName} status changed to ${target?.status}`);
   };
 
   // Open Floor Modal (Create or Edit)
@@ -304,33 +384,56 @@ export default function PosSetupPage() {
     setIsFloorModalOpen(true);
   };
 
+  // Delete Floor
+  const handleDeleteFloor = (id: string) => {
+    const target = floors.find((f) => f.id === id);
+    if (!target) return;
+    if (confirm(`Are you sure you want to delete floor "${target.floorName}"?`)) {
+      const updatedFloors = floors.filter((f) => f.id !== id);
+      const updatedTables = tables.filter((t) => t.floorId !== id && t.floorName !== target.floorName);
+      saveFloors(updatedFloors);
+      saveTables(updatedTables);
+      setIsFloorModalOpen(false);
+      showToast(`Floor "${target.floorName}" deleted successfully`);
+    }
+  };
+
   // Save Floor
   const handleSaveFloor = (e: React.FormEvent) => {
     e.preventDefault();
     if (!floorNameInput.trim()) return;
 
     if (editingFloor) {
-      setFloors((prev) =>
-        prev.map((f) =>
-          f.id === editingFloor.id
-            ? {
-                ...f,
-                officeName: floorOfficeInput,
-                floorName: floorNameInput.trim().toUpperCase(),
-              }
-            : f
-        )
+      const oldName = editingFloor.floorName;
+      const newName = floorNameInput.trim().toUpperCase();
+      const updatedFloors = floors.map((f) =>
+        f.id === editingFloor.id
+          ? {
+              ...f,
+              officeName: floorOfficeInput,
+              floorName: newName,
+            }
+          : f
       );
+      // Also sync tables if floorName changed
+      const updatedTables = tables.map((t) =>
+        t.floorName === oldName ? { ...t, floorName: newName } : t
+      );
+      saveFloors(updatedFloors);
+      saveTables(updatedTables);
+      showToast(`Floor "${newName}" updated successfully`);
     } else {
+      const newName = floorNameInput.trim().toUpperCase();
       const newFl: FloorRecord = {
         id: `fl-${Date.now()}`,
         officeName: floorOfficeInput,
-        floorName: floorNameInput.trim().toUpperCase(),
-        capacity: 20,
+        floorName: newName,
+        capacity: 0,
         tableCount: 0,
         status: "Active",
       };
-      setFloors((prev) => [...prev, newFl]);
+      saveFloors([...floors, newFl]);
+      showToast(`New floor "${newName}" created successfully`);
     }
 
     setIsFloorModalOpen(false);
@@ -340,9 +443,10 @@ export default function PosSetupPage() {
   const openCreateTable = () => {
     setEditingTable(null);
     setTableOfficeInput("Marinozz");
-    setTableFloorInput(selectedFloor !== "All" ? selectedFloor : "ROOF TOP");
+    setTableFloorInput(selectedFloor !== "All" ? selectedFloor : (floors[0]?.floorName || "ROOF TOP"));
     setTableNameInput("");
     setTableSeatsInput("2");
+    setTableStatusInput("Available");
     setIsTableModalOpen(true);
   };
 
@@ -352,7 +456,32 @@ export default function PosSetupPage() {
     setTableFloorInput(table.floorName);
     setTableNameInput(table.tableName);
     setTableSeatsInput(String(table.capacity));
+    setTableStatusInput(table.status);
     setIsTableModalOpen(true);
+  };
+
+  // Delete Table
+  const handleDeleteTable = (id: string) => {
+    const target = tables.find((t) => t.id === id);
+    if (!target) return;
+    if (confirm(`Are you sure you want to delete table "${target.tableName}"?`)) {
+      const updatedTables = tables.filter((t) => t.id !== id);
+      saveTables(updatedTables);
+      // update floor count
+      saveFloors(
+        floors.map((f) =>
+          f.floorName === target.floorName
+            ? {
+                ...f,
+                tableCount: Math.max(0, f.tableCount - 1),
+                capacity: Math.max(0, f.capacity - target.capacity),
+              }
+            : f
+        )
+      );
+      setIsTableModalOpen(false);
+      showToast(`Table "${target.tableName}" deleted successfully`);
+    }
   };
 
   // Save Table
@@ -361,35 +490,69 @@ export default function PosSetupPage() {
     if (!tableNameInput.trim()) return;
 
     const seatsNum = Number(tableSeatsInput) || 2;
+    const cleanTableName = tableNameInput.trim().toUpperCase();
 
     if (editingTable) {
-      setTables((prev) =>
-        prev.map((t) =>
-          t.id === editingTable.id
-            ? {
-                ...t,
-                tableName: tableNameInput.trim().toUpperCase(),
-                floorName: tableFloorInput,
-                capacity: seatsNum,
-              }
-            : t
-        )
+      const oldFloor = editingTable.floorName;
+      const oldCap = editingTable.capacity;
+
+      const updatedTables = tables.map((t) =>
+        t.id === editingTable.id
+          ? {
+              ...t,
+              tableName: cleanTableName,
+              floorName: tableFloorInput,
+              capacity: seatsNum,
+              status: tableStatusInput,
+            }
+          : t
       );
+      saveTables(updatedTables);
+
+      // adjust floor capacities if changed
+      if (oldFloor !== tableFloorInput || oldCap !== seatsNum) {
+        saveFloors(
+          floors.map((f) => {
+            if (f.floorName === oldFloor && oldFloor !== tableFloorInput) {
+              return {
+                ...f,
+                tableCount: Math.max(0, f.tableCount - 1),
+                capacity: Math.max(0, f.capacity - oldCap),
+              };
+            }
+            if (f.floorName === tableFloorInput && oldFloor !== tableFloorInput) {
+              return {
+                ...f,
+                tableCount: f.tableCount + 1,
+                capacity: f.capacity + seatsNum,
+              };
+            }
+            if (f.floorName === tableFloorInput) {
+              return {
+                ...f,
+                capacity: f.capacity - oldCap + seatsNum,
+              };
+            }
+            return f;
+          })
+        );
+      }
+      showToast(`Table "${cleanTableName}" updated successfully`);
     } else {
       const matchingFloor = floors.find((f) => f.floorName === tableFloorInput);
       const newTb: TableRecord = {
         id: `tb-${Date.now()}`,
         floorId: matchingFloor?.id || "fl-1",
         floorName: tableFloorInput,
-        tableName: tableNameInput.trim().toUpperCase(),
+        tableName: cleanTableName,
         capacity: seatsNum,
-        status: "Available",
+        status: tableStatusInput,
         isActive: true,
       };
-      setTables((prev) => [...prev, newTb]);
+      saveTables([...tables, newTb]);
       if (matchingFloor) {
-        setFloors((prev) =>
-          prev.map((f) =>
+        saveFloors(
+          floors.map((f) =>
             f.id === matchingFloor.id
               ? {
                   ...f,
@@ -400,9 +563,19 @@ export default function PosSetupPage() {
           )
         );
       }
+      showToast(`New table "${cleanTableName}" added to ${tableFloorInput}`);
     }
 
     setIsTableModalOpen(false);
+  };
+
+  // Reset to default initial data
+  const handleResetDefaults = () => {
+    if (confirm("Reset Floor & Table setup to default Marinozz layout?")) {
+      saveFloors(INITIAL_FLOORS);
+      saveTables(INITIAL_TABLES);
+      showToast("Reset to default setup successfully");
+    }
   };
 
   // Filtered Floors
@@ -435,6 +608,13 @@ export default function PosSetupPage() {
   const availableCount = tables.filter((t) => t.status === "Available").length;
   const occupiedCount = tables.filter((t) => t.status === "Occupied").length;
   const reservedCount = tables.filter((t) => t.status === "Reserved").length;
+
+  // Pagination calculations
+  const totalPages = Math.max(1, Math.ceil(filteredFloors.length / rowsPerPage));
+  const paginatedFloors = useMemo(() => {
+    const start = (currentPage - 1) * rowsPerPage;
+    return filteredFloors.slice(start, start + rowsPerPage);
+  }, [filteredFloors, currentPage, rowsPerPage]);
 
   if (!activeSection) {
     return (
@@ -532,10 +712,11 @@ export default function PosSetupPage() {
               className="h-9 w-40 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-blue-500 font-medium"
             >
               <option value="All">All</option>
-              <option value="ROOF TOP">ROOF TOP</option>
-              <option value="OUTDOOR">OUTDOOR</option>
-              <option value="VIP">VIP</option>
-              <option value="HALLROOM">HALLROOM</option>
+              {floors.map((f) => (
+                <option key={f.id} value={f.floorName}>
+                  {f.floorName}
+                </option>
+              ))}
             </select>
           </div>
 
@@ -560,27 +741,64 @@ export default function PosSetupPage() {
           {activeTab === "FLOOR" && (
             <button
               type="button"
-              className="h-9 px-5 bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs rounded shadow-xs transition"
+              onClick={() => showToast(`Filtered ${filteredFloors.length} floors`)}
+              className="h-9 px-5 bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs rounded shadow-xs transition cursor-pointer"
             >
               View
             </button>
           )}
 
           {activeTab === "FLOOR_LAYOUT" && (
-            /* Layout Stats Badges */
-            <div className="flex items-center gap-2 mt-4 sm:mt-0">
-              <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-[#0284c7] text-white">
+            /* Interactive Layout Stats Badges */
+            <div className="flex items-center gap-2 mt-4 sm:mt-0 flex-wrap">
+              <button
+                type="button"
+                onClick={() => setSelectedStatus("All")}
+                className={`px-2.5 py-1 rounded-full text-xs font-bold transition cursor-pointer ${
+                  selectedStatus === "All"
+                    ? "bg-[#0284c7] text-white shadow-xs"
+                    : "border border-slate-300 text-slate-600 bg-white hover:bg-slate-50"
+                }`}
+                title="Filter by All tables"
+              >
                 All: {totalTables}
-              </span>
-              <span className="px-2.5 py-1 rounded-full text-xs font-bold border border-emerald-500 text-emerald-600 bg-white">
+              </button>
+              <button
+                type="button"
+                onClick={() => setSelectedStatus("Available")}
+                className={`px-2.5 py-1 rounded-full text-xs font-bold transition cursor-pointer ${
+                  selectedStatus === "Available"
+                    ? "bg-emerald-600 text-white shadow-xs"
+                    : "border border-emerald-500 text-emerald-600 bg-white hover:bg-emerald-50"
+                }`}
+                title="Filter by Available tables"
+              >
                 Available: {availableCount}
-              </span>
-              <span className="px-2.5 py-1 rounded-full text-xs font-bold border border-rose-500 text-rose-600 bg-white">
+              </button>
+              <button
+                type="button"
+                onClick={() => setSelectedStatus("Occupied")}
+                className={`px-2.5 py-1 rounded-full text-xs font-bold transition cursor-pointer ${
+                  selectedStatus === "Occupied"
+                    ? "bg-rose-600 text-white shadow-xs"
+                    : "border border-rose-500 text-rose-600 bg-white hover:bg-rose-50"
+                }`}
+                title="Filter by Occupied tables"
+              >
                 Occupied: {occupiedCount}
-              </span>
-              <span className="px-2.5 py-1 rounded-full text-xs font-bold border border-amber-500 text-amber-600 bg-white">
+              </button>
+              <button
+                type="button"
+                onClick={() => setSelectedStatus("Reserved")}
+                className={`px-2.5 py-1 rounded-full text-xs font-bold transition cursor-pointer ${
+                  selectedStatus === "Reserved"
+                    ? "bg-amber-600 text-white shadow-xs"
+                    : "border border-amber-500 text-amber-600 bg-white hover:bg-amber-50"
+                }`}
+                title="Filter by Reserved tables"
+              >
                 Reserved: {reservedCount}
-              </span>
+              </button>
             </div>
           )}
         </div>
@@ -600,8 +818,9 @@ export default function PosSetupPage() {
             <>
               <button
                 type="button"
-                onClick={() => setTables([...INITIAL_TABLES])}
+                onClick={handleResetDefaults}
                 className="h-9 px-3 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 font-semibold text-xs rounded flex items-center gap-1.5 transition cursor-pointer"
+                title="Reset to default Marinozz layout"
               >
                 <RotateCw className="size-3.5 text-blue-600" />
                 <span>Refresh</span>
@@ -635,12 +854,14 @@ export default function PosSetupPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-              {filteredFloors.map((row, idx) => (
+              {paginatedFloors.map((row, idx) => (
                 <tr
                   key={row.id}
                   className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors"
                 >
-                  <td className="p-3 font-mono text-slate-500">{idx + 1}</td>
+                  <td className="p-3 font-mono text-slate-500">
+                    {(currentPage - 1) * rowsPerPage + idx + 1}
+                  </td>
                   <td className="p-3 font-medium text-slate-800 dark:text-slate-200">
                     {row.officeName}
                   </td>
@@ -692,6 +913,13 @@ export default function PosSetupPage() {
                   </td>
                 </tr>
               ))}
+              {paginatedFloors.length === 0 && (
+                <tr>
+                  <td colSpan={7} className="p-6 text-center text-slate-400">
+                    No floors found matching the selected criteria.
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
 
@@ -699,12 +927,47 @@ export default function PosSetupPage() {
           <div className="flex items-center justify-end gap-6 px-4 py-3 border-t border-slate-200 dark:border-slate-800 text-xs text-slate-500">
             <div className="flex items-center gap-2">
               <span>Rows per page:</span>
-              <select className="border border-slate-300 dark:border-slate-700 rounded px-1.5 py-0.5 bg-white dark:bg-slate-900 text-xs">
+              <select
+                value={rowsPerPage}
+                onChange={(e) => {
+                  setRowsPerPage(Number(e.target.value));
+                  setCurrentPage(1);
+                }}
+                className="border border-slate-300 dark:border-slate-700 rounded px-1.5 py-0.5 bg-white dark:bg-slate-900 text-xs cursor-pointer"
+              >
                 <option value="15">15</option>
                 <option value="30">30</option>
+                <option value="50">50</option>
               </select>
             </div>
-            <span>1–{filteredFloors.length} of {filteredFloors.length}</span>
+            <span>
+              {filteredFloors.length === 0
+                ? "0 of 0"
+                : `${(currentPage - 1) * rowsPerPage + 1}–${Math.min(
+                    currentPage * rowsPerPage,
+                    filteredFloors.length
+                  )} of ${filteredFloors.length}`}
+            </span>
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                disabled={currentPage <= 1}
+                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                title="Previous page"
+              >
+                <ChevronLeft className="size-4" />
+              </button>
+              <button
+                type="button"
+                disabled={currentPage >= totalPages}
+                onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                title="Next page"
+              >
+                <ChevronRight className="size-4" />
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -730,20 +993,44 @@ export default function PosSetupPage() {
                 {floorTables.map((t) => (
                   <div
                     key={t.id}
-                    className="relative bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 rounded-xl p-3 shadow-xs hover:shadow-md transition flex flex-col items-center justify-between min-h-[175px]"
+                    className={`relative bg-white dark:bg-slate-900 border rounded-xl p-3 shadow-xs hover:shadow-md transition flex flex-col items-center justify-between min-h-[175px] ${
+                      t.isActive
+                        ? "border-slate-200/90 dark:border-slate-800"
+                        : "border-slate-200 dark:border-slate-800 opacity-60 bg-slate-50/50"
+                    }`}
                   >
-                    {/* Top Row: Status badge & Toggle Switches */}
+                    {/* Top Row: Clickable Status badge & Toggle Switches */}
                     <div className="w-full flex items-center justify-between text-[11px]">
-                      <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-semibold border border-emerald-400 text-emerald-700 dark:text-emerald-300 bg-emerald-50/60 dark:bg-emerald-950/40">
-                        <span className="size-2 rounded-full bg-emerald-500" />
+                      <button
+                        type="button"
+                        onClick={() => cycleTableStatus(t.id)}
+                        className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-semibold border transition cursor-pointer ${
+                          t.status === "Available"
+                            ? "border-emerald-400 text-emerald-700 dark:text-emerald-300 bg-emerald-50/60 dark:bg-emerald-950/40 hover:bg-emerald-100"
+                            : t.status === "Occupied"
+                            ? "border-rose-400 text-rose-700 dark:text-rose-300 bg-rose-50/60 dark:bg-rose-950/40 hover:bg-rose-100"
+                            : "border-amber-400 text-amber-700 dark:text-amber-300 bg-amber-50/60 dark:bg-amber-950/40 hover:bg-amber-100"
+                        }`}
+                        title="Click to cycle status: Available -> Occupied -> Reserved"
+                      >
+                        <span
+                          className={`size-2 rounded-full ${
+                            t.status === "Available"
+                              ? "bg-emerald-500"
+                              : t.status === "Occupied"
+                              ? "bg-rose-500"
+                              : "bg-amber-500"
+                          }`}
+                        />
                         <span>{t.status}</span>
-                      </span>
+                      </button>
 
                       <div className="flex items-center gap-2 text-slate-400">
                         <button
                           type="button"
+                          onClick={() => showToast(`Table ${t.tableName}: Waiter service requested!`)}
                           className="hover:text-slate-600 dark:hover:text-slate-200 transition cursor-pointer"
-                          title="Table notification"
+                          title="Call waiter service"
                         >
                           <Bell className="size-3" />
                         </button>
@@ -761,6 +1048,7 @@ export default function PosSetupPage() {
                           className={`w-7 h-4 rounded-full transition-colors relative flex items-center px-0.5 cursor-pointer ${
                             t.isActive ? "bg-blue-600" : "bg-slate-300 dark:bg-slate-700"
                           }`}
+                          title={t.isActive ? "Deactivate table" : "Activate table"}
                         >
                           <span
                             className={`size-3 rounded-full bg-white shadow-xs transition-transform ${
@@ -786,15 +1074,31 @@ export default function PosSetupPage() {
                         </>
                       ) : (
                         <>
-                          {/* 2 persons: left and right chairs only */}
+                          {/* 2 persons: left and right chairs only per screenshot */}
                           <div className="absolute left-1 w-3.5 h-6 rounded-md border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800" />
                           <div className="absolute right-1 w-3.5 h-6 rounded-md border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800" />
                         </>
                       )}
 
                       {/* Main central table box with Fork & Knife icon */}
-                      <div className="size-11 rounded-xl border border-emerald-400 bg-white dark:bg-slate-900 flex items-center justify-center shadow-xs">
-                        <UtensilsCrossed className="size-5 text-emerald-600" />
+                      <div
+                        className={`size-11 rounded-xl border flex items-center justify-center shadow-xs transition ${
+                          t.status === "Available"
+                            ? "border-emerald-400 bg-white dark:bg-slate-900"
+                            : t.status === "Occupied"
+                            ? "border-rose-400 bg-rose-50/30 dark:bg-rose-950/30"
+                            : "border-amber-400 bg-amber-50/30 dark:bg-amber-950/30"
+                        }`}
+                      >
+                        <UtensilsCrossed
+                          className={`size-5 ${
+                            t.status === "Available"
+                              ? "text-emerald-600"
+                              : t.status === "Occupied"
+                              ? "text-rose-600"
+                              : "text-amber-600"
+                          }`}
+                        />
                       </div>
                     </div>
 
@@ -812,6 +1116,19 @@ export default function PosSetupPage() {
               </div>
             </div>
           ))}
+          {Object.keys(groupedTables).length === 0 && (
+            <div className="p-8 text-center text-slate-400 bg-slate-50 dark:bg-slate-900/50 rounded-lg border border-dashed border-slate-300 dark:border-slate-800">
+              No tables found matching the selected floor or status.
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Floating Toast Notification */}
+      {toastMessage && (
+        <div className="fixed bottom-6 right-6 z-50 flex items-center gap-2.5 px-4 py-2.5 rounded-lg bg-slate-900 text-white text-xs font-semibold shadow-xl border border-slate-700 animate-in fade-in slide-in-from-bottom-2 duration-200">
+          <CheckCircle className="size-4 text-emerald-400" />
+          <span>{toastMessage}</span>
         </div>
       )}
 
@@ -819,9 +1136,22 @@ export default function PosSetupPage() {
       {isFloorModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4">
           <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-800 p-6 space-y-5">
-            <h3 className="text-lg font-bold text-slate-900 dark:text-slate-100">
-              {editingFloor ? "Edit Floor" : "Create New Floor"}
-            </h3>
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-bold text-slate-900 dark:text-slate-100">
+                {editingFloor ? "Edit Floor" : "Create New Floor"}
+              </h3>
+              {editingFloor && (
+                <button
+                  type="button"
+                  onClick={() => handleDeleteFloor(editingFloor.id)}
+                  className="text-xs text-rose-500 hover:text-rose-700 flex items-center gap-1 font-semibold cursor-pointer"
+                  title="Delete floor"
+                >
+                  <Trash2 className="size-3.5" />
+                  <span>Delete Floor</span>
+                </button>
+              )}
+            </div>
             <form onSubmit={handleSaveFloor} className="space-y-4">
               <div>
                 <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
@@ -874,9 +1204,22 @@ export default function PosSetupPage() {
       {isTableModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4">
           <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-800 p-6 space-y-4">
-            <h3 className="text-lg font-bold text-slate-900 dark:text-slate-100">
-              {editingTable ? "Edit Table" : "Add New Table"}
-            </h3>
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-bold text-slate-900 dark:text-slate-100">
+                {editingTable ? "Edit Table" : "Add New Table"}
+              </h3>
+              {editingTable && (
+                <button
+                  type="button"
+                  onClick={() => handleDeleteTable(editingTable.id)}
+                  className="text-xs text-rose-500 hover:text-rose-700 flex items-center gap-1 font-semibold cursor-pointer"
+                  title="Delete table"
+                >
+                  <Trash2 className="size-3.5" />
+                  <span>Delete Table</span>
+                </button>
+              )}
+            </div>
             <form onSubmit={handleSaveTable} className="space-y-4">
               <div>
                 <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
@@ -936,6 +1279,27 @@ export default function PosSetupPage() {
                   className="w-full h-10 rounded border border-slate-300 dark:border-slate-700 px-3 text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-1 focus:ring-blue-500"
                 />
               </div>
+
+              {editingTable && (
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
+                    Status
+                  </label>
+                  <select
+                    value={tableStatusInput}
+                    onChange={(e) =>
+                      setTableStatusInput(
+                        e.target.value as "Available" | "Occupied" | "Reserved"
+                      )
+                    }
+                    className="w-full h-10 rounded border border-slate-300 dark:border-slate-700 px-3 text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  >
+                    <option value="Available">Available</option>
+                    <option value="Occupied">Occupied</option>
+                    <option value="Reserved">Reserved</option>
+                  </select>
+                </div>
+              )}
 
               <div className="flex items-center justify-end gap-3 pt-3">
                 <button
