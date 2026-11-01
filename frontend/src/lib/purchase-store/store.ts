@@ -1082,7 +1082,7 @@ class PurchaseDataStore {
       .filter((r) => r.status === "PENDING_APPROVAL" || r.status === "SUBMITTED")
       .map((r) => ({
         id: r.id,
-        type: "REQUISITION",
+        type: "REQUISITION" as const,
         docNumber: r.requisitionNumber,
         date: r.requestDate,
         requester: r.requesterName,
