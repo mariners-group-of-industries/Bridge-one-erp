@@ -6,9 +6,11 @@ import { money } from "../../dashboard/lib/aggregate";
 import { fromDbDate, toDbDate } from "../../lib/dates";
 import { customerBalances } from "../../lib/receivables";
 import { requireOffice, scopedBusinessUnitIds } from "../../lib/scope";
+import { territoryCustomerWhere } from "../../lib/territory";
 import { companyDocumentNumber } from "../../lib/sequence";
 import { userNames } from "../../lib/users";
 import { openOrderValue } from "../../masters/services/masters.service";
+import { assertMinPrices, salesPricing } from "../../pricing/services/pricing.service";
 import { orderTotals } from "../lib/order-totals";
 import {
   orderActionSchema,
@@ -36,7 +38,7 @@ export async function listOrders(actor: Actor, query: OrderListQuery): Promise<O
   const customer: Prisma.CustomerWhereInput = {
     ...(query.customerGroupId ? { customerGroupId: query.customerGroupId } : {}),
     ...(query.zoneId ? { zoneId: query.zoneId } : {}),
-    ...(query.territoryId ? { territoryId: query.territoryId } : {}),
+    ...(await territoryCustomerWhere(query.territoryId)),
     ...(query.routeId ? { routeId: query.routeId } : {}),
     ...(query.sectionId ? { sectionId: query.sectionId } : {}),
   };
@@ -162,6 +164,8 @@ const detailInclude = {
   salesPerson: { select: { name: true } },
   quotation: { select: { number: true } },
   priceList: { select: { name: true } },
+  offer: { select: { name: true } },
+  attachments: { select: { id: true, originalName: true, mimeType: true, size: true, createdAt: true }, orderBy: { createdAt: "asc" } },
   deliveryPendingReason: { select: { name: true } },
   lines: { orderBy: { lineNo: "asc" }, include: { item: { select: { code: true, name: true } } } },
   events: { orderBy: { createdAt: "asc" } },
@@ -193,6 +197,9 @@ function toDetail(record: OrderRecord, nameOf: (id: string | null | undefined) =
     quotationNumber: record.quotation?.number ?? null,
     priceListId: record.priceListId,
     priceListName: record.priceList?.name ?? null,
+    offerId: record.offerId,
+    offerName: record.offer?.name ?? null,
+    attachments: record.attachments.map((file) => ({ ...file, createdAt: file.createdAt.toISOString() })),
     shipToAddressId: record.shipToAddressId,
     orderType: record.orderType,
     paymentMethod: record.paymentMethod,
@@ -335,7 +342,36 @@ async function prepare(actor: Actor, input: ParsedInput, currentOrderId?: string
     if (!item.isActive) throw badRequest("A selected item is disabled.");
   }
 
-  const totals = orderTotals(input.lines, input);
+  // Sales Config: offer discounts, free items and invoice discount; minimum sales price.
+  const pricing = await salesPricing(
+    { businessUnitId, officeId: input.officeId, customerId: input.customerId, priceListId: input.priceListId, date: input.orderDate, offerId: input.offerId },
+    input.lines,
+  );
+  if (input.offerId && !pricing.available.some((offer) => offer.id === input.offerId)) {
+    throw badRequest("The custom offer does not apply to this customer on this date.");
+  }
+  const offerPercent = new Map(pricing.offers.discounts.map((row) => [row.itemId, row.percent]));
+  const paidLines = input.lines
+    .filter((_, index) => !pricing.isOfferLine[index])
+    .map((line) => ({ ...line, discountPercent: Math.max(line.discountPercent, offerPercent.get(line.itemId) ?? 0) }));
+  await assertMinPrices(businessUnitId, paidLines, pricing.prices);
+  const freeIds = pricing.offers.free.map((row) => row.itemId).filter((id) => !itemById.has(id));
+  if (freeIds.length) {
+    const extra = await db().item.findMany({
+      where: { id: { in: freeIds }, businessUnitId },
+      select: { id: true, uom: true, altUom: true, altUomFactor: true, mrp: true, isActive: true },
+    });
+    for (const item of extra) itemById.set(item.id, item);
+  }
+  const lines = [
+    ...paidLines,
+    ...pricing.offers.free
+      .filter((row) => itemById.get(row.itemId)?.isActive)
+      .map((row) => ({ itemId: row.itemId, qty: row.qty, unitPrice: pricing.prices.get(row.itemId)?.rate ?? 0, discountPercent: 100, vatPercent: 0, aitPercent: 0 })),
+  ];
+  const discountAmount = Math.max(input.discountAmount, pricing.offers.invoiceDiscount);
+
+  const totals = orderTotals(lines, { ...input, discountAmount });
   return {
     businessUnitId,
     header: {
@@ -343,6 +379,7 @@ async function prepare(actor: Actor, input: ParsedInput, currentOrderId?: string
       customerId: input.customerId,
       salesPersonId: input.salesPersonId,
       priceListId: input.priceListId,
+      offerId: input.offerId,
       shipToAddressId: input.shipToAddressId,
       orderType: input.orderType,
       paymentMethod: input.paymentMethod,
@@ -373,7 +410,7 @@ async function prepare(actor: Actor, input: ParsedInput, currentOrderId?: string
       unloadingCharge: totals.unloadingCharge,
       salesTotal: totals.salesTotal,
     },
-    lines: input.lines.map((line, index) => {
+    lines: lines.map((line, index) => {
       const item = itemById.get(line.itemId)!;
       const amounts = totals.lines[index];
       return {

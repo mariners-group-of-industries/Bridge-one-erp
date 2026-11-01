@@ -5,7 +5,7 @@ import { useId, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { CONTROL, CheckboxField, SelectField, TextField } from "@/components/ui/form-field";
-import { EmptyState } from "@/components/ui/section";
+import { EmptyState } from "@/features/sales/components/EmptyState";
 import { useToast } from "@/components/ui/toast";
 import { useResource } from "@/hooks/use-resource";
 import { errorMessage } from "@/lib/api/client";
@@ -25,11 +25,17 @@ export function DriverPick({
   selected,
   onChange,
   label = "Driver (Employee)",
+  placeholder = "Select/Search Driver(Employee) (min 3 letters)",
+  required,
+  error,
 }: {
   businessUnitId: string | null;
   selected: { id: string; name: string } | null;
   onChange: (driver: DriverOption | null) => void;
   label?: string;
+  placeholder?: string;
+  required?: boolean;
+  error?: string;
 }) {
   const [text, setText] = useState("");
   const needle = text.trim();
@@ -42,7 +48,9 @@ export function DriverPick({
   return (
     <SearchPick
       label={label}
-      placeholder="Select/Search Driver(Employee) (min 3 letters)"
+      placeholder={placeholder}
+      required={required}
+      error={error}
       disabled={!businessUnitId}
       options={options}
       selectedId={selected?.id ?? ""}

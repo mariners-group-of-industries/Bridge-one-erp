@@ -34,7 +34,7 @@ export function DeliveryOrderFormView({ orderId, deliveryId, today }: { orderId:
   const delivery = useResource(deliveryId ?? null, () => fetchDelivery(deliveryId!));
   const order = useResource(`order-for-delivery:${orderId}:${deliveryId ?? ""}`, () => fetchOrderForDelivery(orderId, today, deliveryId));
   const error = lookups.error ?? warehouses.error ?? order.error ?? delivery.error;
-  const title = deliveryId ? "Edit Delivery" : "Delivery For SO";
+  const title = deliveryId ? "Edit Delivery" : "Delivery From SO";
 
   if (error) {
     return (
@@ -197,14 +197,19 @@ function OrderDeliveryEditor({
             <Link href={delivery ? paths.delivery(delivery.id) : paths.deliveryTab("approved")} aria-label="Back" className={buttonClasses("ghost", "icon")}>
               <ArrowLeft />
             </Link>
-            {delivery ? `Edit Delivery ${delivery.number}` : "Delivery For SO"}
+            {delivery ? `Edit Delivery ${delivery.number}` : "Delivery From SO"}
           </span>
         }
         subtitle={`Office: ${order.officeName}`}
         actions={
-          <Button variant="primary" onClick={save} loading={busy}>
-            Save
-          </Button>
+          <>
+            <Link href={delivery ? paths.delivery(delivery.id) : paths.deliveryTab("approved")} className={buttonClasses("danger")}>
+              Close &amp; Back
+            </Link>
+            <Button variant="primary" onClick={save} loading={busy}>
+              Save
+            </Button>
+          </>
         }
       />
 
@@ -246,6 +251,19 @@ function OrderDeliveryEditor({
         </Card>
 
         <Card>
+          <Section title="Vehicle">
+            <VehicleSection
+              values={header}
+              errors={errors}
+              set={set}
+              businessUnitId={order.businessUnitId}
+              vehicles={vehicles.data ?? []}
+              onVehicleCreated={(vehicle) => vehicles.mutate((current) => [...(current ?? []), vehicle])}
+            />
+          </Section>
+        </Card>
+
+        <Card>
           <Section title="Transportation Details">
             <TransportSection
               values={header}
@@ -261,28 +279,15 @@ function OrderDeliveryEditor({
         </Card>
 
         <Card>
-          <Section title="Vehicle">
-            <VehicleSection
-              values={header}
-              errors={errors}
-              set={set}
-              businessUnitId={order.businessUnitId}
-              vehicles={vehicles.data ?? []}
-              onVehicleCreated={(vehicle) => vehicles.mutate((current) => [...(current ?? []), vehicle])}
-            />
-          </Section>
-        </Card>
-
-        <Card>
           <Section
             title="Items"
             actions={<CheckboxField label="Deliver All" checked={deliverAll} onChange={(event) => toggleAll(event.target.checked)} />}
           >
             <div className="overflow-x-auto rounded-lg border border-line">
               <table className="w-full min-w-[1000px] text-sm">
-                <thead className="bg-canvas text-xs text-ink-muted">
+                <thead className="bg-accent-soft text-xs font-semibold text-ink">
                   <tr className="border-b border-line">
-                    {["SL", "Code", "Item Name", "Ordered", "Stock", "Tolerance", "Remaining (Alt. Qty)", "Remaining", "Delivery Alt. Qty", "Delivery Qty"].map((label, index) => (
+                    {["SL", "Code", "Item Name", "Quantity", "Stock", "Tolerance", "Remaining (Alt. Qty)", "Remaining", "Pack Qty", "Delivery Alt. Qty", "Delivery Qty"].map((label, index) => (
                       <th key={label} scope="col" className={cn("px-2 py-2 font-medium", index >= 3 ? "text-right" : "text-left")}>
                         {label}
                       </th>
@@ -316,7 +321,7 @@ function OrderDeliveryEditor({
                         </td>
                         <td className="w-28 px-2 py-1.5">
                           <input
-                            aria-label={`Delivery alt. quantity, ${line.itemName}`}
+                            aria-label={`Pack quantity, ${line.itemName}`}
                             type="number"
                             min={0}
                             step="any"
@@ -331,6 +336,11 @@ function OrderDeliveryEditor({
                             }
                             className={cn(CONTROL, "h-7 w-full text-right tabular-nums")}
                           />
+                        </td>
+                        <td className="px-2 py-1.5 text-right whitespace-nowrap text-ink-muted tabular-nums" title="Packs and loose units">
+                          {line.altUomFactor && toNumber(qtyText) > 0
+                            ? `${Math.floor(toNumber(qtyText) / line.altUomFactor)}-${Math.round((toNumber(qtyText) % line.altUomFactor) * 1000) / 1000} ${line.altUom ?? ""}`
+                            : "0"}
                         </td>
                         <td className="w-32 px-2 py-1.5">
                           <input
@@ -356,7 +366,7 @@ function OrderDeliveryEditor({
                       Total
                     </td>
                     <td className="px-2 py-2 text-right tabular-nums">{formatQty(order.lines.reduce((sum, line) => sum + line.qty, 0))}</td>
-                    <td colSpan={5} />
+                    <td colSpan={6} />
                     <td className="px-2 py-2 text-right tabular-nums">{formatQty(totals.totalQty)}</td>
                   </tr>
                 </tfoot>

@@ -8,6 +8,7 @@ import { scopedBusinessUnitIds } from "@/features/sales/lib/scope";
 import { userNames } from "@/features/sales/lib/users";
 import { round2, round4 } from "../../bom/lib/bom-totals";
 import { productionNumber } from "../../lib/numbering";
+import { WASTAGE_INCLUDE, toWastageLine } from "./wastage.service";
 import {
   entryCancelSchema,
   entryInputSchema,
@@ -27,6 +28,8 @@ const OPEN_STATUSES = ["APPROVED", "IN_PROGRESS"] as const;
 const STALE = "Someone else changed this production entry. Reload and try again.";
 
 const num = (value: Prisma.Decimal | null | undefined) => (value ? value.toNumber() : 0);
+/** Stock is kept to 3 decimals; consumption is rounded the same so entry and stock agree. */
+const round3 = (value: number) => Math.round(value * 1000) / 1000;
 
 /** Serialises entries of one production order (produced quantity and status). */
 async function lockOrder(tx: Tx, orderId: string) {
@@ -227,13 +230,23 @@ export async function getEntry(actor: Actor, id: string): Promise<EntryDetail> {
       office: { select: { name: true } },
       sourceWarehouse: { select: { name: true } },
       outputWarehouse: { select: { name: true } },
-      materials: { include: { item: { select: { code: true, name: true } } }, orderBy: { lineNo: "asc" } },
+      // Order date, BOM and machine ("Equipment") of the order; operators tagged on the work center.
+      order: { select: { number: true, orderDate: true, machineName: true, salesOrder: { select: { number: true } }, bom: { select: { name: true } } } },
+      workCenter: { select: { code: true, name: true, operators: { select: { employee: { select: { name: true } } }, orderBy: { createdAt: "asc" } } } },
+      materials: { include: { item: { select: { code: true, name: true, category: CATEGORY } } }, orderBy: { lineNo: "asc" } },
+      wastages: { include: WASTAGE_INCLUDE, orderBy: { lineNo: "asc" } },
     },
   });
   if (!record) throw notFound("Production entry");
   const nameOf = await userNames([record.createdBy, record.cancelledBy]);
+  const netQty = num(record.netQty);
   return {
     ...toRow(record, nameOf),
+    orderDate: fromDbDate(record.order.orderDate),
+    bomName: record.order.bom.name,
+    equipment: record.order.machineName,
+    operatorNames: record.workCenter?.operators.map((operator) => operator.employee.name) ?? [],
+    unitCost: netQty > 0 ? round4(num(record.actualCost) / netQty) : 0,
     officeName: record.office.name,
     sourceWarehouseName: record.sourceWarehouse.name,
     outputWarehouseName: record.outputWarehouse.name,
@@ -248,6 +261,7 @@ export async function getEntry(actor: Actor, id: string): Promise<EntryDetail> {
       itemId: line.itemId,
       code: line.item.code,
       name: line.item.name,
+      ...categoryNames(line.item.category),
       uom: line.uom,
       standardQty: num(line.standardQty),
       actualQty: num(line.actualQty),
@@ -256,6 +270,7 @@ export async function getEntry(actor: Actor, id: string): Promise<EntryDetail> {
       varianceQty: round4(num(line.actualQty) - num(line.standardQty)),
       rate: num(line.rate),
     })),
+    wastages: record.wastages.map(toWastageLine),
     canCancel: record.status === "POSTED" && canOn(actor, "/production/entries", "edit", "production:write"),
   };
 }
@@ -300,9 +315,9 @@ export async function createEntry(actor: Actor, raw: unknown): Promise<EntryDeta
       itemId: line.itemId,
       uom: base.uom,
       standardQty: round4((num(base.bomQty) / lotSize) * input.totalQty),
-      actualQty: line.actualQty,
-      wastageQty: line.wastageQty,
-      scrapQty: line.scrapQty,
+      actualQty: round3(line.actualQty),
+      wastageQty: round3(line.wastageQty),
+      scrapQty: round3(line.scrapQty),
       rate: rateOf.get(line.itemId) ?? 0,
     };
   });

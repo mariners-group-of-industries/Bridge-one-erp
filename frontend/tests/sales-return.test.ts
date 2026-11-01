@@ -242,4 +242,21 @@ describe("sales return", () => {
     expect(pdf.number).toBe("RWF-MG260000001");
     expect(Buffer.from(pdf.bytes.slice(0, 5)).toString()).toBe("%PDF-");
   });
+
+  it("returns part of a delivery as a market return (factory receive + QC before stock), with the delivery details", async () => {
+    const delivery = await deliver();
+    const details = await getDeliveryForReturn(adminActor, delivery.id);
+    expect(details).toMatchObject({ customerName: "M/S Arif Enterprise", totalAmount: delivery.totalAmount });
+    const market = await createReturn(clerk, { ...against(delivery.id, "PARTIAL", [{ deliveryLineId: delivery.lines[0].id, qty: 12 }]), kind: "MARKET" });
+    expect(market).toMatchObject({ number: "MRT-MG260000001", kind: "MARKET", mode: "PARTIAL", marketStage: "PENDING" });
+    // A market return cannot turn into a sales return (or back) on edit.
+    await expect(
+      updateReturn(clerk, market.id, { version: market.updatedAt, data: { ...against(delivery.id, "PARTIAL", [{ deliveryLineId: delivery.lines[0].id, qty: 12 }]), kind: "SALES" } }),
+    ).rejects.toMatchObject({ status: 400 });
+    const approved = await approveReturn(adminActor, market.id, { version: market.updatedAt });
+    expect(await stock(noodlesId)).toBe(760); // not in stock until QC
+    const received = await receiveMarketReturn(clerk, market.id, { version: approved.updatedAt, lines: [{ lineId: approved.lines[0].id, qty: 12 }] });
+    await qcMarketReturn(clerk, market.id, { version: received.updatedAt, lines: [{ lineId: received.lines[0].id, qty: 10 }] });
+    expect(await stock(noodlesId)).toBe(770);
+  });
 });

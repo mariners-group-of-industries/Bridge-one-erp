@@ -164,6 +164,8 @@ function fromDto(dto: CustomerDto): FormState {
   return {
     ...EMPTY,
     ...rest,
+    // Customers saved before the billing name was required fall back to the partner name.
+    billingName: dto.billingName || dto.name,
     districtId: districtText(dto.districtId),
     shipping: dto.shipping.map((row) => ({ ...EMPTY_ROW, ...row, districtId: districtText(row.districtId) })),
   };
@@ -462,7 +464,19 @@ function CustomerEditor({ customerId, title, breadcrumbs, initial, attachments, 
                 )}
               </Field>
               <Field label="Partner Name" required error={err("name")}>
-                {(id) => <Input id={id} value={form.name} maxLength={150} aria-invalid={invalid("name")} onChange={text("name")} />}
+                {(id) => (
+                  <Input
+                    id={id}
+                    value={form.name}
+                    maxLength={150}
+                    aria-invalid={invalid("name")}
+                    // The billing name follows the partner name until it is edited separately.
+                    onChange={(e) => patch({ name: e.target.value, ...(form.billingName === form.name ? { billingName: e.target.value } : {}) })}
+                  />
+                )}
+              </Field>
+              <Field label="Partner Billing Name" required error={err("billingName")} hint="Name printed on invoices.">
+                {(id) => <Input id={id} value={form.billingName} maxLength={150} aria-invalid={invalid("billingName")} onChange={text("billingName")} />}
               </Field>
               <Field label="Partner Code" error={err("code")} hint={customerId ? undefined : "Leave empty to generate (CUST-00001…)."}>
                 {(id) => <Input id={id} value={form.code} maxLength={30} onChange={text("code")} />}
@@ -509,9 +523,16 @@ function CustomerEditor({ customerId, title, breadcrumbs, initial, attachments, 
                   />
                 )}
               </Field>
-              <Field label="Territory" error={err("territoryId")} hint={officeMissing}>
+              <Field label="Territory" required error={err("territoryId")} hint={officeMissing}>
                 {(id) => (
-                  <Select id={id} value={form.territoryId} disabled={!unit} options={toOptions(ofUnit(options.territories))} onChange={text("territoryId")} />
+                  <Select
+                    id={id}
+                    value={form.territoryId}
+                    disabled={!unit}
+                    options={toOptions(ofUnit(options.territories))}
+                    aria-invalid={invalid("territoryId")}
+                    onChange={text("territoryId")}
+                  />
                 )}
               </Field>
               <Field label="Default Sales Representative" error={err("salesPersonId")} hint={officeMissing}>
@@ -587,9 +608,6 @@ function CustomerEditor({ customerId, title, breadcrumbs, initial, attachments, 
         {/* ─── 3. Billing Details ──────────────────────────────────────── */}
         <Panel title="Billing Details" description="Where invoices go and who to contact.">
           <FormGrid cols={4}>
-            <Field label="Billing Name" span={2} error={err("billingName")} hint="Name printed on invoices, if different from the partner name.">
-              {(id) => <Input id={id} value={form.billingName} maxLength={150} onChange={text("billingName")} />}
-            </Field>
             <Field label="Billing Address" span={2} error={err("billingAddress")}>
               {(id) => <TextArea id={id} rows={2} value={form.billingAddress} maxLength={500} onChange={text("billingAddress")} />}
             </Field>

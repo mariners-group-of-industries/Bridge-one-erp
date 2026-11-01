@@ -92,7 +92,15 @@ export const orderPreviewQuerySchema = z.object({
 });
 
 /** GET /api/production/orders/customers?search=: customers by name or code (3+ letters). */
-export const customerSearchSchema = z.object({ search: z.string().trim().min(3, { error: "Type at least 3 letters." }).max(100) });
+/** Customer search: empty lists the first ones (for the open dropdown), otherwise 3+ letters. */
+export const customerSearchSchema = z.object({
+  search: z
+    .string()
+    .trim()
+    .max(100)
+    .default("")
+    .refine((search) => search.length === 0 || search.length >= 3, { error: "Type at least 3 letters." }),
+});
 
 export interface OrderPreviewMaterial {
   itemId: string;
@@ -138,6 +146,8 @@ export interface CustomerOption {
   id: string;
   code: string;
   name: string;
+  /** Mobile number, shown as "code - name (phone)". */
+  phone: string | null;
 }
 
 export interface SalesOrderOption {
@@ -164,6 +174,8 @@ export interface OrderRow {
   remainingQty: number;
   producedValue: number;
   status: OrderViewStatus;
+  /** Editable: pending, nobody has approved yet, and the user may write (closed and approved orders are view only). */
+  canEdit: boolean;
   officeName: string;
   updatedAt: string;
 }

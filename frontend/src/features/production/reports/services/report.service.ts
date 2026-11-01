@@ -6,7 +6,9 @@ import { scopedBusinessUnitIds } from "@/features/sales/lib/scope";
 import { userNames } from "@/features/sales/lib/users";
 import { ITEM_TYPES } from "@/features/configuration/entity-master-data/item/schemas/item.schema";
 import { round2, round4 } from "../../bom/lib/bom-totals";
+import { SHIFTS } from "../../entries/schemas/entry.schema";
 import {
+  DOWNTIME_REASONS,
   reportLabel,
   reportQuerySchema,
   type ParsedReportQuery,
@@ -83,6 +85,9 @@ async function context(actor: Actor, query: ParsedReportQuery): Promise<Context>
     workCenter && `Work Center: ${workCenter.code} - ${workCenter.name}`,
     item && `Item: ${item.code} - ${item.name}`,
     query.itemType && `Item Type: ${query.itemType}`,
+    query.shift && `Shift: ${query.shift}`,
+    query.workCenterStatus && `Status: ${query.workCenterStatus === "ACTIVE" ? "Active" : "Inactive"}`,
+    query.downtimeReason && `Reason: ${DOWNTIME_REASONS.find((reason) => reason.id === query.downtimeReason)!.label}`,
   ].filter(Boolean) as string[];
   return {
     query,
@@ -101,6 +106,8 @@ function entryWhere(ctx: Context, applyItemFilters = true): Prisma.ProductionEnt
     if (query.itemId && query.filterBy !== "category" && query.filterBy !== "bom") itemFilter.push({ itemId: query.itemId });
     if (ctx.categoryIds && query.filterBy !== "item" && query.filterBy !== "bom") itemFilter.push({ item: { categoryId: { in: [...ctx.categoryIds] } } });
     if (query.bomId && query.filterBy === "bom") itemFilter.push({ order: { bomId: query.bomId } });
+    // The consumption report filters its materials by item type instead of the produced item.
+    if (query.itemType && query.viewBy !== "consumption") itemFilter.push({ item: { itemType: query.itemType } });
   }
   return {
     businessUnitId: { in: ctx.unitIds },
@@ -110,6 +117,7 @@ function entryWhere(ctx: Context, applyItemFilters = true): Prisma.ProductionEnt
     ...(query.departmentId ? { departmentId: query.departmentId } : {}),
     ...(query.departmentSectionId ? { departmentSectionId: query.departmentSectionId } : {}),
     ...(query.workCenterId ? { workCenterId: query.workCenterId } : {}),
+    ...(query.shift ? { shift: query.shift } : {}),
     ...(itemFilter.length ? { AND: itemFilter } : {}),
   };
 }
@@ -463,6 +471,7 @@ async function demandReport(ctx: Context): Promise<Built> {
   const itemWhere: Prisma.ItemWhereInput = {
     ...(query.itemId ? { id: query.itemId } : {}),
     ...(ctx.categoryIds ? { categoryId: { in: [...ctx.categoryIds] } } : {}),
+    ...(query.itemType ? { itemType: query.itemType } : {}),
   };
   const [demand, planned, produced] = await Promise.all([
     db().salesOrderLine.findMany({
@@ -792,44 +801,63 @@ async function defectReport(ctx: Context): Promise<Built> {
   };
 }
 
-async function centersInScope(ctx: Context) {
+/** Work centers of the filters; without a Status filter only active ones (or every one with `allStatuses`). */
+async function centersInScope(ctx: Context, allStatuses = false) {
   const { query } = ctx;
+  const status = query.workCenterStatus ? { isActive: query.workCenterStatus === "ACTIVE" } : allStatuses ? {} : { isActive: true };
   return db().productionWorkCenter.findMany({
     where: {
       businessUnitId: { in: ctx.unitIds },
-      ...(query.workCenterId ? { id: query.workCenterId } : { isActive: true }),
+      ...(query.workCenterId ? { id: query.workCenterId } : status),
       ...(query.departmentId ? { departmentId: query.departmentId } : {}),
       ...(query.departmentSectionId ? { departmentSectionId: query.departmentSectionId } : {}),
       ...(query.officeId ? { officeId: query.officeId } : {}),
     },
-    select: { id: true, code: true, name: true, standardRunHour: true, ratedCapacityPerHour: true },
+    select: { id: true, code: true, name: true, isActive: true, standardRunHour: true, ratedCapacityPerHour: true },
     orderBy: { code: "asc" },
   });
 }
 
 async function utilizationReport(ctx: Context): Promise<Built> {
-  const [centers, records] = await Promise.all([centersInScope(ctx), db().productionEntry.findMany({ where: { ...entryWhere(ctx, false), workCenterId: { not: null } }, select: { workCenterId: true, hours: true, qty: true, productionDate: true } })]);
-  const days = daysOf(ctx.query.from, ctx.query.to).length;
-  const rows = centers.map((center) => {
-    const own = records.filter((entry) => entry.workCenterId === center.id);
-    const run = round2(own.reduce((sum, entry) => sum + num(entry.hours), 0));
-    const produced = round4(own.reduce((sum, entry) => sum + num(entry.qty), 0));
-    const available = round2(num(center.standardRunHour) * days);
-    const capacity = round4(num(center.ratedCapacityPerHour) * run);
-    return {
-      workCenter: `${center.code} - ${center.name}`,
-      activeDays: new Set(own.map((entry) => fromDbDate(entry.productionDate))).size,
-      available,
-      run,
-      utilization: pct(run, available),
-      capacity,
-      produced,
-      capacityUtilization: pct(produced, capacity),
-    };
-  });
+  const [centers, records] = await Promise.all([
+    centersInScope(ctx, true),
+    db().productionEntry.findMany({ where: { ...entryWhere(ctx, false), workCenterId: { not: null } }, select: { workCenterId: true, hours: true, qty: true, productionDate: true } }),
+  ]);
+  const monthly = ctx.query.monthly;
+  // One period for the whole range, or one per calendar month ("Monthly").
+  const periods = new Map<string, string[]>();
+  for (const date of daysOf(ctx.query.from, ctx.query.to)) {
+    const key = monthly ? date.slice(0, 7) : "all";
+    periods.set(key, [...(periods.get(key) ?? []), date]);
+  }
+  const rows: Record<string, ReportCell>[] = [];
+  for (const center of centers) {
+    for (const [month, dates] of periods) {
+      const inPeriod = new Set(dates);
+      const own = records.filter((entry) => entry.workCenterId === center.id && inPeriod.has(fromDbDate(entry.productionDate)));
+      const run = round2(own.reduce((sum, entry) => sum + num(entry.hours), 0));
+      const produced = round4(own.reduce((sum, entry) => sum + num(entry.qty), 0));
+      const available = round2(num(center.standardRunHour) * dates.length);
+      const capacity = round4(num(center.ratedCapacityPerHour) * run);
+      rows.push({
+        workCenter: `${center.code} - ${center.name}`,
+        ...(monthly ? { month } : {}),
+        status: center.isActive ? "Active" : "Inactive",
+        activeDays: new Set(own.map((entry) => fromDbDate(entry.productionDate))).size,
+        available,
+        run,
+        utilization: pct(run, available),
+        capacity,
+        produced,
+        capacityUtilization: pct(produced, capacity),
+      });
+    }
+  }
   return {
     columns: [
       col("workCenter", "Work Center"),
+      ...(monthly ? [col("month", "Month")] : []),
+      col("status", "Status"),
       col("activeDays", "Production Days", "qty"),
       col("available", "Available Hours", "hours"),
       col("run", "Run Hours", "hours"),
@@ -857,6 +885,8 @@ async function downtimeReport(ctx: Context): Promise<Built> {
       const run = round2(own.reduce((sum, entry) => sum + num(entry.hours), 0));
       const downtime = round2(Math.max(planned - run, 0));
       if (downtime <= 0) continue;
+      const reason = own.length ? "SHORT_RUN" : "NO_PRODUCTION";
+      if (ctx.query.downtimeReason && ctx.query.downtimeReason !== reason) continue;
       const produced = round4(own.reduce((sum, entry) => sum + num(entry.qty), 0));
       rows.push({
         workCenter: `${center.code} - ${center.name}`,
@@ -867,9 +897,37 @@ async function downtimeReport(ctx: Context): Promise<Built> {
         downtime,
         produced,
         efficiency: pct(produced, num(center.ratedCapacityPerHour) * run),
-        reason: own.length ? "Short run (reason not recorded)" : "No production recorded",
+        reason: DOWNTIME_REASONS.find((option) => option.id === reason)!.label,
+        // For the summary: the work center's rated capacity per hour.
+        rated: num(center.ratedCapacityPerHour),
       });
     }
+  }
+  if (ctx.query.summary) {
+    // "Summary": one row per work center over the whole range.
+    const byCenter = new Map<string, Record<string, ReportCell>>();
+    for (const row of rows) {
+      const total = byCenter.get(row.workCenter as string) ?? { workCenter: row.workCenter, days: 0, operating: 0, run: 0, downtime: 0, produced: 0, efficiency: null, rated: row.rated };
+      total.days = (total.days as number) + 1;
+      for (const key of ["operating", "run", "downtime"] as const) total[key] = round2((total[key] as number) + (row[key] as number));
+      total.produced = round4((total.produced as number) + (row.produced as number));
+      byCenter.set(row.workCenter as string, total);
+    }
+    const summary = [...byCenter.values()].map((row) => ({ ...row, efficiency: pct(row.produced as number, (row.rated as number) * (row.run as number)) }));
+    return {
+      columns: [
+        col("workCenter", "Work Center / Machine"),
+        col("days", "Days With Downtime", "qty"),
+        col("operating", "Total Operating Hours", "hours"),
+        col("run", "Actual Run Hours", "hours"),
+        col("downtime", "Downtime Hours", "hours"),
+        col("produced", "Produced Qty", "qty"),
+        col("efficiency", "Efficiency (%)", "percent"),
+      ],
+      rows: summary,
+      totals: totalsOf(summary, ["days", "operating", "run", "downtime", "produced"], "workCenter"),
+      notes: ["Downtime = standard run hours − run hours booked in production entries, per work center and day, summed over the range."],
+    };
   }
   return {
     columns: [
@@ -925,7 +983,7 @@ export async function getReport(actor: Actor, raw: unknown): Promise<Report> {
 export async function reportLookups(actor: Actor): Promise<ReportLookups> {
   const unitIds = await scopedBusinessUnitIds(actor);
   const inUnits = { businessUnitId: { in: unitIds } };
-  const [unit, departments, sections, offices, workCenters, categories, boms, items] = await Promise.all([
+  const [unit, departments, sections, offices, workCenters, categories, boms, items, shifts] = await Promise.all([
     db().businessUnit.findFirst({ where: { id: { in: unitIds } }, select: { company: { select: { name: true } } }, orderBy: { name: "asc" } }),
     db().productionDepartment.findMany({ where: inUnits, select: { id: true, name: true }, orderBy: { name: "asc" } }),
     db().productionDepartmentSection.findMany({ where: { department: inUnits }, select: { id: true, name: true, departmentId: true }, orderBy: { name: "asc" } }),
@@ -934,6 +992,7 @@ export async function reportLookups(actor: Actor): Promise<ReportLookups> {
     db().itemCategory.findMany({ where: { ...inUnits, level: { lte: 3 } }, select: { id: true, name: true, parentId: true, level: true }, orderBy: { name: "asc" } }),
     db().productionBom.findMany({ where: inUnits, select: { id: true, name: true }, orderBy: { name: "asc" } }),
     db().item.findMany({ where: { ...inUnits, isActive: true }, select: { id: true, code: true, name: true, uom: true, itemType: true }, orderBy: { code: "asc" } }),
+    db().productionEntry.findMany({ where: { ...inUnits, shift: { not: null } }, select: { shift: true }, distinct: ["shift"] }),
   ]);
   return {
     company: unit?.company.name ?? "",
@@ -945,5 +1004,7 @@ export async function reportLookups(actor: Actor): Promise<ReportLookups> {
     boms,
     items,
     itemTypes: [...new Set([...ITEM_TYPES, ...items.map((item) => item.itemType).filter((type): type is string => !!type)])],
+    // The entry form's shifts first, then any other shift found on entries.
+    shifts: [...new Set([...SHIFTS, ...shifts.map((row) => row.shift).filter((shift): shift is string => !!shift)])],
   };
 }

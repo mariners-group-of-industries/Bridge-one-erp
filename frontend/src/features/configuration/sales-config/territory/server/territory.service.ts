@@ -4,16 +4,21 @@ import { assertCompanyAccess, type Actor } from "@/lib/auth/actor";
 import { db } from "@/lib/prisma/client";
 import {
   assignEmployeeSchema,
+  assignmentUpdateSchema,
+  customerGroupQuerySchema,
   DEFAULT_LAYERS,
   layerInputSchema,
   nodeInputSchema,
   nodeUpdateSchema,
   type AssignEmployeeInput,
+  type AssignmentUpdateInput,
   type AssignmentDto,
   type EmployeeOption,
   type LayerInput,
   type NodeInput,
   type NodeUpdate,
+  type TerritoryCustomerGroupQuery,
+  type TerritoryCustomerGroups,
   type TerritoryCustomerList,
   type TerritoryCustomerQuery,
   type TerritoryTree,
@@ -213,14 +218,14 @@ export async function createNode(actor: Actor, input: NodeInput) {
       where: { businessUnitId: data.businessUnitId, level },
     });
     if (!layer) throw badRequest("There is no layer below this one. Add a layer in Layer Setup first.");
-    if (
-      await tx.salesTerritoryNode.findFirst({
-        where: {
-          businessUnitId: data.businessUnitId,
-          code: { equals: data.code, mode: "insensitive" },
-        },
-      })
-    ) {
+    const codeTaken = (value: string) =>
+      tx.salesTerritoryNode.findFirst({ where: { businessUnitId: data.businessUnitId, code: { equals: value, mode: "insensitive" } }, select: { id: true } });
+    if (!data.code) {
+      // No code given: the layer's code and the next free number, e.g. "REG-003".
+      let next = (await tx.salesTerritoryNode.count({ where: { layerId: layer.id } })) + 1;
+      do data.code = `${layer.code}-${String(next++).padStart(3, "0")}`;
+      while (await codeTaken(data.code));
+    } else if (await codeTaken(data.code)) {
       throw conflict(`Code "${data.code}" is already used.`);
     }
     const salesAreaId = layer.isTerritory ? await linkSalesArea(tx, data.businessUnitId, data.name) : null;
@@ -242,6 +247,7 @@ export async function updateNode(actor: Actor, id: string, input: NodeUpdate) {
   const data = nodeUpdateSchema.parse(input);
   return db().$transaction(async (tx) => {
     const node = await loadNode(actor, id, tx);
+    data.code ||= node.code;
     const clash = await tx.salesTerritoryNode.findFirst({
       where: {
         businessUnitId: node.businessUnitId,
@@ -461,4 +467,79 @@ export async function territoryCustomers(actor: Actor, query: TerritoryCustomerQ
     page: query.page,
     pageSize: query.pageSize,
   };
+}
+
+/** Changes the distribution channel of an assigned employee. */
+export async function updateAssignment(actor: Actor, nodeId: string, assignmentId: string, input: AssignmentUpdateInput) {
+  const data = assignmentUpdateSchema.parse(input);
+  await loadNode(actor, nodeId);
+  const { count } = await db().salesTerritoryEmployee.updateMany({
+    where: { id: assignmentId, nodeId },
+    data: { distributionChannel: data.distributionChannel || null },
+  });
+  if (count === 0) throw notFound("Assignment");
+  return listAssignments(actor, nodeId);
+}
+
+/** Most customers one Territory Wise Customer List shows (narrow with the filters beyond that). */
+export const CUSTOMER_GROUPS_LIMIT = 5000;
+
+/**
+ * Territory Wise Customer List: each Sales territory customers are linked to (all of them,
+ * one, or those below a tree entry), whether or not it is in the Sales Setup tree yet, with
+ * its customers and their credit limit total; territories without customers are left out.
+ */
+export async function territoryCustomerGroups(actor: Actor, raw: TerritoryCustomerGroupQuery | unknown): Promise<TerritoryCustomerGroups> {
+  const query = customerGroupQuerySchema.parse(raw);
+  await loadUnit(actor, query.businessUnitId);
+  const areas = await db().salesArea.findMany({
+    where: { businessUnitId: query.businessUnitId, kind: "TERRITORY" },
+    select: { id: true, name: true, territoryNode: { select: { code: true } } },
+    orderBy: { name: "asc" },
+  });
+  let territories = query.territoryId ? areas.filter((area) => area.id === query.territoryId) : areas;
+  if (query.nodeId) {
+    const node = await loadNode(actor, query.nodeId);
+    if (node.businessUnitId !== query.businessUnitId) throw badRequest("Select a territory of this business unit.");
+    const below = new Set(await territoryAreaIds(query.businessUnitId, node.id));
+    territories = territories.filter((territory) => below.has(territory.id));
+  }
+  const inTerritories: Prisma.CustomerWhereInput = { territoryId: { in: territories.map((territory) => territory.id) } };
+  const search = query.search ? { contains: query.search.replace(/[\\%_]/g, (c) => `\\${c}`), mode: "insensitive" as const } : undefined;
+  const where: Prisma.CustomerWhereInput = {
+    AND: [inTerritories, query.customerId ? { id: query.customerId } : {}, search ? { OR: [{ code: search }, { name: search }] } : {}],
+  };
+  const [customers, total, rows] = await Promise.all([
+    db().customer.findMany({ where: inTerritories, orderBy: { name: "asc" }, take: 2000, select: { id: true, code: true, name: true } }),
+    db().customer.count({ where }),
+    db().customer.findMany({
+      where,
+      orderBy: [{ name: "asc" }, { id: "asc" }],
+      take: CUSTOMER_GROUPS_LIMIT,
+      select: { id: true, code: true, name: true, address: true, creditLimit: true, territoryId: true, customerGroup: { select: { name: true } } },
+    }),
+  ]);
+  const byArea = new Map<string, typeof rows>();
+  for (const row of rows) byArea.set(row.territoryId!, [...(byArea.get(row.territoryId!) ?? []), row]);
+  const groups = territories.flatMap((territory) => {
+    const members = byArea.get(territory.id) ?? [];
+    if (members.length === 0) return [];
+    return [
+      {
+        id: territory.id,
+        code: territory.territoryNode?.code ?? "",
+        name: territory.name,
+        rows: members.map((row) => ({
+          id: row.id,
+          code: row.code,
+          name: row.name,
+          address: row.address,
+          groupName: row.customerGroup?.name ?? null,
+          creditLimit: row.creditLimit?.toString() ?? null,
+        })),
+        creditTotal: Math.round(members.reduce((sum, row) => sum + (row.creditLimit?.toNumber() ?? 0), 0) * 100) / 100,
+      },
+    ];
+  });
+  return { territories: areas.map(({ id, name }) => ({ id, name })), groups, customers, total, truncated: total > rows.length };
 }

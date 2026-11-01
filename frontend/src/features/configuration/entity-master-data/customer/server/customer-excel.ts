@@ -29,7 +29,7 @@ const COLUMNS = [
   { key: "subGroup", header: "Sub Group", width: 18 },
   { key: "creditDays", header: "Credit Days", width: 12 },
   { key: "creditLimit", header: "Credit Limit", width: 14 },
-  { key: "territory", header: "Territory", width: 16 },
+  { key: "territory", header: "Territory *", width: 16 },
   { key: "salesPerson", header: "Default Sales Representative", width: 26 },
   { key: "tolerancePercent", header: "Tolerance %", width: 12 },
   { key: "binNumber", header: "BIN Number", width: 16 },
@@ -93,7 +93,7 @@ export async function importCustomers(actor: Actor, bytes: Uint8Array): Promise<
     const match = COLUMNS.find((c) => normal(c.header) === normal(cellText(cell.value)));
     if (match) headerIndex.set(match.key, column);
   });
-  for (const required of ["name", "office", "mobile"] as const) {
+  for (const required of ["name", "office", "mobile", "territory"] as const) {
     if (!headerIndex.has(required)) {
       const header = COLUMNS.find((c) => c.key === required)!.header;
       throw new AppError(400, "VALIDATION_ERROR", `Column "${header}" is missing. Use the template.`);
@@ -184,6 +184,8 @@ export async function importCustomers(actor: Actor, bytes: Uint8Array): Promise<
         gender: pickFrom(GENDERS, "Gender", get("gender")),
         nidNumber: get("nidNumber"),
         ...flags,
+        // The template has no billing name column: invoices use the partner name.
+        billingName: get("name"),
         billingAddress: get("billingAddress"),
         districtId: district?.id ?? "",
         thanaId: thana?.id ?? "",

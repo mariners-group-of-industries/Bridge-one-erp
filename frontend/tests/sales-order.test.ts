@@ -23,10 +23,12 @@ import {
   listOrders,
   updateOrder,
 } from "@/features/sales/orders/services/order.service";
+import { addOrderAttachment, deleteOrderAttachment, readOrderAttachment } from "@/features/sales/orders/services/order-attachment.service";
 import { orderExcel, orderPdf, ordersExcel } from "@/features/sales/orders/services/order-export";
 import { changeQuotationStatus, createQuotation, getQuotation } from "@/features/sales/quotations/services/quotation.service";
 import type { Actor } from "@/lib/auth/actor";
-import { adminActor, businessUnitInput, companyInput, officeInput, scopedActor } from "./helpers/fixtures";
+import { setStorage } from "@/lib/storage";
+import { adminActor, businessUnitInput, companyInput, MemoryStorage, officeInput, scopedActor } from "./helpers/fixtures";
 import { resetTestDb, startTestDb, stopTestDb } from "./helpers/test-db";
 
 // Route database access to the per-file PGlite test database.
@@ -252,6 +254,20 @@ describe("sales orders", () => {
     });
     expect(order.lines[0]).toMatchObject({ itemName: "Marine Noodles 120 gm (1x24)", uom: "PCS", altUom: "CTN", altUomFactor: 24, lineTotal: 7008 });
     expect(order.events.map((event) => event.action)).toEqual(["CREATED"]);
+  });
+
+  it("stores attachments on the order, checks their content and removes them", async () => {
+    setStorage(new MemoryStorage());
+    const order = await createOrder(adminActor, input());
+    const pdf = new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31]);
+    const file = await addOrderAttachment(adminActor, order.id, { name: "po.pdf", type: "application/pdf", size: pdf.byteLength, bytes: pdf });
+    expect((await getOrder(adminActor, order.id)).attachments.map((row) => row.originalName)).toEqual(["po.pdf"]);
+    expect((await readOrderAttachment(adminActor, order.id, file.id)).bytes).toEqual(pdf);
+    await expect(
+      addOrderAttachment(adminActor, order.id, { name: "fake.pdf", type: "application/pdf", size: 4, bytes: new Uint8Array([1, 2, 3, 4]) }),
+    ).rejects.toThrow("does not match its type");
+    await deleteOrderAttachment(adminActor, order.id, file.id);
+    expect((await getOrder(adminActor, order.id)).attachments).toEqual([]);
   });
 
   it("approves cash and within-limit orders automatically", async () => {

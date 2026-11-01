@@ -30,13 +30,23 @@ const ROW_INCLUDE = {
   type: { select: { name: true } },
   department: { select: { name: true } },
   departmentSection: { select: { name: true } },
-  warehouse: { select: { name: true } },
+  warehouses: { select: { warehouse: { select: { id: true, name: true } } }, orderBy: { warehouse: { name: "asc" } } },
   _count: { select: { operators: true } },
 } satisfies Prisma.ProductionWorkCenterInclude;
 
 type RowRecord = Prisma.ProductionWorkCenterGetPayload<{ include: typeof ROW_INCLUDE }>;
 
+const OPERATOR_SELECT = { id: true, employeeCode: true, name: true, mobile: true, designation: true, department: true } satisfies Prisma.EmployeeSelect;
+
+function toOperator(row: Prisma.EmployeeGetPayload<{ select: typeof OPERATOR_SELECT }>): OperatorOption {
+  return { employeeId: row.id, code: row.employeeCode, name: row.name, phone: row.mobile, designation: row.designation, department: row.department };
+}
+
 function toRow(record: RowRecord): WorkCenterRow {
+  // The main warehouse (warehouseId) first, then the others by name.
+  const warehouses = record.warehouses
+    .map((link) => link.warehouse)
+    .sort((a, b) => Number(b.id === record.warehouseId) - Number(a.id === record.warehouseId));
   return {
     id: record.id,
     businessUnitId: record.businessUnitId,
@@ -48,8 +58,8 @@ function toRow(record: RowRecord): WorkCenterRow {
     departmentName: record.department?.name ?? null,
     departmentSectionId: record.departmentSectionId,
     sectionName: record.departmentSection?.name ?? null,
-    warehouseId: record.warehouseId,
-    warehouseName: record.warehouse?.name ?? null,
+    warehouseIds: warehouses.map((warehouse) => warehouse.id),
+    warehouseName: warehouses.map((warehouse) => warehouse.name).join(", ") || null,
     standardRunHour: num(record.standardRunHour),
     capacityPerHour: num(record.capacityPerHour),
     ratedCapacityPerHour: num(record.ratedCapacityPerHour),
@@ -84,7 +94,7 @@ async function findInScope(actor: Actor, id: string, client: Tx | ReturnType<typ
     include: {
       ...ROW_INCLUDE,
       operators: {
-        select: { employee: { select: { id: true, employeeCode: true, name: true, designation: true, department: true } } },
+        select: { employee: { select: OPERATOR_SELECT } },
         orderBy: { createdAt: "asc" },
       },
     },
@@ -95,29 +105,23 @@ async function findInScope(actor: Actor, id: string, client: Tx | ReturnType<typ
 
 export async function getWorkCenter(actor: Actor, id: string): Promise<WorkCenterDetail> {
   const record = await findInScope(actor, id);
-  return {
-    ...toRow(record),
-    operators: record.operators.map(({ employee }) => ({
-      employeeId: employee.id,
-      code: employee.employeeCode,
-      name: employee.name,
-      designation: employee.designation,
-      department: employee.department,
-    })),
-  };
+  return { ...toRow(record), operators: record.operators.map(({ employee }) => toOperator(employee)) };
 }
 
-/** Checks that every referenced record belongs to the business unit; returns the warehouse's office. */
+/**
+ * Checks that every referenced record belongs to the business unit; returns the office of
+ * the warehouses when they all sit in one office (null when none or several offices).
+ */
 async function checkReferences(tx: Tx, businessUnitId: string, input: ParsedInput): Promise<{ officeId: string | null }> {
-  const [type, department, section, warehouse, employees] = await Promise.all([
+  const [type, department, section, warehouses, employees] = await Promise.all([
     tx.productionWorkCenterType.findFirst({ where: { id: input.typeId, businessUnitId }, select: { id: true } }),
     input.departmentId ? tx.productionDepartment.findFirst({ where: { id: input.departmentId, businessUnitId }, select: { id: true } }) : null,
     input.departmentSectionId
       ? tx.productionDepartmentSection.findFirst({ where: { id: input.departmentSectionId }, select: { departmentId: true } })
       : null,
-    input.warehouseId
-      ? tx.warehouse.findFirst({ where: { id: input.warehouseId, office: { businessUnitId } }, select: { officeId: true } })
-      : null,
+    input.warehouseIds.length
+      ? tx.warehouse.findMany({ where: { id: { in: input.warehouseIds }, office: { businessUnitId } }, select: { officeId: true } })
+      : [],
     input.operatorIds.length
       ? tx.employee.findMany({ where: { id: { in: input.operatorIds }, office: { businessUnitId } }, select: { id: true, isActive: true, name: true } })
       : [],
@@ -127,9 +131,10 @@ async function checkReferences(tx: Tx, businessUnitId: string, input: ParsedInpu
   if (input.departmentSectionId && section?.departmentId !== input.departmentId) {
     throw badRequest("The department section does not belong to the chosen department.");
   }
-  if (input.warehouseId && !warehouse) throw badRequest("Choose a warehouse of this business unit.");
+  if (warehouses.length !== input.warehouseIds.length) throw badRequest("Choose warehouses of this business unit.");
   if (employees.length !== input.operatorIds.length) throw badRequest("An operator is not an employee of this business unit.");
-  return { officeId: warehouse?.officeId ?? null };
+  const offices = new Set(warehouses.map((warehouse) => warehouse.officeId));
+  return { officeId: offices.size === 1 ? [...offices][0] : null };
 }
 
 async function assertCodeFree(tx: Tx, businessUnitId: string, code: string, exceptId?: string) {
@@ -147,7 +152,7 @@ function fields(input: ParsedInput, officeId: string | null) {
     typeId: input.typeId,
     departmentId: input.departmentId ?? null,
     departmentSectionId: input.departmentSectionId ?? null,
-    warehouseId: input.warehouseId ?? null,
+    warehouseId: input.warehouseIds[0] ?? null,
     officeId,
     standardRunHour: input.standardRunHour,
     capacityPerHour: input.capacityPerHour,
@@ -175,6 +180,7 @@ export async function createWorkCenter(actor: Actor, raw: unknown): Promise<Work
         ...fields(input, officeId),
         createdBy: actor.id,
         operators: { create: input.operatorIds.map((employeeId) => ({ employeeId })) },
+        warehouses: { create: input.warehouseIds.map((warehouseId) => ({ warehouseId })) },
       },
       select: { id: true },
     });
@@ -198,6 +204,11 @@ export async function updateWorkCenter(actor: Actor, id: string, raw: unknown): 
     await tx.productionWorkCenterOperator.deleteMany({ where: { workCenterId: id, employeeId: { notIn: data.operatorIds } } });
     await tx.productionWorkCenterOperator.createMany({
       data: data.operatorIds.map((employeeId) => ({ workCenterId: id, employeeId })),
+      skipDuplicates: true,
+    });
+    await tx.productionWorkCenterWarehouse.deleteMany({ where: { workCenterId: id, warehouseId: { notIn: data.warehouseIds } } });
+    await tx.productionWorkCenterWarehouse.createMany({
+      data: data.warehouseIds.map((warehouseId) => ({ workCenterId: id, warehouseId })),
       skipDuplicates: true,
     });
   });
@@ -240,7 +251,10 @@ export async function workCenterLookups(actor: Actor): Promise<WorkCenterLookups
   };
 }
 
-/** Active employees by name or code, for operator tagging. */
+/**
+ * Active employees for operator tagging: by name, code or mobile number, or (empty
+ * search) the first ones by name, for the dropdown as it opens.
+ */
 export async function searchOperators(actor: Actor, raw: unknown): Promise<OperatorOption[]> {
   const query = operatorSearchSchema.parse(raw);
   const unitIds = await scopedBusinessUnitIds(actor);
@@ -249,13 +263,13 @@ export async function searchOperators(actor: Actor, raw: unknown): Promise<Opera
     where: {
       isActive: true,
       office: { businessUnitId: query.businessUnitId && unitIds.includes(query.businessUnitId) ? query.businessUnitId : { in: unitIds } },
-      OR: [{ name: text }, { employeeCode: text }],
+      ...(query.search ? { OR: [{ name: text }, { employeeCode: text }, { mobile: text }] } : {}),
     },
-    select: { id: true, employeeCode: true, name: true, designation: true, department: true },
+    select: OPERATOR_SELECT,
     orderBy: { name: "asc" },
-    take: 20,
+    take: 50,
   });
-  return employees.map((row) => ({ employeeId: row.id, code: row.employeeCode, name: row.name, designation: row.designation, department: row.department }));
+  return employees.map(toOperator);
 }
 
 /** The filtered list as a formatted .xlsx file. */

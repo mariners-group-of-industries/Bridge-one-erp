@@ -3,6 +3,7 @@ import { cellText, describe, parseFlag } from "@/features/configuration/entity-m
 import { AppError } from "@/lib/api/errors";
 import type { Actor } from "@/lib/auth/actor";
 import {
+  DEFAULT_ITEM_TYPE,
   ITEM_FLAGS,
   ITEM_TYPES,
   MAX_ITEM_IMPORT_ROWS,
@@ -24,7 +25,7 @@ const COLUMNS = [
   { key: "printedCode", header: "Printed Item Code *", width: 18 },
   { key: "name", header: "Master Item Name *", width: 30 },
   { key: "printedName", header: "Printed / Customer Name *", width: 30 },
-  { key: "itemType", header: "Item Type", width: 18 },
+  { key: "itemType", header: "Item Type *", width: 18 },
   { key: "uom", header: "UOM *", width: 10 },
   { key: "division", header: "Division", width: 16 },
   { key: "category", header: "Category", width: 16 },
@@ -35,7 +36,7 @@ const COLUMNS = [
   { key: "netWeight", header: "Net Weight", width: 11 },
   { key: "netWeightUnit", header: "Net Weight Unit", width: 14 },
   { key: "restrictedAge", header: "Restricted Ages", width: 14 },
-  { key: "tracking", header: "Tracking (None/Both)", width: 18 },
+  { key: "tracking", header: "Tracking (None/Batch)", width: 18 },
   { key: "barcode", header: "Barcode", width: 16 },
   { key: "brand", header: "Brand", width: 16 },
   { key: "sellingPrice", header: "Selling Price", width: 13 },
@@ -101,7 +102,7 @@ const HEADER_ALIASES: Partial<Record<ColumnKey, string[]>> = {
   netWeight: ["net weight", "weight", "item weight"],
   netWeightUnit: ["net weight unit", "weight unit", "item weight unit"],
   restrictedAge: ["restricted ages", "restricted age", "age restriction"],
-  tracking: ["tracking", "tracking (none/both)", "tracking type", "batch tracking"],
+  tracking: ["tracking", "tracking (none/batch)", "tracking (none/both)", "tracking type", "batch tracking"],
   barcode: ["barcode", "bar code", "upc", "ean", "item barcode"],
   brand: ["brand", "item brand", "brand name"],
   sellingPrice: ["selling price", "item selling price", "sale price", "sales price", "sales rate", "mrp", "price"],
@@ -317,12 +318,13 @@ export async function importItems(actor: Actor, bytes: Uint8Array): Promise<Item
         if (!found) throw new Error(`${label}: use ${list.join(", ")}.`);
         return found;
       };
-      const tracking = get("tracking") ? pick(["None", "Both"] as const, "Tracking", get("tracking")) : "None";
+      // "Both" is accepted from files made with the old template.
+      const tracking = get("tracking") ? pick(["None", "Batch", "Both"] as const, "Tracking", get("tracking")) : "None";
       // Sold/purchased default to Yes like the form.
       const flags = Object.fromEntries(
         ITEM_FLAGS.map((flag) => {
           const raw = get(flag.key);
-          const defaultYes = flag.key === "canBeSold" || flag.key === "canBePurchased";
+          const defaultYes = flag.key === "canBeSold" || flag.key === "canBePurchased" || flag.key === "canBeProduced";
           return [flag.key, raw === "" ? defaultYes : parseFlag(raw, flag.label)];
         }),
       ) as Record<ItemFlag, boolean>;
@@ -339,7 +341,7 @@ export async function importItems(actor: Actor, bytes: Uint8Array): Promise<Item
         printedCode,
         name,
         printedName,
-        itemType: pick(ITEM_TYPES, "Item Type", get("itemType")),
+        itemType: pick(ITEM_TYPES, "Item Type", get("itemType")) || DEFAULT_ITEM_TYPE,
         uom: get("uom") || "Pcs",
         divisionId: division?.id ?? "",
         categoryId: category?.id ?? "",
@@ -350,7 +352,7 @@ export async function importItems(actor: Actor, bytes: Uint8Array): Promise<Item
         netWeight: get("netWeight"),
         netWeightUnit: get("netWeightUnit"),
         restrictedAge: pick(RESTRICTED_AGES, "Restricted Ages", get("restrictedAge")),
-        tracking: tracking === "Both" ? "BOTH" : "NONE",
+        tracking: tracking === "None" ? "NONE" : "BATCH",
         barcode: get("barcode"),
         brand: get("brand"),
         sellingPrice: get("sellingPrice"),

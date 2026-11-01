@@ -87,6 +87,8 @@ export const dueCollectionSchema = z
     collectionDate: isoDate("Date"),
     method: z.enum(COLLECTION_METHODS),
     cashType: optionalText("Cash type", 30),
+    /** Wallet Setup (Sales Config): bank / MFS wallet the money came through. */
+    walletId: optionalId,
     salesPersonId: optionalId,
     adjustAccountId: optionalId,
     moneyReceiptNo: optionalText("Money receipt no", 60),
@@ -113,7 +115,8 @@ export const advanceVoucherSchema = z
   .object({
     officeId: z.uuid({ error: "Select an office." }),
     collectionDate: isoDate("Date"),
-    employeeId: optionalId,
+    /** Who took the advance (required, as in Managerium). */
+    employeeId: z.uuid({ error: "Select the employee." }),
     voucherType: z.enum(VOUCHER_TYPES),
     project: optionalText("Project", 150),
     narration: optionalText("Narration", 500),
@@ -299,6 +302,15 @@ export interface AllocationRow {
   amount: number;
 }
 
+/** A file on a collection (Advance Collection attachment). */
+export interface CollectionAttachment {
+  id: string;
+  originalName: string;
+  mimeType: string;
+  size: number;
+  createdAt: string;
+}
+
 export interface CollectionRow {
   id: string;
   number: string;
@@ -313,6 +325,9 @@ export interface CollectionRow {
   reference: string | null;
   bankName: string | null;
   salesPersonName: string | null;
+  /** Employee who took the advance. */
+  employeeName: string | null;
+  attachments: CollectionAttachment[];
   amount: number;
   /** Applied to invoices. */
   allocated: number;
@@ -351,7 +366,6 @@ export interface CollectionDetail extends CollectionRow {
   adjustmentAmount: number;
   salesOrderId: string | null;
   salesOrderNumber: string | null;
-  employeeName: string | null;
   deductionAmount: number;
   deductions: { id: string; expense: string; account: string; amount: number }[];
   businessUnitId: string;
@@ -398,4 +412,16 @@ export interface BillDetail extends BillRow {
     billedAmount: number;
     due: number;
   }[];
+}
+
+/** A Wallet Setup wallet offered on Due Collection (GET /api/sales/collections/wallets?officeId). */
+export interface CollectionWallet {
+  id: string;
+  name: string;
+  commissionPercent: number;
+  isCash: boolean;
+  isMfs: boolean;
+  isReferenceRequired: boolean;
+  /** GL of the wallet's bank account, used as "Adjust With GL". */
+  glAccountId: string | null;
 }

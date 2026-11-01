@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PrismaClient } from "@/generated/prisma/client";
 import type { DeliveryInput, OrderDeliveryInput } from "@/features/sales/deliveries/schemas/delivery.schema";
+import { createCollection } from "@/features/sales/collections/services/collection.service";
 import { deliveryChallanPdf, deliveryTabExcel } from "@/features/sales/deliveries/services/delivery-export";
 import { createVehicle, listVehicles, searchDrivers } from "@/features/sales/deliveries/services/vehicle.service";
 import {
@@ -292,6 +293,7 @@ describe("sales delivery", () => {
       lines: [{ itemId: noodlesId, qty: 40, unitPrice: 14.6, discountPercent: 0, vatPercent: 15, aitPercent: 0 }],
     });
     expect(exchange.exchangeReturn).toMatchObject({ number: "SRE-MG260000001", reason: "Damaged packets", totalAmount: 467 });
+    expect((await prisma.salesReturn.findUniqueOrThrow({ where: { id: exchange.exchangeReturn!.id } })).mode).toBe("EXCHANGE");
     expect([await stock(noodlesId), await stock(muriId)]).toEqual([50, 10]);
 
     const [row] = (await listDeliveries(adminActor, { deliveryType: "EXCHANGE" })).rows;
@@ -458,5 +460,33 @@ describe("sales delivery", () => {
     const pdf = await deliveryChallanPdf(adminActor, detail.id);
     expect(pdf.number).toBe("CH-MG260000003");
     expect(Buffer.from(pdf.bytes.slice(0, 5)).toString()).toBe("%PDF-");
+  });
+
+  it("shows the signed ledger balance on Delivery From SO (an advance makes it negative)", async () => {
+    expect((await getOrderForDelivery(adminActor, orderId, TODAY)).ledgerBalance).toBe(0);
+    await createCollection(adminActor, { kind: "ADVANCE", officeId, customerId, collectionDate: TODAY, method: "CASH", amount: 5000 });
+    expect((await getOrderForDelivery(adminActor, orderId, TODAY)).ledgerBalance).toBe(-5000);
+    await opening(noodlesId, 1000);
+    const delivery = await createDelivery(adminActor, forOrder([{ orderLineId: noodlesLine, qty: 100 }]));
+    // The delivery counts against the 5,000 advance.
+    expect((await getOrderForDelivery(adminActor, orderId, TODAY)).ledgerBalance).toBeCloseTo(-5000 + delivery.totalAmount, 2);
+  });
+
+  it("returns goods while confirming a delivery (Return QTY on Delivery Confirmation)", async () => {
+    await opening(noodlesId, 1000);
+    const delivery = await createDelivery(adminActor, forOrder([{ orderLineId: noodlesLine, qty: 100 }]));
+    const lineId = delivery.lines[0].id;
+    // Too much back: nothing is confirmed and no return is left behind.
+    await expect(confirmDelivery(adminActor, delivery.id, { version: delivery.updatedAt, actualDeliveryDate: TODAY, returns: [{ deliveryLineId: lineId, qty: 101 }] })).rejects.toThrow();
+    expect((await getDelivery(adminActor, delivery.id)).confirmation).toBe("PENDING");
+    expect(await prisma.salesReturn.count({ where: { deliveryId: delivery.id } })).toBe(0);
+
+    const confirmed = await confirmDelivery(adminActor, delivery.id, { version: delivery.updatedAt, actualDeliveryDate: TODAY, returns: [{ deliveryLineId: lineId, qty: 10 }] });
+    expect(confirmed).toMatchObject({ confirmation: "CONFIRMED" });
+    expect(confirmed.lines[0].returnedQty).toBe(10);
+    expect(await stock(noodlesId)).toBe(910);
+    const back = await prisma.salesReturn.findFirstOrThrow({ where: { deliveryId: delivery.id } });
+    expect(back).toMatchObject({ mode: "PARTIAL", status: "SUBMITTED" });
+    expect(confirmed.pendingAmount).toBeCloseTo(confirmed.totalAmount - Number(back.totalAmount), 2);
   });
 });

@@ -123,7 +123,9 @@ describe("production orders", () => {
       expect.objectContaining({ stageName: "Production Order Approval", approvalOrder: "ANY", status: "PENDING", approverNames: [] }),
     ]);
 
-    expect(await listOrders(planner, { from: "2026-10-19", to: "2026-10-25", search: "chips" })).toHaveLength(2);
+    const listed = await listOrders(planner, { from: "2026-10-19", to: "2026-10-25", search: "chips" });
+    expect(listed).toHaveLength(2);
+    expect(listed.every((row) => row.canEdit)).toBe(true);
     expect(await listOrders(planner, { status: "CLOSED" })).toHaveLength(0);
     expect(await listOrders(scopedActor([OTHER_COMPANY]), {})).toHaveLength(0);
     await expect(getOrder(scopedActor([OTHER_COMPANY]), first.id)).rejects.toThrow("not found");
@@ -160,6 +162,10 @@ describe("production orders", () => {
     expect((await searchCustomers(planner, { search: "shwap" })).map((row) => row.code)).toEqual(["C-001"]);
     expect((await customerSalesOrders(planner, ids.customer)).map((row) => row.number)).toEqual(["SO-1"]);
     await expect(searchCustomers(planner, { search: "sh" })).rejects.toThrow("3 letters");
+    // The dropdown lists customers as it opens ("code - name (phone)") and also finds them by phone.
+    await prisma.customer.update({ where: { id: ids.customer }, data: { phone: "01750683604" } });
+    expect(await searchCustomers(planner, {})).toEqual([{ id: ids.customer, code: "C-001", name: "Shwapno Retail", phone: "01750683604" }]);
+    expect((await searchCustomers(planner, { search: "0683" })).map((row) => row.code)).toEqual(["C-001"]);
   });
 
   it("approves without a pipeline, then runs and closes; edits only before approval", async () => {
@@ -185,6 +191,10 @@ describe("production orders", () => {
     const closed = await actOnOrder(planner, order.id, { version: started.updatedAt, action: "close" });
     expect(closed.status).toBe("CLOSED");
     expect(closed.allowedActions).toEqual([]);
+    // A closed order is view only: no edit in its view nor on the list.
+    expect(closed.canEdit).toBe(false);
+    expect((await listOrders(planner, { status: "CLOSED" })).map((row) => [row.number, row.canEdit])).toEqual([[closed.number, false]]);
+    await expect(updateOrder(planner, order.id, { version: closed.updatedAt, data: input() })).rejects.toThrow();
 
     const other = await createOrder(planner, input());
     await expect(actOnOrder(manager, other.id, { version: other.updatedAt, action: "reject" })).rejects.toThrow();

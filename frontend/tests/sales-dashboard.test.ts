@@ -93,7 +93,7 @@ describe("getSalesDashboard", () => {
     const anarul = await prisma.salesPerson.create({ data: { ...bu, code: "SP-1", name: "Md. Anarul Islam", designation: "RSM" } });
     const younus = await prisma.salesPerson.create({ data: { ...bu, code: "SP-2", name: "Md. Younus Ali", designation: "RSM" } });
     const vaiVai = await prisma.customer.create({ data: { ...bu, code: "C-1", name: "Vai Vai Traders", territoryId: (await prisma.salesArea.create({ data: { ...bu, kind: "TERRITORY", name: "Gaibandha" } })).id } });
-    const sobuj = await prisma.customer.create({ data: { ...bu, code: "C-2", name: "Sobuj Poultry Farm", territoryId: (await prisma.salesArea.create({ data: { ...bu, kind: "TERRITORY", name: "Jashore" } })).id } });
+    const sobuj = await prisma.customer.create({ data: { ...bu, code: "C-2", name: "Sobuj Poultry Farm", salesPersonId: younus.id, territoryId: (await prisma.salesArea.create({ data: { ...bu, kind: "TERRITORY", name: "Jashore" } })).id } });
     const biriyani = await prisma.item.create({ data: { ...bu, code: "IT-1", name: "Bar-B-Q Biriyani", salesRate: 100 } });
     const dal = await prisma.item.create({ data: { ...bu, code: "IT-2", name: "Dal Vaja 10gm", salesRate: 50 } });
 
@@ -145,6 +145,32 @@ describe("getSalesDashboard", () => {
         lines: { create: [{ lineNo: 1, itemId: dal.id, qty: 1, rate: 50, amount: 50 }] },
       },
     });
+    // No sales person and no customer default: counts for the latest delivery's sales person (Anarul).
+    await prisma.salesReturn.create({
+      data: {
+        ...bu,
+        number: "R-3",
+        customerId: vaiVai.id,
+        returnDate: day("2026-10-08"),
+        status: "SUBMITTED",
+        totalQty: 1,
+        totalAmount: 50,
+        lines: { create: [{ lineNo: 1, itemId: dal.id, qty: 1, rate: 50, amount: 50 }] },
+      },
+    });
+    // No sales person on the return: counts against the customer's default (Younus).
+    await prisma.salesReturn.create({
+      data: {
+        ...bu,
+        number: "R-2",
+        customerId: sobuj.id,
+        returnDate: day("2026-10-07"),
+        status: "SUBMITTED",
+        totalQty: 2,
+        totalAmount: 100,
+        lines: { create: [{ lineNo: 1, itemId: dal.id, qty: 2, rate: 50, amount: 100 }] },
+      },
+    });
     await prisma.salesCollection.createMany({
       data: [
         { ...bu, number: "COL-1", customerId: vaiVai.id, collectionDate: day("2026-10-04"), amount: 300, status: "SUBMITTED" },
@@ -167,23 +193,24 @@ describe("getSalesDashboard", () => {
 
   it("totals submitted sales net of returns, and collections", async () => {
     const dashboard = await getSalesDashboard(adminActor, query);
-    expect(dashboard.totals).toEqual({ sales: 1550, monthSales: 1550, collection: 300 });
+    expect(dashboard.totals).toEqual({ sales: 1400, monthSales: 1400, collection: 300 });
   });
 
   it("compares targets of the range's months with each sales person's net sales", async () => {
     const { target } = await getSalesDashboard(adminActor, query);
     expect(target.target).toBe(3000);
-    expect(target.achieved).toBe(1550);
+    // Same figure as Total Net Sales: the unattributed return is netted too.
+    expect(target.achieved).toBe(1400);
     expect(target.salesPersons.map((row) => [row.name, row.target, row.achieved])).toEqual([
-      ["Md. Younus Ali", 2000, 1000],
-      ["Md. Anarul Islam", 1000, 550],
+      ["Md. Younus Ali", 2000, 900],
+      ["Md. Anarul Islam", 1000, 500],
     ]);
   });
 
   it("ages receivables as of the To Date", async () => {
     const dashboard = await getSalesDashboard(adminActor, query);
     expect(dashboard.overdue).toEqual([
-      { customerId: expect.any(String), name: "Vai Vai Traders", overdue: 650, due: 600 },
+      { customerId: expect.any(String), name: "Vai Vai Traders", overdue: 600, due: 600 },
     ]);
     expect(dashboard.dueToday.map((row) => [row.name, row.amount])).toEqual([["Vai Vai Traders", 600]]);
   });
@@ -191,16 +218,16 @@ describe("getSalesDashboard", () => {
   it("ranks items, customers and sales persons by net amount", async () => {
     const dashboard = await getSalesDashboard(adminActor, query);
     expect(dashboard.topItems.map((row) => [row.name, row.amount, row.qty])).toEqual([
-      ["Dal Vaja 10gm", 1050, 21],
+      ["Dal Vaja 10gm", 900, 18],
       ["Bar-B-Q Biriyani", 500, 5],
     ]);
     expect(dashboard.topCustomers.map((row) => [row.name, row.detail, row.amount, row.qty])).toEqual([
-      ["Sobuj Poultry Farm", "Jashore", 1000, 20],
-      ["Vai Vai Traders", "Gaibandha", 550, 6],
+      ["Sobuj Poultry Farm", "Jashore", 900, 18],
+      ["Vai Vai Traders", "Gaibandha", 500, 5],
     ]);
     expect(dashboard.topSalesPersons.map((row) => [row.name, row.amount])).toEqual([
-      ["Md. Younus Ali", 1000],
-      ["Md. Anarul Islam", 550],
+      ["Md. Younus Ali", 900],
+      ["Md. Anarul Islam", 500],
     ]);
   });
 
@@ -212,7 +239,7 @@ describe("getSalesDashboard", () => {
     expect(dashboard.target.salesPersons).toEqual([]);
 
     await expect(getSalesDashboard(scopedActor([companyId]), { ...query, businessUnitId })).resolves.toMatchObject({
-      totals: { sales: 1550 },
+      totals: { sales: 1400 },
     });
     await expect(
       getSalesDashboard(scopedActor(["00000000-0000-4000-8000-000000000000"]), { ...query, businessUnitId }),

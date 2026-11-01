@@ -117,6 +117,9 @@ export const API_RULES: Record<string, ApiRule> = {
   "/api/configuration/gateways/api-tokens": { feature: PAGE.apiTokens },
   "/api/configuration/gateways/attendance-devices/options": { feature: "/configuration/gateways/attendance-devices", read: { anyViewIn: ["configuration", "hrm"] } },
 
+  // ── Production ("Add new" process from the entry form) ──
+  "/api/production/processes": { feature: "/production/entries" },
+
   // ── HRM ──
   "/api/hrm/options": { read: { anyViewIn: ["hrm"] } },
   "/api/hrm/bonus": { feature: "/hrm/compensation/bonus" },
@@ -128,14 +131,17 @@ export const API_RULES: Record<string, ApiRule> = {
   "/api/hrm/self-service/leaves": { feature: "/hrm/self-service/leave-movement" },
   "/api/hrm/self-service/movements": { feature: "/hrm/self-service/leave-movement" },
 
-  // ── Sales (masters kept in Sales Setup; lookups read by every sales page) ──
+  // ── Sales (masters are kept in Configuration › Sales Config › Sales Setup; lookups read by every sales page) ──
   "/api/sales/bills": { feature: "/sales/collections" },
   "/api/sales/commissions": { feature: "/sales/targets" },
-  "/api/sales/customers": { feature: "/sales/setup", read: { anyViewIn: ["sales"] } },
-  "/api/sales/items": { feature: "/sales/setup", read: { anyViewIn: ["sales"] } },
-  "/api/sales/sales-persons": { feature: "/sales/setup", read: { anyViewIn: ["sales"] } },
-  "/api/sales/vehicles": { feature: "/sales/setup", read: { anyViewIn: ["sales"] } },
-  "/api/sales/stock": { feature: "/sales/setup", read: { anyViewIn: ["sales"] } },
+  "/api/sales/customers": { feature: PAGE.salesSetup, read: { anyViewIn: SALES_READERS } },
+  "/api/sales/items": { feature: PAGE.salesSetup, read: { anyViewIn: SALES_READERS } },
+  "/api/sales/sales-persons": { feature: PAGE.salesSetup, read: { anyViewIn: SALES_READERS } },
+  "/api/sales/vehicles": { feature: PAGE.salesSetup, read: { anyViewIn: SALES_READERS } },
+  "/api/sales/stock": { feature: PAGE.salesSetup, read: { anyViewIn: SALES_READERS } },
+  "/api/sales/setup": { feature: PAGE.salesSetup, read: { anyViewIn: SALES_READERS } },
+  // Rates and offers for order / quotation / return forms: a calculation, not a change.
+  "/api/sales/pricing": { read: { anyViewIn: SALES_READERS }, postIsRead: true },
   "/api/sales/drivers": { read: { anyViewIn: ["sales"] } },
   "/api/sales/gl-accounts": { read: { anyViewIn: ["sales"] } },
   "/api/sales/warehouses": { read: { anyViewIn: ["sales"] } },

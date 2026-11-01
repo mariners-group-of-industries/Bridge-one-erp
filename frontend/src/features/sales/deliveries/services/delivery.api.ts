@@ -44,8 +44,8 @@ export const updateDeliveryReferences = (id: string, values: Record<string, unkn
   apiRequest<DeliveryDetail>(`${BASE}/${id}`, json("PATCH", values));
 /** The delivery challan PDF: opened to print, or saved with `download`. */
 export const challanPdfUrl = (id: string, download = false) => `${BASE}/${id}/challan-pdf${download ? "?download=1" : ""}`;
-export const confirmDelivery = (id: string, version: string, actualDeliveryDate: string) =>
-  apiRequest<DeliveryDetail>(`${BASE}/${id}/confirm`, json("POST", { version, actualDeliveryDate }));
+export const confirmDelivery = (id: string, version: string, actualDeliveryDate: string, returns: { deliveryLineId: string; qty: number }[] = []) =>
+  apiRequest<DeliveryDetail>(`${BASE}/${id}/confirm`, json("POST", { version, actualDeliveryDate, returns }));
 
 export const fetchWarehouses = () => apiRequest<WarehouseOption[]>("/api/sales/warehouses");
 export const fetchStock = (warehouseId: string, itemIds: string[]) =>

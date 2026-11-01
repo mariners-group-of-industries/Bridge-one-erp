@@ -7,6 +7,7 @@ import { useMemo, useState } from "react";
 import { PageContainer, PageHead } from "@/components/layout/page";
 import { Button, buttonClasses } from "@/components/ui/button";
 import { ErrorState, LoadingState } from "@/components/ui/section";
+import { Tabs } from "@/components/ui/tabs";
 import { useToast } from "@/components/ui/toast";
 import { useResource } from "@/hooks/use-resource";
 import { errorMessage } from "@/lib/api/client";
@@ -16,10 +17,11 @@ import { salesConfigPaths } from "../../paths";
 import { OFFER_KINDS, offerInputSchema, slugFromKind, type OfferDto, type OfferInput, type OfferKind, type OfferOptions } from "../schemas/offer.schema";
 import { offerApi } from "../services/offer.api";
 import { DiscountOfferEditor, SpecialDiscountOfferEditor, blankSpecialLine, type DiscountForm, type SpecialDiscountForm } from "./DiscountOfferEditors";
-import { ItemMultipleOfferEditor, ItemOfferEditor, blankBonusLine, blankItemLine, blankPairLine, type ItemForm, type ItemMultipleForm } from "./ItemOfferEditors";
+import { ItemMultipleOfferEditor, ItemOfferEditor, blankItemLine, blankPair, type ItemForm, type ItemMultipleForm } from "./ItemOfferEditors";
 import type { Errors } from "./offer-form-kit";
 
 type AnyForm = ItemForm | ItemMultipleForm | DiscountForm | SpecialDiscountForm;
+const KIND_TABS = OFFER_KINDS.map(({ kind, label }) => ({ id: kind, label }));
 
 function blankForm(kind: OfferKind, businessUnitId: string): AnyForm {
   const head = { businessUnitId, name: "", fromDate: "", toDate: "" };
@@ -28,7 +30,7 @@ function blankForm(kind: OfferKind, businessUnitId: string): AnyForm {
     case "ITEM":
       return { kind, ...head, customerGroupId: "", ...trio, lines: [blankItemLine()] };
     case "ITEM_MULTIPLE":
-      return { kind, ...head, priceListId: "", basedOn: "", pairLines: [blankPairLine()], bonusLines: [blankBonusLine()] };
+      return { kind, ...head, priceListId: "", basedOn: "", pairs: [blankPair()] };
     case "DISCOUNT":
       return { kind, ...head, basedOn: "", customerGroupId: "", priceListId: "", ...trio, lines: [] };
     default:
@@ -151,19 +153,11 @@ function OfferEditor({
   };
 
   const editorProps = { errors, options, unit: form.businessUnitId, locked: !!offerId };
+  const formId = "offer-form";
 
-  return (
-    <>
-      <PageHead
-        title={title}
-        breadcrumbs={breadcrumbs}
-        actions={
-          <Link href={backHref} className={buttonClasses("secondary", "md")}>
-            <ArrowLeft /> All Offers
-          </Link>
-        }
-      />
+  const body = (
       <form
+        id={formId}
         noValidate
         className="flex flex-col gap-4 pb-6"
         onSubmit={(event) => {
@@ -187,6 +181,40 @@ function OfferEditor({
           </Button>
         </div>
       </form>
+  );
+
+  return (
+    <>
+      <PageHead
+        title={title}
+        breadcrumbs={breadcrumbs}
+        actions={
+          <>
+            <Link href={backHref} className={buttonClasses("secondary", "md")}>
+              <ArrowLeft /> All Offers
+            </Link>
+            <Button type="submit" form={formId} variant="accent" loading={saving}>
+              {!saving && <Save />} Save
+            </Button>
+          </>
+        }
+      />
+      {offerId ? (
+        body
+      ) : (
+        // A new offer picks its type here (as in Managerium); a saved one keeps its type.
+        <Tabs<OfferKind>
+          label="Offer type"
+          tabs={KIND_TABS}
+          value={form.kind}
+          onChange={(next) => {
+            if (dirty && !window.confirm("Discard the unsaved offer?")) return;
+            router.replace(salesConfigPaths.offerCreate(slugFromKind(next)));
+          }}
+        >
+          <div className="pt-4">{body}</div>
+        </Tabs>
+      )}
     </>
   );
 }

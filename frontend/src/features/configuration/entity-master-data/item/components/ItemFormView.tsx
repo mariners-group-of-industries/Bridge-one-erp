@@ -18,6 +18,7 @@ import { Checkbox, Field, FormGrid, Input, Notice, Panel, PanelSection, SaveStat
 import { entityMasterDataPaths } from "../../paths";
 import {
   ITEM_FLAGS,
+  DEFAULT_ITEM_TYPE,
   ITEM_TYPES,
   itemInputSchema,
   RESTRICTED_AGES,
@@ -32,7 +33,7 @@ import { itemApi } from "../services/item.api";
 type FormState = Omit<Required<ItemInput>, "itemType" | "restrictedAge" | "tracking"> & {
   itemType: string;
   restrictedAge: string;
-  tracking: "NONE" | "BOTH";
+  tracking: "NONE" | "BATCH";
   itemDescription: string;
   hsCode: string;
   partNo: string;
@@ -68,6 +69,7 @@ const EMPTY: FormState = {
   autoBarcode: false,
   canBeSold: true,
   canBePurchased: true,
+  canBeProduced: true,
   canBeRented: false,
   noDecimal: false,
   allowEbt: false,
@@ -76,7 +78,7 @@ const EMPTY: FormState = {
   printedCode: "",
   name: "",
   printedName: "",
-  itemType: "Finished/Trading Goods",
+  itemType: DEFAULT_ITEM_TYPE,
   uom: "",
   divisionId: "",
   categoryId: "",
@@ -437,7 +439,7 @@ function ItemEditor({ itemId, title, breadcrumbs, initial, options, onOptionsCha
                   <Field label="Printed / Customer Name" required error={err("printedName")}>
                     {(id) => <Input id={id} value={form.printedName} maxLength={200} aria-invalid={invalid("printedName")} onChange={text("printedName")} />}
                   </Field>
-                  <Field label="Item Type" error={err("itemType")}>
+                  <Field label="Item Type" required error={err("itemType")}>
                     {(id) => <Select id={id} value={form.itemType} options={ITEM_TYPES} onChange={text("itemType")} />}
                   </Field>
                   <AddableSelect

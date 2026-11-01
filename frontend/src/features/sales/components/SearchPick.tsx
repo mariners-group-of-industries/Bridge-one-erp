@@ -5,7 +5,7 @@ import { CONTROL } from "@/components/ui/form-field";
 import { cn } from "@/lib/cn";
 
 /**
- * Searchable picker: suggestions appear after 3 letters. Picks an option by its label
+ * Searchable picker: suggestions appear after `minChars` letters (3; 0 lists them on open). Picks an option by its label
  * (`onPick`), or with `freeText` keeps whatever is typed (`onText`).
  */
 export function SearchPick({
@@ -22,6 +22,7 @@ export function SearchPick({
   placeholder,
   onSearch,
   hideLabel,
+  minChars = 3,
 }: {
   label: string;
   options: { id: string; label: string }[];
@@ -38,6 +39,8 @@ export function SearchPick({
   onSearch?: (text: string) => void;
   /** Keep the label for screen readers only (e.g. inside a table row). */
   hideLabel?: boolean;
+  /** Letters typed before suggestions appear; 0 shows the first ones as soon as the box is opened. */
+  minChars?: number;
 }) {
   const id = useId();
   const labelOf = (optionId: string | undefined) => options.find((option) => option.id === optionId)?.label ?? "";
@@ -50,7 +53,7 @@ export function SearchPick({
   }
   const value = freeText ? (text ?? "") : typed;
   const needle = value.trim().toLowerCase();
-  const matches = needle.length >= 3 ? options.filter((option) => option.label.toLowerCase().includes(needle)).slice(0, 50) : [];
+  const matches = needle.length >= minChars ? options.filter((option) => option.label.toLowerCase().includes(needle)).slice(0, 50) : [];
 
   function change(next: string) {
     onSearch?.(next);

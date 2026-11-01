@@ -8,7 +8,7 @@ import { PageContainer, PageHead } from "@/components/layout/page";
 import { Button, buttonClasses } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { DropdownMenu, type MenuItem } from "@/components/ui/dropdown-menu";
-import { TextAreaField, TextField } from "@/components/ui/form-field";
+import { CONTROL, TextAreaField, TextField } from "@/components/ui/form-field";
 import { Indicator } from "@/components/ui/indicator";
 import { Card, ErrorState, LoadingState } from "@/components/ui/section";
 import { Tabs } from "@/components/ui/tabs";
@@ -78,10 +78,17 @@ function DeliveryBody({ today, delivery, onChanged, onReload }: { today: string;
     remarks: delivery.remarks ?? "",
   };
   const [refs, setRefs] = useState<References>(saved);
+  /** Return QTY per delivery line, entered before confirming. */
+  const [returnQty, setReturnQty] = useState<Record<string, string>>({});
   const dirty = JSON.stringify(refs) !== JSON.stringify(saved);
 
   const deleted = delivery.status === "CANCELLED";
   const editable = !deleted && delivery.confirmation === "PENDING";
+  const canReturn = editable && delivery.deliveryType !== "EXCHANGE";
+  const returning = Object.entries(returnQty)
+    .map(([deliveryLineId, text]) => ({ deliveryLineId, qty: Number(text) }))
+    .filter((row) => Number.isFinite(row.qty) && row.qty > 0);
+  const overReturned = delivery.lines.find((line) => Number(returnQty[line.id] ?? 0) > line.qty - line.returnedQty + 1e-9);
   const listTab = delivery.deliveryType === "EXCHANGE" ? "exchanges" : "deliveries";
 
   /** Saves changed references; returns the delivery to continue with (or null on error). */
@@ -120,14 +127,19 @@ function DeliveryBody({ today, delivery, onChanged, onReload }: { today: string;
         toast.error("Enter the actual delivery date.");
         return;
       }
+      if (overReturned) {
+        toast.error(`${overReturned.itemName}: at most ${formatQty(overReturned.qty - overReturned.returnedQty)} can be returned.`);
+        return;
+      }
       let current = delivery;
       if (dirty) {
         const updated = await saveReferences();
         if (!updated) return;
         current = updated;
       }
-      const confirmed = await confirmDelivery(current.id, current.updatedAt, actualDate);
-      toast.success(`${confirmed.number} confirmed.`);
+      const confirmed = await confirmDelivery(current.id, current.updatedAt, actualDate, returning);
+      toast.success(returning.length ? `${confirmed.number} confirmed; the returned goods are on Sales Return.` : `${confirmed.number} confirmed.`);
+      setReturnQty({});
       onChanged(confirmed);
     });
 
@@ -164,7 +176,7 @@ function DeliveryBody({ today, delivery, onChanged, onReload }: { today: string;
             <Link href={paths.deliveryTab(listTab)} aria-label="Back to deliveries" className={buttonClasses("ghost", "icon")}>
               <ArrowLeft />
             </Link>
-            Delivery Details
+            {editable ? "Delivery Confirmation" : "Delivery Details"}
           </span>
         }
         indicator={
@@ -176,6 +188,9 @@ function DeliveryBody({ today, delivery, onChanged, onReload }: { today: string;
         }
         actions={
           <>
+            <Link href={paths.deliveryTab(listTab)} className={buttonClasses("danger")}>
+              Close &amp; Back
+            </Link>
             <DropdownMenu trigger={<Ellipsis />} triggerLabel="More actions" triggerClassName={buttonClasses("secondary", "icon")} items={menu} />
             {editable && (
               <Link href={paths.editDelivery(delivery.id)} className={buttonClasses("secondary")}>
@@ -278,7 +293,23 @@ function DeliveryBody({ today, delivery, onChanged, onReload }: { today: string;
                               {line.itemName}
                             </span>
                           </td>
-                          <td className="px-3 py-1.5 text-right tabular-nums">{formatQty(line.returnedQty)}</td>
+                          <td className="w-28 px-3 py-1">
+                            {canReturn ? (
+                              <input
+                                aria-label={`Return quantity, ${line.itemName}`}
+                                type="number"
+                                min={0}
+                                max={line.qty - line.returnedQty}
+                                step="any"
+                                placeholder={formatQty(line.returnedQty)}
+                                value={returnQty[line.id] ?? ""}
+                                onChange={(event) => setReturnQty((current) => ({ ...current, [line.id]: event.target.value }))}
+                                className={cn(CONTROL, "h-7 text-right tabular-nums", Number(returnQty[line.id] ?? 0) > line.qty - line.returnedQty + 1e-9 && "ring-1 ring-danger")}
+                              />
+                            ) : (
+                              <span className="block text-right tabular-nums">{formatQty(line.returnedQty)}</span>
+                            )}
+                          </td>
                           <td className="px-3 py-1.5 text-right whitespace-nowrap tabular-nums">
                             {formatQty(line.qty)} {line.uom}
                           </td>

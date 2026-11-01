@@ -67,3 +67,26 @@ export async function customerBalances(options: {
     }),
   );
 }
+
+/**
+ * Signed ledger balance of each customer as of `asOf`: deliveries − returns − collections
+ * (negative = the customer paid ahead, e.g. an advance). Customers with any of them appear.
+ */
+export async function customerLedger(options: { businessUnitIds: string[]; asOf: Date; customerIds?: string[] }): Promise<Map<string, number>> {
+  const scope = {
+    businessUnitId: { in: options.businessUnitIds },
+    status: "SUBMITTED" as const,
+    ...(options.customerIds ? { customerId: { in: options.customerIds } } : {}),
+  };
+  const [delivered, returned, collected] = await Promise.all([
+    db().salesDelivery.groupBy({ by: ["customerId"], where: { ...scope, deliveryDate: { lte: options.asOf } }, _sum: { totalAmount: true } }),
+    db().salesReturn.groupBy({ by: ["customerId"], where: { ...scope, returnDate: { lte: options.asOf } }, _sum: { totalAmount: true } }),
+    db().salesCollection.groupBy({ by: ["customerId"], where: { ...scope, collectionDate: { lte: options.asOf } }, _sum: { amount: true } }),
+  ]);
+  const ledger = new Map<string, number>();
+  const add = (customerId: string, amount: number) => ledger.set(customerId, (ledger.get(customerId) ?? 0) + amount);
+  for (const row of delivered) add(row.customerId, num(row._sum.totalAmount));
+  for (const row of returned) add(row.customerId, -num(row._sum.totalAmount));
+  for (const row of collected) add(row.customerId, -num(row._sum.amount));
+  return new Map([...ledger].map(([customerId, amount]) => [customerId, money(amount)]));
+}

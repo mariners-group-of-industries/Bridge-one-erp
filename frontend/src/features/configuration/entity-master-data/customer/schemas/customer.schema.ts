@@ -87,7 +87,7 @@ export const customerInputSchema = z
       })
       .optional()
       .default(""),
-    territoryId: optionalId,
+    territoryId: z.uuid("Select a territory."),
     salesPersonId: optionalId,
     tolerancePercent: percent,
     binNumber: optionalText(30),
@@ -103,7 +103,7 @@ export const customerInputSchema = z
     nidNumber: optionalText(30),
     ...flagFields,
     // Billing Details
-    billingName: optionalText(150),
+    billingName: text(150).min(1, "Partner billing name is required."),
     billingAddress: optionalText(500),
     districtId: optionalDistrict,
     thanaId: optionalId,

@@ -19,6 +19,7 @@ import { ITEM_TYPES } from "@/features/configuration/entity-master-data/item/sch
 import { issuesToErrors } from "@/features/sales/lib/form";
 import { MasterDialog, WithAddNew } from "@/features/production/work-centers/components/WorkCenterParts";
 import type { MasterKind, Option } from "@/features/production/work-centers/schemas/work-center.schema";
+import { Combobox } from "../../components/Combobox";
 import { paths } from "../../paths";
 import { altQty, bomTotals, materialAmount, overheadAmount, outputWeight, totalQty, wastageQty } from "../lib/bom-totals";
 import {
@@ -143,8 +144,8 @@ function toInput(values: Values): BomInput {
     ...(values.businessUnitId ? { businessUnitId: values.businessUnitId } : {}),
     name: values.name,
     bomType: values.bomType,
-    departmentId: values.departmentId,
-    departmentSectionId: values.departmentSectionId,
+    departmentId: values.departmentId || null,
+    departmentSectionId: values.departmentSectionId || null,
     remarks: values.remarks || null,
     outputs: values.outputs.map((line) => ({
       itemId: line.itemId,
@@ -224,13 +225,22 @@ interface PickerState {
 
 const EMPTY_PICKER: PickerState = { itemType: "", categoryId: "", subCategoryId: "", itemId: "" };
 const itemLabel = (item: BomItemOption) => `${item.code} - ${item.name} (${item.uom})`;
+/** Item types a production item (FG/SFG) can have. */
+const OUTPUT_ITEM_TYPES = ["Finished Goods", "Semi-Finished Goods"];
+const outputTypeOf = (item: BomItemOption | undefined): OutputType => (item?.itemType === "Semi-Finished Goods" ? "SEMI_FINISHED_GOODS" : "FINISHED_GOODS");
 
+/**
+ * Item Type → Category → Sub Category on one row, then the (searchable) item at the
+ * start of the next row, as in Managerium. `itemTypes` limits the types offered.
+ */
 function ItemPicker({
   lookups,
   items,
   value,
   onChange,
   itemLabelText,
+  itemPlaceholder,
+  itemTypes = ITEM_TYPES,
   error,
 }: {
   lookups: BomLookups;
@@ -238,45 +248,53 @@ function ItemPicker({
   value: PickerState;
   onChange: (next: PickerState) => void;
   itemLabelText: string;
+  itemPlaceholder: string;
+  itemTypes?: readonly string[];
   error?: string;
 }) {
   const categories = lookups.categories.filter((category) => category.level === 1);
   const subCategories = lookups.categories.filter((category) => category.level === 2 && category.parentId === value.categoryId);
   const matching = items.filter(
     (item) =>
-      (!value.itemType || item.itemType === value.itemType) &&
+      (value.itemType ? item.itemType === value.itemType : itemTypes === ITEM_TYPES || itemTypes.includes(item.itemType ?? "")) &&
       (!value.categoryId || item.categoryId === value.categoryId) &&
       (!value.subCategoryId || item.subCategoryId === value.subCategoryId),
   );
   return (
     <>
-      <SelectField
+      <Combobox
         label="Item Type"
+        placeholder="Item Type"
         value={value.itemType}
-        options={[{ value: "", label: "All" }, ...ITEM_TYPES.map((type) => ({ value: type, label: type }))]}
-        onChange={(event) => onChange({ ...value, itemType: event.target.value, itemId: "" })}
+        options={itemTypes.map((type) => ({ value: type, label: type }))}
+        onChange={(itemType) => onChange({ ...value, itemType, itemId: "" })}
       />
-      <SelectField
+      <Combobox
         label="Category"
+        placeholder="Category"
         value={value.categoryId}
-        options={[{ value: "", label: "All" }, ...categories.map((category) => ({ value: category.id, label: category.name }))]}
-        onChange={(event) => onChange({ ...value, categoryId: event.target.value, subCategoryId: "", itemId: "" })}
+        options={categories.map((category) => ({ value: category.id, label: category.name }))}
+        onChange={(categoryId) => onChange({ ...value, categoryId, subCategoryId: "", itemId: "" })}
       />
-      <SelectField
+      <Combobox
         label="Sub Category"
+        placeholder="Sub Category"
         value={value.subCategoryId}
         disabled={!value.categoryId || subCategories.length === 0}
-        options={[{ value: "", label: "All" }, ...subCategories.map((category) => ({ value: category.id, label: category.name }))]}
-        onChange={(event) => onChange({ ...value, subCategoryId: event.target.value, itemId: "" })}
+        options={subCategories.map((category) => ({ value: category.id, label: category.name }))}
+        onChange={(subCategoryId) => onChange({ ...value, subCategoryId, itemId: "" })}
       />
-      <SelectField
+      <Combobox
+        className="sm:col-start-1"
         label={itemLabelText}
         required
+        placeholder={itemPlaceholder}
         value={value.itemId}
         error={error}
         hint={`${matching.length} item${matching.length === 1 ? "" : "s"}`}
-        options={[{ value: "", label: matching.length ? `Choose (${matching.length})` : "No item matches" }, ...matching.map((item) => ({ value: item.id, label: itemLabel(item) }))]}
-        onChange={(event) => onChange({ ...value, itemId: event.target.value })}
+        options={matching.map((item) => ({ value: item.id, label: itemLabel(item) }))}
+        emptyText="No item matches."
+        onChange={(itemId) => onChange({ ...value, itemId })}
       />
     </>
   );
@@ -333,16 +351,9 @@ function BomForm({ lookups: loaded, source, copy }: { lookups: BomLookups; sourc
   const [tab, setTab] = useState<Tab>("materials");
 
   const [outputPicker, setOutputPicker] = useState<PickerState>(EMPTY_PICKER);
-  const [outputEntry, setOutputEntry] = useState({
-    outputType: "FINISHED_GOODS" as OutputType,
-    netWeight: "",
-    lotSizeQty: "",
-    tolerancePercent: "",
-    costPercent: "",
-    isPrimary: false,
-  });
-  const [materialPicker, setMaterialPicker] = useState<PickerState>(EMPTY_PICKER);
-  const [materialEntry, setMaterialEntry] = useState({ qty: "", wastagePercent: "", rate: "", excludeFromScrap: false });
+  const [outputEntry, setOutputEntry] = useState({ lotSizeQty: "", tolerancePercent: "", costPercent: "", isPrimary: false });
+  const [materialPicker, setMaterialPicker] = useState<PickerState>({ ...EMPTY_PICKER, itemType: "Raw Material" });
+  const [materialEntry, setMaterialEntry] = useState({ qty: "", wastagePercent: "", excludeFromScrap: false });
   const [wastagePicker, setWastagePicker] = useState<PickerState>(EMPTY_PICKER);
   const [wastageEntry, setWastageEntry] = useState({
     outputType: "SCRAP" as WastageType,
@@ -351,7 +362,7 @@ function BomForm({ lookups: loaded, source, copy }: { lookups: BomLookups; sourc
     calcWithNetWeight: false,
     calcWithProcessRunner: false,
   });
-  const [overheadEntry, setOverheadEntry] = useState({ accountId: "", mode: "percentage" as "percentage" | "amount", value: "" });
+  const [overheadEntry, setOverheadEntry] = useState({ accountId: "", percentage: "", amount: "" });
   const [entryError, setEntryError] = useState<Record<string, string>>({});
 
   const set = (patch: Partial<Values>) => setValues((current) => ({ ...current, ...patch }));
@@ -385,7 +396,6 @@ function BomForm({ lookups: loaded, source, copy }: { lookups: BomLookups; sourc
     if (!outputPicker.itemId) errs.outputItem = "Choose the FG/SFG item.";
     else if (usedIds.has(outputPicker.itemId)) errs.outputItem = "This item is already in the BOM.";
     if (!(n(outputEntry.lotSizeQty) > 0)) errs.outputLot = "Lot Size must be more than 0.";
-    if (outputEntry.netWeight && n(outputEntry.netWeight) < 0) errs.outputWeight = "Net Weight cannot be negative.";
     if (single && values.outputs.length >= 1) errs.outputItem = "A single output BOM has one production item. Choose Multiple Output to add more.";
     const tolerance = n(outputEntry.tolerancePercent);
     if (tolerance < 0 || tolerance > 100) errs.outputTolerance = "Tolerance must be 0 to 100%.";
@@ -402,17 +412,17 @@ function BomForm({ lookups: loaded, source, copy }: { lookups: BomLookups; sourc
         ...values.outputs.map((line) => (primary ? { ...line, isPrimary: false } : line)),
         {
           itemId: outputPicker.itemId,
-          outputType: outputEntry.outputType,
-          netWeight: outputEntry.netWeight || text(item?.netWeight),
+          outputType: outputTypeOf(item),
+          netWeight: text(item?.netWeight) || "0",
           lotSizeQty: outputEntry.lotSizeQty,
-          costPercent: outputEntry.costPercent.trim() || String(values.outputs.length === 0 ? 100 : remaining),
+          costPercent: (!single && outputEntry.costPercent.trim()) || String(values.outputs.length === 0 ? 100 : remaining),
           tolerancePercent: outputEntry.tolerancePercent,
           isPrimary: primary,
         },
       ],
     });
     setOutputPicker({ ...outputPicker, itemId: "" });
-    setOutputEntry({ ...outputEntry, netWeight: "", lotSizeQty: "", tolerancePercent: "", costPercent: "", isPrimary: false });
+    setOutputEntry({ lotSizeQty: "", tolerancePercent: "", costPercent: "", isPrimary: false });
   }
 
   function addMaterial() {
@@ -422,7 +432,6 @@ function BomForm({ lookups: loaded, source, copy }: { lookups: BomLookups; sourc
     if (!(n(materialEntry.qty) > 0)) errs.materialQty = "Quantity must be more than 0.";
     const wastage = n(materialEntry.wastagePercent);
     if (wastage < 0 || wastage >= 100) errs.materialWastage = "Wastage must be 0 to below 100%.";
-    if (n(materialEntry.rate) < 0) errs.materialRate = "Rate cannot be negative.";
     setEntryError(errs);
     if (Object.keys(errs).length) return;
     const item = itemById.get(materialPicker.itemId);
@@ -435,12 +444,13 @@ function BomForm({ lookups: loaded, source, copy }: { lookups: BomLookups; sourc
           excludeFromScrap: materialEntry.excludeFromScrap,
           qty: materialEntry.qty,
           wastagePercent: materialEntry.wastagePercent || "0",
-          rate: materialEntry.rate || text(item?.avgRate) || "0",
+          // Weighted average purchase rate; it can be changed in the table.
+          rate: text(item?.avgRate) || "0",
         },
       ],
     });
     setMaterialPicker({ ...materialPicker, itemId: "" });
-    setMaterialEntry({ qty: "", wastagePercent: "", rate: "", excludeFromScrap: false });
+    setMaterialEntry({ qty: "", wastagePercent: "", excludeFromScrap: false });
   }
 
   function addWastage() {
@@ -474,21 +484,26 @@ function BomForm({ lookups: loaded, source, copy }: { lookups: BomLookups; sourc
     const errs: Record<string, string> = {};
     if (!overheadEntry.accountId) errs.overheadAccount = "Choose the overhead account.";
     else if (values.overheads.some((line) => line.accountId === overheadEntry.accountId)) errs.overheadAccount = "This account is already added.";
-    const value = n(overheadEntry.value);
-    if (overheadEntry.mode === "percentage" && (!(value > 0) || value > 1000)) errs.overheadValue = "Percentage must be more than 0.";
-    if (overheadEntry.mode === "amount" && !(value > 0)) errs.overheadValue = "Amount must be more than 0.";
+    // A percentage line (of the material cost) when a percentage is given, else a fixed amount.
+    const byPercent = overheadEntry.percentage.trim() !== "";
+    const percentage = n(overheadEntry.percentage);
+    if (byPercent && (!(percentage > 0) || percentage > 1000)) errs.overheadPercentage = "Percentage must be more than 0.";
+    if (!byPercent && !(n(overheadEntry.amount) > 0)) errs.overheadAmount = "Amount is required.";
     setEntryError(errs);
     if (Object.keys(errs).length) return;
     set({
       overheads: [
         ...values.overheads,
-        overheadEntry.mode === "percentage"
-          ? { accountId: overheadEntry.accountId, percentage: overheadEntry.value, amount: "" }
-          : { accountId: overheadEntry.accountId, percentage: "", amount: overheadEntry.value },
+        byPercent
+          ? { accountId: overheadEntry.accountId, percentage: overheadEntry.percentage, amount: "" }
+          : { accountId: overheadEntry.accountId, percentage: "", amount: overheadEntry.amount },
       ],
     });
-    setOverheadEntry({ ...overheadEntry, accountId: "", value: "" });
+    setOverheadEntry({ accountId: "", percentage: "", amount: "" });
   }
+
+  /** Amount of the overhead entry from its percentage of the current material total. */
+  const overheadFromPercent = (percentage: string) => (percentage.trim() === "" ? "" : String(overheadAmount(totals.materialCost, n(percentage), 0)));
 
   function added(kind: MasterKind, created: Option, departmentId?: string) {
     setAdding(null);
@@ -575,24 +590,24 @@ function BomForm({ lookups: loaded, source, copy }: { lookups: BomLookups; sourc
       />
       <div className="flex flex-col gap-4">
         {/* Header */}
-        <Card className="flex flex-col gap-4 p-4">
-          <fieldset className="flex flex-wrap items-center gap-5">
-            <legend className="sr-only">BOM type</legend>
-            {(["SINGLE_OUTPUT", "MULTIPLE_OUTPUT"] as const).map((type) => (
-              <label key={type} className="inline-flex cursor-pointer items-center gap-2 text-sm text-ink">
-                <input
-                  type="radio"
-                  name="bomType"
-                  value={type}
-                  checked={values.bomType === type}
-                  onChange={() => set({ bomType: type })}
-                  className="size-4 accent-(--accent-strong)"
-                />
-                {type === "SINGLE_OUTPUT" ? "Single Output" : "Multiple Output"}
-              </label>
-            ))}
-          </fieldset>
-          <div className="grid gap-x-4 gap-y-3 sm:grid-cols-2 lg:grid-cols-4">
+        <Card className="p-4">
+          <div className="grid items-start gap-x-4 gap-y-3 sm:grid-cols-2 lg:grid-cols-4">
+            <fieldset className="flex flex-wrap items-center gap-5 sm:min-h-14">
+              <legend className="sr-only">BOM type</legend>
+              {(["SINGLE_OUTPUT", "MULTIPLE_OUTPUT"] as const).map((type) => (
+                <label key={type} className="inline-flex cursor-pointer items-center gap-2 text-base text-ink">
+                  <input
+                    type="radio"
+                    name="bomType"
+                    value={type}
+                    checked={values.bomType === type}
+                    onChange={() => set({ bomType: type })}
+                    className="size-4.5 accent-(--accent-strong)"
+                  />
+                  {type === "SINGLE_OUTPUT" ? "Single Output" : "Multiple Output"}
+                </label>
+              ))}
+            </fieldset>
             {!record && lookups.businessUnits.length > 1 && (
               <SelectField
                 label="Business Unit"
@@ -616,29 +631,36 @@ function BomForm({ lookups: loaded, source, copy }: { lookups: BomLookups; sourc
               }}
               onBlur={() => !values.name.trim() && setErrors((current) => ({ ...current, name: "BoM Name is required." }))}
             />
-            <WithAddNew label="Department" onAdd={() => setAdding("departments")} disabled={!unit}>
-              <SelectField
-                label="Department"
-                required
-                value={values.departmentId}
-                error={errors.departmentId}
-                options={[{ value: "", label: "Department" }, ...departments.map((department) => ({ value: department.id, label: department.name }))]}
-                onChange={(event) => set({ departmentId: event.target.value, departmentSectionId: "" })}
-              />
-            </WithAddNew>
-            <WithAddNew label="Section" onAdd={() => setAdding("sections")} disabled={!unit}>
-              <SelectField
-                label="Section"
-                required
-                error={errors.departmentSectionId}
-                value={values.departmentSectionId}
-                disabled={!values.departmentId}
-                hint={values.departmentId ? undefined : "Choose a department first."}
-                options={[{ value: "", label: "Section" }, ...sections.map((section) => ({ value: section.id, label: section.name }))]}
-                onChange={(event) => set({ departmentSectionId: event.target.value })}
-              />
-            </WithAddNew>
-            <TextField label="Remarks" maxLength={500} placeholder="Remarks" value={values.remarks} onChange={(event) => set({ remarks: event.target.value })} />
+            {/* As in Managerium: Department and Section only for a multiple output BOM (no Remarks field). */}
+            {!single && (
+              <>
+                <WithAddNew label="Department" onAdd={() => setAdding("departments")} disabled={!unit}>
+                  <Combobox
+                    label="Department"
+                    required
+                    placeholder="Department"
+                    value={values.departmentId}
+                    error={errors.departmentId}
+                    options={departments.map((department) => ({ value: department.id, label: department.name }))}
+                    onChange={(departmentId) => set({ departmentId, departmentSectionId: departmentId === values.departmentId ? values.departmentSectionId : "" })}
+                  />
+                </WithAddNew>
+                <WithAddNew label="Section" onAdd={() => setAdding("sections")} disabled={!unit}>
+                  <Combobox
+                    label="Section"
+                    required
+                    placeholder="Section"
+                    error={errors.departmentSectionId}
+                    value={values.departmentSectionId}
+                    disabled={!values.departmentId}
+                    hint={values.departmentId ? undefined : "Choose a department first."}
+                    options={sections.map((section) => ({ value: section.id, label: section.name }))}
+                    emptyText="No section in this department yet."
+                    onChange={(departmentSectionId) => set({ departmentSectionId })}
+                  />
+                </WithAddNew>
+              </>
+            )}
           </div>
         </Card>
 
@@ -647,30 +669,24 @@ function BomForm({ lookups: loaded, source, copy }: { lookups: BomLookups; sourc
           <SectionTitle right={<span className="text-sm text-ink-muted">Lot size: <strong className="text-ink">{qty(totals.lotSize)}</strong></span>}>
             Production Item Information
           </SectionTitle>
-          <div className="grid items-start gap-x-4 gap-y-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="grid items-start gap-x-4 gap-y-3 sm:grid-cols-2 lg:grid-cols-5">
             <ItemPicker
               lookups={lookups}
               items={items}
               value={outputPicker}
               onChange={setOutputPicker}
               itemLabelText="FG/SFG Item"
+              itemPlaceholder="Select/Search FG/SFG Item"
+              itemTypes={OUTPUT_ITEM_TYPES}
               error={entryError.outputItem}
-            />
-            <SelectField
-              label="Output Type"
-              value={outputEntry.outputType}
-              options={OUTPUT_TYPES.map((type) => ({ value: type, label: OUTPUT_TYPE_LABELS[type] }))}
-              onChange={(event) => setOutputEntry({ ...outputEntry, outputType: event.target.value as OutputType })}
             />
             <TextField
               label="Net Weight"
-              type="number"
-              min={0}
-              step="any"
-              placeholder={text(itemById.get(outputPicker.itemId)?.netWeight) || "Net Weight"}
-              value={outputEntry.netWeight}
-              error={entryError.outputWeight}
-              onChange={(event) => setOutputEntry({ ...outputEntry, netWeight: event.target.value })}
+              readOnly
+              placeholder="Net Weight"
+              value={text(itemById.get(outputPicker.itemId)?.netWeight)}
+              hint={outputPicker.itemId ? "From the item master." : undefined}
+              className="[&_input]:bg-control"
             />
             <TextField
               label="Lot Size"
@@ -694,30 +710,41 @@ function BomForm({ lookups: loaded, source, copy }: { lookups: BomLookups; sourc
               error={entryError.outputTolerance}
               onChange={(event) => setOutputEntry({ ...outputEntry, tolerancePercent: event.target.value })}
             />
-            <TextField
-              label="Cost Percentage"
-              type="number"
-              min={0}
-              max={100}
-              step="any"
-              placeholder={values.outputs.length === 0 ? "100" : String(Math.max(Math.round((100 - costShare) * 100) / 100, 0))}
-              value={outputEntry.costPercent}
-              error={entryError.outputCost}
-              onChange={(event) => setOutputEntry({ ...outputEntry, costPercent: event.target.value })}
-            />
-            <div className="flex items-end justify-between gap-3 lg:mt-5">
-              <CheckboxField
-                label="Is Primary Item"
-                hint={values.outputs.length === 0 ? "The first item is primary." : undefined}
-                checked={values.outputs.length === 0 || outputEntry.isPrimary}
-                disabled={values.outputs.length === 0}
-                onChange={(event) => setOutputEntry({ ...outputEntry, isPrimary: event.target.checked })}
-              />
-              <Button variant="accent-soft" onClick={addOutput}>
-                <Plus aria-hidden="true" />
-                Add
-              </Button>
-            </div>
+            {single ? (
+              <div className="lg:mt-5">
+                <Button variant="primary" onClick={addOutput}>
+                  <Plus aria-hidden="true" />
+                  Add
+                </Button>
+              </div>
+            ) : (
+              <>
+                <TextField
+                  label="Cost Percentage"
+                  type="number"
+                  min={0}
+                  max={100}
+                  step="any"
+                  placeholder={values.outputs.length === 0 ? "100" : String(Math.max(Math.round((100 - costShare) * 100) / 100, 0))}
+                  value={outputEntry.costPercent}
+                  error={entryError.outputCost}
+                  onChange={(event) => setOutputEntry({ ...outputEntry, costPercent: event.target.value })}
+                />
+                <div className="flex items-end justify-between gap-3 sm:col-start-1 lg:mt-1">
+                  <CheckboxField
+                    label="Is Primary Item"
+                    hint={values.outputs.length === 0 ? "The first item is primary." : undefined}
+                    checked={values.outputs.length === 0 || outputEntry.isPrimary}
+                    disabled={values.outputs.length === 0}
+                    onChange={(event) => setOutputEntry({ ...outputEntry, isPrimary: event.target.checked })}
+                  />
+                  <Button variant="primary" onClick={addOutput}>
+                    <Plus aria-hidden="true" />
+                    Add
+                  </Button>
+                </div>
+              </>
+            )}
           </div>
           {errors.outputs && (
             <p role="alert" className="text-sm text-danger">
@@ -817,11 +844,9 @@ function BomForm({ lookups: loaded, source, copy }: { lookups: BomLookups; sourc
                       lookups={lookups}
                       items={items}
                       value={materialPicker}
-                      onChange={(next) => {
-                        setMaterialPicker(next);
-                        if (next.itemId !== materialPicker.itemId) setMaterialEntry((entry) => ({ ...entry, rate: text(itemById.get(next.itemId)?.avgRate) }));
-                      }}
+                      onChange={setMaterialPicker}
                       itemLabelText="Material Item"
+                      itemPlaceholder="Select/Search Item"
                       error={entryError.materialItem}
                     />
                     <TextField
@@ -830,10 +855,10 @@ function BomForm({ lookups: loaded, source, copy }: { lookups: BomLookups; sourc
                       type="number"
                       min={0}
                       step="any"
-                      placeholder={pickedMaterial ? `Quantity (${pickedMaterial.uom})` : "Quantity"}
+                      placeholder={pickedMaterial ? `Material Qty (${pickedMaterial.uom})` : "Material Qty"}
                       value={materialEntry.qty}
                       error={entryError.materialQty}
-                      hint={pickedMaterial ? `Stock: ${qty(pickedMaterial.stock)} ${pickedMaterial.uom}` : undefined}
+                      hint={pickedMaterial ? `Stock: ${qty(pickedMaterial.stock)} ${pickedMaterial.uom} · Avg. rate ${money(pickedMaterial.avgRate)}` : undefined}
                       onChange={(event) => setMaterialEntry({ ...materialEntry, qty: event.target.value })}
                     />
                     <TextField
@@ -842,29 +867,18 @@ function BomForm({ lookups: loaded, source, copy }: { lookups: BomLookups; sourc
                       min={0}
                       max={99.99}
                       step="any"
-                      placeholder="0.00"
+                      placeholder="Wastage (%)"
                       value={materialEntry.wastagePercent}
                       error={entryError.materialWastage}
                       onChange={(event) => setMaterialEntry({ ...materialEntry, wastagePercent: event.target.value })}
                     />
-                    <TextField
-                      label="Avg. Rate"
-                      type="number"
-                      min={0}
-                      step="any"
-                      placeholder="0.00"
-                      value={materialEntry.rate}
-                      error={entryError.materialRate}
-                      hint={pickedMaterial ? (pickedMaterial.avgRate ? "From purchase history; you can change it." : "No purchase rate yet; enter it.") : undefined}
-                      onChange={(event) => setMaterialEntry({ ...materialEntry, rate: event.target.value })}
-                    />
-                    <div className="flex items-end justify-between gap-3 sm:col-span-2 lg:col-span-1 lg:mt-5">
+                    <div className="flex items-end justify-between gap-3 lg:mt-5">
                       <CheckboxField
                         label="Exclude From Scrap"
                         checked={materialEntry.excludeFromScrap}
                         onChange={(event) => setMaterialEntry({ ...materialEntry, excludeFromScrap: event.target.checked })}
                       />
-                      <Button variant="accent-soft" onClick={addMaterial}>
+                      <Button variant="primary" onClick={addMaterial}>
                         <Plus aria-hidden="true" />
                         Add
                       </Button>
@@ -934,7 +948,7 @@ function BomForm({ lookups: loaded, source, copy }: { lookups: BomLookups; sourc
               {tab === "wastage" && (
                 <>
                   <div className="grid items-start gap-x-4 gap-y-3 sm:grid-cols-2 lg:grid-cols-4">
-                    <ItemPicker lookups={lookups} items={items} value={wastagePicker} onChange={setWastagePicker} itemLabelText="Item" error={entryError.wastageItem} />
+                    <ItemPicker lookups={lookups} items={items} value={wastagePicker} onChange={setWastagePicker} itemLabelText="Item" itemPlaceholder="Select/Search Item" error={entryError.wastageItem} />
                     <SelectField
                       label="Output Type"
                       required
@@ -976,7 +990,7 @@ function BomForm({ lookups: loaded, source, copy }: { lookups: BomLookups; sourc
                       />
                     </fieldset>
                     <div className="lg:mt-5">
-                      <Button variant="accent-soft" onClick={addWastage}>
+                      <Button variant="primary" onClick={addWastage}>
                         <Plus aria-hidden="true" />
                         Add
                       </Button>
@@ -1055,58 +1069,59 @@ function BomForm({ lookups: loaded, source, copy }: { lookups: BomLookups; sourc
 
               {tab === "overhead" && (
                 <>
-                  <div className="grid items-start gap-x-4 gap-y-3 sm:grid-cols-2 lg:grid-cols-[minmax(0,2fr)_auto_minmax(0,1fr)_auto]">
-                    <SelectField
-                      label="Overhead Account"
+                  {/* As in Managerium: a percentage fills the amount from the input material total; typing an amount makes it fixed. */}
+                  <div className="grid items-start gap-x-4 gap-y-3 sm:grid-cols-2 lg:grid-cols-[minmax(0,2fr)_minmax(0,1.3fr)_minmax(0,1.3fr)_auto_auto]">
+                    <Combobox
+                      label="Account Name"
                       required
+                      placeholder="Account Name"
                       value={overheadEntry.accountId}
                       error={entryError.overheadAccount}
                       hint={lookups.accounts.length === 0 ? "No active expense account in the Chart of Accounts yet." : undefined}
-                      options={[
-                        { value: "", label: lookups.accounts.length ? "Choose an expense account" : "No expense account" },
-                        ...lookups.accounts.map((account) => ({ value: account.id, label: `${account.code} - ${account.name}` })),
-                      ]}
-                      onChange={(event) => setOverheadEntry({ ...overheadEntry, accountId: event.target.value })}
+                      options={lookups.accounts
+                        .filter((account) => !values.overheads.some((line) => line.accountId === account.id))
+                        .map((account) => ({ value: account.id, label: `${account.code} - ${account.name}` }))}
+                      emptyText="No expense account matches."
+                      onChange={(accountId) => setOverheadEntry({ ...overheadEntry, accountId })}
                     />
-                    <fieldset className="flex flex-col gap-1">
-                      <legend className="text-xs text-ink-muted">Based On</legend>
-                      <div className="flex h-7 items-center gap-4">
-                        {(["percentage", "amount"] as const).map((mode) => (
-                          <label key={mode} className="inline-flex cursor-pointer items-center gap-1.5 text-sm text-ink">
-                            <input
-                              type="radio"
-                              name="overheadMode"
-                              checked={overheadEntry.mode === mode}
-                              onChange={() => setOverheadEntry({ ...overheadEntry, mode, value: "" })}
-                              className="size-4 accent-(--accent-strong)"
-                            />
-                            {mode === "percentage" ? "Percentage" : "Fixed Amount"}
-                          </label>
-                        ))}
-                      </div>
-                    </fieldset>
                     <TextField
-                      label={overheadEntry.mode === "percentage" ? "Percentage (%)" : "Amount (per lot)"}
-                      required
+                      label="Percentage (%)"
                       type="number"
                       min={0}
                       step="any"
-                      placeholder="0.00"
-                      value={overheadEntry.value}
-                      error={entryError.overheadValue}
-                      hint={
-                        overheadEntry.mode === "percentage"
-                          ? n(overheadEntry.value) > 0
-                            ? `= ${money(overheadAmount(totals.materialCost, n(overheadEntry.value), 0))} of ${money(totals.materialCost)} material`
-                            : "Of the material cost"
-                          : undefined
-                      }
-                      onChange={(event) => setOverheadEntry({ ...overheadEntry, value: event.target.value })}
+                      placeholder="%"
+                      value={overheadEntry.percentage}
+                      error={entryError.overheadPercentage}
+                      hint="Of the input material total"
+                      onChange={(event) => setOverheadEntry({ ...overheadEntry, percentage: event.target.value, amount: overheadFromPercent(event.target.value) })}
                     />
-                    <Button variant="accent-soft" className="sm:mt-5" onClick={addOverhead}>
+                    <div className="relative">
+                      <TextField
+                        label="Amount"
+                        required
+                        type="number"
+                        min={0}
+                        step="any"
+                        placeholder="Amount"
+                        value={overheadEntry.amount}
+                        error={entryError.overheadAmount}
+                        hint={overheadEntry.percentage.trim() ? undefined : "Fixed amount per lot"}
+                        onChange={(event) => setOverheadEntry({ ...overheadEntry, percentage: "", amount: event.target.value })}
+                      />
+                      <button
+                        type="button"
+                        disabled={!overheadEntry.percentage.trim()}
+                        onClick={() => setOverheadEntry({ ...overheadEntry, amount: overheadFromPercent(overheadEntry.percentage) })}
+                        className="absolute top-0 right-0 text-xs font-medium text-warning hover:underline disabled:cursor-not-allowed disabled:text-ink-faint disabled:no-underline"
+                      >
+                        Recalculate
+                      </button>
+                    </div>
+                    <Button variant="primary" className="sm:mt-5" onClick={addOverhead}>
                       <Plus aria-hidden="true" />
                       Add
                     </Button>
+                    <p className="text-sm font-semibold text-accent-strong sm:mt-6.5">Input Material Total: {money(totals.materialCost)}</p>
                   </div>
                   {errors.overheads && (
                     <p role="alert" className="text-sm text-danger">
@@ -1116,11 +1131,11 @@ function BomForm({ lookups: loaded, source, copy }: { lookups: BomLookups; sourc
                   <LineTable
                     columns={[
                       { header: "SL", className: "w-12" },
-                      { header: "Account Code" },
-                      { header: "Account Name" },
-                      { header: "Percentage", align: "right" },
+                      { header: "A/C Code" },
+                      { header: "A/C Name" },
+                      { header: "Percentage (%)", align: "right" },
                       { header: "Amount", align: "right" },
-                      { header: "Remove", align: "center", className: "w-16" },
+                      { header: "Action", align: "center", className: "w-16" },
                     ]}
                     rows={values.overheads.map((line, index) => {
                       const account = accountById.get(line.accountId) ?? source?.overheads.find((row) => row.accountId === line.accountId);
@@ -1157,7 +1172,15 @@ function BomForm({ lookups: loaded, source, copy }: { lookups: BomLookups; sourc
                         <RemoveButton key="x" label={`Remove ${name}`} onClick={() => removeLine("overheads", index)} />,
                       ];
                     })}
-                    footer={values.overheads.length ? [["", "", "Total Overhead", "", money(totals.overheadCost), ""]] : []}
+                    footerLabelSpan={3}
+                    footer={[
+                      [
+                        "TOTAL OVERHEAD:",
+                        `${money(totals.materialCost > 0 ? (totals.overheadCost / totals.materialCost) * 100 : 0)}%`,
+                        money(totals.overheadCost),
+                        "",
+                      ],
+                    ]}
                     empty="No overhead (optional). The BOM value is materials plus overheads."
                   />
                 </>

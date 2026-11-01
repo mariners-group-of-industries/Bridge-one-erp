@@ -18,6 +18,7 @@ import {
   listLedger,
 } from "@/features/sales/collections/services/collection.service";
 import type { CollectionInput } from "@/features/sales/collections/schemas/collection.schema";
+import { addCollectionAttachment, readCollectionAttachment } from "@/features/sales/collections/services/collection-attachment.service";
 import { createDelivery, deleteDelivery } from "@/features/sales/deliveries/services/delivery.service";
 import { adjustStock } from "@/features/sales/deliveries/services/stock.service";
 import { createCustomer, createItem } from "@/features/sales/masters/services/masters.service";
@@ -25,7 +26,8 @@ import { approveReturn, createReturn } from "@/features/sales/returns/services/r
 import { tableExport } from "@/features/sales/lib/table-export";
 import { createOrder } from "@/features/sales/orders/services/order.service";
 import type { Actor } from "@/lib/auth/actor";
-import { adminActor, businessUnitInput, companyInput, officeInput, scopedActor } from "./helpers/fixtures";
+import { setStorage } from "@/lib/storage";
+import { adminActor, businessUnitInput, companyInput, MemoryStorage, officeInput, scopedActor } from "./helpers/fixtures";
 import { resetTestDb, startTestDb, stopTestDb } from "./helpers/test-db";
 
 // Route database access to the per-file PGlite test database.
@@ -265,6 +267,7 @@ describe("sales collection", () => {
     const input = {
       officeId,
       collectionDate: TODAY,
+      employeeId: (await prisma.employee.create({ data: { officeId, employeeCode: "E-ADV", name: "Md. Usuf Ali", joiningDate: new Date("2024-01-01") } })).id,
       voucherType: "BANK_RECEIVE" as const,
       narration: "Advance for Eid order",
       controlAmount: 5000,
@@ -288,6 +291,15 @@ describe("sales collection", () => {
       salesOrderNumber: order.number,
     });
     await expect(createAdvanceVoucher(clerk, { ...input, controlAmount: 4000 })).rejects.toThrow();
+    await expect(createAdvanceVoucher(clerk, { ...input, employeeId: undefined })).rejects.toThrow("Select the employee.");
+
+    // Attachment: stored on the collection and listed with it; the content must match its type.
+    setStorage(new MemoryStorage());
+    const pdf = new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31]);
+    const file = await addCollectionAttachment(clerk, saved[0].id, { name: "slip.pdf", type: "application/pdf", size: pdf.byteLength, bytes: pdf });
+    expect(await getCollection(adminActor, saved[0].id)).toMatchObject({ employeeName: "Md. Usuf Ali", attachments: [{ originalName: "slip.pdf" }] });
+    expect((await readCollectionAttachment(clerk, saved[0].id, file.id)).bytes).toEqual(pdf);
+    await expect(addCollectionAttachment(clerk, saved[0].id, { name: "x.pdf", type: "application/pdf", size: 4, bytes: new Uint8Array([1, 2, 3, 4]) })).rejects.toThrow("does not match its type");
     await expect(createAdvanceVoucher(clerk, { ...input, rows: [{ customerId, adjustmentAmount: 10, amount: 5 }], controlAmount: null })).rejects.toThrow();
   });
 

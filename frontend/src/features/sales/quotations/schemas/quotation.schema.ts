@@ -22,6 +22,9 @@ export const STATUS_LABELS: Record<QuotationDisplayStatus, string> = {
 
 export const QUOTATION_TYPES = ["Quotation", "Proforma Invoice", "Price Offer"] as const;
 
+/** Rows per page of the quotation list, as in Managerium. */
+export const QUOTATION_PAGE_SIZES = [25, 50, 100, 200] as const;
+
 export const MAX_LINES = 200;
 export const MAX_TERMS = 50;
 const MAX_AMOUNT = 999_999_999_999;

@@ -197,8 +197,8 @@ async function prepare(tx: Tx, businessUnitId: string, input: ParsedBomInput) {
   ]);
   if (accounts.length !== accountIds.length) throw badRequest("Overheads must be booked to an active expense account.");
   if (items.length !== itemIds.length) throw badRequest("An item is not part of this business unit.");
-  if (!department) throw badRequest("Choose a department of this business unit.");
-  if (section?.departmentId !== input.departmentId) {
+  if (input.departmentId && !department) throw badRequest("Choose a department of this business unit.");
+  if (input.departmentSectionId && section?.departmentId !== input.departmentId) {
     throw badRequest("The section does not belong to the chosen department.");
   }
   const itemById = new Map(items.map((item) => [item.id, item]));
@@ -209,8 +209,8 @@ async function prepare(tx: Tx, businessUnitId: string, input: ParsedBomInput) {
     header: {
       name: input.name,
       bomType: input.bomType,
-      departmentId: input.departmentId,
-      departmentSectionId: input.departmentSectionId,
+      departmentId: input.departmentId ?? null,
+      departmentSectionId: input.departmentSectionId ?? null,
       tolerancePercent: input.outputs[primaryIndex]?.tolerancePercent ?? null,
       remarks: input.remarks || null,
       lotSize: totals.lotSize,
@@ -355,7 +355,7 @@ export async function deleteBom(actor: Actor, id: string, raw: unknown): Promise
   });
 }
 
-/** Child BOM search for "Tag Child BOM" (active BOMs of the same business unit). */
+/** Child BOM search for "Tag Child BOM" (active BOMs of the same business unit; all of them, up to 50, with no search). */
 export async function bomOptions(actor: Actor, raw: unknown): Promise<BomOption[]> {
   const query = bomOptionsQuerySchema.parse(raw);
   const unitIds = await scopedBusinessUnitIds(actor);
@@ -365,12 +365,12 @@ export async function bomOptions(actor: Actor, raw: unknown): Promise<BomOption[
     where: {
       businessUnitId: { in: businessUnitIds },
       isActive: true,
-      name: { contains: query.search, mode: "insensitive" },
+      ...(query.search ? { name: { contains: query.search, mode: "insensitive" as const } } : {}),
       ...(query.exclude ? { id: { not: query.exclude } } : {}),
     },
     select: { id: true, name: true, isActive: true },
     orderBy: { name: "asc" },
-    take: 20,
+    take: 50,
   });
 }
 

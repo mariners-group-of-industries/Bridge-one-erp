@@ -5,6 +5,7 @@ import { createBom } from "@/features/production/bom/services/bom.service";
 import { getProductionDashboard } from "@/features/production/dashboard/services/dashboard.service";
 import { entryPdf } from "@/features/production/entries/services/entry-pdf";
 import { cancelEntry, createEntry, entryForm, getEntry, listEntries, listQueue } from "@/features/production/entries/services/entry.service";
+import { createProcess, entryWastageForm, saveEntryWastage } from "@/features/production/entries/services/wastage.service";
 import { actOnOrder, createOrder, getOrder } from "@/features/production/orders/services/order.service";
 import { createMaster } from "@/features/production/work-centers/services/work-center.service";
 import { stockLevels } from "@/features/sales/deliveries/services/stock.service";
@@ -147,6 +148,11 @@ describe("production entries", () => {
     ]);
 
     expect(await listEntries(operator, { from: "2026-10-01", to: "2026-10-31", departmentSectionId: ids.section })).toHaveLength(1);
+    // "Production Entry Details": order date, BOM, unit cost (4,300 ÷ 100 good units) and material categories.
+    const details = await getEntry(operator, entry.id);
+    expect(details).toMatchObject({ orderDate: "2026-10-21", bomName: "SFGSNCHIPS", equipment: null, operatorNames: [], unitCost: 43 });
+    expect(details.materials.map((line) => line.code)).toEqual(["RM-00529", "RM-00100"]);
+    expect(details.materials[0]).toHaveProperty("categoryName");
     expect(await listEntries(operator, { search: "PRO-MG260000001" })).toHaveLength(1);
     expect(await listEntries(scopedActor([OTHER_COMPANY]), {})).toHaveLength(0);
     const dashboard = await getProductionDashboard(operator, { from: "2026-10-01", to: "2026-10-31" });
@@ -161,6 +167,15 @@ describe("production entries", () => {
     expect(await getOrder(operator, ids.order)).toMatchObject({ status: "CLOSED", producedQty: 230, remainingQty: 0 });
     expect(await listQueue(operator, {})).toHaveLength(0);
     await expect(createEntry(operator, input())).rejects.toThrow("not open");
+  });
+
+  it("keeps consumption at stock precision so the entry and stock agree", async () => {
+    const entry = await createEntry(operator, input({ materials: [{ itemId: ids.potato, actualQty: 125.4567, wastageQty: 1.2345 }, { itemId: ids.oil, actualQty: 12.0004 }] }));
+    expect(entry.materials.map((line) => [line.code, line.actualQty])).toEqual([
+      ["RM-00529", 125.457],
+      ["RM-00100", 12],
+    ]);
+    expect(Object.fromEntries(await stockLevels(ids.rmStore, [ids.potato, ids.oil]))).toEqual({ [ids.potato]: 374.543, [ids.oil]: 38 });
   });
 
   it("refuses short stock, wrong materials and bad quantities", async () => {
@@ -195,5 +210,43 @@ describe("production entries", () => {
     await expect(cancelEntry(operator, first.id, { version: first.updatedAt, reason: "x" })).rejects.toThrow("Not enough stock");
     expect((await getEntry(operator, first.id)).status).toBe("POSTED");
     expect((await getProductionDashboard(operator, { from: "2026-10-01", to: "2026-10-31" })).volume).toBe(120);
+  });
+
+  it("records process wise wastage of an entry (no stock movement)", async () => {
+    const entry = await createEntry(operator, input());
+    const frying = await createProcess(operator, { name: "Frying" });
+    const packing = await createProcess(operator, { name: "Packing" });
+    await expect(createProcess(operator, { name: "Frying" })).rejects.toThrow("already exists");
+
+    const form = await entryWastageForm(operator, entry.id);
+    expect(form).toMatchObject({ entry: { number: entry.number, orderNumber: "PRO-MG260000001" }, lines: [], canEdit: true });
+    expect(form.processes.map((process) => process.name)).toEqual(["Frying", "Packing"]);
+    expect(form.items.map((item) => item.id)).toEqual(expect.arrayContaining([ids.potato, ids.oil, ids.chips]));
+
+    const stockBefore = Object.fromEntries(await stockLevels(ids.rmStore, [ids.potato, ids.oil]));
+    const saved = await saveEntryWastage(operator, entry.id, {
+      lines: [
+        { processId: frying.id, itemId: ids.potato, qty: 2.5 },
+        { processId: packing.id, itemId: ids.chips, qty: 1 },
+      ],
+    });
+    expect(saved.lines.map((line) => [line.processName, line.code, line.qty])).toEqual([
+      ["Frying", "RM-00529", 2.5],
+      ["Packing", "SFG-00658", 1],
+    ]);
+    expect(Object.fromEntries(await stockLevels(ids.rmStore, [ids.potato, ids.oil]))).toEqual(stockBefore);
+    expect((await getEntry(operator, entry.id)).wastages.map((line) => line.processName)).toEqual(["Frying", "Packing"]);
+
+    // Saving again replaces the lines; the same item twice in one process is refused.
+    expect((await saveEntryWastage(operator, entry.id, { lines: [{ processId: packing.id, itemId: ids.chips, qty: 3 }] })).lines).toHaveLength(1);
+    await expect(
+      saveEntryWastage(operator, entry.id, { lines: [{ processId: frying.id, itemId: ids.oil, qty: 1 }, { processId: frying.id, itemId: ids.oil, qty: 2 }] }),
+    ).rejects.toThrow("twice");
+    await expect(saveEntryWastage(operator, entry.id, { lines: [{ processId: frying.id, itemId: ids.oil, qty: 0 }] })).rejects.toThrow();
+    await expect(entryWastageForm(scopedActor([OTHER_COMPANY]), entry.id)).rejects.toThrow("not found");
+
+    const cancelled = await cancelEntry(operator, entry.id, { version: entry.updatedAt, reason: "Wrong batch" });
+    expect((await entryWastageForm(operator, cancelled.id)).canEdit).toBe(false);
+    await expect(saveEntryWastage(operator, entry.id, { lines: [] })).rejects.toThrow("cancelled");
   });
 });

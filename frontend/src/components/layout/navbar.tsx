@@ -20,7 +20,6 @@ import {
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { DropdownMenu } from "@/components/ui/dropdown-menu";
 import { Kbd } from "@/components/ui/kbd";
 import { useSession } from "@/lib/auth/session";
 import { applyTheme, readTheme } from "@/lib/theme";

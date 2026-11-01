@@ -6,10 +6,12 @@ import { usePathname } from "next/navigation";
 import { useId, useState, type ReactNode } from "react";
 import { cn } from "@/lib/cn";
 import { useSession } from "@/lib/auth/session";
-import { findWorkspace } from "@/lib/navigation/registry";
+import { findWorkspace, workspaces as allWorkspaces } from "@/lib/navigation/registry";
 import type { NavLink } from "@/lib/navigation/types";
 
 const isWithin = (pathname: string | null, href: string) => pathname === href || !!pathname?.startsWith(`${href}/`);
+const isPageActive = (pathname: string | null, href: string) =>
+  allWorkspaces.some((workspace) => workspace.href === href) ? pathname === href : isWithin(pathname, href);
 
 export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   return <SidebarNav pathname={usePathname()} onNavigate={onNavigate} />;
@@ -67,6 +69,29 @@ export function SidebarNav({ pathname, onNavigate }: { pathname: string | null; 
           const cards = workspace.cards ?? [];
           // Flat page lists (Sales) and unnamed cards sit directly under the module.
           const flat: readonly NavLink[] | null = workspace.sidebarLinks ?? null;
+          if (cards.length === 0 && (!flat || flat.length === 0)) {
+            const external = workspace.href.startsWith("http");
+            return (
+              <li key={workspace.id}>
+                <Link
+                  href={workspace.href}
+                  target={external ? "_blank" : undefined}
+                  rel={external ? "noopener noreferrer" : undefined}
+                  onClick={onNavigate}
+                  className={cn(
+                    "flex h-9 w-full items-center gap-2.5 rounded-md px-2 transition-colors focus-visible:outline-2",
+                    active ? "text-ink" : "text-ink-muted hover:bg-control hover:text-ink",
+                  )}
+                >
+                  <IconTile active={active}>
+                    <Icon />
+                  </IconTile>
+                  <span className={cn("flex-1 truncate text-left", active ? "font-semibold text-ink" : "font-medium")}>{workspace.label}</span>
+                  <Chevron open={false} />
+                </Link>
+              </li>
+            );
+          }
           return (
             <li key={workspace.id}>
               <Collapsible
@@ -158,7 +183,7 @@ function Collapsible({ active, trigger, triggerClass, children }: { active: bool
 
 /** Second level: a group of pages with a filled bullet. */
 function GroupItem({ label, links, groupHref, pathname, onNavigate }: { label: string; links: readonly NavLink[]; groupHref?: string; pathname: string | null; onNavigate?: () => void }) {
-  const active = (!!groupHref && isWithin(pathname, groupHref)) || links.some((link) => isWithin(pathname, link.href));
+  const active = (!!groupHref && isWithin(pathname, groupHref)) || links.some((link) => isPageActive(pathname, link.href));
   return (
     <li>
       <Collapsible
@@ -184,7 +209,7 @@ function GroupItem({ label, links, groupHref, pathname, onNavigate }: { label: s
 
 /** A page: hollow bullet (filled and highlighted when it is the current page). */
 function PageLink({ link, pathname, onNavigate, level }: { link: NavLink; pathname: string | null; onNavigate?: () => void; level: 1 | 2 }) {
-  const active = isWithin(pathname, link.href);
+  const active = isPageActive(pathname, link.href);
   return (
     <li>
       <Link

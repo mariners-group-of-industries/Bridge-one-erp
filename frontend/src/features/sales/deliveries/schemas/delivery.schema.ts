@@ -164,6 +164,12 @@ export const deliveryReferenceSchema = z.object({
 export const deliveryConfirmSchema = z.object({
   version: z.iso.datetime({ error: "Reload the delivery and try again." }),
   actualDeliveryDate: isoDate("Actual delivery date"),
+  /** Return QTY entered on Delivery Confirmation: goods the customer gave back at once. */
+  returns: z
+    .array(z.object({ deliveryLineId: z.uuid(), qty }))
+    .max(MAX_LINES)
+    .refine((rows) => new Set(rows.map((row) => row.deliveryLineId)).size === rows.length, "An item appears twice.")
+    .default([]),
 });
 
 export const pendingReasonSchema = z.object({ reasonId: optionalId });
@@ -444,6 +450,7 @@ export interface DeliveryDetail {
   vehicleId: string | null;
   driverEmployeeId: string | null;
   driverEmployeeName: string | null;
+  vehicleSize: string | null;
   securityCode: string | null;
   referredBy: string | null;
   buyerName: string | null;

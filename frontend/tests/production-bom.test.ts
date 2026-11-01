@@ -153,7 +153,12 @@ describe("production bill of material", () => {
     await expect(
       createBom(adminActor, input({ name: "Two primaries", bomType: "MULTIPLE_OUTPUT", wastages: [], outputs: [{ ...two[0], isPrimary: true }, { ...two[1], costPercent: 10, isPrimary: true }] })),
     ).rejects.toThrow("Only one production item");
-    await expect(createBom(adminActor, input({ name: "No section", departmentSectionId: undefined }))).rejects.toThrow("Section is required");
+    // Department and section: optional for a single output BOM, required for a multiple output one.
+    expect(await createBom(adminActor, input({ name: "No department", departmentId: null, departmentSectionId: null }))).toMatchObject({ departmentName: null, sectionName: null });
+    await expect(
+      createBom(adminActor, input({ name: "Multi no section", bomType: "MULTIPLE_OUTPUT", wastages: [], departmentSectionId: null, outputs: [two[0], { ...two[1], costPercent: 10 }] })),
+    ).rejects.toThrow("Section is required");
+    await expect(createBom(adminActor, input({ name: "Section only", departmentId: null }))).rejects.toThrow("department of the section");
   });
 
   it("updates with the version, toggles status and refuses stale writes", async () => {
@@ -176,6 +181,8 @@ describe("production bill of material", () => {
     const dough = await createBom(adminActor, input({ name: "Biscuit Dough", outputs: [{ itemId: ids.crumbs, outputType: "SEMI_FINISHED_GOODS", netWeight: 1, lotSizeQty: 100, costPercent: 100 }], wastages: [] }));
     expect((await bomOptions(adminActor, { search: "bis", exclude: parent.id })).map((row) => row.name)).toEqual(["Biscuit Dough"]);
     await expect(bomOptions(adminActor, { search: "bi" })).rejects.toThrow("3 letters");
+    expect((await bomOptions(adminActor, { exclude: parent.id })).map((row) => row.id)).not.toContain(parent.id);
+    expect((await bomOptions(adminActor, {})).length).toBeGreaterThan(1);
 
     const tagged = await setBomChildren(adminActor, parent.id, { links: [{ childBomId: dough.id, stage: "Stage 1" }] });
     expect(tagged.children).toEqual([expect.objectContaining({ name: "Biscuit Dough", stage: "Stage 1" })]);

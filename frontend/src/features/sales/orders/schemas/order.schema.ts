@@ -16,6 +16,9 @@ export const ORDER_STATUS_LABELS: Record<OrderStatus, string> = {
   CANCELLED: "Cancelled",
 };
 
+/** Rows per page of the order list, as in Managerium. */
+export const ORDER_PAGE_SIZES = [25, 50, 100, 200] as const;
+
 export const ORDER_TYPES = ["SALES", "SAMPLE", "EXPORT"] as const;
 export type OrderType = (typeof ORDER_TYPES)[number];
 export const ORDER_TYPE_LABELS: Record<OrderType, string> = { SALES: "Sales", SAMPLE: "Sample", EXPORT: "Export" };
@@ -75,6 +78,8 @@ export const orderInputSchema = z
     salesPersonId: optionalId,
     quotationId: optionalId,
     priceListId: optionalId,
+    /** Custom Offer: apply only this offer; every applicable offer when empty. */
+    offerId: optionalId,
     shipToAddressId: optionalId,
     orderType: z.enum(ORDER_TYPES),
     paymentMethod: z.enum(PAYMENT_METHODS),
@@ -236,6 +241,15 @@ export interface OrderEvent {
   createdAt: string;
 }
 
+/** A file on the order (the paperclip). */
+export interface OrderAttachment {
+  id: string;
+  originalName: string;
+  mimeType: string;
+  size: number;
+  createdAt: string;
+}
+
 export interface OrderDetail {
   id: string;
   number: string;
@@ -258,6 +272,9 @@ export interface OrderDetail {
   quotationNumber: string | null;
   priceListId: string | null;
   priceListName: string | null;
+  offerId: string | null;
+  offerName: string | null;
+  attachments: OrderAttachment[];
   shipToAddressId: string | null;
   orderType: OrderType;
   paymentMethod: PaymentMethod;

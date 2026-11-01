@@ -520,6 +520,7 @@ model BusinessUnit {
   territoryNodes       SalesTerritoryNode[]
   workCenters       ProductionWorkCenter[]
   productionEntries ProductionEntry[]
+  productionProcesses ProductionProcess[]
   workCenterTypes        ProductionWorkCenterType[]
   productionDepartments  ProductionDepartment[]
   productionBoms         ProductionBom[]
@@ -597,6 +598,7 @@ model Warehouse {
   returns      SalesReturn[]
   stockEntries StockEntry[]
   productionWorkCenters ProductionWorkCenter[]
+  productionWorkCenterLinks ProductionWorkCenterWarehouse[]
   productionOrders ProductionOrder[]
   productionSourceEntries ProductionEntry[] @relation("EntrySourceWarehouse")
   productionOutputEntries ProductionEntry[] @relation("EntryOutputWarehouse")
@@ -826,11 +828,12 @@ model Item {
   netWeight      Decimal? @db.Decimal(14, 3)
   netWeightUnit  String?  @db.VarChar(20)
   restrictedAge  String?  @db.VarChar(10)
-  /// NONE or BOTH (batch and serial tracking).
+  /// NONE or BATCH (batch tracking).
   tracking       String   @default("NONE") @db.VarChar(10)
   autoBarcode    Boolean  @default(false)
   canBeSold      Boolean  @default(true)
   canBePurchased Boolean  @default(true)
+  canBeProduced  Boolean  @default(false)
   canBeRented    Boolean  @default(false)
   noDecimal      Boolean  @default(false)
   allowEbt       Boolean  @default(false)
@@ -867,6 +870,7 @@ model Item {
   productionOrders        ProductionOrder[]
   productionOrderMaterials ProductionOrderMaterial[]
   productionEntryMaterials ProductionEntryMaterial[]
+  productionEntryWastages  ProductionEntryWastage[]
   targetPlanLines SalesTargetPlanLine[]
   commissionLines SalesCommissionLine[]
 
@@ -1245,11 +1249,28 @@ model SalesCollection {
   employee      Employee?                  @relation("CollectionEmployee", fields: [employeeId], references: [id], onDelete: SetNull)
   allocations  SalesCollectionAllocation[]
   deductions   SalesCollectionDeduction[]
+  attachments  SalesCollectionAttachment[]
 
   @@unique([businessUnitId, number])
   @@index([businessUnitId, status, collectionDate])
   @@index([customerId, status])
   @@map("sales_collections")
+}
+
+/// Files attached to a collection (the Advance Collection voucher's attachment).
+model SalesCollectionAttachment {
+  id           String   @id @default(uuid()) @db.Uuid
+  collectionId String   @db.Uuid
+  storageKey   String   @unique @db.VarChar(300)
+  originalName String   @db.VarChar(255)
+  mimeType     String   @db.VarChar(100)
+  size         Int
+  createdAt    DateTime @default(now()) @db.Timestamptz(3)
+
+  collection SalesCollection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+
+  @@index([collectionId])
+  @@map("sales_collection_attachments")
 }
 
 /// Monthly sales target for one sales person.
@@ -1796,6 +1817,7 @@ model SalesOffer {
   bonusLines    SalesOfferBonusLine[]
   discountLines SalesOfferDiscountLine[]
   specialLines  SalesOfferSpecialLine[]
+  salesOrders   SalesOrder[]
 
   @@index([businessUnitId, kind])
   @@map("sales_offers")
@@ -2059,15 +2081,18 @@ model SalesOfferPairLine {
   id         String   @id @default(uuid()) @db.Uuid
   offerId    String   @db.Uuid
   sortOrder  Int
+  /// Item (Multiple): the pair this selling condition belongs to (1, 2, …).
+  pairNo     Int      @default(1)
   categoryId String?  @db.Uuid
-  itemId     String   @db.Uuid
+  /// Null = every item of the category ("All").
+  itemId     String?  @db.Uuid
   quantity   Decimal  @db.Decimal(14, 3)
   minQty     Decimal? @db.Decimal(14, 3)
   maxQty     Decimal? @db.Decimal(14, 3)
 
   offer    SalesOffer    @relation(fields: [offerId], references: [id], onDelete: Cascade)
   category ItemCategory? @relation("OfferPairCategory", fields: [categoryId], references: [id], onDelete: SetNull)
-  item     Item          @relation("OfferPairItem", fields: [itemId], references: [id], onDelete: Restrict)
+  item     Item?         @relation("OfferPairItem", fields: [itemId], references: [id], onDelete: Restrict)
 
   @@index([offerId])
   @@map("sales_offer_pair_lines")
@@ -2078,6 +2103,8 @@ model SalesOfferBonusLine {
   id        String  @id @default(uuid()) @db.Uuid
   offerId   String  @db.Uuid
   sortOrder Int
+  /// Item (Multiple): the pair whose selling condition earns this bonus.
+  pairNo    Int     @default(1)
   itemId    String  @db.Uuid
   quantity  Decimal @db.Decimal(14, 3)
 
@@ -2193,6 +2220,8 @@ model SalesOrder {
   salesPersonId           String?          @db.Uuid
   quotationId             String?          @db.Uuid
   priceListId             String?          @db.Uuid
+  /// Custom Offer: the one offer applied; every applicable offer when null.
+  offerId                 String?          @db.Uuid
   shipToAddressId         String?          @db.Uuid
   orderType               SalesOrderType   @default(SALES)
   paymentMethod           PaymentMethod    @default(CASH)
@@ -2246,6 +2275,8 @@ model SalesOrder {
   shipTo                CustomerAddress?       @relation(fields: [shipToAddressId], references: [id], onDelete: SetNull)
   lines                 SalesOrderLine[]
   events                SalesOrderEvent[]
+  offer                 SalesOffer?            @relation(fields: [offerId], references: [id], onDelete: SetNull)
+  attachments           SalesOrderAttachment[]
   deliveries            SalesDelivery[]
   deliveryPendingReason DeliveryPendingReason? @relation(fields: [deliveryPendingReasonId], references: [id], onDelete: SetNull)
   productionOrders ProductionOrder[]
@@ -2258,6 +2289,22 @@ model SalesOrder {
   @@index([customerId, status])
   @@index([quotationId])
   @@map("sales_orders")
+}
+
+/// Files attached to a sales order (the paperclip on the order form).
+model SalesOrderAttachment {
+  id           String   @id @default(uuid()) @db.Uuid
+  orderId      String   @db.Uuid
+  storageKey   String   @unique @db.VarChar(300)
+  originalName String   @db.VarChar(255)
+  mimeType     String   @db.VarChar(100)
+  size         Int
+  createdAt    DateTime @default(now()) @db.Timestamptz(3)
+
+  order SalesOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+  @@map("sales_order_attachments")
 }
 
 /// Why an approved order is not delivered yet, each time someone records it ("Previous Pending Reason").
@@ -3426,6 +3473,7 @@ model ProductionWorkCenter {
   typeId               String   @db.Uuid
   departmentId         String?  @db.Uuid
   departmentSectionId  String?  @db.Uuid
+  /// First of the work center's warehouses (`warehouses` holds them all).
   warehouseId          String?  @db.Uuid
   /// Planned running hours per day.
   standardRunHour      Decimal  @db.Decimal(5, 2)
@@ -3447,6 +3495,7 @@ model ProductionWorkCenter {
   departmentSection ProductionDepartmentSection?   @relation(fields: [departmentSectionId], references: [id], onDelete: Restrict)
   warehouse         Warehouse?                     @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
   operators         ProductionWorkCenterOperator[]
+  warehouses        ProductionWorkCenterWarehouse[]
   entries           ProductionEntry[]
   orders            ProductionOrder[]
 
@@ -3506,6 +3555,7 @@ model ProductionEntry {
   sourceWarehouse   Warehouse                    @relation("EntrySourceWarehouse", fields: [sourceWarehouseId], references: [id], onDelete: Restrict)
   outputWarehouse   Warehouse                    @relation("EntryOutputWarehouse", fields: [outputWarehouseId], references: [id], onDelete: Restrict)
   materials         ProductionEntryMaterial[]
+  wastages          ProductionEntryWastage[]
 
   @@unique([businessUnitId, number])
   @@index([businessUnitId, productionDate])
@@ -3574,6 +3624,21 @@ model ProductionWorkCenterOperator {
   @@unique([workCenterId, employeeId])
   @@index([employeeId])
   @@map("production_work_center_operators")
+}
+
+/// Warehouse a work center works with ("Warehouse" multi-select); a work center may have several.
+model ProductionWorkCenterWarehouse {
+  id           String   @id @default(uuid()) @db.Uuid
+  workCenterId String   @db.Uuid
+  warehouseId  String   @db.Uuid
+  createdAt    DateTime @default(now()) @db.Timestamptz(3)
+
+  workCenter ProductionWorkCenter @relation(fields: [workCenterId], references: [id], onDelete: Cascade)
+  warehouse  Warehouse            @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+
+  @@unique([workCenterId, warehouseId])
+  @@index([warehouseId])
+  @@map("production_work_center_warehouses")
 }
 
 enum ProductionBomType {
@@ -3884,6 +3949,42 @@ model ProductionEntryMaterial {
   @@unique([entryId, lineNo])
   @@index([itemId])
   @@map("production_entry_materials")
+}
+
+/// Production process wastage is booked against ("Mixing", "Frying", "Packing" …).
+model ProductionProcess {
+  id             String   @id @default(uuid()) @db.Uuid
+  businessUnitId String   @db.Uuid
+  name           String   @db.VarChar(100)
+  createdAt      DateTime @default(now()) @db.Timestamptz(3)
+
+  businessUnit BusinessUnit             @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  wastages     ProductionEntryWastage[]
+
+  @@unique([businessUnitId, name])
+  @@map("production_processes")
+}
+
+/// "Process Wise Wastage Entry" line of a production entry. Recorded for reporting; stock is not moved.
+model ProductionEntryWastage {
+  id        String   @id @default(uuid()) @db.Uuid
+  entryId   String   @db.Uuid
+  lineNo    Int
+  processId String   @db.Uuid
+  itemId    String   @db.Uuid
+  uom       String   @db.VarChar(20)
+  qty       Decimal  @db.Decimal(14, 4)
+  createdBy String?  @db.VarChar(100)
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  entry   ProductionEntry   @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  process ProductionProcess @relation(fields: [processId], references: [id], onDelete: Restrict)
+  item    Item              @relation(fields: [itemId], references: [id], onDelete: Restrict)
+
+  @@unique([entryId, lineNo])
+  @@index([processId])
+  @@index([itemId])
+  @@map("production_entry_wastages")
 }
 
 /// HRM › Self Service › Leave & Movement: a leave application (Pending → Approved / Rejected).

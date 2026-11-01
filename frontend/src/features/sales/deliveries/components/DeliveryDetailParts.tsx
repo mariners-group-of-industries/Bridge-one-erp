@@ -86,6 +86,7 @@ export function DeliveryInfo({ delivery, extraLeft, extraRight }: { delivery: De
         <Detail label="Delivery Date" value={formatDay(delivery.deliveryDate)} />
         <Detail label="Delivery Time" value={delivery.deliveryTime} />
         <Detail label="Actual Delivery Date" value={delivery.actualDeliveryDate && formatDay(delivery.actualDeliveryDate)} />
+        <Detail label="VAT/SD/AIT" value={delivery.priceIncludesVat ? "Inclusive" : "Exclusive"} />
         <Detail label="Challan No" value={delivery.challanNo} />
         <Detail label="Delivered By" value={delivery.createdBy} />
         <Detail label="Confirmed By" value={delivery.confirmedBy && delivery.confirmedAt && `${delivery.confirmedBy} · ${formatDateTime(delivery.confirmedAt)}`} />
@@ -100,6 +101,7 @@ export function TransportDetails({ delivery }: { delivery: DeliveryDetail }) {
   return (
     <dl className="grid gap-x-8 gap-y-1 p-4 md:grid-cols-2">
       <Detail label="Vehicle No" value={delivery.vehicleNo} />
+      <Detail label="Vehicle Size" value={delivery.vehicleSize} />
       <Detail label="Driver (Employee)" value={delivery.driverEmployeeName} />
       <Detail label="Driver Name (External)" value={delivery.driverName} />
       <Detail label="Contact No" value={delivery.driverPhone} />

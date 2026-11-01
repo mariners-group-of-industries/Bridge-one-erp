@@ -1,16 +1,17 @@
 "use client";
 
-import { FileDown, Pencil, Plus, Search, Trash2 } from "lucide-react";
+import { Pencil, Plus, Printer, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState, type ReactNode } from "react";
 import { Button, buttonClasses } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
-import { SelectField, TextField } from "@/components/ui/form-field";
+import { TextField } from "@/components/ui/form-field";
 import { ErrorState, LoadingState } from "@/components/ui/section";
 import { useToast } from "@/components/ui/toast";
 import { useResource } from "@/hooks/use-resource";
 import { errorMessage } from "@/lib/api/client";
 import { cn } from "@/lib/cn";
+import { Combobox } from "../../components/Combobox";
 import { paths } from "../../paths";
 import { BOM_TYPE_LABELS, OUTPUT_TYPE_LABELS, WASTAGE_TYPE_LABELS, bomChildrenSchema, type BomOption, type BomRow } from "../schemas/bom.schema";
 import { downloadBomPdf, fetchBom, searchBomOptions, setBomChildren } from "../services/bom.api";
@@ -25,8 +26,24 @@ export interface SimpleColumn {
   className?: string;
 }
 
-/** Bordered line table of the BOM pages (blue header, optional bold footer rows). */
-export function LineTable({ columns, rows, footer = [], empty }: { columns: SimpleColumn[]; rows: ReactNode[][]; footer?: ReactNode[][]; empty?: string }) {
+/**
+ * Bordered line table of the BOM pages (blue header, optional bold footer rows). With
+ * `footerLabelSpan`, each footer row starts with a right-aligned label spanning that many
+ * columns ("Total Of Raw Material:"), followed by one cell per remaining column.
+ */
+export function LineTable({
+  columns,
+  rows,
+  footer = [],
+  footerLabelSpan,
+  empty,
+}: {
+  columns: SimpleColumn[];
+  rows: ReactNode[][];
+  footer?: ReactNode[][];
+  footerLabelSpan?: number;
+  empty?: string;
+}) {
   const align = (column: SimpleColumn) => (column.align === "right" ? "text-right" : column.align === "center" ? "text-center" : "text-left");
   return (
     <div className="overflow-x-auto rounded-md border border-line">
@@ -63,11 +80,24 @@ export function LineTable({ columns, rows, footer = [], empty }: { columns: Simp
           <tfoot className="bg-canvas font-semibold text-ink">
             {footer.map((row, index) => (
               <tr key={index} className="border-t border-line-strong">
-                {row.map((cell, column) => (
-                  <td key={column} className={cn("px-3 py-2 tabular-nums", align(columns[column]))}>
-                    {cell}
-                  </td>
-                ))}
+                {footerLabelSpan ? (
+                  <>
+                    <td colSpan={footerLabelSpan} className="px-3 py-2 text-right">
+                      {row[0]}
+                    </td>
+                    {row.slice(1).map((cell, column) => (
+                      <td key={column} className={cn("px-3 py-2 tabular-nums", align(columns[column + footerLabelSpan]))}>
+                        {cell}
+                      </td>
+                    ))}
+                  </>
+                ) : (
+                  row.map((cell, column) => (
+                    <td key={column} className={cn("px-3 py-2 tabular-nums", align(columns[column]))}>
+                      {cell}
+                    </td>
+                  ))
+                )}
               </tr>
             ))}
           </tfoot>
@@ -77,14 +107,12 @@ export function LineTable({ columns, rows, footer = [], empty }: { columns: Simp
   );
 }
 
+/** "Label : Value" in the details header line (as in Managerium). */
 function Pair({ label, value }: { label: string; value: ReactNode }) {
   return (
-    <div className="grid grid-cols-[8rem_auto_1fr] gap-x-2 text-sm">
-      <dt className="text-ink-muted">{label}</dt>
-      <span aria-hidden="true" className="text-ink-faint">
-        :
-      </span>
-      <dd className="font-medium text-ink">{value}</dd>
+    <div className="flex items-baseline gap-1 text-sm">
+      <dt className="text-ink-muted">{label} :</dt>
+      <dd className="font-semibold text-ink">{value}</dd>
     </div>
   );
 }
@@ -110,6 +138,21 @@ export function BomDetailsDialog({ id, onClose }: { id: string | null; onClose: 
 
   const materialQty = bom?.materials.reduce((sum, line) => sum + line.qty, 0) ?? 0;
   const materialTotalQty = bom?.materials.reduce((sum, line) => sum + line.totalQty, 0) ?? 0;
+  const materialAltQty = bom?.materials.reduce((sum, line) => sum + (line.altQty ?? 0), 0) ?? 0;
+  // Tolerance and Primary only matter when a line has a tolerance / there are several outputs.
+  const showOutputTolerance = bom?.outputLines.some((line) => line.tolerancePercent !== null) ?? false;
+  const showPrimary = (bom?.outputLines.length ?? 0) > 1;
+  const outputColumns: SimpleColumn[] = [
+    { header: "SL", className: "w-12" },
+    { header: "Item" },
+    { header: "Item Type" },
+    { header: "Net Weight", align: "right" },
+    { header: "Lot Size/Quantity", align: "right" },
+    { header: "Total Weight", align: "right" },
+    ...(showOutputTolerance ? [{ header: "Tolerance (%)", align: "right" as const }] : []),
+    { header: "Cost Percentage", align: "right" },
+    ...(showPrimary ? [{ header: "Primary", align: "center" as const }] : []),
+  ];
 
   return (
     <Dialog
@@ -124,7 +167,7 @@ export function BomDetailsDialog({ id, onClose }: { id: string | null; onClose: 
             CLOSE
           </Button>
           {id && (
-            <Link href={paths.editBom(id)} className={buttonClasses("primary")}>
+            <Link href={paths.editBom(id)} className={cn(buttonClasses("ghost"), "text-accent-strong")}>
               <Pencil aria-hidden="true" />
               EDIT
             </Link>
@@ -137,40 +180,30 @@ export function BomDetailsDialog({ id, onClose }: { id: string | null; onClose: 
       ) : !bom ? (
         <LoadingState />
       ) : (
-        <div className="flex flex-col gap-5">
-          <div className="flex flex-wrap items-start gap-4">
-            <dl className="grid flex-1 gap-x-8 gap-y-1 md:grid-cols-2">
-              <Pair label="BOM Name" value={bom.name} />
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+            <dl className="contents">
               <Pair label="BOM Type" value={BOM_TYPE_LABELS[bom.bomType]} />
-              <Pair label="Department" value={dash(bom.departmentName)} />
-              <Pair label="Section" value={dash(bom.sectionName)} />
+              <Pair label="BOM Name" value={bom.name} />
+              <Pair label="Department" value={bom.departmentName ?? "N/A"} />
+              <Pair label="Section" value={bom.sectionName ?? "N/A"} />
+              <Pair label="Tolerance" value={bom.tolerancePercent === null ? "N/A" : `${qty(bom.tolerancePercent)}%`} />
               <Pair label="Lot Size" value={qty(bom.lotSize)} />
-              <Pair label="Tolerance (%)" value={bom.tolerancePercent === null ? "—" : qty(bom.tolerancePercent)} />
               <Pair label="Status" value={bom.isActive ? "Active" : "Inactive"} />
               <Pair label="Created By" value={bom.createdByName} />
             </dl>
-            <Button onClick={pdf} loading={downloading}>
-              <FileDown aria-hidden="true" />
+            <Button variant="primary" size="sm" onClick={pdf} loading={downloading}>
+              <Printer aria-hidden="true" />
               PDF
             </Button>
           </div>
 
           <section aria-labelledby="bom-outputs" className="flex flex-col gap-2">
-            <h3 id="bom-outputs" className="text-sm font-semibold text-ink">
+            <h3 id="bom-outputs" className="text-base font-semibold text-ink">
               Production Items
             </h3>
             <LineTable
-              columns={[
-                { header: "SL", className: "w-12" },
-                { header: "Item" },
-                { header: "Item Type" },
-                { header: "Net Weight", align: "right" },
-                { header: "Lot Size/Quantity", align: "right" },
-                { header: "Total Weight", align: "right" },
-                { header: "Tolerance (%)", align: "right" },
-                { header: "Cost Percentage", align: "right" },
-                { header: "Primary", align: "center" },
-              ]}
+              columns={outputColumns}
               rows={bom.outputLines.map((line, index) => [
                 index + 1,
                 <span key="item" className="text-ink">{`${line.code} - ${line.name} (${line.uom})`}</span>,
@@ -178,19 +211,21 @@ export function BomDetailsDialog({ id, onClose }: { id: string | null; onClose: 
                 qty(line.netWeight),
                 qty(line.lotSizeQty),
                 qty(line.totalWeight),
-                line.tolerancePercent === null ? "—" : qty(line.tolerancePercent),
+                ...(showOutputTolerance ? [line.tolerancePercent === null ? "—" : qty(line.tolerancePercent)] : []),
                 `${qty(line.costPercent)}%`,
-                line.isPrimary ? "Yes" : "No",
+                ...(showPrimary ? [line.isPrimary ? "Yes" : "No"] : []),
               ])}
             />
           </section>
 
           <section aria-labelledby="bom-materials" className="flex flex-col gap-2">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <h3 id="bom-materials" className="text-sm font-semibold text-ink">
+              <h3 id="bom-materials" className="text-base font-semibold text-ink">
                 Input Materials
               </h3>
-              <p className="text-sm font-semibold text-ink">Material Total : {money(bom.materialCost)}</p>
+              <p className="text-base text-ink">
+                Material Total : <span className="font-semibold">{money(bom.materialCost)}</span>
+              </p>
             </div>
             <LineTable
               columns={[
@@ -211,16 +246,17 @@ export function BomDetailsDialog({ id, onClose }: { id: string | null; onClose: 
                 dash(line.materialType),
                 line.excludeFromScrap ? "Yes" : "No",
                 line.altQty === null ? "—" : `${qty(line.altQty)} ${line.altUom ?? ""}`,
-                qty(line.qty),
-                qty(line.wastagePercent),
-                qty(line.totalQty),
+                `${qty(line.qty)} ${line.uom}`,
+                money(line.wastagePercent),
+                money(line.totalQty),
                 money(line.rate),
                 money(line.amount),
               ])}
+              footerLabelSpan={4}
               footer={[
-                ["", "Total Of Raw Material", "", "", "", qty(materialQty), "", qty(materialTotalQty), "", money(bom.materialCost)],
-                ...(bom.overheadCost ? [["", "Overhead", "", "", "", "", "", "", "", money(bom.overheadCost)]] : []),
-                ["", "Grand Total", "", "", "", qty(materialQty), "", qty(materialTotalQty), "", money(bom.totalCost)],
+                ["Total Of Raw Material:", money(materialAltQty), qty(materialQty), "", money(materialTotalQty), "", money(bom.materialCost)],
+                ...(bom.overheadCost ? [["Overhead:", "", "", "", "", "", money(bom.overheadCost)]] : []),
+                ["Grand Total:", money(materialAltQty), qty(materialQty), "", money(materialTotalQty), "", money(bom.totalCost)],
               ]}
             />
           </section>
@@ -291,25 +327,29 @@ export function BomDetailsDialog({ id, onClose }: { id: string | null; onClose: 
   );
 }
 
-/** Active BOMs whose name contains `term` (3+ letters), debounced. */
+/** Active BOMs whose name contains `term` (3+ letters), or the first ones when it is empty; debounced. */
 function useBomSearch(term: string, exclude?: string) {
-  const [found, setFound] = useState<{ term: string; rows: BomOption[]; error?: string }>({ term: "", rows: [] });
+  const [found, setFound] = useState<{ term: string; rows: BomOption[]; error?: string } | null>(null);
   const wanted = term.trim();
+  const searchable = wanted.length === 0 || wanted.length >= 3;
   useEffect(() => {
-    if (wanted.length < 3) return;
+    if (!searchable) return;
     let cancelled = false;
-    const timer = setTimeout(() => {
-      searchBomOptions(wanted, exclude).then(
-        (rows) => !cancelled && setFound({ term: wanted, rows }),
-        (error: unknown) => !cancelled && setFound({ term: wanted, rows: [], error: errorMessage(error) }),
-      );
-    }, 300);
+    const timer = setTimeout(
+      () => {
+        searchBomOptions(wanted, exclude).then(
+          (rows) => !cancelled && setFound({ term: wanted, rows }),
+          (error: unknown) => !cancelled && setFound({ term: wanted, rows: [], error: errorMessage(error) }),
+        );
+      },
+      wanted ? 300 : 0,
+    );
     return () => {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [wanted, exclude]);
-  return { ...found, ready: wanted.length >= 3 && found.term === wanted };
+  }, [wanted, searchable, exclude]);
+  return { rows: found?.rows ?? [], error: found?.error, searchable, ready: searchable && found?.term === wanted };
 }
 
 interface DraftLink {
@@ -332,9 +372,10 @@ function TagChild({ bom, onClose, onSaved }: { bom: BomRow; onClose: () => void;
   const [stage, setStage] = useState("");
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
-  const search = useBomSearch(picked ? "" : term, bom.id);
+  const search = useBomSearch(term, bom.id);
 
   const current: DraftLink[] = links ?? detail.data?.children.map((link) => ({ childBomId: link.childBomId, name: link.name, stage: link.stage })) ?? [];
+  const childOptions = search.rows.filter((option) => !current.some((link) => link.childBomId === option.id)).map((option) => ({ value: option.id, label: option.name }));
 
   function add() {
     if (!picked) return setError("Child BOM Name is required.");
@@ -399,48 +440,24 @@ function TagChild({ bom, onClose, onSaved }: { bom: BomRow; onClose: () => void;
       ) : (
         <div className="flex flex-col gap-4">
           <div className="grid items-start gap-3 sm:grid-cols-[1fr_12rem_auto]">
-            <div className="relative">
-              <TextField
-                label="Child BOM Name"
-                required
-                placeholder="Type at least 3 letters"
-                value={picked ? picked.name : term}
-                hint={picked ? undefined : "Search active BOMs by name."}
-                onChange={(event) => {
-                  setPicked(null);
-                  setTerm(event.target.value);
-                }}
-              />
-              {!picked && term.trim().length >= 3 && (
-                <div role="listbox" aria-label="Matching BOMs" className="absolute top-12 z-10 max-h-56 w-full overflow-y-auto rounded-md border border-line bg-surface shadow-dropdown">
-                  {!search.ready ? (
-                    <p className="flex items-center gap-2 px-3 py-2 text-xs text-ink-faint">
-                      <Search aria-hidden="true" className="size-3.5" />
-                      Searching…
-                    </p>
-                  ) : search.error ? (
-                    <p className="px-3 py-2 text-xs text-danger">{search.error}</p>
-                  ) : search.rows.length === 0 ? (
-                    <p className="px-3 py-2 text-xs text-ink-faint">No active BOM matches.</p>
-                  ) : (
-                    search.rows.map((option) => (
-                      <button
-                        key={option.id}
-                        type="button"
-                        role="option"
-                        aria-selected={false}
-                        onClick={() => setPicked(option)}
-                        className="block w-full px-3 py-2 text-left text-sm text-ink hover:bg-hover"
-                      >
-                        {option.name}
-                      </button>
-                    ))
-                  )}
-                </div>
-              )}
-            </div>
-            <TextField label="Stage/Level" required maxLength={50} placeholder="e.g. Stage 1" value={stage} onChange={(event) => setStage(event.target.value)} />
-            <Button variant="accent-soft" className="sm:mt-5" onClick={add}>
+            <Combobox
+              label="Child BOM Name"
+              required
+              placeholder="Select/Search BOM (min 3 letters)"
+              value={picked?.id ?? ""}
+              selectedLabels={picked ? { [picked.id]: picked.name } : undefined}
+              filter={false}
+              options={childOptions}
+              loading={search.searchable && !search.ready}
+              emptyText={!search.searchable ? "Type at least 3 letters." : (search.error ?? "No active BOM matches.")}
+              onQueryChange={setTerm}
+              onChange={(id) => {
+                setPicked(search.rows.find((option) => option.id === id) ?? null);
+                setError(undefined);
+              }}
+            />
+            <TextField label="Stage/Level" required maxLength={50} placeholder="Stage/Level" value={stage} onChange={(event) => setStage(event.target.value)} />
+            <Button variant="primary" className="sm:mt-5" onClick={add}>
               <Plus aria-hidden="true" />
               Add
             </Button>
@@ -495,14 +512,16 @@ export function CopyBomDialog({ open, rows, onClose, onCopy }: { open: boolean; 
         </>
       }
     >
-      <SelectField
+      <Combobox
         label="Bill Of Material"
         required
+        placeholder="Select/Search BOM"
         value={id}
         error={error}
-        options={[{ value: "", label: "Choose a BOM" }, ...rows.map((row) => ({ value: row.id, label: row.name }))]}
-        onChange={(event) => {
-          setId(event.target.value);
+        options={rows.map((row) => ({ value: row.id, label: row.name }))}
+        emptyText="No BOM matches."
+        onChange={(value) => {
+          setId(value);
           setError(undefined);
         }}
       />

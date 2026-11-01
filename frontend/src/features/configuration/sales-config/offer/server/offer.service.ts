@@ -7,6 +7,7 @@ import { db } from "@/lib/prisma/client";
 import {
   DISCOUNT_TYPES,
   discountLineSchema,
+  OFFER_BASED_ON,
   offerInputSchema,
   type OfferData,
   type OfferDto,
@@ -97,9 +98,9 @@ async function validateReferences(tx: Tx, unitId: string, data: OfferData) {
       await inUnit(data.lines.flatMap((l) => [l.sellingItemId, l.offerItemId]), items, "items");
       break;
     case "ITEM_MULTIPLE":
-      await inUnit([...data.pairLines.map((l) => l.itemId), ...data.bonusLines.map((l) => l.itemId)], items, "items");
+      await inUnit([...data.pairs.map((p) => p.itemId), ...data.pairs.flatMap((p) => p.bonusLines.map((l) => l.itemId))], items, "items");
       await inUnit(
-        data.pairLines.map((l) => l.categoryId),
+        data.pairs.map((p) => p.categoryId),
         (ids) => tx.itemCategory.findMany({ where: { id: { in: ids } }, select }),
         "categories",
       );
@@ -149,18 +150,22 @@ async function writeLines(tx: Tx, offerId: string, data: OfferData) {
       await tx.salesOfferItemLine.createMany({ data: data.lines.map((line, sortOrder) => ({ offerId, sortOrder, ...line })) });
       break;
     case "ITEM_MULTIPLE":
+      // Pair n: one selling condition and its bonus lines, all with pairNo n.
       await tx.salesOfferPairLine.createMany({
-        data: data.pairLines.map((line, sortOrder) => ({
+        data: data.pairs.map((pair, index) => ({
           offerId,
-          sortOrder,
-          categoryId: orNull(line.categoryId),
-          itemId: line.itemId,
-          quantity: line.quantity,
-          minQty: orNull(line.minQty),
-          maxQty: orNull(line.maxQty),
+          sortOrder: index,
+          pairNo: index + 1,
+          categoryId: orNull(pair.categoryId),
+          itemId: orNull(pair.itemId),
+          quantity: pair.quantity,
+          minQty: orNull(pair.minQty),
+          maxQty: orNull(pair.maxQty),
         })),
       });
-      await tx.salesOfferBonusLine.createMany({ data: data.bonusLines.map((line, sortOrder) => ({ offerId, sortOrder, ...line })) });
+      await tx.salesOfferBonusLine.createMany({
+        data: data.pairs.flatMap((pair, index) => pair.bonusLines.map((line, sortOrder) => ({ offerId, sortOrder, pairNo: index + 1, ...line }))),
+      });
       break;
     case "DISCOUNT":
       await tx.salesOfferDiscountLine.createMany({
@@ -279,15 +284,19 @@ export async function getOffer(actor: Actor, id: string): Promise<OfferDto> {
         ...common,
         kind: "ITEM_MULTIPLE",
         priceListId: str(offer.priceListId),
-        basedOn: (offer.basedOn ?? "") as "",
-        pairLines: offer.pairLines.map((line) => ({
-          categoryId: str(line.categoryId),
-          itemId: line.itemId,
-          quantity: line.quantity.toString(),
-          minQty: str(line.minQty),
-          maxQty: str(line.maxQty),
-        })),
-        bonusLines: offer.bonusLines.map((line) => ({ itemId: line.itemId, quantity: line.quantity.toString() })),
+        basedOn: (offer.basedOn ?? "All Customers") as (typeof OFFER_BASED_ON)[number],
+        pairs: offer.pairLines
+          .toSorted((a, b) => a.pairNo - b.pairNo || a.sortOrder - b.sortOrder)
+          .map((line) => ({
+            categoryId: str(line.categoryId),
+            itemId: str(line.itemId),
+            quantity: line.quantity.toString(),
+            minQty: str(line.minQty),
+            maxQty: str(line.maxQty),
+            bonusLines: offer.bonusLines
+              .filter((bonus) => bonus.pairNo === line.pairNo)
+              .map((bonus) => ({ itemId: bonus.itemId, quantity: bonus.quantity.toString() })),
+          })),
       };
     case "DISCOUNT":
       return {

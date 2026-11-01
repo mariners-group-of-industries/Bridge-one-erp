@@ -2,6 +2,7 @@ import { accountWorkspace } from "@/features/accounts/navigation";
 import { configurationWorkspace } from "@/features/configuration/navigation";
 import { hrmWorkspace } from "@/features/hrm/navigation";
 import { inventoryWorkspace } from "@/features/inventory/navigation";
+import { posWorkspace } from "@/features/pos/navigation";
 import { productionWorkspace } from "@/features/production/navigation";
 import { purchaseWorkspace } from "@/features/purchase/navigation";
 import { salesWorkspace } from "@/features/sales/navigation";
@@ -23,6 +24,7 @@ export const workspaces: readonly Workspace[] = [
   configurationWorkspace,
   rtmWorkspace,
   crmWorkspace,
+  posWorkspace,
 ];
 
 export interface SearchEntry extends NavLink {

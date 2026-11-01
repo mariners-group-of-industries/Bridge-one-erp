@@ -1,5 +1,5 @@
 import { apiRequest } from "@/lib/api/client";
-import type { AssignEmployeeInput, AssignmentDto, EmployeeOption, LayerInput, NodeInput, NodeUpdate, TerritoryCustomerList, TerritoryImportResult, TerritoryTree } from "../schemas/territory.schema";
+import type { AssignEmployeeInput, AssignmentDto, AssignmentUpdateInput, EmployeeOption, LayerInput, NodeInput, NodeUpdate, TerritoryCustomerGroups, TerritoryCustomerList, TerritoryImportResult, TerritoryTree } from "../schemas/territory.schema";
 
 const BASE = "/api/configuration/sales-config/territories";
 const json = (method: string, body: unknown): RequestInit => ({
@@ -19,9 +19,13 @@ export const territoryApi = {
   assignments: (nodeId: string) => apiRequest<AssignmentDto[]>(`${BASE}/nodes/${nodeId}/employees`),
   employeeOptions: (nodeId: string) => apiRequest<EmployeeOption[]>(`${BASE}/nodes/${nodeId}/employee-options`),
   assign: (nodeId: string, input: AssignEmployeeInput) => apiRequest<AssignmentDto[]>(`${BASE}/nodes/${nodeId}/employees`, json("POST", input)),
+  updateAssignment: (nodeId: string, assignmentId: string, input: AssignmentUpdateInput) =>
+    apiRequest<AssignmentDto[]>(`${BASE}/nodes/${nodeId}/employees/${assignmentId}`, json("PUT", input)),
   unassign: (nodeId: string, assignmentId: string) => apiRequest<AssignmentDto[]>(`${BASE}/nodes/${nodeId}/employees/${assignmentId}`, { method: "DELETE" }),
   customers: (params: { businessUnitId: string; nodeId: string; customerId?: string; search?: string; page: number; pageSize?: number }) =>
     apiRequest<TerritoryCustomerList>(`${BASE}/customers?${qs(params)}`),
+  customerGroups: (params: { businessUnitId: string; territoryId?: string; nodeId?: string; customerId?: string; search?: string }) =>
+    apiRequest<TerritoryCustomerGroups>(`${BASE}/customer-groups?${qs(params)}`),
   excelUrl: (businessUnitId: string, kind: "tree" | "customers", nodeId?: string) => `${BASE}/excel?${qs({ businessUnitId, kind, nodeId })}`,
   templateUrl: (businessUnitId: string) => `${BASE}/template?${qs({ businessUnitId })}`,
   upload: (businessUnitId: string, kind: "tree" | "customers", file: File) => {

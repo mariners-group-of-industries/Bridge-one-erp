@@ -21,6 +21,8 @@ import { returnPriceApi } from "../services/return-price.api";
 const BREADCRUMBS = entityMasterDataBreadcrumbs(salesConfigPaths.salesReturn);
 const EMPTY_FILTER = { itemType: "", categoryId: "", subCategoryId: "" };
 type Filters = typeof EMPTY_FILTER;
+/** Returns are of goods sold, so the list opens on finished goods (as in Managerium); "All item types" shows the rest. */
+const INITIAL_FILTER: Filters = { ...EMPTY_FILTER, itemType: "Finished Goods" };
 
 const confirmDiscard = (dirty: number) => dirty === 0 || window.confirm(`Discard ${dirty} unsaved change(s)?`);
 const today = () => new Date().toISOString().slice(0, 10);
@@ -48,8 +50,8 @@ export function ReturnPriceView() {
 function ReturnPriceSetup({ options }: { options: ReturnPriceOptions }) {
   const toast = useToast();
   const [unitId, setUnitId] = useState(options.businessUnits[0].id);
-  const [filters, setFilters] = useState<Filters>(EMPTY_FILTER);
-  const [applied, setApplied] = useState<Filters>(EMPTY_FILTER);
+  const [filters, setFilters] = useState<Filters>(INITIAL_FILTER);
+  const [applied, setApplied] = useState<Filters>(INITIAL_FILTER);
   const [searchText, setSearchText] = useState("");
   const [search, setSearch] = useState("");
   const [reloadKey, setReloadKey] = useState(0);
@@ -130,8 +132,8 @@ function ReturnPriceSetup({ options }: { options: ReturnPriceOptions }) {
                     if (!confirmDiscard(dirty)) return;
                     resetEdits();
                     setUnitId(e.target.value);
-                    setFilters(EMPTY_FILTER);
-                    setApplied(EMPTY_FILTER);
+                    setFilters(INITIAL_FILTER);
+                    setApplied(INITIAL_FILTER);
                   }}
                 />
               )}

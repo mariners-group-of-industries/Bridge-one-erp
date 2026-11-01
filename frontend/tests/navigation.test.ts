@@ -92,10 +92,10 @@ describe("searchEntries / filterEntries", () => {
 });
 
 describe("sales workspace", () => {
-  it("lists the nine sales pages in sidebar order", () => {
+  it("lists the sales pages in sidebar order", () => {
     const salesWorkspace = workspaces.find((workspace) => workspace.id === "sales");
     expect(salesWorkspace?.status).toBe("active");
-    expect(salesWorkspace && workspaceLinks(salesWorkspace).slice(0, 9).map((link) => link.label)).toEqual([
+    expect(salesWorkspace && workspaceLinks(salesWorkspace).slice(0, 8).map((link) => link.label)).toEqual([
       "Sales Dashboard",
       "Sales Quotation",
       "Sales Order",
@@ -103,12 +103,44 @@ describe("sales workspace", () => {
       "Sales Return",
       "Sales Collection",
       "Sales Target",
-      "Sales Report",
-      "Sales Analytics",
+      "Sales Report & Analytics",
     ]);
   });
 
   it("resolves breadcrumbs for a sales page", () => {
     expect(resolveBreadcrumbs("/sales/orders").map((crumb) => crumb.label)).toEqual(["Sales", "Sales Order"]);
+    expect(resolveBreadcrumbs("/sales/reports").map((crumb) => crumb.label)).toEqual(["Sales", "Sales Report & Analytics"]);
+  });
+});
+
+describe("purchase workspace", () => {
+  it("lists purchase pages flat directly under Purchase like Inventory", () => {
+    const purchase = workspaces.find((workspace) => workspace.id === "purchase");
+    expect(purchase?.status).toBe("active");
+    expect(purchase?.cards).toHaveLength(1);
+    expect(purchase?.cards?.[0]?.label).toBe("");
+    expect(purchase?.cards?.[0]?.links.map((link) => link.label)).toEqual([
+      "Purchase Dashboard",
+      "Purchase Requisition",
+      "Purchase Order",
+      "Purchase Receive",
+      "Purchase Return",
+      "Supplier Payment",
+      "Purchase Analytics",
+      "Purchase Report",
+    ]);
+  });
+});
+
+
+describe("pos workspace", () => {
+  it("lists POS Dashboard, Setup, and Reports under POS", () => {
+    const pos = workspaces.find((workspace) => workspace.id === "pos");
+    expect(pos?.status).toBe("active");
+    expect(pos?.cards?.[0]?.links.map((link) => link.label)).toEqual([
+      "POS Dashboard",
+      "Setup",
+      "Reports",
+    ]);
   });
 });

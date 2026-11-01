@@ -8,7 +8,7 @@ import { PageContainer, PageHead } from "@/components/layout/page";
 import { Button, buttonClasses } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { CONTROL, Checkbox, SelectField, TextAreaField, TextField } from "@/components/ui/form-field";
-import { Card, EmptyState, ErrorState, LoadingState, Section } from "@/components/ui/section";
+import { Card, ErrorState, LoadingState, Section } from "@/components/ui/section";
 import { useToast } from "@/components/ui/toast";
 import { useResource } from "@/hooks/use-resource";
 import { useSaveShortcut } from "@/hooks/use-save-shortcut";
@@ -35,7 +35,7 @@ import {
   type DueInvoice,
   type GlAccountOption,
 } from "../schemas/collection.schema";
-import { createBill, createDueCollection, fetchBill, fetchDueInvoices, fetchGlAccounts } from "../services/collection.api";
+import { createBill, createDueCollection, fetchBill, fetchCollectionWallets, fetchDueInvoices, fetchGlAccounts } from "../services/collection.api";
 import { AdvanceCollectionForm } from "./AdvanceCollectionForm";
 
 type Mode = "invoice" | "advance" | "bill";
@@ -152,6 +152,7 @@ function DueCollection({
     remarks: "",
     bankName: "",
     reference: "",
+    walletId: "",
   });
   const [customerId, setCustomerId] = useState(bill?.customerId ?? initialCustomerId);
   const [picked, setPicked] = useState<string[]>([]);
@@ -184,7 +185,27 @@ function DueCollection({
   const total = round2(rows.reduce((sum, row) => sum + toNumber(row.amount), 0));
   const deductionTotal = round2(deductions.reduce((sum, row) => sum + row.amount, 0));
   const accountOptions = accounts.map((account) => ({ id: account.id, label: accountLabel(account) }));
-  const showBank = header.method === "BANK" || header.method === "CHEQUE";
+  // Bank, cheque and mobile banking keep the bank / wallet name and the transaction no.
+  const showReference = header.method !== "CASH";
+  const wallets = useResource(header.officeId ? `collection-wallets:${header.officeId}` : null, () => fetchCollectionWallets(header.officeId));
+  const wallet = wallets.data?.find((candidate) => candidate.id === header.walletId);
+  const commission = wallet ? round2((total * wallet.commissionPercent) / 100) : 0;
+
+  /** Wallet Setup: the wallet sets the collection type, bank name and its bank account's GL. */
+  function pickWallet(id: string) {
+    const next = wallets.data?.find((candidate) => candidate.id === id);
+    setHeader((current) =>
+      next
+        ? {
+            ...current,
+            walletId: next.id,
+            method: next.isMfs ? "MOBILE_BANKING" : next.isCash ? "CASH" : current.method === "CHEQUE" ? "CHEQUE" : "BANK",
+            bankName: next.name,
+            adjustAccountId: next.glAccountId ?? current.adjustAccountId,
+          }
+        : { ...current, walletId: "" },
+    );
+  }
 
   function selectCustomer(id: string) {
     setCustomerId(id);
@@ -236,11 +257,12 @@ function DueCollection({
       collectionDate: header.collectionDate,
       method: header.method,
       cashType: header.method === "CASH" ? header.cashType : null,
+      walletId: header.walletId || null,
       salesPersonId: header.salesPersonId || null,
       adjustAccountId: header.adjustAccountId || null,
       moneyReceiptNo: header.moneyReceiptNo,
-      bankName: showBank ? header.bankName : null,
-      reference: showBank ? header.reference : null,
+      bankName: showReference ? header.bankName : null,
+      reference: showReference ? header.reference : null,
       remarks: header.remarks,
       deductions: deductions.map(({ expense, accountId, amount }) => ({ expense, accountId, amount })),
       rows: [...byCustomer].map(([id, allocations]) => ({ customerId: id, allocations })),
@@ -285,8 +307,21 @@ function DueCollection({
                 required
                 value={header.method}
                 options={COLLECTION_METHODS.map((value) => ({ value, label: COLLECTION_METHOD_LABELS[value] }))}
-                onChange={(event) => set("method", event.target.value)}
+                onChange={(event) => setHeader((current) => ({ ...current, method: event.target.value as CollectionMethod, walletId: "" }))}
               />
+              {(wallets.data?.length ?? 0) > 0 && (
+                <SelectField
+                  label="Wallet"
+                  value={header.walletId}
+                  hint={
+                    wallet
+                      ? `${wallet.commissionPercent}% commission${commission > 0 ? ` ≈ ${formatAmount(commission)}; add it under Bank Deduction` : ""}${wallet.isReferenceRequired ? " · Ref no required" : ""}`
+                      : "Wallet Setup (Sales Config)"
+                  }
+                  options={[{ value: "", label: "No wallet" }, ...(wallets.data ?? []).map((candidate) => ({ value: candidate.id, label: candidate.name }))]}
+                  onChange={(event) => pickWallet(event.target.value)}
+                />
+              )}
               <SelectField
                 label="Collect By"
                 value={header.salesPersonId}
@@ -329,9 +364,10 @@ function DueCollection({
               />
               <TextField label="Money Receipt No" placeholder="Money Receipt No" value={header.moneyReceiptNo} error={errors.moneyReceiptNo} onChange={(event) => set("moneyReceiptNo", event.target.value)} />
               <TextField label="Remarks" placeholder="Remarks" value={header.remarks} error={errors.remarks} onChange={(event) => set("remarks", event.target.value)} />
-              {showBank && (
+              {showReference && (
                 <TextField
                   label={header.method === "CHEQUE" ? "Cheque No" : "Transaction / Ref No"}
+                  required={wallet?.isReferenceRequired}
                   value={header.reference}
                   error={errors.reference}
                   onChange={(event) => set("reference", event.target.value)}
@@ -359,8 +395,9 @@ function DueCollection({
                 key={customers.length}
                 label="Customer"
                 disabled={!header.officeId || masters.loading}
-                placeholder="Select/Search Customer (min 3 letters)"
-                options={customers.map((candidate) => ({ id: candidate.id, label: `${candidate.name} (${candidate.code})` }))}
+                options={customers.map((candidate) => ({ id: candidate.id, label: `${candidate.name} (${candidate.phone || candidate.code})` }))}
+                minChars={0}
+                placeholder={masters.loading ? "Loading customers…" : "Select/Search Customer"}
                 selectedId={customerId}
                 onPick={(id) => selectCustomer(id ?? "")}
               />
@@ -426,80 +463,84 @@ function DueCollection({
               </p>
             )}
           </Section>
-          {rows.length === 0 ? (
-            <EmptyState title="No Data Found">Pick a customer and invoices, then Add.</EmptyState>
-          ) : (
-            <div className="overflow-x-auto border-t border-line">
-              <table className="w-full min-w-[900px] text-xs">
-                <thead className="bg-accent-soft font-semibold text-ink">
-                  <tr>
-                    {["SL", "Customer", "Invoice No", "Invoice Date", "Due Date", "Invoice Amount", "Due Amount", "Collection Amount", "Action"].map((label, index) => (
-                      <th key={label} scope="col" className={cn("px-3 py-2", index >= 5 && index <= 7 ? "text-right" : "text-left")}>
-                        {label}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-line">
-                  {rows.map((row, index) => (
-                    <tr key={row.key}>
-                      <td className="px-3 py-1.5 tabular-nums">{index + 1}</td>
-                      <td className="px-3 py-1.5 text-ink">{row.customerName}</td>
-                      <td className="px-3 py-1.5 whitespace-nowrap">{row.invoice.number}</td>
-                      <td className="px-3 py-1.5 whitespace-nowrap">{formatDay(row.invoice.deliveryDate)}</td>
-                      <td className="px-3 py-1.5 whitespace-nowrap">{formatDay(row.invoice.dueDate)}</td>
-                      <td className="px-3 py-1.5 text-right tabular-nums">{formatAmount(row.invoice.totalAmount)}</td>
-                      <td className="px-3 py-1.5 text-right tabular-nums">{formatAmount(row.invoice.due)}</td>
-                      <td className="w-36 px-3 py-1">
-                        <input
-                          aria-label={`Collection amount for ${row.invoice.number}`}
-                          type="number"
-                          min={0}
-                          max={row.invoice.due}
-                          step="any"
-                          value={row.amount}
-                          onChange={(event) => setRows((current) => current.map((candidate) => (candidate.key === row.key ? { ...candidate, amount: event.target.value } : candidate)))}
-                          className={cn(CONTROL, "h-7 text-right tabular-nums", toNumber(row.amount) > row.invoice.due + 1e-9 && "ring-1 ring-danger")}
-                        />
-                      </td>
-                      <td className="px-3 py-1">
-                        <Button variant="ghost" size="icon" aria-label={`Remove ${row.invoice.number}`} onClick={() => setRows((current) => current.filter((candidate) => candidate.key !== row.key))}>
-                          <Trash2 />
-                        </Button>
-                      </td>
-                    </tr>
+          {/* The header stays visible with no rows, as in Managerium. */}
+          <div className="overflow-x-auto border-t border-line">
+            <table className="w-full min-w-[900px] text-xs">
+              <thead className="bg-accent-soft font-semibold text-ink">
+                <tr>
+                  {["SL", "Customer", "Invoice No", "Invoice Date", "Due Date", "Invoice Amount", "Due Amount", "Collection Amount", "Action"].map((label, index) => (
+                    <th key={label} scope="col" className={cn("px-3 py-2", index >= 5 && index <= 7 ? "text-right" : "text-left")}>
+                      {label}
+                    </th>
                   ))}
-                </tbody>
-                <tfoot className="border-t border-line-strong bg-canvas font-semibold text-ink">
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-line">
+                {rows.length === 0 && (
                   <tr>
-                    <td colSpan={7} className="px-3 py-2 text-right">
-                      Total Collection
+                    <td colSpan={9} className="px-3 py-6 text-center text-sm text-ink-muted">
+                      Pick a customer and its invoices, enter the amount and press Add.
                     </td>
-                    <td className="px-3 py-2 text-right tabular-nums">{formatAmount(total)}</td>
-                    <td />
                   </tr>
-                  {deductionTotal > 0 && (
-                    <>
-                      <tr>
-                        <td colSpan={7} className="px-3 py-1 text-right font-normal text-ink-muted">
-                          Less: Bank Deduction
-                        </td>
-                        <td className="px-3 py-1 text-right font-normal tabular-nums">{formatAmount(deductionTotal)}</td>
-                        <td />
-                      </tr>
-                      <tr>
-                        <td colSpan={7} className="px-3 py-1 text-right">
-                          Net Received
-                        </td>
-                        <td className="px-3 py-1 text-right tabular-nums">{formatAmount(round2(total - deductionTotal))}</td>
-                        <td />
-                      </tr>
-                    </>
-                  )}
-                </tfoot>
-              </table>
-            </div>
-          )}
+                )}
+                {rows.map((row, index) => (
+                  <tr key={row.key}>
+                    <td className="px-3 py-1.5 tabular-nums">{index + 1}</td>
+                    <td className="px-3 py-1.5 text-ink">{row.customerName}</td>
+                    <td className="px-3 py-1.5 whitespace-nowrap">{row.invoice.number}</td>
+                    <td className="px-3 py-1.5 whitespace-nowrap">{formatDay(row.invoice.deliveryDate)}</td>
+                    <td className="px-3 py-1.5 whitespace-nowrap">{formatDay(row.invoice.dueDate)}</td>
+                    <td className="px-3 py-1.5 text-right tabular-nums">{formatAmount(row.invoice.totalAmount)}</td>
+                    <td className="px-3 py-1.5 text-right tabular-nums">{formatAmount(row.invoice.due)}</td>
+                    <td className="w-36 px-3 py-1">
+                      <input
+                        aria-label={`Collection amount for ${row.invoice.number}`}
+                        type="number"
+                        min={0}
+                        max={row.invoice.due}
+                        step="any"
+                        value={row.amount}
+                        onChange={(event) => setRows((current) => current.map((candidate) => (candidate.key === row.key ? { ...candidate, amount: event.target.value } : candidate)))}
+                        className={cn(CONTROL, "h-7 text-right tabular-nums", toNumber(row.amount) > row.invoice.due + 1e-9 && "ring-1 ring-danger")}
+                      />
+                    </td>
+                    <td className="px-3 py-1">
+                      <Button variant="ghost" size="icon" aria-label={`Remove ${row.invoice.number}`} onClick={() => setRows((current) => current.filter((candidate) => candidate.key !== row.key))}>
+                        <Trash2 />
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot className="border-t border-line-strong bg-canvas font-semibold text-ink">
+                <tr>
+                  <td colSpan={7} className="px-3 py-2 text-right">
+                    Total Collection
+                  </td>
+                  <td className="px-3 py-2 text-right tabular-nums">{formatAmount(total)}</td>
+                  <td />
+                </tr>
+                {deductionTotal > 0 && (
+                  <>
+                    <tr>
+                      <td colSpan={7} className="px-3 py-1 text-right font-normal text-ink-muted">
+                        Less: Bank Deduction
+                      </td>
+                      <td className="px-3 py-1 text-right font-normal tabular-nums">{formatAmount(deductionTotal)}</td>
+                      <td />
+                    </tr>
+                    <tr>
+                      <td colSpan={7} className="px-3 py-1 text-right">
+                        Net Received
+                      </td>
+                      <td className="px-3 py-1 text-right tabular-nums">{formatAmount(round2(total - deductionTotal))}</td>
+                      <td />
+                    </tr>
+                  </>
+                )}
+              </tfoot>
+            </table>
+          </div>
         </Card>
       </div>
       {deductionOpen && (
@@ -674,8 +715,9 @@ function BillCreate({ today, lookups, initialCustomerId }: { today: string; look
                 label="Customer"
                 required
                 disabled={!officeId || masters.loading}
-                placeholder="Select/Search Customer (min 3 letters)"
-                options={customers.map((candidate) => ({ id: candidate.id, label: `${candidate.name} (${candidate.code})` }))}
+                placeholder={masters.loading ? "Loading customers…" : "Select/Search Customer"}
+                options={customers.map((candidate) => ({ id: candidate.id, label: `${candidate.name} (${candidate.phone || candidate.code})` }))}
+                minChars={0}
                 selectedId={customerId}
                 onPick={(id) => {
                   setCustomerId(id ?? "");
@@ -747,8 +789,14 @@ function BillCreate({ today, lookups, initialCustomerId }: { today: string; look
               <tbody className="divide-y divide-line">
                 {!customerId ? (
                   <tr>
+                    <td colSpan={9} className="px-2 py-6 text-center text-sm text-ink-muted">
+                      Select a customer to see the invoices with dues that are not on a bill yet.
+                    </td>
+                  </tr>
+                ) : invoices.error ? (
+                  <tr>
                     <td colSpan={9}>
-                      <EmptyState title="Select a customer" />
+                      <ErrorState message={errorMessage(invoices.error)} onRetry={invoices.reload} />
                     </td>
                   </tr>
                 ) : invoices.loading && !invoices.data ? (
@@ -759,8 +807,10 @@ function BillCreate({ today, lookups, initialCustomerId }: { today: string; look
                   </tr>
                 ) : rows.length === 0 ? (
                   <tr>
-                    <td colSpan={9}>
-                      <EmptyState title="No unbilled invoices with dues" />
+                    <td colSpan={9} className="px-2 py-6 text-center text-sm text-ink-muted">
+                      {(invoices.data ?? []).some((invoice) => invoice.due > 0)
+                        ? "No invoice matches the filters. Clear the dates or invoice and press View."
+                        : "This customer has no unbilled invoice with a due."}
                     </td>
                   </tr>
                 ) : (
@@ -794,6 +844,19 @@ function BillCreate({ today, lookups, initialCustomerId }: { today: string; look
                   })
                 )}
               </tbody>
+              {rows.length > 0 && (
+                <tfoot className="border-t border-line-strong bg-canvas font-semibold text-ink">
+                  <tr>
+                    <td colSpan={3} className="px-2 py-2 text-right">
+                      Total
+                    </td>
+                    <td className="px-2 py-2 text-right tabular-nums">{formatAmount(round2(rows.reduce((sum, row) => sum + row.totalAmount, 0)))}</td>
+                    <td className="px-2 py-2 text-right tabular-nums">{formatAmount(round2(rows.reduce((sum, row) => sum + row.collectedAmount + row.returnedAmount, 0)))}</td>
+                    <td className="px-2 py-2 text-right tabular-nums">{formatAmount(round2(rows.reduce((sum, row) => sum + row.due, 0)))}</td>
+                    <td colSpan={3} />
+                  </tr>
+                </tfoot>
+              )}
             </table>
           </div>
         </Card>

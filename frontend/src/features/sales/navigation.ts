@@ -51,28 +51,15 @@ export const salesTarget: NavLink = {
   keywords: ["target", "goal", "budget", "commission", "incentive"],
 };
 
-export const salesReport: NavLink = {
-  label: "Sales Report",
+/** Sales Report and Sales Analytics on one page (two tabs). */
+export const salesReportAnalytics: NavLink = {
+  label: "Sales Report & Analytics",
   href: paths.reports,
-  description: "Sales registers and summary reports.",
-  keywords: ["report", "register"],
+  description: "Sales registers and summary reports, and sales trends by customer, item and territory.",
+  keywords: ["report", "register", "analytics", "analysis", "trend", "chart"],
 };
 
-export const salesAnalytics: NavLink = {
-  label: "Sales Analytics",
-  href: paths.analytics,
-  description: "Sales trends by customer, item and territory.",
-  keywords: ["analytics", "analysis", "trend", "chart"],
-};
-
-export const salesSetup: NavLink = {
-  label: "Sales Setup",
-  href: paths.setup,
-  description: "Customers, items, sales force, areas, categories and price types.",
-  keywords: ["customer", "item", "product", "sales force", "territory", "zone", "route", "price", "master", "setup"],
-};
-
-/** Sidebar order: the nine sales pages as listed below. */
+/** Sidebar order: the sales pages as listed below. */
 export const salesLinks: readonly NavLink[] = [
   salesDashboard,
   salesQuotation,
@@ -81,9 +68,7 @@ export const salesLinks: readonly NavLink[] = [
   salesReturn,
   salesCollection,
   salesTarget,
-  salesReport,
-  salesAnalytics,
-  salesSetup,
+  salesReportAnalytics,
 ];
 
 export const salesWorkspace: Workspace = {
@@ -99,8 +84,7 @@ export const salesWorkspace: Workspace = {
   cards: [
     { label: "Transactions", links: [salesQuotation, salesOrder, salesDelivery, salesReturn, salesCollection] },
     { label: "Planning", links: [salesTarget] },
-    { label: "Reports & Analytics", links: [salesDashboard, salesReport, salesAnalytics] },
-    { label: "Setup", links: [salesSetup] },
+    { label: "Reports & Analytics", links: [salesDashboard, salesReportAnalytics] },
   ],
   routes: [
     { pattern: patterns.newQuotation, label: "Create Sales Quotation", parent: paths.quotations },

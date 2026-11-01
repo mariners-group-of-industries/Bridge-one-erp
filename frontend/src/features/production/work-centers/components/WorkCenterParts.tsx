@@ -225,7 +225,7 @@ export function OperatorTable({
   rows,
   onRemove,
 }: {
-  rows: readonly { employeeId: string; code: string; name: string; designation: string | null; department: string | null }[];
+  rows: readonly { employeeId: string; code: string; name: string; phone: string | null; designation: string | null; department: string | null }[];
   onRemove?: (employeeId: string) => void;
 }) {
   return (
@@ -241,6 +241,9 @@ export function OperatorTable({
             </th>
             <th scope="col" className="px-3 py-2 font-medium">
               Operator Name
+            </th>
+            <th scope="col" className="px-3 py-2 font-medium">
+              Phone No
             </th>
             <th scope="col" className="px-3 py-2 font-medium">
               Designation
@@ -261,6 +264,7 @@ export function OperatorTable({
               <td className="px-3 py-2 text-ink-muted tabular-nums">{index + 1}</td>
               <td className="px-3 py-2 text-ink">{row.code}</td>
               <td className="px-3 py-2 text-ink">{row.name}</td>
+              <td className="px-3 py-2 text-ink-muted tabular-nums">{show(row.phone)}</td>
               <td className="px-3 py-2 text-ink-muted">{show(row.designation)}</td>
               <td className="px-3 py-2 text-ink-muted">{show(row.department)}</td>
               {onRemove && (

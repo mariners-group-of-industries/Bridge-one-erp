@@ -55,7 +55,7 @@ Permission keys are stable and derived from the page path: `/sales/orders` → `
 
 ## Rollout
 
-The migration `20261104000000_rbac_permissions`:
+The migration `20261110000000_rbac_permissions`:
 
 - turns **ERP Access on** for every existing account (new accounts start with it off);
 - creates the **Legacy Full Access** group (code `LEGACY_FULL_ACCESS`, full access) and assigns it to every

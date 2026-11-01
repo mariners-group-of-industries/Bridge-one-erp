@@ -64,6 +64,8 @@ const lineReason = optionalText("Return reason", 100);
 /** Full or partial return of a delivery: quantities per delivery line. */
 export const referencedReturnSchema = z.object({
   mode: z.enum(["FULL", "PARTIAL"]),
+  /** Return Type: back into the warehouse, or a market return (factory receives + QC). */
+  kind: z.enum(RETURN_KINDS).default("SALES"),
   deliveryId: z.uuid({ error: "Select a delivery." }),
   ...headerFields,
   lines: z
@@ -199,10 +201,16 @@ export interface DeliveryForReturn {
   customerId: string;
   customerCode: string;
   customerName: string;
+  customerPhone: string | null;
+  customerGroup: string | null;
+  territory: string | null;
   salesPersonId: string | null;
   salesPersonName: string | null;
   priceIncludesVat: boolean;
   refProjectOutlet: string | null;
+  remarks: string | null;
+  /** Sales total of the delivery ("Total Sales"). */
+  totalAmount: number;
   itemsTotal: number;
   discountAmount: number;
   lines: DeliveryForReturnLine[];

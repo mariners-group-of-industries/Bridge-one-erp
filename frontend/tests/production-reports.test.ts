@@ -168,6 +168,13 @@ describe("production reports", () => {
       ["2026-10-23", 0, 10, "No production recorded"],
     ]);
     await expect(getReport(manager, { viewBy: "downtime", from: "2026-01-01", to: "2026-10-23" })).rejects.toThrow("62 days");
+
+    // Managerium filters: Status / Monthly (utilization), Reason / Summary (downtime).
+    expect((await report("utilization", { workCenterStatus: "INACTIVE" })).rows).toHaveLength(0);
+    expect((await report("utilization", { workCenterStatus: "ACTIVE", monthly: "true" })).rows).toEqual([expect.objectContaining({ month: "2026-10", status: "Active", available: 40, run: 13 })]);
+    expect((await report("downtime", { downtimeReason: "NO_PRODUCTION" })).rows.map((row) => row.date)).toEqual(["2026-10-20", "2026-10-23"]);
+    const summary = await report("downtime", { summary: "true" });
+    expect(summary.rows).toEqual([expect.objectContaining({ workCenter: "FR-01 - Fryer", days: 4, operating: 40, run: 13, downtime: 27, produced: 230 })]);
   });
 
   it("process and date wise, details, details view, demand and COGS", async () => {
@@ -188,6 +195,7 @@ describe("production reports", () => {
 
     const details = await report("details");
     expect(details.rows[0]).toMatchObject({ order: "PRO-MG260000001", lotSize: 100, orderQty: 500, total: 100, reject: 10, net: 90 });
+    expect((await report("details", { shift: "Night" })).rows.map((row) => row.total)).toEqual([50]);
 
     const view = await report("details-view");
     expect(view.rows.map((row) => [row.date, row.shift, row.net, row.remarks])).toEqual([
@@ -198,6 +206,7 @@ describe("production reports", () => {
 
     const demand = await report("demand");
     expect(demand.rows).toEqual([expect.objectContaining({ demand: 400, planned: 500, produced: 220, gap: 180, fulfilment: 55 })]);
+    expect((await report("demand", { itemType: "Raw Material" })).rows).toHaveLength(0);
 
     const cogs = await report("cogs");
     // Entry 1: potato 105 × 20 = 2,100; pouches 200 × 1 = 200; overhead 3 per unit × 90 = 270 → 2,570 for 90 units
@@ -233,6 +242,7 @@ describe("production reports", () => {
     const lookups = await reportLookups(manager);
     expect(lookups).toMatchObject({ company: "Mariners Group", workCenters: [expect.objectContaining({ code: "FR-01" })] });
     expect(lookups.itemTypes).toContain("Packaging Material");
+    expect(lookups.shifts.slice(0, 2)).toEqual(["Morning", "Day"]);
   });
 
   it("exports Excel and PDF", async () => {
