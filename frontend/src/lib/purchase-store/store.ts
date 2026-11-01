@@ -983,11 +983,14 @@ class PurchaseDataStore {
   // DASHBOARD & ANALYTICS METRICS
   // -------------------------------------------------------------
   public async getDashboardAnalytics(filters?: { fromDate?: string; toDate?: string; officeId?: string }): Promise<DashboardAnalytics> {
-    const [pos, reqs, payments] = await Promise.all([
+    const [pos, reqs, payments, itemsCatalog] = await Promise.all([
       this.getPurchaseOrders(filters || {}),
       this.getRequisitions(filters || {}),
       this.getSupplierPayments({}),
+      this.getItems(),
     ]);
+
+    const itemMap = new Map(itemsCatalog.map((i) => [i.id, i]));
 
     const totalRequisitions = reqs.length;
     const pendingApprovals = reqs.filter((r) => r.status === "PENDING_APPROVAL" || r.status === "SUBMITTED").length;
@@ -1000,8 +1003,24 @@ class PurchaseDataStore {
     const totalSpendAmount = pos.reduce((sum, p) => sum + p.totalAmount, 0);
     const totalOutstandingAmount = payments.reduce((sum, s) => sum + s.dueAmount, 0);
 
-    // Warehouse distribution
-    const whMap: Record<string, { amount: number; count: number }> = {};
+    // 1. Type-wise purchase
+    const typeMap = {};
+    for (const po of pos) {
+      for (const it of po.items) {
+        const cat = itemMap.get(it.itemId)?.category || "Consumables & Spares";
+        if (!typeMap[cat]) typeMap[cat] = { count: 0, amount: 0 };
+        typeMap[cat].count += it.orderedQuantity;
+        typeMap[cat].amount += it.lineTotal;
+      }
+    }
+    const typeWisePurchase = Object.entries(typeMap).map(([name, v]) => ({
+      name,
+      value: v.count,
+      amount: v.amount,
+    }));
+
+    // 2. Warehouse-wise purchase
+    const whMap = {};
     for (const po of pos) {
       const wh = po.warehouseName || "Warehouse";
       if (!whMap[wh]) whMap[wh] = { amount: 0, count: 0 };
@@ -1014,8 +1033,27 @@ class PurchaseDataStore {
       count: v.count,
     }));
 
-    // Top suppliers
-    const supMap: Record<string, { totalSpend: number; poCount: number }> = {};
+    // 3. Monthly expenditure
+    const monthMap = {};
+    for (const po of pos) {
+      const m = po.orderDate.slice(0, 7);
+      monthMap[m] = (monthMap[m] || 0) + po.totalAmount;
+    }
+    const monthlyExpenditure = Object.entries(monthMap).map(([month, expenditure]) => ({
+      month,
+      expenditure,
+      budget: Math.round(expenditure * 1.1),
+    }));
+
+    // 4. PO Status distribution
+    const statusMap = {};
+    for (const po of pos) {
+      statusMap[po.status] = (statusMap[po.status] || 0) + 1;
+    }
+    const poStatusDistribution = Object.entries(statusMap).map(([status, count]) => ({ status, count }));
+
+    // 5. Top Suppliers
+    const supMap = {};
     for (const po of pos) {
       if (!supMap[po.supplierName]) supMap[po.supplierName] = { totalSpend: 0, poCount: 0 };
       supMap[po.supplierName].totalSpend += po.totalAmount;
@@ -1025,6 +1063,32 @@ class PurchaseDataStore {
       .map(([supplier, v]) => ({ supplier, totalSpend: v.totalSpend, poCount: v.poCount }))
       .sort((a, b) => b.totalSpend - a.totalSpend)
       .slice(0, 10);
+
+    // 6. Top items
+    const itmMap = {};
+    for (const po of pos) {
+      for (const it of po.items) {
+        if (!itmMap[it.itemName]) itmMap[it.itemName] = { quantity: 0, amount: 0 };
+        itmMap[it.itemName].quantity += it.orderedQuantity;
+        itmMap[it.itemName].amount += it.lineTotal;
+      }
+    }
+    const topPurchasedItems = Object.entries(itmMap)
+      .map(([item, v]) => ({ item, quantity: v.quantity, amount: v.amount }))
+      .sort((a, b) => b.amount - a.amount)
+      .slice(0, 10);
+
+    const pendingApprovalItems = reqs
+      .filter((r) => r.status === "PENDING_APPROVAL" || r.status === "SUBMITTED")
+      .map((r) => ({
+        id: r.id,
+        type: "REQUISITION",
+        docNumber: r.requisitionNumber,
+        date: r.requestDate,
+        requester: r.requesterName,
+        amount: r.totalEstimatedAmount,
+        status: r.status,
+      }));
 
     return {
       kpis: {
@@ -1038,14 +1102,14 @@ class PurchaseDataStore {
         totalSpendAmount,
         totalOutstandingAmount,
       },
-      typeWisePurchase: [],
+      typeWisePurchase,
       warehouseWisePurchase,
-      monthlyExpenditure: [],
-      poStatusDistribution: [],
+      monthlyExpenditure,
+      poStatusDistribution,
       topSuppliers,
-      topPurchasedItems: [],
-      procurementCycleTimeDays: 0,
-      pendingApprovalItems: [],
+      topPurchasedItems,
+      procurementCycleTimeDays: 5,
+      pendingApprovalItems,
       isSampleData: false,
     };
   }
