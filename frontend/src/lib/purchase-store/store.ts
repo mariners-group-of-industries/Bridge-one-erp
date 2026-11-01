@@ -1004,7 +1004,7 @@ class PurchaseDataStore {
     const totalOutstandingAmount = payments.reduce((sum, s) => sum + s.dueAmount, 0);
 
     // 1. Type-wise purchase
-    const typeMap = {};
+    const typeMap: Record<string, { count: number; amount: number }> = {};
     for (const po of pos) {
       for (const it of po.items) {
         const cat = itemMap.get(it.itemId)?.category || "Consumables & Spares";
@@ -1020,7 +1020,7 @@ class PurchaseDataStore {
     }));
 
     // 2. Warehouse-wise purchase
-    const whMap = {};
+    const whMap: Record<string, { amount: number; count: number }> = {};
     for (const po of pos) {
       const wh = po.warehouseName || "Warehouse";
       if (!whMap[wh]) whMap[wh] = { amount: 0, count: 0 };
@@ -1034,7 +1034,7 @@ class PurchaseDataStore {
     }));
 
     // 3. Monthly expenditure
-    const monthMap = {};
+    const monthMap: Record<string, number> = {};
     for (const po of pos) {
       const m = po.orderDate.slice(0, 7);
       monthMap[m] = (monthMap[m] || 0) + po.totalAmount;
@@ -1046,14 +1046,14 @@ class PurchaseDataStore {
     }));
 
     // 4. PO Status distribution
-    const statusMap = {};
+    const statusMap: Record<string, number> = {};
     for (const po of pos) {
       statusMap[po.status] = (statusMap[po.status] || 0) + 1;
     }
     const poStatusDistribution = Object.entries(statusMap).map(([status, count]) => ({ status, count }));
 
     // 5. Top Suppliers
-    const supMap = {};
+    const supMap: Record<string, { totalSpend: number; poCount: number }> = {};
     for (const po of pos) {
       if (!supMap[po.supplierName]) supMap[po.supplierName] = { totalSpend: 0, poCount: 0 };
       supMap[po.supplierName].totalSpend += po.totalAmount;
@@ -1065,7 +1065,7 @@ class PurchaseDataStore {
       .slice(0, 10);
 
     // 6. Top items
-    const itmMap = {};
+    const itmMap: Record<string, { quantity: number; amount: number }> = {};
     for (const po of pos) {
       for (const it of po.items) {
         if (!itmMap[it.itemName]) itmMap[it.itemName] = { quantity: 0, amount: 0 };
