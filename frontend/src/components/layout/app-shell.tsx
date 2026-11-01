@@ -4,6 +4,7 @@ import { Menu, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { Suspense, useEffect, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
+import { PageLoader } from "@/components/ui/spinner";
 import { ToastProvider } from "@/components/ui/toast";
 import { SessionProvider, useSession } from "@/lib/auth/session";
 import { cn } from "@/lib/cn";
@@ -44,7 +45,8 @@ function ShellInner({ children }: { children: ReactNode }) {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
 
-  if (loading || user === null) return null;
+  // Same screen as the login page's, so signing in reads as one continuous load.
+  if (loading || user === null) return <PageLoader label={loading ? "Loading BridgeOne…" : "Redirecting to sign in…"} />;
 
   return (
     <>
