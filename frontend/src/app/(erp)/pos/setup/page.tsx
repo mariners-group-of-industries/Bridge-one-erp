@@ -3,6 +3,7 @@
 import React, { useState, useMemo, useEffect } from "react";
 import { SalesSetupSection } from "./sales-setup";
 import { PointRedeemOtpSection } from "./point-redeem-otp";
+import { CounterSetupSection } from "./counter-setup";
 import {
   ArrowLeft,
   Plus,
@@ -253,7 +254,7 @@ const SETUP_CARDS: Array<{
 ];
 
 export default function PosSetupPage() {
-  const [activeSection, setActiveSection] = useState<SetupSection>("POINT_REDEEM_OTP");
+  const [activeSection, setActiveSection] = useState<SetupSection>("COUNTER_SETUP");
 
   // Floor & Table specific states
   const [activeTab, setActiveTab] = useState<"FLOOR" | "FLOOR_LAYOUT">("FLOOR");
@@ -648,6 +649,10 @@ export default function PosSetupPage() {
 
   if (activeSection === "POINT_REDEEM_OTP") {
     return <PointRedeemOtpSection onBack={() => setActiveSection(null)} />;
+  }
+
+  if (activeSection === "COUNTER_SETUP") {
+    return <CounterSetupSection onBack={() => setActiveSection(null)} />;
   }
 
   // --- FLOOR & TABLE SETUP FULL VIEW ---
