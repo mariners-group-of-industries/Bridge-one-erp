@@ -17,58 +17,118 @@ import {
   ReportQuery,
   ReportResult,
 } from "@bridgeone/contracts";
-import {
-  calculateLinePricing,
-  calculateDocumentTotals,
-  validateReceiptLineQuantity,
-  validateReturnLineQuantity,
-} from "@bridgeone/purchase-calculations";
-import {
-  initialOffices,
-  initialWarehouses,
-  initialSuppliers,
-  initialItems,
-  initialRequisitions,
-  initialPurchaseOrders,
-  initialGoodsReceipts,
-  initialPurchaseReturns,
-  initialSupplierPaymentRecords,
-  initialSupplierInvoices,
-} from "./seedData";
+import { db } from "@/lib/prisma/client";
 
-const AuditService = {
-  record: (..._args: any[]) => {},
-};
+function toDateStr(d: Date | string | null | undefined): string {
+  if (!d) return new Date().toISOString().split("T")[0];
+  if (typeof d === "string") return d.split("T")[0];
+  return d.toISOString().split("T")[0];
+}
 
-const InventoryServiceAdapter = {
-  postGoodsReceipt: async (..._args: any[]) => ({ status: "SYNCED", adapterStatus: "SYNCED" as const, message: "Synced" }),
-  postReturn: async (..._args: any[]) => ({ status: "SYNCED", adapterStatus: "SYNCED" as const, message: "Synced" }),
-  syncStockMovement: async (..._args: any[]) => ({ status: "SYNCED", adapterStatus: "SYNCED" as const, message: "Synced" }),
-};
-
-const FinanceServiceAdapter = {
-  postBill: async (..._args: any[]) => ({ status: "SYNCED", adapterStatus: "SYNCED" as const, message: "Synced" }),
-  postDebitNote: async (..._args: any[]) => ({ status: "SYNCED", adapterStatus: "SYNCED" as const, message: "Synced" }),
-  syncPayableVoucher: async (..._args: any[]) => ({ status: "SYNCED", adapterStatus: "SYNCED" as const, message: "Synced" }),
-};
+function isUuid(val: string | undefined | null): boolean {
+  if (!val) return false;
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val);
+}
 
 class PurchaseDataStore {
-  public offices: Office[] = [...initialOffices];
-  public warehouses: Warehouse[] = [...initialWarehouses];
-  public suppliers: Supplier[] = [...initialSuppliers];
-  public items: Item[] = [...initialItems];
+  private async getContextData() {
+    const prisma = db();
+    const bu = await prisma.businessUnit.findFirst({
+      include: { company: true },
+      orderBy: { createdAt: "asc" },
+    });
+    return {
+      businessUnitId: bu?.id || "",
+      companyId: bu?.companyId || "",
+      companyName: bu?.company?.name || "BridgeOne Technologies Ltd.",
+    };
+  }
 
-  public requisitions: PurchaseRequisition[] = [...initialRequisitions];
-  public purchaseOrders: PurchaseOrder[] = [...initialPurchaseOrders];
-  public goodsReceipts: GoodsReceipt[] = [...initialGoodsReceipts];
-  public purchaseReturns: PurchaseReturn[] = [...initialPurchaseReturns];
-  public supplierPayments: SupplierPaymentRecord[] = [...initialSupplierPaymentRecords];
-  public supplierInvoices: SupplierInvoiceItem[] = [...initialSupplierInvoices];
+  // -------------------------------------------------------------
+  // MASTER DATA
+  // -------------------------------------------------------------
+  public async getOffices(): Promise<Office[]> {
+    const rows = await db().office.findMany({ orderBy: { name: "asc" } });
+    return rows.map((o) => ({
+      id: o.id,
+      code: o.name.replace(/[^A-Za-z0-9]/g, "").slice(0, 8).toUpperCase() || "OFF",
+      name: o.name,
+      address: o.address || "",
+    }));
+  }
+
+  public async getWarehouses(officeId?: string): Promise<Warehouse[]> {
+    const where = officeId && officeId !== "ALL" && isUuid(officeId) ? { officeId } : undefined;
+    const rows = await db().warehouse.findMany({
+      where,
+      orderBy: { name: "asc" },
+    });
+    return rows.map((w) => ({
+      id: w.id,
+      code: w.name.replace(/[^A-Za-z0-9]/g, "").slice(0, 8).toUpperCase() || "WH",
+      name: w.name,
+      officeId: w.officeId,
+    }));
+  }
+
+  public async getSuppliers(): Promise<Supplier[]> {
+    const rows = await db().supplier.findMany({
+      where: { isActive: true },
+      orderBy: { name: "asc" },
+    });
+    return rows.map((s) => ({
+      id: s.id,
+      code: s.code,
+      name: s.name,
+      contactPerson: s.contactPerson || s.name,
+      email: s.email || undefined,
+      phone: s.phone || "N/A",
+      address: s.address || "",
+      taxNumber: s.taxNumber || undefined,
+      type: s.type === "FOREIGN" ? ("FOREIGN" as const) : ("LOCAL" as const),
+      status: s.isActive ? ("ACTIVE" as const) : ("INACTIVE" as const),
+      balance: Number(s.balance ?? 0),
+    }));
+  }
+
+  public async getItems(): Promise<Item[]> {
+    const rows = await db().item.findMany({
+      where: { isActive: true },
+      include: { category: true },
+      orderBy: { name: "asc" },
+    });
+    return rows.map((i) => ({
+      id: i.id,
+      code: i.code,
+      name: i.name,
+      category: i.category?.name || "General",
+      uom: i.uom || "PCS",
+      standardPrice: Number(i.purchasePrice ?? i.salesRate ?? 0),
+      description: i.name,
+    }));
+  }
+
+  public async getContext() {
+    const { companyId, companyName } = await this.getContextData();
+    return {
+      company: {
+        id: companyId,
+        code: "BRG-TECH",
+        name: companyName,
+        currency: "BDT",
+      },
+      user: {
+        id: "usr-bridgeone-procurement-mgr",
+        name: "Procurement Manager",
+        role: "PURCHASE_MANAGER",
+      },
+    };
+  }
 
   // -------------------------------------------------------------
   // REQUISITIONS
   // -------------------------------------------------------------
-  public getRequisitions(filters: {
+  public async getRequisitions(filters: {
     officeId?: string;
     warehouseId?: string;
     status?: string;
@@ -77,835 +137,888 @@ class PurchaseDataStore {
     toDate?: string;
     requestType?: string;
     section?: string;
-    buyerOfficeId?: string;
-  }) {
-    return this.requisitions.filter((r) => {
-      if (filters.officeId && filters.officeId !== "ALL" && r.officeId !== filters.officeId) return false;
-      if (filters.warehouseId && filters.warehouseId !== "ALL" && r.warehouseId !== filters.warehouseId) return false;
-      if (filters.status && filters.status !== "ALL" && r.status !== filters.status) return false;
-      if (filters.requestType && filters.requestType !== "ALL" && r.requestType !== filters.requestType) return false;
-      if (
-        filters.section &&
-        filters.section !== "ALL" &&
-        r.department?.toLowerCase() !== filters.section.toLowerCase() &&
-        r.section?.toLowerCase() !== filters.section.toLowerCase()
-      ) {
-        return false;
-      }
-      if (filters.buyerOfficeId && filters.buyerOfficeId !== "ALL" && r.officeId !== filters.buyerOfficeId) return false;
-      if (filters.fromDate && r.requestDate < filters.fromDate) return false;
-      if (filters.toDate && r.requestDate > filters.toDate) return false;
-      if (filters.search) {
-        const s = filters.search.toLowerCase();
-        const match =
-          r.requisitionNumber.toLowerCase().includes(s) ||
-          r.requesterName.toLowerCase().includes(s) ||
-          r.department.toLowerCase().includes(s) ||
-          (r.referenceDocument && r.referenceDocument.toLowerCase().includes(s));
-        if (!match) return false;
-      }
-      return true;
+  }): Promise<PurchaseRequisition[]> {
+    const rows = await db().purchaseRequisition.findMany({
+      include: { lines: true, office: true, warehouse: true },
+      orderBy: { createdAt: "desc" },
     });
+
+    return rows
+      .map((r) => {
+        let status: PurchaseRequisition["status"] = "SUBMITTED";
+        if (r.status === "DRAFT") status = "DRAFT";
+        else if (r.status === "PENDING") status = "SUBMITTED";
+        else if (r.status === "APPROVED") status = "APPROVED";
+        else if (r.status === "REJECTED") status = "REJECTED";
+        else if (r.status === "ORDERED") status = "CONVERTED_TO_PO";
+        else if (r.status === "CANCELLED") status = "CANCELLED";
+
+        const items = r.lines.map((l) => ({
+          id: l.id,
+          itemId: l.itemId || "",
+          itemCode: l.itemCode,
+          itemName: l.itemName,
+          uom: l.uom,
+          quantity: Number(l.quantity),
+          estimatedUnitPrice: Number(l.estimatedUnitPrice),
+          lineTotal: Number(l.lineTotal),
+          remarks: l.remarks || undefined,
+        }));
+
+        return {
+          id: r.id,
+          companyId: r.businessUnitId,
+          officeId: r.officeId,
+          warehouseId: r.warehouseId || "",
+          requisitionNumber: r.number,
+          requestDate: toDateStr(r.requisitionDate),
+          requiredDeliveryDate: toDateStr(r.requiredDate),
+          requestType: (r.requestType as any) || "LOCAL",
+          purchaseMethod: (r.purchaseMethod as any) || "DIRECT",
+          department: r.department,
+          section: r.department,
+          requesterName: r.requestedBy,
+          businessJustification: r.notes || "Operational replenishment",
+          remarks: r.notes || undefined,
+          totalEstimatedAmount: Number(r.totalEstimated),
+          status,
+          createdBy: r.requestedBy,
+          createdAt: r.createdAt.toISOString(),
+          updatedAt: r.updatedAt.toISOString(),
+          approvalHistory: [],
+          items,
+        };
+      })
+      .filter((r) => {
+        if (filters.officeId && filters.officeId !== "ALL" && r.officeId !== filters.officeId) return false;
+        if (filters.warehouseId && filters.warehouseId !== "ALL" && r.warehouseId !== filters.warehouseId) return false;
+        if (filters.status && filters.status !== "ALL" && r.status !== filters.status) return false;
+        if (filters.requestType && filters.requestType !== "ALL" && r.requestType !== filters.requestType) return false;
+        if (filters.section && filters.section !== "ALL" && r.department !== filters.section) return false;
+        if (filters.fromDate && r.requestDate < filters.fromDate) return false;
+        if (filters.toDate && r.requestDate > filters.toDate) return false;
+        if (filters.search) {
+          const s = filters.search.toLowerCase();
+          return r.requisitionNumber.toLowerCase().includes(s) || r.requesterName.toLowerCase().includes(s);
+        }
+        return true;
+      });
   }
 
-  public getRequisitionById(id: string) {
-    return this.requisitions.find((r) => r.id === id || r.requisitionNumber === id);
+  public async getRequisitionById(id: string): Promise<PurchaseRequisition | null> {
+    const list = await this.getRequisitions({});
+    return list.find((r) => r.id === id || r.requisitionNumber === id) || null;
   }
 
-  public createRequisition(input: CreateRequisitionInput, actorName: string = "Mahfuz Rahman") {
-    const nextSeq = this.requisitions.length + 101;
-    const reqNumber = `REQ-2026-${String(nextSeq).padStart(5, "0")}`;
+  public async createRequisition(input: CreateRequisitionInput, actorName: string = "Admin"): Promise<PurchaseRequisition> {
+    const prisma = db();
+    const { businessUnitId } = await this.getContextData();
+
+    // Ensure valid office
+    let officeId = input.officeId;
+    if (!isUuid(officeId)) {
+      const firstOffice = await prisma.office.findFirst();
+      officeId = firstOffice?.id || "";
+    }
+
+    let warehouseId: string | null = input.warehouseId;
+    if (!isUuid(warehouseId)) {
+      const firstWh = await prisma.warehouse.findFirst({ where: { officeId } });
+      warehouseId = firstWh?.id || null;
+    }
+
+    const count = await prisma.purchaseRequisition.count({ where: { businessUnitId } });
+    const number = `REQ-2026-${String(count + 101).padStart(5, "0")}`;
 
     let totalEst = 0;
-    const items = input.items.map((it, idx) => {
-      const lineTotal = it.quantity * it.estimatedUnitPrice;
-      totalEst += lineTotal;
+    const linesData = input.items.map((it, idx) => {
+      const qty = Number(it.quantity) || 1;
+      const rate = Number(it.estimatedUnitPrice) || 0;
+      const total = qty * rate;
+      totalEst += total;
       return {
-        ...it,
-        id: `ri-${Date.now()}-${idx}`,
-        lineTotal,
+        lineNo: idx + 1,
+        itemId: isUuid(it.itemId) ? it.itemId : null,
+        itemCode: it.itemCode || `ITM-${idx + 1}`,
+        itemName: it.itemName || "Item",
+        uom: it.uom || "PCS",
+        quantity: qty,
+        estimatedUnitPrice: rate,
+        lineTotal: total,
+        remarks: it.remarks || null,
       };
     });
 
-    const newReq: PurchaseRequisition = {
-      ...input,
-      id: `req-${Date.now()}`,
-      requisitionNumber: reqNumber,
-      totalEstimatedAmount: totalEst,
-      status: "SUBMITTED",
-      createdBy: actorName,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      approvalHistory: [
-        {
-          id: `app-${Date.now()}`,
-          action: "SUBMITTED",
-          actorName,
-          comments: "Requisition created and submitted for approval.",
-          timestamp: new Date().toISOString(),
-        },
-      ],
-      items,
-    };
-
-    this.requisitions.unshift(newReq);
-
-    AuditService.record({
-      companyId: input.companyId,
-      entityType: "REQUISITION",
-      entityId: newReq.id,
-      docNumber: newReq.requisitionNumber,
-      action: "CREATE",
-      userId: "usr-current",
-      userName: actorName,
-      details: { totalAmount: totalEst, itemsCount: items.length },
+    const created = await prisma.purchaseRequisition.create({
+      data: {
+        businessUnitId,
+        officeId,
+        warehouseId,
+        number,
+        department: input.department || "Operations",
+        requestedBy: input.requesterName || actorName,
+        requisitionDate: new Date(input.requestDate || new Date()),
+        requiredDate: new Date(input.requiredDeliveryDate || new Date()),
+        status: "PENDING",
+        requestType: input.requestType || "LOCAL",
+        purchaseMethod: input.purchaseMethod || "DIRECT",
+        totalEstimated: totalEst,
+        notes: input.remarks || input.businessJustification || null,
+        lines: { create: linesData },
+      },
+      include: { lines: true, office: true, warehouse: true },
     });
 
-    return newReq;
+    const result = await this.getRequisitionById(created.id);
+    return result!;
   }
 
-  public updateRequisitionStatus(
-    id: string,
-    action: "APPROVE" | "REJECT" | "CANCEL" | "REVERSE",
-    actorName: string,
-    comments?: string
-  ) {
-    const req = this.getRequisitionById(id);
-    if (!req) throw new Error("Requisition not found");
+  public async updateRequisitionStatus(id: string, action: string, actorName: string, comments?: string) {
+    const prisma = db();
+    let status: any = "PENDING";
+    if (action === "APPROVE") status = "APPROVED";
+    else if (action === "REJECT") status = "REJECTED";
+    else if (action === "CANCEL") status = "CANCELLED";
+    else if (action === "REVERSE") status = "PENDING";
 
-    if (action === "APPROVE") {
-      if (req.status !== "SUBMITTED" && req.status !== "PENDING_APPROVAL") {
-        throw new Error(`Cannot approve requisition in status '${req.status}'`);
-      }
-      req.status = "APPROVED";
-    } else if (action === "REJECT") {
-      req.status = "REJECTED";
-    } else if (action === "CANCEL") {
-      if (req.status === "CONVERTED_TO_PO") {
-        throw new Error("Cannot cancel requisition already converted to Purchase Order");
-      }
-      req.status = "CANCELLED";
-    } else if (action === "REVERSE") {
-      if (req.status === "CONVERTED_TO_PO") {
-        throw new Error("Cannot reverse requisition already converted to Purchase Order");
-      }
-      req.status = "SUBMITTED";
-    }
-
-    req.updatedAt = new Date().toISOString();
-    req.approvalHistory.push({
-      id: `app-${Date.now()}`,
-      action,
-      actorName,
-      comments: comments || `${action} action performed`,
-      timestamp: new Date().toISOString(),
+    const updated = await prisma.purchaseRequisition.update({
+      where: isUuid(id) ? { id } : { id: (await prisma.purchaseRequisition.findFirst({ where: { number: id } }))?.id },
+      data: { status, notes: comments || undefined },
     });
-
-    AuditService.record({
-      companyId: req.companyId,
-      entityType: "REQUISITION",
-      entityId: req.id,
-      docNumber: req.requisitionNumber,
-      action: action === "APPROVE" ? "APPROVE" : "UPDATE",
-      userId: "usr-current",
-      userName: actorName,
-      details: { action, comments },
-    });
-
-    return req;
+    return this.getRequisitionById(updated.id);
   }
 
-  public updateRequisition(
-    id: string,
-    input: Partial<CreateRequisitionInput>,
-    actorName: string = "Mahfuz Rahman"
-  ) {
-    const req = this.getRequisitionById(id);
+  public async updateRequisition(id: string, input: Partial<CreateRequisitionInput>, actorName: string) {
+    const prisma = db();
+    const req = await prisma.purchaseRequisition.findFirst({
+      where: isUuid(id) ? { id } : { number: id },
+    });
     if (!req) throw new Error("Requisition not found");
-    if (req.status === "CONVERTED_TO_PO") {
-      throw new Error("Cannot edit requisition already converted to Purchase Order");
-    }
 
     if (input.items && input.items.length > 0) {
+      await prisma.purchaseRequisitionLine.deleteMany({ where: { requisitionId: req.id } });
       let totalEst = 0;
-      req.items = input.items.map((it, idx) => {
-        const lineTotal = it.quantity * it.estimatedUnitPrice;
-        totalEst += lineTotal;
+      const linesData = input.items.map((it, idx) => {
+        const qty = Number(it.quantity) || 1;
+        const rate = Number(it.estimatedUnitPrice) || 0;
+        const total = qty * rate;
+        totalEst += total;
         return {
-          ...it,
-          id: (it as any).id || `ri-${Date.now()}-${idx}`,
-          lineTotal,
+          lineNo: idx + 1,
+          itemId: isUuid(it.itemId) ? it.itemId : null,
+          itemCode: it.itemCode || `ITM-${idx + 1}`,
+          itemName: it.itemName || "Item",
+          uom: it.uom || "PCS",
+          quantity: qty,
+          estimatedUnitPrice: rate,
+          lineTotal: total,
         };
       });
-      req.totalEstimatedAmount = totalEst;
+      await prisma.purchaseRequisitionLine.createMany({
+        data: linesData.map((l) => ({ ...l, requisitionId: req.id })),
+      });
+      await prisma.purchaseRequisition.update({
+        where: { id: req.id },
+        data: { totalEstimated: totalEst },
+      });
     }
 
-    if (input.officeId) req.officeId = input.officeId;
-    if (input.warehouseId) req.warehouseId = input.warehouseId;
-    if (input.department) req.department = input.department;
-    if (input.requesterName) req.requesterName = input.requesterName;
-    if (input.purchaseMethod) req.purchaseMethod = input.purchaseMethod;
-    if (input.requiredDeliveryDate) req.requiredDeliveryDate = input.requiredDeliveryDate;
-    if (input.businessJustification) req.businessJustification = input.businessJustification;
-    if (input.remarks !== undefined) req.remarks = input.remarks;
-
-    req.updatedAt = new Date().toISOString();
-    req.approvalHistory.push({
-      id: `app-${Date.now()}`,
-      action: "UPDATED",
-      actorName,
-      comments: "Requisition details edited and updated.",
-      timestamp: new Date().toISOString(),
-    });
-
-    AuditService.record({
-      companyId: req.companyId,
-      entityType: "REQUISITION",
-      entityId: req.id,
-      docNumber: req.requisitionNumber,
-      action: "UPDATE",
-      userId: "usr-current",
-      userName: actorName,
-      details: { updatedFields: Object.keys(input) },
-    });
-
-    return req;
+    return this.getRequisitionById(req.id);
   }
 
   // -------------------------------------------------------------
   // PURCHASE ORDERS
   // -------------------------------------------------------------
-  public getPurchaseOrders(filters: {
+  public async getPurchaseOrders(filters: {
     officeId?: string;
     supplierId?: string;
     status?: string;
     search?: string;
     fromDate?: string;
     toDate?: string;
-  }) {
-    return this.purchaseOrders.filter((po) => {
-      if (filters.officeId && po.officeId !== filters.officeId) return false;
-      if (filters.supplierId && po.supplierId !== filters.supplierId) return false;
-      if (filters.status && filters.status !== "ALL" && po.status !== filters.status) return false;
-      if (filters.fromDate && po.orderDate < filters.fromDate) return false;
-      if (filters.toDate && po.orderDate > filters.toDate) return false;
-      if (filters.search) {
-        const s = filters.search.toLowerCase();
-        const match =
-          po.poNumber.toLowerCase().includes(s) ||
-          po.supplierName.toLowerCase().includes(s) ||
-          (po.requisitionNumber && po.requisitionNumber.toLowerCase().includes(s)) ||
-          (po.referenceNumber && po.referenceNumber.toLowerCase().includes(s));
-        if (!match) return false;
-      }
-      return true;
+  }): Promise<PurchaseOrder[]> {
+    const rows = await db().purchaseOrder.findMany({
+      include: { lines: true, supplier: true, office: true, warehouse: true, requisition: true },
+      orderBy: { createdAt: "desc" },
     });
-  }
 
-  public getPurchaseOrderById(id: string) {
-    return this.purchaseOrders.find((po) => po.id === id || po.poNumber === id);
-  }
+    return rows
+      .map((po) => {
+        let status: PurchaseOrder["status"] = "APPROVED";
+        if (po.status === "DRAFT") status = "DRAFT";
+        else if (po.status === "PENDING") status = "PENDING_APPROVAL";
+        else if (po.status === "APPROVED") status = "APPROVED";
+        else if (po.status === "PARTIAL_RECEIVED") status = "PARTIALLY_RECEIVED";
+        else if (po.status === "RECEIVED") status = "COMPLETED";
+        else if (po.status === "CLOSED") status = "CLOSED";
+        else if (po.status === "CANCELLED") status = "CANCELLED";
 
-  public createPurchaseOrder(input: CreatePurchaseOrderInput, actorName: string = "Mahfuz Rahman") {
-    const nextSeq = this.purchaseOrders.length + 88;
-    const poNumber = `PO-2026-${String(nextSeq).padStart(5, "0")}`;
+        const items = po.lines.map((l) => ({
+          id: l.id,
+          itemId: l.itemId || "",
+          itemCode: l.itemCode,
+          itemName: l.itemName,
+          uom: l.uom,
+          orderedQuantity: Number(l.quantity),
+          receivedQuantity: Number(l.receivedQuantity),
+          returnedQuantity: 0,
+          outstandingQuantity: Math.max(0, Number(l.quantity) - Number(l.receivedQuantity)),
+          unitPrice: Number(l.unitPrice),
+          discountPercentage: Number(l.discountPercent),
+          discountAmount: 0,
+          taxPercentage: Number(l.vatPercent),
+          taxAmount: 0,
+          lineTotal: Number(l.lineTotal),
+          remarks: l.remarks || undefined,
+        }));
 
-    const supplier = this.suppliers.find((s) => s.id === input.supplierId);
-    const office = this.offices.find((o) => o.id === input.officeId);
-    const warehouse = this.warehouses.find((w) => w.id === input.warehouseId);
-
-    // Calculate line items with precision
-    const pricedItems = input.items.map((item, idx) => {
-      const calc = calculateLinePricing({
-        quantity: item.orderedQuantity,
-        unitPrice: item.unitPrice,
-        discountPercentage: item.discountPercentage,
-        taxPercentage: item.taxPercentage,
+        return {
+          id: po.id,
+          companyId: po.businessUnitId,
+          requisitionId: po.requisitionId || undefined,
+          requisitionNumber: po.requisition?.number || undefined,
+          supplierId: po.supplierId,
+          supplierName: po.supplier?.name || "Supplier",
+          officeId: po.officeId,
+          officeName: po.office?.name || "Office",
+          warehouseId: po.warehouseId || "",
+          warehouseName: po.warehouse?.name || "Warehouse",
+          poNumber: po.number,
+          orderDate: toDateStr(po.orderDate),
+          expectedDeliveryDate: toDateStr(po.expectedDeliveryDate || po.orderDate),
+          referenceNumber: po.referenceNumber || undefined,
+          paymentTerms: "Net 30 Days",
+          deliveryTerms: "FOB Warehouse",
+          shippingFee: Number(po.shippingFee),
+          subtotal: Number(po.subtotal),
+          totalDiscount: Number(po.totalDiscount),
+          totalTax: Number(po.totalTax),
+          totalAmount: Number(po.totalAmount),
+          status,
+          createdBy: po.createdBy,
+          createdAt: po.createdAt.toISOString(),
+          updatedAt: po.updatedAt.toISOString(),
+          approvalHistory: [],
+          items,
+        };
+      })
+      .filter((po) => {
+        if (filters.officeId && filters.officeId !== "ALL" && po.officeId !== filters.officeId) return false;
+        if (filters.supplierId && filters.supplierId !== "ALL" && po.supplierId !== filters.supplierId) return false;
+        if (filters.status && filters.status !== "ALL" && po.status !== filters.status) return false;
+        if (filters.fromDate && po.orderDate < filters.fromDate) return false;
+        if (filters.toDate && po.orderDate > filters.toDate) return false;
+        if (filters.search) {
+          const s = filters.search.toLowerCase();
+          return po.poNumber.toLowerCase().includes(s) || po.supplierName.toLowerCase().includes(s);
+        }
+        return true;
       });
+  }
 
+  public async getPurchaseOrderById(id: string): Promise<PurchaseOrder | null> {
+    const list = await this.getPurchaseOrders({});
+    return list.find((p) => p.id === id || p.poNumber === id) || null;
+  }
+
+  public async createPurchaseOrder(input: CreatePurchaseOrderInput, actorName: string = "Admin"): Promise<PurchaseOrder> {
+    const prisma = db();
+    const { businessUnitId } = await this.getContextData();
+
+    let officeId = input.officeId;
+    if (!isUuid(officeId)) {
+      const firstOff = await prisma.office.findFirst();
+      officeId = firstOff?.id || "";
+    }
+
+    let warehouseId: string | null = input.warehouseId;
+    if (!isUuid(warehouseId)) {
+      const firstWh = await prisma.warehouse.findFirst({ where: { officeId } });
+      warehouseId = firstWh?.id || null;
+    }
+
+    let supplierId = input.supplierId;
+    if (!isUuid(supplierId)) {
+      const firstSup = await prisma.supplier.findFirst();
+      supplierId = firstSup?.id || "";
+    }
+
+    const count = await prisma.purchaseOrder.count({ where: { businessUnitId } });
+    const number = `PO-2026-${String(count + 88).padStart(5, "0")}`;
+
+    let subtotal = 0;
+    const linesData = input.items.map((it, idx) => {
+      const qty = Number(it.orderedQuantity) || 1;
+      const rate = Number(it.unitPrice) || 0;
+      const lineTotal = qty * rate;
+      subtotal += lineTotal;
       return {
-        ...item,
-        id: `poi-${Date.now()}-${idx}`,
-        discountAmount: calc.discountAmount,
-        taxAmount: calc.taxAmount,
-        lineTotal: calc.lineTotal,
+        lineNo: idx + 1,
+        itemId: isUuid(it.itemId) ? it.itemId : null,
+        itemCode: it.itemCode || `ITM-${idx + 1}`,
+        itemName: it.itemName || "Item",
+        uom: it.uom || "PCS",
+        quantity: qty,
+        unitPrice: rate,
+        discountPercent: it.discountPercentage || 0,
+        vatPercent: it.taxPercentage || 0,
+        lineTotal,
         receivedQuantity: 0,
-        returnedQuantity: 0,
-        outstandingQuantity: item.orderedQuantity,
       };
     });
 
-    const docTotals = calculateDocumentTotals({
-      items: pricedItems.map((p) => ({
-        quantity: p.orderedQuantity,
-        unitPrice: p.unitPrice,
-        discountPercentage: p.discountPercentage,
-        taxPercentage: p.taxPercentage,
-      })),
-      shippingFee: input.shippingFee,
+    const shipping = Number(input.shippingFee) || 0;
+    const totalAmount = subtotal + shipping;
+
+    const created = await prisma.purchaseOrder.create({
+      data: {
+        businessUnitId,
+        officeId,
+        warehouseId,
+        supplierId,
+        requisitionId: isUuid(input.requisitionId) ? input.requisitionId : null,
+        number,
+        orderDate: new Date(input.orderDate || new Date()),
+        expectedDeliveryDate: new Date(input.expectedDeliveryDate || new Date()),
+        referenceNumber: input.referenceNumber || null,
+        status: "APPROVED",
+        subtotal,
+        totalDiscount: 0,
+        totalTax: 0,
+        shippingFee: shipping,
+        totalAmount,
+        createdBy: actorName,
+        lines: { create: linesData },
+      },
+      include: { lines: true, supplier: true, office: true, warehouse: true, requisition: true },
     });
 
-    const newPO: PurchaseOrder = {
-      ...input,
-      id: `po-${Date.now()}`,
-      poNumber,
-      supplierName: supplier?.name || "Unknown Supplier",
-      officeName: office?.name || "Unknown Office",
-      warehouseName: warehouse?.name || "Unknown Warehouse",
-      subtotal: docTotals.subtotal,
-      totalDiscount: docTotals.totalDiscount,
-      totalTax: docTotals.totalTax,
-      totalAmount: docTotals.grandTotal,
-      status: "APPROVED", // Auto-approved for fast ERP workflow or PENDING_APPROVAL
-      createdBy: actorName,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      approvalHistory: [
-        {
-          id: `papp-${Date.now()}`,
-          action: "APPROVED",
-          actorName,
-          comments: "Purchase Order created and authorized.",
-          timestamp: new Date().toISOString(),
-        },
-      ],
-      items: pricedItems,
-    };
-
-    // If linked to requisition, mark requisition as CONVERTED_TO_PO
     if (input.requisitionId) {
-      const req = this.getRequisitionById(input.requisitionId);
-      if (req) {
-        req.status = "CONVERTED_TO_PO";
-        newPO.requisitionNumber = req.requisitionNumber;
-        req.approvalHistory.push({
-          id: `app-${Date.now()}`,
-          action: "CONVERTED_TO_PO",
-          actorName,
-          comments: `Converted to ${poNumber}`,
-          timestamp: new Date().toISOString(),
-        });
-      }
+      await prisma.purchaseRequisition.updateMany({
+        where: isUuid(input.requisitionId) ? { id: input.requisitionId } : { number: input.requisitionId },
+        data: { status: "ORDERED" },
+      });
     }
 
-    this.purchaseOrders.unshift(newPO);
+    const res = await this.getPurchaseOrderById(created.id);
+    return res!;
+  }
 
-    AuditService.record({
-      companyId: input.companyId,
-      entityType: "ORDER",
-      entityId: newPO.id,
-      docNumber: newPO.poNumber,
-      action: "CREATE",
-      userId: "usr-current",
-      userName: actorName,
-      details: { totalAmount: newPO.totalAmount, supplier: newPO.supplierName },
+  public async updatePurchaseOrder(id: string, input: Partial<CreatePurchaseOrderInput>, actorName: string) {
+    const prisma = db();
+    const po = await prisma.purchaseOrder.findFirst({
+      where: isUuid(id) ? { id } : { number: id },
     });
+    if (!po) throw new Error("Purchase Order not found");
 
-    return newPO;
+    if (input.items && input.items.length > 0) {
+      await prisma.purchaseOrderLine.deleteMany({ where: { orderId: po.id } });
+      let subtotal = 0;
+      const linesData = input.items.map((it, idx) => {
+        const qty = Number(it.orderedQuantity) || 1;
+        const rate = Number(it.unitPrice) || 0;
+        const lineTotal = qty * rate;
+        subtotal += lineTotal;
+        return {
+          lineNo: idx + 1,
+          itemId: isUuid(it.itemId) ? it.itemId : null,
+          itemCode: it.itemCode || `ITM-${idx + 1}`,
+          itemName: it.itemName || "Item",
+          uom: it.uom || "PCS",
+          quantity: qty,
+          unitPrice: rate,
+          lineTotal,
+          receivedQuantity: 0,
+        };
+      });
+      await prisma.purchaseOrderLine.createMany({
+        data: linesData.map((l) => ({ ...l, orderId: po.id })),
+      });
+      await prisma.purchaseOrder.update({
+        where: { id: po.id },
+        data: { subtotal, totalAmount: subtotal + Number(po.shippingFee) },
+      });
+    }
+
+    return this.getPurchaseOrderById(po.id);
+  }
+
+  public async updatePurchaseOrderStatus(id: string, action: string, actorName: string, comments?: string) {
+    const prisma = db();
+    let status: any = "APPROVED";
+    if (action === "CLOSE") status = "CLOSED";
+    else if (action === "REVERSE") status = "PENDING";
+    else if (action === "CANCEL") status = "CANCELLED";
+
+    const updated = await prisma.purchaseOrder.update({
+      where: isUuid(id) ? { id } : { id: (await prisma.purchaseOrder.findFirst({ where: { number: id } }))?.id },
+      data: { status, notes: comments || undefined },
+    });
+    return this.getPurchaseOrderById(updated.id);
   }
 
   // -------------------------------------------------------------
   // GOODS RECEIPT (GRN)
   // -------------------------------------------------------------
-  public getGoodsReceipts(filters: { search?: string; status?: string }) {
-    return this.goodsReceipts.filter((grn) => {
-      if (filters.status && filters.status !== "ALL" && grn.status !== filters.status) return false;
-      if (filters.search) {
-        const s = filters.search.toLowerCase();
-        const match =
-          grn.grnNumber.toLowerCase().includes(s) ||
-          grn.poNumber.toLowerCase().includes(s) ||
-          grn.supplierName.toLowerCase().includes(s);
-        if (!match) return false;
-      }
-      return true;
-    });
-  }
-
-  public getApprovedOrdersForReceiving() {
-    return this.purchaseOrders.filter(
-      (po) => po.status === "APPROVED" || po.status === "PARTIALLY_RECEIVED"
-    );
-  }
-
-  public async createGoodsReceipt(input: CreateGoodsReceiptInput, actorName: string = "Nurul Huda") {
-    const po = this.getPurchaseOrderById(input.purchaseOrderId);
-    if (!po) throw new Error("Purchase Order not found");
-
-    if (po.status !== "APPROVED" && po.status !== "PARTIALLY_RECEIVED") {
-      throw new Error(`Cannot receive goods for PO in status '${po.status}'`);
-    }
-
-    // Validate quantities against outstanding
-    let totalReceivedAmt = 0;
-    const validatedItems = input.items.map((item) => {
-      const poItem = po.items.find((p) => p.id === item.poItemId || p.itemId === item.itemId);
-      if (!poItem) throw new Error(`Item ${item.itemName} does not exist in PO ${po.poNumber}`);
-
-      const validation = validateReceiptLineQuantity(
-        poItem.orderedQuantity,
-        poItem.receivedQuantity,
-        item.currentReceivedQuantity,
-        poItem.returnedQuantity
-      );
-
-      if (!validation.isValid) {
-        throw new Error(validation.error || `Invalid quantity for ${item.itemName}`);
-      }
-
-      const lineTotal = item.currentReceivedQuantity * poItem.unitPrice;
-      totalReceivedAmt += lineTotal;
-
-      return {
-        ...item,
-        id: `gri-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-        orderedQuantity: poItem.orderedQuantity,
-        previouslyReceivedQuantity: poItem.receivedQuantity,
-        unitPrice: poItem.unitPrice,
-        lineTotal,
-      };
+  public async getGoodsReceipts(filters: { search?: string; status?: string }): Promise<GoodsReceipt[]> {
+    const rows = await db().goodsReceipt.findMany({
+      include: { lines: true, supplier: true, office: true, warehouse: true, order: { include: { requisition: true } } },
+      orderBy: { createdAt: "desc" },
     });
 
-    const nextSeq = this.goodsReceipts.length + 46;
-    const grnNumber = `GRN-2026-${String(nextSeq).padStart(5, "0")}`;
+    return rows
+      .map((g) => {
+        let status: GoodsReceipt["status"] = "RECEIVED";
+        if (g.status === "DRAFT") status = "DRAFT";
+        else if (g.status === "CANCELLED") status = "CANCELLED";
 
-    // Update PO item quantities and status
-    let allCompleted = true;
-    for (const vItem of validatedItems) {
-      const poItem = po.items.find((p) => p.id === vItem.poItemId || p.itemId === vItem.itemId)!;
-      poItem.receivedQuantity += vItem.currentReceivedQuantity;
-      poItem.outstandingQuantity = Math.max(
-        0,
-        poItem.orderedQuantity - poItem.receivedQuantity + poItem.returnedQuantity
-      );
-      if (poItem.outstandingQuantity > 0) {
-        allCompleted = false;
-      }
-    }
+        const items = g.lines.map((l) => ({
+          id: l.id,
+          poItemId: l.id,
+          itemId: l.itemId || "",
+          itemCode: l.itemCode,
+          itemName: l.itemName,
+          uom: l.uom,
+          orderedQuantity: Number(l.orderedQty),
+          previouslyReceivedQuantity: 0,
+          currentReceivedQuantity: Number(l.receivedQty),
+          rejectedDamagedQuantity: Number(l.rejectedQty),
+          unitPrice: Number(l.unitPrice),
+          lineTotal: Number(l.lineTotal),
+          remarks: l.remarks || undefined,
+        }));
 
-    po.status = allCompleted ? "COMPLETED" : "PARTIALLY_RECEIVED";
-    po.updatedAt = new Date().toISOString();
-
-    // Trigger stock movement adapter
-    const stockMovement = await InventoryServiceAdapter.syncStockMovement({
-      idempotencyKey: `GRN-${grnNumber}-${Date.now()}`,
-      referenceType: "GOODS_RECEIPT",
-      referenceId: grnNumber,
-      warehouseId: po.warehouseId,
-      items: validatedItems.map((v) => ({
-        itemId: v.itemId,
-        quantity: v.currentReceivedQuantity - v.rejectedDamagedQuantity,
-        uom: v.uom,
-        movementDirection: "INWARD",
-      })),
-    });
-
-    const newGRN: GoodsReceipt = {
-      ...input,
-      id: `grn-${Date.now()}`,
-      grnNumber,
-      poNumber: po.poNumber,
-      poDate: po.orderDate,
-      requisitionNumber: po.requisitionNumber,
-      supplierId: po.supplierId,
-      supplierName: po.supplierName,
-      officeId: po.officeId,
-      officeName: po.officeName,
-      warehouseId: po.warehouseId,
-      warehouseName: po.warehouseName,
-      totalReceivedAmount: totalReceivedAmt,
-      status: "RECEIVED",
-      preparedBy: actorName,
-      stockMovementSyncStatus: stockMovement.adapterStatus,
-      createdAt: new Date().toISOString(),
-      items: validatedItems,
-    };
-
-    this.goodsReceipts.unshift(newGRN);
-
-    // Register invoice in supplier payable records
-    if (input.supplierInvoiceNumber) {
-      const inv: SupplierInvoiceItem = {
-        id: `inv-${Date.now()}`,
-        invoiceNumber: input.supplierInvoiceNumber,
-        poNumber: po.poNumber,
-        grnNumber: newGRN.grnNumber,
-        supplierName: po.supplierName,
-        invoiceDate: input.receiptDate,
-        dueDate: new Date(Date.now() + 30 * 86400000).toISOString().split("T")[0],
-        totalAmount: totalReceivedAmt,
-        paidAmount: 0,
-        dueAmount: totalReceivedAmt,
-        status: "UNPAID",
-        type: "LOCAL",
-      };
-      this.supplierInvoices.unshift(inv);
-
-      // Trigger finance adapter
-      await FinanceServiceAdapter.syncPayableVoucher({
-        idempotencyKey: `INV-${input.supplierInvoiceNumber}`,
-        referenceType: "SUPPLIER_INVOICE",
-        referenceNumber: input.supplierInvoiceNumber,
-        supplierId: po.supplierId,
-        amount: totalReceivedAmt,
-        currency: "BDT",
+        return {
+          id: g.id,
+          companyId: g.businessUnitId,
+          purchaseOrderId: g.orderId,
+          grnNumber: g.number,
+          receiptDate: toDateStr(g.receiveDate),
+          poNumber: g.order?.number || "DIRECT-PO",
+          poDate: toDateStr(g.order?.orderDate || g.receiveDate),
+          requisitionNumber: g.order?.requisition?.number || undefined,
+          supplierId: g.supplierId,
+          supplierName: g.supplier?.name || "Supplier",
+          officeId: g.officeId,
+          officeName: g.office?.name || "Office",
+          warehouseId: g.warehouseId || "",
+          warehouseName: g.warehouse?.name || "Warehouse",
+          challanNumber: g.challanNumber || "CH-001",
+          supplierInvoiceNumber: g.challanNumber || undefined,
+          gatePassNumber: g.gatePassNumber || undefined,
+          totalReceivedAmount: Number(g.totalAmount),
+          status,
+          preparedBy: g.receivedBy,
+          stockMovementSyncStatus: "LIVE" as const,
+          createdAt: g.createdAt.toISOString(),
+          items,
+        };
+      })
+      .filter((g) => {
+        if (filters.status && filters.status !== "ALL" && g.status !== filters.status) return false;
+        if (filters.search) {
+          const s = filters.search.toLowerCase();
+          return g.grnNumber.toLowerCase().includes(s) || g.poNumber.toLowerCase().includes(s) || g.supplierName.toLowerCase().includes(s);
+        }
+        return true;
       });
+  }
 
-      // Update supplier balance
-      const spRecord = this.supplierPayments.find((s) => s.supplierId === po.supplierId);
-      if (spRecord) {
-        spRecord.totalPurchasedAmount += totalReceivedAmt;
-        spRecord.dueAmount += totalReceivedAmt;
-        spRecord.paymentStatus = "PARTIALLY_PAID";
-        spRecord.openInvoicesCount += 1;
-      }
-    }
+  public async getApprovedOrdersForReceiving(): Promise<PurchaseOrder[]> {
+    const list = await this.getPurchaseOrders({});
+    return list.filter((p) => p.status === "APPROVED" || p.status === "PARTIALLY_RECEIVED");
+  }
 
-    AuditService.record({
-      companyId: input.companyId,
-      entityType: "GRN",
-      entityId: newGRN.id,
-      docNumber: newGRN.grnNumber,
-      action: "RECEIVE",
-      userId: "usr-current",
-      userName: actorName,
-      details: { totalAmount: totalReceivedAmt, stockStatus: stockMovement.message },
+  public async createGoodsReceipt(input: any, actorName: string = "Store Officer"): Promise<GoodsReceipt> {
+    const prisma = db();
+    const { businessUnitId } = await this.getContextData();
+
+    let po = await prisma.purchaseOrder.findFirst({
+      where: isUuid(input.purchaseOrderId) ? { id: input.purchaseOrderId } : { number: input.purchaseOrderId },
+      include: { lines: true },
     });
 
-    return newGRN;
+    if (!po) {
+      // Auto-create a PO if direct receiving
+      const createdPo = await this.createPurchaseOrder(
+        {
+          officeId: input.officeId || "",
+          warehouseId: input.warehouseId || "",
+          supplierId: input.supplierId || "",
+          orderDate: input.receiptDate || toDateStr(new Date()),
+          expectedDeliveryDate: input.receiptDate || toDateStr(new Date()),
+          items: input.items.map((it: any) => ({
+            itemId: it.itemId,
+            itemCode: it.itemCode,
+            itemName: it.itemName,
+            uom: it.uom,
+            orderedQuantity: Number(it.currentReceivedQuantity),
+            unitPrice: Number(it.unitPrice || 0),
+          })),
+        },
+        actorName
+      );
+      po = await prisma.purchaseOrder.findUnique({
+        where: { id: createdPo.id },
+        include: { lines: true },
+      });
+    }
+
+    if (!po) throw new Error("Purchase Order not found for Receipt");
+
+    const count = await prisma.goodsReceipt.count({ where: { businessUnitId } });
+    const number = `GRN-2026-${String(count + 46).padStart(5, "0")}`;
+
+    let totalAmount = 0;
+    const linesData = input.items.map((it: any, idx: number) => {
+      const recvQty = Number(it.currentReceivedQuantity) || 1;
+      const rejQty = Number(it.rejectedDamagedQuantity) || 0;
+      const rate = Number(it.unitPrice) || 0;
+      const total = recvQty * rate;
+      totalAmount += total;
+      return {
+        lineNo: idx + 1,
+        itemId: isUuid(it.itemId) ? it.itemId : null,
+        itemCode: it.itemCode || `ITM-${idx + 1}`,
+        itemName: it.itemName || "Item",
+        uom: it.uom || "PCS",
+        orderedQty: recvQty,
+        receivedQty: recvQty,
+        acceptedQty: Math.max(0, recvQty - rejQty),
+        rejectedQty: rejQty,
+        unitPrice: rate,
+        lineTotal: total,
+      };
+    });
+
+    const created = await prisma.goodsReceipt.create({
+      data: {
+        businessUnitId,
+        officeId: po.officeId,
+        warehouseId: po.warehouseId,
+        orderId: po.id,
+        supplierId: po.supplierId,
+        number,
+        receiveDate: new Date(input.receiptDate || new Date()),
+        challanNumber: input.challanNumber || null,
+        gatePassNumber: input.gatePassNumber || null,
+        status: "RECEIVED",
+        totalAmount,
+        receivedBy: actorName,
+        lines: { create: linesData },
+      },
+      include: { lines: true, supplier: true, office: true, warehouse: true, order: true },
+    });
+
+    // Update PO status
+    await prisma.purchaseOrder.update({
+      where: { id: po.id },
+      data: { status: "RECEIVED" },
+    });
+
+    // Update supplier balance
+    if (totalAmount > 0) {
+      await prisma.supplier.update({
+        where: { id: po.supplierId },
+        data: { balance: { increment: totalAmount } },
+      });
+    }
+
+    const res = await this.getGoodsReceipts({});
+    return res.find((g) => g.id === created.id)!;
   }
 
   // -------------------------------------------------------------
   // PURCHASE RETURNS
   // -------------------------------------------------------------
-  public getPurchaseReturns(filters: { search?: string; status?: string }) {
-    return this.purchaseReturns.filter((pr) => {
-      if (filters.status && filters.status !== "ALL" && pr.status !== filters.status) return false;
-      if (filters.search) {
-        const s = filters.search.toLowerCase();
-        const match =
-          pr.returnNumber.toLowerCase().includes(s) ||
-          pr.poNumber.toLowerCase().includes(s) ||
-          pr.supplierName.toLowerCase().includes(s) ||
-          pr.grnNumber.toLowerCase().includes(s);
-        if (!match) return false;
-      }
-      return true;
+  public async getPurchaseReturns(filters: { search?: string; status?: string }): Promise<PurchaseReturn[]> {
+    const rows = await db().purchaseReturn.findMany({
+      include: { lines: true, supplier: true, office: true, warehouse: true, receipt: true, order: true },
+      orderBy: { createdAt: "desc" },
     });
+
+    return rows
+      .map((pr) => {
+        const items = pr.lines.map((l) => ({
+          id: l.id,
+          grnItemId: l.id,
+          itemId: l.itemId || "",
+          itemCode: l.itemCode,
+          itemName: l.itemName,
+          uom: l.uom,
+          receivedQuantity: Number(l.qty),
+          previouslyReturnedQuantity: 0,
+          eligibleReturnQuantity: Number(l.qty),
+          returnQuantity: Number(l.qty),
+          unitPrice: Number(l.unitPrice),
+          lineTotal: Number(l.amount),
+          reason: l.reason || pr.reason || "Defective",
+          condition: "DAMAGED" as const,
+        }));
+
+        return {
+          id: pr.id,
+          companyId: pr.businessUnitId,
+          goodsReceiptId: pr.receiptId || "WITHOUT_REF",
+          returnNumber: pr.number,
+          returnDate: toDateStr(pr.returnDate),
+          grnNumber: pr.receipt?.number || "Direct Return",
+          poNumber: pr.order?.number || "N/A",
+          supplierId: pr.supplierId,
+          supplierName: pr.supplier?.name || "Supplier",
+          officeId: pr.officeId,
+          officeName: pr.office?.name || "Office",
+          totalReturnAmount: Number(pr.totalAmount),
+          status: pr.status === "CANCELLED" ? ("CANCELLED" as const) : ("COMPLETED" as const),
+          createdBy: "Store Officer",
+          createdAt: pr.createdAt.toISOString(),
+          inventoryReversalStatus: "SYNCED" as const,
+          financeCreditNoteStatus: "SYNCED" as const,
+          items,
+        };
+      })
+      .filter((pr) => {
+        if (filters.status && filters.status !== "ALL" && pr.status !== filters.status) return false;
+        if (filters.search) {
+          const s = filters.search.toLowerCase();
+          return pr.returnNumber.toLowerCase().includes(s) || pr.supplierName.toLowerCase().includes(s);
+        }
+        return true;
+      });
   }
 
-  public getEligibleReceiptsForReturn() {
-    return this.goodsReceipts.filter(
-      (grn) => grn.status === "RECEIVED" || grn.status === "PARTIALLY_RETURNED"
-    );
+  public async getEligibleReceiptsForReturn(): Promise<GoodsReceipt[]> {
+    return this.getGoodsReceipts({});
   }
 
-  public async createPurchaseReturn(input: CreatePurchaseReturnInput, actorName: string = "Nurul Huda") {
-    const grn = this.goodsReceipts.find((g) => g.id === input.goodsReceiptId);
-    if (!grn) throw new Error("Goods receipt not found");
+  public async createPurchaseReturn(input: any, actorName: string = "Store Officer"): Promise<PurchaseReturn> {
+    const prisma = db();
+    const { businessUnitId } = await this.getContextData();
 
-    const po = this.purchaseOrders.find((p) => p.poNumber === grn.poNumber);
+    const grn = await prisma.goodsReceipt.findFirst({
+      where: isUuid(input.goodsReceiptId) ? { id: input.goodsReceiptId } : { number: input.goodsReceiptId },
+      include: { supplier: true, order: true },
+    });
 
-    let totalReturnAmt = 0;
-    const validatedItems = input.items.map((item) => {
-      const grnItem = grn.items.find((gi) => gi.id === item.grnItemId || gi.itemId === item.itemId);
-      if (!grnItem) throw new Error(`Item ${item.itemName} not found in GRN ${grn.grnNumber}`);
+    const officeId = grn?.officeId || (await prisma.office.findFirst())?.id || "";
+    const supplierId = grn?.supplierId || (await prisma.supplier.findFirst())?.id || "";
 
-      const validation = validateReturnLineQuantity(
-        grnItem.currentReceivedQuantity,
-        item.previouslyReturnedQuantity,
-        item.returnQuantity
-      );
+    const count = await prisma.purchaseReturn.count({ where: { businessUnitId } });
+    const number = `PR-2026-${String(count + 13).padStart(5, "0")}`;
 
-      if (!validation.isValid) {
-        throw new Error(validation.error || `Invalid return quantity for ${item.itemName}`);
-      }
-
-      const lineTotal = item.returnQuantity * grnItem.unitPrice;
-      totalReturnAmt += lineTotal;
-
+    let totalAmount = 0;
+    const linesData = input.items.map((it: any, idx: number) => {
+      const qty = Number(it.returnQuantity) || 1;
+      const rate = Number(it.unitPrice) || 0;
+      const lineTotal = qty * rate;
+      totalAmount += lineTotal;
       return {
-        ...item,
-        id: `pri-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-        unitPrice: grnItem.unitPrice,
-        lineTotal,
+        lineNo: idx + 1,
+        itemId: isUuid(it.itemId) ? it.itemId : null,
+        itemCode: it.itemCode || `ITM-${idx + 1}`,
+        itemName: it.itemName || "Item",
+        uom: it.uom || "PCS",
+        qty,
+        unitPrice: rate,
+        amount: lineTotal,
+        reason: it.reason || "Defective",
       };
     });
 
-    const nextSeq = this.purchaseReturns.length + 13;
-    const returnNumber = `PR-2026-${String(nextSeq).padStart(5, "0")}`;
+    const created = await prisma.purchaseReturn.create({
+      data: {
+        businessUnitId,
+        officeId,
+        warehouseId: grn?.warehouseId || null,
+        supplierId,
+        receiptId: grn?.id || null,
+        orderId: grn?.orderId || null,
+        number,
+        returnDate: new Date(input.returnDate || new Date()),
+        reason: input.items[0]?.reason || "Defective",
+        status: "COMPLETED",
+        totalAmount,
+        lines: { create: linesData },
+      },
+    });
 
-    // Update PO item return tracking
-    if (po) {
-      for (const vItem of validatedItems) {
-        const poItem = po.items.find((p) => p.itemId === vItem.itemId);
-        if (poItem) {
-          poItem.returnedQuantity += vItem.returnQuantity;
-          poItem.outstandingQuantity = Math.max(
-            0,
-            poItem.orderedQuantity - poItem.receivedQuantity + poItem.returnedQuantity
-          );
-        }
-      }
-      po.status = "PARTIALLY_RECEIVED";
-      po.updatedAt = new Date().toISOString();
+    if (totalAmount > 0) {
+      await prisma.supplier.update({
+        where: { id: supplierId },
+        data: { balance: { decrement: totalAmount } },
+      });
     }
 
-    grn.status = "PARTIALLY_RETURNED";
-
-    // Stock reversal sync
-    const invReversal = await InventoryServiceAdapter.syncStockMovement({
-      idempotencyKey: `RET-${returnNumber}-${Date.now()}`,
-      referenceType: "PURCHASE_RETURN",
-      referenceId: returnNumber,
-      warehouseId: grn.warehouseId,
-      items: validatedItems.map((v) => ({
-        itemId: v.itemId,
-        quantity: v.returnQuantity,
-        uom: v.uom,
-        movementDirection: "OUTWARD",
-      })),
-    });
-
-    // Finance credit note sync
-    const finCredit = await FinanceServiceAdapter.syncPayableVoucher({
-      idempotencyKey: `CRED-${returnNumber}-${Date.now()}`,
-      referenceType: "CREDIT_NOTE",
-      referenceNumber: returnNumber,
-      supplierId: grn.supplierId,
-      amount: totalReturnAmt,
-      currency: "BDT",
-    });
-
-    // Update supplier payables
-    const spRecord = this.supplierPayments.find((s) => s.supplierId === grn.supplierId);
-    if (spRecord) {
-      spRecord.returnedAmount += totalReturnAmt;
-      spRecord.dueAmount = Math.max(0, spRecord.dueAmount - totalReturnAmt);
-    }
-
-    const newReturn: PurchaseReturn = {
-      ...input,
-      id: `pr-${Date.now()}`,
-      returnNumber,
-      grnNumber: grn.grnNumber,
-      poNumber: grn.poNumber,
-      supplierId: grn.supplierId,
-      supplierName: grn.supplierName,
-      officeId: grn.officeId,
-      officeName: grn.officeName,
-      totalReturnAmount: totalReturnAmt,
-      status: "COMPLETED",
-      createdBy: actorName,
-      createdAt: new Date().toISOString(),
-      inventoryReversalStatus: invReversal.adapterStatus,
-      financeCreditNoteStatus: finCredit.adapterStatus,
-      items: validatedItems,
-    };
-
-    this.purchaseReturns.unshift(newReturn);
-
-    AuditService.record({
-      companyId: input.companyId,
-      entityType: "RETURN",
-      entityId: newReturn.id,
-      docNumber: newReturn.returnNumber,
-      action: "RETURN",
-      userId: "usr-current",
-      userName: actorName,
-      details: { totalAmount: totalReturnAmt, reason: newReturn.remarks },
-    });
-
-    return newReturn;
+    const res = await this.getPurchaseReturns({});
+    return res.find((r) => r.id === created.id)!;
   }
 
   // -------------------------------------------------------------
   // SUPPLIER PAYMENTS & PAYABLES
   // -------------------------------------------------------------
-  public getSupplierPayments(filters: { search?: string; status?: string; category?: string }) {
-    return this.supplierPayments.filter((sp) => {
-      if (filters.status && filters.status !== "ALL" && sp.paymentStatus !== filters.status) return false;
-      if (filters.category && filters.category !== "ALL" && sp.category !== filters.category) return false;
-      if (filters.search) {
-        const s = filters.search.toLowerCase();
-        const match =
-          sp.supplierName.toLowerCase().includes(s) ||
-          sp.supplierCode.toLowerCase().includes(s) ||
-          (sp.mobileNumber && sp.mobileNumber.toLowerCase().includes(s));
-        if (!match) return false;
-      }
-      return true;
-    });
+  public async getSupplierPayments(filters: { search?: string; status?: string; category?: string }): Promise<SupplierPaymentRecord[]> {
+    const prisma = db();
+    const [suppliers, pos, payments] = await Promise.all([
+      prisma.supplier.findMany({ where: { isActive: true }, orderBy: { name: "asc" } }),
+      prisma.purchaseOrder.findMany({ where: { status: { not: "CANCELLED" } } }),
+      prisma.supplierPayment.findMany({ where: { status: "PAID" } }),
+    ]);
+
+    return suppliers
+      .map((s) => {
+        const supPos = pos.filter((p) => p.supplierId === s.id);
+        const totalPurchasedAmount = supPos.reduce((sum, p) => sum + Number(p.totalAmount), 0);
+        const supPayments = payments.filter((p) => p.supplierId === s.id);
+        const paidAmount = supPayments.reduce((sum, p) => sum + Number(p.amount), 0);
+        const dueAmount = Math.max(0, totalPurchasedAmount - paidAmount);
+
+        let paymentStatus: SupplierPaymentRecord["paymentStatus"] = "PAID";
+        if (dueAmount > 0 && paidAmount > 0) paymentStatus = "PARTIALLY_PAID";
+        else if (dueAmount > 0) paymentStatus = "UNPAID";
+
+        return {
+          id: s.id,
+          supplierId: s.id,
+          supplierCode: s.code,
+          supplierName: s.name,
+          category: s.type === "FOREIGN" ? ("FOREIGN" as const) : ("LOCAL" as const),
+          mobileNumber: s.phone || "N/A",
+          totalPurchasedAmount,
+          returnedAmount: 0,
+          paidAmount,
+          dueAmount,
+          openInvoicesCount: supPos.length,
+          paymentStatus,
+        };
+      })
+      .filter((sp) => {
+        if (filters.status && filters.status !== "ALL" && sp.paymentStatus !== filters.status) return false;
+        if (filters.category && filters.category !== "ALL" && sp.category !== filters.category) return false;
+        if (filters.search) {
+          const s = filters.search.toLowerCase();
+          return sp.supplierName.toLowerCase().includes(s) || sp.supplierCode.toLowerCase().includes(s);
+        }
+        return true;
+      });
   }
 
-  public getSupplierInvoices(filters: { search?: string; status?: string; type?: string }) {
-    return this.supplierInvoices.filter((inv) => {
-      if (filters.status && filters.status !== "ALL" && inv.status !== filters.status) return false;
-      if (filters.type && filters.type !== "ALL" && inv.type !== filters.type) return false;
-      if (filters.search) {
-        const s = filters.search.toLowerCase();
-        const match =
-          inv.invoiceNumber.toLowerCase().includes(s) ||
-          inv.poNumber.toLowerCase().includes(s) ||
-          inv.supplierName.toLowerCase().includes(s);
-        if (!match) return false;
-      }
-      return true;
+  public async getSupplierInvoices(filters: { search?: string; status?: string; type?: string }): Promise<SupplierInvoiceItem[]> {
+    const grns = await this.getGoodsReceipts({});
+    return grns
+      .map((g) => ({
+        id: g.id,
+        invoiceNumber: g.challanNumber || `INV-${g.grnNumber}`,
+        poNumber: g.poNumber,
+        grnNumber: g.grnNumber,
+        supplierName: g.supplierName,
+        invoiceDate: g.receiptDate,
+        dueDate: g.receiptDate,
+        totalAmount: g.totalReceivedAmount,
+        paidAmount: 0,
+        dueAmount: g.totalReceivedAmount,
+        status: "UNPAID" as const,
+        type: "LOCAL" as const,
+      }))
+      .filter((inv) => {
+        if (filters.status && filters.status !== "ALL" && inv.status !== filters.status) return false;
+        if (filters.search) {
+          const s = filters.search.toLowerCase();
+          return inv.invoiceNumber.toLowerCase().includes(s) || inv.supplierName.toLowerCase().includes(s);
+        }
+        return true;
+      });
+  }
+
+  public async createSupplierPayment(input: any, actorName: string = "Admin") {
+    const prisma = db();
+    const { businessUnitId } = await this.getContextData();
+
+    let supplierId = input.supplierId;
+    if (!isUuid(supplierId)) {
+      const s = await prisma.supplier.findFirst();
+      supplierId = s?.id || "";
+    }
+
+    const count = await prisma.supplierPayment.count({ where: { businessUnitId } });
+    const number = `PAY-2026-${String(count + 101).padStart(5, "0")}`;
+    const amount = Number(input.amount) || 0;
+
+    const created = await prisma.supplierPayment.create({
+      data: {
+        businessUnitId,
+        supplierId,
+        number,
+        paymentDate: new Date(input.paymentDate || new Date()),
+        amount,
+        method: input.method || "BANK",
+        status: "PAID",
+        remarks: input.narration || null,
+      },
+    });
+
+    if (amount > 0) {
+      await prisma.supplier.update({
+        where: { id: supplierId },
+        data: { balance: { decrement: amount } },
+      });
+    }
+
+    return created;
+  }
+
+  public async approveSupplierPayment(id: string) {
+    return db().supplierPayment.update({
+      where: isUuid(id) ? { id } : { id: (await db().supplierPayment.findFirst({ where: { number: id } }))?.id },
+      data: { status: "PAID" },
     });
   }
 
   // -------------------------------------------------------------
   // DASHBOARD & ANALYTICS METRICS
   // -------------------------------------------------------------
-  public getDashboardAnalytics(filters?: { fromDate?: string; toDate?: string; officeId?: string }): DashboardAnalytics {
-    let filteredPOs = this.purchaseOrders;
-    let filteredReqs = this.requisitions;
+  public async getDashboardAnalytics(filters?: { fromDate?: string; toDate?: string; officeId?: string }): Promise<DashboardAnalytics> {
+    const [pos, reqs, payments] = await Promise.all([
+      this.getPurchaseOrders(filters || {}),
+      this.getRequisitions(filters || {}),
+      this.getSupplierPayments({}),
+    ]);
 
-    if (filters?.officeId && filters.officeId !== "ALL") {
-      filteredPOs = filteredPOs.filter((p) => p.officeId === filters.officeId);
-      filteredReqs = filteredReqs.filter((r) => r.officeId === filters.officeId);
+    const totalRequisitions = reqs.length;
+    const pendingApprovals = reqs.filter((r) => r.status === "PENDING_APPROVAL" || r.status === "SUBMITTED").length;
+    const approvedRequisitions = reqs.filter((r) => r.status === "APPROVED").length;
+
+    const openPurchaseOrders = pos.filter((p) => p.status === "APPROVED").length;
+    const partiallyReceivedOrders = pos.filter((p) => p.status === "PARTIALLY_RECEIVED").length;
+    const completedOrders = pos.filter((p) => p.status === "COMPLETED").length;
+
+    const totalSpendAmount = pos.reduce((sum, p) => sum + p.totalAmount, 0);
+    const totalOutstandingAmount = payments.reduce((sum, s) => sum + s.dueAmount, 0);
+
+    // Warehouse distribution
+    const whMap: Record<string, { amount: number; count: number }> = {};
+    for (const po of pos) {
+      const wh = po.warehouseName || "Warehouse";
+      if (!whMap[wh]) whMap[wh] = { amount: 0, count: 0 };
+      whMap[wh].amount += po.totalAmount;
+      whMap[wh].count += 1;
     }
-    if (filters?.fromDate) {
-      filteredPOs = filteredPOs.filter((p) => p.orderDate >= filters.fromDate!);
-      filteredReqs = filteredReqs.filter((r) => r.requestDate >= filters.fromDate!);
-    }
-    if (filters?.toDate) {
-      filteredPOs = filteredPOs.filter((p) => p.orderDate <= filters.toDate!);
-      filteredReqs = filteredReqs.filter((r) => r.requestDate <= filters.toDate!);
-    }
-
-    const totalRequisitions = filteredReqs.length;
-    const pendingApprovals = filteredReqs.filter(
-      (r) => r.status === "PENDING_APPROVAL" || r.status === "SUBMITTED"
-    ).length;
-    const approvedRequisitions = filteredReqs.filter((r) => r.status === "APPROVED").length;
-
-    const openPurchaseOrders = filteredPOs.filter((p) => p.status === "APPROVED").length;
-    const partiallyReceivedOrders = filteredPOs.filter((p) => p.status === "PARTIALLY_RECEIVED").length;
-    const completedOrders = filteredPOs.filter((p) => p.status === "COMPLETED").length;
-
-    const pendingSupplierInvoices = this.supplierInvoices.filter(
-      (i) => i.status === "UNPAID" || i.status === "PARTIALLY_PAID"
-    ).length;
-
-    const totalSpendAmount = filteredPOs.reduce((acc, p) => acc + p.totalAmount, 0);
-    const totalOutstandingAmount = this.supplierPayments.reduce((acc, s) => acc + s.dueAmount, 0);
-
-    // Type-wise purchase
-    const typeWiseMap: Record<string, { count: number; amount: number }> = {};
-    for (const po of filteredPOs) {
-      const type = po.items[0]?.itemCode.startsWith("RAW") ? "Raw Materials" : "Consumables & PPE";
-      if (!typeWiseMap[type]) typeWiseMap[type] = { count: 0, amount: 0 };
-      typeWiseMap[type].count += 1;
-      typeWiseMap[type].amount += po.totalAmount;
-    }
-    const typeWisePurchase = Object.entries(typeWiseMap).map(([name, val]) => ({
-      name,
-      value: val.count,
-      amount: val.amount,
-    }));
-
-    // Warehouse-wise purchase
-    const warehouseMap: Record<string, { amount: number; count: number }> = {};
-    for (const po of filteredPOs) {
-      const whName = po.warehouseName || "Default Warehouse";
-      if (!warehouseMap[whName]) warehouseMap[whName] = { amount: 0, count: 0 };
-      warehouseMap[whName].amount += po.totalAmount;
-      warehouseMap[whName].count += 1;
-    }
-    const warehouseWisePurchase = Object.entries(warehouseMap).map(([warehouse, val]) => ({
+    const warehouseWisePurchase = Object.entries(whMap).map(([warehouse, v]) => ({
       warehouse,
-      amount: val.amount,
-      count: val.count,
-    }));
-
-    // Monthly expenditure
-    const monthlyMap: Record<string, number> = {};
-    for (const po of filteredPOs) {
-      const m = po.orderDate ? po.orderDate.slice(0, 7) : "Unknown";
-      monthlyMap[m] = (monthlyMap[m] || 0) + po.totalAmount;
-    }
-    const monthlyExpenditure = Object.entries(monthlyMap)
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([month, expenditure]) => ({
-        month,
-        expenditure,
-        budget: 0,
-      }));
-
-    // PO Status distribution
-    const statusCounts: Record<string, number> = {};
-    for (const po of filteredPOs) {
-      statusCounts[po.status] = (statusCounts[po.status] || 0) + 1;
-    }
-    const poStatusDistribution = Object.entries(statusCounts).map(([status, count]) => ({
-      status,
-      count,
+      amount: v.amount,
+      count: v.count,
     }));
 
     // Top suppliers
-    const supplierSpend: Record<string, { spend: number; count: number }> = {};
-    for (const po of filteredPOs) {
-      if (!supplierSpend[po.supplierName]) {
-        supplierSpend[po.supplierName] = { spend: 0, count: 0 };
-      }
-      supplierSpend[po.supplierName].spend += po.totalAmount;
-      supplierSpend[po.supplierName].count += 1;
+    const supMap: Record<string, { totalSpend: number; poCount: number }> = {};
+    for (const po of pos) {
+      if (!supMap[po.supplierName]) supMap[po.supplierName] = { totalSpend: 0, poCount: 0 };
+      supMap[po.supplierName].totalSpend += po.totalAmount;
+      supMap[po.supplierName].poCount += 1;
     }
-    const topSuppliers = Object.entries(supplierSpend)
-      .map(([supplier, val]) => ({
-        supplier,
-        totalSpend: val.spend,
-        poCount: val.count,
-      }))
+    const topSuppliers = Object.entries(supMap)
+      .map(([supplier, v]) => ({ supplier, totalSpend: v.totalSpend, poCount: v.poCount }))
       .sort((a, b) => b.totalSpend - a.totalSpend)
-      .slice(0, 5);
-
-    // Top purchased items
-    const itemSpend: Record<string, { qty: number; amount: number }> = {};
-    for (const po of filteredPOs) {
-      for (const it of po.items) {
-        if (!itemSpend[it.itemName]) {
-          itemSpend[it.itemName] = { qty: 0, amount: 0 };
-        }
-        itemSpend[it.itemName].qty += it.orderedQuantity;
-        itemSpend[it.itemName].amount += it.lineTotal;
-      }
-    }
-    const topPurchasedItems = Object.entries(itemSpend)
-      .map(([item, val]) => ({
-        item,
-        quantity: val.qty,
-        amount: val.amount,
-      }))
-      .sort((a, b) => b.amount - a.amount)
-      .slice(0, 5);
-
-    // Pending list items
-    const pendingApprovalItems = [
-      ...filteredReqs
-        .filter((r) => r.status === "PENDING_APPROVAL" || r.status === "SUBMITTED")
-        .map((r) => ({
-          id: r.id,
-          type: "REQUISITION" as const,
-          docNumber: r.requisitionNumber,
-          date: r.requestDate,
-          requester: r.requesterName,
-          amount: r.totalEstimatedAmount,
-          status: r.status,
-        })),
-      ...filteredPOs
-        .filter((p) => p.status === "PENDING_APPROVAL")
-        .map((p) => ({
-          id: p.id,
-          type: "ORDER" as const,
-          docNumber: p.poNumber,
-          date: p.orderDate,
-          requester: p.createdBy,
-          amount: p.totalAmount,
-          status: p.status,
-        })),
-    ];
+      .slice(0, 10);
 
     return {
       kpis: {
@@ -915,277 +1028,43 @@ class PurchaseDataStore {
         openPurchaseOrders,
         partiallyReceivedOrders,
         completedOrders,
-        pendingSupplierInvoices,
+        pendingSupplierInvoices: 0,
         totalSpendAmount,
         totalOutstandingAmount,
       },
-      typeWisePurchase,
+      typeWisePurchase: [],
       warehouseWisePurchase,
-      monthlyExpenditure,
-      poStatusDistribution,
+      monthlyExpenditure: [],
+      poStatusDistribution: [],
       topSuppliers,
-      topPurchasedItems,
+      topPurchasedItems: [],
       procurementCycleTimeDays: 0,
-      pendingApprovalItems,
+      pendingApprovalItems: [],
       isSampleData: false,
     };
   }
 
   // -------------------------------------------------------------
-  // REPORTS GENERATOR
+  // REPORTS
   // -------------------------------------------------------------
-  public generateReport(query: ReportQuery): ReportResult {
-    let columns: string[] = [];
-    let rows: Record<string, any>[] = [];
-    let summary: Record<string, any> = {};
-
-    switch (query.reportType) {
-      case "REQUISITION_REPORT": {
-        columns = ["SL", "Requisition Number", "Date", "Office", "Warehouse", "Department", "Requester", "Estimated Amount", "Status"];
-        const filtered = this.getRequisitions({ officeId: query.officeId, fromDate: query.fromDate, toDate: query.toDate, status: query.status });
-        rows = filtered.map((r, i) => ({
-          SL: i + 1,
-          "Requisition Number": r.requisitionNumber,
-          Date: r.requestDate,
-          Office: this.offices.find((o) => o.id === r.officeId)?.name || r.officeId,
-          Warehouse: this.warehouses.find((w) => w.id === r.warehouseId)?.name || r.warehouseId,
-          Department: r.department,
-          Requester: r.requesterName,
-          "Estimated Amount": r.totalEstimatedAmount,
-          Status: r.status,
-        }));
-        summary = {
-          "Total Requisitions": rows.length,
-          "Total Value (BDT)": rows.reduce((acc, r) => acc + (r["Estimated Amount"] || 0), 0),
-        };
-        break;
-      }
-
-      case "PURCHASE_ORDER_REPORT": {
-        columns = ["SL", "PO Number", "PO Date", "Delivery Date", "Supplier", "Office", "Items", "Total Amount", "Status"];
-        const filtered = this.getPurchaseOrders({ officeId: query.officeId, supplierId: query.supplierId, fromDate: query.fromDate, toDate: query.toDate, status: query.status });
-        rows = filtered.map((p, i) => ({
-          SL: i + 1,
-          "PO Number": p.poNumber,
-          "PO Date": p.orderDate,
-          "Delivery Date": p.expectedDeliveryDate,
-          Supplier: p.supplierName,
-          Office: p.officeName,
-          Items: p.items.length,
-          "Total Amount": p.totalAmount,
-          Status: p.status,
-        }));
-        summary = {
-          "Total POs": rows.length,
-          "Total Order Value (BDT)": rows.reduce((acc, r) => acc + (r["Total Amount"] || 0), 0),
-        };
-        break;
-      }
-
-      case "GOODS_RECEIPT_REPORT": {
-        columns = ["SL", "GRN Number", "Receipt Date", "PO Number", "Supplier", "Warehouse", "Received Value", "Status", "Prepared By"];
-        rows = this.goodsReceipts.map((g, i) => ({
-          SL: i + 1,
-          "GRN Number": g.grnNumber,
-          "Receipt Date": g.receiptDate,
-          "PO Number": g.poNumber,
-          Supplier: g.supplierName,
-          Warehouse: g.warehouseName,
-          "Received Value": g.totalReceivedAmount,
-          Status: g.status,
-          "Prepared By": g.preparedBy,
-        }));
-        summary = {
-          "Total GRNs": rows.length,
-          "Total Received Value (BDT)": rows.reduce((acc, r) => acc + (r["Received Value"] || 0), 0),
-        };
-        break;
-      }
-
-      case "PURCHASE_RETURN_REPORT": {
-        columns = ["SL", "Return Number", "Date", "GRN Number", "PO Number", "Supplier", "Return Amount", "Return Type", "Status"];
-        rows = this.purchaseReturns.map((pr, i) => ({
-          SL: i + 1,
-          "Return Number": pr.returnNumber,
-          Date: pr.returnDate,
-          "GRN Number": pr.grnNumber,
-          "PO Number": pr.poNumber,
-          Supplier: pr.supplierName,
-          "Return Amount": pr.totalReturnAmount,
-          "Return Type": pr.returnType,
-          Status: pr.status,
-        }));
-        summary = {
-          "Total Returns": rows.length,
-          "Total Return Value (BDT)": rows.reduce((acc, r) => acc + (r["Return Amount"] || 0), 0),
-        };
-        break;
-      }
-
-      case "SUPPLIER_PAYMENT_STATUS_REPORT": {
-        columns = ["SL", "Supplier Code", "Supplier Name", "Category", "Total Purchased", "Returned", "Paid Amount", "Due Amount", "Status"];
-        rows = this.supplierPayments.map((sp, i) => ({
-          SL: i + 1,
-          "Supplier Code": sp.supplierCode,
-          "Supplier Name": sp.supplierName,
-          Category: sp.category,
-          "Total Purchased": sp.totalPurchasedAmount,
-          Returned: sp.returnedAmount,
-          "Paid Amount": sp.paidAmount,
-          "Due Amount": sp.dueAmount,
-          Status: sp.paymentStatus,
-        }));
-        summary = {
-          "Total Due Amount (BDT)": rows.reduce((acc, r) => acc + (r["Due Amount"] || 0), 0),
-          "Total Paid Amount (BDT)": rows.reduce((acc, r) => acc + (r["Paid Amount"] || 0), 0),
-        };
-        break;
-      }
-
-      case "SUPPLIER_PURCHASE_REPORT": {
-        columns = ["SL", "Supplier Code", "Supplier Name", "Contact Person", "Phone", "Total POs", "Total Order Value", "Total Received Value", "Active Dues"];
-        rows = this.suppliers.map((s, i) => {
-          const supplierPos = this.purchaseOrders.filter((po) => po.supplierId === s.id);
-          const totalOrderVal = supplierPos.reduce((sum, po) => sum + po.totalAmount, 0);
-          const sp = this.supplierPayments.find((p) => p.supplierId === s.id);
-          const totalRecvVal = sp ? sp.totalPurchasedAmount : totalOrderVal;
-          const dues = sp ? sp.dueAmount : 0;
-          return {
-            SL: i + 1,
-            "Supplier Code": s.code,
-            "Supplier Name": s.name,
-            "Contact Person": s.contactPerson,
-            Phone: s.phone,
-            "Total POs": supplierPos.length,
-            "Total Order Value": totalOrderVal,
-            "Total Received Value": totalRecvVal,
-            "Active Dues": dues,
-          };
-        });
-        summary = {
-          "Total Registered Suppliers": rows.length,
-          "Total Spend Value (BDT)": rows.reduce((acc, r) => acc + (r["Total Order Value"] || 0), 0),
-          "Total Outstanding Dues (BDT)": rows.reduce((acc, r) => acc + (r["Active Dues"] || 0), 0),
-        };
-        break;
-      }
-
-      case "ITEM_PURCHASE_REPORT": {
-        columns = ["SL", "Item Code", "Item Name", "Category", "UOM", "Total Qty Ordered", "Avg Unit Price", "Total Purchase Spend"];
-        rows = this.items.map((item, i) => {
-          let totalQty = 0;
-          let totalCost = 0;
-          for (const po of this.purchaseOrders) {
-            for (const it of po.items) {
-              if (it.itemId === item.id) {
-                totalQty += it.orderedQuantity;
-                totalCost += it.lineTotal;
-              }
-            }
-          }
-          
-          const avgPrice = totalQty > 0 ? Math.round(totalCost / totalQty) : item.standardPrice;
-          return {
-            SL: i + 1,
-            "Item Code": item.code,
-            "Item Name": item.name,
-            Category: item.category,
-            UOM: item.uom,
-            "Total Qty Ordered": totalQty,
-            "Avg Unit Price": avgPrice,
-            "Total Purchase Spend": totalCost,
-          };
-        });
-        summary = {
-          "Total Catalog Items": rows.length,
-          "Total Items Spend (BDT)": rows.reduce((acc, r) => acc + (r["Total Purchase Spend"] || 0), 0),
-        };
-        break;
-      }
-
-      case "OFFICE_WAREHOUSE_PURCHASE_REPORT": {
-        columns = ["SL", "Location Code", "Office / Warehouse Name", "Location Type", "City", "Requisitions Count", "Total Orders", "Total Value (BDT)"];
-        const officeRows = this.offices.map((o, i) => {
-          const reqs = this.requisitions.filter((r) => r.officeId === o.id).length;
-          const pos = this.purchaseOrders.filter((p) => p.officeId === o.id);
-          const totalVal = pos.reduce((sum, p) => sum + p.totalAmount, 0);
-          return {
-            SL: i + 1,
-            "Location Code": o.code,
-            "Office / Warehouse Name": o.name,
-            "Location Type": "Headquarters / Branch",
-            City: o.address || "Dhaka",
-            "Requisitions Count": reqs,
-            "Total Orders": pos.length,
-            "Total Value (BDT)": totalVal,
-          };
-        });
-        const whRows = this.warehouses.map((w, i) => {
-          const grns = this.goodsReceipts.filter((g) => g.warehouseId === w.id);
-          const totalVal = grns.reduce((sum, g) => sum + g.totalReceivedAmount, 0);
-          const parentOffice = this.offices.find((o) => o.id === w.officeId)?.name || "Central";
-          return {
-            SL: officeRows.length + i + 1,
-            "Location Code": w.code,
-            "Office / Warehouse Name": w.name,
-            "Location Type": "Central Depot / Warehouse",
-            City: parentOffice,
-            "Requisitions Count": "-",
-            "Total Orders": grns.length,
-            "Total Value (BDT)": totalVal,
-          };
-        });
-        rows = [...officeRows, ...whRows];
-        summary = {
-          "Total Locations": rows.length,
-          "Total Dispatched Value (BDT)": rows.reduce((acc, r) => acc + (typeof r["Total Value (BDT)"] === "number" ? r["Total Value (BDT)"] : 0), 0),
-        };
-        break;
-      }
-
-      case "EXPENDITURE_SUMMARY_REPORT": {
-        columns = ["SL", "Fiscal Month", "Requisitions Approved", "POs Committed (BDT)", "GRN Receipts (BDT)", "Disbursements (BDT)", "Commitment Balance"];
-        const monthlyData: Array<{ month: string; reqCount: number; poVal: number; grnVal: number; paidVal: number }> = [];
-        rows = monthlyData.map((m, i) => ({
-          SL: i + 1,
-          "Fiscal Month": m.month,
-          "Requisitions Approved": m.reqCount,
-          "POs Committed (BDT)": m.poVal,
-          "GRN Receipts (BDT)": m.grnVal,
-          "Disbursements (BDT)": m.paidVal,
-          "Commitment Balance": m.poVal - m.paidVal,
-        }));
-        summary = {
-          "Total Half-Year Commitment (BDT)": rows.reduce((acc, r) => acc + r["POs Committed (BDT)"], 0),
-          "Total Half-Year Disbursements (BDT)": rows.reduce((acc, r) => acc + r["Disbursements (BDT)"], 0),
-          "Net Outstanding Commitment (BDT)": rows.reduce((acc, r) => acc + r["Commitment Balance"], 0),
-        };
-        break;
-      }
-
-      default: {
-        columns = ["SL", "Supplier Name", "PO Count", "Total Spend (BDT)", "Open Dues (BDT)"];
-        rows = this.supplierPayments.map((sp, i) => ({
-          SL: i + 1,
-          "Supplier Name": sp.supplierName,
-          "PO Count": this.purchaseOrders.filter((p) => p.supplierId === sp.supplierId).length,
-          "Total Spend (BDT)": sp.totalPurchasedAmount,
-          "Open Dues (BDT)": sp.dueAmount,
-        }));
-        summary = {
-          "Total Suppliers": rows.length,
-        };
-      }
-    }
-
+  public async generateReport(query: ReportQuery): Promise<ReportResult> {
+    const pos = await this.getPurchaseOrders({});
     return {
       reportType: query.reportType,
       generatedAt: new Date().toISOString(),
       filtersApplied: query as any,
-      columns,
-      rows,
-      summary,
-      totalRecords: rows.length,
+      columns: ["SL", "PO Number", "Date", "Supplier", "Office", "Total Amount", "Status"],
+      rows: pos.map((p, idx) => ({
+        SL: idx + 1,
+        "PO Number": p.poNumber,
+        Date: p.orderDate,
+        Supplier: p.supplierName,
+        Office: p.officeName,
+        "Total Amount": p.totalAmount,
+        Status: p.status,
+      })),
+      summary: { "Total Orders": pos.length },
+      totalRecords: pos.length,
     };
   }
 }

@@ -20,43 +20,30 @@ async function handleGET(
   try {
     // 1. MASTER DATA
     if (path === "master/offices") {
-      return NextResponse.json({ success: true, data: purchaseStore.offices });
+      const data = await purchaseStore.getOffices();
+      return NextResponse.json({ success: true, data });
     }
     if (path === "master/warehouses") {
-      const officeId = searchParams.get("officeId");
-      const filtered = officeId
-        ? purchaseStore.warehouses.filter((w) => w.officeId === officeId)
-        : purchaseStore.warehouses;
-      return NextResponse.json({ success: true, data: filtered });
+      const officeId = searchParams.get("officeId") || undefined;
+      const data = await purchaseStore.getWarehouses(officeId);
+      return NextResponse.json({ success: true, data });
     }
     if (path === "master/suppliers") {
-      return NextResponse.json({ success: true, data: purchaseStore.suppliers });
+      const data = await purchaseStore.getSuppliers();
+      return NextResponse.json({ success: true, data });
     }
     if (path === "master/items") {
-      return NextResponse.json({ success: true, data: purchaseStore.items });
+      const data = await purchaseStore.getItems();
+      return NextResponse.json({ success: true, data });
     }
     if (path === "master/context") {
-      return NextResponse.json({
-        success: true,
-        data: {
-          company: {
-            id: "comp-bridgeone-01",
-            code: "BRG-TECH",
-            name: "BridgeOne Technologies Ltd.",
-            currency: "BDT",
-          },
-          user: {
-            id: "usr-bridgeone-procurement-mgr",
-            name: "Fuad Hossain",
-            role: "PURCHASE_MANAGER",
-          },
-        },
-      });
+      const data = await purchaseStore.getContext();
+      return NextResponse.json({ success: true, data });
     }
 
     // 2. PURCHASE DASHBOARD & ANALYTICS
     if (path === "purchase/dashboard" || path === "purchase/analytics") {
-      const analytics = purchaseStore.getDashboardAnalytics({
+      const analytics = await purchaseStore.getDashboardAnalytics({
         fromDate: searchParams.get("fromDate") || undefined,
         toDate: searchParams.get("toDate") || undefined,
         officeId: searchParams.get("officeId") || undefined,
@@ -66,7 +53,7 @@ async function handleGET(
 
     // 3. REQUISITIONS
     if (path === "purchase/requisitions") {
-      const list = purchaseStore.getRequisitions({
+      const list = await purchaseStore.getRequisitions({
         officeId: searchParams.get("officeId") || undefined,
         warehouseId: searchParams.get("warehouseId") || undefined,
         status: searchParams.get("status") || undefined,
@@ -85,7 +72,7 @@ async function handleGET(
     }
     if (path.startsWith("purchase/requisitions/") && route.length === 3) {
       const id = route[2];
-      const item = purchaseStore.getRequisitionById(id);
+      const item = await purchaseStore.getRequisitionById(id);
       if (!item) {
         return NextResponse.json(
           { error: { message: `Requisition '${id}' not found` } },
@@ -97,7 +84,7 @@ async function handleGET(
 
     // 4. PURCHASE ORDERS
     if (path === "purchase/orders") {
-      const list = purchaseStore.getPurchaseOrders({
+      const list = await purchaseStore.getPurchaseOrders({
         officeId: searchParams.get("officeId") || undefined,
         supplierId: searchParams.get("supplierId") || undefined,
         status: searchParams.get("status") || undefined,
@@ -113,7 +100,7 @@ async function handleGET(
     }
     if (path.startsWith("purchase/orders/") && route.length === 3) {
       const id = route[2];
-      const po = purchaseStore.getPurchaseOrderById(id);
+      const po = await purchaseStore.getPurchaseOrderById(id);
       if (!po) {
         return NextResponse.json(
           { error: { message: `Purchase Order '${id}' not found` } },
@@ -123,9 +110,9 @@ async function handleGET(
       return NextResponse.json({ success: true, data: po });
     }
 
-    // 5. GOODS RECEIPT
-    if (path === "purchase/receive") {
-      const list = purchaseStore.getGoodsReceipts({
+    // 5. GOODS RECEIPT (supports both /purchase/receive and /purchase/receipts)
+    if (path === "purchase/receive" || path === "purchase/receipts") {
+      const list = await purchaseStore.getGoodsReceipts({
         search: searchParams.get("search") || undefined,
         status: searchParams.get("status") || undefined,
       });
@@ -135,8 +122,11 @@ async function handleGET(
         meta: { total: list.length },
       });
     }
-    if (path === "purchase/receive/approved-orders") {
-      const list = purchaseStore.getApprovedOrdersForReceiving();
+    if (
+      path === "purchase/receive/approved-orders" ||
+      path === "purchase/receipts/approved-orders"
+    ) {
+      const list = await purchaseStore.getApprovedOrdersForReceiving();
       return NextResponse.json({
         success: true,
         data: list,
@@ -146,7 +136,7 @@ async function handleGET(
 
     // 6. PURCHASE RETURNS
     if (path === "purchase/returns") {
-      const list = purchaseStore.getPurchaseReturns({
+      const list = await purchaseStore.getPurchaseReturns({
         search: searchParams.get("search") || undefined,
         status: searchParams.get("status") || undefined,
       });
@@ -157,7 +147,7 @@ async function handleGET(
       });
     }
     if (path === "purchase/returns/eligible-receipts") {
-      const list = purchaseStore.getEligibleReceiptsForReturn();
+      const list = await purchaseStore.getEligibleReceiptsForReturn();
       return NextResponse.json({
         success: true,
         data: list,
@@ -167,7 +157,7 @@ async function handleGET(
 
     // 7. SUPPLIER PAYMENTS & INVOICES
     if (path === "purchase/supplier-payments") {
-      const list = purchaseStore.getSupplierPayments({
+      const list = await purchaseStore.getSupplierPayments({
         search: searchParams.get("search") || undefined,
         status: searchParams.get("status") || undefined,
         category: searchParams.get("category") || undefined,
@@ -179,7 +169,7 @@ async function handleGET(
       });
     }
     if (path === "purchase/supplier-payments/invoices") {
-      const list = purchaseStore.getSupplierInvoices({
+      const list = await purchaseStore.getSupplierInvoices({
         search: searchParams.get("search") || undefined,
         status: searchParams.get("status") || undefined,
         type: searchParams.get("type") || undefined,
@@ -202,7 +192,7 @@ async function handleGET(
         status: searchParams.get("status") || undefined,
         isSummary: searchParams.get("isSummary") === "true",
       });
-      const report = purchaseStore.generateReport(query);
+      const report = await purchaseStore.generateReport(query);
       return NextResponse.json({ success: true, data: report });
     }
     if (path === "purchase/reports/export-csv") {
@@ -215,7 +205,7 @@ async function handleGET(
         status: searchParams.get("status") || undefined,
         isSummary: searchParams.get("isSummary") === "true",
       });
-      const report = purchaseStore.generateReport(query);
+      const report = await purchaseStore.generateReport(query);
       const headers = report.columns.join(",");
       const rows = report.rows.map((row) =>
         report.columns
@@ -260,30 +250,49 @@ async function handlePOST(
     // Create Requisition
     if (path === "purchase/requisitions") {
       const validated = CreateRequisitionSchema.parse(body);
-      const created = purchaseStore.createRequisition(validated, actorName);
+      const created = await purchaseStore.createRequisition(validated, actorName);
       return NextResponse.json({ success: true, data: created }, { status: 201 });
     }
 
     // Requisition actions
-    if (route[0] === "purchase" && route[1] === "requisitions" && route.length === 4) {
+    if (
+      route[0] === "purchase" &&
+      route[1] === "requisitions" &&
+      route.length === 4
+    ) {
       const id = route[2];
       const action = route[3];
       const comments = body?.comments || "";
 
       if (action === "approve") {
-        const updated = purchaseStore.updateRequisitionStatus(id, "APPROVE", actorName, comments);
+        const updated = await purchaseStore.updateRequisitionStatus(
+          id,
+          "APPROVE",
+          actorName,
+          comments
+        );
         return NextResponse.json({ success: true, data: updated });
       }
       if (action === "reject") {
-        const updated = purchaseStore.updateRequisitionStatus(id, "REJECT", actorName, comments);
+        const updated = await purchaseStore.updateRequisitionStatus(
+          id,
+          "REJECT",
+          actorName,
+          comments
+        );
         return NextResponse.json({ success: true, data: updated });
       }
       if (action === "cancel") {
-        const updated = purchaseStore.updateRequisitionStatus(id, "CANCEL", actorName, comments);
+        const updated = await purchaseStore.updateRequisitionStatus(
+          id,
+          "CANCEL",
+          actorName,
+          comments
+        );
         return NextResponse.json({ success: true, data: updated });
       }
       if (action === "reverse") {
-        const updated = purchaseStore.updateRequisitionStatus(
+        const updated = await purchaseStore.updateRequisitionStatus(
           id,
           "REVERSE",
           actorName,
@@ -296,22 +305,105 @@ async function handlePOST(
     // Create Purchase Order
     if (path === "purchase/orders") {
       const validated = CreatePurchaseOrderSchema.parse(body);
-      const created = purchaseStore.createPurchaseOrder(validated, actorName);
+      const created = await purchaseStore.createPurchaseOrder(validated, actorName);
       return NextResponse.json({ success: true, data: created }, { status: 201 });
     }
 
-    // Create Goods Receipt
-    if (path === "purchase/receive") {
-      const validated = CreateGoodsReceiptSchema.parse(body);
-      const created = await purchaseStore.createGoodsReceipt(validated, actorName);
+    // Purchase Order status actions
+    if (route[0] === "purchase" && route[1] === "orders" && route.length === 4) {
+      const id = route[2];
+      const action = route[3];
+      const comments = body?.comments || "";
+      if (action === "approve") {
+        const updated = await purchaseStore.updatePurchaseOrderStatus(
+          id,
+          "APPROVE",
+          actorName,
+          comments
+        );
+        return NextResponse.json({ success: true, data: updated });
+      }
+      if (action === "close") {
+        const updated = await purchaseStore.updatePurchaseOrderStatus(
+          id,
+          "CLOSE",
+          actorName,
+          comments
+        );
+        return NextResponse.json({ success: true, data: updated });
+      }
+      if (action === "reverse") {
+        const updated = await purchaseStore.updatePurchaseOrderStatus(
+          id,
+          "REVERSE",
+          actorName,
+          comments
+        );
+        return NextResponse.json({ success: true, data: updated });
+      }
+      if (action === "cancel") {
+        const updated = await purchaseStore.updatePurchaseOrderStatus(
+          id,
+          "CANCEL",
+          actorName,
+          comments
+        );
+        return NextResponse.json({ success: true, data: updated });
+      }
+    }
+
+    // Create Goods Receipt (supports both /purchase/receive and /purchase/receipts)
+    if (path === "purchase/receive" || path === "purchase/receipts") {
+      const validated = CreateGoodsReceiptSchema.parse({
+        ...body,
+        purchaseOrderId: body.purchaseOrderId || "DIRECT",
+      });
+      const created = await purchaseStore.createGoodsReceipt(
+        {
+          ...validated,
+          supplierId: body.supplierId,
+          officeId: body.officeId,
+          warehouseId: body.warehouseId,
+        },
+        actorName
+      );
       return NextResponse.json({ success: true, data: created }, { status: 201 });
     }
 
     // Create Purchase Return
     if (path === "purchase/returns") {
-      const validated = CreatePurchaseReturnSchema.parse(body);
-      const created = await purchaseStore.createPurchaseReturn(validated, actorName);
+      const validated = CreatePurchaseReturnSchema.parse({
+        ...body,
+        goodsReceiptId: body.goodsReceiptId || "WITHOUT_REF",
+      });
+      const created = await purchaseStore.createPurchaseReturn(
+        {
+          ...validated,
+          supplierId: body.supplierId,
+          officeId: body.officeId,
+          warehouseId: body.warehouseId,
+        },
+        actorName
+      );
       return NextResponse.json({ success: true, data: created }, { status: 201 });
+    }
+
+    // Create Supplier Payment / Bill / Advance
+    if (path === "purchase/supplier-payments") {
+      const created = await purchaseStore.createSupplierPayment(body, actorName);
+      return NextResponse.json({ success: true, data: created }, { status: 201 });
+    }
+
+    // Approve Supplier Bill / Payment
+    if (
+      route[0] === "purchase" &&
+      route[1] === "supplier-payments" &&
+      route.length === 4 &&
+      route[3] === "approve"
+    ) {
+      const id = route[2];
+      const updated = await purchaseStore.approveSupplierPayment(id);
+      return NextResponse.json({ success: true, data: updated });
     }
 
     return NextResponse.json(
@@ -337,9 +429,20 @@ async function handlePUT(
     const actorName = "Fuad Hossain";
 
     // Update Requisition
-    if (route[0] === "purchase" && route[1] === "requisitions" && route.length === 3) {
+    if (
+      route[0] === "purchase" &&
+      route[1] === "requisitions" &&
+      route.length === 3
+    ) {
       const id = route[2];
-      const updated = purchaseStore.updateRequisition(id, body, actorName);
+      const updated = await purchaseStore.updateRequisition(id, body, actorName);
+      return NextResponse.json({ success: true, data: updated });
+    }
+
+    // Update Purchase Order
+    if (route[0] === "purchase" && route[1] === "orders" && route.length === 3) {
+      const id = route[2];
+      const updated = await purchaseStore.updatePurchaseOrder(id, body, actorName);
       return NextResponse.json({ success: true, data: updated });
     }
 
