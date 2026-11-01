@@ -1,6 +1,10 @@
 "use client";
 
-import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { workspaces } from "@/lib/navigation/registry";
+import type { Workspace } from "@/lib/navigation/types";
+import { visibleWorkspaces } from "@/lib/permissions/navigation";
+import { grantsAllow, grantsFromList, NO_ACCESS, type AccessGrants, type PermissionAction } from "@/lib/permissions/registry";
 
 export interface SessionUser {
   id: string;
@@ -8,6 +12,9 @@ export interface SessionUser {
   phone: string;
   role: string;
   initials: string;
+  isMaster?: boolean;
+  /** Effective permission keys from /api/auth/me (["*"] = everything). */
+  permissions?: string[];
 }
 
 interface SessionCtx {
@@ -15,6 +22,11 @@ interface SessionCtx {
   loading: boolean;
   login: (phone: string, password: string) => Promise<void>;
   logout: () => void;
+  /** What the signed-in user holds; the server enforces the same rules on every request. */
+  grants: AccessGrants;
+  can: (featureKey: string, action?: PermissionAction) => boolean;
+  /** The menus filtered to what the user may open. */
+  workspaces: Workspace[];
 }
 
 const Ctx = createContext<SessionCtx | null>(null);
@@ -52,7 +64,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     setUser(null);
   }
 
-  return <Ctx.Provider value={{ user, loading, login, logout }}>{children}</Ctx.Provider>;
+  const grants = useMemo(() => (user?.permissions ? grantsFromList(user.permissions) : NO_ACCESS), [user]);
+  const can = useCallback((featureKey: string, action: PermissionAction = "view") => grantsAllow(grants, featureKey, action), [grants]);
+  const visible = useMemo(() => visibleWorkspaces(workspaces, grants), [grants]);
+
+  return <Ctx.Provider value={{ user, loading, login, logout, grants, can, workspaces: visible }}>{children}</Ctx.Provider>;
 }
 
 export function useSession() {

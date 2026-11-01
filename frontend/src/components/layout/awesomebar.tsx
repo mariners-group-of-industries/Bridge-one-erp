@@ -4,11 +4,11 @@ import { CornerDownLeft, Search } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { cn } from "@/lib/cn";
+import { useSession } from "@/lib/auth/session";
 import { searchEntries } from "@/lib/navigation/registry";
 import { filterEntries } from "@/lib/navigation/search";
 import { Kbd } from "@/components/ui/kbd";
 
-const ENTRIES = searchEntries();
 
 /** ERPNext "awesomebar": jump to any workspace or page (Ctrl+K / Ctrl+G). */
 export function Awesomebar({ open, onClose }: { open: boolean; onClose: () => void }) {
@@ -45,7 +45,10 @@ function SearchPanel({ onClose }: { onClose: () => void }) {
   const listId = useId();
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
-  const results = useMemo(() => filterEntries(ENTRIES, query), [query]);
+  // Only pages the user may open.
+  const { workspaces } = useSession();
+  const entries = useMemo(() => searchEntries(workspaces), [workspaces]);
+  const results = useMemo(() => filterEntries(entries, query), [entries, query]);
   const activeIndex = Math.min(active, Math.max(results.length - 1, 0));
 
   function go(href: string) {

@@ -12,6 +12,24 @@ datasource db {
 
 // ─── Auth ────────────────────────────────────────────────────────────────────
 
+/// Whether an account may use the ERP (separate from deletion: history is kept).
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+}
+
+/// Individual permission override: Allow grants, Deny blocks (Deny wins).
+enum PermissionEffect {
+  ALLOW
+  DENY
+}
+
+enum PermissionGroupStatus {
+  ACTIVE
+  INACTIVE
+}
+
 enum UserRole {
   ADMINISTRATOR
   MANAGER
@@ -41,6 +59,9 @@ model User {
   roleId       String?   @db.Uuid
   isMaster     Boolean   @default(false)
   isActive     Boolean   @default(true)
+  /// May sign in to the ERP. New accounts start without access (and without permissions).
+  erpAccess    Boolean    @default(false)
+  status       UserStatus @default(ACTIVE)
   lastLoginAt  DateTime? @db.Timestamptz(3)
   createdAt    DateTime  @default(now()) @db.Timestamptz(3)
   updatedAt    DateTime  @updatedAt @db.Timestamptz(3)
@@ -58,6 +79,9 @@ model User {
   superApproverOf ApprovalPipeline[]      @relation("PipelineSuperUser")
   userGroups      UserGroupMember[]
   approverOf      ApprovalStageApprover[] @relation("ApproverUser")
+
+  permissionGroups    UserPermissionGroup[]
+  permissionOverrides UserPermissionOverride[]
 
   @@index([roleId])
   @@map("users")
@@ -210,14 +234,22 @@ model UserGroupMember {
 /// A permission matrix: per activity (a menu page, keyed by its path) which of
 /// Create / Edit / View / Delete / Approve are allowed. Only granted rows are stored.
 model PermissionGroup {
-  id            String   @id @default(uuid()) @db.Uuid
-  name          String   @unique @db.VarChar(150)
+  id            String                @id @default(uuid()) @db.Uuid
+  name          String                @unique @db.VarChar(150)
+  /// Unique short code, e.g. SALES_MANAGER.
+  code          String                @unique @db.VarChar(60)
+  description   String?               @db.VarChar(500)
+  status        PermissionGroupStatus @default(ACTIVE)
+  /// Grants every permission (the migrated "Legacy Full Access" group); only the master account can assign it.
+  fullAccess    Boolean               @default(false)
+  createdByName String?               @db.VarChar(150)
   updatedById   String?  @db.VarChar(100)
   updatedByName String?  @db.VarChar(150)
   createdAt     DateTime @default(now()) @db.Timestamptz(3)
   updatedAt     DateTime @updatedAt @db.Timestamptz(3)
 
   entries PermissionGroupEntry[]
+  users   UserPermissionGroup[]
 
   @@map("permission_groups")
 }
@@ -232,11 +264,65 @@ model PermissionGroupEntry {
   canView      Boolean @default(false)
   canDelete    Boolean @default(false)
   canApprove   Boolean @default(false)
+  canExport    Boolean @default(false)
+  canImport    Boolean @default(false)
+  canAssign    Boolean @default(false)
+  canManage    Boolean @default(false)
 
   group PermissionGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
 
   @@id([groupId, activityKey])
   @@map("permission_group_entries")
+}
+
+/// A user's permission groups; the grants of their active groups are combined (union).
+model UserPermissionGroup {
+  userId     String   @db.Uuid
+  groupId    String   @db.Uuid
+  assignedAt DateTime @default(now()) @db.Timestamptz(3)
+
+  user  User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  group PermissionGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@id([userId, groupId])
+  @@index([groupId])
+  @@map("user_permission_groups")
+}
+
+/// Allow or Deny one action of one activity for one user, over their groups.
+model UserPermissionOverride {
+  userId      String           @db.Uuid
+  activityKey String           @db.VarChar(200)
+  /// view | create | edit | delete | approve | export | import | assign | manage
+  action      String           @db.VarChar(20)
+  effect      PermissionEffect
+  createdAt   DateTime         @default(now()) @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, activityKey, action])
+  @@map("user_permission_overrides")
+}
+
+/// Who changed which user's access or which group, with the values before and after.
+model PermissionAuditLog {
+  id            String   @id @default(uuid()) @db.Uuid
+  actorUserId   String?  @db.VarChar(100)
+  actorName     String?  @db.VarChar(150)
+  targetUserId  String?  @db.Uuid
+  targetGroupId String?  @db.Uuid
+  /// USER_ACCESS_UPDATE, GROUP_CREATE, GROUP_UPDATE, GROUP_DELETE, GROUP_USERS_UPDATE …
+  operation     String   @db.VarChar(40)
+  previousValue Json?
+  newValue      Json?
+  ipAddress     String?  @db.VarChar(64)
+  userAgent     String?  @db.VarChar(300)
+  createdAt     DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([targetUserId, createdAt])
+  @@index([targetGroupId, createdAt])
+  @@index([createdAt])
+  @@map("permission_audit_logs")
 }
 
 // ─── Configuration › Community & Gateways › API Configuration ───────────────

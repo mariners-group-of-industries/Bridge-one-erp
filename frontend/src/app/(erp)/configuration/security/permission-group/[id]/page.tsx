@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { PermissionGroupFormView } from "@/features/configuration/security/groups/components/PermissionGroupFormView";
+import { PermissionGroupFormView } from "@/features/configuration/security/access/components/PermissionGroupFormView";
 
 export const instant = false;
 

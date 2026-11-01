@@ -8,6 +8,7 @@ import { PageLoader } from "@/components/ui/spinner";
 import { ToastProvider } from "@/components/ui/toast";
 import { SessionProvider, useSession } from "@/lib/auth/session";
 import { cn } from "@/lib/cn";
+import { PageGuard } from "./access-denied";
 import { Awesomebar } from "./awesomebar";
 import { Navbar } from "./navbar";
 import { Sidebar, SidebarNav } from "./sidebar";
@@ -97,7 +98,10 @@ function ShellInner({ children }: { children: ReactNode }) {
         )}
 
         <main id="main" className="min-w-0 flex-1">
-          {children}
+          {/* Pages the user may not view show Access Denied (usePathname needs Suspense). */}
+          <Suspense fallback={null}>
+            <PageGuard>{children}</PageGuard>
+          </Suspense>
         </main>
       </div>
 

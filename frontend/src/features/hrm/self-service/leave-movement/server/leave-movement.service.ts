@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { Prisma } from "@/generated/prisma/client";
 import { validateAttachment, type UploadedFile } from "@/features/configuration/entity-master-data/supplier/server/supplier.service";
 import { AppError, badRequest, conflict, notFound } from "@/lib/api/errors";
-import { actorUserId, type Actor } from "@/lib/auth/actor";
+import { actorUserId, can, type Actor } from "@/lib/auth/actor";
 import { db } from "@/lib/prisma/client";
 import { getStorage } from "@/lib/storage";
 import {
@@ -44,12 +44,15 @@ async function linkedEmployee(actor: Actor): Promise<EmployeeOption | null> {
 }
 
 export async function leaveMovementOptions(actor: Actor): Promise<LeaveMovementOptions> {
-  return { canManage: actor.isMaster, self: await linkedEmployee(actor) };
+  return { canManage: managesLeave(actor), self: await linkedEmployee(actor) };
 }
 
-/** Employee search for the master account's Employee field. */
+/** HR who handle everyone's applications: Approve on Leave & Movement or on Pending Approval. */
+export const managesLeave = (actor: Actor) => can(actor, "/hrm/self-service/leave-movement", "approve") || can(actor, "/hrm/governance/pending-approval", "approve");
+
+/** Employee search for HR's Employee field. */
 export async function searchEmployees(actor: Actor, searchText: string): Promise<EmployeeOption[]> {
-  if (!actor.isMaster) return [];
+  if (!managesLeave(actor)) return [];
   const search = searchText.trim().slice(0, 100);
   const employees = await db().employee.findMany({
     where: {
@@ -69,20 +72,20 @@ export async function searchEmployees(actor: Actor, searchText: string): Promise
  * linked employee; only the master account may name another one.
  */
 async function resolveEmployee(actor: Actor, requestedId: string | undefined): Promise<string> {
-  if (actor.isMaster && requestedId) {
+  if (managesLeave(actor) && requestedId) {
     const employee = await db().employee.findFirst({ where: { id: requestedId, ...employeeScope(actor) }, select: { id: true } });
     if (!employee) throw notFound("Employee");
     return employee.id;
   }
   const self = await linkedEmployee(actor);
-  if (!self) throw badRequest(actor.isMaster ? "Select an employee." : "No employee record is linked to your account. Ask HR to link it (Employee › ERP Access).");
+  if (!self) throw badRequest(managesLeave(actor) ? "Select an employee." : "No employee record is linked to your account. Ask HR to link it (Employee › ERP Access).");
   if (requestedId && requestedId !== self.id) throw forbidden("You can only apply for yourself.");
   return self.id;
 }
 
 /** Rows the actor may see: the master account sees everyone (or one employee), others only themselves. */
 async function listScope(actor: Actor, employeeId: string | undefined): Promise<Prisma.EmployeeWhereInput | null> {
-  if (actor.isMaster) return { ...employeeScope(actor), ...(employeeId ? { id: employeeId } : {}) };
+  if (managesLeave(actor)) return { ...employeeScope(actor), ...(employeeId ? { id: employeeId } : {}) };
   const self = await linkedEmployee(actor);
   return self ? { id: self.id } : null;
 }
@@ -128,15 +131,15 @@ function baseRow(actor: Actor, ownId: string | null, a: StoredApplication) {
     appliedAt: a.createdAt.toISOString(),
     decidedByName: a.decidedByName,
     decidedAt: a.decidedAt?.toISOString() ?? null,
-    canDelete: pending && (actor.isMaster || a.employeeId === ownId),
-    canDecide: pending && actor.isMaster,
+    canDelete: pending && (managesLeave(actor) || a.employeeId === ownId),
+    canDecide: pending && managesLeave(actor),
   };
 }
 
 const decision = (actor: Actor, status: "Approved" | "Rejected") => ({ status, decidedByName: (actor.name ?? "Administrator").slice(0, 150), decidedAt: new Date() });
 
 function requireManager(actor: Actor) {
-  if (!actor.isMaster) throw forbidden("Only HR can approve or reject applications.");
+  if (!managesLeave(actor)) throw forbidden("Only HR can approve or reject applications.");
 }
 
 // ─── Leave ────────────────────────────────────────────────────────────────────
@@ -253,7 +256,7 @@ export async function decideLeave(actor: Actor, id: string, status: "Approved" |
 export async function deleteLeave(actor: Actor, id: string) {
   const leave = await loadLeave(actor, id);
   if (leave.status !== "Pending") throw badRequest("Only pending applications can be deleted.");
-  if (!actor.isMaster && leave.employeeId !== (await linkedEmployee(actor))?.id) throw forbidden("You can only delete your own applications.");
+  if (!managesLeave(actor) && leave.employeeId !== (await linkedEmployee(actor))?.id) throw forbidden("You can only delete your own applications.");
   await db().leaveApplication.delete({ where: { id } });
   await Promise.all(
     leave.attachments.map((f) =>

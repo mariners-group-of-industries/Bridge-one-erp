@@ -1,14 +1,27 @@
 import type { Prisma } from "@/generated/prisma/client";
 import { AppError } from "@/lib/api/errors";
-import type { Actor } from "@/lib/auth/actor";
+import { can, type Actor } from "@/lib/auth/actor";
 import { db } from "@/lib/prisma/client";
+
+/** HR administration pages; each API call is also checked for its own page and action. */
+export const HR_ADMIN_PAGES = [
+  "/hrm/attendance",
+  "/hrm/calendar-assign",
+  "/hrm/overtime",
+  "/hrm/payroll",
+  "/hrm/compensation/salary-disbursement",
+  "/hrm/compensation/bonus",
+  "/hrm/talent/increment",
+  "/hrm/governance/pending-approval",
+  "/hrm/governance/settings",
+] as const;
 
 /**
  * Payroll, bonus, increment and HR governance show every employee's salary, so
- * they are for HR (the master account) only.
+ * they are for HR: the master account, or users granted one of the HR admin pages.
  */
 export function requireHr(actor: Actor) {
-  if (!actor.isMaster) throw new AppError(403, "FORBIDDEN", "Only HR can open payroll and HR administration.");
+  if (!actor.isMaster && !HR_ADMIN_PAGES.some((page) => can(actor, page))) throw new AppError(403, "FORBIDDEN", "Only HR can open payroll and HR administration.");
 }
 
 export const officeScope = (actor: Actor): Prisma.OfficeWhereInput => (actor.companyScope === "ALL" ? {} : { businessUnit: { companyId: { in: [...actor.companyScope] } } });
