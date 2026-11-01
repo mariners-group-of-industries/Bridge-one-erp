@@ -7,12 +7,30 @@ import {
   Pencil,
   Search,
   CheckCircle,
-  Key,
+  Calendar,
+  Trash2,
   ChevronLeft,
   ChevronRight,
 } from "lucide-react";
 
 type CounterTab = "COUNTER_SETUP" | "MESSAGE_SETUP" | "CURRENCY_NOTE_SETUP" | "SEQUENCE_SETUP";
+
+type SequenceSubTab =
+  | "DEPARTMENT_SORT"
+  | "CATEGORY_SORT"
+  | "CATEGORY_WISE_ITEM_SORT"
+  | "DEPARTMENT_WISE_ITEM_SORT"
+  | "ALL_CATEGORY_WISE_ITEM_SORT"
+  | "ALL_DEPARTMENT_WISE_ITEM_SORT";
+
+const SEQUENCE_SUB_TABS: Array<{ id: SequenceSubTab; label: string }> = [
+  { id: "DEPARTMENT_SORT", label: "DEPARTMENT SORT" },
+  { id: "CATEGORY_SORT", label: "CATEGORY SORT" },
+  { id: "CATEGORY_WISE_ITEM_SORT", label: "CATEGORY WISE ITEM SORT" },
+  { id: "DEPARTMENT_WISE_ITEM_SORT", label: "DEPARTMENT WISE ITEM SORT" },
+  { id: "ALL_CATEGORY_WISE_ITEM_SORT", label: "ALL CATEGORY WISE ITEM SORT" },
+  { id: "ALL_DEPARTMENT_WISE_ITEM_SORT", label: "ALL DEPARTMENT WISE ITEM SORT" },
+];
 
 interface PosCounterRecord {
   id: string;
@@ -39,19 +57,21 @@ interface MessageSetupRecord {
 
 interface CurrencyNoteRecord {
   id: string;
-  currencyName: string;
+  currency: string;
+  noteName: string;
   noteValue: number;
-  noteType: "Note" | "Coin";
-  isActive: boolean;
+  status: "Active" | "Inactive";
 }
 
-interface SequenceSetupRecord {
+interface SequenceConfigItem {
   id: string;
   officeName: string;
-  prefix: string;
-  startingNo: number;
-  currentNo: number;
-  isActive: boolean;
+  subTab: SequenceSubTab;
+  targetName: string;
+  serialNo: number;
+  fromDateTime: string;
+  toDateTime: string;
+  status: "Active" | "Inactive";
 }
 
 const INITIAL_COUNTERS: PosCounterRecord[] = [
@@ -96,18 +116,55 @@ const INITIAL_MESSAGES: MessageSetupRecord[] = [
 ];
 
 const INITIAL_CURRENCY_NOTES: CurrencyNoteRecord[] = [
-  { id: "note-1", currencyName: "BDT", noteValue: 1000, noteType: "Note", isActive: true },
-  { id: "note-2", currencyName: "BDT", noteValue: 500, noteType: "Note", isActive: true },
-  { id: "note-3", currencyName: "BDT", noteValue: 100, noteType: "Note", isActive: true },
-  { id: "note-4", currencyName: "BDT", noteValue: 50, noteType: "Note", isActive: true },
-  { id: "note-5", currencyName: "BDT", noteValue: 20, noteType: "Note", isActive: true },
-  { id: "note-6", currencyName: "BDT", noteValue: 10, noteType: "Note", isActive: true },
-  { id: "note-7", currencyName: "BDT", noteValue: 5, noteType: "Coin", isActive: true },
+  { id: "note-1", currency: "BDT", noteName: "One Thousand Taka", noteValue: 1000, status: "Active" },
+  { id: "note-2", currency: "BDT", noteName: "Five Hundred Taka", noteValue: 500, status: "Active" },
+  { id: "note-3", currency: "BDT", noteName: "One Hundred Taka", noteValue: 100, status: "Active" },
+  { id: "note-4", currency: "BDT", noteName: "Fifty Taka", noteValue: 50, status: "Active" },
+  { id: "note-5", currency: "BDT", noteName: "Twenty Taka", noteValue: 20, status: "Active" },
+  { id: "note-6", currency: "BDT", noteName: "Ten Taka", noteValue: 10, status: "Active" },
 ];
 
-const INITIAL_SEQUENCES: SequenceSetupRecord[] = [
-  { id: "seq-1", officeName: "Marinozz", prefix: "POS-INV-", startingNo: 1000, currentNo: 1245, isActive: true },
-  { id: "seq-2", officeName: "Marinozz", prefix: "POS-ORD-", startingNo: 1000, currentNo: 1180, isActive: true },
+const INITIAL_SEQUENCES: SequenceConfigItem[] = [
+  {
+    id: "seq-1",
+    officeName: "Marinozz",
+    subTab: "DEPARTMENT_SORT",
+    targetName: "Kitchen",
+    serialNo: 1,
+    fromDateTime: "2026-11-01 08:00",
+    toDateTime: "2026-11-30 23:59",
+    status: "Active",
+  },
+  {
+    id: "seq-2",
+    officeName: "Marinozz",
+    subTab: "DEPARTMENT_SORT",
+    targetName: "Beverages",
+    serialNo: 2,
+    fromDateTime: "2026-11-01 08:00",
+    toDateTime: "2026-11-30 23:59",
+    status: "Active",
+  },
+  {
+    id: "seq-3",
+    officeName: "Marinozz",
+    subTab: "CATEGORY_SORT",
+    targetName: "Appetizers & Fast Food",
+    serialNo: 1,
+    fromDateTime: "2026-11-01 08:00",
+    toDateTime: "2026-11-30 23:59",
+    status: "Active",
+  },
+  {
+    id: "seq-4",
+    officeName: "Marinozz",
+    subTab: "CATEGORY_SORT",
+    targetName: "Main Course Dishes",
+    serialNo: 2,
+    fromDateTime: "2026-11-01 08:00",
+    toDateTime: "2026-11-30 23:59",
+    status: "Active",
+  },
 ];
 
 interface CounterSetupSectionProps {
@@ -124,11 +181,16 @@ export function CounterSetupSection({ onBack }: CounterSetupSectionProps) {
   const [isCreatingMessage, setIsCreatingMessage] = useState(false);
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
 
+  const [isCreatingSequence, setIsCreatingSequence] = useState(false);
+
+  // Sub tab for Sequence Setup
+  const [activeSequenceSubTab, setActiveSequenceSubTab] = useState<SequenceSubTab>("DEPARTMENT_SORT");
+
   // Data states
   const [counters, setCounters] = useState<PosCounterRecord[]>(INITIAL_COUNTERS);
   const [messages, setMessages] = useState<MessageSetupRecord[]>(INITIAL_MESSAGES);
-  const [notes, setNotes] = useState<CurrencyNoteRecord[]>(INITIAL_CURRENCY_NOTES);
-  const [sequences, setSequences] = useState<SequenceSetupRecord[]>(INITIAL_SEQUENCES);
+  const [currencyNotes, setCurrencyNotes] = useState<CurrencyNoteRecord[]>(INITIAL_CURRENCY_NOTES);
+  const [sequences, setSequences] = useState<SequenceConfigItem[]>(INITIAL_SEQUENCES);
 
   // Filters for Counter Setup
   const [filterOffice, setFilterOffice] = useState("All");
@@ -136,6 +198,25 @@ export function CounterSetupSection({ onBack }: CounterSetupSectionProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [rowsPerPage, setRowsPerPage] = useState(50);
   const [currentPage, setCurrentPage] = useState(1);
+
+  // Filters for Sequence Setup
+  const [seqFilterOffice, setSeqFilterOffice] = useState("All");
+  const [seqFilterTarget, setSeqFilterTarget] = useState("All");
+  const [seqFilterFromDate, setSeqFilterFromDate] = useState("2026-11-01");
+  const [seqFilterToDate, setSeqFilterToDate] = useState("2026-11-01");
+
+  // Form states for Currency Note Setup (Image 1)
+  const [selectedCurrency, setSelectedCurrency] = useState("BDT");
+  const [noteNameInput, setNoteNameInput] = useState("");
+  const [noteValueInput, setNoteValueInput] = useState("");
+
+  // Form states for Sequence Configuration Create (Image 3)
+  const [seqFormOffice, setSeqFormOffice] = useState("Marinozz");
+  const [seqFormFromDateTime, setSeqFormFromDateTime] = useState("2026-11-01 08:00");
+  const [seqFormToDateTime, setSeqFormToDateTime] = useState("2026-11-30 23:59");
+  const [seqFormTarget, setSeqFormTarget] = useState("Kitchen");
+  const [seqFormSerialNo, setSeqFormSerialNo] = useState("1");
+  const [tempSeqItems, setTempSeqItems] = useState<Array<{ target: string; serial: number }>>([]);
 
   // Toast
   const [toast, setToast] = useState<string | null>(null);
@@ -170,6 +251,16 @@ export function CounterSetupSection({ onBack }: CounterSetupSectionProps) {
         const parsed = JSON.parse(storedMessages);
         if (Array.isArray(parsed) && parsed.length > 0) setMessages(parsed);
       }
+      const storedNotes = localStorage.getItem("erp_pos_currency_notes_v1");
+      if (storedNotes) {
+        const parsed = JSON.parse(storedNotes);
+        if (Array.isArray(parsed) && parsed.length > 0) setCurrencyNotes(parsed);
+      }
+      const storedSeqs = localStorage.getItem("erp_pos_sequences_v1");
+      if (storedSeqs) {
+        const parsed = JSON.parse(storedSeqs);
+        if (Array.isArray(parsed) && parsed.length > 0) setSequences(parsed);
+      }
     } catch (e) {
       console.warn("Could not load from localStorage:", e);
     }
@@ -193,6 +284,28 @@ export function CounterSetupSection({ onBack }: CounterSetupSectionProps) {
         localStorage.setItem("erp_pos_messages_v1", JSON.stringify(newMessages));
       } catch (e) {
         console.warn("Error saving messages:", e);
+      }
+    }
+  };
+
+  const saveCurrencyNotes = (newNotes: CurrencyNoteRecord[]) => {
+    setCurrencyNotes(newNotes);
+    if (typeof window !== "undefined") {
+      try {
+        localStorage.setItem("erp_pos_currency_notes_v1", JSON.stringify(newNotes));
+      } catch (e) {
+        console.warn("Error saving notes:", e);
+      }
+    }
+  };
+
+  const saveSequences = (newSeqs: SequenceConfigItem[]) => {
+    setSequences(newSeqs);
+    if (typeof window !== "undefined") {
+      try {
+        localStorage.setItem("erp_pos_sequences_v1", JSON.stringify(newSeqs));
+      } catch (e) {
+        console.warn("Error saving sequences:", e);
       }
     }
   };
@@ -342,6 +455,107 @@ export function CounterSetupSection({ onBack }: CounterSetupSectionProps) {
     showToast(`Message is now ${target?.isActive ? "Active" : "Inactive"}`);
   };
 
+  // Add Currency Note Item (Image 1)
+  const handleAddCurrencyNote = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!noteNameInput.trim() || !noteValueInput.trim()) {
+      showToast("Please enter Currency Note Name and Value");
+      return;
+    }
+    const val = Number(noteValueInput);
+    if (isNaN(val) || val <= 0) {
+      showToast("Please enter a valid numeric value");
+      return;
+    }
+
+    const newNote: CurrencyNoteRecord = {
+      id: `note-${Date.now()}`,
+      currency: selectedCurrency,
+      noteName: noteNameInput.trim(),
+      noteValue: val,
+      status: "Active",
+    };
+
+    saveCurrencyNotes([...currencyNotes, newNote]);
+    setNoteNameInput("");
+    setNoteValueInput("");
+    showToast(`Added ${newNote.noteName} (${newNote.noteValue} ${selectedCurrency})`);
+  };
+
+  // Save Currency Notes
+  const handleSaveCurrencyNotes = () => {
+    saveCurrencyNotes(currencyNotes);
+    showToast("Currency Note Setup saved successfully");
+  };
+
+  // Delete Currency Note
+  const handleDeleteCurrencyNote = (id: string) => {
+    const updated = currencyNotes.filter((n) => n.id !== id);
+    saveCurrencyNotes(updated);
+    showToast("Currency note removed");
+  };
+
+  // Sequence Configuration Create Handlers (Image 3)
+  const handleOpenCreateSequence = () => {
+    setSeqFormOffice("Marinozz");
+    setSeqFormFromDateTime("2026-11-01 08:00");
+    setSeqFormToDateTime("2026-11-30 23:59");
+    const defaultTarget =
+      activeSequenceSubTab === "DEPARTMENT_SORT" ||
+      activeSequenceSubTab === "DEPARTMENT_WISE_ITEM_SORT" ||
+      activeSequenceSubTab === "ALL_DEPARTMENT_WISE_ITEM_SORT"
+        ? "Kitchen"
+        : "Appetizers & Fast Food";
+    setSeqFormTarget(defaultTarget);
+    setSeqFormSerialNo("1");
+    setTempSeqItems([]);
+    setIsCreatingSequence(true);
+  };
+
+  const handleAddTempSeqItem = (e: React.FormEvent) => {
+    e.preventDefault();
+    const sNo = parseInt(seqFormSerialNo, 10);
+    if (!seqFormTarget.trim() || isNaN(sNo)) {
+      showToast("Please select target and enter Serial No");
+      return;
+    }
+    setTempSeqItems((prev) => [...prev, { target: seqFormTarget, serial: sNo }]);
+    setSeqFormSerialNo(String(sNo + 1));
+    showToast(`Added ${seqFormTarget} (Serial: ${sNo})`);
+  };
+
+  const handleSaveSequenceConfiguration = () => {
+    if (tempSeqItems.length === 0) {
+      // If none added to temp list, add the current one
+      const sNo = parseInt(seqFormSerialNo, 10) || 1;
+      const newSeq: SequenceConfigItem = {
+        id: `seq-${Date.now()}`,
+        officeName: seqFormOffice,
+        subTab: activeSequenceSubTab,
+        targetName: seqFormTarget,
+        serialNo: sNo,
+        fromDateTime: seqFormFromDateTime,
+        toDateTime: seqFormToDateTime,
+        status: "Active",
+      };
+      saveSequences([...sequences, newSeq]);
+    } else {
+      const newItems: SequenceConfigItem[] = tempSeqItems.map((item, idx) => ({
+        id: `seq-${Date.now()}-${idx}`,
+        officeName: seqFormOffice,
+        subTab: activeSequenceSubTab,
+        targetName: item.target,
+        serialNo: item.serial,
+        fromDateTime: seqFormFromDateTime,
+        toDateTime: seqFormToDateTime,
+        status: "Active",
+      }));
+      saveSequences([...sequences, ...newItems]);
+    }
+    showToast("Sequence Configuration saved successfully");
+    setIsCreatingSequence(false);
+  };
+
   // Filtered Counters
   const filteredCounters = useMemo(() => {
     return counters.filter((c) => {
@@ -360,6 +574,16 @@ export function CounterSetupSection({ onBack }: CounterSetupSectionProps) {
       return true;
     });
   }, [counters, filterOffice, filterStatus, searchQuery]);
+
+  // Filtered Sequences for active subtab
+  const filteredSequences = useMemo(() => {
+    return sequences.filter((s) => {
+      if (s.subTab !== activeSequenceSubTab) return false;
+      if (seqFilterOffice !== "All" && s.officeName !== seqFilterOffice) return false;
+      if (seqFilterTarget !== "All" && s.targetName !== seqFilterTarget) return false;
+      return true;
+    });
+  }, [sequences, activeSequenceSubTab, seqFilterOffice, seqFilterTarget]);
 
   // Pagination for Counters
   const totalCounterPages = Math.max(1, Math.ceil(filteredCounters.length / rowsPerPage));
@@ -587,7 +811,193 @@ export function CounterSetupSection({ onBack }: CounterSetupSectionProps) {
   }
 
   // -------------------------------------------------------------
-  // VIEW: Main Counter Setup with 4 Tabs (Screenshots 1 & 3)
+  // VIEW: Sequence Configuration of Sub-Tab (Image 3)
+  // -------------------------------------------------------------
+  if (isCreatingSequence) {
+    const isDeptType =
+      activeSequenceSubTab === "DEPARTMENT_SORT" ||
+      activeSequenceSubTab === "DEPARTMENT_WISE_ITEM_SORT" ||
+      activeSequenceSubTab === "ALL_DEPARTMENT_WISE_ITEM_SORT";
+
+    const subTabLabel = SEQUENCE_SUB_TABS.find((t) => t.id === activeSequenceSubTab)?.label || "Department Sort";
+
+    return (
+      <div className="min-h-[calc(100vh-3.5rem)] bg-white dark:bg-slate-950 p-4 sm:p-6 space-y-4">
+        {/* Header */}
+        <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-800">
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => setIsCreatingSequence(false)}
+              className="text-slate-700 dark:text-slate-200 hover:text-blue-600 transition p-1 cursor-pointer"
+              title="Back"
+            >
+              <ArrowLeft className="size-5" />
+            </button>
+            <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100">
+              Sequence Configuration of {subTabLabel.toLowerCase().replace(/(^|\s)\S/g, (l) => l.toUpperCase())}
+            </h1>
+          </div>
+          <button
+            type="button"
+            onClick={handleSaveSequenceConfiguration}
+            className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs rounded uppercase tracking-wider shadow-xs transition cursor-pointer"
+          >
+            SAVE
+          </button>
+        </div>
+
+        {/* Top Card: Office *, From Date And Time *, To Date And Time * */}
+        <div className="rounded border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 shadow-2xs space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                Office <span className="text-red-500">*</span>
+              </label>
+              <select
+                value={seqFormOffice}
+                onChange={(e) => setSeqFormOffice(e.target.value)}
+                className="w-full h-9 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              >
+                <option value="Marinozz">Marinozz</option>
+                <option value="Head Office">Head Office</option>
+                <option value="Dhanmondi Branch">Dhanmondi Branch</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                From Date And Time <span className="text-red-500">*</span>
+              </label>
+              <div className="relative">
+                <input
+                  type="text"
+                  placeholder="yyyy-mm-dd hh:mm"
+                  value={seqFormFromDateTime}
+                  onChange={(e) => setSeqFormFromDateTime(e.target.value)}
+                  className="w-full h-9 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 pr-8 text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-blue-500 font-mono"
+                />
+                <Calendar className="size-4 text-slate-400 absolute right-2.5 top-2.5 pointer-events-none" />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                To Date And Time <span className="text-red-500">*</span>
+              </label>
+              <div className="relative">
+                <input
+                  type="text"
+                  placeholder="yyyy-mm-dd hh:mm"
+                  value={seqFormToDateTime}
+                  onChange={(e) => setSeqFormToDateTime(e.target.value)}
+                  className="w-full h-9 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 pr-8 text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-blue-500 font-mono"
+                />
+                <Calendar className="size-4 text-slate-400 absolute right-2.5 top-2.5 pointer-events-none" />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Bottom Card: Department / Category, Serial No *, Add button */}
+        <div className="rounded border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 shadow-2xs space-y-4">
+          <form onSubmit={handleAddTempSeqItem} className="flex items-end gap-4 flex-wrap">
+            <div className="w-64">
+              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                {isDeptType ? "Department" : "Category"}
+              </label>
+              <select
+                value={seqFormTarget}
+                onChange={(e) => setSeqFormTarget(e.target.value)}
+                className="w-full h-9 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              >
+                {isDeptType ? (
+                  <>
+                    <option value="Kitchen">Kitchen</option>
+                    <option value="Beverages">Beverages</option>
+                    <option value="Service">Service</option>
+                    <option value="Billing">Billing</option>
+                  </>
+                ) : (
+                  <>
+                    <option value="Appetizers & Fast Food">Appetizers & Fast Food</option>
+                    <option value="Main Course Dishes">Main Course Dishes</option>
+                    <option value="Desserts & Drinks">Desserts & Drinks</option>
+                    <option value="Combo Packages">Combo Packages</option>
+                  </>
+                )}
+              </select>
+            </div>
+
+            <div className="w-48">
+              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                Serial No <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="number"
+                required
+                placeholder="Serial No"
+                value={seqFormSerialNo}
+                onChange={(e) => setSeqFormSerialNo(e.target.value)}
+                className="w-full h-9 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-blue-500 font-mono"
+              />
+            </div>
+
+            <button
+              type="submit"
+              className="h-9 px-6 bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs rounded shadow-xs transition cursor-pointer"
+            >
+              Add
+            </button>
+          </form>
+
+          {/* Table of Added Sequence Items */}
+          {tempSeqItems.length > 0 && (
+            <div className="rounded border border-slate-200 dark:border-slate-800 overflow-x-auto mt-4">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-slate-50 dark:bg-slate-800/60 text-slate-700 dark:text-slate-300">
+                  <tr>
+                    <th className="p-2.5 font-semibold w-12">#</th>
+                    <th className="p-2.5 font-semibold">{isDeptType ? "Department" : "Category"}</th>
+                    <th className="p-2.5 font-semibold">Serial No</th>
+                    <th className="p-2.5 font-semibold text-center w-20">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                  {tempSeqItems.map((item, idx) => (
+                    <tr key={idx} className="hover:bg-slate-50/50">
+                      <td className="p-2.5 text-slate-500">{idx + 1}</td>
+                      <td className="p-2.5 font-medium text-slate-800 dark:text-slate-200">{item.target}</td>
+                      <td className="p-2.5 font-mono font-bold text-blue-600">{item.serial}</td>
+                      <td className="p-2.5 text-center">
+                        <button
+                          type="button"
+                          onClick={() => setTempSeqItems(tempSeqItems.filter((_, i) => i !== idx))}
+                          className="text-rose-500 hover:text-rose-700"
+                        >
+                          <Trash2 className="size-4 inline" />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
+        {toast && (
+          <div className="fixed bottom-6 right-6 z-50 flex items-center gap-2.5 px-4 py-2.5 rounded-lg bg-slate-900 text-white text-xs font-semibold shadow-xl border border-slate-700">
+            <CheckCircle className="size-4 text-emerald-400" />
+            <span>{toast}</span>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // -------------------------------------------------------------
+  // VIEW: Main Counter Setup with 4 Tabs (Screenshots 1 & 3 & 4)
   // -------------------------------------------------------------
   const headerTitle =
     activeTab === "COUNTER_SETUP"
@@ -600,19 +1010,31 @@ export function CounterSetupSection({ onBack }: CounterSetupSectionProps) {
 
   return (
     <div className="min-h-[calc(100vh-3.5rem)] bg-white dark:bg-slate-950 p-4 sm:p-6 space-y-4">
-      {/* 1. Header with back button & Title */}
-      <div className="flex items-center gap-3">
-        <button
-          type="button"
-          onClick={onBack}
-          className="text-slate-700 dark:text-slate-200 hover:text-blue-600 transition p-1 cursor-pointer"
-          title="Back to Setup Menu"
-        >
-          <ArrowLeft className="size-5" />
-        </button>
-        <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100">
-          {headerTitle}
-        </h1>
+      {/* 1. Header with back button & Title & Optional Save for Currency Note */}
+      <div className="flex items-center justify-between flex-wrap gap-4">
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={onBack}
+            className="text-slate-700 dark:text-slate-200 hover:text-blue-600 transition p-1 cursor-pointer"
+            title="Back to Setup Menu"
+          >
+            <ArrowLeft className="size-5" />
+          </button>
+          <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100">
+            {headerTitle}
+          </h1>
+        </div>
+
+        {activeTab === "CURRENCY_NOTE_SETUP" && (
+          <button
+            type="button"
+            onClick={handleSaveCurrencyNotes}
+            className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs rounded uppercase tracking-wider shadow-xs transition cursor-pointer"
+          >
+            SAVE
+          </button>
+        )}
       </div>
 
       {/* 2. Top Navigation Tabs */}
@@ -976,83 +1398,273 @@ export function CounterSetupSection({ onBack }: CounterSetupSectionProps) {
       )}
 
       {/* ----------------------------------------------------------- */}
-      {/* TAB 3: CURRENCY NOTE SETUP */}
+      {/* TAB 3: CURRENCY NOTE SETUP (Image 1) */}
       {/* ----------------------------------------------------------- */}
       {activeTab === "CURRENCY_NOTE_SETUP" && (
         <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <p className="text-xs text-slate-600 dark:text-slate-400">
-              Manage acceptable currency notes and coins for POS cash transactions.
-            </p>
+          {/* Top Card: Currency * */}
+          <div className="rounded border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 shadow-2xs">
+            <div className="max-w-xs">
+              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                Currency <span className="text-red-500">*</span>
+              </label>
+              <select
+                value={selectedCurrency}
+                onChange={(e) => setSelectedCurrency(e.target.value)}
+                className="w-full h-9 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              >
+                <option value="BDT">BDT - Bangladeshi Taka</option>
+                <option value="USD">USD - US Dollar</option>
+                <option value="EUR">EUR - Euro</option>
+              </select>
+            </div>
           </div>
-          <div className="rounded border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 overflow-x-auto shadow-2xs">
-            <table className="w-full text-left text-xs border-collapse">
-              <thead className="bg-[#e0f2fe]/80 dark:bg-sky-950/40 text-slate-800 dark:text-slate-200 border-b border-slate-200 dark:border-slate-800">
-                <tr>
-                  <th className="p-3 font-semibold w-16">SL</th>
-                  <th className="p-3 font-semibold">Currency</th>
-                  <th className="p-3 font-semibold">Note / Coin Value</th>
-                  <th className="p-3 font-semibold">Type</th>
-                  <th className="p-3 font-semibold text-center w-28">Status</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                {notes.map((n, idx) => (
-                  <tr key={n.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition">
-                    <td className="p-3 text-slate-600 dark:text-slate-400 font-medium">{idx + 1}</td>
-                    <td className="p-3 font-bold text-slate-800 dark:text-slate-200">{n.currencyName}</td>
-                    <td className="p-3 font-mono font-bold text-blue-600">{n.noteValue} ৳</td>
-                    <td className="p-3 text-slate-700 dark:text-slate-300">{n.noteType}</td>
-                    <td className="p-3 text-center">
-                      <span className="inline-block px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
-                        Active
-                      </span>
-                    </td>
+
+          {/* Bottom Card: Currency Note Name *, Currency Value *, Add Button */}
+          <div className="rounded border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 shadow-2xs space-y-4">
+            <form onSubmit={handleAddCurrencyNote} className="flex items-end gap-4 flex-wrap">
+              <div className="w-72">
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Currency Note Name <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Currency Note Name"
+                  value={noteNameInput}
+                  onChange={(e) => setNoteNameInput(e.target.value)}
+                  className="w-full h-9 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                />
+              </div>
+
+              <div className="w-56">
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Currency Value <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="number"
+                  required
+                  placeholder="Currency Value"
+                  value={noteValueInput}
+                  onChange={(e) => setNoteValueInput(e.target.value)}
+                  className="w-full h-9 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-blue-500 font-mono"
+                />
+              </div>
+
+              <button
+                type="submit"
+                className="h-9 px-6 bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs rounded shadow-xs transition cursor-pointer"
+              >
+                Add
+              </button>
+            </form>
+
+            {/* Notes Table */}
+            <div className="rounded border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 overflow-x-auto shadow-2xs mt-4">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead className="bg-[#e0f2fe]/80 dark:bg-sky-950/40 text-slate-800 dark:text-slate-200 border-b border-slate-200 dark:border-slate-800">
+                  <tr>
+                    <th className="p-3 font-semibold w-16">SL</th>
+                    <th className="p-3 font-semibold">Currency</th>
+                    <th className="p-3 font-semibold">Currency Note Name</th>
+                    <th className="p-3 font-semibold">Currency Value</th>
+                    <th className="p-3 font-semibold text-center w-28">Status</th>
+                    <th className="p-3 font-semibold text-center w-24">Action</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                  {currencyNotes.map((n, idx) => (
+                    <tr key={n.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition">
+                      <td className="p-3 text-slate-600 dark:text-slate-400 font-medium">{idx + 1}</td>
+                      <td className="p-3 font-bold text-slate-800 dark:text-slate-200">{n.currency}</td>
+                      <td className="p-3 font-medium text-slate-900 dark:text-slate-100">{n.noteName}</td>
+                      <td className="p-3 font-mono font-bold text-blue-600">{n.noteValue}</td>
+                      <td className="p-3 text-center">
+                        <span className="inline-block px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
+                          {n.status}
+                        </span>
+                      </td>
+                      <td className="p-3 text-center">
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteCurrencyNote(n.id)}
+                          className="text-rose-500 hover:text-rose-700 transition p-1"
+                          title="Delete Note"
+                        >
+                          <Trash2 className="size-4 inline" />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       )}
 
       {/* ----------------------------------------------------------- */}
-      {/* TAB 4: SEQUENCE SETUP */}
+      {/* TAB 4: SEQUENCE SETUP (Images 2, 3, 4) */}
       {/* ----------------------------------------------------------- */}
       {activeTab === "SEQUENCE_SETUP" && (
         <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <p className="text-xs text-slate-600 dark:text-slate-400">
-              Configure invoice and order serial number prefixes and starting ranges.
-            </p>
+          {/* Sub Navigation Bar for Sequence Setup (Images 2 & 4) */}
+          <div className="border-b border-slate-200 dark:border-slate-800">
+            <nav className="flex items-center gap-6 -mb-px overflow-x-auto text-[11px] font-bold tracking-wide">
+              {SEQUENCE_SUB_TABS.map((tab) => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setActiveSequenceSubTab(tab.id)}
+                  className={`py-2.5 transition border-b-2 whitespace-nowrap cursor-pointer uppercase ${
+                    activeSequenceSubTab === tab.id
+                      ? "border-blue-600 text-blue-600"
+                      : "border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900"
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </nav>
           </div>
+
+          {/* Top Controls: + Create Button */}
+          <div className="flex justify-end">
+            <button
+              type="button"
+              onClick={handleOpenCreateSequence}
+              className="h-9 px-4 bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs rounded flex items-center gap-1.5 shadow-xs transition cursor-pointer"
+            >
+              <Plus className="size-4" />
+              <span>Create</span>
+            </button>
+          </div>
+
+          {/* Filter Bar (Images 2 & 4) */}
+          <div className="flex items-end gap-4 flex-wrap">
+            {/* Office */}
+            <div className="w-56">
+              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                Office
+              </label>
+              <select
+                value={seqFilterOffice}
+                onChange={(e) => setSeqFilterOffice(e.target.value)}
+                className="w-full h-9 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 text-xs text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              >
+                <option value="All">All Offices</option>
+                <option value="Marinozz">Marinozz</option>
+                <option value="Head Office">Head Office</option>
+              </select>
+            </div>
+
+            {/* Department / Category Filter */}
+            <div className="w-56">
+              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                {activeSequenceSubTab.includes("CATEGORY") ? "Category" : "Department"}
+              </label>
+              <select
+                value={seqFilterTarget}
+                onChange={(e) => setSeqFilterTarget(e.target.value)}
+                className="w-full h-9 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 text-xs text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              >
+                <option value="All">All</option>
+                {activeSequenceSubTab.includes("CATEGORY") ? (
+                  <>
+                    <option value="Appetizers & Fast Food">Appetizers & Fast Food</option>
+                    <option value="Main Course Dishes">Main Course Dishes</option>
+                    <option value="Desserts & Drinks">Desserts & Drinks</option>
+                  </>
+                ) : (
+                  <>
+                    <option value="Kitchen">Kitchen</option>
+                    <option value="Beverages">Beverages</option>
+                    <option value="Service">Service</option>
+                  </>
+                )}
+              </select>
+            </div>
+
+            {/* From Date */}
+            <div className="w-44">
+              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                From Date
+              </label>
+              <div className="relative">
+                <input
+                  type="text"
+                  value={seqFilterFromDate}
+                  onChange={(e) => setSeqFilterFromDate(e.target.value)}
+                  className="w-full h-9 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 pr-8 text-xs text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-blue-500 font-mono"
+                />
+                <Calendar className="size-3.5 text-slate-400 absolute right-2.5 top-2.5 pointer-events-none" />
+              </div>
+            </div>
+
+            {/* To Date */}
+            <div className="w-44">
+              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                To Date
+              </label>
+              <div className="relative">
+                <input
+                  type="text"
+                  value={seqFilterToDate}
+                  onChange={(e) => setSeqFilterToDate(e.target.value)}
+                  className="w-full h-9 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 pr-8 text-xs text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-blue-500 font-mono"
+                />
+                <Calendar className="size-3.5 text-slate-400 absolute right-2.5 top-2.5 pointer-events-none" />
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => showToast(`Filtered ${filteredSequences.length} sequence records`)}
+              className="h-9 px-6 bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs rounded shadow-xs transition cursor-pointer"
+            >
+              View
+            </button>
+          </div>
+
+          {/* Table */}
           <div className="rounded border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 overflow-x-auto shadow-2xs">
             <table className="w-full text-left text-xs border-collapse">
               <thead className="bg-[#e0f2fe]/80 dark:bg-sky-950/40 text-slate-800 dark:text-slate-200 border-b border-slate-200 dark:border-slate-800">
                 <tr>
                   <th className="p-3 font-semibold w-16">SL</th>
                   <th className="p-3 font-semibold">Office Name</th>
-                  <th className="p-3 font-semibold">Prefix</th>
-                  <th className="p-3 font-semibold">Starting No</th>
-                  <th className="p-3 font-semibold">Current No</th>
+                  <th className="p-3 font-semibold">
+                    {activeSequenceSubTab.includes("CATEGORY") ? "Category Name" : "Department Name"}
+                  </th>
+                  <th className="p-3 font-semibold">Serial No</th>
+                  <th className="p-3 font-semibold">From Date & Time</th>
+                  <th className="p-3 font-semibold">To Date & Time</th>
                   <th className="p-3 font-semibold text-center w-28">Status</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                {sequences.map((s, idx) => (
+                {filteredSequences.map((s, idx) => (
                   <tr key={s.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition">
                     <td className="p-3 text-slate-600 dark:text-slate-400 font-medium">{idx + 1}</td>
                     <td className="p-3 font-medium text-slate-800 dark:text-slate-200">{s.officeName}</td>
-                    <td className="p-3 font-mono font-bold text-blue-600">{s.prefix}</td>
-                    <td className="p-3 font-mono text-slate-700 dark:text-slate-300">{s.startingNo}</td>
-                    <td className="p-3 font-mono text-slate-700 dark:text-slate-300">{s.currentNo}</td>
+                    <td className="p-3 font-medium text-slate-900 dark:text-slate-100">{s.targetName}</td>
+                    <td className="p-3 font-mono font-bold text-blue-600">{s.serialNo}</td>
+                    <td className="p-3 font-mono text-slate-700 dark:text-slate-300">{s.fromDateTime}</td>
+                    <td className="p-3 font-mono text-slate-700 dark:text-slate-300">{s.toDateTime}</td>
                     <td className="p-3 text-center">
                       <span className="inline-block px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
-                        Active
+                        {s.status}
                       </span>
                     </td>
                   </tr>
                 ))}
+                {filteredSequences.length === 0 && (
+                  <tr>
+                    <td colSpan={7} className="p-8 text-center text-slate-400">
+                      No sequence configuration found. Click + Create to configure.
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
