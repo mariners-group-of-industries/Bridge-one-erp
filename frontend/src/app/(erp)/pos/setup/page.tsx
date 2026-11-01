@@ -263,13 +263,13 @@ export default function PosSetupPage() {
   const [editingFloor, setEditingFloor] = useState<FloorRecord | null>(null);
   const [editingTable, setEditingTable] = useState<TableRecord | null>(null);
 
+  const [floorOfficeInput, setFloorOfficeInput] = useState("Marinozz");
   const [floorNameInput, setFloorNameInput] = useState("");
-  const [floorCapacityInput, setFloorCapacityInput] = useState("30");
 
+  const [tableOfficeInput, setTableOfficeInput] = useState("Marinozz");
+  const [tableFloorInput, setTableFloorInput] = useState("ROOF TOP");
   const [tableNameInput, setTableNameInput] = useState("");
-  const [tableFloorInput, setTableFloorInput] = useState("HALLROOM");
-  const [tableCapacityInput, setTableCapacityInput] = useState("4");
-  const [tableStatusInput, setTableStatusInput] = useState<"Available" | "Occupied" | "Reserved">("Available");
+  const [tableSeatsInput, setTableSeatsInput] = useState("2");
 
   // Toggle active status for Floor
   const handleToggleFloorStatus = (id: string) => {
@@ -292,15 +292,15 @@ export default function PosSetupPage() {
   // Open Floor Modal (Create or Edit)
   const openCreateFloor = () => {
     setEditingFloor(null);
+    setFloorOfficeInput("Marinozz");
     setFloorNameInput("");
-    setFloorCapacityInput("30");
     setIsFloorModalOpen(true);
   };
 
   const openEditFloor = (floor: FloorRecord) => {
     setEditingFloor(floor);
+    setFloorOfficeInput(floor.officeName || "Marinozz");
     setFloorNameInput(floor.floorName);
-    setFloorCapacityInput(String(floor.capacity));
     setIsFloorModalOpen(true);
   };
 
@@ -315,8 +315,8 @@ export default function PosSetupPage() {
           f.id === editingFloor.id
             ? {
                 ...f,
+                officeName: floorOfficeInput,
                 floorName: floorNameInput.trim().toUpperCase(),
-                capacity: Number(floorCapacityInput) || 0,
               }
             : f
         )
@@ -324,9 +324,9 @@ export default function PosSetupPage() {
     } else {
       const newFl: FloorRecord = {
         id: `fl-${Date.now()}`,
-        officeName: "Marinozz",
+        officeName: floorOfficeInput,
         floorName: floorNameInput.trim().toUpperCase(),
-        capacity: Number(floorCapacityInput) || 0,
+        capacity: 20,
         tableCount: 0,
         status: "Active",
       };
@@ -339,19 +339,19 @@ export default function PosSetupPage() {
   // Open Table Modal (Create or Edit)
   const openCreateTable = () => {
     setEditingTable(null);
+    setTableOfficeInput("Marinozz");
+    setTableFloorInput(selectedFloor !== "All" ? selectedFloor : "ROOF TOP");
     setTableNameInput("");
-    setTableFloorInput(selectedFloor !== "All" ? selectedFloor : "HALLROOM");
-    setTableCapacityInput("4");
-    setTableStatusInput("Available");
+    setTableSeatsInput("2");
     setIsTableModalOpen(true);
   };
 
   const openEditTable = (table: TableRecord) => {
     setEditingTable(table);
-    setTableNameInput(table.tableName);
+    setTableOfficeInput("Marinozz");
     setTableFloorInput(table.floorName);
-    setTableCapacityInput(String(table.capacity));
-    setTableStatusInput(table.status);
+    setTableNameInput(table.tableName);
+    setTableSeatsInput(String(table.capacity));
     setIsTableModalOpen(true);
   };
 
@@ -359,6 +359,8 @@ export default function PosSetupPage() {
   const handleSaveTable = (e: React.FormEvent) => {
     e.preventDefault();
     if (!tableNameInput.trim()) return;
+
+    const seatsNum = Number(tableSeatsInput) || 2;
 
     if (editingTable) {
       setTables((prev) =>
@@ -368,8 +370,7 @@ export default function PosSetupPage() {
                 ...t,
                 tableName: tableNameInput.trim().toUpperCase(),
                 floorName: tableFloorInput,
-                capacity: Number(tableCapacityInput) || 4,
-                status: tableStatusInput,
+                capacity: seatsNum,
               }
             : t
         )
@@ -381,15 +382,21 @@ export default function PosSetupPage() {
         floorId: matchingFloor?.id || "fl-1",
         floorName: tableFloorInput,
         tableName: tableNameInput.trim().toUpperCase(),
-        capacity: Number(tableCapacityInput) || 4,
-        status: tableStatusInput,
+        capacity: seatsNum,
+        status: "Available",
         isActive: true,
       };
       setTables((prev) => [...prev, newTb]);
       if (matchingFloor) {
         setFloors((prev) =>
           prev.map((f) =>
-            f.id === matchingFloor.id ? { ...f, tableCount: f.tableCount + 1 } : f
+            f.id === matchingFloor.id
+              ? {
+                  ...f,
+                  tableCount: f.tableCount + 1,
+                  capacity: f.capacity + seatsNum,
+                }
+              : f
           )
         );
       }
@@ -727,10 +734,10 @@ export default function PosSetupPage() {
                   >
                     {/* Top Row: Status badge & Toggle Switches */}
                     <div className="w-full flex items-center justify-between text-[11px]">
-                      <div className="flex items-center gap-1.5 text-emerald-600 font-semibold">
+                      <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-semibold border border-emerald-400 text-emerald-700 dark:text-emerald-300 bg-emerald-50/60 dark:bg-emerald-950/40">
                         <span className="size-2 rounded-full bg-emerald-500" />
                         <span>{t.status}</span>
-                      </div>
+                      </span>
 
                       <div className="flex items-center gap-2 text-slate-400">
                         <button
@@ -811,51 +818,51 @@ export default function PosSetupPage() {
       {/* Create / Edit Floor Modal */}
       {isFloorModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4">
-          <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-lg shadow-xl border border-slate-200 dark:border-slate-800 p-5 space-y-4">
-            <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">
+          <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-800 p-6 space-y-5">
+            <h3 className="text-lg font-bold text-slate-900 dark:text-slate-100">
               {editingFloor ? "Edit Floor" : "Create New Floor"}
             </h3>
-            <form onSubmit={handleSaveFloor} className="space-y-3">
+            <form onSubmit={handleSaveFloor} className="space-y-4">
               <div>
-                <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-                  Floor Name
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
+                  Floor Name <span className="text-red-500">*</span>
                 </label>
                 <input
                   type="text"
                   required
-                  placeholder="e.g. MEZZANINE FLOOR"
+                  placeholder="Enter floor name"
                   value={floorNameInput}
                   onChange={(e) => setFloorNameInput(e.target.value)}
-                  className="w-full h-9 rounded border border-slate-300 dark:border-slate-700 px-3 text-xs bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  className="w-full h-10 rounded border border-slate-300 dark:border-slate-700 px-3 text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-blue-500"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-                  Seating Capacity
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
+                  Office <span className="text-red-500">*</span>
                 </label>
-                <input
-                  type="number"
-                  required
-                  value={floorCapacityInput}
-                  onChange={(e) => setFloorCapacityInput(e.target.value)}
-                  className="w-full h-9 rounded border border-slate-300 dark:border-slate-700 px-3 text-xs bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                />
+                <select
+                  value={floorOfficeInput}
+                  onChange={(e) => setFloorOfficeInput(e.target.value)}
+                  className="w-full h-10 rounded border border-slate-300 dark:border-slate-700 px-3 text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                >
+                  <option value="Marinozz">Marinozz</option>
+                </select>
               </div>
 
-              <div className="flex items-center justify-end gap-2 pt-2">
+              <div className="flex items-center justify-end gap-3 pt-3">
                 <button
                   type="button"
                   onClick={() => setIsFloorModalOpen(false)}
-                  className="px-3 py-1.5 rounded border border-slate-300 dark:border-slate-700 text-xs font-medium text-slate-700 dark:text-slate-300 cursor-pointer"
+                  className="px-3 py-1.5 text-sm font-bold text-rose-500 hover:text-rose-600 transition tracking-wider uppercase cursor-pointer"
                 >
-                  Cancel
+                  CLOSE
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-1.5 rounded bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs shadow-xs cursor-pointer"
+                  className="px-3 py-1.5 text-sm font-bold text-blue-600 hover:text-blue-700 transition tracking-wider uppercase cursor-pointer"
                 >
-                  {editingFloor ? "Update Floor" : "Save Floor"}
+                  {editingFloor ? "UPDATE" : "CREATE"}
                 </button>
               </div>
             </form>
@@ -866,19 +873,32 @@ export default function PosSetupPage() {
       {/* Add / Edit Table Modal */}
       {isTableModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4">
-          <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-lg shadow-xl border border-slate-200 dark:border-slate-800 p-5 space-y-4">
-            <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">
-              {editingTable ? "Edit Table" : "Add Table to Floor"}
+          <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-800 p-6 space-y-4">
+            <h3 className="text-lg font-bold text-slate-900 dark:text-slate-100">
+              {editingTable ? "Edit Table" : "Add New Table"}
             </h3>
-            <form onSubmit={handleSaveTable} className="space-y-3">
+            <form onSubmit={handleSaveTable} className="space-y-4">
               <div>
-                <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-                  Floor
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
+                  Office <span className="text-red-500">*</span>
+                </label>
+                <select
+                  value={tableOfficeInput}
+                  onChange={(e) => setTableOfficeInput(e.target.value)}
+                  className="w-full h-10 rounded border border-slate-300 dark:border-slate-700 px-3 text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                >
+                  <option value="Marinozz">Marinozz</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
+                  Floor <span className="text-red-500">*</span>
                 </label>
                 <select
                   value={tableFloorInput}
                   onChange={(e) => setTableFloorInput(e.target.value)}
-                  className="w-full h-9 rounded border border-slate-300 dark:border-slate-700 px-3 text-xs bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  className="w-full h-10 rounded border border-slate-300 dark:border-slate-700 px-3 text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-1 focus:ring-blue-500"
                 >
                   {floors.map((f) => (
                     <option key={f.id} value={f.floorName}>
@@ -889,69 +909,47 @@ export default function PosSetupPage() {
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-                  Table Name / Number
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
+                  Table Name <span className="text-red-500">*</span>
                 </label>
                 <input
                   type="text"
                   required
-                  placeholder="e.g. TABLE-7"
+                  placeholder="Enter table name"
                   value={tableNameInput}
                   onChange={(e) => setTableNameInput(e.target.value)}
-                  className="w-full h-9 rounded border border-slate-300 dark:border-slate-700 px-3 text-xs bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  className="w-full h-10 rounded border border-slate-300 dark:border-slate-700 px-3 text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-blue-500"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-                  Capacity (Persons)
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
+                  Total Seats <span className="text-red-500">*</span>
                 </label>
-                <select
-                  value={tableCapacityInput}
-                  onChange={(e) => setTableCapacityInput(e.target.value)}
-                  className="w-full h-9 rounded border border-slate-300 dark:border-slate-700 px-3 text-xs bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                >
-                  <option value="2">2 Persons</option>
-                  <option value="4">4 Persons</option>
-                  <option value="6">6 Persons</option>
-                  <option value="8">8 Persons</option>
-                </select>
+                <input
+                  type="number"
+                  required
+                  min={1}
+                  max={20}
+                  value={tableSeatsInput}
+                  onChange={(e) => setTableSeatsInput(e.target.value)}
+                  className="w-full h-10 rounded border border-slate-300 dark:border-slate-700 px-3 text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                />
               </div>
 
-              {editingTable && (
-                <div>
-                  <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-                    Status
-                  </label>
-                  <select
-                    value={tableStatusInput}
-                    onChange={(e) =>
-                      setTableStatusInput(
-                        e.target.value as "Available" | "Occupied" | "Reserved"
-                      )
-                    }
-                    className="w-full h-9 rounded border border-slate-300 dark:border-slate-700 px-3 text-xs bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                  >
-                    <option value="Available">Available</option>
-                    <option value="Occupied">Occupied</option>
-                    <option value="Reserved">Reserved</option>
-                  </select>
-                </div>
-              )}
-
-              <div className="flex items-center justify-end gap-2 pt-2">
+              <div className="flex items-center justify-end gap-3 pt-3">
                 <button
                   type="button"
                   onClick={() => setIsTableModalOpen(false)}
-                  className="px-3 py-1.5 rounded border border-slate-300 dark:border-slate-700 text-xs font-medium text-slate-700 dark:text-slate-300 cursor-pointer"
+                  className="px-3 py-1.5 text-sm font-bold text-rose-500 hover:text-rose-600 transition tracking-wider uppercase cursor-pointer"
                 >
-                  Cancel
+                  CLOSE
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-1.5 rounded bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs shadow-xs cursor-pointer"
+                  className="px-3 py-1.5 text-sm font-bold text-blue-600 hover:text-blue-700 transition tracking-wider uppercase cursor-pointer"
                 >
-                  {editingTable ? "Update Table" : "Save Table"}
+                  {editingTable ? "UPDATE" : "ADD TABLE"}
                 </button>
               </div>
             </form>
