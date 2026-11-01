@@ -4,6 +4,7 @@ import React, { useState, useMemo, useEffect } from "react";
 import { SalesSetupSection } from "./sales-setup";
 import { PointRedeemOtpSection } from "./point-redeem-otp";
 import { CounterSetupSection } from "./counter-setup";
+import { DiscountOfferSection } from "./discount-offer";
 import {
   ArrowLeft,
   Plus,
@@ -254,7 +255,7 @@ const SETUP_CARDS: Array<{
 ];
 
 export default function PosSetupPage() {
-  const [activeSection, setActiveSection] = useState<SetupSection>("COUNTER_SETUP");
+  const [activeSection, setActiveSection] = useState<SetupSection>("DISCOUNT_OFFER");
 
   // Floor & Table specific states
   const [activeTab, setActiveTab] = useState<"FLOOR" | "FLOOR_LAYOUT">("FLOOR");
@@ -641,6 +642,10 @@ export default function PosSetupPage() {
         </div>
       </div>
     );
+  }
+
+  if (activeSection === "DISCOUNT_OFFER") {
+    return <DiscountOfferSection onBack={() => setActiveSection(null)} />;
   }
 
   if (activeSection === "SALES_SETUP") {
