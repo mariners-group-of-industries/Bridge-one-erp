@@ -350,7 +350,7 @@ class PurchaseDataStore {
         else if (po.status === "APPROVED") status = "APPROVED";
         else if (po.status === "PARTIAL_RECEIVED") status = "PARTIALLY_RECEIVED";
         else if (po.status === "RECEIVED") status = "COMPLETED";
-        else if (po.status === "CLOSED") status = "CLOSED";
+        else if (po.status === "CLOSED") status = "CANCELLED";
         else if (po.status === "CANCELLED") status = "CANCELLED";
 
         const items = po.lines.map((l) => ({
@@ -647,7 +647,11 @@ class PurchaseDataStore {
           supplierId: input.supplierId || "",
           orderDate: input.receiptDate || toDateStr(new Date()),
           expectedDeliveryDate: input.receiptDate || toDateStr(new Date()),
-          items: input.items.map((it: any) => ({
+          companyId: 'comp-bridgeone-01',
+ paymentTerms: 'Net 30 Days',
+ deliveryTerms: 'FOB Destination',
+ shippingFee: 0,
+ items: input.items.map((it: any) => ({
             itemId: it.itemId,
             itemCode: it.itemCode,
             itemName: it.itemName,
@@ -769,6 +773,7 @@ class PurchaseDataStore {
           officeId: pr.officeId,
           officeName: pr.office?.name || "Office",
           totalReturnAmount: Number(pr.totalAmount),
+ returnType: 'REFUND_CREDIT' as const,
           status: pr.status === "CANCELLED" ? ("CANCELLED" as const) : ("COMPLETED" as const),
           createdBy: "Store Officer",
           createdAt: pr.createdAt.toISOString(),
@@ -889,6 +894,7 @@ class PurchaseDataStore {
           dueAmount,
           openInvoicesCount: supPos.length,
           paymentStatus,
+ currency: 'BDT',
         };
       })
       .filter((sp) => {
@@ -907,7 +913,7 @@ class PurchaseDataStore {
     return grns
       .map((g) => ({
         id: g.id,
-        invoiceNumber: g.challanNumber || `INV-${g.grnNumber}`,
+        invoiceNumber: (g as any).challanNumber || `INV-${g.grnNumber}`,
         poNumber: g.poNumber,
         grnNumber: g.grnNumber,
         supplierName: g.supplierName,

@@ -62,7 +62,6 @@ async function handleGET(
         toDate: searchParams.get("toDate") || undefined,
         requestType: searchParams.get("requestType") || undefined,
         section: searchParams.get("section") || undefined,
-        buyerOfficeId: searchParams.get("buyerOfficeId") || undefined,
       });
       return NextResponse.json({
         success: true,
