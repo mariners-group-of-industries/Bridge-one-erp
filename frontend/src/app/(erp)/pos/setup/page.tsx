@@ -1,6 +1,7 @@
 "use client";
 
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo, useEffect, Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { SalesSetupSection } from "./sales-setup";
 import { PointRedeemOtpSection } from "./point-redeem-otp";
 import { CounterSetupSection } from "./counter-setup";
@@ -12,10 +13,8 @@ import {
   RotateCw,
   UtensilsCrossed,
   Bell,
-  Search,
   Trash2,
   CheckCircle,
-  AlertCircle,
   ChevronLeft,
   ChevronRight,
 } from "lucide-react";
@@ -242,19 +241,6 @@ function PointRedeemIcon() {
   );
 }
 
-function FloorTableIcon() {
-  return (
-    <svg viewBox="0 0 64 64" className="size-12" fill="none">
-      <rect x="10" y="16" width="44" height="28" rx="6" fill="#6366f1" fillOpacity="0.15" stroke="#4f46e5" strokeWidth="2.5" />
-      <rect x="18" y="22" width="28" height="16" rx="4" fill="#4f46e5" fillOpacity="0.25" stroke="#4f46e5" strokeWidth="2" />
-      <circle cx="32" cy="11" r="3.5" fill="#6366f1" />
-      <circle cx="32" cy="49" r="3.5" fill="#6366f1" />
-      <circle cx="5" cy="30" r="3.5" fill="#6366f1" />
-      <circle cx="59" cy="30" r="3.5" fill="#6366f1" />
-    </svg>
-  );
-}
-
 const SETUP_CARDS: Array<{
   id: Exclude<SetupSection, null>;
   label: string;
@@ -264,46 +250,28 @@ const SETUP_CARDS: Array<{
   { id: "COUNTER_SETUP", label: "Counter Setup", Icon: CounterSetupIcon },
   { id: "SALES_SETUP", label: "Sales Setup", Icon: SalesSetupIcon },
   { id: "POINT_REDEEM_OTP", label: "Point Redeem OTP", Icon: PointRedeemIcon },
-  { id: "FLOOR_TABLE_SETUP", label: "Floor & Table Setup", Icon: FloorTableIcon },
+  { id: "FLOOR_TABLE_SETUP", label: "Floor & Table Setup", Icon: CounterSetupIcon },
 ];
 
-export default function PosSetupPage() {
-  const [activeSection, setActiveSection] = useState<SetupSection>(null);
-
-  // Sync with URL query parameter ?section= if present
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const params = new URLSearchParams(window.location.search);
-    const sec = params.get("section");
-    if (
-      sec === "DISCOUNT_OFFER" ||
-      sec === "COUNTER_SETUP" ||
-      sec === "SALES_SETUP" ||
-      sec === "POINT_REDEEM_OTP" ||
-      sec === "FLOOR_TABLE_SETUP"
-    ) {
-      queueMicrotask(() => {
-        setActiveSection(sec);
-      });
-    }
-  }, []);
+function PosSetupContent() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const rawSection = searchParams.get("section");
+  const activeSection: SetupSection =
+    rawSection === "DISCOUNT_OFFER" ||
+    rawSection === "COUNTER_SETUP" ||
+    rawSection === "SALES_SETUP" ||
+    rawSection === "POINT_REDEEM_OTP" ||
+    rawSection === "FLOOR_TABLE_SETUP"
+      ? rawSection
+      : null;
 
   const handleSelectSection = (id: Exclude<SetupSection, null>) => {
-    setActiveSection(id);
-    if (typeof window !== "undefined") {
-      const url = new URL(window.location.href);
-      url.searchParams.set("section", id);
-      window.history.pushState({}, "", url.toString());
-    }
+    router.push('/pos/setup?section=' + id);
   };
 
   const handleBackToHub = () => {
-    setActiveSection(null);
-    if (typeof window !== "undefined") {
-      const url = new URL(window.location.href);
-      url.searchParams.delete("section");
-      window.history.pushState({}, "", url.toString());
-    }
+    router.push('/pos/setup');
   };
 
   // Floor & Table specific states
@@ -1392,5 +1360,18 @@ export default function PosSetupPage() {
         </div>
       )}
     </div>
+  );
+}
+export default function PosSetupPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-[calc(100vh-3.5rem)] bg-white dark:bg-slate-950 p-4 sm:p-6 flex items-center justify-center text-xs text-slate-400">
+          Loading POS Setup...
+        </div>
+      }
+    >
+      <PosSetupContent />
+    </Suspense>
   );
 }
