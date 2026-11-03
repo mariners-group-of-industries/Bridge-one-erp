@@ -2,21 +2,13 @@
 
 import React, { useState, useMemo, useEffect } from "react";
 import {
-  BookOpen,
   CheckCircle,
-  ChefHat,
-  Cookie,
   FileSpreadsheet,
-  Package,
   Plus,
   Printer,
   RotateCcw,
   Search,
-  ShieldAlert,
-  Sparkles,
   Trash2,
-  TrendingUp,
-  UtensilsCrossed,
 } from "lucide-react";
 
 // ============================================================================
@@ -653,6 +645,7 @@ export interface ComputedRecipeMetrics {
   ingredientCostPerServing: number;
   extraWastageAmount: number;
   totalPackagingCost: number;
+  totalLabourUtilitiesOverhead: number;
   totalBatchCost: number;
   costPerServing: number;
   suggestedPriceExclVat: number;
@@ -716,6 +709,7 @@ function computeRecipeMetrics(
 
   const extraWastageAmount = totalIngredientBatchCost * recipe.extraBatchWastagePct;
   const totalPackagingCost = recipe.packagingPerServing * yieldCount;
+  const totalLabourUtilitiesOverhead = recipe.directLabourPerBatch + recipe.utilitiesPerBatch + recipe.overheadPerBatch;
   const totalBatchCost =
     totalIngredientBatchCost +
     extraWastageAmount +
@@ -755,6 +749,7 @@ function computeRecipeMetrics(
     ingredientCostPerServing,
     extraWastageAmount,
     totalPackagingCost,
+    totalLabourUtilitiesOverhead,
     totalBatchCost,
     costPerServing,
     suggestedPriceExclVat,
@@ -771,6 +766,7 @@ function computeRecipeMetrics(
 // ============================================================================
 // MAIN PAGE COMPONENT
 // ============================================================================
+
 
 export default function PosRecipeAndCostingPage() {
   const [activeTab, setActiveTab] = useState<RcTabId>("MENU_SUMMARY");
@@ -802,7 +798,7 @@ export default function PosRecipeAndCostingPage() {
     }, 3200);
   };
 
-  // Load persisted data from localStorage safely
+  // Safe load persisted data from localStorage
   useEffect(() => {
     if (typeof window === "undefined") return;
     try {
@@ -818,8 +814,8 @@ export default function PosRecipeAndCostingPage() {
           if (Array.isArray(parsed) && parsed.length > 0) setRecipes(parsed);
         }
       });
-    } catch (e) {
-      console.warn("Failed to load R&C state from localStorage:", e);
+    } catch {
+      // LocalStorage access restricted or invalid
     }
   }, []);
 
@@ -828,8 +824,8 @@ export default function PosRecipeAndCostingPage() {
     if (typeof window !== "undefined") {
       try {
         localStorage.setItem("erp_pos_rc_ingredients_v1", JSON.stringify(next));
-      } catch (e) {
-        console.warn("Could not save ingredients:", e);
+      } catch {
+        // ignore
       }
     }
   };
@@ -839,24 +835,24 @@ export default function PosRecipeAndCostingPage() {
     if (typeof window !== "undefined") {
       try {
         localStorage.setItem("erp_pos_rc_recipes_v1", JSON.stringify(next));
-      } catch (e) {
-        console.warn("Could not save recipes:", e);
+      } catch {
+        // ignore
       }
     }
   };
 
   const handleResetDefaults = () => {
-    saveIngredients(INITIAL_INGREDIENTS);
-    saveRecipes(INITIAL_RECIPES);
-    showToast("Reset R&C Workbook to Marinozz Standard Template defaults");
+    if (confirm("Restore all ingredients and recipes to default template values?")) {
+      saveIngredients(INITIAL_INGREDIENTS);
+      saveRecipes(INITIAL_RECIPES);
+      showToast("Reset to default Marinozz & Pantoa standards");
+    }
   };
 
-  // Map of Ingredient Code -> IngredientMasterItem
+  // Fast code -> ingredient map
   const ingredientsMap = useMemo(() => {
     const map = new Map<string, IngredientMasterItem>();
-    for (const item of ingredients) {
-      map.set(item.code, item);
-    }
+    ingredients.forEach((ing) => map.set(ing.code, ing));
     return map;
   }, [ingredients]);
 
@@ -889,7 +885,7 @@ export default function PosRecipeAndCostingPage() {
     });
   }, [ingredients, ingCategoryFilter, ingSearch]);
 
-  // Update a single ingredient field inline
+  // Update single ingredient field
   const handleUpdateIngredient = (
     code: string,
     field: keyof IngredientMasterItem,
@@ -907,12 +903,12 @@ export default function PosRecipeAndCostingPage() {
     saveIngredients(updated);
   };
 
-  // Add new ingredient to Master
+  // Add new ingredient
   const handleCreateIngredient = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newIngName.trim()) return;
     const nextNum = ingredients.length + 1;
-    const nextCode = `ING${String(nextNum).padStart(3, "0")}`;
+    const nextCode = "ING" + String(nextNum).padStart(3, "0");
     const newItem: IngredientMasterItem = {
       code: nextCode,
       name: newIngName.trim(),
@@ -931,10 +927,10 @@ export default function PosRecipeAndCostingPage() {
     setNewIngName("");
     setNewIngSupplier("");
     setNewIngAllergen("");
-    showToast(`Added ${nextCode} (${newItem.name}) to Ingredient Master`);
+    showToast("Added " + nextCode + " (" + newItem.name + ") to Ingredient Master");
   };
 
-  // Update a recipe sheet
+  // Update recipe
   const updateRecipeByTabKey = (
     tabKey: "EXAMPLE_RESTAURANT" | "EXAMPLE_PANTOA" | "RECIPE_TEMPLATE",
     updater: (prev: RecipeSheetData) => RecipeSheetData
@@ -943,61 +939,62 @@ export default function PosRecipeAndCostingPage() {
     saveRecipes(updated);
   };
 
-  // Export Menu Cost Summary + Ingredient Master to CSV
+  // Export CSV
   const handleExportCsv = () => {
     const headers = [
       "Recipe ID",
       "Menu Product",
-      "Business",
-      "Category",
+      "Brand / Business",
       "Batch Yield",
       "Yield Unit",
-      "Ingredient Cost (BDT)",
-      "Total Batch Cost (BDT)",
-      "Cost / Unit (BDT)",
-      "Suggested Price (BDT)",
-      "Menu Price (BDT)",
-      "Food Cost Ratio %",
-      "Contribution / Unit (BDT)",
-      "Contribution Margin %",
+      "Total Ingredient Batch Cost",
+      "Packaging Cost",
+      "Labour & Utilities",
+      "Total Batch Cost",
+      "Cost Per Serving",
+      "Target Margin %",
+      "Suggested Price",
+      "Actual Menu Price",
+      "Food Cost %",
+      "Gross Profit / Serving",
+      "Gross Margin %",
       "Price Decision",
     ];
+
     const rows = computedRecipes.map(({ recipe, metrics }) => [
-      `"${recipe.recipeId}"`,
-      `"${recipe.productName}"`,
-      `"${recipe.brandBusiness}"`,
-      `"${recipe.category}"`,
+      recipe.recipeId,
+      '"' + recipe.productName + '"',
+      '"' + recipe.brandBusiness + '"',
       recipe.sellableBatchYield,
-      `"${recipe.yieldUnit}"`,
+      recipe.yieldUnit,
       metrics.totalIngredientBatchCost.toFixed(2),
+      metrics.totalPackagingCost.toFixed(2),
+      metrics.totalLabourUtilitiesOverhead.toFixed(2),
       metrics.totalBatchCost.toFixed(2),
       metrics.costPerServing.toFixed(2),
+      (recipe.desiredContributionMarginPct * 100).toFixed(1) + "%",
       metrics.suggestedCustomerPrice.toFixed(2),
       recipe.actualMenuPrice.toFixed(2),
       (metrics.foodProductionCostRatio * 100).toFixed(2) + "%",
       metrics.contributionPerServing.toFixed(2),
       (metrics.contributionMarginPct * 100).toFixed(2) + "%",
-      `"${metrics.priceDecision}"`,
+      '"' + metrics.priceDecision + '"',
     ]);
 
-    const csvContent =
-      "\uFEFF" + [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
+    const csvContent = "\uFEFF" + [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.setAttribute("href", url);
-    link.setAttribute(
-      "download",
-      `Marinozz_RC_Cost_Summary_${new Date().toISOString().split("T")[0]}.csv`
-    );
+    link.setAttribute("download", "Marinozz_RC_Cost_Summary_" + new Date().toISOString().split("T")[0] + ".csv");
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
-    showToast("Exported R&C Menu Cost Summary to Excel CSV");
+    showToast("Exported R&C Menu Cost Summary to CSV");
   };
 
-  // Render active recipe sheet helper
+  // Recipe Sheet renderer
   const renderRecipeSheet = (
     tabKey: "EXAMPLE_RESTAURANT" | "EXAMPLE_PANTOA" | "RECIPE_TEMPLATE"
   ) => {
@@ -1011,14 +1008,14 @@ export default function PosRecipeAndCostingPage() {
         lines: [
           ...prev.lines,
           {
-            id: `line-${Date.now()}`,
+            id: "line-" + Date.now(),
             ingredientCode: ingredients[0]?.code || "ING001",
             netQtyPerBatch: 100,
             cutPrepSpec: "Standard prep",
           },
         ],
       }));
-      showToast("Added ingredient line to recipe");
+      showToast("Added ingredient line");
     };
 
     const handleRemoveLine = (lineId: string) => {
@@ -1035,150 +1032,110 @@ export default function PosRecipeAndCostingPage() {
     ) => {
       updateRecipeByTabKey(tabKey, (prev) => ({
         ...prev,
-        lines: prev.lines.map((l) =>
-          l.id === lineId ? { ...l, [field]: value } : l
-        ),
+        lines: prev.lines.map((l) => (l.id === lineId ? { ...l, [field]: value } : l)),
       }));
     };
 
     return (
-      <div className="space-y-5">
-        {/* Sheet Banner */}
-        <div className="rounded-lg border border-blue-200 dark:border-slate-800 bg-gradient-to-r from-[#0f2942] to-[#1e3a5f] text-white p-4 shadow-xs">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="rounded bg-blue-500/20 border border-blue-400/30 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-blue-200">
-                  {recipe.recipeId}
-                </span>
-                <h2 className="text-base sm:text-lg font-bold tracking-tight">
-                  STANDARD RECIPE & COST SHEET — {recipe.productName}
+      <div className="space-y-4">
+        {/* Header Card: Title, Code, Status & Key Metrics */}
+        <div className="rounded border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 shadow-2xs">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 pb-3 border-b border-slate-100 dark:border-slate-800">
+            <div className="flex items-center gap-2.5">
+              <span className="font-mono text-xs font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/60 px-2.5 py-1 rounded border border-blue-200 dark:border-blue-800">
+                {recipe.recipeId}
+              </span>
+              <div>
+                <h2 className="text-base font-bold text-slate-900 dark:text-slate-100">
+                  {recipe.productName}
                 </h2>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  {recipe.brandBusiness} &bull; {recipe.category} &bull; Batch Yield: {recipe.sellableBatchYield} {recipe.yieldUnit}
+                </p>
               </div>
-              <p className="text-xs text-blue-200/90 mt-0.5">
-                Marinozz Group | Approved recipe controls • ingredient traceability • batch costing • contribution-based menu pricing
-              </p>
             </div>
+
             <div className="flex items-center gap-2">
               <span
-                className={`px-3 py-1 rounded-full text-xs font-bold tracking-wide uppercase border ${
+                className={`px-3 py-1 rounded text-xs font-bold uppercase ${
                   metrics.priceDecision === "MEETS MARGIN"
-                    ? "bg-emerald-500/20 text-emerald-200 border-emerald-400/40"
+                    ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300"
                     : metrics.priceDecision === "BELOW TARGET"
-                    ? "bg-rose-500/20 text-rose-200 border-rose-400/40"
-                    : "bg-amber-500/20 text-amber-200 border-amber-400/40"
+                    ? "bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300"
+                    : "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300"
                 }`}
               >
                 {metrics.priceDecision}
               </span>
             </div>
           </div>
-        </div>
 
-        {/* Colour Legend Strip */}
-        <div className="flex flex-wrap items-center justify-between gap-2 rounded border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/60 px-3.5 py-2 text-[11px]">
-          <div className="flex flex-wrap items-center gap-4">
-            <span className="inline-flex items-center gap-1.5 font-medium text-slate-700 dark:text-slate-300">
-              <span className="size-3 rounded-xs bg-[#e8f4fd] border border-[#90caf9] inline-block" />
-              INPUT CELLS = Light Blue (Editable)
-            </span>
-            <span className="inline-flex items-center gap-1.5 font-medium text-slate-700 dark:text-slate-300">
-              <span className="size-3 rounded-xs bg-[#e8f8f0] border border-[#81c784] inline-block" />
-              AUTO FORMULAS = Light Green (Calculated)
-            </span>
-            <span className="inline-flex items-center gap-1.5 font-medium text-slate-700 dark:text-slate-300">
-              <span className="size-3 rounded-xs bg-[#fff8e1] border border-[#ffe082] inline-block" />
-              WARNING / NOTES = Pale Amber
-            </span>
-          </div>
-          <span className="text-slate-500">
-            Linked live to <strong>Ingredient Master</strong>
-          </span>
-        </div>
-
-        {/* 1. Recipe Header Metadata Grid (Rows 4 - 8 of Excel) */}
-        <div className="rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 shadow-2xs">
-          <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-3">
-            Recipe Identification & Batch Specification
-          </h3>
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
-            <div>
-              <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1">
-                Recipe ID
-              </label>
-              <input
-                type="text"
-                value={recipe.recipeId}
-                onChange={(e) =>
-                  updateRecipeByTabKey(tabKey, (r) => ({ ...r, recipeId: e.target.value }))
-                }
-                className="h-8 w-full rounded border border-[#90caf9] bg-[#e8f4fd] dark:bg-blue-950/30 dark:border-blue-800 px-2.5 text-xs font-bold text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-1 focus:ring-blue-500"
-              />
+          {/* Quick Metrics Bar */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 gap-3 pt-3 text-xs">
+            <div className="bg-slate-50 dark:bg-slate-800/40 p-2.5 rounded border border-slate-100 dark:border-slate-800">
+              <span className="text-slate-500 block text-[11px]">Cost / Serving</span>
+              <span className="font-mono font-bold text-slate-900 dark:text-slate-100 text-sm">
+                {metrics.costPerServing.toFixed(2)} ৳
+              </span>
             </div>
 
-            <div className="sm:col-span-2">
-              <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1">
-                Product / Menu Name
-              </label>
+            <div className="bg-slate-50 dark:bg-slate-800/40 p-2.5 rounded border border-slate-100 dark:border-slate-800">
+              <span className="text-slate-500 block text-[11px]">Menu Price</span>
+              <span className="font-mono font-bold text-blue-600 text-sm">
+                {recipe.actualMenuPrice.toFixed(2)} ৳
+              </span>
+            </div>
+
+            <div className="bg-slate-50 dark:bg-slate-800/40 p-2.5 rounded border border-slate-100 dark:border-slate-800">
+              <span className="text-slate-500 block text-[11px]">Food Cost %</span>
+              <span className="font-mono font-bold text-amber-600 text-sm">
+                {(metrics.foodProductionCostRatio * 100).toFixed(1)}%
+              </span>
+            </div>
+
+            <div className="bg-slate-50 dark:bg-slate-800/40 p-2.5 rounded border border-slate-100 dark:border-slate-800">
+              <span className="text-slate-500 block text-[11px]">Gross Profit</span>
+              <span className="font-mono font-bold text-emerald-600 text-sm">
+                {metrics.contributionPerServing.toFixed(2)} ৳
+              </span>
+            </div>
+
+            <div className="bg-slate-50 dark:bg-slate-800/40 p-2.5 rounded border border-slate-100 dark:border-slate-800">
+              <span className="text-slate-500 block text-[11px]">Margin %</span>
+              <span className="font-mono font-bold text-emerald-600 text-sm">
+                {(metrics.contributionMarginPct * 100).toFixed(1)}%
+              </span>
+            </div>
+
+            <div className="bg-slate-50 dark:bg-slate-800/40 p-2.5 rounded border border-slate-100 dark:border-slate-800">
+              <span className="text-slate-500 block text-[11px]">Target Margin</span>
+              <span className="font-mono font-semibold text-slate-700 dark:text-slate-300 text-sm">
+                {(recipe.desiredContributionMarginPct * 100).toFixed(0)}%
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* Recipe Specification Form (Editable) */}
+        <div className="rounded border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 shadow-2xs space-y-3">
+          <h3 className="text-xs font-bold text-slate-900 dark:text-slate-100 uppercase tracking-wide">
+            Recipe Specification & Parameters
+          </h3>
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+            <div>
+              <label className="block text-slate-600 dark:text-slate-400 font-medium mb-1">Product Name</label>
               <input
                 type="text"
                 value={recipe.productName}
-                onChange={(e) =>
-                  updateRecipeByTabKey(tabKey, (r) => ({ ...r, productName: e.target.value }))
-                }
-                className="h-8 w-full rounded border border-[#90caf9] bg-[#e8f4fd] dark:bg-blue-950/30 dark:border-blue-800 px-2.5 text-xs font-bold text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                onChange={(e) => updateRecipeByTabKey(tabKey, (r) => ({ ...r, productName: e.target.value }))}
+                className="w-full h-8 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-2.5 text-xs text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-1 focus:ring-blue-500"
               />
             </div>
 
             <div>
-              <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1">
-                Brand / Business
-              </label>
-              <input
-                type="text"
-                value={recipe.brandBusiness}
-                onChange={(e) =>
-                  updateRecipeByTabKey(tabKey, (r) => ({ ...r, brandBusiness: e.target.value }))
-                }
-                className="h-8 w-full rounded border border-[#90caf9] bg-[#e8f4fd] dark:bg-blue-950/30 dark:border-blue-800 px-2.5 text-xs text-slate-800 dark:text-slate-100 focus:outline-none"
-              />
-            </div>
-
-            <div>
-              <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1">
-                Category
-              </label>
-              <input
-                type="text"
-                value={recipe.category}
-                onChange={(e) =>
-                  updateRecipeByTabKey(tabKey, (r) => ({ ...r, category: e.target.value }))
-                }
-                className="h-8 w-full rounded border border-[#90caf9] bg-[#e8f4fd] dark:bg-blue-950/30 dark:border-blue-800 px-2.5 text-xs text-slate-800 dark:text-slate-100 focus:outline-none"
-              />
-            </div>
-
-            <div>
-              <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1">
-                Version
-              </label>
-              <input
-                type="text"
-                value={recipe.version}
-                onChange={(e) =>
-                  updateRecipeByTabKey(tabKey, (r) => ({ ...r, version: e.target.value }))
-                }
-                className="h-8 w-full rounded border border-[#90caf9] bg-[#e8f4fd] dark:bg-blue-950/30 dark:border-blue-800 px-2.5 text-xs text-slate-800 dark:text-slate-100 focus:outline-none"
-              />
-            </div>
-
-            <div>
-              <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1">
-                Sellable Batch Yield
-              </label>
+              <label className="block text-slate-600 dark:text-slate-400 font-medium mb-1">Batch Yield ({recipe.yieldUnit})</label>
               <input
                 type="number"
-                min={1}
                 value={recipe.sellableBatchYield}
                 onChange={(e) =>
                   updateRecipeByTabKey(tabKey, (r) => ({
@@ -1186,238 +1143,159 @@ export default function PosRecipeAndCostingPage() {
                     sellableBatchYield: Math.max(1, Number(e.target.value) || 1),
                   }))
                 }
-                className="h-8 w-full rounded border border-[#90caf9] bg-[#e8f4fd] dark:bg-blue-950/30 dark:border-blue-800 px-2.5 text-xs font-bold text-blue-700 dark:text-blue-300 focus:outline-none"
+                className="w-full h-8 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-2.5 font-mono text-xs text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-1 focus:ring-blue-500"
               />
             </div>
 
             <div>
-              <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1">
-                Yield Unit
-              </label>
-              <input
-                type="text"
-                value={recipe.yieldUnit}
-                onChange={(e) =>
-                  updateRecipeByTabKey(tabKey, (r) => ({ ...r, yieldUnit: e.target.value }))
-                }
-                className="h-8 w-full rounded border border-[#90caf9] bg-[#e8f4fd] dark:bg-blue-950/30 dark:border-blue-800 px-2.5 text-xs text-slate-800 dark:text-slate-100 focus:outline-none"
-              />
-            </div>
-
-            <div className="sm:col-span-2">
-              <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1">
-                Portion Description
-              </label>
-              <input
-                type="text"
-                value={recipe.portionDescription}
-                onChange={(e) =>
-                  updateRecipeByTabKey(tabKey, (r) => ({
-                    ...r,
-                    portionDescription: e.target.value,
-                  }))
-                }
-                className="h-8 w-full rounded border border-[#90caf9] bg-[#e8f4fd] dark:bg-blue-950/30 dark:border-blue-800 px-2.5 text-xs text-slate-800 dark:text-slate-100 focus:outline-none"
-              />
-            </div>
-
-            <div>
-              <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1">
-                Serving Size ({recipe.sizeUnit})
-              </label>
+              <label className="block text-slate-600 dark:text-slate-400 font-medium mb-1">Proposed Menu Price (BDT)</label>
               <input
                 type="number"
-                value={recipe.servingSize}
+                value={recipe.actualMenuPrice}
                 onChange={(e) =>
                   updateRecipeByTabKey(tabKey, (r) => ({
                     ...r,
-                    servingSize: Number(e.target.value) || 0,
+                    actualMenuPrice: Math.max(0, Number(e.target.value) || 0),
                   }))
                 }
-                className="h-8 w-full rounded border border-[#90caf9] bg-[#e8f4fd] dark:bg-blue-950/30 dark:border-blue-800 px-2.5 text-xs text-slate-800 dark:text-slate-100 focus:outline-none"
+                className="w-full h-8 rounded border border-blue-400 dark:border-blue-600 bg-blue-50/30 dark:bg-blue-950/30 px-2.5 font-mono font-bold text-xs text-blue-600 focus:outline-none focus:ring-1 focus:ring-blue-500"
               />
             </div>
 
             <div>
-              <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1">
-                Prep / Cook (min)
-              </label>
-              <div className="flex items-center gap-1">
-                <input
-                  type="number"
-                  value={recipe.prepTimeMin}
-                  onChange={(e) =>
-                    updateRecipeByTabKey(tabKey, (r) => ({
-                      ...r,
-                      prepTimeMin: Number(e.target.value) || 0,
-                    }))
-                  }
-                  className="h-8 w-1/2 rounded border border-[#90caf9] bg-[#e8f4fd] dark:bg-blue-950/30 dark:border-blue-800 px-2 text-xs text-slate-800 dark:text-slate-100 focus:outline-none"
-                  title="Prep Time (min)"
-                />
-                <input
-                  type="number"
-                  value={recipe.cookTimeMin}
-                  onChange={(e) =>
-                    updateRecipeByTabKey(tabKey, (r) => ({
-                      ...r,
-                      cookTimeMin: Number(e.target.value) || 0,
-                    }))
-                  }
-                  className="h-8 w-1/2 rounded border border-[#90caf9] bg-[#e8f4fd] dark:bg-blue-950/30 dark:border-blue-800 px-2 text-xs text-slate-800 dark:text-slate-100 focus:outline-none"
-                  title="Cook Time (min)"
-                />
-              </div>
+              <label className="block text-slate-600 dark:text-slate-400 font-medium mb-1">Target Margin %</label>
+              <input
+                type="number"
+                value={Number((recipe.desiredContributionMarginPct * 100).toFixed(0))}
+                onChange={(e) =>
+                  updateRecipeByTabKey(tabKey, (r) => ({
+                    ...r,
+                    desiredContributionMarginPct: Math.min(100, Math.max(0, Number(e.target.value) || 0)) / 100,
+                  }))
+                }
+                className="w-full h-8 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-2.5 font-mono text-xs text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              />
             </div>
           </div>
         </div>
 
-        {/* 2. Recipe Ingredients Table (Rows 10 - 31 of Excel) */}
-        <div className="rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 overflow-hidden shadow-2xs">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 px-4 py-3 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50">
-            <div>
-              <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-slate-100">
-                Recipe Ingredients & Batch Costing Table
-              </h3>
-              <p className="text-[11px] text-slate-500">
-                Select Ingredient Code and enter Net Usable Quantity (g / ml / pc). Unit rates flow automatically from Ingredient Master.
-              </p>
-            </div>
+        {/* Recipe Ingredients Table (POS Styled) */}
+        <div className="rounded border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-2xs overflow-hidden">
+          <div className="p-3 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between flex-wrap gap-2">
+            <h3 className="text-xs font-bold text-slate-900 dark:text-slate-100 uppercase tracking-wide">
+              Recipe Ingredients & Batch Quantities
+            </h3>
             <button
               type="button"
               onClick={handleAddLine}
-              className="inline-flex items-center gap-1.5 rounded bg-[#0d6efd] hover:bg-[#0b5ed7] px-3 py-1.5 text-xs font-semibold text-white shadow-2xs transition cursor-pointer self-start sm:self-auto"
+              className="h-8 px-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs rounded flex items-center gap-1.5 shadow-xs transition cursor-pointer"
             >
               <Plus className="size-3.5" />
-              <span>Add Ingredient Line</span>
+              <span>Add Ingredient</span>
             </button>
           </div>
 
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs border-collapse">
-              <thead className="bg-[#1e3a5f] text-white font-semibold">
+            <table className="w-full text-left text-xs border-collapse whitespace-nowrap">
+              <thead className="bg-[#e0f2fe]/80 dark:bg-sky-950/40 text-slate-800 dark:text-slate-200 border-b border-slate-200 dark:border-slate-800">
                 <tr>
-                  <th className="p-2.5 text-center w-10">No.</th>
-                  <th className="p-2.5 w-40">Ingredient Code</th>
+                  <th className="p-2.5 w-12 text-center">SL</th>
+                  <th className="p-2.5">Code</th>
                   <th className="p-2.5">Ingredient Name</th>
-                  <th className="p-2.5">Category</th>
+                  <th className="p-2.5 text-right">Net Qty / Batch</th>
                   <th className="p-2.5 text-center">Unit</th>
-                  <th className="p-2.5 text-right w-28">Net Qty / Batch</th>
-                  <th className="p-2.5 text-right">Unit Cost (BDT)</th>
-                  <th className="p-2.5 text-right">Batch Cost (BDT)</th>
-                  <th className="p-2.5 text-right">Cost / Serving</th>
-                  <th className="p-2.5 min-w-[180px]">Cut / Prep Specification</th>
-                  <th className="p-2.5">Supplier</th>
-                  <th className="p-2.5">Allergen / Warning</th>
-                  <th className="p-2.5 text-center w-10">Del</th>
+                  <th className="p-2.5 text-right">Yield %</th>
+                  <th className="p-2.5 text-right">Cost / Unit</th>
+                  <th className="p-2.5 text-right">Line Cost (BDT)</th>
+                  <th className="p-2.5 text-right">% of Total</th>
+                  <th className="p-2.5">Preparation Spec</th>
+                  <th className="p-2.5 text-center w-16">Action</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
-                {metrics.enrichedLines.map((line, idx) => (
-                  <tr
-                    key={line.id}
-                    className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors"
-                  >
-                    <td className="p-2 text-center font-medium text-slate-500">
-                      {idx + 1}
-                    </td>
-                    <td className="p-2">
-                      <select
-                        value={line.ingredientCode}
-                        onChange={(e) =>
-                          handleUpdateLine(line.id, "ingredientCode", e.target.value)
-                        }
-                        className="h-7 w-full rounded border border-[#90caf9] bg-[#e8f4fd] dark:bg-blue-950/40 dark:border-blue-800 px-1.5 text-xs font-semibold text-slate-900 dark:text-slate-100 focus:outline-none"
-                      >
-                        {ingredients.map((ing) => (
-                          <option key={ing.code} value={ing.code}>
-                            {ing.code} — {ing.name}
-                          </option>
-                        ))}
-                      </select>
-                    </td>
-                    <td className="p-2 font-semibold text-slate-800 dark:text-slate-100">
-                      {line.ingredientName}
-                    </td>
-                    <td className="p-2 text-slate-600 dark:text-slate-400">
-                      {line.category}
-                    </td>
-                    <td className="p-2 text-center font-mono font-semibold text-slate-700 dark:text-slate-300">
-                      {line.unit}
-                    </td>
-                    <td className="p-2 text-right">
-                      <input
-                        type="number"
-                        min={0}
-                        step="any"
-                        value={line.netQtyPerBatch}
-                        onChange={(e) =>
-                          handleUpdateLine(
-                            line.id,
-                            "netQtyPerBatch",
-                            Math.max(0, Number(e.target.value) || 0)
-                          )
-                        }
-                        className="h-7 w-24 rounded border border-[#90caf9] bg-[#e8f4fd] dark:bg-blue-950/40 dark:border-blue-800 px-2 text-right font-bold text-slate-900 dark:text-slate-100 focus:outline-none"
-                      />
-                    </td>
-                    <td className="p-2 text-right font-mono bg-[#e8f8f0]/60 dark:bg-emerald-950/20 text-slate-700 dark:text-slate-300">
-                      {line.unitCostBdt.toFixed(4)}
-                    </td>
-                    <td className="p-2 text-right font-mono font-bold bg-[#e8f8f0] dark:bg-emerald-950/30 text-emerald-900 dark:text-emerald-300">
-                      {line.batchCostBdt.toFixed(2)}
-                    </td>
-                    <td className="p-2 text-right font-mono bg-[#e8f8f0]/60 dark:bg-emerald-950/20 text-emerald-800 dark:text-emerald-400">
-                      {line.costPerServing.toFixed(2)}
-                    </td>
-                    <td className="p-2">
-                      <input
-                        type="text"
-                        value={line.cutPrepSpec}
-                        onChange={(e) =>
-                          handleUpdateLine(line.id, "cutPrepSpec", e.target.value)
-                        }
-                        className="h-7 w-full rounded border border-[#90caf9] bg-[#e8f4fd] dark:bg-blue-950/40 dark:border-blue-800 px-2 text-xs text-slate-800 dark:text-slate-200 focus:outline-none"
-                      />
-                    </td>
-                    <td className="p-2 text-slate-600 dark:text-slate-400">
-                      {line.supplier}
-                    </td>
-                    <td className="p-2">
-                      {line.allergenWarning && line.allergenWarning !== "0" ? (
-                        <span className="inline-block rounded bg-[#fff8e1] dark:bg-amber-950/40 border border-[#ffe082] dark:border-amber-800 px-2 py-0.5 text-[10px] font-semibold text-amber-800 dark:text-amber-300">
-                          {line.allergenWarning}
-                        </span>
-                      ) : (
-                        <span className="text-slate-400 text-[11px]">None</span>
-                      )}
-                    </td>
-                    <td className="p-2 text-center">
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveLine(line.id)}
-                        className="text-slate-400 hover:text-rose-600 transition p-1 cursor-pointer"
-                        title="Remove line"
-                      >
-                        <Trash2 className="size-3.5" />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                {metrics.enrichedLines.map((line, idx) => {
+                  const master = ingredientsMap.get(line.ingredientCode);
+                  const yieldPct = master ? (master.usableYieldPct * 100).toFixed(0) : "100";
+                  const pctCost =
+                    metrics.totalIngredientBatchCost > 0
+                      ? ((line.batchCostBdt / metrics.totalIngredientBatchCost) * 100).toFixed(1)
+                      : "0.0";
+                  return (
+                    <tr key={line.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition">
+                      <td className="p-2.5 text-center text-slate-500">{idx + 1}</td>
+                      <td className="p-2.5 font-mono font-bold text-blue-600">{line.ingredientCode}</td>
+                      <td className="p-2.5">
+                        <select
+                          value={line.ingredientCode}
+                          onChange={(e) => handleUpdateLine(line.id, "ingredientCode", e.target.value)}
+                          className="h-7 rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-2 text-xs text-slate-900 dark:text-slate-100 font-medium"
+                        >
+                          {ingredients.map((ing) => (
+                            <option key={ing.code} value={ing.code}>
+                              {ing.code} &bull; {ing.name}
+                            </option>
+                          ))}
+                        </select>
+                      </td>
+                      <td className="p-2.5 text-right">
+                        <input
+                          type="number"
+                          step="any"
+                          value={line.netQtyPerBatch}
+                          onChange={(e) =>
+                            handleUpdateLine(
+                              line.id,
+                              "netQtyPerBatch",
+                              Math.max(0, Number(e.target.value) || 0)
+                            )
+                          }
+                          className="h-7 w-24 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-2 text-right font-mono font-semibold text-xs text-slate-900 dark:text-slate-100"
+                        />
+                      </td>
+                      <td className="p-2.5 text-center font-mono text-slate-500">{line.unit}</td>
+                      <td className="p-2.5 text-right font-mono text-slate-600">
+                        {yieldPct}%
+                      </td>
+                      <td className="p-2.5 text-right font-mono text-slate-600">
+                        {line.unitCostBdt.toFixed(4)}
+                      </td>
+                      <td className="p-2.5 text-right font-mono font-bold text-slate-900 dark:text-slate-100">
+                        {line.batchCostBdt.toFixed(2)}
+                      </td>
+                      <td className="p-2.5 text-right font-mono text-blue-600">{pctCost}%</td>
+                      <td className="p-2.5">
+                        <input
+                          type="text"
+                          value={line.cutPrepSpec}
+                          onChange={(e) => handleUpdateLine(line.id, "cutPrepSpec", e.target.value)}
+                          className="h-7 w-48 rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-2 text-xs text-slate-700 dark:text-slate-300"
+                          placeholder="e.g. Diced, fine cut"
+                        />
+                      </td>
+                      <td className="p-2.5 text-center">
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveLine(line.id)}
+                          className="text-rose-500 hover:text-rose-700 transition"
+                          title="Remove item"
+                        >
+                          <Trash2 className="size-4 inline" />
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
-              <tfoot className="bg-[#d1e7dd] dark:bg-emerald-950/50 font-bold text-slate-900 dark:text-slate-100 border-t-2 border-emerald-600">
+              <tfoot className="bg-slate-50 dark:bg-slate-800/60 font-bold border-t border-slate-200 dark:border-slate-800 text-xs">
                 <tr>
-                  <td colSpan={7} className="p-3 text-right uppercase tracking-wider text-xs">
-                    TOTAL RECIPE INGREDIENTS
+                  <td colSpan={7} className="p-2.5 text-right text-slate-700 dark:text-slate-300 uppercase">
+                    Total Ingredients Batch Cost:
                   </td>
-                  <td className="p-3 text-right font-mono text-sm text-emerald-950 dark:text-emerald-200">
-                    {metrics.totalIngredientBatchCost.toFixed(2)} BDT
+                  <td className="p-2.5 text-right font-mono text-blue-600 font-extrabold text-sm">
+                    {metrics.totalIngredientBatchCost.toFixed(2)} ৳
                   </td>
-                  <td className="p-3 text-right font-mono text-sm text-emerald-900 dark:text-emerald-300">
-                    {metrics.ingredientCostPerServing.toFixed(2)} BDT
-                  </td>
-                  <td colSpan={4} className="p-3 text-xs text-emerald-800 dark:text-emerald-300">
-                    Per {recipe.portionDescription} ({recipe.sellableBatchYield} {recipe.yieldUnit} / batch)
+                  <td colSpan={3} className="p-2.5 text-slate-500 text-[11px]">
+                    Net Yield: {recipe.sellableBatchYield} {recipe.yieldUnit}
                   </td>
                 </tr>
               </tfoot>
@@ -1425,490 +1303,37 @@ export default function PosRecipeAndCostingPage() {
           </div>
         </div>
 
-        {/* 3. Section A (Batch Production Cost) & Section B (Pricing & Contribution) */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-          {/* SECTION A: BATCH PRODUCTION COST */}
-          <div className="rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 overflow-hidden shadow-2xs flex flex-col justify-between">
-            <div>
-              <div className="bg-[#1e3a5f] text-white px-4 py-2.5 font-bold text-xs uppercase tracking-wider">
-                A | BATCH PRODUCTION COST
-              </div>
-              <div className="divide-y divide-slate-100 dark:divide-slate-800 text-xs">
-                <div className="flex items-center justify-between px-4 py-2.5 bg-[#e8f8f0]/60 dark:bg-emerald-950/15">
-                  <span className="font-medium text-slate-700 dark:text-slate-300">
-                    Ingredient Cost (BDT)
-                  </span>
-                  <span className="font-mono font-bold text-slate-900 dark:text-slate-100">
-                    {metrics.totalIngredientBatchCost.toFixed(2)} BDT
-                  </span>
-                </div>
-
-                <div className="flex items-center justify-between px-4 py-2">
-                  <span className="font-medium text-slate-700 dark:text-slate-300">
-                    Extra Batch Wastage %
-                  </span>
-                  <div className="flex items-center gap-1.5">
-                    <input
-                      type="number"
-                      min={0}
-                      max={100}
-                      step="0.5"
-                      value={Number((recipe.extraBatchWastagePct * 100).toFixed(2))}
-                      onChange={(e) =>
-                        updateRecipeByTabKey(tabKey, (r) => ({
-                          ...r,
-                          extraBatchWastagePct: Math.max(0, Number(e.target.value) || 0) / 100,
-                        }))
-                      }
-                      className="h-7 w-24 rounded border border-[#90caf9] bg-[#e8f4fd] dark:bg-blue-950/40 px-2 text-right font-bold text-slate-900 dark:text-slate-100"
-                    />
-                    <span className="text-slate-500 font-semibold">%</span>
-                  </div>
-                </div>
-
-                <div className="flex items-center justify-between px-4 py-2.5 bg-[#e8f8f0]/60 dark:bg-emerald-950/15">
-                  <span className="font-medium text-slate-700 dark:text-slate-300">
-                    Extra Wastage Amount
-                  </span>
-                  <span className="font-mono font-semibold text-slate-800 dark:text-slate-200">
-                    {metrics.extraWastageAmount.toFixed(2)} BDT
-                  </span>
-                </div>
-
-                <div className="flex items-center justify-between px-4 py-2">
-                  <span className="font-medium text-slate-700 dark:text-slate-300">
-                    Packaging / Serving (BDT)
-                  </span>
-                  <input
-                    type="number"
-                    min={0}
-                    step="0.5"
-                    value={recipe.packagingPerServing}
-                    onChange={(e) =>
-                      updateRecipeByTabKey(tabKey, (r) => ({
-                        ...r,
-                        packagingPerServing: Math.max(0, Number(e.target.value) || 0),
-                      }))
-                    }
-                    className="h-7 w-28 rounded border border-[#90caf9] bg-[#e8f4fd] dark:bg-blue-950/40 px-2 text-right font-bold text-slate-900 dark:text-slate-100"
-                  />
-                </div>
-
-                <div className="flex items-center justify-between px-4 py-2.5 bg-[#e8f8f0]/60 dark:bg-emerald-950/15">
-                  <span className="font-medium text-slate-700 dark:text-slate-300">
-                    Total Packaging Cost ({recipe.sellableBatchYield} {recipe.yieldUnit})
-                  </span>
-                  <span className="font-mono font-semibold text-slate-800 dark:text-slate-200">
-                    {metrics.totalPackagingCost.toFixed(2)} BDT
-                  </span>
-                </div>
-
-                <div className="flex items-center justify-between px-4 py-2">
-                  <span className="font-medium text-slate-700 dark:text-slate-300">
-                    Direct Labour / Batch (BDT)
-                  </span>
-                  <input
-                    type="number"
-                    min={0}
-                    step="5"
-                    value={recipe.directLabourPerBatch}
-                    onChange={(e) =>
-                      updateRecipeByTabKey(tabKey, (r) => ({
-                        ...r,
-                        directLabourPerBatch: Math.max(0, Number(e.target.value) || 0),
-                      }))
-                    }
-                    className="h-7 w-28 rounded border border-[#90caf9] bg-[#e8f4fd] dark:bg-blue-950/40 px-2 text-right font-bold text-slate-900 dark:text-slate-100"
-                  />
-                </div>
-
-                <div className="flex items-center justify-between px-4 py-2">
-                  <span className="font-medium text-slate-700 dark:text-slate-300">
-                    Utilities / Batch (BDT)
-                  </span>
-                  <input
-                    type="number"
-                    min={0}
-                    step="5"
-                    value={recipe.utilitiesPerBatch}
-                    onChange={(e) =>
-                      updateRecipeByTabKey(tabKey, (r) => ({
-                        ...r,
-                        utilitiesPerBatch: Math.max(0, Number(e.target.value) || 0),
-                      }))
-                    }
-                    className="h-7 w-28 rounded border border-[#90caf9] bg-[#e8f4fd] dark:bg-blue-950/40 px-2 text-right font-bold text-slate-900 dark:text-slate-100"
-                  />
-                </div>
-
-                <div className="flex items-center justify-between px-4 py-2">
-                  <span className="font-medium text-slate-700 dark:text-slate-300">
-                    Overhead Allocated / Batch (BDT)
-                  </span>
-                  <input
-                    type="number"
-                    min={0}
-                    step="5"
-                    value={recipe.overheadPerBatch}
-                    onChange={(e) =>
-                      updateRecipeByTabKey(tabKey, (r) => ({
-                        ...r,
-                        overheadPerBatch: Math.max(0, Number(e.target.value) || 0),
-                      }))
-                    }
-                    className="h-7 w-28 rounded border border-[#90caf9] bg-[#e8f4fd] dark:bg-blue-950/40 px-2 text-right font-bold text-slate-900 dark:text-slate-100"
-                  />
-                </div>
-              </div>
-            </div>
-
-            <div className="border-t-2 border-emerald-600 bg-[#d1e7dd] dark:bg-emerald-950/50 divide-y divide-emerald-200 dark:divide-emerald-900">
-              <div className="flex items-center justify-between px-4 py-2.5 text-xs font-bold text-emerald-950 dark:text-emerald-200">
-                <span>TOTAL BATCH COST</span>
-                <span className="font-mono text-sm">
-                  {metrics.totalBatchCost.toFixed(2)} BDT
+        {/* Production SOP & QC Guidelines (Collapsible / Clean) */}
+        <div className="rounded border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 shadow-2xs space-y-3">
+          <h3 className="text-xs font-bold text-slate-900 dark:text-slate-100 uppercase tracking-wide">
+            Standard Preparation Steps &amp; Quality Control (SOP)
+          </h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 text-xs">
+            {recipe.sop.steps.map((step, sIdx) => (
+              <div
+                key={sIdx}
+                className="flex items-start gap-2.5 p-2.5 rounded bg-slate-50 dark:bg-slate-800/40 border border-slate-100 dark:border-slate-800"
+              >
+                <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-blue-600 text-white font-mono text-[10px] font-bold">
+                  {sIdx + 1}
                 </span>
+                <p className="text-slate-700 dark:text-slate-300 leading-relaxed">{step}</p>
               </div>
-              <div className="flex items-center justify-between px-4 py-3 text-xs font-extrabold text-emerald-950 dark:text-emerald-100">
-                <span>COST PER SELLABLE SERVING</span>
-                <span className="font-mono text-base">
-                  {metrics.costPerServing.toFixed(2)} BDT
-                </span>
-              </div>
-            </div>
+            ))}
           </div>
 
-          {/* SECTION B: PRICING & CONTRIBUTION */}
-          <div className="rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 overflow-hidden shadow-2xs flex flex-col justify-between">
-            <div>
-              <div className="bg-[#1e3a5f] text-white px-4 py-2.5 flex items-center justify-between">
-                <span className="font-bold text-xs uppercase tracking-wider">
-                  B | PRICING & CONTRIBUTION
-                </span>
-                <span
-                  className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
-                    metrics.priceDecision === "MEETS MARGIN"
-                      ? "bg-emerald-400/20 text-emerald-200 border border-emerald-400/40"
-                      : "bg-rose-400/20 text-rose-200 border border-rose-400/40"
-                  }`}
-                >
-                  {metrics.priceDecision}
-                </span>
-              </div>
-
-              <div className="divide-y divide-slate-100 dark:divide-slate-800 text-xs">
-                <div className="flex items-center justify-between px-4 py-2">
-                  <span className="font-medium text-slate-700 dark:text-slate-300">
-                    Desired Contribution Margin %
-                  </span>
-                  <div className="flex items-center gap-1.5">
-                    <input
-                      type="number"
-                      min={1}
-                      max={95}
-                      step="1"
-                      value={Number((recipe.desiredContributionMarginPct * 100).toFixed(1))}
-                      onChange={(e) =>
-                        updateRecipeByTabKey(tabKey, (r) => ({
-                          ...r,
-                          desiredContributionMarginPct:
-                            Math.min(95, Math.max(1, Number(e.target.value) || 50)) / 100,
-                        }))
-                      }
-                      className="h-7 w-24 rounded border border-[#90caf9] bg-[#e8f4fd] dark:bg-blue-950/40 px-2 text-right font-bold text-slate-900 dark:text-slate-100"
-                    />
-                    <span className="text-slate-500 font-semibold">%</span>
-                  </div>
-                </div>
-
-                <div className="flex items-center justify-between px-4 py-2.5 bg-[#e8f8f0]/60 dark:bg-emerald-950/15">
-                  <span className="font-medium text-slate-700 dark:text-slate-300">
-                    Suggested Price (excl. VAT)
-                  </span>
-                  <span className="font-mono font-bold text-slate-900 dark:text-slate-100">
-                    {metrics.suggestedPriceExclVat.toFixed(2)} BDT
-                  </span>
-                </div>
-
-                <div className="flex items-center justify-between px-4 py-2">
-                  <span className="font-medium text-slate-700 dark:text-slate-300">
-                    VAT / Applicable Sales Tax %
-                  </span>
-                  <div className="flex items-center gap-1.5">
-                    <input
-                      type="number"
-                      min={0}
-                      max={50}
-                      step="0.5"
-                      value={Number((recipe.vatTaxPct * 100).toFixed(1))}
-                      onChange={(e) =>
-                        updateRecipeByTabKey(tabKey, (r) => ({
-                          ...r,
-                          vatTaxPct: Math.max(0, Number(e.target.value) || 0) / 100,
-                        }))
-                      }
-                      className="h-7 w-24 rounded border border-[#90caf9] bg-[#e8f4fd] dark:bg-blue-950/40 px-2 text-right font-bold text-slate-900 dark:text-slate-100"
-                    />
-                    <span className="text-slate-500 font-semibold">%</span>
-                  </div>
-                </div>
-
-                <div className="flex items-center justify-between px-4 py-2.5 bg-[#e8f8f0]/60 dark:bg-emerald-950/15">
-                  <span className="font-medium text-slate-700 dark:text-slate-300">
-                    Suggested Customer Price (incl. VAT)
-                  </span>
-                  <span className="font-mono font-bold text-blue-700 dark:text-blue-400">
-                    {metrics.suggestedCustomerPrice.toFixed(2)} BDT
-                  </span>
-                </div>
-
-                <div className="flex items-center justify-between px-4 py-2">
-                  <span className="font-bold text-slate-900 dark:text-slate-100">
-                    Actual Customer Menu Price (BDT)
-                  </span>
-                  <input
-                    type="number"
-                    min={0}
-                    step="1"
-                    value={recipe.actualMenuPrice}
-                    onChange={(e) =>
-                      updateRecipeByTabKey(tabKey, (r) => ({
-                        ...r,
-                        actualMenuPrice: Math.max(0, Number(e.target.value) || 0),
-                      }))
-                    }
-                    className="h-7 w-28 rounded border-2 border-[#0d6efd] bg-[#e8f4fd] dark:bg-blue-950/50 px-2 text-right font-extrabold text-blue-900 dark:text-blue-200"
-                  />
-                </div>
-
-                <div className="flex items-center justify-between px-4 py-2.5 bg-[#e8f8f0]/60 dark:bg-emerald-950/15">
-                  <span className="font-medium text-slate-700 dark:text-slate-300">
-                    Net Sale Price (excl. VAT)
-                  </span>
-                  <span className="font-mono font-semibold text-slate-800 dark:text-slate-200">
-                    {metrics.netSalePriceExclVat.toFixed(2)} BDT
-                  </span>
-                </div>
-
-                <div className="flex items-center justify-between px-4 py-2.5 bg-[#e8f8f0]/60 dark:bg-emerald-950/15">
-                  <span className="font-medium text-slate-700 dark:text-slate-300">
-                    Contribution / Serving
-                  </span>
-                  <span className="font-mono font-bold text-emerald-700 dark:text-emerald-400">
-                    {metrics.contributionPerServing.toFixed(2)} BDT
-                  </span>
-                </div>
-
-                <div className="flex items-center justify-between px-4 py-2.5 bg-[#e8f8f0]/60 dark:bg-emerald-950/15">
-                  <span className="font-medium text-slate-700 dark:text-slate-300">
-                    Food & Production Cost Ratio
-                  </span>
-                  <span className="font-mono font-bold text-amber-700 dark:text-amber-400">
-                    {(metrics.foodProductionCostRatio * 100).toFixed(2)}%
-                  </span>
-                </div>
-              </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-2 text-xs">
+            <div className="p-2.5 rounded bg-slate-50 dark:bg-slate-800/40 border border-slate-100 dark:border-slate-800">
+              <span className="font-bold text-slate-800 dark:text-slate-200 block mb-1">CCP & Food Safety</span>
+              <p className="text-slate-600 dark:text-slate-400">{recipe.sop.foodSafetyCriticalQc}</p>
             </div>
-
-            <div className="border-t-2 border-emerald-600 bg-[#d1e7dd] dark:bg-emerald-950/50 divide-y divide-emerald-200 dark:divide-emerald-900">
-              <div className="flex items-center justify-between px-4 py-2.5 text-xs font-bold text-emerald-950 dark:text-emerald-200">
-                <span>CONTRIBUTION MARGIN %</span>
-                <span className="font-mono text-sm">
-                  {(metrics.contributionMarginPct * 100).toFixed(2)}%
-                </span>
-              </div>
-              <div className="flex items-center justify-between px-4 py-3 text-xs font-extrabold text-emerald-950 dark:text-emerald-100">
-                <span>CONTRIBUTION / BATCH ({recipe.sellableBatchYield} {recipe.yieldUnit})</span>
-                <span className="font-mono text-base">
-                  {metrics.contributionPerBatch.toFixed(2)} BDT
-                </span>
-              </div>
+            <div className="p-2.5 rounded bg-slate-50 dark:bg-slate-800/40 border border-slate-100 dark:border-slate-800">
+              <span className="font-bold text-slate-800 dark:text-slate-200 block mb-1">Allergens / Cross Contact</span>
+              <p className="text-amber-700 dark:text-amber-400 font-medium">{recipe.sop.allergensCrossContact}</p>
             </div>
-          </div>
-        </div>
-
-        {/* Finance Check & Audit Advisories (Row 36 & Row 41 K-column notes) */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <div className="rounded border border-[#ffe082] bg-[#fff8e1] dark:bg-amber-950/25 dark:border-amber-800/60 p-3 text-xs text-amber-900 dark:text-amber-200">
-            <span className="font-bold uppercase block mb-0.5">FINANCE CHECK</span>
-            Ingredient yield % accounts for peel/trim losses. Use extra wastage only for separate production/batch losses. VAT applies only if required.
-          </div>
-          <div className="rounded border border-[#ffe082] bg-[#fff8e1] dark:bg-amber-950/25 dark:border-amber-800/60 p-3 text-xs text-amber-900 dark:text-amber-200">
-            <span className="font-bold uppercase block mb-0.5">MANAGEMENT NOTE</span>
-            Contribution ≠ audited net profit. Allocate remaining uncounted expenses before final menu approval.
-          </div>
-        </div>
-
-        {/* 4. Section C: Standard Preparation Method, Hygiene & Quality Control (Rows 45 - 63) */}
-        <div className="rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 overflow-hidden shadow-2xs">
-          <div className="bg-[#1e3a5f] text-white px-4 py-2.5 font-bold text-xs uppercase tracking-wider">
-            C | STANDARD PREPARATION METHOD, HYGIENE & QUALITY CONTROL
-          </div>
-
-          <div className="p-4 space-y-4 text-xs">
-            <div>
-              <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
-                Mise en place / Pre-preparation
-              </label>
-              <input
-                type="text"
-                value={recipe.sop.miseEnPlace}
-                onChange={(e) =>
-                  updateRecipeByTabKey(tabKey, (r) => ({
-                    ...r,
-                    sop: { ...r.sop, miseEnPlace: e.target.value },
-                  }))
-                }
-                className="h-8 w-full rounded border border-[#90caf9] bg-[#e8f4fd] dark:bg-blue-950/30 px-3 text-xs text-slate-800 dark:text-slate-100"
-              />
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              {recipe.sop.steps.map((stepText, sIdx) => (
-                <div key={sIdx} className="flex items-start gap-2">
-                  <span className="inline-flex h-8 w-16 shrink-0 items-center justify-center rounded bg-slate-100 dark:bg-slate-800 font-bold text-slate-700 dark:text-slate-300 text-[11px]">
-                    Step {sIdx + 1}
-                  </span>
-                  <input
-                    type="text"
-                    value={stepText}
-                    onChange={(e) => {
-                      const nextSteps = [...recipe.sop.steps];
-                      nextSteps[sIdx] = e.target.value;
-                      updateRecipeByTabKey(tabKey, (r) => ({
-                        ...r,
-                        sop: { ...r.sop, steps: nextSteps },
-                      }));
-                    }}
-                    className="h-8 w-full rounded border border-[#90caf9] bg-[#e8f4fd] dark:bg-blue-950/30 px-2.5 text-xs text-slate-800 dark:text-slate-100"
-                  />
-                </div>
-              ))}
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2 border-t border-slate-100 dark:border-slate-800">
-              <div>
-                <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  Finish / Garnish / Portioning
-                </label>
-                <input
-                  type="text"
-                  value={recipe.sop.finishGarnishPortioning}
-                  onChange={(e) =>
-                    updateRecipeByTabKey(tabKey, (r) => ({
-                      ...r,
-                      sop: { ...r.sop, finishGarnishPortioning: e.target.value },
-                    }))
-                  }
-                  className="h-8 w-full rounded border border-[#90caf9] bg-[#e8f4fd] dark:bg-blue-950/30 px-2.5 text-xs text-slate-800 dark:text-slate-100"
-                />
-              </div>
-
-              <div>
-                <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  Serving / Packing Standard
-                </label>
-                <input
-                  type="text"
-                  value={recipe.sop.servingPackingStandard}
-                  onChange={(e) =>
-                    updateRecipeByTabKey(tabKey, (r) => ({
-                      ...r,
-                      sop: { ...r.sop, servingPackingStandard: e.target.value },
-                    }))
-                  }
-                  className="h-8 w-full rounded border border-[#90caf9] bg-[#e8f4fd] dark:bg-blue-950/30 px-2.5 text-xs text-slate-800 dark:text-slate-100"
-                />
-              </div>
-
-              <div>
-                <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  Storage & Holding Instruction
-                </label>
-                <input
-                  type="text"
-                  value={recipe.sop.storageHoldingInstruction}
-                  onChange={(e) =>
-                    updateRecipeByTabKey(tabKey, (r) => ({
-                      ...r,
-                      sop: { ...r.sop, storageHoldingInstruction: e.target.value },
-                    }))
-                  }
-                  className="h-8 w-full rounded border border-[#90caf9] bg-[#e8f4fd] dark:bg-blue-950/30 px-2.5 text-xs text-slate-800 dark:text-slate-100"
-                />
-              </div>
-
-              <div>
-                <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  Food Safety / Critical QC
-                </label>
-                <input
-                  type="text"
-                  value={recipe.sop.foodSafetyCriticalQc}
-                  onChange={(e) =>
-                    updateRecipeByTabKey(tabKey, (r) => ({
-                      ...r,
-                      sop: { ...r.sop, foodSafetyCriticalQc: e.target.value },
-                    }))
-                  }
-                  className="h-8 w-full rounded border border-[#90caf9] bg-[#e8f4fd] dark:bg-blue-950/30 px-2.5 text-xs text-slate-800 dark:text-slate-100"
-                />
-              </div>
-
-              <div>
-                <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  Allergens / Cross-contact Controls
-                </label>
-                <input
-                  type="text"
-                  value={recipe.sop.allergensCrossContact}
-                  onChange={(e) =>
-                    updateRecipeByTabKey(tabKey, (r) => ({
-                      ...r,
-                      sop: { ...r.sop, allergensCrossContact: e.target.value },
-                    }))
-                  }
-                  className="h-8 w-full rounded border border-[#ffe082] bg-[#fff8e1] dark:bg-amber-950/30 px-2.5 text-xs font-semibold text-amber-900 dark:text-amber-200"
-                />
-              </div>
-
-              <div>
-                <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  Equipment / Tools
-                </label>
-                <input
-                  type="text"
-                  value={recipe.sop.equipmentTools}
-                  onChange={(e) =>
-                    updateRecipeByTabKey(tabKey, (r) => ({
-                      ...r,
-                      sop: { ...r.sop, equipmentTools: e.target.value },
-                    }))
-                  }
-                  className="h-8 w-full rounded border border-[#90caf9] bg-[#e8f4fd] dark:bg-blue-950/30 px-2.5 text-xs text-slate-800 dark:text-slate-100"
-                />
-              </div>
-
-              <div className="md:col-span-2">
-                <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  Chef Notes / Approval Comments
-                </label>
-                <input
-                  type="text"
-                  value={recipe.sop.chefNotesApproval}
-                  onChange={(e) =>
-                    updateRecipeByTabKey(tabKey, (r) => ({
-                      ...r,
-                      sop: { ...r.sop, chefNotesApproval: e.target.value },
-                    }))
-                  }
-                  className="h-8 w-full rounded border border-[#90caf9] bg-[#e8f4fd] dark:bg-blue-950/30 px-2.5 text-xs text-slate-800 dark:text-slate-100"
-                />
-              </div>
-            </div>
-
-            <div className="rounded bg-[#fff8e1] dark:bg-amber-950/30 border border-[#ffe082] dark:border-amber-800/60 px-3.5 py-2.5 text-[11px] font-medium text-amber-900 dark:text-amber-200">
-              <strong>RECIPE CONTROL:</strong> Change version after any ingredient, yield, process or portion change. Revalidate costs, sensory quality, allergen declaration and management approval.
+            <div className="p-2.5 rounded bg-slate-50 dark:bg-slate-800/40 border border-slate-100 dark:border-slate-800">
+              <span className="font-bold text-slate-800 dark:text-slate-200 block mb-1">Storage & Shelf Life</span>
+              <p className="text-slate-600 dark:text-slate-400">{recipe.sop.storageHoldingInstruction}</p>
             </div>
           </div>
         </div>
@@ -1917,414 +1342,228 @@ export default function PosRecipeAndCostingPage() {
   };
 
   return (
-    <div className="min-h-[calc(100vh-3.5rem)] bg-[#f8fafc] dark:bg-slate-950 p-4 sm:p-6 text-slate-800 dark:text-slate-100 space-y-5">
+    <div className="min-h-[calc(100vh-3.5rem)] bg-white dark:bg-slate-950 p-4 sm:p-6 space-y-4">
       {/* Toast Notification */}
       {toastMessage && (
-        <div className="fixed top-5 right-5 z-50 flex items-center gap-2 rounded-lg bg-emerald-600 text-white px-4 py-2.5 shadow-lg text-xs font-semibold animate-in fade-in slide-in-from-top-2">
-          <CheckCircle className="size-4" />
+        <div className="fixed top-5 right-5 z-50 flex items-center gap-2 rounded-lg bg-slate-900 text-white px-4 py-2.5 shadow-xl border border-slate-700 text-xs font-semibold">
+          <CheckCircle className="size-4 text-emerald-400" />
           <span>{toastMessage}</span>
         </div>
       )}
 
-      {/* Top Module Header */}
-      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 shadow-2xs">
-        <div className="flex items-start gap-3.5">
-          <div className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-blue-600 text-white shadow-xs">
-            <ChefHat className="size-6" />
-          </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <h1 className="text-lg sm:text-xl font-extrabold text-slate-900 dark:text-slate-100">
-                R&C — Recipe & Cost Control
-              </h1>
-              <span className="rounded-full bg-blue-50 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-800 px-2.5 py-0.5 text-[10px] font-bold text-blue-700 dark:text-blue-300 uppercase">
-                Marinozz & Pantoa Standard
-              </span>
-            </div>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-              Operating-standard editable workbook • Ingredient Master, Batch Costing, Menu Engineering & Production SOP (BDT)
-            </p>
-          </div>
+      {/* 1. Header with Title & Action Buttons */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div>
+          <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100">
+            Recipe & Cost Control (R&C)
+          </h1>
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+            BridgeOne POS &bull; Marinozz & Pantoa Standard Costing & Production Sheets
+          </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            onClick={() => {
-              setActiveTab("INGREDIENT_MASTER");
-              setIsAddIngOpen(true);
-            }}
-            className="inline-flex items-center gap-1.5 rounded border border-blue-600 bg-blue-600 hover:bg-blue-700 px-3 py-1.5 text-xs font-semibold text-white transition cursor-pointer shadow-2xs"
-          >
-            <Plus className="size-3.5" />
-            <span>Add Ingredient</span>
-          </button>
+        <div className="flex items-center gap-2.5">
           <button
             type="button"
             onClick={handleExportCsv}
-            className="inline-flex items-center gap-1.5 rounded border border-[#0d6efd] bg-white dark:bg-slate-900 hover:bg-blue-50 dark:hover:bg-slate-800 px-3 py-1.5 text-xs font-semibold text-[#0d6efd] transition cursor-pointer"
+            className="flex items-center gap-1.5 rounded border border-[#0d6efd] bg-white dark:bg-slate-900 hover:bg-blue-50 dark:hover:bg-slate-800 px-3.5 py-1.5 text-xs font-bold text-[#0d6efd] uppercase transition-colors cursor-pointer shadow-2xs"
           >
             <FileSpreadsheet className="size-3.5" />
-            <span>Export CSV</span>
+            <span>EXCEL CSV</span>
           </button>
           <button
             type="button"
             onClick={() => typeof window !== "undefined" && window.print()}
-            className="inline-flex items-center gap-1.5 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 hover:bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-700 dark:text-slate-200 transition cursor-pointer"
+            className="flex items-center gap-1.5 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 px-3.5 py-1.5 text-xs font-bold text-slate-700 dark:text-slate-200 uppercase transition-colors cursor-pointer shadow-2xs"
           >
             <Printer className="size-3.5" />
-            <span>Print</span>
+            <span>PRINT</span>
           </button>
           <button
             type="button"
             onClick={handleResetDefaults}
-            className="inline-flex items-center gap-1.5 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 hover:bg-rose-50 hover:text-rose-600 hover:border-rose-200 px-3 py-1.5 text-xs font-semibold text-slate-600 dark:text-slate-300 transition cursor-pointer"
-            title="Restore original Excel template values"
+            className="flex items-center gap-1.5 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 hover:bg-rose-50 hover:text-rose-600 px-3 py-1.5 text-xs font-semibold text-slate-600 dark:text-slate-400 transition cursor-pointer"
+            title="Reset defaults"
           >
             <RotateCcw className="size-3.5" />
-            <span>Reset Defaults</span>
+            <span>Reset</span>
           </button>
         </div>
       </div>
 
-      {/* Workbook Sheet Navigation Tabs (Matching the 6 Excel Sheets) */}
-      <div className="border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-t-lg px-3 pt-2 overflow-x-auto shadow-2xs">
-        <div className="flex items-center gap-2 min-w-max">
+      {/* 2. Top Tabs Navigation (Matching Setup & Reports style) */}
+      <div className="border-b border-slate-200 dark:border-slate-800 overflow-x-auto">
+        <nav className="flex items-center gap-8 -mb-px text-xs font-bold tracking-wide min-w-max">
           {[
-            { id: "MENU_SUMMARY" as const, label: "Menu Cost Summary", icon: TrendingUp, badge: "Management" },
-            { id: "INGREDIENT_MASTER" as const, label: "Ingredient Master", icon: Package, badge: `${ingredients.length} Items` },
-            { id: "EXAMPLE_RESTAURANT" as const, label: "Example Restaurant (Fried Rice)", icon: UtensilsCrossed, badge: "MRZ-FD-001" },
-            { id: "EXAMPLE_PANTOA" as const, label: "Example Pantoa (Butter Cookies)", icon: Cookie, badge: "PNT-BK-001" },
-            { id: "RECIPE_TEMPLATE" as const, label: "Recipe Template (Pantoa Sweet)", icon: Sparkles, badge: "Editable" },
-            { id: "READ_ME" as const, label: "Read Me & Formulas", icon: BookOpen, badge: "SOP Guide" },
-          ].map((tab) => {
-            const Icon = tab.icon;
-            const isActive = activeTab === tab.id;
-            return (
-              <button
-                key={tab.id}
-                type="button"
-                onClick={() => setActiveTab(tab.id)}
-                className={`group flex items-center gap-2 px-3.5 py-2.5 text-xs font-bold border-b-2 -mb-px transition-all cursor-pointer rounded-t ${
-                  isActive
-                    ? "border-[#0d6efd] text-[#0d6efd] bg-blue-50/50 dark:bg-blue-950/30"
-                    : "border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800/50"
-                }`}
-              >
-                <Icon className="size-3.5" />
-                <span>{tab.label}</span>
-                <span
-                  className={`rounded px-1.5 py-0.2 text-[10px] font-semibold ${
-                    isActive
-                      ? "bg-[#0d6efd] text-white"
-                      : "bg-slate-100 dark:bg-slate-800 text-slate-500"
-                  }`}
-                >
-                  {tab.badge}
-                </span>
-              </button>
-            );
-          })}
-        </div>
+            { id: "MENU_SUMMARY" as const, label: "MENU COST SUMMARY" },
+            { id: "INGREDIENT_MASTER" as const, label: "INGREDIENT MASTER" },
+            { id: "EXAMPLE_RESTAURANT" as const, label: "CHICKEN FRIED RICE (REST.)" },
+            { id: "EXAMPLE_PANTOA" as const, label: "BUTTER COOKIES (PANTOA)" },
+            { id: "RECIPE_TEMPLATE" as const, label: "CUSTOM RECIPE BUILDER" },
+            { id: "READ_ME" as const, label: "READ ME & FORMULAS" },
+          ].map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => setActiveTab(tab.id)}
+              className={`py-3 transition border-b-2 whitespace-nowrap cursor-pointer uppercase ${
+                activeTab === tab.id
+                  ? "border-blue-600 text-blue-600"
+                  : "border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </nav>
       </div>
 
       {/* =====================================================================
-          TAB 1: MENU COST SUMMARY (Sheet 6: Menu Engineering | Cost Summary)
+          TAB 1: MENU COST SUMMARY
          ===================================================================== */}
       {activeTab === "MENU_SUMMARY" && (
-        <div className="space-y-5">
-          {/* KPI Summary Strip */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <div className="rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 shadow-2xs">
-              <p className="text-[11px] font-semibold uppercase text-slate-400">
-                Active Recipe Cards
-              </p>
-              <p className="text-2xl font-extrabold text-slate-900 dark:text-slate-100 mt-1">
-                {computedRecipes.length} Products
-              </p>
-              <p className="text-[11px] text-emerald-600 font-medium mt-1">
-                All recipes meet target margin
-              </p>
+        <div className="space-y-4">
+          {/* Quick Metrics Bar */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+            <div className="rounded border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-3 shadow-2xs">
+              <span className="text-slate-500 block text-[11px] font-semibold uppercase">Total Recipes</span>
+              <span className="font-bold text-slate-900 dark:text-slate-100 text-lg">
+                {computedRecipes.length}
+              </span>
             </div>
-
-            <div className="rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 shadow-2xs">
-              <p className="text-[11px] font-semibold uppercase text-slate-400">
-                Master Ingredients Linked
-              </p>
-              <p className="text-2xl font-extrabold text-blue-600 dark:text-blue-400 mt-1">
-                {ingredients.length} SKUs
-              </p>
-              <p className="text-[11px] text-slate-500 mt-1">
-                Auto-updating usable yield & unit cost
-              </p>
+            <div className="rounded border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-3 shadow-2xs">
+              <span className="text-slate-500 block text-[11px] font-semibold uppercase">Master Ingredients</span>
+              <span className="font-bold text-blue-600 text-lg">
+                {ingredients.length} Items
+              </span>
             </div>
-
-            <div className="rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 shadow-2xs">
-              <p className="text-[11px] font-semibold uppercase text-slate-400">
-                Avg Food & Production Cost %
-              </p>
-              <p className="text-2xl font-extrabold text-amber-600 mt-1">
+            <div className="rounded border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-3 shadow-2xs">
+              <span className="text-slate-500 block text-[11px] font-semibold uppercase">Avg Food Cost %</span>
+              <span className="font-mono font-bold text-amber-600 text-lg">
                 {(
-                  (computedRecipes.reduce(
-                    (s, c) => s + c.metrics.foodProductionCostRatio,
-                    0
-                  ) /
+                  (computedRecipes.reduce((s, c) => s + c.metrics.foodProductionCostRatio, 0) /
                     computedRecipes.length) *
                   100
-                ).toFixed(2)}
-                %
-              </p>
-              <p className="text-[11px] text-slate-500 mt-1">
-                Includes ingredients, wastage, pack, labour & OH
-              </p>
+                ).toFixed(1)}%
+              </span>
             </div>
-
-            <div className="rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 shadow-2xs">
-              <p className="text-[11px] font-semibold uppercase text-slate-400">
-                Avg Contribution Margin %
-              </p>
-              <p className="text-2xl font-extrabold text-emerald-600 mt-1">
+            <div className="rounded border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-3 shadow-2xs">
+              <span className="text-slate-500 block text-[11px] font-semibold uppercase">Avg Gross Margin %</span>
+              <span className="font-mono font-bold text-emerald-600 text-lg">
                 {(
-                  (computedRecipes.reduce(
-                    (s, c) => s + c.metrics.contributionMarginPct,
-                    0
-                  ) /
+                  (computedRecipes.reduce((s, c) => s + c.metrics.contributionMarginPct, 0) /
                     computedRecipes.length) *
                   100
-                ).toFixed(2)}
-                %
-              </p>
-              <p className="text-[11px] text-emerald-600 font-medium mt-1">
-                Above 55%–60% target benchmark
-              </p>
+                ).toFixed(1)}%
+              </span>
             </div>
           </div>
 
-          {/* Per-Recipe Cost & Pricing Monitor Table */}
-          <div className="rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 overflow-hidden shadow-2xs">
-            <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-800 bg-gradient-to-r from-[#0f2942] to-[#1e3a5f] text-white flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-              <div>
-                <h2 className="text-sm font-bold uppercase tracking-wider">
-                  MENU ENGINEERING | PER-RECIPE COST & PRICING MONITOR
-                </h2>
-                <p className="text-[11px] text-blue-200">
-                  Management view • Live linked to recipe cards & Ingredient Master • Click any recipe to inspect or edit
-                </p>
-              </div>
-            </div>
-
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs border-collapse">
-                <thead className="bg-[#e8f1fd] dark:bg-slate-800 text-slate-800 dark:text-slate-200 font-bold border-b border-slate-200 dark:border-slate-700">
-                  <tr>
-                    <th className="p-3">Recipe ID</th>
-                    <th className="p-3">Menu Product</th>
-                    <th className="p-3">Business</th>
-                    <th className="p-3 text-right">Batch Yield</th>
-                    <th className="p-3 text-right">Ingredient Cost</th>
-                    <th className="p-3 text-right">Batch Cost (BDT)</th>
-                    <th className="p-3 text-right">Cost / Unit (BDT)</th>
-                    <th className="p-3 text-right">Suggested Price</th>
-                    <th className="p-3 text-right">Menu Price (BDT)</th>
-                    <th className="p-3 text-right">Food Cost %</th>
-                    <th className="p-3 text-right">Contribution / Unit</th>
-                    <th className="p-3 text-right">Contribution %</th>
-                    <th className="p-3 text-center">Price Decision</th>
-                    <th className="p-3 text-center">Action</th>
+          {/* Clean POS Styled Table */}
+          <div className="rounded border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 overflow-x-auto shadow-2xs">
+            <table className="w-full text-left text-xs border-collapse whitespace-nowrap">
+              <thead className="bg-[#e0f2fe]/80 dark:bg-sky-950/40 text-slate-800 dark:text-slate-200 border-b border-slate-200 dark:border-slate-800">
+                <tr>
+                  <th className="p-3 font-semibold">Recipe ID</th>
+                  <th className="p-3 font-semibold">Menu Product</th>
+                  <th className="p-3 font-semibold">Business</th>
+                  <th className="p-3 font-semibold text-right">Batch Yield</th>
+                  <th className="p-3 font-semibold text-right">Batch Cost (BDT)</th>
+                  <th className="p-3 font-semibold text-right">Cost / Unit (BDT)</th>
+                  <th className="p-3 font-semibold text-right">Menu Price (BDT)</th>
+                  <th className="p-3 font-semibold text-right">Food Cost %</th>
+                  <th className="p-3 font-semibold text-right">Profit / Unit</th>
+                  <th className="p-3 font-semibold text-right">Margin %</th>
+                  <th className="p-3 font-semibold text-center">Status</th>
+                  <th className="p-3 font-semibold text-center">Action</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                {computedRecipes.map(({ recipe, metrics }) => (
+                  <tr key={recipe.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition">
+                    <td className="p-3 font-mono font-bold text-blue-600">{recipe.recipeId}</td>
+                    <td className="p-3 font-semibold text-slate-900 dark:text-slate-100">{recipe.productName}</td>
+                    <td className="p-3 text-slate-600 dark:text-slate-300">{recipe.brandBusiness}</td>
+                    <td className="p-3 text-right font-medium">
+                      {recipe.sellableBatchYield} {recipe.yieldUnit}
+                    </td>
+                    <td className="p-3 text-right font-mono text-slate-700 dark:text-slate-300">
+                      {metrics.totalBatchCost.toFixed(2)}
+                    </td>
+                    <td className="p-3 text-right font-mono font-bold text-slate-900 dark:text-slate-100">
+                      {metrics.costPerServing.toFixed(2)}
+                    </td>
+                    <td className="p-3 text-right font-mono font-bold text-blue-600">
+                      {recipe.actualMenuPrice.toFixed(2)}
+                    </td>
+                    <td className="p-3 text-right font-mono text-amber-600 font-semibold">
+                      {(metrics.foodProductionCostRatio * 100).toFixed(1)}%
+                    </td>
+                    <td className="p-3 text-right font-mono font-bold text-emerald-600">
+                      {metrics.contributionPerServing.toFixed(2)}
+                    </td>
+                    <td className="p-3 text-right font-mono font-extrabold text-emerald-600">
+                      {(metrics.contributionMarginPct * 100).toFixed(1)}%
+                    </td>
+                    <td className="p-3 text-center">
+                      <span
+                        className={`inline-block px-2.5 py-0.5 rounded-full text-[11px] font-semibold ${
+                          metrics.priceDecision === "MEETS MARGIN"
+                            ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300"
+                            : "bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300"
+                        }`}
+                      >
+                        {metrics.priceDecision}
+                      </span>
+                    </td>
+                    <td className="p-3 text-center">
+                      <button
+                        type="button"
+                        onClick={() => setActiveTab(recipe.tabKey)}
+                        className="h-7 px-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs rounded shadow-xs transition cursor-pointer"
+                      >
+                        View Card
+                      </button>
+                    </td>
                   </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                  {computedRecipes.map(({ recipe, metrics }) => (
-                    <tr
-                      key={recipe.id}
-                      className="hover:bg-blue-50/40 dark:hover:bg-slate-800/40 transition-colors"
-                    >
-                      <td className="p-3 font-mono font-bold text-blue-600 dark:text-blue-400">
-                        {recipe.recipeId}
-                      </td>
-                      <td className="p-3 font-bold text-slate-900 dark:text-slate-100">
-                        {recipe.productName}
-                      </td>
-                      <td className="p-3 text-slate-600 dark:text-slate-300">
-                        {recipe.brandBusiness}
-                      </td>
-                      <td className="p-3 text-right font-semibold">
-                        {recipe.sellableBatchYield} {recipe.yieldUnit}
-                      </td>
-                      <td className="p-3 text-right font-mono text-slate-600 dark:text-slate-400">
-                        {metrics.totalIngredientBatchCost.toFixed(2)}
-                      </td>
-                      <td className="p-3 text-right font-mono font-semibold text-slate-800 dark:text-slate-200 bg-[#e8f8f0]/50 dark:bg-emerald-950/15">
-                        {metrics.totalBatchCost.toFixed(2)}
-                      </td>
-                      <td className="p-3 text-right font-mono font-bold text-slate-900 dark:text-slate-100 bg-[#e8f8f0] dark:bg-emerald-950/30">
-                        {metrics.costPerServing.toFixed(2)}
-                      </td>
-                      <td className="p-3 text-right font-mono text-slate-600 dark:text-slate-400">
-                        {metrics.suggestedCustomerPrice.toFixed(2)}
-                      </td>
-                      <td className="p-3 text-right font-mono font-extrabold text-blue-700 dark:text-blue-300 bg-[#e8f4fd]/60 dark:bg-blue-950/20">
-                        {recipe.actualMenuPrice.toFixed(2)}
-                      </td>
-                      <td className="p-3 text-right font-mono text-amber-700 dark:text-amber-400 font-semibold">
-                        {(metrics.foodProductionCostRatio * 100).toFixed(2)}%
-                      </td>
-                      <td className="p-3 text-right font-mono font-bold text-emerald-700 dark:text-emerald-400">
-                        {metrics.contributionPerServing.toFixed(2)}
-                      </td>
-                      <td className="p-3 text-right font-mono font-extrabold text-emerald-700 dark:text-emerald-300">
-                        {(metrics.contributionMarginPct * 100).toFixed(2)}%
-                      </td>
-                      <td className="p-3 text-center">
-                        <span
-                          className={`inline-block rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase ${
-                            metrics.priceDecision === "MEETS MARGIN"
-                              ? "bg-emerald-100 text-emerald-800 border border-emerald-300"
-                              : metrics.priceDecision === "BELOW TARGET"
-                              ? "bg-rose-100 text-rose-800 border border-rose-300"
-                              : "bg-amber-100 text-amber-800 border border-amber-300"
-                          }`}
-                        >
-                          {metrics.priceDecision}
-                        </span>
-                      </td>
-                      <td className="p-3 text-center">
-                        <button
-                          type="button"
-                          onClick={() => setActiveTab(recipe.tabKey)}
-                          className="rounded bg-[#0d6efd] hover:bg-[#0b5ed7] px-2.5 py-1 text-[11px] font-semibold text-white transition cursor-pointer"
-                        >
-                          Open Card
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                ))}
+              </tbody>
+            </table>
           </div>
 
-          {/* Visual Cost Structure Cards + Key Operating Guidelines */}
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
-            {/* Batch Cost Structure Breakdown */}
-            <div className="lg:col-span-7 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 shadow-2xs space-y-4">
-              <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-200">
-                Unit Economics & Margin Comparison
-              </h3>
-              <div className="space-y-4">
-                {computedRecipes.map(({ recipe, metrics }) => {
-                  const costPct = Math.min(
-                    100,
-                    Math.round(metrics.foodProductionCostRatio * 100)
-                  );
-                  const marginPct = Math.max(0, 100 - costPct);
-                  return (
-                    <div
-                      key={recipe.id}
-                      className="rounded border border-slate-100 dark:border-slate-800 p-3 bg-slate-50/60 dark:bg-slate-800/30 space-y-2"
-                    >
-                      <div className="flex items-center justify-between text-xs">
-                        <div>
-                          <span className="font-bold text-slate-900 dark:text-slate-100">
-                            {recipe.productName}
-                          </span>{" "}
-                          <span className="text-slate-400">({recipe.brandBusiness})</span>
-                        </div>
-                        <span className="font-mono font-bold text-slate-800 dark:text-slate-200">
-                          Menu Price: {recipe.actualMenuPrice.toFixed(2)} BDT | Cost:{" "}
-                          {metrics.costPerServing.toFixed(2)} BDT | Margin:{" "}
-                          {metrics.contributionPerServing.toFixed(2)} BDT
-                        </span>
-                      </div>
-                      <div className="h-3 w-full rounded-full overflow-hidden flex bg-slate-200 dark:bg-slate-700">
-                        <div
-                          className="bg-amber-500 h-full transition-all"
-                          style={{ width: `${costPct}%` }}
-                          title={`Cost Ratio: ${costPct}%`}
-                        />
-                        <div
-                          className="bg-emerald-500 h-full transition-all"
-                          style={{ width: `${marginPct}%` }}
-                          title={`Contribution Margin: ${marginPct}%`}
-                        />
-                      </div>
-                      <div className="flex items-center justify-between text-[11px] text-slate-500">
-                        <span className="inline-flex items-center gap-1">
-                          <span className="size-2 rounded-full bg-amber-500" />
-                          Food & Production Cost: {(metrics.foodProductionCostRatio * 100).toFixed(1)}%
-                        </span>
-                        <span className="inline-flex items-center gap-1 font-semibold text-emerald-600">
-                          <span className="size-2 rounded-full bg-emerald-500" />
-                          Contribution Margin: {(metrics.contributionMarginPct * 100).toFixed(1)}% (Target:{" "}
-                          {(recipe.desiredContributionMarginPct * 100).toFixed(0)}%)
-                        </span>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Key Operating Guidelines (Rows 12 - 22 of Sheet 6) */}
-            <div className="lg:col-span-5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 shadow-2xs flex flex-col justify-between">
-              <div>
-                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-200 mb-3">
-                  KEY OPERATING GUIDELINES
-                </h3>
-                <ul className="space-y-2.5 text-xs text-slate-700 dark:text-slate-300">
-                  {KEY_OPERATING_GUIDELINES.map((g, idx) => (
-                    <li
-                      key={idx}
-                      className="rounded border border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/40 p-2.5 leading-relaxed"
-                    >
-                      {g}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-              <div className="mt-4 rounded bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 p-3 text-[11px] text-blue-900 dark:text-blue-200">
-                <strong>Pro Tip:</strong> Updating any supplier price or usable yield % in{" "}
-                <button
-                  type="button"
-                  onClick={() => setActiveTab("INGREDIENT_MASTER")}
-                  className="underline font-bold cursor-pointer"
-                >
-                  Ingredient Master
-                </button>{" "}
-                immediately recalculates all recipe cards and this summary table.
-              </div>
+          {/* Operating Guidelines Card */}
+          <div className="rounded border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 shadow-2xs space-y-2">
+            <h3 className="text-xs font-bold text-slate-900 dark:text-slate-100 uppercase tracking-wide">
+              Key Operating Guidelines (Marinozz & Pantoa Standards)
+            </h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs text-slate-600 dark:text-slate-400">
+              {KEY_OPERATING_GUIDELINES.map((g, idx) => (
+                <div key={idx} className="flex items-start gap-2 p-2 rounded bg-slate-50 dark:bg-slate-800/40">
+                  <span className="font-bold text-blue-600">&bull;</span>
+                  <span>{g}</span>
+                </div>
+              ))}
             </div>
           </div>
         </div>
       )}
 
       {/* =====================================================================
-          TAB 2: INGREDIENT MASTER (Sheet 2: Ingredient Purchase Price Master)
+          TAB 2: INGREDIENT MASTER
          ===================================================================== */}
       {activeTab === "INGREDIENT_MASTER" && (
         <div className="space-y-4">
-          {/* Header Banner */}
-          <div className="rounded-lg border border-slate-200 dark:border-slate-800 bg-gradient-to-r from-[#0f2942] to-[#1e3a5f] text-white p-4">
-            <h2 className="text-base font-bold uppercase tracking-wide">
-              INGREDIENT PURCHASE PRICE MASTER
-            </h2>
-            <p className="text-xs text-blue-200 mt-0.5">
-              Blue cells are editable | Cost per usable g / ml / piece is calculated automatically | Always use matching units (g, ml, pc)
-            </p>
-          </div>
-
-          {/* Filter & Search Bar */}
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-3.5 shadow-2xs">
-            <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center justify-between flex-wrap gap-3">
+            <div className="flex items-center gap-2 flex-wrap">
               {ingredientCategories.map((cat) => (
                 <button
                   key={cat}
                   type="button"
                   onClick={() => setIngCategoryFilter(cat)}
-                  className={`rounded-full px-3 py-1 text-xs font-semibold transition cursor-pointer ${
+                  className={`rounded px-3 py-1.5 text-xs font-semibold transition cursor-pointer ${
                     ingCategoryFilter === cat
-                      ? "bg-[#0d6efd] text-white"
-                      : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200"
+                      ? "bg-blue-600 text-white"
+                      : "bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200"
                   }`}
                 >
                   {cat}
@@ -2332,429 +1571,312 @@ export default function PosRecipeAndCostingPage() {
               ))}
             </div>
 
-            <div className="flex items-center gap-2">
-              <div className="relative w-full sm:w-64">
+            <div className="flex items-center gap-3">
+              <div className="relative w-64">
                 <input
                   type="text"
-                  placeholder="Search code, ingredient, supplier..."
+                  placeholder="Search ingredient..."
                   value={ingSearch}
                   onChange={(e) => setIngSearch(e.target.value)}
-                  className="h-8 w-full rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 pl-8 pr-3 text-xs focus:border-[#0d6efd] focus:outline-none"
+                  className="w-full h-9 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 pr-8 text-xs placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-blue-500"
                 />
-                <Search className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-slate-400" />
+                <Search className="size-3.5 text-slate-400 absolute right-2.5 top-2.5 pointer-events-none" />
               </div>
+
               <button
                 type="button"
                 onClick={() => setIsAddIngOpen(true)}
-                className="inline-flex items-center gap-1.5 rounded bg-[#0d6efd] hover:bg-[#0b5ed7] px-3.5 py-1.5 text-xs font-semibold text-white shrink-0 cursor-pointer"
+                className="h-9 px-4 bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs rounded flex items-center gap-1.5 shadow-xs transition cursor-pointer"
               >
-                <Plus className="size-3.5" />
-                <span>New Ingredient</span>
+                <Plus className="size-4" />
+                <span>Create Ingredient</span>
               </button>
             </div>
           </div>
 
-          {/* Ingredient Master Table */}
-          <div className="rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 overflow-hidden shadow-2xs">
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs border-collapse">
-                <thead className="bg-[#1e3a5f] text-white font-semibold">
-                  <tr>
-                    <th className="p-2.5">Ingredient Code</th>
-                    <th className="p-2.5">Ingredient Name</th>
-                    <th className="p-2.5">Category</th>
-                    <th className="p-2.5">Purchase Pack</th>
-                    <th className="p-2.5 text-right">Pack Net Content</th>
-                    <th className="p-2.5 text-center">Base Unit</th>
-                    <th className="p-2.5 text-right">Pack Cost (BDT)</th>
-                    <th className="p-2.5 text-right">Usable Yield %</th>
-                    <th className="p-2.5 text-right">Cost / Usable Unit</th>
-                    <th className="p-2.5">Preferred Supplier</th>
-                    <th className="p-2.5">Allergens / Note</th>
-                    <th className="p-2.5 text-center">Rate Updated</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
-                  {filteredIngredients.map((item) => {
-                    const usableUnitCost = computeUsableUnitCost(item);
-                    return (
-                      <tr
-                        key={item.code}
-                        className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors"
-                      >
-                        <td className="p-2.5 font-mono font-bold text-blue-600 dark:text-blue-400">
-                          {item.code}
-                        </td>
-                        <td className="p-2.5 font-semibold text-slate-900 dark:text-slate-100">
-                          {item.name}
-                        </td>
-                        <td className="p-2.5">
-                          <span className="rounded bg-slate-100 dark:bg-slate-800 px-2 py-0.5 text-[11px] font-medium text-slate-700 dark:text-slate-300">
-                            {item.category}
+          {/* Clean Ingredient Table */}
+          <div className="rounded border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 overflow-x-auto shadow-2xs">
+            <table className="w-full text-left text-xs border-collapse whitespace-nowrap">
+              <thead className="bg-[#e0f2fe]/80 dark:bg-sky-950/40 text-slate-800 dark:text-slate-200 border-b border-slate-200 dark:border-slate-800">
+                <tr>
+                  <th className="p-3 font-semibold">Code</th>
+                  <th className="p-3 font-semibold">Ingredient Name</th>
+                  <th className="p-3 font-semibold">Category</th>
+                  <th className="p-3 font-semibold">Purchase Pack</th>
+                  <th className="p-3 font-semibold text-right">Pack Net</th>
+                  <th className="p-3 font-semibold text-center">Unit</th>
+                  <th className="p-3 font-semibold text-right">Pack Cost (BDT)</th>
+                  <th className="p-3 font-semibold text-right">Yield %</th>
+                  <th className="p-3 font-semibold text-right">Cost / Usable Unit</th>
+                  <th className="p-3 font-semibold">Preferred Supplier</th>
+                  <th className="p-3 font-semibold">Allergens / Note</th>
+                  <th className="p-3 font-semibold text-center">Updated</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                {filteredIngredients.map((item) => {
+                  const usableUnitCost = computeUsableUnitCost(item);
+                  return (
+                    <tr key={item.code} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition">
+                      <td className="p-3 font-mono font-bold text-blue-600">{item.code}</td>
+                      <td className="p-3 font-semibold text-slate-900 dark:text-slate-100">{item.name}</td>
+                      <td className="p-3 text-slate-600 dark:text-slate-300">{item.category}</td>
+                      <td className="p-3 text-slate-600 dark:text-slate-300">{item.purchasePack}</td>
+                      <td className="p-3 text-right font-mono text-slate-700 dark:text-slate-300">
+                        {item.packNetContent}
+                      </td>
+                      <td className="p-3 text-center font-mono text-slate-500">{item.baseUnit}</td>
+                      <td className="p-3 text-right font-mono">
+                        <input
+                          type="number"
+                          value={item.packCostBdt}
+                          onChange={(e) =>
+                            handleUpdateIngredient(item.code, "packCostBdt", Math.max(0, Number(e.target.value) || 0))
+                          }
+                          className="w-20 h-7 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-2 text-right font-mono font-semibold text-xs text-slate-900 dark:text-slate-100"
+                        />
+                      </td>
+                      <td className="p-3 text-right font-mono">
+                        <div className="inline-flex items-center gap-1">
+                          <input
+                            type="number"
+                            min={5}
+                            max={100}
+                            value={Number((item.usableYieldPct * 100).toFixed(0))}
+                            onChange={(e) =>
+                              handleUpdateIngredient(
+                                item.code,
+                                "usableYieldPct",
+                                Math.min(100, Math.max(5, Number(e.target.value) || 100)) / 100
+                              )
+                            }
+                            className="w-14 h-7 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-1 text-right font-mono font-semibold text-xs text-slate-900 dark:text-slate-100"
+                          />
+                          <span className="text-slate-400">%</span>
+                        </div>
+                      </td>
+                      <td className="p-3 text-right font-mono font-bold text-emerald-600">
+                        {usableUnitCost.toFixed(4)} / {item.baseUnit}
+                      </td>
+                      <td className="p-3 text-slate-700 dark:text-slate-300">{item.preferredSupplier}</td>
+                      <td className="p-3">
+                        {item.allergensNote ? (
+                          <span className="inline-block px-2 py-0.5 rounded text-[11px] font-semibold bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300">
+                            {item.allergensNote}
                           </span>
-                        </td>
-                        <td className="p-2.5">
-                          <input
-                            type="text"
-                            value={item.purchasePack}
-                            onChange={(e) =>
-                              handleUpdateIngredient(item.code, "purchasePack", e.target.value)
-                            }
-                            className="h-7 w-28 rounded border border-[#90caf9] bg-[#e8f4fd] dark:bg-blue-950/40 px-2 text-xs text-slate-800 dark:text-slate-100"
-                          />
-                        </td>
-                        <td className="p-2.5 text-right">
-                          <input
-                            type="number"
-                            min={0.01}
-                            step="any"
-                            value={item.packNetContent}
-                            onChange={(e) =>
-                              handleUpdateIngredient(
-                                item.code,
-                                "packNetContent",
-                                Math.max(0.01, Number(e.target.value) || 1)
-                              )
-                            }
-                            className="h-7 w-20 rounded border border-[#90caf9] bg-[#e8f4fd] dark:bg-blue-950/40 px-2 text-right font-mono font-semibold text-slate-900 dark:text-slate-100"
-                          />
-                        </td>
-                        <td className="p-2.5 text-center font-mono font-bold text-slate-700 dark:text-slate-300">
-                          {item.baseUnit}
-                        </td>
-                        <td className="p-2.5 text-right">
-                          <input
-                            type="number"
-                            min={0}
-                            step="any"
-                            value={item.packCostBdt}
-                            onChange={(e) =>
-                              handleUpdateIngredient(
-                                item.code,
-                                "packCostBdt",
-                                Math.max(0, Number(e.target.value) || 0)
-                              )
-                            }
-                            className="h-7 w-24 rounded border border-[#90caf9] bg-[#e8f4fd] dark:bg-blue-950/40 px-2 text-right font-mono font-bold text-blue-900 dark:text-blue-200"
-                          />
-                        </td>
-                        <td className="p-2.5 text-right">
-                          <div className="inline-flex items-center gap-1">
-                            <input
-                              type="number"
-                              min={5}
-                              max={100}
-                              step="1"
-                              value={Number((item.usableYieldPct * 100).toFixed(1))}
-                              onChange={(e) =>
-                                handleUpdateIngredient(
-                                  item.code,
-                                  "usableYieldPct",
-                                  Math.min(100, Math.max(5, Number(e.target.value) || 100)) / 100
-                                )
-                              }
-                              className="h-7 w-16 rounded border border-[#90caf9] bg-[#e8f4fd] dark:bg-blue-950/40 px-1.5 text-right font-mono font-semibold text-slate-900 dark:text-slate-100"
-                            />
-                            <span className="text-slate-400">%</span>
-                          </div>
-                        </td>
-                        <td className="p-2.5 text-right font-mono font-bold bg-[#e8f8f0] dark:bg-emerald-950/30 text-emerald-900 dark:text-emerald-300">
-                          {usableUnitCost.toFixed(4)} / {item.baseUnit}
-                        </td>
-                        <td className="p-2.5">
-                          <input
-                            type="text"
-                            value={item.preferredSupplier}
-                            onChange={(e) =>
-                              handleUpdateIngredient(
-                                item.code,
-                                "preferredSupplier",
-                                e.target.value
-                              )
-                            }
-                            className="h-7 w-32 rounded border border-slate-200 dark:border-slate-700 bg-transparent px-2 text-xs text-slate-700 dark:text-slate-300"
-                          />
-                        </td>
-                        <td className="p-2.5">
-                          {item.allergensNote ? (
-                            <span className="inline-block rounded bg-[#fff8e1] dark:bg-amber-950/40 border border-[#ffe082] dark:border-amber-800 px-2 py-0.5 text-[10px] font-semibold text-amber-800 dark:text-amber-300">
-                              {item.allergensNote}
-                            </span>
-                          ) : (
-                            <span className="text-slate-400 text-[11px]">—</span>
-                          )}
-                        </td>
-                        <td className="p-2.5 text-center text-[11px] text-slate-500">
-                          {item.rateUpdated}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+                        ) : (
+                          <span className="text-slate-400">&mdash;</span>
+                        )}
+                      </td>
+                      <td className="p-3 text-center text-slate-400 text-[11px]">{item.rateUpdated}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
         </div>
       )}
 
       {/* =====================================================================
-          TAB 3: EXAMPLE RESTAURANT (Sheet 4: MRZ-FD-001 Chicken Fried Rice)
+          TAB 3: EXAMPLE RESTAURANT (Fried Rice)
          ===================================================================== */}
       {activeTab === "EXAMPLE_RESTAURANT" && renderRecipeSheet("EXAMPLE_RESTAURANT")}
 
       {/* =====================================================================
-          TAB 4: EXAMPLE PANTOA (Sheet 5: PNT-BK-001 Butter Cookies)
+          TAB 4: EXAMPLE PANTOA (Butter Cookies)
          ===================================================================== */}
       {activeTab === "EXAMPLE_PANTOA" && renderRecipeSheet("EXAMPLE_PANTOA")}
 
       {/* =====================================================================
-          TAB 5: RECIPE TEMPLATE (Sheet 3: Custom / Blank Template)
+          TAB 5: RECIPE TEMPLATE
          ===================================================================== */}
       {activeTab === "RECIPE_TEMPLATE" && renderRecipeSheet("RECIPE_TEMPLATE")}
 
       {/* =====================================================================
-          TAB 6: READ ME & FORMULAS (Sheet 1: Read Me)
+          TAB 6: READ ME & FORMULAS
          ===================================================================== */}
       {activeTab === "READ_ME" && (
-        <div className="space-y-5">
-          <div className="rounded-lg border border-slate-200 dark:border-slate-800 bg-gradient-to-r from-[#0f2942] to-[#1e3a5f] text-white p-5">
-            <h2 className="text-lg font-extrabold tracking-tight">
-              MARINOZZ GROUP | RECIPE & COST CONTROL
-            </h2>
-            <p className="text-xs text-blue-200 mt-1">
-              Operating-standard editable template • Suitable for Marinozz Restaurant and Pantoa • BDT
-            </p>
-          </div>
-
-          {/* Workbook Instructions 01 - 06 */}
-          <div className="rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 shadow-2xs">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-4">
-              WORKBOOK INSTRUCTIONS (01 – 06)
+        <div className="space-y-4">
+          <div className="rounded border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 shadow-2xs space-y-3">
+            <h3 className="text-xs font-bold text-slate-900 dark:text-slate-100 uppercase tracking-wide">
+              Workbook Operating Instructions
             </h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
               {WORKBOOK_INSTRUCTIONS.map((item) => (
                 <div
                   key={item.step}
-                  className="rounded-lg border border-slate-200 dark:border-slate-800 p-4 bg-slate-50/60 dark:bg-slate-800/30 flex items-start gap-3"
+                  className="rounded border border-slate-100 dark:border-slate-800 p-3 bg-slate-50 dark:bg-slate-800/40"
                 >
-                  <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-[#0d6efd] text-white font-mono text-xs font-bold">
-                    {item.step}
+                  <span className="font-mono text-xs font-bold text-blue-600 block mb-1">
+                    Step {item.step}
                   </span>
-                  <div>
-                    <h4 className="text-xs font-bold text-slate-900 dark:text-slate-100">
-                      {item.title}
-                    </h4>
-                    <p className="text-xs text-slate-600 dark:text-slate-400 mt-1 leading-relaxed">
-                      {item.desc}
-                    </p>
-                  </div>
+                  <h4 className="text-xs font-bold text-slate-900 dark:text-slate-100">{item.title}</h4>
+                  <p className="text-xs text-slate-600 dark:text-slate-400 mt-1 leading-relaxed">
+                    {item.desc}
+                  </p>
                 </div>
               ))}
             </div>
           </div>
 
-          {/* Formulas & Control Points */}
-          <div className="rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 overflow-hidden shadow-2xs">
-            <div className="bg-[#1e3a5f] text-white px-4 py-3 font-bold text-xs uppercase tracking-wider">
-              FORMULAS & CONTROL POINTS
-            </div>
-            <div className="divide-y divide-slate-200 dark:divide-slate-800 text-xs">
-              {FORMULAS_CONTROL_POINTS.map((f, i) => (
-                <div
-                  key={i}
-                  className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-800/40"
-                >
-                  <span className="font-bold text-slate-800 dark:text-slate-200">
-                    {f.metric}
-                  </span>
-                  <code className="rounded bg-[#e8f8f0] dark:bg-emerald-950/40 border border-[#81c784] dark:border-emerald-800 px-3 py-1 font-mono text-xs font-semibold text-emerald-900 dark:text-emerald-300">
-                    {f.formula}
-                  </code>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Disclaimer & Control Note */}
-          <div className="rounded-lg border border-[#ffe082] bg-[#fff8e1] dark:bg-amber-950/30 dark:border-amber-800 p-4 text-xs text-amber-950 dark:text-amber-200 space-y-2">
-            <div className="font-bold uppercase tracking-wide flex items-center gap-2">
-              <ShieldAlert className="size-4 text-amber-700" />
-              <span>INPUT CELLS = light blue | AUTO FORMULAS = light green | WARNING / NOTES = pale amber</span>
-            </div>
-            <p className="leading-relaxed">
-              Cost & price are decision-support estimates, not statutory accounts. Ingredients, selling prices, VAT/tax treatment and allocations must be reviewed by management. Do not double-count trimming loss if already reflected in the Master usable-yield percentage. Recipe yield must reflect actual sellable portions after cooking.
-            </p>
+          <div className="rounded border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 overflow-x-auto shadow-2xs">
+            <table className="w-full text-left text-xs border-collapse">
+              <thead className="bg-[#e0f2fe]/80 dark:bg-sky-950/40 text-slate-800 dark:text-slate-200 border-b border-slate-200 dark:border-slate-800">
+                <tr>
+                  <th className="p-3 font-semibold">Key Control Metric</th>
+                  <th className="p-3 font-semibold">Mathematical Formula</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                {FORMULAS_CONTROL_POINTS.map((f, i) => (
+                  <tr key={i} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                    <td className="p-3 font-semibold text-slate-900 dark:text-slate-100">{f.metric}</td>
+                    <td className="p-3 font-mono text-blue-600 font-medium">{f.formula}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </div>
       )}
 
-      {/* =====================================================================
-          MODAL: ADD NEW INGREDIENT TO MASTER
-         ===================================================================== */}
+      {/* Modal: Create New Ingredient */}
       {isAddIngOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="w-full max-w-lg rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xl overflow-hidden">
-            <div className="bg-[#1e3a5f] text-white px-5 py-3.5 flex items-center justify-between">
-              <h3 className="text-sm font-bold uppercase tracking-wider">
-                Add New Ingredient to Master
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4">
+          <div className="w-full max-w-lg rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 shadow-xl space-y-4 animate-in fade-in zoom-in-95">
+            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+              <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">
+                Create New Ingredient
               </h3>
               <button
                 type="button"
                 onClick={() => setIsAddIngOpen(false)}
-                className="text-white/70 hover:text-white text-sm font-bold cursor-pointer"
+                className="text-slate-400 hover:text-slate-600 text-sm font-bold p-1 cursor-pointer"
               >
-                ✕
+                &times;
               </button>
             </div>
-            <form onSubmit={handleCreateIngredient} className="p-5 space-y-3.5 text-xs">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div className="sm:col-span-2">
-                  <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    Ingredient Name *
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="e.g. Basmati Rice / Pistachio Nuts"
-                    value={newIngName}
-                    onChange={(e) => setNewIngName(e.target.value)}
-                    className="h-9 w-full rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 text-xs"
-                  />
-                </div>
 
+            <form onSubmit={handleCreateIngredient} className="space-y-3 text-xs">
+              <div>
+                <label className="block text-slate-700 dark:text-slate-300 font-semibold mb-1">
+                  Ingredient Name <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. Boneless Chicken Breast"
+                  value={newIngName}
+                  onChange={(e) => setNewIngName(e.target.value)}
+                  className="w-full h-8 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-2.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    Category
-                  </label>
+                  <label className="block text-slate-700 dark:text-slate-300 font-semibold mb-1">Category</label>
                   <select
                     value={newIngCat}
                     onChange={(e) => setNewIngCat(e.target.value)}
-                    className="h-9 w-full rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-2.5 text-xs"
+                    className="w-full h-8 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-2 text-xs"
                   >
                     <option value="Dry groceries">Dry groceries</option>
-                    <option value="Protein">Protein</option>
+                    <option value="Meat & poultry">Meat & poultry</option>
                     <option value="Vegetables">Vegetables</option>
                     <option value="Dairy">Dairy</option>
-                    <option value="Sauces">Sauces</option>
-                    <option value="Oils">Oils</option>
-                    <option value="Seasoning">Seasoning</option>
-                    <option value="Baking">Baking</option>
-                    <option value="Flavour">Flavour</option>
                     <option value="Packaging">Packaging</option>
                   </select>
                 </div>
 
                 <div>
-                  <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    Purchase Pack Description
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="e.g. 1 kg bag"
-                    value={newIngPack}
-                    onChange={(e) => setNewIngPack(e.target.value)}
-                    className="h-9 w-full rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 text-xs"
-                  />
-                </div>
-
-                <div>
-                  <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    Pack Net Content *
-                  </label>
-                  <input
-                    type="number"
-                    required
-                    min={0.01}
-                    step="any"
-                    value={newIngNet}
-                    onChange={(e) => setNewIngNet(e.target.value)}
-                    className="h-9 w-full rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 text-xs"
-                  />
-                </div>
-
-                <div>
-                  <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    Base Unit *
-                  </label>
+                  <label className="block text-slate-700 dark:text-slate-300 font-semibold mb-1">Base Unit</label>
                   <select
                     value={newIngUnit}
                     onChange={(e) => setNewIngUnit(e.target.value as "g" | "ml" | "pc")}
-                    className="h-9 w-full rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-2.5 text-xs"
+                    className="w-full h-8 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-2 text-xs font-mono"
                   >
-                    <option value="g">g (grams)</option>
-                    <option value="ml">ml (millilitres)</option>
-                    <option value="pc">pc (pieces)</option>
+                    <option value="g">grams (g)</option>
+                    <option value="ml">millilitres (ml)</option>
+                    <option value="pc">pieces (pc)</option>
                   </select>
                 </div>
+              </div>
 
+              <div className="grid grid-cols-3 gap-3">
                 <div>
-                  <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    Pack Cost (BDT) *
-                  </label>
+                  <label className="block text-slate-700 dark:text-slate-300 font-semibold mb-1">Purchase Pack</label>
+                  <input
+                    type="text"
+                    value={newIngPack}
+                    onChange={(e) => setNewIngPack(e.target.value)}
+                    className="w-full h-8 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-2 text-xs"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-700 dark:text-slate-300 font-semibold mb-1">Pack Net Qty</label>
                   <input
                     type="number"
-                    required
-                    min={0}
-                    step="any"
+                    value={newIngNet}
+                    onChange={(e) => setNewIngNet(e.target.value)}
+                    className="w-full h-8 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-2 font-mono text-xs"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-700 dark:text-slate-300 font-semibold mb-1">Pack Cost (BDT)</label>
+                  <input
+                    type="number"
                     value={newIngCost}
                     onChange={(e) => setNewIngCost(e.target.value)}
-                    className="h-9 w-full rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 text-xs"
-                  />
-                </div>
-
-                <div>
-                  <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    Usable Yield % *
-                  </label>
-                  <input
-                    type="number"
-                    required
-                    min={5}
-                    max={100}
-                    value={newIngYield}
-                    onChange={(e) => setNewIngYield(e.target.value)}
-                    className="h-9 w-full rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 text-xs"
-                  />
-                </div>
-
-                <div>
-                  <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    Preferred Supplier
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="e.g. Dairy supplier"
-                    value={newIngSupplier}
-                    onChange={(e) => setNewIngSupplier(e.target.value)}
-                    className="h-9 w-full rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 text-xs"
-                  />
-                </div>
-
-                <div>
-                  <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    Allergens / Note
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="e.g. Milk, Egg, Wheat"
-                    value={newIngAllergen}
-                    onChange={(e) => setNewIngAllergen(e.target.value)}
-                    className="h-9 w-full rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 text-xs"
+                    className="w-full h-8 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-2 font-mono font-bold text-xs"
                   />
                 </div>
               </div>
 
-              <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-200 dark:border-slate-800">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-700 dark:text-slate-300 font-semibold mb-1">Usable Yield %</label>
+                  <input
+                    type="number"
+                    value={newIngYield}
+                    onChange={(e) => setNewIngYield(e.target.value)}
+                    className="w-full h-8 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-2 font-mono text-xs"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-700 dark:text-slate-300 font-semibold mb-1">Supplier</label>
+                  <input
+                    type="text"
+                    value={newIngSupplier}
+                    onChange={(e) => setNewIngSupplier(e.target.value)}
+                    placeholder="Supplier name"
+                    className="w-full h-8 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-2 text-xs"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-slate-700 dark:text-slate-300 font-semibold mb-1">Allergens / Note</label>
+                <input
+                  type="text"
+                  value={newIngAllergen}
+                  onChange={(e) => setNewIngAllergen(e.target.value)}
+                  placeholder="e.g. Gluten, Egg, Soy"
+                  className="w-full h-8 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-2 text-xs"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
                 <button
                   type="button"
                   onClick={() => setIsAddIngOpen(false)}
-                  className="rounded px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 cursor-pointer"
+                  className="h-8 px-4 rounded border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 text-xs font-semibold cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="rounded bg-[#0d6efd] hover:bg-[#0b5ed7] px-5 py-2 text-xs font-bold text-white cursor-pointer"
+                  className="h-8 px-4 rounded bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-xs cursor-pointer"
                 >
                   Save Ingredient
                 </button>
