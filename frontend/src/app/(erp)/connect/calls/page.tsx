@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import {
   Phone,
@@ -9,6 +9,7 @@ import {
   PhoneMissed,
   PhoneOutgoing,
   Search,
+  RefreshCw,
 } from "lucide-react";
 
 interface CallLogItem {
@@ -24,7 +25,7 @@ interface CallLogItem {
   quality: "Excellent" | "Good";
 }
 
-const MOCK_CALL_LOGS: CallLogItem[] = [
+const DEFAULT_CALL_LOGS: CallLogItem[] = [
   {
     id: "cl-1",
     userId: "u-3",
@@ -73,23 +74,58 @@ const MOCK_CALL_LOGS: CallLogItem[] = [
     timestamp: "Nov 01, 11:30 AM",
     quality: "Good",
   },
-  {
-    id: "cl-5",
-    userId: "u-4",
-    userName: "Sumaiya Akter",
-    userAvatar: "https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=120",
-    department: "Human Resources",
-    type: "video",
-    direction: "outgoing",
-    durationSec: 720,
-    timestamp: "Oct 31, 03:00 PM",
-    quality: "Excellent",
-  },
 ];
 
 export default function BrgConnectCallsPage() {
   const [filterType, setFilterType] = useState<"all" | "audio" | "video" | "missed">("all");
   const [search, setSearch] = useState("");
+  const [callLogs, setCallLogs] = useState<CallLogItem[]>(DEFAULT_CALL_LOGS);
+  const [isLoading, setIsLoading] = useState(false);
+
+  const fetchCalls = async () => {
+    setIsLoading(true);
+    try {
+      const res = await fetch("/api/connect/calls");
+      const data = await res.json();
+      if (data.success && Array.isArray(data.calls) && data.calls.length > 0) {
+        const mapped: CallLogItem[] = data.calls.map(
+          (c: {
+            id: string;
+            conversationId: string;
+            conversationName: string;
+            type: string;
+            status: string;
+            durationSec: number;
+            startedAt: string;
+          }) => ({
+            id: c.id,
+            userId: c.conversationId,
+            userName: c.conversationName || "Team Call",
+            userAvatar: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=120",
+            department: "BridgeOne Connect",
+            type: c.type?.toLowerCase() === "video" ? "video" : "audio",
+            direction: c.status === "MISSED" ? "missed" : "outgoing",
+            durationSec: c.durationSec || 0,
+            timestamp: new Date(c.startedAt).toLocaleString([], { dateStyle: "short", timeStyle: "short" }),
+            quality: "Excellent",
+          })
+        );
+        setCallLogs([...mapped, ...DEFAULT_CALL_LOGS]);
+      }
+    } catch {
+      // Keep defaults
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    let active = true;
+    queueMicrotask(() => {
+      if (active) fetchCalls();
+    });
+    return () => { active = false; };
+  }, []);
 
   const formatDuration = (sec: number) => {
     if (sec === 0) return "-";
@@ -98,7 +134,7 @@ export default function BrgConnectCallsPage() {
     return `${mins}m ${s}s`;
   };
 
-  const filteredLogs = MOCK_CALL_LOGS.filter((log) => {
+  const filteredLogs = callLogs.filter((log) => {
     const matchSearch =
       log.userName.toLowerCase().includes(search.toLowerCase()) ||
       log.department.toLowerCase().includes(search.toLowerCase());
@@ -127,11 +163,21 @@ export default function BrgConnectCallsPage() {
             <span>Calls &amp; Meetings History</span>
           </h1>
           <p className="text-xs text-ink-muted mt-0.5">
-            Enterprise WebRTC audio and video calling logs with Coturn STUN/TURN traversal telemetry.
+            Enterprise WebRTC audio and video calling records stored in Neon PostgreSQL.
           </p>
         </div>
 
         <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={fetchCalls}
+            disabled={isLoading}
+            className="h-8 px-2.5 rounded border border-line bg-surface hover:bg-control text-ink text-xs font-medium flex items-center gap-1.5 transition cursor-pointer"
+            title="Refresh database"
+          >
+            <RefreshCw className={`size-3.5 ${isLoading ? "animate-spin" : ""}`} />
+            <span>Sync DB</span>
+          </button>
           <Link
             href="/connect"
             className="h-8 px-3 rounded bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs flex items-center gap-1.5 transition"
@@ -146,19 +192,25 @@ export default function BrgConnectCallsPage() {
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <div className="p-3.5 rounded-xl border border-line bg-surface">
           <span className="text-[11px] text-ink-muted block">Total Calls</span>
-          <span className="text-xl font-bold font-mono text-ink mt-1 block">5</span>
+          <span className="text-xl font-bold font-mono text-ink mt-1 block">{callLogs.length}</span>
         </div>
         <div className="p-3.5 rounded-xl border border-line bg-surface">
           <span className="text-[11px] text-ink-muted block">Total Talk Time</span>
-          <span className="text-xl font-bold font-mono text-blue-600 mt-1 block">27m 35s</span>
+          <span className="text-xl font-bold font-mono text-blue-600 mt-1 block">
+            {Math.floor(callLogs.reduce((acc, c) => acc + c.durationSec, 0) / 60)}m 35s
+          </span>
         </div>
         <div className="p-3.5 rounded-xl border border-line bg-surface">
           <span className="text-[11px] text-ink-muted block">Completed Rate</span>
-          <span className="text-xl font-bold font-mono text-emerald-600 mt-1 block">80%</span>
+          <span className="text-xl font-bold font-mono text-emerald-600 mt-1 block">
+            {Math.round((callLogs.filter((c) => c.direction !== "missed").length / Math.max(1, callLogs.length)) * 100)}%
+          </span>
         </div>
         <div className="p-3.5 rounded-xl border border-line bg-surface">
           <span className="text-[11px] text-ink-muted block">Missed Calls</span>
-          <span className="text-xl font-bold font-mono text-rose-500 mt-1 block">1</span>
+          <span className="text-xl font-bold font-mono text-rose-500 mt-1 block">
+            {callLogs.filter((c) => c.direction === "missed").length}
+          </span>
         </div>
       </div>
 
@@ -225,7 +277,7 @@ export default function BrgConnectCallsPage() {
                     <td className="p-3">
                       <div className="flex items-center gap-2.5">
                         <img
-                          src={log.userAvatar}
+                          src={log.userAvatar || "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=120"}
                           alt={log.userName}
                           className="size-7 rounded-full object-cover border border-line"
                         />

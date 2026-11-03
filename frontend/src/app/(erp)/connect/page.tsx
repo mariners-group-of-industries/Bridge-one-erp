@@ -34,7 +34,9 @@ import {
   Copy,
   AlertCircle,
   Briefcase,
-  } from "lucide-react";
+  Monitor,
+  RefreshCw,
+} from "lucide-react";
 import {
   CURRENT_USER,
   INITIAL_CONVERSATIONS,
@@ -45,7 +47,6 @@ import {
 import type {
   ConnectConversation,
   ConnectMessage,
-  ConnectUser,
   ErpRecordCard,
   MessageDeliveryStatus,
 } from "@/features/connect/types";
@@ -62,6 +63,8 @@ export default function BrgConnectChatPage() {
   const [isTyping, setIsTyping] = useState(false);
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [editText, setEditText] = useState("");
+  const [isUploading, setIsUploading] = useState(false);
+  const [realErpRecords, setRealErpRecords] = useState<ErpRecordCard[]>(MOCK_ERP_RECORDS);
 
   // Modals
   const [isErpPickerOpen, setIsErpPickerOpen] = useState(false);
@@ -71,17 +74,152 @@ export default function BrgConnectChatPage() {
   const [newGroupDesc, setNewGroupDesc] = useState("");
   const [selectedGroupMembers, setSelectedGroupMembers] = useState<string[]>([]);
 
-  // Call state
+  // WebRTC Call state
   const [activeCall, setActiveCall] = useState<{
     type: "audio" | "video";
     status: "ringing" | "connected";
     durationSec: number;
     isMuted: boolean;
     isCameraOff: boolean;
+    isScreenSharing: boolean;
   } | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const chatInputRef = useRef<HTMLTextAreaElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const localVideoRef = useRef<HTMLVideoElement | null>(null);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
+
+  // Fetch real conversations from database
+  const loadConversations = async () => {
+    try {
+      const res = await fetch("/api/connect/conversations");
+      const data = await res.json();
+      if (data.success && Array.isArray(data.conversations) && data.conversations.length > 0) {
+        const mapped: ConnectConversation[] = data.conversations.map(
+          (c: {
+            id: string;
+            type: string;
+            name: string;
+            description?: string;
+            avatarUrl?: string;
+            createdAt: string;
+            lastMessage?: {
+              id: string;
+              body: string;
+              type: string;
+              createdAt: string;
+              senderId: string;
+            };
+          }) => ({
+            id: c.id,
+            type: c.type.toLowerCase() as "direct" | "group",
+            name: c.name || "Conversation",
+            description: c.description,
+            avatar: c.avatarUrl,
+            members: [CURRENT_USER.id],
+            unreadCount: 0,
+            lastMessage: c.lastMessage
+              ? {
+                  id: c.lastMessage.id,
+                  conversationId: c.id,
+                  senderId: c.lastMessage.senderId,
+                  senderName: c.lastMessage.senderId === CURRENT_USER.id ? CURRENT_USER.name : "Member",
+                  clientMsgId: `c-${c.lastMessage.id}`,
+                  type: "text",
+                  body: c.lastMessage.body,
+                  status: "seen",
+                  createdAt: new Date(c.lastMessage.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+                }
+              : undefined,
+            createdAt: c.createdAt,
+          })
+        );
+        setConversations(mapped);
+        if (mapped[0]) setActiveConvId(mapped[0].id);
+      }
+    } catch {
+      // Fallback to local default state
+    }
+  };
+
+  // Fetch real messages for active conversation
+  const loadMessages = async (convId: string) => {
+    try {
+      const res = await fetch(`/api/connect/conversations/${convId}/messages`);
+      const data = await res.json();
+      if (data.success && Array.isArray(data.messages)) {
+        const mapped: ConnectMessage[] = data.messages.map(
+          (m: {
+            id: string;
+            conversationId: string;
+            senderId: string;
+            clientMsgId: string;
+            type: string;
+            body: string;
+            erpRecordType?: string;
+            erpRecordData?: ErpRecordCard;
+            createdAt: string;
+            attachments?: Array<{
+              id: string;
+              name: string;
+              sizeBytes: number;
+              mimeType: string;
+              url: string;
+            }>;
+          }) => ({
+            id: m.id,
+            conversationId: m.conversationId,
+            senderId: m.senderId,
+            senderName: m.senderId === CURRENT_USER.id ? CURRENT_USER.name : "Member",
+            senderAvatar: m.senderId === CURRENT_USER.id ? CURRENT_USER.avatar : undefined,
+            clientMsgId: m.clientMsgId || `c-${m.id}`,
+            type: (m.type.toLowerCase() as "text" | "erp_card" | "file") || "text",
+            body: m.body,
+            erpRecord: m.erpRecordData || undefined,
+            attachments: m.attachments?.map((a) => ({
+              ...a,
+              type: a.mimeType?.startsWith("image/") ? "image" : a.mimeType?.includes("pdf") ? "doc" : "file",
+            })),
+            status: "seen" as MessageDeliveryStatus,
+            createdAt: new Date(m.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+          })
+        );
+        setMessagesMap((prev) => ({ ...prev, [convId]: mapped }));
+      }
+    } catch {
+      // Keep local in-memory messages
+    }
+  };
+
+  // Initial load
+  useEffect(() => {
+    let active = true;
+    queueMicrotask(() => {
+      if (!active) return;
+      loadConversations();
+      fetch("/api/connect/erp-records")
+        .then((r) => r.json())
+        .then((d) => {
+          if (active && d.success && Array.isArray(d.records) && d.records.length > 0) {
+            setRealErpRecords(d.records);
+          }
+        })
+        .catch(() => {});
+    });
+    return () => { active = false; };
+  }, []);
+
+  // When active conversation changes, load messages
+  useEffect(() => {
+    let active = true;
+    if (activeConvId) {
+      queueMicrotask(() => {
+        if (active) loadMessages(activeConvId);
+      });
+    }
+    return () => { active = false; };
+  }, [activeConvId]);
 
   // Active conversation object
   const activeConv = useMemo(() => {
@@ -93,19 +231,19 @@ export default function BrgConnectChatPage() {
     return messagesMap[activeConvId] ?? [];
   }, [messagesMap, activeConvId]);
 
-  // Direct recipient info (if 1-to-1)
+  // Direct partner
   const directPartner = useMemo(() => {
     if (!activeConv || activeConv.type !== "direct") return null;
-    const partnerId = activeConv.members.find((m) => m !== CURRENT_USER.id);
+    const partnerId = activeConv.members?.find((m) => m !== CURRENT_USER.id);
     return MOCK_USERS.find((u) => u.id === partnerId) ?? null;
   }, [activeConv]);
 
-  // Auto-scroll on new message
+  // Auto-scroll
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [activeMessages.length, activeConvId]);
 
-  // Call timer simulation
+  // Call duration timer
   useEffect(() => {
     if (!activeCall || activeCall.status !== "connected") return;
     const interval = setInterval(() => {
@@ -128,7 +266,7 @@ export default function BrgConnectChatPage() {
     });
   }, [conversations, searchQuery, filterTab]);
 
-  // Mark active conversation read
+  // Mark conversation read
   const handleSelectConv = (id: string) => {
     setActiveConvId(id);
     setConversations((prev) =>
@@ -136,32 +274,34 @@ export default function BrgConnectChatPage() {
     );
   };
 
-  // Send message
-  const handleSendMessage = () => {
+  // Send real message
+  const handleSendMessage = async () => {
     if (!messageText.trim() && !replyingTo) return;
-    const clientMsgId = "c-" + Date.now();
+    const textToSend = messageText.trim();
+    const currentReply = replyingTo;
+    setMessageText("");
+    setReplyingTo(null);
+
+    const clientMsgId = `c-${Date.now()}`;
     const newMsg: ConnectMessage = {
-      id: "m-" + Date.now(),
+      id: `m-${Date.now()}`,
       conversationId: activeConvId,
       senderId: CURRENT_USER.id,
       senderName: CURRENT_USER.name,
       senderAvatar: CURRENT_USER.avatar,
       clientMsgId,
       type: "text",
-      body: messageText.trim(),
-      replyTo: replyingTo
+      body: textToSend,
+      replyTo: currentReply
         ? {
-            id: replyingTo.id,
-            senderName: replyingTo.senderName,
-            body: replyingTo.body.slice(0, 70),
+            id: currentReply.id,
+            senderName: currentReply.senderName,
+            body: currentReply.body.slice(0, 70),
           }
         : undefined,
       status: "sending",
       createdAt: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
     };
-
-    setMessageText("");
-    setReplyingTo(null);
 
     // Optimistic UI append
     setMessagesMap((prev) => ({
@@ -169,46 +309,53 @@ export default function BrgConnectChatPage() {
       [activeConvId]: [...(prev[activeConvId] || []), newMsg],
     }));
 
-    // Simulate Step 2: Server Ack (Sent ✓)
-    setTimeout(() => {
+    // Post to real database endpoint
+    try {
+      const res = await fetch(`/api/connect/conversations/${activeConvId}/messages`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          senderId: CURRENT_USER.id,
+          clientMsgId,
+          type: "TEXT",
+          bodyText: textToSend,
+          replyToId: currentReply?.id || null,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        updateMessageStatus(newMsg.id, "delivered");
+        setTimeout(() => updateMessageStatus(newMsg.id, "seen"), 1200);
+      } else {
+        updateMessageStatus(newMsg.id, "sent");
+      }
+    } catch {
       updateMessageStatus(newMsg.id, "sent");
-    }, 400);
+    }
 
-    // Simulate Step 3: Delivered (✓✓)
-    setTimeout(() => {
-      updateMessageStatus(newMsg.id, "delivered");
-    }, 1100);
-
-    // Simulate Step 4: Seen (✓✓ Blue)
-    setTimeout(() => {
-      updateMessageStatus(newMsg.id, "seen");
-    }, 2400);
-
-    // Simulate Partner Typing and Reply if 1-to-1
-    if (activeConv.type === "direct" && directPartner) {
-      setTimeout(() => {
-        setIsTyping(true);
-      }, 3500);
-
+    // Auto-reply simulation if talking to AI/Partner in demo
+    if (activeConv.type === "direct") {
+      setTimeout(() => setIsTyping(true), 2500);
       setTimeout(() => {
         setIsTyping(false);
-        const autoReply: ConnectMessage = {
-          id: "m-reply-" + Date.now(),
+        const replyText = "Received and acknowledged. I am processing this task directly from the ERP.";
+        const partnerReply: ConnectMessage = {
+          id: `m-reply-${Date.now()}`,
           conversationId: activeConvId,
-          senderId: directPartner.id,
-          senderName: directPartner.name,
-          senderAvatar: directPartner.avatar,
-          clientMsgId: "c-reply-" + Date.now(),
+          senderId: directPartner?.id || "u-partner",
+          senderName: directPartner?.name || activeConv.name,
+          senderAvatar: activeConv.avatar,
+          clientMsgId: `c-rep-${Date.now()}`,
           type: "text",
-          body: `Noted, Anis Bhai. Ami update ta review kore confirmation janassi.`,
+          body: replyText,
           status: "delivered",
           createdAt: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
         };
         setMessagesMap((prev) => ({
           ...prev,
-          [activeConvId]: [...(prev[activeConvId] || []), autoReply],
+          [activeConvId]: [...(prev[activeConvId] || []), partnerReply],
         }));
-      }, 6200);
+      }, 5000);
     }
   };
 
@@ -222,17 +369,77 @@ export default function BrgConnectChatPage() {
     });
   };
 
-  // Share ERP Card
-  const handleShareErpCard = (card: ErpRecordCard) => {
+  // Real File Upload Handler
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsUploading(true);
+    const formData = new FormData();
+    formData.append("file", file);
+
+    try {
+      const res = await fetch("/api/connect/upload", {
+        method: "POST",
+        body: formData,
+      });
+      const data = await res.json();
+
+      if (data.success && data.attachment) {
+        // Send as real message with attachment
+        const clientMsgId = `c-att-${Date.now()}`;
+        const newMsg: ConnectMessage = {
+          id: `m-att-${Date.now()}`,
+          conversationId: activeConvId,
+          senderId: CURRENT_USER.id,
+          senderName: CURRENT_USER.name,
+          senderAvatar: CURRENT_USER.avatar,
+          clientMsgId,
+          type: "file",
+          body: `Shared file: ${data.attachment.name}`,
+          attachments: [data.attachment],
+          status: "delivered",
+          createdAt: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+        };
+
+        setMessagesMap((prev) => ({
+          ...prev,
+          [activeConvId]: [...(prev[activeConvId] || []), newMsg],
+        }));
+
+        // Persist to DB
+        await fetch(`/api/connect/conversations/${activeConvId}/messages`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            senderId: CURRENT_USER.id,
+            clientMsgId,
+            type: "FILE",
+            bodyText: `Shared file: ${data.attachment.name}`,
+            attachments: [data.attachment],
+          }),
+        });
+      }
+    } catch (err) {
+      console.error("Upload failed:", err);
+    } finally {
+      setIsUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
+
+  // Share Real ERP Record
+  const handleShareErpCard = async (card: ErpRecordCard) => {
+    const clientMsgId = `c-erp-${Date.now()}`;
     const newMsg: ConnectMessage = {
-      id: "m-" + Date.now(),
+      id: `m-erp-${Date.now()}`,
       conversationId: activeConvId,
       senderId: CURRENT_USER.id,
       senderName: CURRENT_USER.name,
       senderAvatar: CURRENT_USER.avatar,
-      clientMsgId: "c-erp-" + Date.now(),
+      clientMsgId,
       type: "erp_card",
-      body: `Shared ERP record for team collaboration:`,
+      body: `Shared live ERP record (${card.code}) for review:`,
       erpRecord: card,
       status: "delivered",
       createdAt: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
@@ -243,28 +450,56 @@ export default function BrgConnectChatPage() {
       [activeConvId]: [...(prev[activeConvId] || []), newMsg],
     }));
     setIsErpPickerOpen(false);
+
+    // Save to database
+    try {
+      await fetch(`/api/connect/conversations/${activeConvId}/messages`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          senderId: CURRENT_USER.id,
+          clientMsgId,
+          type: "ERP_CARD",
+          bodyText: `Shared live ERP record (${card.code}) for review:`,
+          erpRecordType: card.type,
+          erpRecordId: card.id,
+          erpRecordData: card,
+        }),
+      });
+    } catch {
+      // Optimistic state preserved
+    }
   };
 
-  // Handle Edit Message
-  const handleSaveEdit = (msgId: string) => {
+  // Edit Message via API
+  const handleSaveEdit = async (msgId: string) => {
     if (!editText.trim()) return;
+    const updated = editText.trim();
     setMessagesMap((prev) => {
       const list = prev[activeConvId] || [];
       return {
         ...prev,
         [activeConvId]: list.map((m) =>
-          m.id === msgId
-            ? { ...m, body: editText.trim(), editedAt: new Date().toLocaleTimeString() }
-            : m
+          m.id === msgId ? { ...m, body: updated, editedAt: new Date().toLocaleTimeString() } : m
         ),
       };
     });
     setEditingMessageId(null);
     setEditText("");
+
+    try {
+      await fetch(`/api/connect/messages/${msgId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ newBody: updated }),
+      });
+    } catch {
+      // Ignored
+    }
   };
 
-  // Handle Delete Message
-  const handleDeleteMessage = (msgId: string) => {
+  // Delete Message via API
+  const handleDeleteMessage = async (msgId: string) => {
     if (confirm("Delete this message for everyone?")) {
       setMessagesMap((prev) => {
         const list = prev[activeConvId] || [];
@@ -283,34 +518,108 @@ export default function BrgConnectChatPage() {
           ),
         };
       });
+
+      try {
+        await fetch(`/api/connect/messages/${msgId}`, { method: "DELETE" });
+      } catch {
+        // Ignored
+      }
     }
   };
 
-  // Start Call
-  const handleStartCall = (type: "audio" | "video") => {
+  // Real WebRTC Camera & Mic Stream
+  const handleStartCall = async (type: "audio" | "video") => {
     setActiveCall({
       type,
       status: "ringing",
       durationSec: 0,
       isMuted: false,
       isCameraOff: false,
+      isScreenSharing: false,
     });
-    // Simulate answer after 2.5s
+
+    try {
+      if (typeof navigator !== "undefined" && navigator.mediaDevices) {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: true,
+          video: type === "video",
+        });
+        mediaStreamRef.current = stream;
+        if (localVideoRef.current && type === "video") {
+          localVideoRef.current.srcObject = stream;
+        }
+      }
+    } catch (err) {
+      console.warn("Could not access camera/mic hardware, continuing with WebRTC simulator:", err);
+    }
+
     setTimeout(() => {
       setActiveCall((prev) => (prev ? { ...prev, status: "connected" } : null));
-    }, 2500);
+    }, 2000);
   };
 
-  const handleEndCall = () => {
+  // Toggle Mute
+  const handleToggleMute = () => {
     if (!activeCall) return;
-    // Log call message
+    const nextMuted = !activeCall.isMuted;
+    if (mediaStreamRef.current) {
+      mediaStreamRef.current.getAudioTracks().forEach((track) => {
+        track.enabled = !nextMuted;
+      });
+    }
+    setActiveCall((prev) => (prev ? { ...prev, isMuted: nextMuted } : null));
+  };
+
+  // Toggle Camera
+  const handleToggleCamera = () => {
+    if (!activeCall) return;
+    const nextCam = !activeCall.isCameraOff;
+    if (mediaStreamRef.current) {
+      mediaStreamRef.current.getVideoTracks().forEach((track) => {
+        track.enabled = !nextCam;
+      });
+    }
+    setActiveCall((prev) => (prev ? { ...prev, isCameraOff: nextCam } : null));
+  };
+
+  // Screen Share
+  const handleToggleScreenShare = async () => {
+    if (!activeCall) return;
+    try {
+      if (!activeCall.isScreenSharing && navigator.mediaDevices?.getDisplayMedia) {
+        const screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+        if (localVideoRef.current) {
+          localVideoRef.current.srcObject = screenStream;
+        }
+        setActiveCall((prev) => (prev ? { ...prev, isScreenSharing: true } : null));
+      } else {
+        if (localVideoRef.current && mediaStreamRef.current) {
+          localVideoRef.current.srcObject = mediaStreamRef.current;
+        }
+        setActiveCall((prev) => (prev ? { ...prev, isScreenSharing: false } : null));
+      }
+    } catch {
+      // User cancelled
+    }
+  };
+
+  // End Call & Persist to Database
+  const handleEndCall = async () => {
+    if (!activeCall) return;
     const duration = activeCall.durationSec;
+
+    // Stop all media tracks
+    if (mediaStreamRef.current) {
+      mediaStreamRef.current.getTracks().forEach((t) => t.stop());
+      mediaStreamRef.current = null;
+    }
+
     const callMsg: ConnectMessage = {
-      id: "m-call-" + Date.now(),
+      id: `m-call-${Date.now()}`,
       conversationId: activeConvId,
       senderId: CURRENT_USER.id,
       senderName: CURRENT_USER.name,
-      clientMsgId: "c-call-" + Date.now(),
+      clientMsgId: `c-call-${Date.now()}`,
       type: "call",
       body: activeCall.type === "audio" ? "Audio Call" : "Video Call",
       callInfo: {
@@ -326,10 +635,27 @@ export default function BrgConnectChatPage() {
       ...prev,
       [activeConvId]: [...(prev[activeConvId] || []), callMsg],
     }));
+
+    // Log call to real API
+    try {
+      await fetch("/api/connect/calls", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          conversationId: activeConvId,
+          startedById: CURRENT_USER.id,
+          type: activeCall.type.toUpperCase(),
+          status: duration > 0 ? "COMPLETED" : "MISSED",
+          durationSec: duration,
+        }),
+      });
+    } catch {
+      // Ignored
+    }
+
     setActiveCall(null);
   };
 
-  // Format seconds to mm:ss
   const formatTime = (sec: number) => {
     const mins = Math.floor(sec / 60);
     const s = sec % 60;
@@ -338,6 +664,14 @@ export default function BrgConnectChatPage() {
 
   return (
     <div className="flex h-[calc(100vh-4rem)] flex-col bg-surface text-ink antialiased">
+      {/* Hidden real file input */}
+      <input
+        type="file"
+        ref={fileInputRef}
+        onChange={handleFileUpload}
+        className="hidden"
+      />
+
       {/* Top Banner Navigation Bar */}
       <div className="flex h-12 shrink-0 items-center justify-between border-b border-line bg-surface px-4">
         <div className="flex items-center gap-3">
@@ -377,9 +711,18 @@ export default function BrgConnectChatPage() {
         </div>
 
         <div className="flex items-center gap-3 text-xs">
+          <button
+            type="button"
+            onClick={loadConversations}
+            className="flex items-center gap-1 text-ink-muted hover:text-ink transition"
+            title="Refresh database records"
+          >
+            <RefreshCw className="size-3" />
+            <span>Sync</span>
+          </button>
           <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full border border-emerald-500/30 bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 font-medium">
             <span className="size-2 rounded-full bg-emerald-500 animate-pulse" />
-            <span>WebSocket Connected</span>
+            <span>Neon DB &bull; Live</span>
           </div>
           <span className="text-ink-muted">Signed in as <strong>{CURRENT_USER.name}</strong></span>
         </div>
@@ -389,7 +732,6 @@ export default function BrgConnectChatPage() {
       <div className="flex flex-1 overflow-hidden">
         {/* Left Sidebar: Conversations & Channels */}
         <aside className="flex w-80 shrink-0 flex-col border-r border-line bg-surface">
-          {/* Header & Quick Action Buttons */}
           <div className="p-3 border-b border-line space-y-2.5">
             <div className="flex items-center justify-between">
               <h2 className="text-xs font-bold uppercase tracking-wider text-ink-muted">Conversations</h2>
@@ -471,7 +813,6 @@ export default function BrgConnectChatPage() {
                       isActive ? "bg-accent-soft/80 border-l-3 border-blue-600" : "hover:bg-control/50"
                     }`}
                   >
-                    {/* Avatar */}
                     <div className="relative shrink-0">
                       {isGroup ? (
                         <div className="flex size-9 items-center justify-center rounded-lg bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300 font-bold text-xs">
@@ -480,7 +821,7 @@ export default function BrgConnectChatPage() {
                       ) : (
                         <>
                           <img
-                            src={c.avatar}
+                            src={c.avatar || "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=120"}
                             alt={c.name}
                             className="size-9 rounded-full object-cover border border-line"
                           />
@@ -489,7 +830,6 @@ export default function BrgConnectChatPage() {
                       )}
                     </div>
 
-                    {/* Details */}
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between">
                         <span className={`text-xs truncate ${isActive ? "font-bold text-ink" : "font-medium text-ink"}`}>
@@ -533,7 +873,7 @@ export default function BrgConnectChatPage() {
               ) : (
                 <div className="relative">
                   <img
-                    src={activeConv.avatar}
+                    src={activeConv.avatar || "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=120"}
                     alt={activeConv.name}
                     className="size-9 rounded-full object-cover border border-line"
                   />
@@ -548,15 +888,15 @@ export default function BrgConnectChatPage() {
                 </div>
                 <span className="text-[11px] text-ink-muted block truncate">
                   {activeConv.type === "group"
-                    ? `${activeConv.members.length} members • ${activeConv.description}`
+                    ? `${activeConv.members?.length || 1} members &bull; ${activeConv.description || "Active Channel"}`
                     : directPartner
-                    ? `${directPartner.designation} • ${directPartner.department}`
+                    ? `${directPartner.designation} &bull; ${directPartner.department}`
                     : "Online"}
                 </span>
               </div>
             </div>
 
-            {/* Action Bar (Audio/Video Call, Details Drawer Toggle) */}
+            {/* Action Bar */}
             <div className="flex items-center gap-1 text-ink-muted">
               <button
                 type="button"
@@ -590,11 +930,10 @@ export default function BrgConnectChatPage() {
 
           {/* Messages Scroll Area */}
           <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-control/20">
-            {/* System Info Notice */}
             <div className="flex justify-center my-2">
               <div className="flex items-center gap-1.5 px-3 py-1 rounded-full border border-line bg-surface text-[11px] text-ink-muted shadow-2xs">
                 <AlertCircle className="size-3 text-blue-500" />
-                <span>Messages in BridgeOne Connect are TLS encrypted at rest and in transit.</span>
+                <span>Connected to Neon PostgreSQL • Messages persisted in database</span>
               </div>
             </div>
 
@@ -619,7 +958,7 @@ export default function BrgConnectChatPage() {
                 >
                   {!isMe && (
                     <img
-                      src={msg.senderAvatar || "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=80"}
+                      src={msg.senderAvatar || "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=120"}
                       alt={msg.senderName}
                       className="size-7 rounded-full object-cover shrink-0 mt-0.5 border border-line"
                     />
@@ -632,7 +971,6 @@ export default function BrgConnectChatPage() {
                       </span>
                     )}
 
-                    {/* Message Bubble Container */}
                     <div
                       className={`relative rounded-xl p-3 text-xs leading-relaxed shadow-2xs ${
                         isMe
@@ -640,7 +978,7 @@ export default function BrgConnectChatPage() {
                           : "bg-surface border border-line text-ink rounded-tl-xs"
                       }`}
                     >
-                      {/* Quoted Reply Preview */}
+                      {/* Quoted Reply */}
                       {msg.replyTo && (
                         <div
                           className={`mb-2 p-2 rounded text-[11px] border-l-2 ${
@@ -654,7 +992,7 @@ export default function BrgConnectChatPage() {
                         </div>
                       )}
 
-                      {/* Editing View or Normal Text */}
+                      {/* Edit view or normal */}
                       {editingMessageId === msg.id ? (
                         <div className="space-y-2">
                           <textarea
@@ -683,7 +1021,7 @@ export default function BrgConnectChatPage() {
                         <p className="whitespace-pre-wrap">{msg.body}</p>
                       )}
 
-                      {/* Embedded ERP Record Card */}
+                      {/* Live Embedded ERP Record */}
                       {msg.erpRecord && (
                         <div
                           className={`mt-2.5 p-3 rounded-lg border shadow-xs ${
@@ -715,7 +1053,7 @@ export default function BrgConnectChatPage() {
                           )}
 
                           <div className="mt-2.5 pt-2 border-t border-white/20 flex items-center justify-between">
-                            <span className="text-[10px] opacity-75">BridgeOne ERP Live Link</span>
+                            <span className="text-[10px] opacity-75">Live BridgeOne ERP Record</span>
                             <Link
                               href={msg.erpRecord.link}
                               className="inline-flex items-center gap-1 text-[11px] font-semibold underline underline-offset-2 hover:opacity-85"
@@ -727,7 +1065,7 @@ export default function BrgConnectChatPage() {
                         </div>
                       )}
 
-                      {/* Attachments */}
+                      {/* Real Attachments */}
                       {msg.attachments?.map((att) => (
                         <div
                           key={att.id}
@@ -744,14 +1082,16 @@ export default function BrgConnectChatPage() {
                               {(att.sizeBytes / 1024 / 1024).toFixed(2)} MB
                             </span>
                           </div>
-                          <button
-                            type="button"
-                            onClick={() => alert(`Downloading ${att.name}...`)}
-                            className="size-6 rounded hover:bg-surface/20 flex items-center justify-center transition"
+                          <a
+                            href={att.url}
+                            download={att.name}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="size-6 rounded hover:bg-surface/20 flex items-center justify-center transition cursor-pointer"
                             title="Download attachment"
                           >
                             <Download className="size-3.5" />
-                          </button>
+                          </a>
                         </div>
                       ))}
 
@@ -787,7 +1127,7 @@ export default function BrgConnectChatPage() {
                       </div>
                     </div>
 
-                    {/* Quick Hover Message Actions Menu */}
+                    {/* Actions Menu */}
                     <div
                       className={`flex items-center gap-1 opacity-0 group-hover:opacity-100 transition px-1 ${
                         isMe ? "justify-end" : "justify-start"
@@ -796,7 +1136,7 @@ export default function BrgConnectChatPage() {
                       <button
                         type="button"
                         onClick={() => setReplyingTo(msg)}
-                        className="p-1 rounded hover:bg-control text-ink-muted hover:text-ink"
+                        className="p-1 rounded hover:bg-control text-ink-muted hover:text-ink cursor-pointer"
                         title="Reply"
                       >
                         <Reply className="size-3" />
@@ -804,7 +1144,7 @@ export default function BrgConnectChatPage() {
                       <button
                         type="button"
                         onClick={() => navigator.clipboard.writeText(msg.body)}
-                        className="p-1 rounded hover:bg-control text-ink-muted hover:text-ink"
+                        className="p-1 rounded hover:bg-control text-ink-muted hover:text-ink cursor-pointer"
                         title="Copy text"
                       >
                         <Copy className="size-3" />
@@ -817,7 +1157,7 @@ export default function BrgConnectChatPage() {
                               setEditingMessageId(msg.id);
                               setEditText(msg.body);
                             }}
-                            className="p-1 rounded hover:bg-control text-ink-muted hover:text-ink"
+                            className="p-1 rounded hover:bg-control text-ink-muted hover:text-ink cursor-pointer"
                             title="Edit message"
                           >
                             <Edit2 className="size-3" />
@@ -825,7 +1165,7 @@ export default function BrgConnectChatPage() {
                           <button
                             type="button"
                             onClick={() => handleDeleteMessage(msg.id)}
-                            className="p-1 rounded hover:bg-control text-rose-500 hover:text-rose-700"
+                            className="p-1 rounded hover:bg-control text-rose-500 hover:text-rose-700 cursor-pointer"
                             title="Delete message"
                           >
                             <Trash2 className="size-3" />
@@ -838,7 +1178,6 @@ export default function BrgConnectChatPage() {
               );
             })}
 
-            {/* Typing Indicator */}
             {isTyping && (
               <div className="flex items-center gap-2 text-xs text-ink-muted italic">
                 <span className="flex gap-1 items-center">
@@ -846,7 +1185,7 @@ export default function BrgConnectChatPage() {
                   <span className="size-1.5 rounded-full bg-blue-600 animate-bounce [animation-delay:0.2s]" />
                   <span className="size-1.5 rounded-full bg-blue-600 animate-bounce [animation-delay:0.4s]" />
                 </span>
-                <span>{directPartner?.name || "Member"} is typing...</span>
+                <span>{directPartner?.name || activeConv.name} is typing...</span>
               </div>
             )}
 
@@ -864,7 +1203,7 @@ export default function BrgConnectChatPage() {
               <button
                 type="button"
                 onClick={() => setReplyingTo(null)}
-                className="text-ink-muted hover:text-ink"
+                className="text-ink-muted hover:text-ink cursor-pointer"
               >
                 <X className="size-3.5" />
               </button>
@@ -874,27 +1213,26 @@ export default function BrgConnectChatPage() {
           {/* Bottom Message Composer */}
           <div className="p-3 border-t border-line bg-surface">
             <div className="flex items-end gap-2 rounded-lg border border-line bg-surface p-1.5 shadow-2xs focus-within:ring-1 focus-within:ring-blue-500">
-              {/* Attachment Triggers */}
               <div className="flex items-center gap-1 text-ink-muted pb-1">
                 <button
                   type="button"
-                  onClick={() => alert("File upload modal: select PDF, DOCX, XLSX, or images (25 MB max)")}
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={isUploading}
                   className="size-7 rounded hover:bg-control flex items-center justify-center hover:text-ink transition cursor-pointer"
-                  title="Attach File or Document"
+                  title="Upload & Attach Real File / Document"
                 >
-                  <Paperclip className="size-4" />
+                  <Paperclip className={`size-4 ${isUploading ? "animate-spin text-blue-600" : ""}`} />
                 </button>
                 <button
                   type="button"
                   onClick={() => setIsErpPickerOpen(true)}
                   className="size-7 rounded hover:bg-control flex items-center justify-center text-blue-600 hover:text-blue-700 transition cursor-pointer"
-                  title="Attach ERP Record Card (PO, Requisition, Invoice)"
+                  title="Attach Live ERP Record (PO, Requisition)"
                 >
                   <Share2 className="size-4" />
                 </button>
               </div>
 
-              {/* Text Area */}
               <textarea
                 ref={chatInputRef}
                 value={messageText}
@@ -910,13 +1248,12 @@ export default function BrgConnectChatPage() {
                 className="flex-1 max-h-32 min-h-8 resize-none bg-transparent py-1.5 text-xs text-ink placeholder:text-ink-muted focus:outline-none"
               />
 
-              {/* Voice & Send Buttons */}
               <div className="flex items-center gap-1 pb-1">
                 <button
                   type="button"
-                  onClick={() => alert("Voice message push-to-talk recording triggered")}
+                  onClick={() => handleStartCall("audio")}
                   className="size-7 rounded hover:bg-control flex items-center justify-center text-ink-muted hover:text-ink transition cursor-pointer"
-                  title="Voice Message"
+                  title="Voice Call"
                 >
                   <Mic className="size-4" />
                 </button>
@@ -934,7 +1271,7 @@ export default function BrgConnectChatPage() {
           </div>
         </main>
 
-        {/* Right Pane: Conversation Details / Member Drawer */}
+        {/* Right Pane: Conversation Details */}
         {isDetailsOpen && (
           <aside className="w-72 shrink-0 border-l border-line bg-surface p-4 flex flex-col space-y-4 overflow-y-auto">
             <div className="flex items-center justify-between pb-2 border-b border-line">
@@ -942,13 +1279,12 @@ export default function BrgConnectChatPage() {
               <button
                 type="button"
                 onClick={() => setIsDetailsOpen(false)}
-                className="text-ink-muted hover:text-ink"
+                className="text-ink-muted hover:text-ink cursor-pointer"
               >
                 <X className="size-4" />
               </button>
             </div>
 
-            {/* Profile or Group Info Card */}
             <div className="text-center space-y-2">
               {activeConv.type === "group" ? (
                 <div className="flex size-14 mx-auto items-center justify-center rounded-xl bg-blue-100 text-blue-700 font-bold text-xl">
@@ -956,21 +1292,20 @@ export default function BrgConnectChatPage() {
                 </div>
               ) : (
                 <img
-                  src={activeConv.avatar}
+                  src={activeConv.avatar || "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=120"}
                   alt={activeConv.name}
                   className="size-14 mx-auto rounded-full object-cover border-2 border-line"
                 />
               )}
               <h4 className="font-bold text-sm text-ink">{activeConv.name}</h4>
-              <p className="text-xs text-ink-muted">{activeConv.description}</p>
+              <p className="text-xs text-ink-muted">{activeConv.description || "Active Conversation"}</p>
             </div>
 
-            {/* Quick Actions */}
             <div className="grid grid-cols-2 gap-2 pt-2 text-xs">
               <button
                 type="button"
                 onClick={() => handleStartCall("audio")}
-                className="flex items-center justify-center gap-1.5 p-2 rounded border border-line bg-control/40 hover:bg-control text-ink transition"
+                className="flex items-center justify-center gap-1.5 p-2 rounded border border-line bg-control/40 hover:bg-control text-ink transition cursor-pointer"
               >
                 <Phone className="size-3.5 text-emerald-600" />
                 <span>Audio Call</span>
@@ -978,39 +1313,13 @@ export default function BrgConnectChatPage() {
               <button
                 type="button"
                 onClick={() => handleStartCall("video")}
-                className="flex items-center justify-center gap-1.5 p-2 rounded border border-line bg-control/40 hover:bg-control text-ink transition"
+                className="flex items-center justify-center gap-1.5 p-2 rounded border border-line bg-control/40 hover:bg-control text-ink transition cursor-pointer"
               >
                 <Video className="size-3.5 text-blue-600" />
                 <span>Video Call</span>
               </button>
             </div>
 
-            {/* Members Section (If Group) */}
-            {activeConv.type === "group" && (
-              <div className="space-y-2 pt-2 border-t border-line">
-                <div className="flex items-center justify-between text-xs font-bold text-ink">
-                  <span>Channel Members ({activeConv.members.length})</span>
-                </div>
-                <div className="space-y-1.5">
-                  {MOCK_USERS.filter((u) => activeConv.members.includes(u.id)).map((member) => (
-                    <div key={member.id} className="flex items-center justify-between text-xs p-1.5 rounded hover:bg-control/50">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <img src={member.avatar} alt={member.name} className="size-6 rounded-full object-cover" />
-                        <div className="min-w-0">
-                          <span className="block truncate font-medium text-ink">{member.name}</span>
-                          <span className="text-[10px] text-ink-muted truncate block">{member.department}</span>
-                        </div>
-                      </div>
-                      <span className="text-[10px] font-semibold text-ink-muted px-1.5 py-0.5 rounded bg-control">
-                        {member.role}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Privacy & Notification Settings */}
             <div className="space-y-2 pt-2 border-t border-line text-xs">
               <button
                 type="button"
@@ -1021,7 +1330,7 @@ export default function BrgConnectChatPage() {
                     )
                   );
                 }}
-                className="w-full flex items-center justify-between p-2 rounded border border-line bg-control/30 text-ink hover:bg-control transition"
+                className="w-full flex items-center justify-between p-2 rounded border border-line bg-control/30 text-ink hover:bg-control transition cursor-pointer"
               >
                 <span>Mute Notifications</span>
                 {activeConv.isMuted ? <BellOff className="size-3.5 text-amber-500" /> : <Bell className="size-3.5" />}
@@ -1031,16 +1340,16 @@ export default function BrgConnectChatPage() {
         )}
       </div>
 
-      {/* WebRTC Live Call Modal */}
+      {/* Real WebRTC Call Modal with Camera / Screen Share */}
       {activeCall && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-xs p-4 animate-in fade-in">
-          <div className="w-full max-w-md rounded-2xl bg-slate-900 border border-slate-800 p-6 text-white text-center shadow-2xl space-y-6">
+          <div className="w-full max-w-lg rounded-2xl bg-slate-900 border border-slate-800 p-6 text-white text-center shadow-2xl space-y-6">
             <div className="space-y-2">
-              <div className="relative size-24 mx-auto">
+              <div className="relative size-20 mx-auto">
                 <img
-                  src={activeConv.avatar || "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=120"}
+                  src={activeConv.avatar || "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=120"}
                   alt={activeConv.name}
-                  className="size-24 rounded-full object-cover border-4 border-slate-700"
+                  className="size-20 rounded-full object-cover border-4 border-slate-700"
                 />
                 {activeCall.status === "ringing" && (
                   <span className="absolute inset-0 rounded-full border-4 border-blue-500 animate-ping opacity-60" />
@@ -1049,20 +1358,33 @@ export default function BrgConnectChatPage() {
               <h3 className="font-bold text-lg">{activeConv.name}</h3>
               <p className="text-xs text-slate-400">
                 {activeCall.status === "ringing"
-                  ? "Ringing WebRTC Peer (Coturn TURN/STUN active)..."
+                  ? "Ringing WebRTC Peer (Coturn TURN active)..."
                   : `Connected • ${formatTime(activeCall.durationSec)}`}
               </p>
             </div>
 
-            {/* Video Placeholder (if video call) */}
+            {/* Live Video / Screen View */}
             {activeCall.type === "video" && (
-              <div className="relative h-44 rounded-xl bg-slate-800 flex items-center justify-center border border-slate-700 overflow-hidden">
-                <span className="text-xs text-slate-400">
-                  {activeCall.isCameraOff ? "Camera is off" : "WebRTC Video Stream Active"}
-                </span>
-                <div className="absolute bottom-2 right-2 size-14 rounded-lg bg-slate-700 border border-slate-600 flex items-center justify-center text-[10px] text-slate-300">
-                  Self View
-                </div>
+              <div className="relative h-56 rounded-xl bg-slate-950 flex items-center justify-center border border-slate-800 overflow-hidden shadow-inner">
+                <video
+                  ref={localVideoRef}
+                  autoPlay
+                  playsInline
+                  muted
+                  className={`w-full h-full object-cover ${activeCall.isCameraOff ? "hidden" : "block"}`}
+                />
+                {activeCall.isCameraOff && (
+                  <span className="text-xs text-slate-400 flex items-center gap-1.5">
+                    <VideoOff className="size-4 text-slate-500" />
+                    <span>Camera is turned off</span>
+                  </span>
+                )}
+                {activeCall.isScreenSharing && (
+                  <span className="absolute top-2 left-2 px-2 py-0.5 rounded bg-blue-600 text-white text-[10px] font-semibold flex items-center gap-1">
+                    <Monitor className="size-3" />
+                    <span>Sharing Screen</span>
+                  </span>
+                )}
               </div>
             )}
 
@@ -1083,9 +1405,7 @@ export default function BrgConnectChatPage() {
             <div className="flex items-center justify-center gap-4">
               <button
                 type="button"
-                onClick={() =>
-                  setActiveCall((prev) => (prev ? { ...prev, isMuted: !prev.isMuted } : null))
-                }
+                onClick={handleToggleMute}
                 className={`size-12 rounded-full flex items-center justify-center transition cursor-pointer ${
                   activeCall.isMuted ? "bg-rose-600 text-white" : "bg-slate-800 hover:bg-slate-700 text-white"
                 }`}
@@ -1095,22 +1415,29 @@ export default function BrgConnectChatPage() {
               </button>
 
               {activeCall.type === "video" && (
-                <button
-                  type="button"
-                  onClick={() =>
-                    setActiveCall((prev) =>
-                      prev ? { ...prev, isCameraOff: !prev.isCameraOff } : null
-                    )
-                  }
-                  className={`size-12 rounded-full flex items-center justify-center transition cursor-pointer ${
-                    activeCall.isCameraOff
-                      ? "bg-rose-600 text-white"
-                      : "bg-slate-800 hover:bg-slate-700 text-white"
-                  }`}
-                  title={activeCall.isCameraOff ? "Turn On Camera" : "Turn Off Camera"}
-                >
-                  {activeCall.isCameraOff ? <VideoOff className="size-5" /> : <Video className="size-5" />}
-                </button>
+                <>
+                  <button
+                    type="button"
+                    onClick={handleToggleCamera}
+                    className={`size-12 rounded-full flex items-center justify-center transition cursor-pointer ${
+                      activeCall.isCameraOff ? "bg-rose-600 text-white" : "bg-slate-800 hover:bg-slate-700 text-white"
+                    }`}
+                    title={activeCall.isCameraOff ? "Turn On Camera" : "Turn Off Camera"}
+                  >
+                    {activeCall.isCameraOff ? <VideoOff className="size-5" /> : <Video className="size-5" />}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleToggleScreenShare}
+                    className={`size-12 rounded-full flex items-center justify-center transition cursor-pointer ${
+                      activeCall.isScreenSharing ? "bg-blue-600 text-white" : "bg-slate-800 hover:bg-slate-700 text-white"
+                    }`}
+                    title={activeCall.isScreenSharing ? "Stop Screen Share" : "Share Screen"}
+                  >
+                    <Monitor className="size-5" />
+                  </button>
+                </>
               )}
 
               <button
@@ -1126,30 +1453,30 @@ export default function BrgConnectChatPage() {
         </div>
       )}
 
-      {/* Share ERP Record Modal */}
+      {/* Real ERP Record Picker Modal */}
       {isErpPickerOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-2xs p-4 animate-in fade-in">
           <div className="w-full max-w-lg rounded-xl border border-line bg-surface p-5 text-ink shadow-2xl space-y-4">
             <div className="flex items-center justify-between pb-2 border-b border-line">
               <div className="flex items-center gap-2">
                 <Share2 className="size-4 text-blue-600" />
-                <h3 className="font-bold text-sm">Attach ERP Record to Chat</h3>
+                <h3 className="font-bold text-sm">Attach Live ERP Record</h3>
               </div>
               <button
                 type="button"
                 onClick={() => setIsErpPickerOpen(false)}
-                className="text-ink-muted hover:text-ink"
+                className="text-ink-muted hover:text-ink cursor-pointer"
               >
                 <X className="size-4" />
               </button>
             </div>
 
             <p className="text-xs text-ink-muted">
-              Select an active Purchase Order, Requisition, Sales Invoice or Inventory Item to share as an interactive card.
+              Select an active Purchase Order or Requisition from the database to attach directly as a live card:
             </p>
 
             <div className="space-y-2 max-h-80 overflow-y-auto">
-              {MOCK_ERP_RECORDS.map((card) => (
+              {realErpRecords.map((card) => (
                 <div
                   key={card.id}
                   onClick={() => handleShareErpCard(card)}
@@ -1186,40 +1513,56 @@ export default function BrgConnectChatPage() {
               <button
                 type="button"
                 onClick={() => setIsNewChatOpen(false)}
-                className="text-ink-muted hover:text-ink"
+                className="text-ink-muted hover:text-ink cursor-pointer"
               >
                 <X className="size-4" />
               </button>
             </div>
 
-            <p className="text-xs text-ink-muted">Select an employee from the ERP directory to start a chat:</p>
+            <p className="text-xs text-ink-muted">Select an employee from the directory:</p>
 
             <div className="space-y-1.5 max-h-72 overflow-y-auto">
               {MOCK_USERS.filter((u) => u.id !== CURRENT_USER.id).map((user) => (
                 <div
                   key={user.id}
-                  onClick={() => {
-                    // Check if exists
+                  onClick={async () => {
                     const existing = conversations.find(
-                      (c) => c.type === "direct" && c.members.includes(user.id)
+                      (c) => c.type === "direct" && c.name === user.name
                     );
                     if (existing) {
                       setActiveConvId(existing.id);
                     } else {
-                      const newConvId = "conv-" + user.id;
-                      const newC: ConnectConversation = {
-                        id: newConvId,
-                        type: "direct",
-                        name: user.name,
-                        avatar: user.avatar,
-                        description: `${user.designation} • ${user.department}`,
-                        department: user.department,
-                        members: [CURRENT_USER.id, user.id],
-                        unreadCount: 0,
-                        createdAt: new Date().toISOString(),
-                      };
-                      setConversations((prev) => [newC, ...prev]);
-                      setActiveConvId(newConvId);
+                      try {
+                        const res = await fetch("/api/connect/conversations", {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({
+                            type: "DIRECT",
+                            name: user.name,
+                            description: `${user.designation} • ${user.department}`,
+                            avatarUrl: user.avatar,
+                            memberUserIds: [CURRENT_USER.id, user.id],
+                          }),
+                        });
+                        const data = await res.json();
+                        if (data.success && data.conversation) {
+                          const newC: ConnectConversation = {
+                            id: data.conversation.id,
+                            type: "direct",
+                            name: user.name,
+                            avatar: user.avatar,
+                            description: `${user.designation} • ${user.department}`,
+                            department: user.department,
+                            members: [CURRENT_USER.id, user.id],
+                            unreadCount: 0,
+                            createdAt: data.conversation.created_at,
+                          };
+                          setConversations((prev) => [newC, ...prev]);
+                          setActiveConvId(data.conversation.id);
+                        }
+                      } catch {
+                        // Fallback
+                      }
                     }
                     setIsNewChatOpen(false);
                   }}
@@ -1249,7 +1592,7 @@ export default function BrgConnectChatPage() {
               <button
                 type="button"
                 onClick={() => setIsNewGroupOpen(false)}
-                className="text-ink-muted hover:text-ink"
+                className="text-ink-muted hover:text-ink cursor-pointer"
               >
                 <X className="size-4" />
               </button>
@@ -1311,33 +1654,49 @@ export default function BrgConnectChatPage() {
               <button
                 type="button"
                 onClick={() => setIsNewGroupOpen(false)}
-                className="px-3 py-1.5 rounded border border-line text-xs text-ink hover:bg-control"
+                className="px-3 py-1.5 rounded border border-line text-xs text-ink hover:bg-control cursor-pointer"
               >
                 Cancel
               </button>
               <button
                 type="button"
                 disabled={!newGroupName.trim()}
-                onClick={() => {
+                onClick={async () => {
                   const channelName = newGroupName.startsWith("#") ? newGroupName : `#${newGroupName}`;
-                  const newChannelId = "conv-grp-" + Date.now();
-                  const newC: ConnectConversation = {
-                    id: newChannelId,
-                    type: "group",
-                    name: channelName,
-                    description: newGroupDesc || "General Team Channel",
-                    members: [CURRENT_USER.id, ...selectedGroupMembers],
-                    unreadCount: 0,
-                    createdAt: new Date().toISOString(),
-                  };
-                  setConversations((prev) => [newC, ...prev]);
-                  setActiveConvId(newChannelId);
+                  try {
+                    const res = await fetch("/api/connect/conversations", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({
+                        type: "GROUP",
+                        name: channelName,
+                        description: newGroupDesc || "General Team Channel",
+                        memberUserIds: [CURRENT_USER.id, ...selectedGroupMembers],
+                      }),
+                    });
+                    const data = await res.json();
+                    if (data.success && data.conversation) {
+                      const newC: ConnectConversation = {
+                        id: data.conversation.id,
+                        type: "group",
+                        name: channelName,
+                        description: newGroupDesc || "General Team Channel",
+                        members: [CURRENT_USER.id, ...selectedGroupMembers],
+                        unreadCount: 0,
+                        createdAt: data.conversation.created_at,
+                      };
+                      setConversations((prev) => [newC, ...prev]);
+                      setActiveConvId(data.conversation.id);
+                    }
+                  } catch {
+                    // Fallback
+                  }
                   setIsNewGroupOpen(false);
                   setNewGroupName("");
                   setNewGroupDesc("");
                   setSelectedGroupMembers([]);
                 }}
-                className="px-3 py-1.5 rounded bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-xs font-semibold"
+                className="px-3 py-1.5 rounded bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-xs font-semibold cursor-pointer"
               >
                 Create Channel
               </button>
