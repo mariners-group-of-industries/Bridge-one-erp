@@ -95,3 +95,4 @@ export async function POST(req: Request) {
     return NextResponse.json({ success: false, error: "Failed to create conversation" }, { status: 500 });
   }
 }
+

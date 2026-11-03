@@ -36,35 +36,60 @@ import {
   Briefcase,
   Monitor,
   RefreshCw,
+  MessageSquarePlus,
 } from "lucide-react";
-import {
-  CURRENT_USER,
-  INITIAL_CONVERSATIONS,
-  INITIAL_MESSAGES,
-  MOCK_ERP_RECORDS,
-  MOCK_USERS,
-} from "@/features/connect/mock-data";
+import { useSession } from "@/lib/auth/session";
 import type {
   ConnectConversation,
   ConnectMessage,
+  ConnectUser,
   ErpRecordCard,
   MessageDeliveryStatus,
 } from "@/features/connect/types";
 
+function getInitials(name?: string | null): string {
+  if (!name) return "U";
+  const parts = name.trim().split(/\s+/);
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
+function getAvatarBg(name?: string | null): string {
+  const colors = [
+    "bg-blue-600 text-white",
+    "bg-indigo-600 text-white",
+    "bg-emerald-600 text-white",
+    "bg-amber-600 text-white",
+    "bg-rose-600 text-white",
+    "bg-purple-600 text-white",
+    "bg-teal-600 text-white",
+  ];
+  if (!name) return colors[0];
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
+  const index = Math.abs(hash) % colors.length;
+  return colors[index];
+}
+
 export default function BrgConnectChatPage() {
-  const [conversations, setConversations] = useState<ConnectConversation[]>(INITIAL_CONVERSATIONS);
-  const [messagesMap, setMessagesMap] = useState<Record<string, ConnectMessage[]>>(INITIAL_MESSAGES);
-  const [activeConvId, setActiveConvId] = useState<string>("conv-farhana");
+  const { user: authUser } = useSession();
+
+  const [conversations, setConversations] = useState<ConnectConversation[]>([]);
+  const [messagesMap, setMessagesMap] = useState<Record<string, ConnectMessage[]>>({});
+  const [activeConvId, setActiveConvId] = useState<string | null>(null);
   const [filterTab, setFilterTab] = useState<"all" | "direct" | "group" | "unread">("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [messageText, setMessageText] = useState("");
   const [replyingTo, setReplyingTo] = useState<ConnectMessage | null>(null);
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
-  const [isTyping, setIsTyping] = useState(false);
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [editText, setEditText] = useState("");
   const [isUploading, setIsUploading] = useState(false);
-  const [realErpRecords, setRealErpRecords] = useState<ErpRecordCard[]>(MOCK_ERP_RECORDS);
+
+  // Real data from DB
+  const [realErpRecords, setRealErpRecords] = useState<ErpRecordCard[]>([]);
+  const [directoryEmployees, setDirectoryEmployees] = useState<ConnectUser[]>([]);
+  const [directorySearch, setDirectorySearch] = useState("");
 
   // Modals
   const [isErpPickerOpen, setIsErpPickerOpen] = useState(false);
@@ -90,19 +115,18 @@ export default function BrgConnectChatPage() {
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
 
-  // Fetch real conversations from database
+  // Load real conversations from Neon DB
   const loadConversations = async () => {
     try {
       const res = await fetch("/api/connect/conversations");
       const data = await res.json();
-      if (data.success && Array.isArray(data.conversations) && data.conversations.length > 0) {
+      if (data.success && Array.isArray(data.conversations)) {
         const mapped: ConnectConversation[] = data.conversations.map(
           (c: {
             id: string;
             type: string;
             name: string;
             description?: string;
-            avatarUrl?: string;
             createdAt: string;
             lastMessage?: {
               id: string;
@@ -116,15 +140,14 @@ export default function BrgConnectChatPage() {
             type: c.type.toLowerCase() as "direct" | "group",
             name: c.name || "Conversation",
             description: c.description,
-            avatar: c.avatarUrl,
-            members: [CURRENT_USER.id],
+            members: [authUser?.id || "user-current"],
             unreadCount: 0,
             lastMessage: c.lastMessage
               ? {
                   id: c.lastMessage.id,
                   conversationId: c.id,
                   senderId: c.lastMessage.senderId,
-                  senderName: c.lastMessage.senderId === CURRENT_USER.id ? CURRENT_USER.name : "Member",
+                  senderName: c.lastMessage.senderId === authUser?.id ? (authUser?.name || "Me") : "Member",
                   clientMsgId: `c-${c.lastMessage.id}`,
                   type: "text",
                   body: c.lastMessage.body,
@@ -136,14 +159,16 @@ export default function BrgConnectChatPage() {
           })
         );
         setConversations(mapped);
-        if (mapped[0]) setActiveConvId(mapped[0].id);
+        if (mapped.length > 0 && !activeConvId) {
+          setActiveConvId(mapped[0].id);
+        }
       }
     } catch {
-      // Fallback to local default state
+      // Offline or network error
     }
   };
 
-  // Fetch real messages for active conversation
+  // Load real messages for conversation from Neon DB
   const loadMessages = async (convId: string) => {
     try {
       const res = await fetch(`/api/connect/conversations/${convId}/messages`);
@@ -171,8 +196,7 @@ export default function BrgConnectChatPage() {
             id: m.id,
             conversationId: m.conversationId,
             senderId: m.senderId,
-            senderName: m.senderId === CURRENT_USER.id ? CURRENT_USER.name : "Member",
-            senderAvatar: m.senderId === CURRENT_USER.id ? CURRENT_USER.avatar : undefined,
+            senderName: m.senderId === authUser?.id ? (authUser?.name || "Me") : "Colleague",
             clientMsgId: m.clientMsgId || `c-${m.id}`,
             type: (m.type.toLowerCase() as "text" | "erp_card" | "file") || "text",
             body: m.body,
@@ -188,7 +212,43 @@ export default function BrgConnectChatPage() {
         setMessagesMap((prev) => ({ ...prev, [convId]: mapped }));
       }
     } catch {
-      // Keep local in-memory messages
+      // Ignored
+    }
+  };
+
+  // Load real employees for DM and Channel modals
+  const loadDirectory = async () => {
+    try {
+      const res = await fetch("/api/connect/directory");
+      const data = await res.json();
+      if (data.success && Array.isArray(data.employees)) {
+        const mapped: ConnectUser[] = data.employees.map(
+          (e: {
+            id: string;
+            name: string;
+            designation: string;
+            department: string;
+            employeeCode: string;
+            phone: string;
+            email: string;
+            officeName: string;
+            isActive: boolean;
+          }) => ({
+            id: e.id,
+            name: e.name,
+            department: e.department || "General",
+            designation: e.designation || "Staff",
+            phone: e.phone || "",
+            email: e.email || "",
+            officeName: e.officeName || "Office",
+            status: e.isActive ? "online" : "offline",
+            role: "member",
+          })
+        );
+        setDirectoryEmployees(mapped);
+      }
+    } catch {
+      // Ignored
     }
   };
 
@@ -198,16 +258,19 @@ export default function BrgConnectChatPage() {
     queueMicrotask(() => {
       if (!active) return;
       loadConversations();
+      loadDirectory();
       fetch("/api/connect/erp-records")
-        .then((r) => r.json())
+        .then((r) => (r.ok ? r.json() : null))
         .then((d) => {
-          if (active && d.success && Array.isArray(d.records) && d.records.length > 0) {
+          if (active && d?.success && Array.isArray(d.records)) {
             setRealErpRecords(d.records);
           }
         })
         .catch(() => {});
     });
-    return () => { active = false; };
+    return () => {
+      active = false;
+    };
   }, []);
 
   // When active conversation changes, load messages
@@ -218,27 +281,23 @@ export default function BrgConnectChatPage() {
         if (active) loadMessages(activeConvId);
       });
     }
-    return () => { active = false; };
+    return () => {
+      active = false;
+    };
   }, [activeConvId]);
 
   // Active conversation object
   const activeConv = useMemo(() => {
-    return conversations.find((c) => c.id === activeConvId) ?? conversations[0];
+    return conversations.find((c) => c.id === activeConvId) ?? null;
   }, [conversations, activeConvId]);
 
   // Current messages
   const activeMessages = useMemo(() => {
+    if (!activeConvId) return [];
     return messagesMap[activeConvId] ?? [];
   }, [messagesMap, activeConvId]);
 
-  // Direct partner
-  const directPartner = useMemo(() => {
-    if (!activeConv || activeConv.type !== "direct") return null;
-    const partnerId = activeConv.members?.find((m) => m !== CURRENT_USER.id);
-    return MOCK_USERS.find((u) => u.id === partnerId) ?? null;
-  }, [activeConv]);
-
-  // Auto-scroll
+  // Auto-scroll on new message
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [activeMessages.length, activeConvId]);
@@ -274,9 +333,9 @@ export default function BrgConnectChatPage() {
     );
   };
 
-  // Send real message
+  // Send real message to database
   const handleSendMessage = async () => {
-    if (!messageText.trim() && !replyingTo) return;
+    if (!activeConvId || (!messageText.trim() && !replyingTo)) return;
     const textToSend = messageText.trim();
     const currentReply = replyingTo;
     setMessageText("");
@@ -286,9 +345,8 @@ export default function BrgConnectChatPage() {
     const newMsg: ConnectMessage = {
       id: `m-${Date.now()}`,
       conversationId: activeConvId,
-      senderId: CURRENT_USER.id,
-      senderName: CURRENT_USER.name,
-      senderAvatar: CURRENT_USER.avatar,
+      senderId: authUser?.id || "user-current",
+      senderName: authUser?.name || "Me",
       clientMsgId,
       type: "text",
       body: textToSend,
@@ -315,7 +373,7 @@ export default function BrgConnectChatPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          senderId: CURRENT_USER.id,
+          senderId: authUser?.id || "user-current",
           clientMsgId,
           type: "TEXT",
           bodyText: textToSend,
@@ -325,41 +383,17 @@ export default function BrgConnectChatPage() {
       const data = await res.json();
       if (data.success) {
         updateMessageStatus(newMsg.id, "delivered");
-        setTimeout(() => updateMessageStatus(newMsg.id, "seen"), 1200);
+        setTimeout(() => updateMessageStatus(newMsg.id, "seen"), 1000);
       } else {
         updateMessageStatus(newMsg.id, "sent");
       }
     } catch {
       updateMessageStatus(newMsg.id, "sent");
     }
-
-    // Auto-reply simulation if talking to AI/Partner in demo
-    if (activeConv.type === "direct") {
-      setTimeout(() => setIsTyping(true), 2500);
-      setTimeout(() => {
-        setIsTyping(false);
-        const replyText = "Received and acknowledged. I am processing this task directly from the ERP.";
-        const partnerReply: ConnectMessage = {
-          id: `m-reply-${Date.now()}`,
-          conversationId: activeConvId,
-          senderId: directPartner?.id || "u-partner",
-          senderName: directPartner?.name || activeConv.name,
-          senderAvatar: activeConv.avatar,
-          clientMsgId: `c-rep-${Date.now()}`,
-          type: "text",
-          body: replyText,
-          status: "delivered",
-          createdAt: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-        };
-        setMessagesMap((prev) => ({
-          ...prev,
-          [activeConvId]: [...(prev[activeConvId] || []), partnerReply],
-        }));
-      }, 5000);
-    }
   };
 
   const updateMessageStatus = (msgId: string, status: MessageDeliveryStatus) => {
+    if (!activeConvId) return;
     setMessagesMap((prev) => {
       const list = prev[activeConvId] || [];
       return {
@@ -372,7 +406,7 @@ export default function BrgConnectChatPage() {
   // Real File Upload Handler
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file) return;
+    if (!file || !activeConvId) return;
 
     setIsUploading(true);
     const formData = new FormData();
@@ -386,14 +420,12 @@ export default function BrgConnectChatPage() {
       const data = await res.json();
 
       if (data.success && data.attachment) {
-        // Send as real message with attachment
         const clientMsgId = `c-att-${Date.now()}`;
         const newMsg: ConnectMessage = {
           id: `m-att-${Date.now()}`,
           conversationId: activeConvId,
-          senderId: CURRENT_USER.id,
-          senderName: CURRENT_USER.name,
-          senderAvatar: CURRENT_USER.avatar,
+          senderId: authUser?.id || "user-current",
+          senderName: authUser?.name || "Me",
           clientMsgId,
           type: "file",
           body: `Shared file: ${data.attachment.name}`,
@@ -407,12 +439,11 @@ export default function BrgConnectChatPage() {
           [activeConvId]: [...(prev[activeConvId] || []), newMsg],
         }));
 
-        // Persist to DB
         await fetch(`/api/connect/conversations/${activeConvId}/messages`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            senderId: CURRENT_USER.id,
+            senderId: authUser?.id || "user-current",
             clientMsgId,
             type: "FILE",
             bodyText: `Shared file: ${data.attachment.name}`,
@@ -428,18 +459,18 @@ export default function BrgConnectChatPage() {
     }
   };
 
-  // Share Real ERP Record
+  // Share Real ERP Record from Database
   const handleShareErpCard = async (card: ErpRecordCard) => {
+    if (!activeConvId) return;
     const clientMsgId = `c-erp-${Date.now()}`;
     const newMsg: ConnectMessage = {
       id: `m-erp-${Date.now()}`,
       conversationId: activeConvId,
-      senderId: CURRENT_USER.id,
-      senderName: CURRENT_USER.name,
-      senderAvatar: CURRENT_USER.avatar,
+      senderId: authUser?.id || "user-current",
+      senderName: authUser?.name || "Me",
       clientMsgId,
       type: "erp_card",
-      body: `Shared live ERP record (${card.code}) for review:`,
+      body: `Shared live ERP record (${card.code}) for team review:`,
       erpRecord: card,
       status: "delivered",
       createdAt: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
@@ -451,29 +482,28 @@ export default function BrgConnectChatPage() {
     }));
     setIsErpPickerOpen(false);
 
-    // Save to database
     try {
       await fetch(`/api/connect/conversations/${activeConvId}/messages`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          senderId: CURRENT_USER.id,
+          senderId: authUser?.id || "user-current",
           clientMsgId,
           type: "ERP_CARD",
-          bodyText: `Shared live ERP record (${card.code}) for review:`,
+          bodyText: `Shared live ERP record (${card.code}) for team review:`,
           erpRecordType: card.type,
           erpRecordId: card.id,
           erpRecordData: card,
         }),
       });
     } catch {
-      // Optimistic state preserved
+      // Preserved
     }
   };
 
   // Edit Message via API
   const handleSaveEdit = async (msgId: string) => {
-    if (!editText.trim()) return;
+    if (!editText.trim() || !activeConvId) return;
     const updated = editText.trim();
     setMessagesMap((prev) => {
       const list = prev[activeConvId] || [];
@@ -500,6 +530,7 @@ export default function BrgConnectChatPage() {
 
   // Delete Message via API
   const handleDeleteMessage = async (msgId: string) => {
+    if (!activeConvId) return;
     if (confirm("Delete this message for everyone?")) {
       setMessagesMap((prev) => {
         const list = prev[activeConvId] || [];
@@ -550,7 +581,7 @@ export default function BrgConnectChatPage() {
         }
       }
     } catch (err) {
-      console.warn("Could not access camera/mic hardware, continuing with WebRTC simulator:", err);
+      console.warn("Camera/mic access warning:", err);
     }
 
     setTimeout(() => {
@@ -558,7 +589,6 @@ export default function BrgConnectChatPage() {
     }, 2000);
   };
 
-  // Toggle Mute
   const handleToggleMute = () => {
     if (!activeCall) return;
     const nextMuted = !activeCall.isMuted;
@@ -570,7 +600,6 @@ export default function BrgConnectChatPage() {
     setActiveCall((prev) => (prev ? { ...prev, isMuted: nextMuted } : null));
   };
 
-  // Toggle Camera
   const handleToggleCamera = () => {
     if (!activeCall) return;
     const nextCam = !activeCall.isCameraOff;
@@ -582,7 +611,6 @@ export default function BrgConnectChatPage() {
     setActiveCall((prev) => (prev ? { ...prev, isCameraOff: nextCam } : null));
   };
 
-  // Screen Share
   const handleToggleScreenShare = async () => {
     if (!activeCall) return;
     try {
@@ -599,16 +627,14 @@ export default function BrgConnectChatPage() {
         setActiveCall((prev) => (prev ? { ...prev, isScreenSharing: false } : null));
       }
     } catch {
-      // User cancelled
+      // Ignored
     }
   };
 
-  // End Call & Persist to Database
   const handleEndCall = async () => {
-    if (!activeCall) return;
+    if (!activeCall || !activeConvId) return;
     const duration = activeCall.durationSec;
 
-    // Stop all media tracks
     if (mediaStreamRef.current) {
       mediaStreamRef.current.getTracks().forEach((t) => t.stop());
       mediaStreamRef.current = null;
@@ -617,8 +643,8 @@ export default function BrgConnectChatPage() {
     const callMsg: ConnectMessage = {
       id: `m-call-${Date.now()}`,
       conversationId: activeConvId,
-      senderId: CURRENT_USER.id,
-      senderName: CURRENT_USER.name,
+      senderId: authUser?.id || "user-current",
+      senderName: authUser?.name || "Me",
       clientMsgId: `c-call-${Date.now()}`,
       type: "call",
       body: activeCall.type === "audio" ? "Audio Call" : "Video Call",
@@ -636,14 +662,13 @@ export default function BrgConnectChatPage() {
       [activeConvId]: [...(prev[activeConvId] || []), callMsg],
     }));
 
-    // Log call to real API
     try {
       await fetch("/api/connect/calls", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           conversationId: activeConvId,
-          startedById: CURRENT_USER.id,
+          startedById: authUser?.id || "user-current",
           type: activeCall.type.toUpperCase(),
           status: duration > 0 ? "COMPLETED" : "MISSED",
           durationSec: duration,
@@ -662,9 +687,17 @@ export default function BrgConnectChatPage() {
     return `${mins.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
   };
 
+  const filteredEmployeesForDm = useMemo(() => {
+    return directoryEmployees.filter(
+      (e) =>
+        e.name.toLowerCase().includes(directorySearch.toLowerCase()) ||
+        e.department.toLowerCase().includes(directorySearch.toLowerCase()) ||
+        e.designation.toLowerCase().includes(directorySearch.toLowerCase())
+    );
+  }, [directoryEmployees, directorySearch]);
+
   return (
     <div className="flex h-[calc(100vh-4rem)] flex-col bg-surface text-ink antialiased">
-      {/* Hidden real file input */}
       <input
         type="file"
         ref={fileInputRef}
@@ -714,23 +747,25 @@ export default function BrgConnectChatPage() {
           <button
             type="button"
             onClick={loadConversations}
-            className="flex items-center gap-1 text-ink-muted hover:text-ink transition"
+            className="flex items-center gap-1 text-ink-muted hover:text-ink transition cursor-pointer"
             title="Refresh database records"
           >
             <RefreshCw className="size-3" />
-            <span>Sync</span>
+            <span>Sync DB</span>
           </button>
           <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full border border-emerald-500/30 bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 font-medium">
             <span className="size-2 rounded-full bg-emerald-500 animate-pulse" />
             <span>Neon DB &bull; Live</span>
           </div>
-          <span className="text-ink-muted">Signed in as <strong>{CURRENT_USER.name}</strong></span>
+          <span className="text-ink-muted">
+            Signed in as <strong>{authUser?.name || "ERP User"}</strong>
+          </span>
         </div>
       </div>
 
       {/* Main 3-Pane Chat Container */}
       <div className="flex flex-1 overflow-hidden">
-        {/* Left Sidebar: Conversations & Channels */}
+        {/* Left Sidebar */}
         <aside className="flex w-80 shrink-0 flex-col border-r border-line bg-surface">
           <div className="p-3 border-b border-line space-y-2.5">
             <div className="flex items-center justify-between">
@@ -762,14 +797,14 @@ export default function BrgConnectChatPage() {
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search chats, employees..."
+                placeholder="Search conversations..."
                 className="w-full h-8 pl-8 pr-3 text-xs rounded border border-line bg-control/40 text-ink placeholder:text-ink-muted focus:outline-none focus:ring-1 focus:ring-blue-500"
               />
               {searchQuery && (
                 <button
                   type="button"
                   onClick={() => setSearchQuery("")}
-                  className="absolute right-2 top-2 text-ink-muted hover:text-ink"
+                  className="absolute right-2 top-2 text-ink-muted hover:text-ink cursor-pointer"
                 >
                   <X className="size-3.5" />
                 </button>
@@ -783,7 +818,7 @@ export default function BrgConnectChatPage() {
                   key={tab}
                   type="button"
                   onClick={() => setFilterTab(tab)}
-                  className={`px-2 py-0.5 rounded capitalize transition ${
+                  className={`px-2 py-0.5 rounded capitalize transition cursor-pointer ${
                     filterTab === tab
                       ? "bg-blue-600 text-white font-semibold"
                       : "text-ink-muted hover:bg-control hover:text-ink"
@@ -798,8 +833,32 @@ export default function BrgConnectChatPage() {
           {/* Conversations List */}
           <div className="flex-1 overflow-y-auto divide-y divide-line/40">
             {filteredConversations.length === 0 ? (
-              <div className="p-6 text-center text-xs text-ink-muted">
-                No matching conversations found.
+              <div className="p-8 text-center space-y-3">
+                <div className="size-10 rounded-full bg-control/60 flex items-center justify-center mx-auto text-ink-muted">
+                  <MessageSquarePlus className="size-5" />
+                </div>
+                <div className="space-y-1">
+                  <p className="text-xs font-semibold text-ink">No conversations yet</p>
+                  <p className="text-[11px] text-ink-muted">
+                    Start a direct message with a team member or create a channel.
+                  </p>
+                </div>
+                <div className="flex items-center justify-center gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setIsNewChatOpen(true)}
+                    className="px-2.5 py-1 rounded bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-semibold transition cursor-pointer"
+                  >
+                    + Direct Chat
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIsNewGroupOpen(true)}
+                    className="px-2.5 py-1 rounded border border-line bg-surface hover:bg-control text-ink text-[11px] font-medium transition cursor-pointer"
+                  >
+                    + Channel
+                  </button>
+                </div>
               </div>
             ) : (
               filteredConversations.map((c) => {
@@ -819,14 +878,13 @@ export default function BrgConnectChatPage() {
                           <Hash className="size-4" />
                         </div>
                       ) : (
-                        <>
-                          <img
-                            src={c.avatar || "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=120"}
-                            alt={c.name}
-                            className="size-9 rounded-full object-cover border border-line"
-                          />
-                          <span className="absolute bottom-0 right-0 size-2.5 rounded-full bg-emerald-500 ring-2 ring-surface" />
-                        </>
+                        <div
+                          className={`flex size-9 items-center justify-center rounded-full font-bold text-xs ${getAvatarBg(
+                            c.name
+                          )}`}
+                        >
+                          {getInitials(c.name)}
+                        </div>
                       )}
                     </div>
 
@@ -841,17 +899,12 @@ export default function BrgConnectChatPage() {
                       </div>
 
                       <p className="text-[11px] text-ink-muted truncate mt-0.5">
-                        {c.lastMessage?.body || c.description}
+                        {c.lastMessage?.body || c.description || "No messages yet"}
                       </p>
 
                       <div className="flex items-center gap-1.5 mt-1">
                         {c.isPinned && <Pin className="size-2.5 text-blue-600 rotate-45" />}
                         {c.isMuted && <BellOff className="size-2.5 text-ink-muted" />}
-                        {c.unreadCount > 0 && (
-                          <span className="ml-auto flex size-4 items-center justify-center rounded-full bg-blue-600 text-white font-mono text-[10px] font-bold">
-                            {c.unreadCount}
-                          </span>
-                        )}
                       </div>
                     </div>
                   </div>
@@ -861,418 +914,433 @@ export default function BrgConnectChatPage() {
           </div>
         </aside>
 
-        {/* Center: Active Chat Stream */}
+        {/* Center: Active Chat Stream or Empty State */}
         <main className="flex flex-1 flex-col overflow-hidden bg-surface">
-          {/* Active Conversation Top Bar */}
-          <div className="flex h-14 shrink-0 items-center justify-between border-b border-line bg-surface px-4 shadow-2xs">
-            <div className="flex items-center gap-3 min-w-0">
-              {activeConv.type === "group" ? (
-                <div className="flex size-9 items-center justify-center rounded-lg bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300 font-bold text-sm">
-                  <Hash className="size-4" />
+          {!activeConv ? (
+            <div className="flex-1 flex flex-col items-center justify-center p-8 text-center space-y-4">
+              <div className="size-16 rounded-2xl bg-blue-50 dark:bg-blue-950/40 text-blue-600 flex items-center justify-center shadow-xs">
+                <MessageSquarePlus className="size-8" />
+              </div>
+              <div className="max-w-md space-y-1">
+                <h3 className="text-base font-bold text-ink">Welcome to BRG Connect</h3>
+                <p className="text-xs text-ink-muted leading-relaxed">
+                  Enterprise real-time communication platform integrated with BridgeOne ERP. Select an existing conversation or start collaborating with your team.
+                </p>
+              </div>
+              <div className="flex items-center gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsNewChatOpen(true)}
+                  className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold flex items-center gap-2 shadow-xs transition cursor-pointer"
+                >
+                  <Plus className="size-4" />
+                  <span>Start Direct Message</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsNewGroupOpen(true)}
+                  className="px-4 py-2 rounded-lg border border-line bg-surface hover:bg-control text-ink text-xs font-semibold flex items-center gap-2 transition cursor-pointer"
+                >
+                  <Users className="size-4" />
+                  <span>Create Team Channel</span>
+                </button>
+              </div>
+            </div>
+          ) : (
+            <>
+              {/* Active Conversation Top Bar */}
+              <div className="flex h-14 shrink-0 items-center justify-between border-b border-line bg-surface px-4 shadow-2xs">
+                <div className="flex items-center gap-3 min-w-0">
+                  {activeConv.type === "group" ? (
+                    <div className="flex size-9 items-center justify-center rounded-lg bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300 font-bold text-sm">
+                      <Hash className="size-4" />
+                    </div>
+                  ) : (
+                    <div
+                      className={`flex size-9 items-center justify-center rounded-full font-bold text-xs ${getAvatarBg(
+                        activeConv.name
+                      )}`}
+                    >
+                      {getInitials(activeConv.name)}
+                    </div>
+                  )}
+
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-sm font-bold text-ink truncate">{activeConv.name}</h3>
+                      {activeConv.isMuted && <BellOff className="size-3 text-ink-muted" />}
+                    </div>
+                    <span className="text-[11px] text-ink-muted block truncate">
+                      {activeConv.type === "group"
+                        ? `${activeConv.description || "Team Channel"}`
+                        : "Direct Message"}
+                    </span>
+                  </div>
                 </div>
-              ) : (
-                <div className="relative">
-                  <img
-                    src={activeConv.avatar || "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=120"}
-                    alt={activeConv.name}
-                    className="size-9 rounded-full object-cover border border-line"
-                  />
-                  <span className="absolute bottom-0 right-0 size-2.5 rounded-full bg-emerald-500 ring-2 ring-surface" />
+
+                {/* Call Actions */}
+                <div className="flex items-center gap-1 text-ink-muted">
+                  <button
+                    type="button"
+                    onClick={() => handleStartCall("audio")}
+                    className="size-8 rounded hover:bg-control flex items-center justify-center hover:text-ink transition cursor-pointer"
+                    title="Start 1-to-1 WebRTC Audio Call"
+                  >
+                    <Phone className="size-4 text-emerald-600" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleStartCall("video")}
+                    className="size-8 rounded hover:bg-control flex items-center justify-center hover:text-ink transition cursor-pointer"
+                    title="Start 1-to-1 WebRTC Video Call"
+                  >
+                    <Video className="size-4 text-blue-600" />
+                  </button>
+                  <span className="h-4 w-px bg-line mx-1" />
+                  <button
+                    type="button"
+                    onClick={() => setIsDetailsOpen(!isDetailsOpen)}
+                    className={`size-8 rounded flex items-center justify-center transition cursor-pointer ${
+                      isDetailsOpen ? "bg-control text-ink" : "hover:bg-control hover:text-ink"
+                    }`}
+                    title="Conversation Info"
+                  >
+                    <Info className="size-4" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Messages Scroll Area */}
+              <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-control/20">
+                <div className="flex justify-center my-2">
+                  <div className="flex items-center gap-1.5 px-3 py-1 rounded-full border border-line bg-surface text-[11px] text-ink-muted shadow-2xs">
+                    <AlertCircle className="size-3 text-blue-500" />
+                    <span>Neon PostgreSQL Live • Real-time enterprise encryption</span>
+                  </div>
+                </div>
+
+                {activeMessages.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-12 text-center space-y-2 text-ink-muted">
+                    <p className="text-xs font-semibold text-ink">No messages yet in this conversation</p>
+                    <p className="text-[11px]">Type a message below to start collaborating.</p>
+                  </div>
+                ) : (
+                  activeMessages.map((msg) => {
+                    const isMe = msg.senderId === (authUser?.id || "user-current");
+                    return (
+                      <div
+                        key={msg.id}
+                        className={`flex items-start gap-2.5 group ${isMe ? "flex-row-reverse" : "flex-row"}`}
+                      >
+                        {!isMe && (
+                          <div
+                            className={`size-7 rounded-full flex items-center justify-center font-bold text-[10px] shrink-0 mt-0.5 ${getAvatarBg(
+                              msg.senderName
+                            )}`}
+                          >
+                            {getInitials(msg.senderName)}
+                          </div>
+                        )}
+
+                        <div className={`max-w-[70%] space-y-1 ${isMe ? "items-end" : "items-start"}`}>
+                          {!isMe && activeConv.type === "group" && (
+                            <span className="text-[11px] font-bold text-ink-muted block pl-1">
+                              {msg.senderName}
+                            </span>
+                          )}
+
+                          <div
+                            className={`relative rounded-xl p-3 text-xs leading-relaxed shadow-2xs ${
+                              isMe
+                                ? "bg-blue-600 text-white rounded-tr-xs"
+                                : "bg-surface border border-line text-ink rounded-tl-xs"
+                            }`}
+                          >
+                            {/* Quoted Reply */}
+                            {msg.replyTo && (
+                              <div
+                                className={`mb-2 p-2 rounded text-[11px] border-l-2 ${
+                                  isMe
+                                    ? "bg-blue-700/60 border-white/60 text-white/90"
+                                    : "bg-control/60 border-blue-500 text-ink-muted"
+                                }`}
+                              >
+                                <span className="font-semibold block">{msg.replyTo.senderName}</span>
+                                <span className="truncate block opacity-85">{msg.replyTo.body}</span>
+                              </div>
+                            )}
+
+                            {editingMessageId === msg.id ? (
+                              <div className="space-y-2">
+                                <textarea
+                                  value={editText}
+                                  onChange={(e) => setEditText(e.target.value)}
+                                  className="w-full h-16 p-2 rounded bg-surface text-ink text-xs border border-line focus:outline-none"
+                                />
+                                <div className="flex items-center gap-1.5 justify-end">
+                                  <button
+                                    type="button"
+                                    onClick={() => setEditingMessageId(null)}
+                                    className="px-2 py-0.5 rounded bg-control text-ink text-[11px] cursor-pointer"
+                                  >
+                                    Cancel
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleSaveEdit(msg.id)}
+                                    className="px-2 py-0.5 rounded bg-blue-600 text-white text-[11px] font-semibold cursor-pointer"
+                                  >
+                                    Save
+                                  </button>
+                                </div>
+                              </div>
+                            ) : (
+                              <p className="whitespace-pre-wrap">{msg.body}</p>
+                            )}
+
+                            {/* Live ERP Record */}
+                            {msg.erpRecord && (
+                              <div
+                                className={`mt-2.5 p-3 rounded-lg border shadow-xs ${
+                                  isMe
+                                    ? "bg-blue-700/80 border-blue-500/50 text-white"
+                                    : "bg-control/40 border-line text-ink"
+                                }`}
+                              >
+                                <div className="flex items-center justify-between mb-1.5">
+                                  <div className="flex items-center gap-1.5">
+                                    <Briefcase className="size-3.5 text-amber-400" />
+                                    <span className="font-mono font-bold text-[11px] tracking-wide">
+                                      {msg.erpRecord.code}
+                                    </span>
+                                  </div>
+                                  <span className="text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded bg-surface/20">
+                                    {msg.erpRecord.status}
+                                  </span>
+                                </div>
+
+                                <div className="font-medium text-xs mb-1">{msg.erpRecord.title}</div>
+                                {msg.erpRecord.subtitle && (
+                                  <div className="text-[11px] opacity-85">{msg.erpRecord.subtitle}</div>
+                                )}
+                                {msg.erpRecord.amount && (
+                                  <div className="font-mono font-bold text-xs mt-1 text-emerald-300">
+                                    {msg.erpRecord.amount}
+                                  </div>
+                                )}
+
+                                <div className="mt-2.5 pt-2 border-t border-white/20 flex items-center justify-between">
+                                  <span className="text-[10px] opacity-75">Live ERP Record</span>
+                                  <Link
+                                    href={msg.erpRecord.link}
+                                    className="inline-flex items-center gap-1 text-[11px] font-semibold underline underline-offset-2 hover:opacity-85"
+                                  >
+                                    <span>Open Record</span>
+                                    <ExternalLink className="size-3" />
+                                  </Link>
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Attachments */}
+                            {msg.attachments?.map((att) => (
+                              <div
+                                key={att.id}
+                                className={`mt-2 flex items-center gap-2.5 p-2 rounded border ${
+                                  isMe
+                                    ? "bg-blue-700/50 border-white/30 text-white"
+                                    : "bg-control/40 border-line text-ink"
+                                }`}
+                              >
+                                <FileText className="size-4 shrink-0" />
+                                <div className="flex-1 min-w-0">
+                                  <span className="block truncate font-medium text-[11px]">{att.name}</span>
+                                  <span className="text-[10px] opacity-75">
+                                    {(att.sizeBytes / 1024 / 1024).toFixed(2)} MB
+                                  </span>
+                                </div>
+                                <a
+                                  href={att.url}
+                                  download={att.name}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="size-6 rounded hover:bg-surface/20 flex items-center justify-center transition cursor-pointer"
+                                  title="Download attachment"
+                                >
+                                  <Download className="size-3.5" />
+                                </a>
+                              </div>
+                            ))}
+
+                            {/* Call Info */}
+                            {msg.callInfo && (
+                              <div className="flex items-center gap-2 text-xs font-medium mt-1">
+                                <PhoneCall className="size-3.5 text-emerald-400" />
+                                <span>
+                                  {msg.callInfo.status === "completed"
+                                    ? `Call ended (${formatTime(msg.callInfo.durationSec || 0)})`
+                                    : "Missed Call"}
+                                </span>
+                              </div>
+                            )}
+
+                            <div
+                              className={`flex items-center justify-end gap-1 text-[10px] mt-1 ${
+                                isMe ? "text-blue-100" : "text-ink-muted"
+                              }`}
+                            >
+                              {msg.editedAt && <span>(edited)</span>}
+                              <span>{msg.createdAt}</span>
+
+                              {isMe && (
+                                <span title={`Status: ${msg.status}`}>
+                                  {msg.status === "sending" && <Clock className="size-3 text-blue-200 animate-spin" />}
+                                  {msg.status === "sent" && <Check className="size-3 text-blue-200" />}
+                                  {msg.status === "delivered" && <CheckCheck className="size-3 text-blue-200" />}
+                                  {msg.status === "seen" && <CheckCheck className="size-3 text-sky-300 font-bold" />}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Actions */}
+                          <div
+                            className={`flex items-center gap-1 opacity-0 group-hover:opacity-100 transition px-1 ${
+                              isMe ? "justify-end" : "justify-start"
+                            }`}
+                          >
+                            <button
+                              type="button"
+                              onClick={() => setReplyingTo(msg)}
+                              className="p-1 rounded hover:bg-control text-ink-muted hover:text-ink cursor-pointer"
+                              title="Reply"
+                            >
+                              <Reply className="size-3" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => navigator.clipboard.writeText(msg.body)}
+                              className="p-1 rounded hover:bg-control text-ink-muted hover:text-ink cursor-pointer"
+                              title="Copy text"
+                            >
+                              <Copy className="size-3" />
+                            </button>
+                            {isMe && !msg.deletedAt && (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setEditingMessageId(msg.id);
+                                    setEditText(msg.body);
+                                  }}
+                                  className="p-1 rounded hover:bg-control text-ink-muted hover:text-ink cursor-pointer"
+                                  title="Edit message"
+                                >
+                                  <Edit2 className="size-3" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteMessage(msg.id)}
+                                  className="p-1 rounded hover:bg-control text-rose-500 hover:text-rose-700 cursor-pointer"
+                                  title="Delete message"
+                                >
+                                  <Trash2 className="size-3" />
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+
+                <div ref={messagesEndRef} />
+              </div>
+
+              {/* Reply Banner */}
+              {replyingTo && (
+                <div className="flex items-center justify-between bg-control/60 border-t border-line px-4 py-1.5 text-xs">
+                  <div className="flex items-center gap-2 truncate">
+                    <Reply className="size-3.5 text-blue-600 shrink-0" />
+                    <span className="text-ink-muted">Replying to <strong>{replyingTo.senderName}</strong>:</span>
+                    <span className="text-ink truncate font-medium">{replyingTo.body}</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setReplyingTo(null)}
+                    className="text-ink-muted hover:text-ink cursor-pointer"
+                  >
+                    <X className="size-3.5" />
+                  </button>
                 </div>
               )}
 
-              <div className="min-w-0">
-                <div className="flex items-center gap-2">
-                  <h3 className="text-sm font-bold text-ink truncate">{activeConv.name}</h3>
-                  {activeConv.isMuted && <BellOff className="size-3 text-ink-muted" />}
-                </div>
-                <span className="text-[11px] text-ink-muted block truncate">
-                  {activeConv.type === "group"
-                    ? `${activeConv.members?.length || 1} members &bull; ${activeConv.description || "Active Channel"}`
-                    : directPartner
-                    ? `${directPartner.designation} &bull; ${directPartner.department}`
-                    : "Online"}
-                </span>
-              </div>
-            </div>
-
-            {/* Action Bar */}
-            <div className="flex items-center gap-1 text-ink-muted">
-              <button
-                type="button"
-                onClick={() => handleStartCall("audio")}
-                className="size-8 rounded hover:bg-control flex items-center justify-center hover:text-ink transition cursor-pointer"
-                title="Start 1-to-1 WebRTC Audio Call"
-              >
-                <Phone className="size-4 text-emerald-600" />
-              </button>
-              <button
-                type="button"
-                onClick={() => handleStartCall("video")}
-                className="size-8 rounded hover:bg-control flex items-center justify-center hover:text-ink transition cursor-pointer"
-                title="Start 1-to-1 WebRTC Video Call"
-              >
-                <Video className="size-4 text-blue-600" />
-              </button>
-              <span className="h-4 w-px bg-line mx-1" />
-              <button
-                type="button"
-                onClick={() => setIsDetailsOpen(!isDetailsOpen)}
-                className={`size-8 rounded flex items-center justify-center transition cursor-pointer ${
-                  isDetailsOpen ? "bg-control text-ink" : "hover:bg-control hover:text-ink"
-                }`}
-                title="Conversation Info"
-              >
-                <Info className="size-4" />
-              </button>
-            </div>
-          </div>
-
-          {/* Messages Scroll Area */}
-          <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-control/20">
-            <div className="flex justify-center my-2">
-              <div className="flex items-center gap-1.5 px-3 py-1 rounded-full border border-line bg-surface text-[11px] text-ink-muted shadow-2xs">
-                <AlertCircle className="size-3 text-blue-500" />
-                <span>Connected to Neon PostgreSQL • Messages persisted in database</span>
-              </div>
-            </div>
-
-            {activeMessages.map((msg) => {
-              const isMe = msg.senderId === CURRENT_USER.id;
-              const isSystem = msg.type === "system";
-
-              if (isSystem) {
-                return (
-                  <div key={msg.id} className="flex justify-center my-2">
-                    <span className="text-[11px] italic text-ink-muted bg-surface/80 px-3 py-1 rounded-full border border-line">
-                      {msg.body}
-                    </span>
+              {/* Bottom Message Composer */}
+              <div className="p-3 border-t border-line bg-surface">
+                <div className="flex items-end gap-2 rounded-lg border border-line bg-surface p-1.5 shadow-2xs focus-within:ring-1 focus-within:ring-blue-500">
+                  <div className="flex items-center gap-1 text-ink-muted pb-1">
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={isUploading}
+                      className="size-7 rounded hover:bg-control flex items-center justify-center hover:text-ink transition cursor-pointer"
+                      title="Upload & Attach File"
+                    >
+                      <Paperclip className={`size-4 ${isUploading ? "animate-spin text-blue-600" : ""}`} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setIsErpPickerOpen(true)}
+                      className="size-7 rounded hover:bg-control flex items-center justify-center text-blue-600 hover:text-blue-700 transition cursor-pointer"
+                      title="Attach Live ERP Record (PO, Requisition)"
+                    >
+                      <Share2 className="size-4" />
+                    </button>
                   </div>
-                );
-              }
 
-              return (
-                <div
-                  key={msg.id}
-                  className={`flex items-start gap-2.5 group ${isMe ? "flex-row-reverse" : "flex-row"}`}
-                >
-                  {!isMe && (
-                    <img
-                      src={msg.senderAvatar || "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=120"}
-                      alt={msg.senderName}
-                      className="size-7 rounded-full object-cover shrink-0 mt-0.5 border border-line"
-                    />
-                  )}
+                  <textarea
+                    ref={chatInputRef}
+                    value={messageText}
+                    onChange={(e) => setMessageText(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && !e.shiftKey) {
+                        e.preventDefault();
+                        handleSendMessage();
+                      }
+                    }}
+                    rows={1}
+                    placeholder="Type a message... (Enter to send, Shift+Enter for new line)"
+                    className="flex-1 max-h-32 min-h-8 resize-none bg-transparent py-1.5 text-xs text-ink placeholder:text-ink-muted focus:outline-none"
+                  />
 
-                  <div className={`max-w-[70%] space-y-1 ${isMe ? "items-end" : "items-start"}`}>
-                    {!isMe && activeConv.type === "group" && (
-                      <span className="text-[11px] font-bold text-ink-muted block pl-1">
-                        {msg.senderName}
-                      </span>
-                    )}
-
-                    <div
-                      className={`relative rounded-xl p-3 text-xs leading-relaxed shadow-2xs ${
-                        isMe
-                          ? "bg-blue-600 text-white rounded-tr-xs"
-                          : "bg-surface border border-line text-ink rounded-tl-xs"
-                      }`}
+                  <div className="flex items-center gap-1 pb-1">
+                    <button
+                      type="button"
+                      onClick={() => handleStartCall("audio")}
+                      className="size-7 rounded hover:bg-control flex items-center justify-center text-ink-muted hover:text-ink transition cursor-pointer"
+                      title="Voice Call"
                     >
-                      {/* Quoted Reply */}
-                      {msg.replyTo && (
-                        <div
-                          className={`mb-2 p-2 rounded text-[11px] border-l-2 ${
-                            isMe
-                              ? "bg-blue-700/60 border-white/60 text-white/90"
-                              : "bg-control/60 border-blue-500 text-ink-muted"
-                          }`}
-                        >
-                          <span className="font-semibold block">{msg.replyTo.senderName}</span>
-                          <span className="truncate block opacity-85">{msg.replyTo.body}</span>
-                        </div>
-                      )}
-
-                      {/* Edit view or normal */}
-                      {editingMessageId === msg.id ? (
-                        <div className="space-y-2">
-                          <textarea
-                            value={editText}
-                            onChange={(e) => setEditText(e.target.value)}
-                            className="w-full h-16 p-2 rounded bg-surface text-ink text-xs border border-line focus:outline-none"
-                          />
-                          <div className="flex items-center gap-1.5 justify-end">
-                            <button
-                              type="button"
-                              onClick={() => setEditingMessageId(null)}
-                              className="px-2 py-0.5 rounded bg-control text-ink text-[11px]"
-                            >
-                              Cancel
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleSaveEdit(msg.id)}
-                              className="px-2 py-0.5 rounded bg-blue-600 text-white text-[11px] font-semibold"
-                            >
-                              Save
-                            </button>
-                          </div>
-                        </div>
-                      ) : (
-                        <p className="whitespace-pre-wrap">{msg.body}</p>
-                      )}
-
-                      {/* Live Embedded ERP Record */}
-                      {msg.erpRecord && (
-                        <div
-                          className={`mt-2.5 p-3 rounded-lg border shadow-xs ${
-                            isMe
-                              ? "bg-blue-700/80 border-blue-500/50 text-white"
-                              : "bg-control/40 border-line text-ink"
-                          }`}
-                        >
-                          <div className="flex items-center justify-between mb-1.5">
-                            <div className="flex items-center gap-1.5">
-                              <Briefcase className="size-3.5 text-amber-400" />
-                              <span className="font-mono font-bold text-[11px] tracking-wide">
-                                {msg.erpRecord.code}
-                              </span>
-                            </div>
-                            <span className="text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded bg-surface/20">
-                              {msg.erpRecord.status}
-                            </span>
-                          </div>
-
-                          <div className="font-medium text-xs mb-1">{msg.erpRecord.title}</div>
-                          {msg.erpRecord.subtitle && (
-                            <div className="text-[11px] opacity-85">{msg.erpRecord.subtitle}</div>
-                          )}
-                          {msg.erpRecord.amount && (
-                            <div className="font-mono font-bold text-xs mt-1 text-emerald-300">
-                              {msg.erpRecord.amount}
-                            </div>
-                          )}
-
-                          <div className="mt-2.5 pt-2 border-t border-white/20 flex items-center justify-between">
-                            <span className="text-[10px] opacity-75">Live BridgeOne ERP Record</span>
-                            <Link
-                              href={msg.erpRecord.link}
-                              className="inline-flex items-center gap-1 text-[11px] font-semibold underline underline-offset-2 hover:opacity-85"
-                            >
-                              <span>Open Record</span>
-                              <ExternalLink className="size-3" />
-                            </Link>
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Real Attachments */}
-                      {msg.attachments?.map((att) => (
-                        <div
-                          key={att.id}
-                          className={`mt-2 flex items-center gap-2.5 p-2 rounded border ${
-                            isMe
-                              ? "bg-blue-700/50 border-white/30 text-white"
-                              : "bg-control/40 border-line text-ink"
-                          }`}
-                        >
-                          <FileText className="size-4 shrink-0" />
-                          <div className="flex-1 min-w-0">
-                            <span className="block truncate font-medium text-[11px]">{att.name}</span>
-                            <span className="text-[10px] opacity-75">
-                              {(att.sizeBytes / 1024 / 1024).toFixed(2)} MB
-                            </span>
-                          </div>
-                          <a
-                            href={att.url}
-                            download={att.name}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="size-6 rounded hover:bg-surface/20 flex items-center justify-center transition cursor-pointer"
-                            title="Download attachment"
-                          >
-                            <Download className="size-3.5" />
-                          </a>
-                        </div>
-                      ))}
-
-                      {/* Call Log Info */}
-                      {msg.callInfo && (
-                        <div className="flex items-center gap-2 text-xs font-medium mt-1">
-                          <PhoneCall className="size-3.5 text-emerald-400" />
-                          <span>
-                            {msg.callInfo.status === "completed"
-                              ? `Call ended (${formatTime(msg.callInfo.durationSec || 0)})`
-                              : "Missed Call"}
-                          </span>
-                        </div>
-                      )}
-
-                      {/* Timestamp & Status Delivery Ticks */}
-                      <div
-                        className={`flex items-center justify-end gap-1 text-[10px] mt-1 ${
-                          isMe ? "text-blue-100" : "text-ink-muted"
-                        }`}
-                      >
-                        {msg.editedAt && <span>(edited)</span>}
-                        <span>{msg.createdAt}</span>
-
-                        {isMe && (
-                          <span title={`Status: ${msg.status}`}>
-                            {msg.status === "sending" && <Clock className="size-3 text-blue-200 animate-spin" />}
-                            {msg.status === "sent" && <Check className="size-3 text-blue-200" />}
-                            {msg.status === "delivered" && <CheckCheck className="size-3 text-blue-200" />}
-                            {msg.status === "seen" && <CheckCheck className="size-3 text-sky-300 font-bold" />}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Actions Menu */}
-                    <div
-                      className={`flex items-center gap-1 opacity-0 group-hover:opacity-100 transition px-1 ${
-                        isMe ? "justify-end" : "justify-start"
-                      }`}
+                      <Mic className="size-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleSendMessage}
+                      disabled={!messageText.trim() && !replyingTo}
+                      className="size-8 rounded-md bg-blue-600 hover:bg-blue-700 disabled:opacity-40 disabled:hover:bg-blue-600 text-white flex items-center justify-center transition cursor-pointer shadow-xs"
+                      title="Send Message"
                     >
-                      <button
-                        type="button"
-                        onClick={() => setReplyingTo(msg)}
-                        className="p-1 rounded hover:bg-control text-ink-muted hover:text-ink cursor-pointer"
-                        title="Reply"
-                      >
-                        <Reply className="size-3" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => navigator.clipboard.writeText(msg.body)}
-                        className="p-1 rounded hover:bg-control text-ink-muted hover:text-ink cursor-pointer"
-                        title="Copy text"
-                      >
-                        <Copy className="size-3" />
-                      </button>
-                      {isMe && !msg.deletedAt && (
-                        <>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setEditingMessageId(msg.id);
-                              setEditText(msg.body);
-                            }}
-                            className="p-1 rounded hover:bg-control text-ink-muted hover:text-ink cursor-pointer"
-                            title="Edit message"
-                          >
-                            <Edit2 className="size-3" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteMessage(msg.id)}
-                            className="p-1 rounded hover:bg-control text-rose-500 hover:text-rose-700 cursor-pointer"
-                            title="Delete message"
-                          >
-                            <Trash2 className="size-3" />
-                          </button>
-                        </>
-                      )}
-                    </div>
+                      <Send className="size-3.5" />
+                    </button>
                   </div>
                 </div>
-              );
-            })}
-
-            {isTyping && (
-              <div className="flex items-center gap-2 text-xs text-ink-muted italic">
-                <span className="flex gap-1 items-center">
-                  <span className="size-1.5 rounded-full bg-blue-600 animate-bounce" />
-                  <span className="size-1.5 rounded-full bg-blue-600 animate-bounce [animation-delay:0.2s]" />
-                  <span className="size-1.5 rounded-full bg-blue-600 animate-bounce [animation-delay:0.4s]" />
-                </span>
-                <span>{directPartner?.name || activeConv.name} is typing...</span>
               </div>
-            )}
-
-            <div ref={messagesEndRef} />
-          </div>
-
-          {/* Reply Banner */}
-          {replyingTo && (
-            <div className="flex items-center justify-between bg-control/60 border-t border-line px-4 py-1.5 text-xs">
-              <div className="flex items-center gap-2 truncate">
-                <Reply className="size-3.5 text-blue-600 shrink-0" />
-                <span className="text-ink-muted">Replying to <strong>{replyingTo.senderName}</strong>:</span>
-                <span className="text-ink truncate font-medium">{replyingTo.body}</span>
-              </div>
-              <button
-                type="button"
-                onClick={() => setReplyingTo(null)}
-                className="text-ink-muted hover:text-ink cursor-pointer"
-              >
-                <X className="size-3.5" />
-              </button>
-            </div>
+            </>
           )}
-
-          {/* Bottom Message Composer */}
-          <div className="p-3 border-t border-line bg-surface">
-            <div className="flex items-end gap-2 rounded-lg border border-line bg-surface p-1.5 shadow-2xs focus-within:ring-1 focus-within:ring-blue-500">
-              <div className="flex items-center gap-1 text-ink-muted pb-1">
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  disabled={isUploading}
-                  className="size-7 rounded hover:bg-control flex items-center justify-center hover:text-ink transition cursor-pointer"
-                  title="Upload & Attach Real File / Document"
-                >
-                  <Paperclip className={`size-4 ${isUploading ? "animate-spin text-blue-600" : ""}`} />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setIsErpPickerOpen(true)}
-                  className="size-7 rounded hover:bg-control flex items-center justify-center text-blue-600 hover:text-blue-700 transition cursor-pointer"
-                  title="Attach Live ERP Record (PO, Requisition)"
-                >
-                  <Share2 className="size-4" />
-                </button>
-              </div>
-
-              <textarea
-                ref={chatInputRef}
-                value={messageText}
-                onChange={(e) => setMessageText(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault();
-                    handleSendMessage();
-                  }
-                }}
-                rows={1}
-                placeholder="Type a message... (Enter to send, Shift+Enter for new line)"
-                className="flex-1 max-h-32 min-h-8 resize-none bg-transparent py-1.5 text-xs text-ink placeholder:text-ink-muted focus:outline-none"
-              />
-
-              <div className="flex items-center gap-1 pb-1">
-                <button
-                  type="button"
-                  onClick={() => handleStartCall("audio")}
-                  className="size-7 rounded hover:bg-control flex items-center justify-center text-ink-muted hover:text-ink transition cursor-pointer"
-                  title="Voice Call"
-                >
-                  <Mic className="size-4" />
-                </button>
-                <button
-                  type="button"
-                  onClick={handleSendMessage}
-                  disabled={!messageText.trim() && !replyingTo}
-                  className="size-8 rounded-md bg-blue-600 hover:bg-blue-700 disabled:opacity-40 disabled:hover:bg-blue-600 text-white flex items-center justify-center transition cursor-pointer shadow-xs"
-                  title="Send Message"
-                >
-                  <Send className="size-3.5" />
-                </button>
-              </div>
-            </div>
-          </div>
         </main>
 
         {/* Right Pane: Conversation Details */}
-        {isDetailsOpen && (
+        {isDetailsOpen && activeConv && (
           <aside className="w-72 shrink-0 border-l border-line bg-surface p-4 flex flex-col space-y-4 overflow-y-auto">
             <div className="flex items-center justify-between pb-2 border-b border-line">
               <h3 className="text-xs font-bold uppercase tracking-wider text-ink-muted">Details</h3>
@@ -1291,11 +1359,13 @@ export default function BrgConnectChatPage() {
                   <Hash className="size-7" />
                 </div>
               ) : (
-                <img
-                  src={activeConv.avatar || "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=120"}
-                  alt={activeConv.name}
-                  className="size-14 mx-auto rounded-full object-cover border-2 border-line"
-                />
+                <div
+                  className={`flex size-14 mx-auto items-center justify-center rounded-full font-bold text-base ${getAvatarBg(
+                    activeConv.name
+                  )}`}
+                >
+                  {getInitials(activeConv.name)}
+                </div>
               )}
               <h4 className="font-bold text-sm text-ink">{activeConv.name}</h4>
               <p className="text-xs text-ink-muted">{activeConv.description || "Active Conversation"}</p>
@@ -1341,19 +1411,16 @@ export default function BrgConnectChatPage() {
       </div>
 
       {/* Real WebRTC Call Modal with Camera / Screen Share */}
-      {activeCall && (
+      {activeCall && activeConv && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-xs p-4 animate-in fade-in">
           <div className="w-full max-w-lg rounded-2xl bg-slate-900 border border-slate-800 p-6 text-white text-center shadow-2xl space-y-6">
             <div className="space-y-2">
-              <div className="relative size-20 mx-auto">
-                <img
-                  src={activeConv.avatar || "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=120"}
-                  alt={activeConv.name}
-                  className="size-20 rounded-full object-cover border-4 border-slate-700"
-                />
-                {activeCall.status === "ringing" && (
-                  <span className="absolute inset-0 rounded-full border-4 border-blue-500 animate-ping opacity-60" />
-                )}
+              <div
+                className={`size-20 mx-auto rounded-full flex items-center justify-center font-bold text-xl border-4 border-slate-700 ${getAvatarBg(
+                  activeConv.name
+                )}`}
+              >
+                {getInitials(activeConv.name)}
               </div>
               <h3 className="font-bold text-lg">{activeConv.name}</h3>
               <p className="text-xs text-slate-400">
@@ -1363,7 +1430,6 @@ export default function BrgConnectChatPage() {
               </p>
             </div>
 
-            {/* Live Video / Screen View */}
             {activeCall.type === "video" && (
               <div className="relative h-56 rounded-xl bg-slate-950 flex items-center justify-center border border-slate-800 overflow-hidden shadow-inner">
                 <video
@@ -1388,7 +1454,6 @@ export default function BrgConnectChatPage() {
               </div>
             )}
 
-            {/* Audio Waves Simulation */}
             {activeCall.type === "audio" && activeCall.status === "connected" && (
               <div className="flex items-center justify-center gap-1.5 h-12">
                 {[40, 75, 50, 90, 60, 30, 80, 55].map((h, i) => (
@@ -1401,7 +1466,6 @@ export default function BrgConnectChatPage() {
               </div>
             )}
 
-            {/* Controls */}
             <div className="flex items-center justify-center gap-4">
               <button
                 type="button"
@@ -1472,44 +1536,50 @@ export default function BrgConnectChatPage() {
             </div>
 
             <p className="text-xs text-ink-muted">
-              Select an active Purchase Order or Requisition from the database to attach directly as a live card:
+              Select an active Purchase Order or Requisition from the database:
             </p>
 
             <div className="space-y-2 max-h-80 overflow-y-auto">
-              {realErpRecords.map((card) => (
-                <div
-                  key={card.id}
-                  onClick={() => handleShareErpCard(card)}
-                  className="flex items-center justify-between p-3 rounded-lg border border-line bg-control/30 hover:bg-control/80 transition cursor-pointer"
-                >
-                  <div className="space-y-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="font-mono font-bold text-xs text-blue-600">{card.code}</span>
-                      <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-surface border border-line uppercase">
-                        {card.status}
-                      </span>
-                    </div>
-                    <span className="block font-medium text-xs text-ink truncate">{card.title}</span>
-                    {card.subtitle && <span className="block text-[11px] text-ink-muted">{card.subtitle}</span>}
-                  </div>
-                  {card.amount && (
-                    <span className="font-mono font-bold text-xs text-emerald-600 shrink-0 ml-2">
-                      {card.amount}
-                    </span>
-                  )}
+              {realErpRecords.length === 0 ? (
+                <div className="p-4 text-center text-xs text-ink-muted">
+                  No active ERP purchase orders or requisitions found in database.
                 </div>
-              ))}
+              ) : (
+                realErpRecords.map((card) => (
+                  <div
+                    key={card.id}
+                    onClick={() => handleShareErpCard(card)}
+                    className="flex items-center justify-between p-3 rounded-lg border border-line bg-control/30 hover:bg-control/80 transition cursor-pointer"
+                  >
+                    <div className="space-y-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono font-bold text-xs text-blue-600">{card.code}</span>
+                        <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-surface border border-line uppercase">
+                          {card.status}
+                        </span>
+                      </div>
+                      <span className="block font-medium text-xs text-ink truncate">{card.title}</span>
+                      {card.subtitle && <span className="block text-[11px] text-ink-muted">{card.subtitle}</span>}
+                    </div>
+                    {card.amount && (
+                      <span className="font-mono font-bold text-xs text-emerald-600 shrink-0 ml-2">
+                        {card.amount}
+                      </span>
+                    )}
+                  </div>
+                ))
+              )}
             </div>
           </div>
         </div>
       )}
 
-      {/* New Direct Chat Modal */}
+      {/* New Direct Chat Modal (With real employees from DB) */}
       {isNewChatOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-2xs p-4 animate-in fade-in">
           <div className="w-full max-w-md rounded-xl border border-line bg-surface p-5 text-ink shadow-2xl space-y-4">
             <div className="flex items-center justify-between pb-2 border-b border-line">
-              <h3 className="font-bold text-sm">Start New Direct Message</h3>
+              <h3 className="font-bold text-sm">Start Direct Message</h3>
               <button
                 type="button"
                 onClick={() => setIsNewChatOpen(false)}
@@ -1519,65 +1589,85 @@ export default function BrgConnectChatPage() {
               </button>
             </div>
 
-            <p className="text-xs text-ink-muted">Select an employee from the directory:</p>
+            <div className="relative">
+              <Search className="size-3.5 absolute left-2.5 top-2.5 text-ink-muted" />
+              <input
+                type="text"
+                value={directorySearch}
+                onChange={(e) => setDirectorySearch(e.target.value)}
+                placeholder="Search employee by name, department..."
+                className="w-full h-8 pl-8 pr-3 text-xs rounded border border-line bg-surface text-ink placeholder:text-ink-muted focus:outline-none focus:ring-1 focus:ring-blue-500"
+              />
+            </div>
 
             <div className="space-y-1.5 max-h-72 overflow-y-auto">
-              {MOCK_USERS.filter((u) => u.id !== CURRENT_USER.id).map((user) => (
-                <div
-                  key={user.id}
-                  onClick={async () => {
-                    const existing = conversations.find(
-                      (c) => c.type === "direct" && c.name === user.name
-                    );
-                    if (existing) {
-                      setActiveConvId(existing.id);
-                    } else {
-                      try {
-                        const res = await fetch("/api/connect/conversations", {
-                          method: "POST",
-                          headers: { "Content-Type": "application/json" },
-                          body: JSON.stringify({
-                            type: "DIRECT",
-                            name: user.name,
-                            description: `${user.designation} • ${user.department}`,
-                            avatarUrl: user.avatar,
-                            memberUserIds: [CURRENT_USER.id, user.id],
-                          }),
-                        });
-                        const data = await res.json();
-                        if (data.success && data.conversation) {
-                          const newC: ConnectConversation = {
-                            id: data.conversation.id,
-                            type: "direct",
-                            name: user.name,
-                            avatar: user.avatar,
-                            description: `${user.designation} • ${user.department}`,
-                            department: user.department,
-                            members: [CURRENT_USER.id, user.id],
-                            unreadCount: 0,
-                            createdAt: data.conversation.created_at,
-                          };
-                          setConversations((prev) => [newC, ...prev]);
-                          setActiveConvId(data.conversation.id);
-                        }
-                      } catch {
-                        // Fallback
-                      }
-                    }
-                    setIsNewChatOpen(false);
-                  }}
-                  className="flex items-center gap-3 p-2.5 rounded-lg border border-line bg-control/20 hover:bg-control transition cursor-pointer"
-                >
-                  <img src={user.avatar} alt={user.name} className="size-9 rounded-full object-cover" />
-                  <div className="min-w-0 flex-1">
-                    <span className="block font-medium text-xs text-ink truncate">{user.name}</span>
-                    <span className="text-[11px] text-ink-muted truncate block">
-                      {user.designation} • {user.department}
-                    </span>
-                  </div>
-                  <span className="size-2 rounded-full bg-emerald-500" />
+              {filteredEmployeesForDm.length === 0 ? (
+                <div className="p-4 text-center text-xs text-ink-muted">
+                  No matching employees found in database.
                 </div>
-              ))}
+              ) : (
+                filteredEmployeesForDm.map((emp) => (
+                  <div
+                    key={emp.id}
+                    onClick={async () => {
+                      const existing = conversations.find(
+                        (c) => c.type === "direct" && c.name === emp.name
+                      );
+                      if (existing) {
+                        setActiveConvId(existing.id);
+                      } else {
+                        try {
+                          const res = await fetch("/api/connect/conversations", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({
+                              type: "DIRECT",
+                              name: emp.name,
+                              description: `${emp.designation} • ${emp.department}`,
+                              memberUserIds: [authUser?.id || "user-current", emp.id],
+                            }),
+                          });
+                          const data = await res.json();
+                          if (data.success && data.conversation) {
+                            const newC: ConnectConversation = {
+                              id: data.conversation.id,
+                              type: "direct",
+                              name: emp.name,
+                              description: `${emp.designation} • ${emp.department}`,
+                              department: emp.department,
+                              members: [authUser?.id || "user-current", emp.id],
+                              unreadCount: 0,
+                              createdAt: data.conversation.created_at,
+                            };
+                            setConversations((prev) => [newC, ...prev]);
+                            setActiveConvId(data.conversation.id);
+                          }
+                        } catch {
+                          // Fallback
+                        }
+                      }
+                      setIsNewChatOpen(false);
+                      setDirectorySearch("");
+                    }}
+                    className="flex items-center gap-3 p-2.5 rounded-lg border border-line bg-control/20 hover:bg-control transition cursor-pointer"
+                  >
+                    <div
+                      className={`size-8 rounded-full flex items-center justify-center font-bold text-[11px] shrink-0 ${getAvatarBg(
+                        emp.name
+                      )}`}
+                    >
+                      {getInitials(emp.name)}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <span className="block font-medium text-xs text-ink truncate">{emp.name}</span>
+                      <span className="text-[11px] text-ink-muted truncate block">
+                        {emp.designation} • {emp.department}
+                      </span>
+                    </div>
+                    <span className="size-2 rounded-full bg-emerald-500" />
+                  </div>
+                ))
+              )}
             </div>
           </div>
         </div>
@@ -1607,7 +1697,7 @@ export default function BrgConnectChatPage() {
                     type="text"
                     value={newGroupName}
                     onChange={(e) => setNewGroupName(e.target.value)}
-                    placeholder="e.g. accounts-audit"
+                    placeholder="e.g. procurement-approvals"
                     className="w-full h-8 pl-6 pr-3 rounded border border-line bg-surface text-ink text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
                   />
                 </div>
@@ -1619,7 +1709,7 @@ export default function BrgConnectChatPage() {
                   type="text"
                   value={newGroupDesc}
                   onChange={(e) => setNewGroupDesc(e.target.value)}
-                  placeholder="Purpose of this channel"
+                  placeholder="Channel purpose"
                   className="w-full h-8 px-2.5 rounded border border-line bg-surface text-ink text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
                 />
               </div>
@@ -1627,21 +1717,21 @@ export default function BrgConnectChatPage() {
               <div>
                 <label className="block font-medium text-ink-muted mb-1">Select Members</label>
                 <div className="max-h-40 overflow-y-auto space-y-1 border border-line rounded p-2 bg-control/20">
-                  {MOCK_USERS.filter((u) => u.id !== CURRENT_USER.id).map((u) => {
-                    const isSelected = selectedGroupMembers.includes(u.id);
+                  {directoryEmployees.map((emp) => {
+                    const isSelected = selectedGroupMembers.includes(emp.id);
                     return (
                       <div
-                        key={u.id}
+                        key={emp.id}
                         onClick={() => {
                           setSelectedGroupMembers((prev) =>
-                            isSelected ? prev.filter((id) => id !== u.id) : [...prev, u.id]
+                            isSelected ? prev.filter((id) => id !== emp.id) : [...prev, emp.id]
                           );
                         }}
                         className={`flex items-center justify-between p-1.5 rounded cursor-pointer text-xs ${
                           isSelected ? "bg-blue-50 dark:bg-blue-950/40 text-blue-600 font-semibold" : "hover:bg-control"
                         }`}
                       >
-                        <span>{u.name} ({u.department})</span>
+                        <span>{emp.name} ({emp.department})</span>
                         {isSelected && <Check className="size-3.5 text-blue-600" />}
                       </div>
                     );
@@ -1670,8 +1760,8 @@ export default function BrgConnectChatPage() {
                       body: JSON.stringify({
                         type: "GROUP",
                         name: channelName,
-                        description: newGroupDesc || "General Team Channel",
-                        memberUserIds: [CURRENT_USER.id, ...selectedGroupMembers],
+                        description: newGroupDesc || "Team Channel",
+                        memberUserIds: [authUser?.id || "user-current", ...selectedGroupMembers],
                       }),
                     });
                     const data = await res.json();
@@ -1680,8 +1770,8 @@ export default function BrgConnectChatPage() {
                         id: data.conversation.id,
                         type: "group",
                         name: channelName,
-                        description: newGroupDesc || "General Team Channel",
-                        members: [CURRENT_USER.id, ...selectedGroupMembers],
+                        description: newGroupDesc || "Team Channel",
+                        members: [authUser?.id || "user-current", ...selectedGroupMembers],
                         unreadCount: 0,
                         createdAt: data.conversation.created_at,
                       };

@@ -16,7 +16,6 @@ interface CallLogItem {
   id: string;
   userId: string;
   userName: string;
-  userAvatar: string;
   department: string;
   type: "audio" | "video";
   direction: "incoming" | "outgoing" | "missed";
@@ -25,61 +24,34 @@ interface CallLogItem {
   quality: "Excellent" | "Good";
 }
 
-const DEFAULT_CALL_LOGS: CallLogItem[] = [
-  {
-    id: "cl-1",
-    userId: "u-3",
-    userName: "Tanvir Ahmed",
-    userAvatar: "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=120",
-    department: "Inventory & Warehouse",
-    type: "audio",
-    direction: "outgoing",
-    durationSec: 215, // 3m 35s
-    timestamp: "Today, 09:40 AM",
-    quality: "Excellent",
-  },
-  {
-    id: "cl-2",
-    userId: "u-1",
-    userName: "Farhana Yeasmin",
-    userAvatar: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=120",
-    department: "Accounts & Finance",
-    type: "video",
-    direction: "incoming",
-    durationSec: 540, // 9m 00s
-    timestamp: "Yesterday, 04:15 PM",
-    quality: "Excellent",
-  },
-  {
-    id: "cl-3",
-    userId: "u-2",
-    userName: "Md. Rafiqul Islam",
-    userAvatar: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=120",
-    department: "Purchase & Procurement",
-    type: "audio",
-    direction: "missed",
-    durationSec: 0,
-    timestamp: "Yesterday, 02:20 PM",
-    quality: "Good",
-  },
-  {
-    id: "cl-4",
-    userId: "u-5",
-    userName: "Nazmul Huda",
-    userAvatar: "https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?w=120",
-    department: "POS Operations",
-    type: "audio",
-    direction: "incoming",
-    durationSec: 180,
-    timestamp: "Nov 01, 11:30 AM",
-    quality: "Good",
-  },
-];
+function getInitials(name?: string | null): string {
+  if (!name) return "U";
+  const parts = name.trim().split(/\s+/);
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
+function getAvatarBg(name?: string | null): string {
+  const colors = [
+    "bg-blue-600 text-white",
+    "bg-indigo-600 text-white",
+    "bg-emerald-600 text-white",
+    "bg-amber-600 text-white",
+    "bg-rose-600 text-white",
+    "bg-purple-600 text-white",
+    "bg-teal-600 text-white",
+  ];
+  if (!name) return colors[0];
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
+  const index = Math.abs(hash) % colors.length;
+  return colors[index];
+}
 
 export default function BrgConnectCallsPage() {
   const [filterType, setFilterType] = useState<"all" | "audio" | "video" | "missed">("all");
   const [search, setSearch] = useState("");
-  const [callLogs, setCallLogs] = useState<CallLogItem[]>(DEFAULT_CALL_LOGS);
+  const [callLogs, setCallLogs] = useState<CallLogItem[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 
   const fetchCalls = async () => {
@@ -87,7 +59,7 @@ export default function BrgConnectCallsPage() {
     try {
       const res = await fetch("/api/connect/calls");
       const data = await res.json();
-      if (data.success && Array.isArray(data.calls) && data.calls.length > 0) {
+      if (data.success && Array.isArray(data.calls)) {
         const mapped: CallLogItem[] = data.calls.map(
           (c: {
             id: string;
@@ -101,7 +73,6 @@ export default function BrgConnectCallsPage() {
             id: c.id,
             userId: c.conversationId,
             userName: c.conversationName || "Team Call",
-            userAvatar: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=120",
             department: "BridgeOne Connect",
             type: c.type?.toLowerCase() === "video" ? "video" : "audio",
             direction: c.status === "MISSED" ? "missed" : "outgoing",
@@ -110,10 +81,10 @@ export default function BrgConnectCallsPage() {
             quality: "Excellent",
           })
         );
-        setCallLogs([...mapped, ...DEFAULT_CALL_LOGS]);
+        setCallLogs(mapped);
       }
     } catch {
-      // Keep defaults
+      // Offline or network error
     } finally {
       setIsLoading(false);
     }
@@ -163,7 +134,7 @@ export default function BrgConnectCallsPage() {
             <span>Calls &amp; Meetings History</span>
           </h1>
           <p className="text-xs text-ink-muted mt-0.5">
-            Enterprise WebRTC audio and video calling records stored in Neon PostgreSQL.
+            Enterprise WebRTC audio and video calling records stored in Neon PostgreSQL database.
           </p>
         </div>
 
@@ -197,13 +168,13 @@ export default function BrgConnectCallsPage() {
         <div className="p-3.5 rounded-xl border border-line bg-surface">
           <span className="text-[11px] text-ink-muted block">Total Talk Time</span>
           <span className="text-xl font-bold font-mono text-blue-600 mt-1 block">
-            {Math.floor(callLogs.reduce((acc, c) => acc + c.durationSec, 0) / 60)}m 35s
+            {Math.floor(callLogs.reduce((acc, c) => acc + c.durationSec, 0) / 60)}m {callLogs.reduce((acc, c) => acc + c.durationSec, 0) % 60}s
           </span>
         </div>
         <div className="p-3.5 rounded-xl border border-line bg-surface">
           <span className="text-[11px] text-ink-muted block">Completed Rate</span>
           <span className="text-xl font-bold font-mono text-emerald-600 mt-1 block">
-            {Math.round((callLogs.filter((c) => c.direction !== "missed").length / Math.max(1, callLogs.length)) * 100)}%
+            {callLogs.length === 0 ? "0%" : `${Math.round((callLogs.filter((c) => c.direction !== "missed").length / Math.max(1, callLogs.length)) * 100)}%`}
           </span>
         </div>
         <div className="p-3.5 rounded-xl border border-line bg-surface">
@@ -245,78 +216,99 @@ export default function BrgConnectCallsPage() {
         </div>
       </div>
 
-      {/* Call Table */}
-      <div className="rounded-xl border border-line bg-surface overflow-hidden shadow-2xs">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs border-collapse whitespace-nowrap">
-            <thead className="bg-[#e0f2fe]/80 dark:bg-sky-950/40 text-slate-800 dark:text-slate-200 border-b border-line">
-              <tr>
-                <th className="p-3 w-12 text-center">Type</th>
-                <th className="p-3">Participant</th>
-                <th className="p-3">Department</th>
-                <th className="p-3">Call Time</th>
-                <th className="p-3 text-right">Duration</th>
-                <th className="p-3 text-center">Stream Quality</th>
-                <th className="p-3 text-center w-24">Action</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-line/60">
-              {filteredLogs.map((log) => {
-                const isMissed = log.direction === "missed";
-                return (
-                  <tr key={log.id} className="hover:bg-control/40 transition">
-                    <td className="p-3 text-center">
-                      {isMissed ? (
-                        <PhoneMissed className="size-4 text-rose-500 inline" />
-                      ) : log.direction === "incoming" ? (
-                        <PhoneIncoming className="size-4 text-emerald-600 inline" />
-                      ) : (
-                        <PhoneOutgoing className="size-4 text-blue-600 inline" />
-                      )}
-                    </td>
-                    <td className="p-3">
-                      <div className="flex items-center gap-2.5">
-                        <img
-                          src={log.userAvatar || "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=120"}
-                          alt={log.userName}
-                          className="size-7 rounded-full object-cover border border-line"
-                        />
-                        <div>
-                          <span className={`block font-semibold ${isMissed ? "text-rose-600" : "text-ink"}`}>
-                            {log.userName}
-                          </span>
-                          <span className="text-[10px] text-ink-muted capitalize">
-                            {log.type} Call ({log.direction})
-                          </span>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="p-3 text-ink-muted font-medium">{log.department}</td>
-                    <td className="p-3 font-mono text-ink-muted">{log.timestamp}</td>
-                    <td className="p-3 text-right font-mono font-bold text-ink">
-                      {formatDuration(log.durationSec)}
-                    </td>
-                    <td className="p-3 text-center">
-                      <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 border border-emerald-500/20">
-                        {log.quality} (Coturn P2P)
-                      </span>
-                    </td>
-                    <td className="p-3 text-center">
-                      <Link
-                        href="/connect"
-                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-control hover:bg-control/80 text-ink font-semibold text-[11px] transition"
-                      >
-                        <Phone className="size-3 text-emerald-600" />
-                        <span>Call Back</span>
-                      </Link>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+      {/* Call Table or Empty State */}
+      {filteredLogs.length === 0 ? (
+        <div className="p-12 text-center border border-dashed border-line rounded-xl bg-surface/50 space-y-3">
+          <PhoneCall className="size-10 text-ink-muted mx-auto" />
+          <h3 className="text-sm font-semibold text-ink">No call records found</h3>
+          <p className="text-xs text-ink-muted max-w-sm mx-auto">
+            {isLoading ? "Fetching call logs from database..." : "Start a 1-to-1 WebRTC audio or video call directly from any conversation or employee profile."}
+          </p>
+          <div className="pt-2">
+            <Link
+              href="/connect"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold"
+            >
+              <Phone className="size-3.5" />
+              <span>Go to Chat &amp; Start Call</span>
+            </Link>
+          </div>
         </div>
-      </div>
+      ) : (
+        <div className="rounded-xl border border-line bg-surface overflow-hidden shadow-2xs">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs border-collapse whitespace-nowrap">
+              <thead className="bg-[#e0f2fe]/80 dark:bg-sky-950/40 text-slate-800 dark:text-slate-200 border-b border-line">
+                <tr>
+                  <th className="p-3 w-12 text-center">Type</th>
+                  <th className="p-3">Participant</th>
+                  <th className="p-3">Department</th>
+                  <th className="p-3">Call Time</th>
+                  <th className="p-3 text-right">Duration</th>
+                  <th className="p-3 text-center">Stream Quality</th>
+                  <th className="p-3 text-center w-24">Action</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-line/60">
+                {filteredLogs.map((log) => {
+                  const isMissed = log.direction === "missed";
+                  return (
+                    <tr key={log.id} className="hover:bg-control/40 transition">
+                      <td className="p-3 text-center">
+                        {isMissed ? (
+                          <PhoneMissed className="size-4 text-rose-500 inline" />
+                        ) : log.direction === "incoming" ? (
+                          <PhoneIncoming className="size-4 text-emerald-600 inline" />
+                        ) : (
+                          <PhoneOutgoing className="size-4 text-blue-600 inline" />
+                        )}
+                      </td>
+                      <td className="p-3">
+                        <div className="flex items-center gap-2.5">
+                          <div
+                            className={`size-7 rounded-full flex items-center justify-center font-bold text-[11px] shrink-0 ${getAvatarBg(
+                              log.userName
+                            )}`}
+                          >
+                            {getInitials(log.userName)}
+                          </div>
+                          <div>
+                            <span className={`block font-semibold ${isMissed ? "text-rose-600" : "text-ink"}`}>
+                              {log.userName}
+                            </span>
+                            <span className="text-[10px] text-ink-muted capitalize">
+                              {log.type} Call ({log.direction})
+                            </span>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="p-3 text-ink-muted font-medium">{log.department}</td>
+                      <td className="p-3 font-mono text-ink-muted">{log.timestamp}</td>
+                      <td className="p-3 text-right font-mono font-bold text-ink">
+                        {formatDuration(log.durationSec)}
+                      </td>
+                      <td className="p-3 text-center">
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 border border-emerald-500/20">
+                          {log.quality} (Coturn P2P)
+                        </span>
+                      </td>
+                      <td className="p-3 text-center">
+                        <Link
+                          href="/connect"
+                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-control hover:bg-control/80 text-ink font-semibold text-[11px] transition"
+                        >
+                          <Phone className="size-3 text-emerald-600" />
+                          <span>Call Back</span>
+                        </Link>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

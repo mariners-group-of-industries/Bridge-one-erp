@@ -17,3 +17,4 @@ export function getConnectPool(): Pool {
   }
   return pool;
 }
+

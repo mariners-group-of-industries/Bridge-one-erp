@@ -45,3 +45,4 @@ export async function GET(req: Request) {
     return NextResponse.json({ success: false, error: "Failed to fetch directory" }, { status: 500 });
   }
 }
+
