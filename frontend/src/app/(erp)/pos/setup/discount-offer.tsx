@@ -4,7 +4,6 @@ import React, { useState, useMemo, useEffect } from "react";
 import {
   ArrowLeft,
   Plus,
-  Pencil,
   Search,
   CheckCircle,
   Calendar,
@@ -14,7 +13,6 @@ import {
   Printer,
   FileSpreadsheet,
   Paperclip,
-  X,
 } from "lucide-react";
 
 export type DiscountOfferTab =
@@ -143,6 +141,11 @@ interface PointRedemptionRecord {
   totalIssuedPoint: number;
   totalAmount: number;
   status: "Active" | "Inactive";
+}
+
+/** Timestamp helper for generated IDs/codes (called only from event handlers). */
+function nowMs(): number {
+  return Date.now();
 }
 
 interface DiscountOfferSectionProps {
@@ -319,7 +322,9 @@ export function DiscountOfferSection({ onBack }: DiscountOfferSectionProps) {
     if (typeof window !== "undefined") {
       try {
         localStorage.setItem("erp_pos_special_discounts_v1", JSON.stringify(items));
-      } catch (e) {}
+      } catch {
+        /* ignore quota errors */
+      }
     }
   };
 
@@ -328,7 +333,9 @@ export function DiscountOfferSection({ onBack }: DiscountOfferSectionProps) {
     if (typeof window !== "undefined") {
       try {
         localStorage.setItem("erp_pos_product_discounts_v1", JSON.stringify(items));
-      } catch (e) {}
+      } catch {
+        /* ignore quota errors */
+      }
     }
   };
 
@@ -337,7 +344,9 @@ export function DiscountOfferSection({ onBack }: DiscountOfferSectionProps) {
     if (typeof window !== "undefined") {
       try {
         localStorage.setItem("erp_pos_general_offers_v1", JSON.stringify(items));
-      } catch (e) {}
+      } catch {
+        /* ignore quota errors */
+      }
     }
   };
 
@@ -346,7 +355,9 @@ export function DiscountOfferSection({ onBack }: DiscountOfferSectionProps) {
     if (typeof window !== "undefined") {
       try {
         localStorage.setItem("erp_pos_vat_discounts_v1", JSON.stringify(items));
-      } catch (e) {}
+      } catch {
+        /* ignore quota errors */
+      }
     }
   };
 
@@ -355,7 +366,9 @@ export function DiscountOfferSection({ onBack }: DiscountOfferSectionProps) {
     if (typeof window !== "undefined") {
       try {
         localStorage.setItem("erp_pos_vouchers_v1", JSON.stringify(items));
-      } catch (e) {}
+      } catch {
+        /* ignore quota errors */
+      }
     }
   };
 
@@ -364,7 +377,9 @@ export function DiscountOfferSection({ onBack }: DiscountOfferSectionProps) {
     if (typeof window !== "undefined") {
       try {
         localStorage.setItem("erp_pos_point_offers_v1", JSON.stringify(items));
-      } catch (e) {}
+      } catch {
+        /* ignore quota errors */
+      }
     }
   };
 
@@ -373,24 +388,46 @@ export function DiscountOfferSection({ onBack }: DiscountOfferSectionProps) {
     if (typeof window !== "undefined") {
       try {
         localStorage.setItem("erp_pos_point_redemptions_v1", JSON.stringify(items));
-      } catch (e) {}
+      } catch {
+        /* ignore quota errors */
+      }
     }
   };
 
-  // Special Discount Form
+  // -------------------------------------------------------------
+  // 1. Special Discount Form State
+  // -------------------------------------------------------------
   const [spdIsActive, setSpdIsActive] = useState(true);
+  const [spdIsOpen, setSpdIsOpen] = useState(false);
+  const [spdIsItemWiseOpen, setSpdIsItemWiseOpen] = useState(false);
+  const [spdIsOnlyDiscount, setSpdIsOnlyDiscount] = useState(false);
+  const [spdIsAutoApplied, setSpdIsAutoApplied] = useState(false);
+
   const [spdOfferName, setSpdOfferName] = useState("");
   const [spdOffice, setSpdOffice] = useState("Marinozz");
   const [spdCounter, setSpdCounter] = useState("Counter 01");
-  const [spdStartDate, setSpdStartDate] = useState("01/11/2026 01:00 PM");
-  const [spdEndDate, setSpdEndDate] = useState("01/11/2026 01:00 PM");
+  const [spdStartDate, setSpdStartDate] = useState("2026-11-01 01:00 PM");
+  const [spdEndDate, setSpdEndDate] = useState("2026-11-30 11:00 PM");
   const [spdRemarks, setSpdRemarks] = useState("");
+
   const [spdDiscountBy, setSpdDiscountBy] = useState("Percentage");
   const [spdDiscountValue, setSpdDiscountValue] = useState("");
   const [spdFromAmount, setSpdFromAmount] = useState("");
   const [spdToAmount, setSpdToAmount] = useState("");
 
-  // Product Discount Form
+  const [spdReqComment, setSpdReqComment] = useState(false);
+  const [spdReqApproval, setSpdReqApproval] = useState(false);
+  const [spdIsCapped, setSpdIsCapped] = useState(false);
+  const [spdDailyLimit, setSpdDailyLimit] = useState("");
+  const [spdScheduleDays, setSpdScheduleDays] = useState<string[]>([]);
+
+  const [spdCustomerGroup, setSpdCustomerGroup] = useState("All");
+  const [spdSelectedCustomer, setSpdSelectedCustomer] = useState("");
+  const [spdCustomerList, setSpdCustomerList] = useState<string[]>([]);
+
+  // -------------------------------------------------------------
+  // 2. Product Discount Form State
+  // -------------------------------------------------------------
   const [pddOfferName, setPddOfferName] = useState("");
   const [pddOffice, setPddOffice] = useState("Marinozz");
   const [pddPaymentType, setPddPaymentType] = useState("All");
@@ -398,7 +435,36 @@ export function DiscountOfferSection({ onBack }: DiscountOfferSectionProps) {
   const [pddEndTime, setPddEndTime] = useState("30/11/2026 11:59 PM");
   const [pddRemarks, setPddRemarks] = useState("");
 
-  // Offer Form
+  const [pddCustomerGroup, setPddCustomerGroup] = useState("All");
+  const [pddSelectedCustomer, setPddSelectedCustomer] = useState("");
+  const [pddCustomers, setPddCustomers] = useState<string[]>([]);
+
+  const [pddDiscountBy, setPddDiscountBy] = useState("Percentage");
+  const [pddPercentage, setPddPercentage] = useState("10");
+  const [pddSupplier, setPddSupplier] = useState("All");
+  const [pddCategory, setPddCategory] = useState("All");
+  const [pddSubCategory, setPddSubCategory] = useState("All");
+  const [pddMinorCategory, setPddMinorCategory] = useState("All");
+  const [pddBarcodeSearch, setPddBarcodeSearch] = useState("");
+  const [pddItems, setPddItems] = useState<
+    Array<{
+      id: number;
+      barcode: string;
+      itemName: string;
+      supplierName: string;
+      costPrice: number;
+      salesPrice: number;
+      currentStock: number;
+      offerName: string;
+      discountBy: string;
+      discountValue: string;
+      discountedPrice: number;
+    }>
+  >([]);
+
+  // -------------------------------------------------------------
+  // 3. Offer Form State
+  // -------------------------------------------------------------
   const [offOfferType, setOffOfferType] = useState("BOGO Offer");
   const [offOfferName, setOffOfferName] = useState("");
   const [offOutlet, setOffOutlet] = useState("Marinozz");
@@ -406,14 +472,26 @@ export function DiscountOfferSection({ onBack }: DiscountOfferSectionProps) {
   const [offFromDateTime, setOffFromDateTime] = useState("2026-11-01 12:00");
   const [offToDateTime, setOffToDateTime] = useState("2026-11-30 23:59");
 
-  // Vat Discount Form
+  // -------------------------------------------------------------
+  // 4. Vat Discount Form State
+  // -------------------------------------------------------------
   const [vatType, setVatType] = useState("Item");
   const [vatOffice, setVatOffice] = useState("Marinozz");
   const [vatStartTime, setVatStartTime] = useState("01/11/2026 01:54 PM");
   const [vatEndTime, setVatEndTime] = useState("30/11/2026 11:59 PM");
+  const [vatSupplier, setVatSupplier] = useState("All");
   const [vatCategory, setVatCategory] = useState("Food Items");
+  const [vatSubCategory, setVatSubCategory] = useState("All");
+  const [vatMinorCategory, setVatMinorCategory] = useState("All");
+  const [vatBarcode, setVatBarcode] = useState("");
+  const [vatItems, setVatItems] = useState<Array<{ id: number; barcode: string; category: string }>>([]);
+  const [vatExcludedCategory, setVatExcludedCategory] = useState("All");
+  const [vatExcludedBarcode, setVatExcludedBarcode] = useState("");
+  const [vatExcludedItems, setVatExcludedItems] = useState<Array<{ id: number; barcode: string; category: string }>>([]);
 
-  // Voucher Form
+  // -------------------------------------------------------------
+  // 5. Voucher Form State
+  // -------------------------------------------------------------
   const [vchType, setVchType] = useState("Gift Voucher");
   const [vchOutlet, setVchOutlet] = useState("Marinozz");
   const [vchActivationDate, setVchActivationDate] = useState("11/01/2026");
@@ -423,9 +501,29 @@ export function DiscountOfferSection({ onBack }: DiscountOfferSectionProps) {
   const [vchCount, setVchCount] = useState("1");
   const [vchMinSaleAmt, setVchMinSaleAmt] = useState("1000");
   const [vchCode, setVchCode] = useState("20Vpot2e");
+  const [vchPrefixRange, setVchPrefixRange] = useState(false);
+  const [vchIsOpenSales, setVchIsOpenSales] = useState(false);
   const [vchAmount, setVchAmount] = useState("500");
+  const [vchDraftItems, setVchDraftItems] = useState<
+    Array<{
+      id: string;
+      voucherType: string;
+      outlet: string;
+      activationDate: string;
+      expiryDate: string;
+      customerGroup: string;
+      customer: string;
+      count: number;
+      minSaleAmt: number;
+      isOpenSales: boolean;
+      voucherCode: string;
+      amount: number;
+    }>
+  >([]);
 
-  // Point Offer Form (Image 2)
+  // -------------------------------------------------------------
+  // 6. Point Offer Form State
+  // -------------------------------------------------------------
   const [poOfferName, setPoOfferName] = useState("");
   const [poOffice, setPoOffice] = useState("Marinozz");
   const [poStartDate, setPoStartDate] = useState("11/01/2026");
@@ -439,7 +537,9 @@ export function DiscountOfferSection({ onBack }: DiscountOfferSectionProps) {
   const [poExcludedItem, setPoExcludedItem] = useState("");
   const [poExcludedItems, setPoExcludedItems] = useState<Array<{ id: number; barcode: string; name: string }>>([]);
 
-  // Point Redemption Form (Image 4)
+  // -------------------------------------------------------------
+  // 7. Point Redemption Form State
+  // -------------------------------------------------------------
   const [prRedemptionType, setPrRedemptionType] = useState("Cash Voucher");
   const [prOffice, setPrOffice] = useState("Marinozz");
   const [prWarehouse, setPrWarehouse] = useState("Central Warehouse");
@@ -455,6 +555,8 @@ export function DiscountOfferSection({ onBack }: DiscountOfferSectionProps) {
   const [filterOffice, setFilterOffice] = useState("All");
   const [filterStatus, setFilterStatus] = useState("All");
   const [searchQuery, setSearchQuery] = useState("");
+  const [appliedOffice, setAppliedOffice] = useState("All");
+  const [appliedStatus, setAppliedStatus] = useState("All");
 
   // Clean Branded Empty State: BridgeOne (Replacing Legacy "AKIJ iBOS")
   const renderBridgeOneEmptyState = (label = "No Data Found") => (
@@ -469,6 +571,1518 @@ export function DiscountOfferSection({ onBack }: DiscountOfferSectionProps) {
     </div>
   );
 
+  const filteredSpecialDiscounts = useMemo(
+    () =>
+      specialDiscounts.filter(
+        (r) =>
+          (appliedOffice === "All" || r.officeName === appliedOffice) &&
+          (appliedStatus === "All" || r.status === appliedStatus)
+      ),
+    [specialDiscounts, appliedOffice, appliedStatus]
+  );
+
+  const renderToast = () =>
+    toast && (
+      <div className="fixed bottom-6 right-6 z-50 flex items-center gap-2.5 px-4 py-2.5 rounded-lg bg-slate-900 text-white text-xs font-semibold shadow-xl border border-slate-700">
+        <CheckCircle className="size-4 text-emerald-400" />
+        <span>{toast}</span>
+      </div>
+    );
+
+  const inputCls =
+    "w-full h-9 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500";
+  const labelCls = "block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1";
+  const addBtnCls =
+    "h-9 px-6 bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs rounded shadow-xs transition cursor-pointer";
+  const saveBtnCls =
+    "px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs rounded uppercase tracking-wider shadow-xs transition cursor-pointer";
+  const cardCls =
+    "rounded border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 shadow-2xs space-y-4";
+  const theadCls =
+    "bg-[#e0f2fe]/80 dark:bg-sky-950/40 text-slate-800 dark:text-slate-200 border-b border-slate-200 dark:border-slate-800";
+
+  const renderCreateHeader = (title: string, onClose: () => void, onSave: (e: React.FormEvent) => void) => (
+    <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-800">
+      <div className="flex items-center gap-3">
+        <button
+          type="button"
+          onClick={onClose}
+          className="text-slate-700 dark:text-slate-200 hover:text-blue-600 transition p-1 cursor-pointer"
+          title="Back"
+        >
+          <ArrowLeft className="size-5" />
+        </button>
+        <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100">{title}</h1>
+      </div>
+      <button type="button" onClick={onSave} className={saveBtnCls}>
+        SAVE
+      </button>
+    </div>
+  );
+
+  // -------------------------------------------------------------
+  // VIEW 1: Create Special Discount
+  // -------------------------------------------------------------
+  if (isCreatingSpecial) {
+    const handleSaveSpecialDiscount = (e: React.FormEvent) => {
+      e.preventDefault();
+      if (!spdOfferName.trim()) {
+        showToast("Offer Name is required!");
+        return;
+      }
+      if (!spdDiscountValue.trim()) {
+        showToast("Discount value is required!");
+        return;
+      }
+      const [fromDate, ...fromRest] = spdStartDate.trim().split(" ");
+      const [toDate, ...toRest] = spdEndDate.trim().split(" ");
+
+      const newRecord: SpecialDiscountRecord = {
+        id: `spd-${nowMs()}`,
+        offerName: spdOfferName.trim(),
+        officeName: spdOffice,
+        amountOrPercentage:
+          spdDiscountBy === "Percentage" ? `${spdDiscountValue}%` : `${spdDiscountValue} ৳`,
+        minAmount: Number(spdFromAmount) || 0,
+        maxAmount: Number(spdToAmount) || 0,
+        fromDate: fromDate || "",
+        toDate: toDate || "",
+        startTime: fromRest.join(" ") || "-",
+        endTime: toRest.join(" ") || "-",
+        isOnlyDiscountApplied: spdIsOnlyDiscount,
+        isAutoApplied: spdIsAutoApplied,
+        isRequiredApproval: spdReqApproval,
+        status: spdIsActive ? "Active" : "Inactive",
+      };
+
+      saveSpecial([newRecord, ...specialDiscounts]);
+      showToast(`Special Discount "${newRecord.offerName}" saved successfully`);
+      setSpdOfferName("");
+      setSpdDiscountValue("");
+      setSpdFromAmount("");
+      setSpdToAmount("");
+      setSpdRemarks("");
+      setSpdCustomerList([]);
+      setIsCreatingSpecial(false);
+    };
+
+    return (
+      <div className="min-h-[calc(100vh-3.5rem)] bg-white dark:bg-slate-950 p-4 sm:p-6 space-y-4">
+        {renderCreateHeader("Special Discount", () => setIsCreatingSpecial(false), handleSaveSpecialDiscount)}
+
+        <form
+          onSubmit={handleSaveSpecialDiscount}
+          className="rounded border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 shadow-2xs space-y-6"
+        >
+          <h2 className="text-center font-bold text-sm text-slate-800 dark:text-slate-200">
+            Special Discount Offer Setup
+          </h2>
+
+          <div className="flex items-center justify-start gap-8 flex-wrap pt-2 text-xs font-semibold text-slate-700 dark:text-slate-300">
+            {[
+              { label: "Is Active", checked: spdIsActive, set: setSpdIsActive },
+              { label: "Is Open", checked: spdIsOpen, set: setSpdIsOpen },
+              { label: "Is Item Wise Open Discount", checked: spdIsItemWiseOpen, set: setSpdIsItemWiseOpen },
+              { label: "Is Only Discount Applied", checked: spdIsOnlyDiscount, set: setSpdIsOnlyDiscount },
+              { label: "Is Auto Applied", checked: spdIsAutoApplied, set: setSpdIsAutoApplied },
+            ].map((cb) => (
+              <label key={cb.label} className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={cb.checked}
+                  onChange={(e) => cb.set(e.target.checked)}
+                  className="size-4 text-blue-600 rounded"
+                />
+                <span>{cb.label}</span>
+              </label>
+            ))}
+          </div>
+
+          <div className="space-y-4 pt-2">
+            <h3 className="text-xs font-bold text-slate-900 dark:text-slate-100">Discount &amp; Offer Setup</h3>
+
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <div>
+                <label className={labelCls}>
+                  Offer Name <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  placeholder="Offer Name"
+                  value={spdOfferName}
+                  onChange={(e) => setSpdOfferName(e.target.value)}
+                  className={inputCls}
+                />
+              </div>
+              <div>
+                <label className={labelCls}>
+                  Office <span className="text-red-500">*</span>
+                </label>
+                <select value={spdOffice} onChange={(e) => setSpdOffice(e.target.value)} className={inputCls}>
+                  <option value="Marinozz">Marinozz</option>
+                  <option value="Head Office">Head Office</option>
+                </select>
+              </div>
+              <div>
+                <label className={labelCls}>
+                  Counter <span className="text-red-500">*</span>
+                </label>
+                <select value={spdCounter} onChange={(e) => setSpdCounter(e.target.value)} className={inputCls}>
+                  <option value="Counter 01">Counter 01</option>
+                  <option value="Counter 02">Counter 02</option>
+                </select>
+              </div>
+              <div>
+                <label className={labelCls}>
+                  Start Date <span className="text-red-500">*</span>
+                </label>
+                <div className="relative">
+                  <input
+                    type="text"
+                    placeholder="yyyy-mm-dd hh:mm AM"
+                    value={spdStartDate}
+                    onChange={(e) => setSpdStartDate(e.target.value)}
+                    className={`${inputCls} pr-8 font-mono`}
+                  />
+                  <Calendar className="size-4 text-slate-400 absolute right-2.5 top-2.5 pointer-events-none" />
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-start">
+              <div>
+                <label className={labelCls}>
+                  End Date <span className="text-red-500">*</span>
+                </label>
+                <div className="relative">
+                  <input
+                    type="text"
+                    placeholder="yyyy-mm-dd hh:mm PM"
+                    value={spdEndDate}
+                    onChange={(e) => setSpdEndDate(e.target.value)}
+                    className={`${inputCls} pr-8 font-mono`}
+                  />
+                  <Calendar className="size-4 text-slate-400 absolute right-2.5 top-2.5 pointer-events-none" />
+                </div>
+              </div>
+              <div>
+                <label className={labelCls}>Remarks</label>
+                <input
+                  type="text"
+                  placeholder="Remarks"
+                  value={spdRemarks}
+                  onChange={(e) => setSpdRemarks(e.target.value)}
+                  className={inputCls}
+                />
+              </div>
+              <div className="flex flex-col">
+                <label className={`${labelCls} opacity-0`}>Attachment</label>
+                <button
+                  type="button"
+                  onClick={() => showToast("Attachment selector opened")}
+                  className="h-9 rounded bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 border border-slate-200 dark:border-slate-700 flex items-center justify-center text-xs text-slate-600 dark:text-slate-300 font-medium cursor-pointer"
+                >
+                  <Paperclip className="size-4 mr-1.5" />
+                  <span>Attachment</span>
+                </button>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <div>
+                <label className={labelCls}>
+                  Discount By <span className="text-red-500">*</span>
+                </label>
+                <select value={spdDiscountBy} onChange={(e) => setSpdDiscountBy(e.target.value)} className={inputCls}>
+                  <option value="Percentage">Percentage</option>
+                  <option value="Fixed Amount">Fixed Amount</option>
+                </select>
+              </div>
+              <div>
+                <label className={labelCls}>
+                  Discount <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="number"
+                  placeholder="Discount"
+                  value={spdDiscountValue}
+                  onChange={(e) => setSpdDiscountValue(e.target.value)}
+                  className={`${inputCls} font-mono`}
+                />
+              </div>
+              <div>
+                <label className={labelCls}>
+                  From Amount <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="number"
+                  placeholder="From Amount"
+                  value={spdFromAmount}
+                  onChange={(e) => setSpdFromAmount(e.target.value)}
+                  className={`${inputCls} font-mono`}
+                />
+              </div>
+              <div>
+                <label className={labelCls}>
+                  To Amount <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="number"
+                  placeholder="To Amount"
+                  value={spdToAmount}
+                  onChange={(e) => setSpdToAmount(e.target.value)}
+                  className={`${inputCls} font-mono`}
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center gap-6 pt-2 text-xs font-semibold text-slate-700 dark:text-slate-300">
+              {[
+                { label: "Required Comment", checked: spdReqComment, set: setSpdReqComment },
+                { label: "Required Approval", checked: spdReqApproval, set: setSpdReqApproval },
+                { label: "Is Capped", checked: spdIsCapped, set: setSpdIsCapped },
+              ].map((cb) => (
+                <label key={cb.label} className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={cb.checked}
+                    onChange={(e) => cb.set(e.target.checked)}
+                    className="size-4 text-blue-600 rounded"
+                  />
+                  <span>{cb.label}</span>
+                </label>
+              ))}
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-start pt-2">
+              <div>
+                <label className={labelCls}>Daily Limit</label>
+                <input
+                  type="number"
+                  placeholder="Daily Limit"
+                  value={spdDailyLimit}
+                  onChange={(e) => setSpdDailyLimit(e.target.value)}
+                  className={`${inputCls} font-mono`}
+                />
+              </div>
+              <div className="md:col-span-2">
+                <label className={labelCls}>Schedule Day</label>
+                <div className="flex items-center gap-4 flex-wrap text-xs text-slate-700 dark:text-slate-300 pt-2">
+                  {["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"].map((day) => (
+                    <label key={day} className="flex items-center gap-1.5 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={spdScheduleDays.includes(day)}
+                        onChange={(e) => {
+                          if (e.target.checked) setSpdScheduleDays([...spdScheduleDays, day]);
+                          else setSpdScheduleDays(spdScheduleDays.filter((d) => d !== day));
+                        }}
+                        className="size-3.5 text-blue-600 rounded"
+                      />
+                      <span>{day}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <label className={labelCls}>Include Time</label>
+                <div className="flex items-center gap-2">
+                  <input type="time" className={`${inputCls} px-2 font-mono`} />
+                  <span className="text-slate-400">-</span>
+                  <input type="time" className={`${inputCls} px-2 font-mono`} />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 space-y-4">
+            <h3 className="text-xs font-bold text-slate-900 dark:text-slate-100">Customer Setup</h3>
+
+            <div className="flex items-end gap-4 flex-wrap">
+              <div className="w-64">
+                <label className={labelCls}>Customer Group</label>
+                <select
+                  value={spdCustomerGroup}
+                  onChange={(e) => setSpdCustomerGroup(e.target.value)}
+                  className={inputCls}
+                >
+                  <option value="All">All Groups</option>
+                  <option value="VIP">VIP Customers</option>
+                  <option value="Regular">Regular</option>
+                  <option value="Corporate">Corporate</option>
+                </select>
+              </div>
+              <div className="w-80">
+                <label className={labelCls}>Select Customer</label>
+                <select
+                  value={spdSelectedCustomer}
+                  onChange={(e) => setSpdSelectedCustomer(e.target.value)}
+                  className={inputCls}
+                >
+                  <option value="">Select/Search Customer (min 3 letters)</option>
+                  <option value="Tanvir Ahmed (01711000000)">Tanvir Ahmed (01711000000)</option>
+                  <option value="Sadia Islam (01822000000)">Sadia Islam (01822000000)</option>
+                  <option value="Kamal Hossain (01933000000)">Kamal Hossain (01933000000)</option>
+                </select>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  if (!spdSelectedCustomer) {
+                    showToast("Please select a customer");
+                    return;
+                  }
+                  if (spdCustomerList.includes(spdSelectedCustomer)) {
+                    showToast("Customer already added");
+                    return;
+                  }
+                  setSpdCustomerList([...spdCustomerList, spdSelectedCustomer]);
+                  setSpdSelectedCustomer("");
+                  showToast("Customer added");
+                }}
+                className={addBtnCls}
+              >
+                Add
+              </button>
+            </div>
+
+            {spdCustomerList.length === 0 ? (
+              renderBridgeOneEmptyState("No Data Found")
+            ) : (
+              <div className="rounded border border-slate-200 dark:border-slate-800 overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead className={theadCls}>
+                    <tr>
+                      <th className="p-2.5 w-16">SL</th>
+                      <th className="p-2.5">Customer Name &amp; Contact</th>
+                      <th className="p-2.5 text-center w-20">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                    {spdCustomerList.map((cust, idx) => (
+                      <tr key={cust}>
+                        <td className="p-2.5 text-slate-500">{idx + 1}</td>
+                        <td className="p-2.5 font-medium">{cust}</td>
+                        <td className="p-2.5 text-center">
+                          <button
+                            type="button"
+                            onClick={() => setSpdCustomerList(spdCustomerList.filter((c) => c !== cust))}
+                            className="text-rose-500 hover:text-rose-700 cursor-pointer"
+                          >
+                            <Trash2 className="size-4 inline" />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </form>
+
+        {renderToast()}
+      </div>
+    );
+  }
+
+  // -------------------------------------------------------------
+  // VIEW 2: Create Product Discount
+  // -------------------------------------------------------------
+  if (isCreatingProduct) {
+    const handleSaveProductDiscount = (e: React.FormEvent) => {
+      e.preventDefault();
+      if (!pddOfferName.trim()) {
+        showToast("Offer Name is required!");
+        return;
+      }
+
+      const newRecord: ProductDiscountRecord = {
+        id: `pdd-${nowMs()}`,
+        offerCode: `DISC-PRD-${String(nowMs()).slice(-4)}`,
+        offerName: pddOfferName.trim(),
+        remarks: pddRemarks.trim() || "N/A",
+        office: pddOffice,
+        timePeriod: `${pddStartTime.slice(0, 10)} - ${pddEndTime.slice(0, 10)}`,
+        isVatDiscount: false,
+        createdBy: "Admin User",
+        createdDate: new Date().toISOString().slice(0, 10),
+        modifiedDate: new Date().toISOString().slice(0, 10),
+        status: "Active",
+      };
+
+      saveProduct([newRecord, ...productDiscounts]);
+      showToast(`Product Discount "${newRecord.offerName}" saved successfully`);
+      setPddOfferName("");
+      setPddRemarks("");
+      setPddCustomers([]);
+      setPddItems([]);
+      setIsCreatingProduct(false);
+    };
+
+    const handleAddProductItem = () => {
+      const pct = Number(pddPercentage) || 0;
+      if (pct <= 0) {
+        showToast("Please enter a valid discount value");
+        return;
+      }
+      const salesPrice = 300;
+      const discountedPrice =
+        pddDiscountBy === "Percentage"
+          ? Math.round(salesPrice * (1 - pct / 100))
+          : Math.max(0, salesPrice - pct);
+      setPddItems([
+        ...pddItems,
+        {
+          id: nowMs(),
+          barcode: pddBarcodeSearch.trim() || `89411${String(nowMs()).slice(-6)}`,
+          itemName: pddCategory !== "All" ? `${pddCategory} Special` : "Chicken Fried Rice",
+          supplierName: pddSupplier !== "All" ? pddSupplier : "Marinozz Kitchen",
+          costPrice: 180,
+          salesPrice,
+          currentStock: 50,
+          offerName: pddOfferName.trim() || "Product Offer",
+          discountBy: pddDiscountBy,
+          discountValue: pddDiscountBy === "Percentage" ? `${pct}%` : `${pct} ৳`,
+          discountedPrice,
+        },
+      ]);
+      setPddBarcodeSearch("");
+      showToast("Item added to discount setup");
+    };
+
+    return (
+      <div className="min-h-[calc(100vh-3.5rem)] bg-white dark:bg-slate-950 p-4 sm:p-6 space-y-4">
+        {renderCreateHeader("Create Product Discount", () => setIsCreatingProduct(false), handleSaveProductDiscount)}
+
+        <div className={cardCls}>
+          <h3 className="text-xs font-bold text-slate-900 dark:text-slate-100">Product Discount Offer Setup</h3>
+
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div>
+              <label className={labelCls}>
+                Offer Name <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="text"
+                placeholder="Offer Name"
+                value={pddOfferName}
+                onChange={(e) => setPddOfferName(e.target.value)}
+                className={inputCls}
+              />
+            </div>
+            <div>
+              <label className={labelCls}>
+                Office <span className="text-red-500">*</span>
+              </label>
+              <select value={pddOffice} onChange={(e) => setPddOffice(e.target.value)} className={inputCls}>
+                <option value="Marinozz">Marinozz</option>
+                <option value="Head Office">Head Office</option>
+              </select>
+            </div>
+            <div>
+              <label className={labelCls}>
+                Payment Type <span className="text-red-500">*</span>
+              </label>
+              <select value={pddPaymentType} onChange={(e) => setPddPaymentType(e.target.value)} className={inputCls}>
+                <option value="All">All Payment Types</option>
+                <option value="Cash">Cash</option>
+                <option value="Card">Card</option>
+                <option value="MFS">MFS (Bkash/Nagad)</option>
+              </select>
+            </div>
+            <div>
+              <label className={labelCls}>
+                Start Time <span className="text-red-500">*</span>
+              </label>
+              <div className="relative">
+                <input
+                  type="text"
+                  value={pddStartTime}
+                  onChange={(e) => setPddStartTime(e.target.value)}
+                  className={`${inputCls} pr-8 font-mono`}
+                />
+                <Calendar className="size-4 text-slate-400 absolute right-2.5 top-2.5 pointer-events-none" />
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-start">
+            <div>
+              <label className={labelCls}>
+                End Time <span className="text-red-500">*</span>
+              </label>
+              <div className="relative">
+                <input
+                  type="text"
+                  placeholder="dd/mm/yyyy hh:mm (a|p)m"
+                  value={pddEndTime}
+                  onChange={(e) => setPddEndTime(e.target.value)}
+                  className={`${inputCls} pr-8 font-mono`}
+                />
+                <Calendar className="size-4 text-slate-400 absolute right-2.5 top-2.5 pointer-events-none" />
+              </div>
+            </div>
+            <div>
+              <label className={labelCls}>Remarks</label>
+              <input
+                type="text"
+                placeholder="Remarks"
+                value={pddRemarks}
+                onChange={(e) => setPddRemarks(e.target.value)}
+                className={inputCls}
+              />
+            </div>
+            <div>
+              <label className={`${labelCls} opacity-0`}>Attachment</label>
+              <button
+                type="button"
+                onClick={() => showToast("Attachment selector opened")}
+                className="h-9 px-4 rounded bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 border border-slate-200 dark:border-slate-700 flex items-center justify-center text-xs text-slate-600 dark:text-slate-300 font-medium cursor-pointer"
+              >
+                <Paperclip className="size-4 mr-1.5" />
+                <span>Attachment</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div className={cardCls}>
+          <h3 className="text-xs font-bold text-slate-900 dark:text-slate-100">Customer Setup</h3>
+
+          <div className="flex items-end gap-4 flex-wrap">
+            <div className="w-56">
+              <label className={labelCls}>Customer Group</label>
+              <select
+                value={pddCustomerGroup}
+                onChange={(e) => setPddCustomerGroup(e.target.value)}
+                className={inputCls}
+              >
+                <option value="All">Customer Group</option>
+                <option value="VIP">VIP</option>
+                <option value="Regular">Regular</option>
+              </select>
+            </div>
+            <div className="w-80">
+              <label className={labelCls}>Select Customer</label>
+              <select
+                value={pddSelectedCustomer}
+                onChange={(e) => setPddSelectedCustomer(e.target.value)}
+                className={inputCls}
+              >
+                <option value="">Select/Search Customer (min 3 letters)</option>
+                <option value="Tanvir Ahmed">Tanvir Ahmed</option>
+                <option value="Sadia Islam">Sadia Islam</option>
+              </select>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                if (!pddSelectedCustomer) {
+                  showToast("Please select a customer");
+                  return;
+                }
+                if (pddCustomers.includes(pddSelectedCustomer)) {
+                  showToast("Customer already added");
+                  return;
+                }
+                setPddCustomers([...pddCustomers, pddSelectedCustomer]);
+                setPddSelectedCustomer("");
+                showToast("Customer added");
+              }}
+              className={addBtnCls}
+            >
+              Add
+            </button>
+          </div>
+
+          {pddCustomers.length === 0 ? (
+            renderBridgeOneEmptyState("No Data Found")
+          ) : (
+            <div className="rounded border border-slate-200 dark:border-slate-800 overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className={theadCls}>
+                  <tr>
+                    <th className="p-2.5 w-16">SL</th>
+                    <th className="p-2.5">Customer Name</th>
+                    <th className="p-2.5 text-center w-20">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                  {pddCustomers.map((cust, idx) => (
+                    <tr key={cust}>
+                      <td className="p-2.5 text-slate-500">{idx + 1}</td>
+                      <td className="p-2.5 font-medium">{cust}</td>
+                      <td className="p-2.5 text-center">
+                        <button
+                          type="button"
+                          onClick={() => setPddCustomers(pddCustomers.filter((c) => c !== cust))}
+                          className="text-rose-500 hover:text-rose-700 cursor-pointer"
+                        >
+                          <Trash2 className="size-4 inline" />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
+        <div className={cardCls}>
+          <h3 className="text-xs font-bold text-slate-900 dark:text-slate-100">Item Setup</h3>
+
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div>
+              <label className={labelCls}>
+                Discount By <span className="text-red-500">*</span>
+              </label>
+              <select value={pddDiscountBy} onChange={(e) => setPddDiscountBy(e.target.value)} className={inputCls}>
+                <option value="Percentage">Percentage</option>
+                <option value="Fixed">Fixed Amount</option>
+              </select>
+            </div>
+            <div>
+              <label className={labelCls}>
+                {pddDiscountBy === "Percentage" ? "Percentage" : "Amount"} <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="number"
+                placeholder={pddDiscountBy === "Percentage" ? "Percentage" : "Amount"}
+                value={pddPercentage}
+                onChange={(e) => setPddPercentage(e.target.value)}
+                className={`${inputCls} font-mono`}
+              />
+            </div>
+            <div>
+              <label className={labelCls}>Supplier</label>
+              <select value={pddSupplier} onChange={(e) => setPddSupplier(e.target.value)} className={inputCls}>
+                <option value="All">Select/Search Supplier (min 3 letters)</option>
+                <option value="Fresh Agro Ltd">Fresh Agro Ltd</option>
+                <option value="Dairy Farm Supplies">Dairy Farm Supplies</option>
+              </select>
+            </div>
+            <div>
+              <label className={labelCls}>
+                Category <span className="text-red-500">*</span>
+              </label>
+              <select value={pddCategory} onChange={(e) => setPddCategory(e.target.value)} className={inputCls}>
+                <option value="All">Category</option>
+                <option value="Appetizers">Appetizers</option>
+                <option value="Main Course">Main Course</option>
+                <option value="Beverages">Beverages</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+            <div>
+              <label className={labelCls}>Sub Category</label>
+              <select value={pddSubCategory} onChange={(e) => setPddSubCategory(e.target.value)} className={inputCls}>
+                <option value="All">Select Sub Category</option>
+              </select>
+            </div>
+            <div>
+              <label className={labelCls}>Minor Category</label>
+              <select
+                value={pddMinorCategory}
+                onChange={(e) => setPddMinorCategory(e.target.value)}
+                className={inputCls}
+              >
+                <option value="All">Select Minor Category</option>
+              </select>
+            </div>
+            <div>
+              <label className={labelCls}>
+                Item <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="text"
+                placeholder="Search With Barcode"
+                value={pddBarcodeSearch}
+                onChange={(e) => setPddBarcodeSearch(e.target.value)}
+                className={`${inputCls} font-mono`}
+              />
+            </div>
+            <div>
+              <button type="button" onClick={handleAddProductItem} className={addBtnCls}>
+                Add
+              </button>
+            </div>
+          </div>
+
+          <div className="pt-4 border-t border-slate-100 dark:border-slate-800 space-y-3">
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => showToast("Template downloaded")}
+                className="h-8 px-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs rounded flex items-center gap-1.5 shadow-xs cursor-pointer"
+              >
+                <Download className="size-3.5" />
+                <span>DOWNLOAD</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => showToast("Upload dialog opened")}
+                className="h-8 px-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs rounded flex items-center gap-1.5 shadow-xs cursor-pointer"
+              >
+                <Upload className="size-3.5" />
+                <span>UPLOAD</span>
+              </button>
+            </div>
+
+            <div className="rounded border border-slate-200 dark:border-slate-800 overflow-x-auto">
+              <table className="w-full text-left text-xs whitespace-nowrap">
+                <thead className={theadCls}>
+                  <tr>
+                    <th className="p-2.5">SL</th>
+                    <th className="p-2.5">Barcode</th>
+                    <th className="p-2.5">Item Name</th>
+                    <th className="p-2.5">Supplier Name</th>
+                    <th className="p-2.5">Cost Price</th>
+                    <th className="p-2.5">Sales Price</th>
+                    <th className="p-2.5">Current Stock</th>
+                    <th className="p-2.5">Offer Name</th>
+                    <th className="p-2.5">Discount By</th>
+                    <th className="p-2.5">Discount Value</th>
+                    <th className="p-2.5">Discounted Price</th>
+                    <th className="p-2.5 text-center">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                  {pddItems.map((it, idx) => (
+                    <tr key={it.id}>
+                      <td className="p-2.5 text-slate-500">{idx + 1}</td>
+                      <td className="p-2.5 font-mono">{it.barcode}</td>
+                      <td className="p-2.5 font-medium">{it.itemName}</td>
+                      <td className="p-2.5">{it.supplierName}</td>
+                      <td className="p-2.5 font-mono">{it.costPrice}</td>
+                      <td className="p-2.5 font-mono">{it.salesPrice}</td>
+                      <td className="p-2.5 font-mono">{it.currentStock}</td>
+                      <td className="p-2.5">{it.offerName}</td>
+                      <td className="p-2.5">{it.discountBy}</td>
+                      <td className="p-2.5 font-mono font-bold text-blue-600">{it.discountValue}</td>
+                      <td className="p-2.5 font-mono font-bold text-emerald-700">{it.discountedPrice}</td>
+                      <td className="p-2.5 text-center">
+                        <button
+                          type="button"
+                          onClick={() => setPddItems(pddItems.filter((x) => x.id !== it.id))}
+                          className="text-rose-500 hover:text-rose-700 cursor-pointer"
+                        >
+                          <Trash2 className="size-4 inline" />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                  {pddItems.length === 0 && (
+                    <tr>
+                      <td colSpan={12} className="p-8">
+                        {renderBridgeOneEmptyState("No Data Found")}
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        {renderToast()}
+      </div>
+    );
+  }
+
+  // -------------------------------------------------------------
+  // VIEW 3: Create Offer And Discount
+  // -------------------------------------------------------------
+  if (isCreatingOffer) {
+    const handleSaveOffer = (e: React.FormEvent) => {
+      e.preventDefault();
+      if (!offOfferName.trim()) {
+        showToast("Offer Name is required!");
+        return;
+      }
+      const newOffer: GeneralOfferRecord = {
+        id: `off-${nowMs()}`,
+        createDate: new Date().toISOString().slice(0, 10),
+        officeName: offOutlet,
+        offerCode: `OFF-${String(nowMs()).slice(-4)}`,
+        offerName: offOfferName.trim(),
+        offerType: offOfferType,
+        fromDateTime: offFromDateTime,
+        toDateTime: offToDateTime,
+        customerGroup: offCustomerGroup,
+        status: "Active",
+      };
+      saveOffers([newOffer, ...generalOffers]);
+      showToast(`Offer "${newOffer.offerName}" created successfully`);
+      setOffOfferName("");
+      setIsCreatingOffer(false);
+    };
+
+    return (
+      <div className="min-h-[calc(100vh-3.5rem)] bg-white dark:bg-slate-950 p-4 sm:p-6 space-y-4">
+        {renderCreateHeader("Create Offer And Discount", () => setIsCreatingOffer(false), handleSaveOffer)}
+
+        <form onSubmit={handleSaveOffer} className={`${cardCls} p-6`}>
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div>
+              <label className={labelCls}>
+                Offer Type <span className="text-red-500">*</span>
+              </label>
+              <select value={offOfferType} onChange={(e) => setOffOfferType(e.target.value)} className={inputCls}>
+                <option value="BOGO Offer">BOGO Offer</option>
+                <option value="Combo Package">Combo Package</option>
+                <option value="Flat Discount">Flat Discount</option>
+                <option value="Item Wise Discount">Item Wise Discount</option>
+              </select>
+            </div>
+            <div>
+              <label className={labelCls}>
+                Offer Name <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="text"
+                placeholder="Offer Name"
+                value={offOfferName}
+                onChange={(e) => setOffOfferName(e.target.value)}
+                className={inputCls}
+              />
+            </div>
+            <div>
+              <label className={labelCls}>
+                Outlet <span className="text-red-500">*</span>
+              </label>
+              <select value={offOutlet} onChange={(e) => setOffOutlet(e.target.value)} className={inputCls}>
+                <option value="Marinozz">Marinozz</option>
+                <option value="Head Office">Head Office</option>
+                <option value="Dhanmondi Branch">Dhanmondi Branch</option>
+              </select>
+            </div>
+            <div>
+              <label className={labelCls}>
+                Customer Group <span className="text-red-500">*</span>
+              </label>
+              <select
+                value={offCustomerGroup}
+                onChange={(e) => setOffCustomerGroup(e.target.value)}
+                className={inputCls}
+              >
+                <option value="All">All Customer Groups</option>
+                <option value="VIP">VIP</option>
+                <option value="Regular">Regular</option>
+                <option value="Corporate">Corporate</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div>
+              <label className={labelCls}>
+                From Date Time <span className="text-red-500">*</span>
+              </label>
+              <div className="relative">
+                <input
+                  type="text"
+                  placeholder="yyyy-mm-dd hh:mm"
+                  value={offFromDateTime}
+                  onChange={(e) => setOffFromDateTime(e.target.value)}
+                  className={`${inputCls} pr-8 font-mono`}
+                />
+                <Calendar className="size-4 text-slate-400 absolute right-2.5 top-2.5 pointer-events-none" />
+              </div>
+            </div>
+            <div>
+              <label className={labelCls}>
+                To Date Time <span className="text-red-500">*</span>
+              </label>
+              <div className="relative">
+                <input
+                  type="text"
+                  placeholder="yyyy-mm-dd hh:mm"
+                  value={offToDateTime}
+                  onChange={(e) => setOffToDateTime(e.target.value)}
+                  className={`${inputCls} pr-8 font-mono`}
+                />
+                <Calendar className="size-4 text-slate-400 absolute right-2.5 top-2.5 pointer-events-none" />
+              </div>
+            </div>
+          </div>
+        </form>
+
+        {renderToast()}
+      </div>
+    );
+  }
+
+  // -------------------------------------------------------------
+  // VIEW 4: Create Vat Discount
+  // -------------------------------------------------------------
+  if (isCreatingVatDiscount) {
+    const handleSaveVatDiscount = (e: React.FormEvent) => {
+      e.preventDefault();
+      const newVat: VatDiscountRecord = {
+        id: `vat-${nowMs()}`,
+        type: vatType,
+        office: vatOffice,
+        startTime: vatStartTime,
+        endTime: vatEndTime,
+        category: vatCategory,
+        subCategory: vatSubCategory,
+        minorCategory: vatMinorCategory,
+        supplier: vatSupplier,
+        itemBarcode: vatItems.map((i) => i.barcode).join(", ") || vatBarcode,
+        status: "Active",
+      };
+      saveVatDiscounts([newVat, ...vatDiscounts]);
+      showToast("VAT Discount configuration saved successfully");
+      setVatItems([]);
+      setVatExcludedItems([]);
+      setVatBarcode("");
+      setIsCreatingVatDiscount(false);
+    };
+
+    return (
+      <div className="min-h-[calc(100vh-3.5rem)] bg-white dark:bg-slate-950 p-4 sm:p-6 space-y-4">
+        {renderCreateHeader("Vat Discount", () => setIsCreatingVatDiscount(false), handleSaveVatDiscount)}
+
+        <div className={`${cardCls} p-6`}>
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div>
+              <label className={labelCls}>
+                Type <span className="text-red-500">*</span>
+              </label>
+              <select value={vatType} onChange={(e) => setVatType(e.target.value)} className={inputCls}>
+                <option value="Item">Item</option>
+                <option value="Category">Category</option>
+                <option value="All Items">All Items</option>
+              </select>
+            </div>
+            <div>
+              <label className={labelCls}>
+                Office <span className="text-red-500">*</span>
+              </label>
+              <select value={vatOffice} onChange={(e) => setVatOffice(e.target.value)} className={inputCls}>
+                <option value="Marinozz">Marinozz</option>
+                <option value="Head Office">Head Office</option>
+              </select>
+            </div>
+            <div>
+              <label className={labelCls}>
+                Start Time <span className="text-red-500">*</span>
+              </label>
+              <div className="relative">
+                <input
+                  type="text"
+                  value={vatStartTime}
+                  onChange={(e) => setVatStartTime(e.target.value)}
+                  className={`${inputCls} pr-8 font-mono`}
+                />
+                <Calendar className="size-4 text-slate-400 absolute right-2.5 top-2.5 pointer-events-none" />
+              </div>
+            </div>
+            <div>
+              <label className={labelCls}>
+                End Time <span className="text-red-500">*</span>
+              </label>
+              <div className="relative">
+                <input
+                  type="text"
+                  placeholder="dd/mm/yyyy hh:mm (a|p)m"
+                  value={vatEndTime}
+                  onChange={(e) => setVatEndTime(e.target.value)}
+                  className={`${inputCls} pr-8 font-mono`}
+                />
+                <Calendar className="size-4 text-slate-400 absolute right-2.5 top-2.5 pointer-events-none" />
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div>
+              <label className={labelCls}>Supplier</label>
+              <select value={vatSupplier} onChange={(e) => setVatSupplier(e.target.value)} className={inputCls}>
+                <option value="All">Select/Search Supplier (min 3 letters)</option>
+                <option value="Fresh Foods Supplies">Fresh Foods Supplies</option>
+              </select>
+            </div>
+            <div>
+              <label className={labelCls}>
+                Category <span className="text-red-500">*</span>
+              </label>
+              <select value={vatCategory} onChange={(e) => setVatCategory(e.target.value)} className={inputCls}>
+                <option value="Food Items">Food Items</option>
+                <option value="Beverages">Beverages</option>
+                <option value="Desserts">Desserts</option>
+              </select>
+            </div>
+            <div>
+              <label className={labelCls}>Sub Category</label>
+              <select value={vatSubCategory} onChange={(e) => setVatSubCategory(e.target.value)} className={inputCls}>
+                <option value="All">Select Sub Category</option>
+              </select>
+            </div>
+            <div>
+              <label className={labelCls}>Minor Category</label>
+              <select
+                value={vatMinorCategory}
+                onChange={(e) => setVatMinorCategory(e.target.value)}
+                className={inputCls}
+              >
+                <option value="All">Select Minor Category</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+            <div>
+              <label className={labelCls}>
+                Item <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="text"
+                placeholder="Search With Barcode"
+                value={vatBarcode}
+                onChange={(e) => setVatBarcode(e.target.value)}
+                className={`${inputCls} font-mono`}
+              />
+            </div>
+            <div>
+              <button
+                type="button"
+                onClick={() => {
+                  setVatItems([
+                    ...vatItems,
+                    { id: nowMs(), barcode: vatBarcode.trim() || `BR-${vatItems.length + 1}`, category: vatCategory },
+                  ]);
+                  setVatBarcode("");
+                  showToast("Item added to VAT discount");
+                }}
+                className={addBtnCls}
+              >
+                Add
+              </button>
+            </div>
+          </div>
+
+          {vatItems.length === 0 ? (
+            renderBridgeOneEmptyState("No Data Found")
+          ) : (
+            <div className="rounded border border-slate-200 dark:border-slate-800 overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className={theadCls}>
+                  <tr>
+                    <th className="p-2.5 w-16">SL</th>
+                    <th className="p-2.5">Barcode</th>
+                    <th className="p-2.5">Category</th>
+                    <th className="p-2.5 text-center w-20">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                  {vatItems.map((item, idx) => (
+                    <tr key={item.id}>
+                      <td className="p-2.5 text-slate-500">{idx + 1}</td>
+                      <td className="p-2.5 font-mono">{item.barcode}</td>
+                      <td className="p-2.5 font-medium">{item.category}</td>
+                      <td className="p-2.5 text-center">
+                        <button
+                          type="button"
+                          onClick={() => setVatItems(vatItems.filter((x) => x.id !== item.id))}
+                          className="text-rose-500 hover:text-rose-700 cursor-pointer"
+                        >
+                          <Trash2 className="size-4 inline" />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
+        <div className={`${cardCls} p-6`}>
+          <h3 className="text-xs font-bold text-slate-900 dark:text-slate-100">Excluded Items</h3>
+
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+            <div>
+              <label className={labelCls}>
+                Category <span className="text-red-500">*</span>
+              </label>
+              <select
+                value={vatExcludedCategory}
+                onChange={(e) => setVatExcludedCategory(e.target.value)}
+                className={inputCls}
+              >
+                <option value="All">Select Category</option>
+                <option value="Bakery">Bakery</option>
+                <option value="Mineral Water">Mineral Water</option>
+              </select>
+            </div>
+            <div>
+              <label className={labelCls}>
+                Item <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="text"
+                placeholder="Search With Barcode"
+                value={vatExcludedBarcode}
+                onChange={(e) => setVatExcludedBarcode(e.target.value)}
+                className={`${inputCls} font-mono`}
+              />
+            </div>
+            <div>
+              <button
+                type="button"
+                onClick={() => {
+                  setVatExcludedItems([
+                    ...vatExcludedItems,
+                    {
+                      id: nowMs(),
+                      barcode: vatExcludedBarcode.trim() || `EX-${vatExcludedItems.length + 1}`,
+                      category: vatExcludedCategory === "All" ? "All Categories" : vatExcludedCategory,
+                    },
+                  ]);
+                  setVatExcludedBarcode("");
+                  showToast("Excluded item added");
+                }}
+                className={addBtnCls}
+              >
+                Add
+              </button>
+            </div>
+          </div>
+
+          {vatExcludedItems.length > 0 && (
+            <div className="rounded border border-slate-200 dark:border-slate-800 overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className={theadCls}>
+                  <tr>
+                    <th className="p-2.5 w-16">SL</th>
+                    <th className="p-2.5">Barcode</th>
+                    <th className="p-2.5">Category</th>
+                    <th className="p-2.5 text-center w-20">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                  {vatExcludedItems.map((item, idx) => (
+                    <tr key={item.id}>
+                      <td className="p-2.5 text-slate-500">{idx + 1}</td>
+                      <td className="p-2.5 font-mono">{item.barcode}</td>
+                      <td className="p-2.5 font-medium">{item.category}</td>
+                      <td className="p-2.5 text-center">
+                        <button
+                          type="button"
+                          onClick={() => setVatExcludedItems(vatExcludedItems.filter((x) => x.id !== item.id))}
+                          className="text-rose-500 hover:text-rose-700 cursor-pointer"
+                        >
+                          <Trash2 className="size-4 inline" />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
+        {renderToast()}
+      </div>
+    );
+  }
+
+  // -------------------------------------------------------------
+  // VIEW 5: Create Voucher Generate
+  // -------------------------------------------------------------
+  if (isCreatingVoucher) {
+    const handleAddVoucherDraft = (e: React.FormEvent) => {
+      e.preventDefault();
+      const numAmt = Number(vchAmount) || 0;
+      if (numAmt <= 0) {
+        showToast("Please enter a valid amount");
+        return;
+      }
+      const item = {
+        id: `vd-${nowMs()}`,
+        voucherType: vchType,
+        outlet: vchOutlet,
+        activationDate: vchActivationDate,
+        expiryDate: vchExpiryDate,
+        customerGroup: vchCustomerGroup,
+        customer: vchCustomer,
+        count: Number(vchCount) || 1,
+        minSaleAmt: Number(vchMinSaleAmt) || 0,
+        isOpenSales: vchIsOpenSales,
+        voucherCode: vchCode.trim() || `VCH-${String(nowMs()).slice(-6)}`,
+        amount: numAmt,
+      };
+      setVchDraftItems([...vchDraftItems, item]);
+      showToast(`Voucher added: ${item.voucherCode}`);
+    };
+
+    const handleSaveAllVouchers = () => {
+      const drafts =
+        vchDraftItems.length > 0
+          ? vchDraftItems
+          : [
+              {
+                id: `vd-${nowMs()}`,
+                voucherType: vchType,
+                outlet: vchOutlet,
+                activationDate: vchActivationDate,
+                expiryDate: vchExpiryDate,
+                customerGroup: vchCustomerGroup,
+                customer: vchCustomer,
+                count: Number(vchCount) || 1,
+                minSaleAmt: Number(vchMinSaleAmt) || 0,
+                isOpenSales: vchIsOpenSales,
+                voucherCode: vchCode.trim() || `VCH-${String(nowMs()).slice(-6)}`,
+                amount: Number(vchAmount) || 0,
+              },
+            ];
+      if (drafts.some((d) => d.amount <= 0)) {
+        showToast("Please enter a valid amount");
+        return;
+      }
+      const newRecords: VoucherRecord[] = drafts.map((d, idx) => ({
+        id: `vch-${nowMs()}-${idx}`,
+        voucherType: d.voucherType,
+        outlet: d.outlet,
+        customerGroup: d.customerGroup,
+        customer: d.customer,
+        activationDate: d.activationDate,
+        expiryDate: d.expiryDate,
+        voucherCode: d.voucherCode,
+        count: d.count,
+        usedCount: 0,
+        amount: d.amount,
+        usedAmount: 0,
+        pendingAmount: d.amount,
+        minSalesAmount: d.minSaleAmt,
+        isOpenSales: d.isOpenSales,
+        isSale: false,
+        status: "Active",
+      }));
+      saveVouchers([...newRecords, ...vouchers]);
+      showToast(`${newRecords.length} voucher(s) saved successfully`);
+      setVchDraftItems([]);
+      setIsCreatingVoucher(false);
+    };
+
+    return (
+      <div className="min-h-[calc(100vh-3.5rem)] bg-white dark:bg-slate-950 p-4 sm:p-6 space-y-4">
+        {renderCreateHeader("Voucher Generate", () => setIsCreatingVoucher(false), (e) => {
+          e.preventDefault();
+          handleSaveAllVouchers();
+        })}
+
+        <form onSubmit={handleAddVoucherDraft} className={`${cardCls} p-6`}>
+          <div className="grid grid-cols-1 md:grid-cols-6 gap-4">
+            <div>
+              <label className={labelCls}>
+                Voucher Type <span className="text-red-500">*</span>
+              </label>
+              <select value={vchType} onChange={(e) => setVchType(e.target.value)} className={inputCls}>
+                <option value="Gift Voucher">Gift Voucher</option>
+                <option value="Promo Voucher">Promo Voucher</option>
+                <option value="Privilege Pass">Privilege Pass</option>
+              </select>
+            </div>
+            <div>
+              <label className={labelCls}>
+                Outlet <span className="text-red-500">*</span>
+              </label>
+              <select value={vchOutlet} onChange={(e) => setVchOutlet(e.target.value)} className={inputCls}>
+                <option value="Marinozz">Marinozz</option>
+                <option value="Head Office">Head Office</option>
+              </select>
+            </div>
+            <div>
+              <label className={labelCls}>
+                Activation Date <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="text"
+                placeholder="mm/dd/yyyy"
+                value={vchActivationDate}
+                onChange={(e) => setVchActivationDate(e.target.value)}
+                className={`${inputCls} font-mono`}
+              />
+            </div>
+            <div>
+              <label className={labelCls}>
+                Expiry Date <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="text"
+                placeholder="mm/dd/yyyy"
+                value={vchExpiryDate}
+                onChange={(e) => setVchExpiryDate(e.target.value)}
+                className={`${inputCls} font-mono`}
+              />
+            </div>
+            <div>
+              <label className={labelCls}>
+                Customer Group <span className="text-red-500">*</span>
+              </label>
+              <select
+                value={vchCustomerGroup}
+                onChange={(e) => setVchCustomerGroup(e.target.value)}
+                className={inputCls}
+              >
+                <option value="All">All</option>
+                <option value="VIP">VIP</option>
+                <option value="Regular">Regular</option>
+              </select>
+            </div>
+            <div>
+              <label className={labelCls}>
+                Customer <span className="text-red-500">*</span>
+              </label>
+              <select value={vchCustomer} onChange={(e) => setVchCustomer(e.target.value)} className={inputCls}>
+                <option value="All">All</option>
+                <option value="Tanvir Ahmed">Tanvir Ahmed</option>
+                <option value="Sadia Islam">Sadia Islam</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-6 gap-4 items-center">
+            <div>
+              <label className={labelCls}>
+                Count <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="number"
+                value={vchCount}
+                onChange={(e) => setVchCount(e.target.value)}
+                className={`${inputCls} font-mono`}
+              />
+            </div>
+            <div>
+              <label className={labelCls}>
+                Minimum Sale Amount <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="number"
+                value={vchMinSaleAmt}
+                onChange={(e) => setVchMinSaleAmt(e.target.value)}
+                className={`${inputCls} font-mono`}
+              />
+            </div>
+            <div className="md:col-span-2">
+              <label className={labelCls}>Voucher Code</label>
+              <input
+                type="text"
+                value={vchCode}
+                onChange={(e) => setVchCode(e.target.value)}
+                placeholder="20Vpot2e"
+                className={`${inputCls} font-mono tracking-wider font-bold text-blue-600`}
+              />
+            </div>
+            <div className="flex items-center gap-4 pt-5 md:col-span-2 text-xs font-semibold text-slate-700 dark:text-slate-300">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={vchPrefixRange}
+                  onChange={(e) => setVchPrefixRange(e.target.checked)}
+                  className="size-4 text-blue-600 rounded"
+                />
+                <span>Prefix &amp; Range</span>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={vchIsOpenSales}
+                  onChange={(e) => setVchIsOpenSales(e.target.checked)}
+                  className="size-4 text-blue-600 rounded"
+                />
+                <span>isOpenSales</span>
+              </label>
+            </div>
+          </div>
+
+          <div className="flex items-end gap-4 flex-wrap">
+            <div className="w-48">
+              <label className={labelCls}>
+                Amount <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="number"
+                value={vchAmount}
+                onChange={(e) => setVchAmount(e.target.value)}
+                className={`${inputCls} font-mono`}
+              />
+            </div>
+            <button type="submit" className={addBtnCls}>
+              Add
+            </button>
+          </div>
+
+          <div className="rounded border border-slate-200 dark:border-slate-800 overflow-x-auto">
+            <table className="w-full text-left text-xs border-collapse whitespace-nowrap">
+              <thead className={theadCls}>
+                <tr>
+                  <th className="p-2.5">SL</th>
+                  <th className="p-2.5">Voucher Type</th>
+                  <th className="p-2.5">Outlet</th>
+                  <th className="p-2.5">Activation Date</th>
+                  <th className="p-2.5">Expiry Date</th>
+                  <th className="p-2.5">Customer Group</th>
+                  <th className="p-2.5">Customer</th>
+                  <th className="p-2.5">Count</th>
+                  <th className="p-2.5">Min Sale Amt</th>
+                  <th className="p-2.5">isOpenSales</th>
+                  <th className="p-2.5">Voucher Code</th>
+                  <th className="p-2.5">Amount</th>
+                  <th className="p-2.5 text-center">Action</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                {vchDraftItems.map((item, idx) => (
+                  <tr key={item.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                    <td className="p-2.5 text-slate-500">{idx + 1}</td>
+                    <td className="p-2.5 font-medium">{item.voucherType}</td>
+                    <td className="p-2.5">{item.outlet}</td>
+                    <td className="p-2.5 font-mono">{item.activationDate}</td>
+                    <td className="p-2.5 font-mono">{item.expiryDate}</td>
+                    <td className="p-2.5">{item.customerGroup}</td>
+                    <td className="p-2.5">{item.customer}</td>
+                    <td className="p-2.5 font-mono">{item.count}</td>
+                    <td className="p-2.5 font-mono">{item.minSaleAmt}</td>
+                    <td className="p-2.5">{item.isOpenSales ? "Yes" : "No"}</td>
+                    <td className="p-2.5 font-mono font-bold text-blue-600">{item.voucherCode}</td>
+                    <td className="p-2.5 font-mono font-bold">{item.amount} ৳</td>
+                    <td className="p-2.5 text-center">
+                      <button
+                        type="button"
+                        onClick={() => setVchDraftItems(vchDraftItems.filter((x) => x.id !== item.id))}
+                        className="text-rose-500 hover:text-rose-700 cursor-pointer"
+                      >
+                        <Trash2 className="size-4 inline" />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+                {vchDraftItems.length === 0 && (
+                  <tr>
+                    <td colSpan={13} className="p-6">
+                      {renderBridgeOneEmptyState("No Draft Vouchers Added")}
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </form>
+
+        {renderToast()}
+      </div>
+    );
+  }
+
   // -------------------------------------------------------------
   // VIEW: Create Point Offer (Image 2)
   // -------------------------------------------------------------
@@ -480,7 +2094,7 @@ export function DiscountOfferSection({ onBack }: DiscountOfferSectionProps) {
         return;
       }
       const newPO: PointOfferRecord = {
-        id: `po-${Date.now()}`,
+        id: `po-${nowMs()}`,
         offerName: poOfferName.trim(),
         outletName: poOffice,
         paymentMethod: "All Payment Methods",
@@ -700,7 +2314,7 @@ export function DiscountOfferSection({ onBack }: DiscountOfferSectionProps) {
               type="button"
               onClick={() => {
                 if (poExcludedItem) {
-                  setPoExcludedItems([...poExcludedItems, { id: Date.now(), barcode: "BR-EXC-01", name: poExcludedItem }]);
+                  setPoExcludedItems([...poExcludedItems, { id: nowMs(), barcode: "BR-EXC-01", name: poExcludedItem }]);
                   showToast("Excluded item added");
                 }
               }}
@@ -766,7 +2380,7 @@ export function DiscountOfferSection({ onBack }: DiscountOfferSectionProps) {
     const handleSavePointRedemption = (e: React.FormEvent) => {
       e.preventDefault();
       const newPR: PointRedemptionRecord = {
-        id: `pr-${Date.now()}`,
+        id: `pr-${nowMs()}`,
         createdDate: new Date().toISOString().slice(0, 10),
         code: `RED-PT-${Math.floor(100 + Math.random() * 900)}`,
         redemptionType: prRedemptionType,
@@ -1079,7 +2693,11 @@ export function DiscountOfferSection({ onBack }: DiscountOfferSectionProps) {
 
             <button
               type="button"
-              onClick={() => showToast(`Filtered special discount offers`)}
+              onClick={() => {
+                setAppliedOffice(filterOffice);
+                setAppliedStatus(filterStatus);
+                showToast("Filter applied");
+              }}
               className="h-9 px-6 bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs rounded shadow-xs transition cursor-pointer"
             >
               View
@@ -1105,7 +2723,7 @@ export function DiscountOfferSection({ onBack }: DiscountOfferSectionProps) {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                {specialDiscounts.map((row, idx) => (
+                {filteredSpecialDiscounts.map((row, idx) => (
                   <tr key={row.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition">
                     <td className="p-3 text-slate-500">{idx + 1}</td>
                     <td className="p-3 font-medium text-slate-900 dark:text-slate-100">{row.offerName}</td>
@@ -1137,6 +2755,13 @@ export function DiscountOfferSection({ onBack }: DiscountOfferSectionProps) {
                     </td>
                   </tr>
                 ))}
+                {filteredSpecialDiscounts.length === 0 && (
+                  <tr>
+                    <td colSpan={12} className="p-8">
+                      {renderBridgeOneEmptyState("No Special Discounts Found")}
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
