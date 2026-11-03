@@ -282,7 +282,9 @@ export default function PosSetupPage() {
       sec === "POINT_REDEEM_OTP" ||
       sec === "FLOOR_TABLE_SETUP"
     ) {
-      setActiveSection(sec);
+      queueMicrotask(() => {
+        setActiveSection(sec);
+      });
     }
   }, []);
 
@@ -332,14 +334,16 @@ export default function PosSetupPage() {
     try {
       const storedFloors = localStorage.getItem("erp_pos_floors_v1");
       const storedTables = localStorage.getItem("erp_pos_tables_v1");
-      if (storedFloors) {
-        const parsed = JSON.parse(storedFloors);
-        if (Array.isArray(parsed) && parsed.length > 0) setFloors(parsed);
-      }
-      if (storedTables) {
-        const parsed = JSON.parse(storedTables);
-        if (Array.isArray(parsed) && parsed.length > 0) setTables(parsed);
-      }
+      queueMicrotask(() => {
+        if (storedFloors) {
+          const parsed = JSON.parse(storedFloors);
+          if (Array.isArray(parsed) && parsed.length > 0) setFloors(parsed);
+        }
+        if (storedTables) {
+          const parsed = JSON.parse(storedTables);
+          if (Array.isArray(parsed) && parsed.length > 0) setTables(parsed);
+        }
+      });
     } catch (e) {
       console.warn("Could not load from localStorage:", e);
     }

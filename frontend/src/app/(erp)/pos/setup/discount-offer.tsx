@@ -294,19 +294,21 @@ export function DiscountOfferSection({ onBack }: DiscountOfferSectionProps) {
     if (typeof window === "undefined") return;
     try {
       const s1 = localStorage.getItem("erp_pos_special_discounts_v1");
-      if (s1) setSpecialDiscounts(JSON.parse(s1));
       const s2 = localStorage.getItem("erp_pos_product_discounts_v1");
-      if (s2) setProductDiscounts(JSON.parse(s2));
       const s3 = localStorage.getItem("erp_pos_general_offers_v1");
-      if (s3) setGeneralOffers(JSON.parse(s3));
       const s4 = localStorage.getItem("erp_pos_vat_discounts_v1");
-      if (s4) setVatDiscounts(JSON.parse(s4));
       const s5 = localStorage.getItem("erp_pos_vouchers_v1");
-      if (s5) setVouchers(JSON.parse(s5));
       const s6 = localStorage.getItem("erp_pos_point_offers_v1");
-      if (s6) setPointOffers(JSON.parse(s6));
       const s7 = localStorage.getItem("erp_pos_point_redemptions_v1");
-      if (s7) setPointRedemptions(JSON.parse(s7));
+      queueMicrotask(() => {
+        if (s1) setSpecialDiscounts(JSON.parse(s1));
+        if (s2) setProductDiscounts(JSON.parse(s2));
+        if (s3) setGeneralOffers(JSON.parse(s3));
+        if (s4) setVatDiscounts(JSON.parse(s4));
+        if (s5) setVouchers(JSON.parse(s5));
+        if (s6) setPointOffers(JSON.parse(s6));
+        if (s7) setPointRedemptions(JSON.parse(s7));
+      });
     } catch (e) {
       console.warn("Could not load from localStorage:", e);
     }

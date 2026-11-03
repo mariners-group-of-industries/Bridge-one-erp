@@ -6,10 +6,6 @@ import {
   Plus,
   Search,
   CheckCircle,
-  Clock,
-  ShieldCheck,
-  X,
-  Upload,
 } from "lucide-react";
 
 interface OtpRecord {
@@ -83,7 +79,9 @@ export function PointRedeemOtpSection({ onBack }: PointRedeemOtpSectionProps) {
       if (stored) {
         const parsed = JSON.parse(stored);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          setRecords(parsed);
+          queueMicrotask(() => {
+            setRecords(parsed);
+          });
         }
       }
     } catch (e) {

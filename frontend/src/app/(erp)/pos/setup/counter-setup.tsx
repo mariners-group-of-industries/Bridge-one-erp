@@ -242,25 +242,27 @@ export function CounterSetupSection({ onBack }: CounterSetupSectionProps) {
     if (typeof window === "undefined") return;
     try {
       const storedCounters = localStorage.getItem("erp_pos_counters_v1");
-      if (storedCounters) {
-        const parsed = JSON.parse(storedCounters);
-        if (Array.isArray(parsed) && parsed.length > 0) setCounters(parsed);
-      }
       const storedMessages = localStorage.getItem("erp_pos_messages_v1");
-      if (storedMessages) {
-        const parsed = JSON.parse(storedMessages);
-        if (Array.isArray(parsed) && parsed.length > 0) setMessages(parsed);
-      }
       const storedNotes = localStorage.getItem("erp_pos_currency_notes_v1");
-      if (storedNotes) {
-        const parsed = JSON.parse(storedNotes);
-        if (Array.isArray(parsed) && parsed.length > 0) setCurrencyNotes(parsed);
-      }
       const storedSeqs = localStorage.getItem("erp_pos_sequences_v1");
-      if (storedSeqs) {
-        const parsed = JSON.parse(storedSeqs);
-        if (Array.isArray(parsed) && parsed.length > 0) setSequences(parsed);
-      }
+      queueMicrotask(() => {
+        if (storedCounters) {
+          const parsed = JSON.parse(storedCounters);
+          if (Array.isArray(parsed) && parsed.length > 0) setCounters(parsed);
+        }
+        if (storedMessages) {
+          const parsed = JSON.parse(storedMessages);
+          if (Array.isArray(parsed) && parsed.length > 0) setMessages(parsed);
+        }
+        if (storedNotes) {
+          const parsed = JSON.parse(storedNotes);
+          if (Array.isArray(parsed) && parsed.length > 0) setCurrencyNotes(parsed);
+        }
+        if (storedSeqs) {
+          const parsed = JSON.parse(storedSeqs);
+          if (Array.isArray(parsed) && parsed.length > 0) setSequences(parsed);
+        }
+      });
     } catch (e) {
       console.warn("Could not load from localStorage:", e);
     }
