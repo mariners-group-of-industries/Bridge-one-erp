@@ -242,6 +242,19 @@ function PointRedeemIcon() {
   );
 }
 
+function FloorTableIcon() {
+  return (
+    <svg viewBox="0 0 64 64" className="size-12" fill="none">
+      <rect x="10" y="16" width="44" height="28" rx="6" fill="#6366f1" fillOpacity="0.15" stroke="#4f46e5" strokeWidth="2.5" />
+      <rect x="18" y="22" width="28" height="16" rx="4" fill="#4f46e5" fillOpacity="0.25" stroke="#4f46e5" strokeWidth="2" />
+      <circle cx="32" cy="11" r="3.5" fill="#6366f1" />
+      <circle cx="32" cy="49" r="3.5" fill="#6366f1" />
+      <circle cx="5" cy="30" r="3.5" fill="#6366f1" />
+      <circle cx="59" cy="30" r="3.5" fill="#6366f1" />
+    </svg>
+  );
+}
+
 const SETUP_CARDS: Array<{
   id: Exclude<SetupSection, null>;
   label: string;
@@ -251,11 +264,45 @@ const SETUP_CARDS: Array<{
   { id: "COUNTER_SETUP", label: "Counter Setup", Icon: CounterSetupIcon },
   { id: "SALES_SETUP", label: "Sales Setup", Icon: SalesSetupIcon },
   { id: "POINT_REDEEM_OTP", label: "Point Redeem OTP", Icon: PointRedeemIcon },
-  { id: "FLOOR_TABLE_SETUP", label: "Floor & Table Setup", Icon: CounterSetupIcon },
+  { id: "FLOOR_TABLE_SETUP", label: "Floor & Table Setup", Icon: FloorTableIcon },
 ];
 
 export default function PosSetupPage() {
-  const [activeSection, setActiveSection] = useState<SetupSection>("DISCOUNT_OFFER");
+  const [activeSection, setActiveSection] = useState<SetupSection>(null);
+
+  // Sync with URL query parameter ?section= if present
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const sec = params.get("section");
+    if (
+      sec === "DISCOUNT_OFFER" ||
+      sec === "COUNTER_SETUP" ||
+      sec === "SALES_SETUP" ||
+      sec === "POINT_REDEEM_OTP" ||
+      sec === "FLOOR_TABLE_SETUP"
+    ) {
+      setActiveSection(sec);
+    }
+  }, []);
+
+  const handleSelectSection = (id: Exclude<SetupSection, null>) => {
+    setActiveSection(id);
+    if (typeof window !== "undefined") {
+      const url = new URL(window.location.href);
+      url.searchParams.set("section", id);
+      window.history.pushState({}, "", url.toString());
+    }
+  };
+
+  const handleBackToHub = () => {
+    setActiveSection(null);
+    if (typeof window !== "undefined") {
+      const url = new URL(window.location.href);
+      url.searchParams.delete("section");
+      window.history.pushState({}, "", url.toString());
+    }
+  };
 
   // Floor & Table specific states
   const [activeTab, setActiveTab] = useState<"FLOOR" | "FLOOR_LAYOUT">("FLOOR");
@@ -628,7 +675,7 @@ export default function PosSetupPage() {
             <button
               key={id}
               type="button"
-              onClick={() => setActiveSection(id)}
+              onClick={() => handleSelectSection(id)}
               className="group flex flex-col items-center justify-center gap-2.5 rounded-md border border-[#b6d4fe] dark:border-slate-800 bg-white dark:bg-slate-900 px-4 py-6 shadow-[0_2px_8px_rgba(13,110,253,0.08)] hover:border-[#0d6efd] hover:shadow-md transition-all cursor-pointer min-h-[125px]"
             >
               <div className="transition-transform group-hover:scale-105">
@@ -645,19 +692,19 @@ export default function PosSetupPage() {
   }
 
   if (activeSection === "DISCOUNT_OFFER") {
-    return <DiscountOfferSection onBack={() => setActiveSection(null)} />;
+    return <DiscountOfferSection onBack={handleBackToHub} />;
   }
 
   if (activeSection === "SALES_SETUP") {
-    return <SalesSetupSection onBack={() => setActiveSection(null)} />;
+    return <SalesSetupSection onBack={handleBackToHub} />;
   }
 
   if (activeSection === "POINT_REDEEM_OTP") {
-    return <PointRedeemOtpSection onBack={() => setActiveSection(null)} />;
+    return <PointRedeemOtpSection onBack={handleBackToHub} />;
   }
 
   if (activeSection === "COUNTER_SETUP") {
-    return <CounterSetupSection onBack={() => setActiveSection(null)} />;
+    return <CounterSetupSection onBack={handleBackToHub} />;
   }
 
   // --- FLOOR & TABLE SETUP FULL VIEW ---
@@ -667,7 +714,7 @@ export default function PosSetupPage() {
       <div className="flex items-center gap-3">
         <button
           type="button"
-          onClick={() => setActiveSection(null)}
+          onClick={handleBackToHub}
           className="text-slate-700 dark:text-slate-200 hover:text-blue-600 transition p-1"
           title="Back to Setup Menu"
         >
