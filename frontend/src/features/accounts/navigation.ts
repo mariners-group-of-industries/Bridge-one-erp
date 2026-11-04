@@ -86,6 +86,13 @@ export const otherReports: NavLink = {
   keywords: ["other reports", "vat", "ait", "tax", "withholding", "audit"],
 };
 
+export const postingSetup: NavLink = {
+  label: "Posting Setup",
+  href: paths.postingSetup,
+  description: "GL accounts for automatic posting of sales, purchase, POS, inventory and payroll documents.",
+  keywords: ["posting", "gl mapping", "auto journal", "integration", "ledger accounts"],
+};
+
 export const accountWorkspace: Workspace = {
   id: "account",
   label: "Account",
@@ -117,6 +124,7 @@ export const accountWorkspace: Workspace = {
         centerSetup,
         financialReport,
         otherReports,
+        postingSetup,
       ],
     },
   ],

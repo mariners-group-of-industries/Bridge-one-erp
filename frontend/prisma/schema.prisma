@@ -3081,6 +3081,7 @@ model Account {
   collectionAdjustAccounts SalesCollection[]          @relation("CollectionAdjustAccount")
   collectionDeductions     SalesCollectionDeduction[]
 
+  postingRoles             PostingAccount[]
   @@map("accounts")
 }
 
@@ -3120,6 +3121,9 @@ model JournalVoucher {
   status          String               @default("POSTED") @db.VarChar(30)
   reversalOfId    String?              @db.Uuid
   reversedById    String?              @db.Uuid
+  /// Document this voucher was posted from automatically ("SALES_DELIVERY", "POS_SALE" …); null for manual vouchers.
+  sourceType      String?              @db.VarChar(40)
+  sourceId        String?              @db.Uuid
   createdBy       String               @db.VarChar(150)
   preparedBy      String?              @db.VarChar(150)
   approvedBy      String?              @db.VarChar(150)
@@ -3129,6 +3133,7 @@ model JournalVoucher {
 
   lines           JournalVoucherLine[]
 
+  @@unique([sourceType, sourceId])
   @@map("journal_vouchers")
 }
 
@@ -4605,4 +4610,16 @@ model PosSaleLine {
   @@index([saleId])
   @@index([itemId])
   @@map("pos_sale_lines")
+}
+
+/// Which GL account each automatic posting role uses (Accounts › Posting Setup).
+model PostingAccount {
+  key       String   @id @db.VarChar(40)
+  accountId String   @db.Uuid
+  updatedBy String?  @db.VarChar(150)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  account Account @relation(fields: [accountId], references: [id], onDelete: Restrict)
+
+  @@map("posting_accounts")
 }

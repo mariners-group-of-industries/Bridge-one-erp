@@ -11,4 +11,5 @@ export const paths = {
   centerSetup: "/accounts/center-setup",
   financialReports: "/accounts/financial-reports",
   otherReports: "/accounts/other-reports",
+  postingSetup: "/accounts/posting-setup",
 } as const;

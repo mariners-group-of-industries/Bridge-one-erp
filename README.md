@@ -124,6 +124,7 @@ Every other module depends on Configuration and nothing in Configuration depends
 | Inventory | Dashboard and reports | Valuation, movements, turnover, coverage and the inventory / transfer reports are computed from the stock ledger (quantity × purchase price) |
 | POS | Stock ledger | A terminal sale (`/pos/terminal`) takes the items out of the counter's warehouse (`POS_SALE`); voiding it puts them back (`POS_RETURN`). Counters (POS Setup › Counter Setup) each sell from one warehouse |
 | POS | Dashboard and reports | Counter, payment, item and customer figures, VAT, discounts, voids and margins come from POS sales |
+| Sales, Purchase, POS, Inventory, HRM payroll | Accounts | After each save, `src/lib/accounting/posting.service.ts` posts new documents to the general ledger (one voucher per document, `JournalVoucher.sourceType/sourceId`) using the GL accounts chosen in Accounts › Posting Setup; cancelled documents get a reversing voucher. Rules: `src/lib/accounting/posting-rules.ts` |
 | Connect | Configuration | Employee directory; routes need a signed-in user with the Connect permission |
 | HRM | Configuration | Employee profile kit and actions; attendance devices and API tokens |
 | HRM | Attendance agent | The agent reads the device on the LAN and posts punches with an API token |
@@ -138,7 +139,6 @@ computed from it, so every module sees the same stock.
 
 | Missing link | What it needs |
 |---|---|
-| Sales, Purchase, HRM payroll → Accounts | Nothing posts to the general ledger automatically; Accounts holds manual journals only. Needs a mapping of document types to GL accounts (receivables, revenue, payables, inventory, cash/bank, salary expense), decided by Accounts. |
 | POS setup (discounts & offers, sales setup, point redeem, floors & tables) | These setup screens are still saved in the browser only; counters are in the database. |
 
 ### Current data sources

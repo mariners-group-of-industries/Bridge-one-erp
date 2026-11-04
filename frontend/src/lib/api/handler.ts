@@ -1,4 +1,5 @@
 import { unstable_rethrow } from "next/navigation";
+import { after } from "next/server";
 import { z, ZodError, type ZodType } from "zod";
 import { Prisma } from "@/generated/prisma/client";
 import { auditRequest } from "@/lib/audit/record";
@@ -17,6 +18,7 @@ export function apiHandler<C>(permission: Permission, handler: Handler<C>) {
       const actor = await requireActor(request, permission);
       const response = await handler(request, context, actor);
       await auditRequest(request, response, actor);
+      if (response.ok) scheduleGlPosting(request);
       return response;
     } catch (error) {
       // Next.js control-flow errors (prerender bail-out, notFound, redirect) must propagate.
@@ -24,6 +26,41 @@ export function apiHandler<C>(permission: Permission, handler: Handler<C>) {
       return toErrorResponse(error);
     }
   };
+}
+
+/** Saves in these modules may create documents the general ledger has not seen yet. */
+const POSTING_PATHS = /^\/api\/(sales|v1\/purchase|pos|inventory|hrm\/payroll)\//;
+let posting: Promise<void> | null = null;
+let postAgain = false;
+
+/**
+ * After a successful save, posts new documents to the general ledger
+ * (src/lib/accounting/posting.service.ts) once the response has been sent.
+ * Overlapping runs in this process are merged into one more run.
+ */
+function scheduleGlPosting(request: Request) {
+  if (request.method === "GET" || request.method === "HEAD" || !POSTING_PATHS.test(new URL(request.url).pathname)) return;
+  try {
+    after(async () => {
+      if (posting) {
+        postAgain = true;
+        return;
+      }
+      const run = async () => {
+        do {
+          postAgain = false;
+          const { postPendingDocuments } = await import("@/lib/accounting/posting.service");
+          await postPendingDocuments().catch((error: unknown) => console.error("[posting] run failed", error));
+        } while (postAgain);
+      };
+      posting = run().finally(() => {
+        posting = null;
+      });
+      await posting;
+    });
+  } catch {
+    // Outside a request (tests, scripts): the next save or Accounts › Posting Setup posts it.
+  }
 }
 
 export function ok<T>(data: T, status = 200): Response {
