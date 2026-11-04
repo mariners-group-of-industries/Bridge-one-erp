@@ -140,6 +140,7 @@ describe("pos workspace", () => {
     expect(pos?.cards?.[0]?.links.map((link) => link.label)).toEqual([
       "POS Dashboard",
       "Setup",
+      "R&C",
       "Reports",
     ]);
   });

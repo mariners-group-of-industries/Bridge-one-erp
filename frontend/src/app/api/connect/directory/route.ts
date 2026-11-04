@@ -1,8 +1,14 @@
 import { NextResponse } from "next/server";
 import { getConnectPool } from "@/lib/connect/db";
+import { getConnectAuthUser } from "@/lib/connect/auth";
 
 export async function GET(req: Request) {
   try {
+    const user = await getConnectAuthUser(req);
+    if (!user) {
+      return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
+    }
+
     const { searchParams } = new URL(req.url);
     const search = searchParams.get("search") || "";
     const department = searchParams.get("department") || "";

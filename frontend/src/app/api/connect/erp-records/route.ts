@@ -1,8 +1,14 @@
 import { NextResponse } from "next/server";
 import { getConnectPool } from "@/lib/connect/db";
+import { getConnectAuthUser } from "@/lib/connect/auth";
 
-export async function GET() {
+export async function GET(req: Request) {
   try {
+    const user = await getConnectAuthUser(req);
+    if (!user) {
+      return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
+    }
+
     const pool = getConnectPool();
 
     // 1. Fetch real Purchase Orders

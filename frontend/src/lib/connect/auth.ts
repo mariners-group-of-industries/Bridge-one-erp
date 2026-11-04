@@ -57,14 +57,14 @@ export async function getConnectAuthUser(req?: Request): Promise<ConnectAuthUser
       }
     }
 
-    // 3. Dev bypass fallback if enabled
-    if (process.env.ERP_DEV_AUTH_BYPASS === "true" || process.env.NODE_ENV !== "production") {
+    // 3. Dev bypass fallback only when explicitly enabled via env var
+    if (process.env.ERP_DEV_AUTH_BYPASS === "true") {
       return DEV_FALLBACK_USER;
     }
 
     return null;
   } catch {
-    if (process.env.ERP_DEV_AUTH_BYPASS === "true" || process.env.NODE_ENV !== "production") {
+    if (process.env.ERP_DEV_AUTH_BYPASS === "true") {
       return DEV_FALLBACK_USER;
     }
     return null;
