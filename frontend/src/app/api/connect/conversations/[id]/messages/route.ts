@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getConnectPool } from "@/lib/connect/db";
+import { getPusherServer } from "@/lib/connect/pusher-server";
 
 export async function GET(
   _req: Request,
@@ -59,10 +60,12 @@ export async function POST(
     const body = await req.json();
     const {
       senderId,
+      senderName,
       clientMsgId,
       type,
       bodyText,
       replyToId,
+      replyTo,
       erpRecordType,
       erpRecordId,
       erpRecordData,
@@ -71,6 +74,8 @@ export async function POST(
 
     const pool = getConnectPool();
     const client = await pool.connect();
+    let savedMsg: Record<string, unknown> | null = null;
+
     try {
       await client.query("BEGIN");
 
@@ -94,14 +99,16 @@ export async function POST(
         erpRecordData ? JSON.stringify(erpRecordData) : null,
       ]);
 
-      const savedMsg = msgRes.rows[0];
+      savedMsg = msgRes.rows[0];
 
       // Save attachments if any
+      const savedAttachments: Array<Record<string, unknown>> = [];
       if (Array.isArray(attachments) && attachments.length > 0) {
         for (const att of attachments) {
-          await client.query(
+          const attRes = await client.query(
             `INSERT INTO connect_attachments (message_id, file_key, file_name, mime_type, size_bytes, cdn_url)
-             VALUES ($1, $2, $3, $4, $5, $6);`,
+             VALUES ($1, $2, $3, $4, $5, $6)
+             RETURNING id, file_name AS name, size_bytes AS "sizeBytes", mime_type AS "mimeType", cdn_url AS url;`,
             [
               savedMsg.id,
               att.fileKey || `file-${Date.now()}`,
@@ -111,10 +118,39 @@ export async function POST(
               att.url || "#",
             ]
           );
+          if (attRes.rows[0]) {
+            savedAttachments.push(attRes.rows[0]);
+          }
         }
       }
 
       await client.query("COMMIT");
+
+      // Broadcast new message via Pusher
+      const pusher = getPusherServer();
+      if (pusher && savedMsg) {
+        const broadcastPayload = {
+          id: savedMsg.id,
+          conversationId: id,
+          senderId: savedMsg.sender_id,
+          senderName: senderName || "Colleague",
+          clientMsgId: savedMsg.client_msg_id,
+          type: (savedMsg.type as string)?.toLowerCase() || "text",
+          body: savedMsg.body,
+          replyTo: replyTo || undefined,
+          erpRecord: erpRecordData || undefined,
+          attachments: savedAttachments.length > 0 ? savedAttachments : (attachments || []),
+          status: "delivered",
+          createdAt: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+        };
+
+        try {
+          await pusher.trigger([`chat-${id}`, "connect-global"], "new-message", broadcastPayload);
+        } catch (pushErr) {
+          console.error("[Pusher error] Failed to trigger new-message:", pushErr);
+        }
+      }
+
       return NextResponse.json({ success: true, message: savedMsg });
     } catch (e) {
       await client.query("ROLLBACK");
@@ -127,4 +163,3 @@ export async function POST(
     return NextResponse.json({ success: false, error: "Failed to send message" }, { status: 500 });
   }
 }
-

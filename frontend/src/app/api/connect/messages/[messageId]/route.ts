@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getConnectPool } from "@/lib/connect/db";
+import { getPusherServer } from "@/lib/connect/pusher-server";
 
 export async function PATCH(
   req: Request,
@@ -25,7 +26,25 @@ export async function PATCH(
     if (res.rowCount === 0) {
       return NextResponse.json({ success: false, error: "Message not found" }, { status: 404 });
     }
-    return NextResponse.json({ success: true, message: res.rows[0] });
+
+    const updated = res.rows[0];
+
+    // Broadcast edit via Pusher
+    const pusher = getPusherServer();
+    if (pusher && updated) {
+      try {
+        await pusher.trigger(`chat-${updated.conversation_id}`, "message-edited", {
+          messageId: updated.id,
+          conversationId: updated.conversation_id,
+          newBody: updated.body,
+          editedAt: updated.edited_at,
+        });
+      } catch (err) {
+        console.error("[Pusher error] Failed to trigger message-edited:", err);
+      }
+    }
+
+    return NextResponse.json({ success: true, message: updated });
   } catch (error) {
     console.error("Error editing message:", error);
     return NextResponse.json({ success: false, error: "Failed to edit message" }, { status: 500 });
@@ -49,10 +68,25 @@ export async function DELETE(
     if (res.rowCount === 0) {
       return NextResponse.json({ success: false, error: "Message not found" }, { status: 404 });
     }
-    return NextResponse.json({ success: true, message: res.rows[0] });
+
+    const deleted = res.rows[0];
+
+    // Broadcast delete via Pusher
+    const pusher = getPusherServer();
+    if (pusher && deleted) {
+      try {
+        await pusher.trigger(`chat-${deleted.conversation_id}`, "message-deleted", {
+          messageId: deleted.id,
+          conversationId: deleted.conversation_id,
+        });
+      } catch (err) {
+        console.error("[Pusher error] Failed to trigger message-deleted:", err);
+      }
+    }
+
+    return NextResponse.json({ success: true, message: deleted });
   } catch (error) {
     console.error("Error deleting message:", error);
     return NextResponse.json({ success: false, error: "Failed to delete message" }, { status: 500 });
   }
 }
-

@@ -39,6 +39,7 @@ import {
   MessageSquarePlus,
 } from "lucide-react";
 import { useSession } from "@/lib/auth/session";
+import { getPusherClient } from "@/lib/connect/pusher-client";
 import type {
   ConnectConversation,
   ConnectMessage,
@@ -85,6 +86,7 @@ export default function BrgConnectChatPage() {
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [editText, setEditText] = useState("");
   const [isUploading, setIsUploading] = useState(false);
+  const [isPusherConnected, setIsPusherConnected] = useState(false);
 
   // Real data from DB
   const [realErpRecords, setRealErpRecords] = useState<ErpRecordCard[]>([]);
@@ -311,6 +313,134 @@ export default function BrgConnectChatPage() {
     return () => clearInterval(interval);
   }, [activeCall?.status]);
 
+  // Realtime Pusher subscription for global updates
+  useEffect(() => {
+    const pusher = getPusherClient();
+    if (!pusher) return;
+
+    if (pusher.connection.state === "connected") {
+      queueMicrotask(() => setIsPusherConnected(true));
+    }
+
+    const onConnected = () => setIsPusherConnected(true);
+    const onDisconnected = () => setIsPusherConnected(false);
+
+    pusher.connection.bind("connected", onConnected);
+    pusher.connection.bind("disconnected", onDisconnected);
+    pusher.connection.bind("unavailable", onDisconnected);
+
+    const globalChannel = pusher.subscribe("connect-global");
+    globalChannel.bind("new-message", (msg: ConnectMessage) => {
+      setConversations((prev) =>
+        prev.map((c) => {
+          if (c.id === msg.conversationId) {
+            const isCurrentActive = c.id === activeConvId;
+            return {
+              ...c,
+              unreadCount: isCurrentActive ? 0 : (c.unreadCount || 0) + 1,
+              lastMessage: {
+                id: msg.id,
+                conversationId: msg.conversationId,
+                senderId: msg.senderId,
+                senderName: msg.senderName,
+                clientMsgId: msg.clientMsgId,
+                type: msg.type,
+                body: msg.body,
+                status: "delivered",
+                createdAt: msg.createdAt,
+              },
+            };
+          }
+          return c;
+        })
+      );
+    });
+
+    return () => {
+      pusher.connection.unbind("connected", onConnected);
+      pusher.connection.unbind("disconnected", onDisconnected);
+      pusher.connection.unbind("unavailable", onDisconnected);
+      globalChannel.unbind_all();
+      pusher.unsubscribe("connect-global");
+    };
+  }, [activeConvId]);
+
+  // Realtime Pusher subscription for active conversation messages, edits, and deletions
+  useEffect(() => {
+    if (!activeConvId) return;
+
+    const pusher = getPusherClient();
+    if (!pusher) return;
+
+    const channelName = `chat-${activeConvId}`;
+    const channel = pusher.subscribe(channelName);
+
+    channel.bind("new-message", (msg: ConnectMessage) => {
+      setMessagesMap((prev) => {
+        const list = prev[msg.conversationId] || [];
+        const exists = list.some(
+          (m) => m.id === msg.id || (m.clientMsgId && m.clientMsgId === msg.clientMsgId)
+        );
+        if (exists) {
+          return {
+            ...prev,
+            [msg.conversationId]: list.map((m) =>
+              m.id === msg.id || (m.clientMsgId && m.clientMsgId === msg.clientMsgId)
+                ? { ...msg, status: "delivered" }
+                : m
+            ),
+          };
+        }
+        return {
+          ...prev,
+          [msg.conversationId]: [...list, msg],
+        };
+      });
+    });
+
+    channel.bind(
+      "message-edited",
+      (data: { messageId: string; conversationId: string; newBody: string }) => {
+        setMessagesMap((prev) => {
+          const list = prev[data.conversationId] || [];
+          return {
+            ...prev,
+            [data.conversationId]: list.map((m) =>
+              m.id === data.messageId ? { ...m, body: data.newBody } : m
+            ),
+          };
+        });
+      }
+    );
+
+    channel.bind(
+      "message-deleted",
+      (data: { messageId: string; conversationId: string }) => {
+        setMessagesMap((prev) => {
+          const list = prev[data.conversationId] || [];
+          return {
+            ...prev,
+            [data.conversationId]: list.map((m) =>
+              m.id === data.messageId
+                ? {
+                    ...m,
+                    body: "This message was deleted",
+                    erpRecord: undefined,
+                    attachments: undefined,
+                  }
+                : m
+            ),
+          };
+        });
+      }
+    );
+
+    return () => {
+      channel.unbind_all();
+      pusher.unsubscribe(channelName);
+    };
+  }, [activeConvId]);
+
   // Filter conversations
   const filteredConversations = useMemo(() => {
     return conversations.filter((c) => {
@@ -374,10 +504,18 @@ export default function BrgConnectChatPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           senderId: authUser?.id || "user-current",
+          senderName: authUser?.name || "Me",
           clientMsgId,
           type: "TEXT",
           bodyText: textToSend,
           replyToId: currentReply?.id || null,
+          replyTo: currentReply
+            ? {
+                id: currentReply.id,
+                senderName: currentReply.senderName,
+                body: currentReply.body.slice(0, 70),
+              }
+            : null,
         }),
       });
       const data = await res.json();
@@ -444,6 +582,7 @@ export default function BrgConnectChatPage() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             senderId: authUser?.id || "user-current",
+            senderName: authUser?.name || "Me",
             clientMsgId,
             type: "FILE",
             bodyText: `Shared file: ${data.attachment.name}`,
@@ -488,6 +627,7 @@ export default function BrgConnectChatPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           senderId: authUser?.id || "user-current",
+          senderName: authUser?.name || "Me",
           clientMsgId,
           type: "ERP_CARD",
           bodyText: `Shared live ERP record (${card.code}) for team review:`,
@@ -756,6 +896,14 @@ export default function BrgConnectChatPage() {
           <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full border border-emerald-500/30 bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 font-medium">
             <span className="size-2 rounded-full bg-emerald-500 animate-pulse" />
             <span>Neon DB &bull; Live</span>
+          </div>
+          <div className={`flex items-center gap-1.5 px-2 py-0.5 rounded-full border text-[11px] font-semibold transition ${
+            isPusherConnected
+              ? "border-blue-500/30 bg-blue-50 dark:bg-blue-950/30 text-blue-600"
+              : "border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-500"
+          }`}>
+            <span className={`size-2 rounded-full ${isPusherConnected ? "bg-blue-500 animate-pulse" : "bg-slate-400"}`} />
+            <span>{isPusherConnected ? "Pusher Realtime • Live" : "Connecting..."}</span>
           </div>
           <span className="text-ink-muted">
             Signed in as <strong>{authUser?.name || "ERP User"}</strong>
