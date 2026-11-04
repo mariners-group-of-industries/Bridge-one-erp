@@ -1,11 +1,14 @@
 "use client";
 
-import { Search, X } from "lucide-react";
+import { Eye, Search, X } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/cn";
-import { VIEW_BY_OPTIONS, type EmployeeStatus } from "../schemas/employee.schema";
+import type { EmployeeFilterOptions, EmployeeStatus } from "../schemas/employee.schema";
 import { CONTROL_CLASS, Select } from "./kit";
 
 const ALL = "";
+/** Filter controls share one row, so they stay narrow. */
+const FILTER_WIDTH = "w-full sm:w-36";
 
 export const STATUS_OPTIONS = [
   { value: "active", label: "Active" },
@@ -20,10 +23,20 @@ export const QUICK_VIEWS: readonly { label: string; status: EmployeeStatus | und
 ];
 
 export interface EmployeeFilters {
-  viewBy?: string;
   userType?: string;
   status?: EmployeeStatus;
+  officeId?: string;
+  department?: string;
+  designation?: string;
+  login?: "yes" | "no";
+  joinedFrom?: string;
+  joinedTo?: string;
 }
+
+const LOGIN_OPTIONS = [
+  { value: "yes", label: "Has ERP login" },
+  { value: "no", label: "No ERP login" },
+];
 
 /** Status tab strip shown at the top of the list card. */
 export function EmployeeStatusTabs({
@@ -69,17 +82,36 @@ interface EmployeeToolbarProps {
   onSearchChange: (value: string) => void;
   filters: EmployeeFilters;
   onFiltersChange: (filters: EmployeeFilters) => void;
-  userTypes: readonly string[] | undefined;
+  /** Choices for the filters; undefined while loading or when they failed to load. */
+  options: EmployeeFilterOptions | undefined;
+  /** Loads the list with the current search and filters (the View button and Enter in the search box). */
+  onApply: () => void;
+  /** The search or filters differ from what the list shows. */
+  pending: boolean;
+  /** The list is loading. */
+  loading: boolean;
   /** Shows "Clear" when any search or filter is applied. */
   onClear?: () => void;
 }
 
-export function EmployeeToolbar({ search, onSearchChange, filters, onFiltersChange, userTypes, onClear }: EmployeeToolbarProps) {
-  const viewByPending = VIEW_BY_OPTIONS.length === 0;
-  const userTypesEmpty = userTypes !== undefined && userTypes.length === 0;
+export function EmployeeToolbar({ search, onSearchChange, filters, onFiltersChange, options, onApply, pending, loading, onClear }: EmployeeToolbarProps) {
+  const set = <K extends keyof EmployeeFilters>(key: K, value: string) => onFiltersChange({ ...filters, [key]: value || undefined });
+  const list = (key: "userType" | "department" | "designation", label: string, choices: readonly string[] | undefined) => (
+    <Select
+      className={FILTER_WIDTH}
+      aria-label={label}
+      title={choices?.length === 0 ? `No ${label.toLowerCase()} recorded yet.` : undefined}
+      value={filters[key] ?? ALL}
+      disabled={!choices?.length}
+      placeholder={`${label}: All`}
+      options={choices ?? []}
+      onChange={(event) => set(key, event.target.value)}
+    />
+  );
+  const rangeInvalid = !!filters.joinedFrom && !!filters.joinedTo && filters.joinedFrom > filters.joinedTo;
 
   return (
-    <div className="flex flex-col gap-2 px-5 py-3 lg:flex-row lg:items-center">
+    <div className="flex flex-col gap-2 px-5 py-3">
       <label className="relative w-full lg:max-w-xs">
         <span className="sr-only">Search employees</span>
         <Search aria-hidden="true" className="pointer-events-none absolute top-2 left-2.5 size-4 text-ink-faint" />
@@ -90,48 +122,78 @@ export function EmployeeToolbar({ search, onSearchChange, filters, onFiltersChan
           placeholder="Search ID, name or mobile…"
           title="Searches Employee ID, Attendance ID, name and mobile/user"
           onChange={(event) => onSearchChange(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && !rangeInvalid) onApply();
+          }}
           className={cn(CONTROL_CLASS, "pl-8")}
         />
       </label>
 
-      <div className="grid grid-cols-1 gap-2 sm:grid-cols-3 lg:flex lg:flex-1 lg:items-center">
+      <div className="flex flex-wrap items-center gap-2 text-sm text-ink-muted">
         <Select
-          aria-label="View by"
-          title={viewByPending ? "View By options are pending definition." : undefined}
-          className="lg:w-48"
-          value={filters.viewBy ?? ALL}
-          disabled={viewByPending}
-          placeholder={viewByPending ? "View by (not set up)" : "View by: All"}
-          options={VIEW_BY_OPTIONS}
-          onChange={(event) => onFiltersChange({ ...filters, viewBy: event.target.value || undefined })}
+          className={FILTER_WIDTH}
+          aria-label="Office"
+          value={filters.officeId ?? ALL}
+          disabled={!options?.offices.length}
+          placeholder="Office: All"
+          options={options?.offices ?? []}
+          onChange={(event) => set("officeId", event.target.value)}
+        />
+        {list("department", "Department", options?.departments)}
+        {list("designation", "Designation", options?.designations)}
+        {list("userType", "Employee type", options?.employeeTypes)}
+        <Select
+          className={FILTER_WIDTH}
+          aria-label="ERP login"
+          value={filters.login ?? ALL}
+          placeholder="ERP login: All"
+          options={LOGIN_OPTIONS}
+          onChange={(event) => set("login", event.target.value)}
         />
         <Select
-          aria-label="User type"
-          title={userTypesEmpty ? "No employee types recorded yet." : undefined}
-          className="lg:w-48"
-          value={filters.userType ?? ALL}
-          disabled={userTypes === undefined || userTypesEmpty}
-          placeholder="User type: All"
-          options={userTypes ?? []}
-          onChange={(event) => onFiltersChange({ ...filters, userType: event.target.value || undefined })}
-        />
-        <Select
+          className={FILTER_WIDTH}
           aria-label="Status"
-          className="lg:w-40"
           value={filters.status ?? ALL}
           placeholder="Status: All"
           options={STATUS_OPTIONS}
-          onChange={(event) =>
-            onFiltersChange({ ...filters, status: (event.target.value || undefined) as EmployeeStatus | undefined })
-          }
+          onChange={(event) => set("status", event.target.value)}
         />
+        <span>Joined</span>
+        <input
+          type="date"
+          aria-label="Joined from"
+          value={filters.joinedFrom ?? ""}
+          max={filters.joinedTo}
+          onChange={(event) => set("joinedFrom", event.target.value)}
+          className={cn(CONTROL_CLASS, FILTER_WIDTH)}
+        />
+        <span>to</span>
+        <input
+          type="date"
+          aria-label="Joined to"
+          value={filters.joinedTo ?? ""}
+          min={filters.joinedFrom}
+          onChange={(event) => set("joinedTo", event.target.value)}
+          className={cn(CONTROL_CLASS, FILTER_WIDTH)}
+        />
+        <Button
+          variant={pending ? "accent" : "secondary"}
+          loading={loading && !pending}
+          disabled={rangeInvalid}
+          onClick={onApply}
+          title={pending ? "Load the list with these filters" : "Reload the list"}
+        >
+          {!(loading && !pending) && <Eye />} View
+        </Button>
+        {rangeInvalid && <span className="text-danger">The start date is after the end date.</span>}
+        {pending && !rangeInvalid && <span className="text-xs text-ink-faint">Click View to apply.</span>}
         {onClear && (
           <button
             type="button"
             onClick={onClear}
-            className="inline-flex h-8 items-center gap-1 rounded px-2 text-sm font-medium text-accent-strong hover:bg-accent-soft focus-visible:outline-2 lg:ml-1 dark:text-accent"
+            className="ml-auto inline-flex h-8 items-center gap-1 rounded px-2 text-sm font-medium text-accent-strong hover:bg-accent-soft focus-visible:outline-2 dark:text-accent"
           >
-            <X aria-hidden="true" className="size-3.5" /> Clear
+            <X aria-hidden="true" className="size-3.5" /> Clear all filters
           </button>
         )}
       </div>

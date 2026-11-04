@@ -44,7 +44,7 @@ export function EmployeeProfileDialog({ employee, onClose }: Props) {
         employee && (
           <>
             <Button onClick={onClose}>Close</Button>
-            <Link href={entityMasterDataPaths.employeeProfile(employee.employeeId)} className={buttonClasses("accent", "md")}>
+            <Link href={entityMasterDataPaths.employeeProfile(employee.employeeId)} onClick={onClose} className={buttonClasses("accent", "md")}>
               Edit Profile <ArrowUpRight />
             </Link>
           </>

@@ -80,6 +80,12 @@ export async function listEmployees(actor: Actor, query: EmployeeListQuery): Pro
       query.search ? searchWhere(query.search) : {},
       query.status ? { isActive: query.status === "active" } : {},
       query.userType ? { employeeType: query.userType } : {},
+      query.officeId ? { officeId: query.officeId } : {},
+      query.department ? { department: query.department } : {},
+      query.designation ? { designation: query.designation } : {},
+      query.login ? { user: query.login === "yes" ? { isNot: null } : { is: null } } : {},
+      query.joinedFrom ? { joiningDate: { gte: new Date(`${query.joinedFrom}T00:00:00.000Z`) } } : {},
+      query.joinedTo ? { joiningDate: { lte: new Date(`${query.joinedTo}T00:00:00.000Z`) } } : {},
     ],
   };
 
@@ -105,13 +111,25 @@ export async function listEmployees(actor: Actor, query: EmployeeListQuery): Pro
 }
 
 export async function employeeFilterOptions(actor: Actor): Promise<EmployeeFilterOptions> {
-  const types = await db().employee.findMany({
-    where: { AND: [scopeWhere(actor), { employeeType: { not: null } }] },
-    distinct: ["employeeType"],
-    select: { employeeType: true },
-    orderBy: { employeeType: "asc" },
-  });
-  return { employeeTypes: types.flatMap((item) => (item.employeeType ? [item.employeeType] : [])) };
+  const scope = scopeWhere(actor);
+  const [types, departments, designations, offices] = await Promise.all([
+    db().employee.findMany({ where: { AND: [scope, { employeeType: { not: null } }] }, distinct: ["employeeType"], select: { employeeType: true }, orderBy: { employeeType: "asc" } }),
+    db().employee.findMany({ where: { AND: [scope, { department: { not: null } }] }, distinct: ["department"], select: { department: true }, orderBy: { department: "asc" } }),
+    db().employee.findMany({ where: { AND: [scope, { designation: { not: null } }] }, distinct: ["designation"], select: { designation: true }, orderBy: { designation: "asc" } }),
+    // Only offices that have employees, so every choice returns rows.
+    db().office.findMany({
+      where: { employees: { some: scope }, ...(actor.companyScope === "ALL" ? {} : { businessUnit: { companyId: { in: [...actor.companyScope] } } }) },
+      select: { id: true, name: true },
+      orderBy: { name: "asc" },
+    }),
+  ]);
+  const values = (rows: Record<string, string | null>[], key: string) => rows.flatMap((row) => (row[key] ? [row[key]!] : []));
+  return {
+    employeeTypes: values(types, "employeeType"),
+    departments: values(departments, "department"),
+    designations: values(designations, "designation"),
+    offices: offices.map((o) => ({ value: o.id, label: o.name })),
+  };
 }
 
 export async function employeeFormOptions(actor: Actor): Promise<EmployeeFormOptions> {

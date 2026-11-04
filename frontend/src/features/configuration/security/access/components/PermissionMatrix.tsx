@@ -30,7 +30,7 @@ type Props =
 type Filter = "all" | "allowed" | "denied";
 
 /** A checkbox that can show "some" (indeterminate). */
-function TriCheckbox({ checked, mixed, disabled, label, onChange }: { checked: boolean; mixed: boolean; disabled?: boolean; label: string; onChange: (on: boolean) => void }) {
+export function TriCheckbox({ checked, mixed, disabled, label, onChange }: { checked: boolean; mixed: boolean; disabled?: boolean; label: string; onChange: (on: boolean) => void }) {
   const ref = useRef<HTMLInputElement>(null);
   useEffect(() => {
     if (ref.current) ref.current.indeterminate = mixed;

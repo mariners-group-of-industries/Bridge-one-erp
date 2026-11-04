@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import type { ComponentType } from "react";
 import { ActionPlaceholder } from "./ActionPlaceholder";
+import { entityMasterDataPaths } from "../../paths";
 
 export interface EmployeeActionTarget {
   employeeId: string;
@@ -46,6 +47,8 @@ export interface EmployeeActionDefinition {
   icon: LucideIcon;
   /** If set, clicking navigates to the profile page at this tab. */
   profileTab?: ProfileTab;
+  /** If set, clicking opens this page (for the employee) instead of a panel. */
+  href?: (employeeId: string) => string;
   Panel: ComponentType<EmployeeActionPanelProps>;
 }
 
@@ -54,7 +57,7 @@ const personalInformation: EmployeeActionDefinition = { id: "personal-informatio
 const officialInformation: EmployeeActionDefinition = { id: "official-information", label: "Official Information", icon: Briefcase,    profileTab: "official-info",       Panel: ActionPlaceholder };
 const salaryInformation: EmployeeActionDefinition   = { id: "salary-information",   label: "Salary Information",   icon: Wallet,       profileTab: "salary-info",         Panel: ActionPlaceholder };
 const updateLeaveBalance: EmployeeActionDefinition  = { id: "update-leave-balance", label: "Update Leave Balance", icon: CalendarClock,                                   Panel: ActionPlaceholder };
-const permissions: EmployeeActionDefinition         = { id: "permissions",          label: "Permissions",          icon: KeyRound,                                        Panel: ActionPlaceholder };
+const permissions: EmployeeActionDefinition         = { id: "permissions",          label: "Permissions",          icon: KeyRound,       href: entityMasterDataPaths.employeePermissions, Panel: ActionPlaceholder };
 const permissionGroups: EmployeeActionDefinition    = { id: "permission-groups",    label: "Permission Groups",    icon: Users,                                           Panel: ActionPlaceholder };
 
 export const EMPLOYEE_ACTIONS: readonly EmployeeActionDefinition[] = [
