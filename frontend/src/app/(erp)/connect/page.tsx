@@ -37,6 +37,7 @@ import {
   MessageSquarePlus,
 } from "lucide-react";
 import { useSession } from "@/lib/auth/session";
+import { useToast } from "@/components/ui/toast";
 import { getPusherClient } from "@/lib/connect/pusher-client";
 import {
   RTC_CONFIG,
@@ -92,6 +93,7 @@ function formatMessageTime(dateInput?: string | Date | null): string {
 
 export default function BrgConnectChatPage() {
   const { user: authUser } = useSession();
+  const toast = useToast();
 
   const [conversations, setConversations] = useState<ConnectConversation[]>([]);
   const [messagesMap, setMessagesMap] = useState<Record<string, ConnectMessage[]>>({});
@@ -129,6 +131,16 @@ export default function BrgConnectChatPage() {
   const [onlineUserIds, setOnlineUserIds] = useState<Set<string>>(new Set());
 
   // Modals
+  // Centered confirmation modal
+  const [confirmModal, setConfirmModal] = useState<{
+    isOpen: boolean;
+    title: string;
+    description: string;
+    confirmLabel?: string;
+    cancelLabel?: string;
+    isDestructive?: boolean;
+    onConfirm: () => void;
+  } | null>(null);
   const [isErpPickerOpen, setIsErpPickerOpen] = useState(false);
   const [isNewChatOpen, setIsNewChatOpen] = useState(false);
   const [isNewGroupOpen, setIsNewGroupOpen] = useState(false);
@@ -816,7 +828,7 @@ export default function BrgConnectChatPage() {
 
           case "call-reject": {
             stopRingtone();
-            alert(`${signal.senderName || "Colleague"} declined the call.`);
+            toast.info(`${signal.senderName || "Colleague"} declined the call.`);
             cleanupCall();
             break;
           }
@@ -1066,7 +1078,7 @@ export default function BrgConnectChatPage() {
       } catch (uploadErr) {
         console.error("Bulk upload failed:", uploadErr);
         const errMessage = uploadErr instanceof Error ? uploadErr.message : "Failed to upload files. Please check connection.";
-        alert(errMessage);
+        toast.error(errMessage);
         setIsUploading(false);
         return;
       } finally {
@@ -1215,7 +1227,7 @@ export default function BrgConnectChatPage() {
     if (!activeConvId) return;
     try {
       if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
-        alert("Audio recording is not supported in this browser.");
+        toast.error("Audio recording is not supported in this browser.");
         return;
       }
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -1251,7 +1263,7 @@ export default function BrgConnectChatPage() {
       }, 1000);
     } catch (err) {
       console.warn("Could not start voice recording:", err);
-      alert("Could not access microphone for voice message. Please check permissions.");
+      toast.error("Could not access microphone for voice message. Please check permissions.");
     }
   };
 
@@ -1486,7 +1498,7 @@ export default function BrgConnectChatPage() {
       });
       const data = await res.json();
       if (!data.success) {
-        alert(data.error || "Failed to edit message");
+        toast.error(data.error || "Failed to edit message");
         loadMessages(activeConvId);
       }
     } catch {
@@ -1495,37 +1507,50 @@ export default function BrgConnectChatPage() {
   };
 
   // Delete Message via API
-  const handleDeleteMessage = async (msgId: string) => {
+  const handleDeleteMessage = (msgId: string) => {
     if (!activeConvId) return;
-    if (confirm("Delete this message for everyone?")) {
-      setMessagesMap((prev) => {
-        const list = prev[activeConvId] || [];
-        return {
-          ...prev,
-          [activeConvId]: list.map((m) =>
-            m.id === msgId
-              ? {
-                  ...m,
-                  body: "This message was deleted",
-                  deletedAt: new Date().toLocaleTimeString(),
-                  erpRecord: undefined,
-                  attachments: undefined,
-                }
-              : m
-          ),
-        };
-      });
+    setConfirmModal({
+      isOpen: true,
+      title: "Delete message for everyone?",
+      description: "Are you sure you want to delete this message? This action will permanently remove the message for all members in this conversation.",
+      confirmLabel: "Delete for Everyone",
+      cancelLabel: "Cancel",
+      isDestructive: true,
+      onConfirm: () => executeDeleteMessage(msgId),
+    });
+  };
 
-      try {
-        const res = await fetch(`/api/connect/messages/${msgId}`, { method: "DELETE" });
-        const data = await res.json();
-        if (!data.success) {
-          alert(data.error || "Failed to delete message");
-          loadMessages(activeConvId);
-        }
-      } catch {
-        // Ignored
+  const executeDeleteMessage = async (msgId: string) => {
+    if (!activeConvId) return;
+    setMessagesMap((prev) => {
+      const list = prev[activeConvId] || [];
+      return {
+        ...prev,
+        [activeConvId]: list.map((m) =>
+          m.id === msgId
+            ? {
+                ...m,
+                body: "This message was deleted",
+                deletedAt: new Date().toLocaleTimeString(),
+                erpRecord: undefined,
+                attachments: undefined,
+              }
+            : m
+        ),
+      };
+    });
+
+    try {
+      const res = await fetch(`/api/connect/messages/${msgId}`, { method: "DELETE" });
+      const data = await res.json();
+      if (!data.success) {
+        toast.error(data.error || "Failed to delete message");
+        loadMessages(activeConvId);
+      } else {
+        toast.success("Message deleted for everyone");
       }
+    } catch {
+      toast.error("Failed to delete message");
     }
   };
 
@@ -1573,7 +1598,7 @@ export default function BrgConnectChatPage() {
     } catch (err) {
       console.warn("Camera/mic access warning:", err);
       stopRingtone();
-      alert("Could not access microphone or camera. Please check browser permissions.");
+      toast.error("Could not access microphone or camera. Please check browser permissions.");
       setActiveCall(null);
     }
   };
@@ -2953,6 +2978,47 @@ export default function BrgConnectChatPage() {
                 title="Hang Up"
               >
                 <PhoneOff className="size-5" />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Centered Beautiful Confirmation Modal */}
+      {confirmModal && confirmModal.isOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-2xs animate-in fade-in duration-150">
+          <div className="w-full max-w-sm rounded-xl border border-line bg-surface p-5 text-ink shadow-2xl space-y-4 animate-in zoom-in-95 duration-150">
+            <div className="flex items-start gap-3">
+              <div className="size-10 rounded-full bg-rose-100 dark:bg-rose-950/60 text-rose-600 flex items-center justify-center shrink-0">
+                <Trash2 className="size-5" />
+              </div>
+              <div className="space-y-1 min-w-0">
+                <h3 className="font-bold text-sm text-ink">{confirmModal.title}</h3>
+                <p className="text-xs text-ink-muted leading-relaxed">{confirmModal.description}</p>
+              </div>
+            </div>
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-line/60">
+              <button
+                type="button"
+                onClick={() => setConfirmModal(null)}
+                className="px-3.5 py-1.5 rounded-lg border border-line text-xs font-medium text-ink hover:bg-control transition cursor-pointer"
+              >
+                {confirmModal.cancelLabel || "Cancel"}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const cb = confirmModal.onConfirm;
+                  setConfirmModal(null);
+                  cb();
+                }}
+                className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer shadow-xs ${
+                  confirmModal.isDestructive
+                    ? "bg-rose-600 hover:bg-rose-700 text-white"
+                    : "bg-blue-600 hover:bg-blue-700 text-white"
+                }`}
+              >
+                {confirmModal.confirmLabel || "Confirm"}
               </button>
             </div>
           </div>
