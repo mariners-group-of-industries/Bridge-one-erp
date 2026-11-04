@@ -276,7 +276,10 @@ export async function POST(
           erpRecord: erpRecordData || undefined,
           attachments: savedAttachments.length > 0 ? savedAttachments : (attachments || []),
           status: "delivered",
-          createdAt: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+          createdAt:
+            (savedMsg.created_at instanceof Date
+              ? savedMsg.created_at.toISOString()
+              : String(savedMsg.created_at)) || new Date().toISOString(),
         };
 
         try {

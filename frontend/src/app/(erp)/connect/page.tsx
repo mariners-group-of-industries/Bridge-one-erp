@@ -77,6 +77,19 @@ function getAvatarBg(name?: string | null): string {
   return colors[index];
 }
 
+function formatMessageTime(dateInput?: string | Date | null): string {
+  if (!dateInput) return "";
+  try {
+    const d = new Date(dateInput);
+    if (!isNaN(d.getTime())) {
+      return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    }
+    return String(dateInput);
+  } catch {
+    return String(dateInput);
+  }
+}
+
 export default function BrgConnectChatPage() {
   const { user: authUser } = useSession();
 
@@ -87,6 +100,10 @@ export default function BrgConnectChatPage() {
   useEffect(() => {
     activeConvIdRef.current = activeConvId;
   }, [activeConvId]);
+  const authUserRef = useRef(authUser);
+  useEffect(() => {
+    authUserRef.current = authUser;
+  }, [authUser]);
   const [filterTab, setFilterTab] = useState<"all" | "direct" | "group" | "unread">("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [messageText, setMessageText] = useState("");
@@ -196,7 +213,7 @@ export default function BrgConnectChatPage() {
                   type: "text",
                   body: c.lastMessage.body,
                   status: "seen",
-                  createdAt: new Date(c.lastMessage.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+                  createdAt: formatMessageTime(c.lastMessage.createdAt),
                 }
               : undefined,
             createdAt: c.createdAt,
@@ -252,7 +269,7 @@ export default function BrgConnectChatPage() {
               type: a.mimeType?.startsWith("image/") ? "image" : a.mimeType?.includes("pdf") ? "doc" : "file",
             })),
             status: ((m.status?.toLowerCase()) as MessageDeliveryStatus) || "delivered",
-            createdAt: new Date(m.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+            createdAt: formatMessageTime(m.createdAt),
           })
         );
         setMessagesMap((prev) => ({ ...prev, [convId]: mapped }));
@@ -312,10 +329,22 @@ export default function BrgConnectChatPage() {
       })
       .catch(() => {});
 
-    // Periodic heartbeat every 20 seconds
+    // Periodic heartbeat every 15 seconds
     const interval = setInterval(() => {
       fetch("/api/connect/presence", { method: "POST" }).catch(() => {});
-    }, 20000);
+    }, 15000);
+
+    // Periodic presence poll every 12 seconds to keep online users in sync
+    const pollInterval = setInterval(() => {
+      fetch("/api/connect/presence")
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d) => {
+          if (d?.success && Array.isArray(d.onlineUserIds)) {
+            setOnlineUserIds(new Set(d.onlineUserIds));
+          }
+        })
+        .catch(() => {});
+    }, 12000);
 
     // Initial ping
     fetch("/api/connect/presence", { method: "POST" }).catch(() => {});
@@ -330,6 +359,7 @@ export default function BrgConnectChatPage() {
 
     return () => {
       clearInterval(interval);
+      clearInterval(pollInterval);
       window.removeEventListener("beforeunload", handleUnload);
     };
   }, []);
@@ -530,34 +560,58 @@ export default function BrgConnectChatPage() {
       loadConversations();
     });
 
-    globalChannel.bind("user-presence", (data: { userId: string; status: "online" | "offline" }) => {
+    globalChannel.bind("user-presence", (data: { userId?: string; employeeId?: string; status: "online" | "offline" }) => {
       setOnlineUserIds((prev) => {
         const next = new Set(prev);
         if (data.status === "online") {
-          next.add(data.userId);
+          if (data.userId) next.add(data.userId);
+          if (data.employeeId) next.add(data.employeeId);
         } else {
-          next.delete(data.userId);
+          if (data.userId) next.delete(data.userId);
+          if (data.employeeId) next.delete(data.employeeId);
         }
         return next;
       });
     });
 
-    globalChannel.bind("messages-seen", (data: { conversationId: string; readerId: string }) => {
-      if (data.readerId !== authUser?.id) {
-        setMessagesMap((prev) => {
-          const list = prev[data.conversationId] || [];
-          if (!list.length) return prev;
-          return {
-            ...prev,
-            [data.conversationId]: list.map((m) =>
-              m.senderId === authUser?.id ? { ...m, status: "seen" as MessageDeliveryStatus } : m
-            ),
-          };
-        });
-      }
-    });
+    const handleGlobalMessagesSeen = (data: { conversationId: string; readerId: string }) => {
+      setMessagesMap((prev) => {
+        const list = prev[data.conversationId] || [];
+        if (!list.length) return prev;
+        return {
+          ...prev,
+          [data.conversationId]: list.map((m) =>
+            m.senderId !== data.readerId ? { ...m, status: "seen" as MessageDeliveryStatus } : m
+          ),
+        };
+      });
+      setConversations((prev) =>
+        prev.map((c) => {
+          if (c.id === data.conversationId && c.lastMessage && c.lastMessage.senderId !== data.readerId) {
+            return {
+              ...c,
+              lastMessage: { ...c.lastMessage, status: "seen" as MessageDeliveryStatus },
+            };
+          }
+          return c;
+        })
+      );
+    };
+
+    globalChannel.bind("messages-seen", handleGlobalMessagesSeen);
 
     globalChannel.bind("new-message", (msg: ConnectMessage) => {
+      // If currently open and sent by someone else, auto mark read immediately
+      if (activeConvIdRef.current === msg.conversationId && msg.senderId !== authUserRef.current?.id) {
+        fetch(`/api/connect/conversations/${msg.conversationId}/read`, { method: "POST" }).catch(() => {});
+      }
+
+      const formattedMsg: ConnectMessage = {
+        ...msg,
+        createdAt: formatMessageTime(msg.createdAt),
+        status: (msg.status as MessageDeliveryStatus) || "delivered",
+      };
+
       // Append to active message thread immediately
       setMessagesMap((prev) => {
         const list = prev[msg.conversationId] || [];
@@ -569,14 +623,14 @@ export default function BrgConnectChatPage() {
             ...prev,
             [msg.conversationId]: list.map((m) =>
               m.id === msg.id || (m.clientMsgId && m.clientMsgId === msg.clientMsgId)
-                ? { ...msg, status: "delivered" }
+                ? formattedMsg
                 : m
             ),
           };
         }
         return {
           ...prev,
-          [msg.conversationId]: [...list, msg],
+          [msg.conversationId]: [...list, formattedMsg],
         };
       });
 
@@ -593,17 +647,7 @@ export default function BrgConnectChatPage() {
             return {
               ...c,
               unreadCount: isCurrentActive ? 0 : (c.unreadCount || 0) + 1,
-              lastMessage: {
-                id: msg.id,
-                conversationId: msg.conversationId,
-                senderId: msg.senderId,
-                senderName: msg.senderName,
-                clientMsgId: msg.clientMsgId,
-                type: msg.type,
-                body: msg.body,
-                status: "delivered",
-                createdAt: msg.createdAt,
-              },
+              lastMessage: formattedMsg,
             };
           }
           return c;
@@ -783,21 +827,38 @@ export default function BrgConnectChatPage() {
     const channel = pusher.subscribe(channelName);
 
     channel.bind("messages-seen", (data: { conversationId: string; readerId: string }) => {
-      if (data.readerId !== authUser?.id) {
-        setMessagesMap((prev) => {
-          const list = prev[data.conversationId] || [];
-          if (!list.length) return prev;
-          return {
-            ...prev,
-            [data.conversationId]: list.map((m) =>
-              m.senderId === authUser?.id ? { ...m, status: "seen" as MessageDeliveryStatus } : m
-            ),
-          };
-        });
-      }
+      setMessagesMap((prev) => {
+        const list = prev[data.conversationId] || [];
+        if (!list.length) return prev;
+        return {
+          ...prev,
+          [data.conversationId]: list.map((m) =>
+            m.senderId !== data.readerId ? { ...m, status: "seen" as MessageDeliveryStatus } : m
+          ),
+        };
+      });
+      setConversations((prev) =>
+        prev.map((c) => {
+          if (c.id === data.conversationId && c.lastMessage && c.lastMessage.senderId !== data.readerId) {
+            return {
+              ...c,
+              lastMessage: { ...c.lastMessage, status: "seen" as MessageDeliveryStatus },
+            };
+          }
+          return c;
+        })
+      );
     });
 
     channel.bind("new-message", (msg: ConnectMessage) => {
+      if (activeConvIdRef.current === msg.conversationId && msg.senderId !== authUserRef.current?.id) {
+        fetch(`/api/connect/conversations/${msg.conversationId}/read`, { method: "POST" }).catch(() => {});
+      }
+      const formattedMsg: ConnectMessage = {
+        ...msg,
+        createdAt: formatMessageTime(msg.createdAt),
+        status: (msg.status as MessageDeliveryStatus) || "delivered",
+      };
       setMessagesMap((prev) => {
         const list = prev[msg.conversationId] || [];
         const exists = list.some(
@@ -808,14 +869,14 @@ export default function BrgConnectChatPage() {
             ...prev,
             [msg.conversationId]: list.map((m) =>
               m.id === msg.id || (m.clientMsgId && m.clientMsgId === msg.clientMsgId)
-                ? { ...msg, status: "delivered" }
+                ? formattedMsg
                 : m
             ),
           };
         }
         return {
           ...prev,
-          [msg.conversationId]: [...list, msg],
+          [msg.conversationId]: [...list, formattedMsg],
         };
       });
     });
@@ -983,7 +1044,7 @@ export default function BrgConnectChatPage() {
         : undefined,
       attachments: uploadedAttachment ? [uploadedAttachment] : undefined,
       status: "sending",
-      createdAt: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+      createdAt: formatMessageTime(new Date()),
     };
 
     // Optimistic UI append
@@ -1826,7 +1887,7 @@ export default function BrgConnectChatPage() {
                           {c.name}
                         </span>
                         <span className="text-[10px] text-ink-muted shrink-0 ml-1">
-                          {c.lastMessage?.createdAt || ""}
+                          {formatMessageTime(c.lastMessage?.createdAt)}
                         </span>
                       </div>
 
@@ -2219,7 +2280,7 @@ export default function BrgConnectChatPage() {
                               }`}
                             >
                               {msg.editedAt && <span>(edited)</span>}
-                              <span>{msg.createdAt}</span>
+                              <span>{formatMessageTime(msg.createdAt)}</span>
 
                               {isMe && (
                                 <span

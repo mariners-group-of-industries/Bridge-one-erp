@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getConnectAuthUser } from "@/lib/connect/auth";
+import { getConnectPool } from "@/lib/connect/db";
 import { getPusherServer } from "@/lib/connect/pusher-server";
 
 // In-memory heartbeat tracker for real-time user presence
@@ -11,8 +12,8 @@ interface ActivePresence {
 
 const activePresenceMap = new Map<string, ActivePresence>();
 
-// Heartbeat timeout threshold: 45 seconds
-const PRESENCE_TIMEOUT_MS = 45000;
+// Heartbeat timeout threshold: 40 seconds
+const PRESENCE_TIMEOUT_MS = 40000;
 
 function cleanupStalePresence() {
   const now = Date.now();
@@ -64,14 +65,32 @@ export async function POST(req: Request) {
       // Body may be empty in beacon ping
     }
 
+    // Resolve employee id if any
+    let empId: string | null = null;
+    try {
+      const pool = getConnectPool();
+      const empRes = await pool.query(
+        `SELECT id FROM employees WHERE "userId" = $1::uuid LIMIT 1`,
+        [user.id]
+      );
+      if (empRes.rowCount && empRes.rowCount > 0) {
+        empId = empRes.rows[0].id;
+      }
+    } catch {
+      // Ignored
+    }
+
     const pusher = getPusherServer();
     const now = Date.now();
 
     if (action === "offline") {
       activePresenceMap.delete(user.id);
+      if (empId) activePresenceMap.delete(empId);
+
       if (pusher) {
         pusher.trigger("connect-global", "user-presence", {
           userId: user.id,
+          employeeId: empId,
           userName: user.name,
           status: "offline",
           lastSeen: now,
@@ -81,17 +100,24 @@ export async function POST(req: Request) {
     }
 
     // Default: heartbeat / online
-    const isNewOnline = !activePresenceMap.has(user.id);
     activePresenceMap.set(user.id, {
       id: user.id,
       name: user.name,
       lastSeen: now,
     });
+    if (empId) {
+      activePresenceMap.set(empId, {
+        id: empId,
+        name: user.name,
+        lastSeen: now,
+      });
+    }
 
-    // Broadcast presence update if user just came online or every heartbeat
-    if (pusher && isNewOnline) {
+    // Real-time broadcast presence update to all connected clients
+    if (pusher) {
       pusher.trigger("connect-global", "user-presence", {
         userId: user.id,
+        employeeId: empId,
         userName: user.name,
         status: "online",
         lastSeen: now,
@@ -104,4 +130,3 @@ export async function POST(req: Request) {
     return NextResponse.json({ success: false, error: "Failed to update presence" }, { status: 500 });
   }
 }
-
