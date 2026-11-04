@@ -50,6 +50,14 @@ export async function POST(req: Request) {
       fileUrl = `/uploads/connect/${safeName}`;
     }
 
+    const attachmentType = contentType.startsWith("image/")
+      ? "image"
+      : contentType.startsWith("audio/")
+      ? "audio"
+      : contentType.includes("pdf")
+      ? "doc"
+      : "file";
+
     return NextResponse.json({
       success: true,
       attachment: {
@@ -58,11 +66,7 @@ export async function POST(req: Request) {
         sizeBytes: file.size,
         mimeType: contentType,
         url: fileUrl,
-        type: contentType.startsWith("image/")
-          ? "image"
-          : contentType.includes("pdf")
-          ? "doc"
-          : "file",
+        type: attachmentType,
       },
     });
   } catch (error) {

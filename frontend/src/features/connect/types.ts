@@ -20,7 +20,7 @@ export interface ConnectAttachment {
   sizeBytes: number;
   mimeType: string;
   url: string;
-  type: "image" | "file" | "doc";
+  type: "image" | "file" | "doc" | "audio";
 }
 
 export type ErpRecordType =

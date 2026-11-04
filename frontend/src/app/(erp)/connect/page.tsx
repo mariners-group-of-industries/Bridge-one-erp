@@ -107,6 +107,18 @@ export default function BrgConnectChatPage() {
   const [newGroupName, setNewGroupName] = useState("");
   const [newGroupDesc, setNewGroupDesc] = useState("");
   const [selectedGroupMembers, setSelectedGroupMembers] = useState<string[]>([]);
+  // Voice Note Recording State
+  const [isRecordingVoice, setIsRecordingVoice] = useState(false);
+  const [recordingDuration, setRecordingDuration] = useState(0);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const voiceStreamRef = useRef<MediaStream | null>(null);
+  const voiceChunksRef = useRef<Blob[]>([]);
+  const voiceTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // ERP Picker filter & search
+  const [erpSearchQuery, setErpSearchQuery] = useState("");
+  const [erpFilterType, setErpFilterType] = useState<"ALL" | "PURCHASE_ORDER" | "REQUISITION">("ALL");
+
 
   // WebRTC Call state
   const [activeCall, setActiveCall] = useState<{
@@ -846,6 +858,184 @@ export default function BrgConnectChatPage() {
         [activeConvId]: list.map((m) => (m.id === msgId ? { ...m, status } : m)),
       };
     });
+  };
+
+  
+  const loadErpRecords = async () => {
+    try {
+      const res = await fetch("/api/connect/erp-records");
+      const d = await res.json();
+      if (d?.success && Array.isArray(d.records)) {
+        setRealErpRecords(d.records);
+      }
+    } catch {
+      // Ignored
+    }
+  };
+
+  const filteredErpRecords = useMemo(() => {
+    return realErpRecords.filter((rec) => {
+      const matchesType = erpFilterType === "ALL" || rec.type === erpFilterType;
+      const q = erpSearchQuery.trim().toLowerCase();
+      if (!q) return matchesType;
+      const matchesSearch =
+        rec.code.toLowerCase().includes(q) ||
+        rec.title.toLowerCase().includes(q) ||
+        (rec.subtitle && rec.subtitle.toLowerCase().includes(q)) ||
+        rec.status.toLowerCase().includes(q);
+      return matchesType && matchesSearch;
+    });
+  }, [realErpRecords, erpFilterType, erpSearchQuery]);
+
+  const startVoiceRecording = async () => {
+    if (!activeConvId) return;
+    try {
+      if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
+        alert("Audio recording is not supported in this browser.");
+        return;
+      }
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      voiceStreamRef.current = stream;
+      voiceChunksRef.current = [];
+
+      let mimeType = "audio/webm";
+      if (typeof MediaRecorder !== "undefined") {
+        if (MediaRecorder.isTypeSupported("audio/webm;codecs=opus")) {
+          mimeType = "audio/webm;codecs=opus";
+        } else if (MediaRecorder.isTypeSupported("audio/ogg;codecs=opus")) {
+          mimeType = "audio/ogg;codecs=opus";
+        } else if (MediaRecorder.isTypeSupported("audio/mp4")) {
+          mimeType = "audio/mp4";
+        }
+      }
+
+      const recorder = new MediaRecorder(stream, { mimeType });
+      mediaRecorderRef.current = recorder;
+
+      recorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) {
+          voiceChunksRef.current.push(e.data);
+        }
+      };
+
+      recorder.start(250);
+      setIsRecordingVoice(true);
+      setRecordingDuration(0);
+
+      voiceTimerRef.current = setInterval(() => {
+        setRecordingDuration((prev) => prev + 1);
+      }, 1000);
+    } catch (err) {
+      console.warn("Could not start voice recording:", err);
+      alert("Could not access microphone for voice message. Please check permissions.");
+    }
+  };
+
+  const cancelVoiceRecording = () => {
+    if (voiceTimerRef.current) {
+      clearInterval(voiceTimerRef.current);
+      voiceTimerRef.current = null;
+    }
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+      try {
+        mediaRecorderRef.current.stop();
+      } catch {}
+    }
+    if (voiceStreamRef.current) {
+      voiceStreamRef.current.getTracks().forEach((t) => t.stop());
+      voiceStreamRef.current = null;
+    }
+    mediaRecorderRef.current = null;
+    voiceChunksRef.current = [];
+    setIsRecordingVoice(false);
+    setRecordingDuration(0);
+  };
+
+  const stopAndSendVoiceRecording = async () => {
+    if (!activeConvId || !mediaRecorderRef.current) return;
+
+    if (voiceTimerRef.current) {
+      clearInterval(voiceTimerRef.current);
+      voiceTimerRef.current = null;
+    }
+
+    const recorder = mediaRecorderRef.current;
+    const dur = recordingDuration;
+    setIsRecordingVoice(false);
+    setIsUploading(true);
+
+    recorder.onstop = async () => {
+      try {
+        if (voiceStreamRef.current) {
+          voiceStreamRef.current.getTracks().forEach((t) => t.stop());
+          voiceStreamRef.current = null;
+        }
+
+        const mime = recorder.mimeType || "audio/webm";
+        const ext = mime.includes("mp4") ? "mp4" : mime.includes("ogg") ? "ogg" : "webm";
+        const audioBlob = new Blob(voiceChunksRef.current, { type: mime });
+        voiceChunksRef.current = [];
+
+        const file = new File([audioBlob], `voice-note-${Date.now()}.${ext}`, { type: mime });
+        const formData = new FormData();
+        formData.append("file", file);
+
+        const res = await fetch("/api/connect/upload", {
+          method: "POST",
+          body: formData,
+        });
+        const data = await res.json();
+
+        if (data.success && data.attachment) {
+          const clientMsgId = `c-voice-${Date.now()}`;
+          const newMsg: ConnectMessage = {
+            id: `m-voice-${Date.now()}`,
+            conversationId: activeConvId,
+            senderId: authUser?.id || "user-current",
+            senderName: authUser?.name || "Me",
+            clientMsgId,
+            type: "file",
+            body: `Voice Note (${formatTime(dur)})`,
+            attachments: [{
+              ...data.attachment,
+              type: "audio",
+            }],
+            status: "delivered",
+            createdAt: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+          };
+
+          setMessagesMap((prev) => ({
+            ...prev,
+            [activeConvId]: [...(prev[activeConvId] || []), newMsg],
+          }));
+
+          await fetch(`/api/connect/conversations/${activeConvId}/messages`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              senderId: authUser?.id || "user-current",
+              senderName: authUser?.name || "Me",
+              clientMsgId,
+              type: "FILE",
+              bodyText: `Voice Note (${formatTime(dur)})`,
+              attachments: [{
+                ...data.attachment,
+                type: "audio",
+              }],
+            }),
+          });
+        }
+      } catch (err) {
+        console.error("Voice upload failed:", err);
+      } finally {
+        setIsUploading(false);
+        setRecordingDuration(0);
+      }
+    };
+
+    if (recorder.state !== "inactive") {
+      recorder.stop();
+    }
   };
 
   // Real File Upload Handler
@@ -1693,35 +1883,107 @@ export default function BrgConnectChatPage() {
                               </div>
                             )}
 
-                            {/* Attachments */}
-                            {msg.attachments?.map((att) => (
-                              <div
-                                key={att.id}
-                                className={`mt-2 flex items-center gap-2.5 p-2 rounded border ${
-                                  isMe
-                                    ? "bg-blue-700/50 border-white/30 text-white"
-                                    : "bg-control/40 border-line text-ink"
-                                }`}
-                              >
-                                <FileText className="size-4 shrink-0" />
-                                <div className="flex-1 min-w-0">
-                                  <span className="block truncate font-medium text-[11px]">{att.name}</span>
-                                  <span className="text-[10px] opacity-75">
-                                    {(att.sizeBytes / 1024 / 1024).toFixed(2)} MB
-                                  </span>
-                                </div>
-                                <a
-                                  href={att.url}
-                                  download={att.name}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="size-6 rounded hover:bg-surface/20 flex items-center justify-center transition cursor-pointer"
-                                  title="Download attachment"
+                            {/* Attachments (Voice notes, Images, Documents) */}
+                            {msg.attachments?.map((att) => {
+                              const isImage = att.type === "image" || att.mimeType?.startsWith("image/");
+                              const isAudio =
+                                att.type === "audio" ||
+                                att.mimeType?.startsWith("audio/") ||
+                                att.name.endsWith(".webm") ||
+                                att.name.endsWith(".ogg") ||
+                                att.name.endsWith(".mp3") ||
+                                att.name.endsWith(".wav");
+
+                              if (isAudio) {
+                                return (
+                                  <div
+                                    key={att.id}
+                                    className={`mt-2 p-2.5 rounded-lg border shadow-xs space-y-1.5 max-w-xs ${
+                                      isMe
+                                        ? "bg-blue-700/60 border-white/20 text-white"
+                                        : "bg-surface border-line text-ink"
+                                    }`}
+                                  >
+                                    <div className="flex items-center justify-between text-xs font-semibold">
+                                      <div className="flex items-center gap-1.5">
+                                        <Mic className="size-3.5 text-blue-400" />
+                                        <span>Voice Note</span>
+                                      </div>
+                                      <a
+                                        href={att.url}
+                                        download={att.name}
+                                        className="hover:opacity-75 transition cursor-pointer"
+                                        title="Download Voice Note"
+                                      >
+                                        <Download className="size-3" />
+                                      </a>
+                                    </div>
+                                    <audio
+                                      controls
+                                      src={att.url}
+                                      preload="metadata"
+                                      className="w-full h-8 rounded accent-blue-600"
+                                    />
+                                  </div>
+                                );
+                              }
+
+                              if (isImage) {
+                                return (
+                                  <div
+                                    key={att.id}
+                                    className="mt-2 rounded-lg overflow-hidden border border-line/40 max-w-xs shadow-xs"
+                                  >
+                                    <a href={att.url} target="_blank" rel="noopener noreferrer" title="View Full Image">
+                                      <img
+                                        src={att.url}
+                                        alt={att.name}
+                                        className="w-full max-h-56 object-cover hover:opacity-95 transition cursor-pointer"
+                                      />
+                                    </a>
+                                    <div
+                                      className={`px-2 py-1 flex items-center justify-between text-[10px] ${
+                                        isMe ? "bg-blue-800/60 text-white" : "bg-control/50 text-ink-muted"
+                                      }`}
+                                    >
+                                      <span className="truncate">{att.name}</span>
+                                      <a href={att.url} download={att.name} className="hover:text-blue-500">
+                                        <Download className="size-3" />
+                                      </a>
+                                    </div>
+                                  </div>
+                                );
+                              }
+
+                              return (
+                                <div
+                                  key={att.id}
+                                  className={`mt-2 flex items-center gap-2.5 p-2 rounded border ${
+                                    isMe
+                                      ? "bg-blue-700/50 border-white/30 text-white"
+                                      : "bg-control/40 border-line text-ink"
+                                  }`}
                                 >
-                                  <Download className="size-3.5" />
-                                </a>
-                              </div>
-                            ))}
+                                  <FileText className="size-4 shrink-0" />
+                                  <div className="flex-1 min-w-0">
+                                    <span className="block truncate font-medium text-[11px]">{att.name}</span>
+                                    <span className="text-[10px] opacity-75">
+                                      {(att.sizeBytes / 1024 / 1024).toFixed(2)} MB
+                                    </span>
+                                  </div>
+                                  <a
+                                    href={att.url}
+                                    download={att.name}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="size-6 rounded hover:bg-surface/20 flex items-center justify-center transition cursor-pointer"
+                                    title="Download attachment"
+                                  >
+                                    <Download className="size-3.5" />
+                                  </a>
+                                </div>
+                              );
+                            })}
 
                             {/* Call Info */}
                             {msg.callInfo && (
@@ -1834,56 +2096,94 @@ export default function BrgConnectChatPage() {
                     <button
                       type="button"
                       onClick={() => fileInputRef.current?.click()}
-                      disabled={isUploading}
-                      className="size-7 rounded hover:bg-control flex items-center justify-center hover:text-ink transition cursor-pointer"
-                      title="Upload & Attach File"
+                      disabled={isUploading || isRecordingVoice}
+                      className="size-7 rounded hover:bg-control flex items-center justify-center text-ink-muted hover:text-ink transition cursor-pointer disabled:opacity-40"
+                      title="Attach File / Photo / Document"
                     >
                       <Paperclip className={`size-4 ${isUploading ? "animate-spin text-blue-600" : ""}`} />
                     </button>
                     <button
                       type="button"
-                      onClick={() => setIsErpPickerOpen(true)}
-                      className="size-7 rounded hover:bg-control flex items-center justify-center text-blue-600 hover:text-blue-700 transition cursor-pointer"
+                      onClick={() => {
+                        loadErpRecords();
+                        setIsErpPickerOpen(true);
+                      }}
+                      disabled={isRecordingVoice}
+                      className="size-7 rounded hover:bg-control flex items-center justify-center text-blue-600 hover:text-blue-700 transition cursor-pointer disabled:opacity-40"
                       title="Attach Live ERP Record (PO, Requisition)"
                     >
                       <Share2 className="size-4" />
                     </button>
                   </div>
 
-                  <textarea
-                    ref={chatInputRef}
-                    value={messageText}
-                    onChange={(e) => setMessageText(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" && !e.shiftKey) {
-                        e.preventDefault();
-                        handleSendMessage();
-                      }
-                    }}
-                    rows={1}
-                    placeholder="Type a message... (Enter to send, Shift+Enter for new line)"
-                    className="flex-1 max-h-32 min-h-8 resize-none bg-transparent py-1.5 text-xs text-ink placeholder:text-ink-muted focus:outline-none"
-                  />
+                  {isRecordingVoice ? (
+                    <div className="flex-1 flex items-center justify-between px-3 py-1.5 bg-rose-50 dark:bg-rose-950/40 rounded-lg border border-rose-200 dark:border-rose-900/50 text-rose-600 animate-in fade-in">
+                      <div className="flex items-center gap-2">
+                        <span className="size-2 rounded-full bg-rose-600 animate-ping" />
+                        <span className="text-xs font-semibold">Recording Voice Note...</span>
+                        <span className="font-mono text-xs font-bold text-rose-700 dark:text-rose-300">
+                          {formatTime(recordingDuration)}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={cancelVoiceRecording}
+                          className="p-1 rounded text-rose-500 hover:text-rose-700 hover:bg-rose-100 dark:hover:bg-rose-900/50 transition cursor-pointer"
+                          title="Discard Recording"
+                        >
+                          <Trash2 className="size-4" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={stopAndSendVoiceRecording}
+                          className="px-2.5 py-1 rounded bg-rose-600 hover:bg-rose-700 text-white font-semibold text-xs flex items-center gap-1 transition cursor-pointer shadow-xs"
+                          title="Send Voice Note"
+                        >
+                          <Send className="size-3" />
+                          <span>Send</span>
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <textarea
+                        ref={chatInputRef}
+                        value={messageText}
+                        onChange={(e) => setMessageText(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" && !e.shiftKey) {
+                            e.preventDefault();
+                            handleSendMessage();
+                          }
+                        }}
+                        rows={1}
+                        placeholder="Type a message... (Enter to send, Shift+Enter for new line)"
+                        className="flex-1 max-h-32 min-h-8 resize-none bg-transparent py-1.5 text-xs text-ink placeholder:text-ink-muted focus:outline-none"
+                      />
 
-                  <div className="flex items-center gap-1 pb-1">
-                    <button
-                      type="button"
-                      onClick={() => handleStartCall("audio")}
-                      className="size-7 rounded hover:bg-control flex items-center justify-center text-ink-muted hover:text-ink transition cursor-pointer"
-                      title="Voice Call"
-                    >
-                      <Mic className="size-4" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleSendMessage}
-                      disabled={!messageText.trim() && !replyingTo}
-                      className="size-8 rounded-md bg-blue-600 hover:bg-blue-700 disabled:opacity-40 disabled:hover:bg-blue-600 text-white flex items-center justify-center transition cursor-pointer shadow-xs"
-                      title="Send Message"
-                    >
-                      <Send className="size-3.5" />
-                    </button>
-                  </div>
+                      <div className="flex items-center gap-1 pb-1">
+                        <button
+                          type="button"
+                          onClick={startVoiceRecording}
+                          disabled={isUploading}
+                          className="size-7 rounded hover:bg-control flex items-center justify-center text-ink-muted hover:text-rose-600 transition cursor-pointer"
+                          title="Record Voice Note"
+                        >
+                          <Mic className="size-4" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleSendMessage}
+                          disabled={!messageText.trim() && !replyingTo}
+                          className="size-8 rounded-md bg-blue-600 hover:bg-blue-700 disabled:opacity-40 disabled:hover:bg-blue-600 text-white flex items-center justify-center transition cursor-pointer shadow-xs"
+                          title="Send Message"
+                        >
+                          <Send className="size-3.5" />
+                        </button>
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
             </>
@@ -2148,21 +2448,74 @@ export default function BrgConnectChatPage() {
               </button>
             </div>
 
-            <p className="text-xs text-ink-muted">
-              Select an active Purchase Order or Requisition from the database:
-            </p>
+            {/* Filter Tabs & Search */}
+            <div className="space-y-2">
+              <div className="flex items-center gap-1.5 text-xs">
+                <button
+                  type="button"
+                  onClick={() => setErpFilterType("ALL")}
+                  className={`px-2.5 py-1 rounded font-medium transition cursor-pointer ${
+                    erpFilterType === "ALL"
+                      ? "bg-blue-600 text-white"
+                      : "bg-control text-ink-muted hover:text-ink"
+                  }`}
+                >
+                  All ({realErpRecords.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setErpFilterType("PURCHASE_ORDER")}
+                  className={`px-2.5 py-1 rounded font-medium transition cursor-pointer ${
+                    erpFilterType === "PURCHASE_ORDER"
+                      ? "bg-blue-600 text-white"
+                      : "bg-control text-ink-muted hover:text-ink"
+                  }`}
+                >
+                  Purchase Orders ({realErpRecords.filter((r) => r.type === "PURCHASE_ORDER").length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setErpFilterType("REQUISITION")}
+                  className={`px-2.5 py-1 rounded font-medium transition cursor-pointer ${
+                    erpFilterType === "REQUISITION"
+                      ? "bg-blue-600 text-white"
+                      : "bg-control text-ink-muted hover:text-ink"
+                  }`}
+                >
+                  Requisitions ({realErpRecords.filter((r) => r.type === "REQUISITION").length})
+                </button>
+              </div>
+
+              <div className="relative">
+                <Search className="size-3.5 absolute left-2.5 top-2.5 text-ink-muted" />
+                <input
+                  type="text"
+                  value={erpSearchQuery}
+                  onChange={(e) => setErpSearchQuery(e.target.value)}
+                  placeholder="Search by code (e.g. PO-2026, REQ), title, or status..."
+                  className="w-full h-8 pl-8 pr-3 text-xs rounded border border-line bg-surface text-ink placeholder:text-ink-muted focus:outline-none focus:ring-1 focus:ring-blue-500"
+                />
+              </div>
+            </div>
 
             <div className="space-y-2 max-h-80 overflow-y-auto">
-              {realErpRecords.length === 0 ? (
-                <div className="p-4 text-center text-xs text-ink-muted">
-                  No active ERP purchase orders or requisitions found in database.
+              {filteredErpRecords.length === 0 ? (
+                <div className="p-6 text-center text-xs text-ink-muted space-y-2">
+                  <p>No matching ERP purchase orders or requisitions found.</p>
+                  <button
+                    type="button"
+                    onClick={loadErpRecords}
+                    className="text-xs text-blue-600 font-semibold hover:underline cursor-pointer"
+                  >
+                    Refresh Records
+                  </button>
                 </div>
               ) : (
-                realErpRecords.map((card) => (
+                filteredErpRecords.map((card) => (
                   <div
                     key={card.id}
                     onClick={() => handleShareErpCard(card)}
-                    className="flex items-center justify-between p-3 rounded-lg border border-line bg-control/30 hover:bg-control/80 transition cursor-pointer"
+                    className="flex items-center justify-between p-3 rounded-lg border border-line bg-control/30 hover:bg-control/80 hover:border-blue-500/40 transition cursor-pointer group"
                   >
                     <div className="space-y-1 min-w-0">
                       <div className="flex items-center gap-2">
@@ -2170,9 +2523,12 @@ export default function BrgConnectChatPage() {
                         <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-surface border border-line uppercase">
                           {card.status}
                         </span>
+                        <span className="text-[10px] text-ink-muted uppercase">
+                          {card.type === "PURCHASE_ORDER" ? "PO" : "Requisition"}
+                        </span>
                       </div>
                       <span className="block font-medium text-xs text-ink truncate">{card.title}</span>
-                      {card.subtitle && <span className="block text-[11px] text-ink-muted">{card.subtitle}</span>}
+                      {card.subtitle && <span className="block text-[11px] text-ink-muted truncate">{card.subtitle}</span>}
                     </div>
                     {card.amount && (
                       <span className="font-mono font-bold text-xs text-emerald-600 shrink-0 ml-2">
