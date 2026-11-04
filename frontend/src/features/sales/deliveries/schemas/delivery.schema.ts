@@ -509,7 +509,7 @@ export interface StockSummary {
     id: string;
     warehouseName: string;
     qty: number;
-    source: "OPENING" | "ADJUSTMENT" | "SALES_DELIVERY" | "SALES_RETURN" | "PRODUCTION_CONSUMPTION" | "PRODUCTION_OUTPUT" | "PURCHASE_RECEIPT" | "PURCHASE_RETURN" | "TRANSFER_OUT" | "TRANSFER_IN" | "STORE_ISSUE" | "CONVERSION_OUT" | "CONVERSION_IN";
+    source: "OPENING" | "ADJUSTMENT" | "SALES_DELIVERY" | "SALES_RETURN" | "PRODUCTION_CONSUMPTION" | "PRODUCTION_OUTPUT" | "PURCHASE_RECEIPT" | "PURCHASE_RETURN" | "TRANSFER_OUT" | "TRANSFER_IN" | "STORE_ISSUE" | "CONVERSION_OUT" | "CONVERSION_IN" | "POS_SALE" | "POS_RETURN";
     postingDate: string;
     remarks: string | null;
     createdBy: string;

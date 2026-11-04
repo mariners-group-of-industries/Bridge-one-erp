@@ -506,6 +506,8 @@ model BusinessUnit {
   supplierPayments     SupplierPayment[]
   supplierBills        SupplierBill[]
   inventoryDocuments   InventoryDocument[]
+  posCounters          PosCounter[]
+  posSales             PosSale[]
   supplierGroups       SupplierGroup[]
   taxBrackets          TaxBracket[]
   itemDivisions        ItemDivision[]
@@ -607,6 +609,8 @@ model Warehouse {
 
   inventoryDocuments   InventoryDocument[] @relation("InventoryDocumentWarehouse")
   inventoryInbound     InventoryDocument[] @relation("InventoryDocumentToWarehouse")
+  posCounters          PosCounter[]
+  posSales             PosSale[]
   @@unique([officeId, name])
   @@map("warehouses")
 }
@@ -880,6 +884,7 @@ model Item {
 
   inventoryLines       InventoryDocumentLine[] @relation("InventoryLineItem")
   inventoryTargetLines InventoryDocumentLine[] @relation("InventoryLineTargetItem")
+  posSaleLines         PosSaleLine[]
   @@unique([businessUnitId, code])
   @@map("items")
 }
@@ -2424,6 +2429,8 @@ enum StockSource {
   STORE_ISSUE
   CONVERSION_OUT
   CONVERSION_IN
+  POS_SALE
+  POS_RETURN
 }
 
 /// Stock ledger: one signed quantity per movement. Stock = sum(qty) per
@@ -4504,4 +4511,98 @@ model InventoryDocumentLine {
   @@index([documentId])
   @@index([itemId])
   @@map("inventory_document_lines")
+}
+
+// ─── POS ─────────────────────────────────────────────────────────────────────
+
+enum PosPaymentMethod {
+  CASH
+  CARD
+  MFS
+  VOUCHER
+}
+
+enum PosSaleStatus {
+  COMPLETED
+  VOIDED
+}
+
+/// A sales counter; it sells from one warehouse.
+model PosCounter {
+  id             String   @id @default(uuid()) @db.Uuid
+  businessUnitId String   @db.Uuid
+  code           String   @db.VarChar(20)
+  name           String   @db.VarChar(100)
+  warehouseId    String   @db.Uuid
+  floorName      String?  @db.VarChar(200)
+  userName       String?  @db.VarChar(150)
+  receiptMessage String?  @db.VarChar(300)
+  isEcommerce    Boolean  @default(false)
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime @updatedAt @db.Timestamptz(3)
+
+  businessUnit BusinessUnit @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  warehouse    Warehouse    @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+  sales        PosSale[]
+
+  @@unique([businessUnitId, code])
+  @@map("pos_counters")
+}
+
+/// A counter sale: paid at once, stock leaves the counter's warehouse (POS_SALE);
+/// voiding it puts the stock back (POS_RETURN).
+model PosSale {
+  id             String           @id @default(uuid()) @db.Uuid
+  businessUnitId String           @db.Uuid
+  counterId      String           @db.Uuid
+  warehouseId    String           @db.Uuid
+  number         String           @db.VarChar(30)
+  saleDate       DateTime         @db.Date
+  soldAt         DateTime         @default(now()) @db.Timestamptz(3)
+  customerName   String?          @db.VarChar(150)
+  customerMobile String?          @db.VarChar(30)
+  tableRef       String?          @db.VarChar(100)
+  subtotal       Decimal          @db.Decimal(14, 2)
+  discount       Decimal          @default(0) @db.Decimal(14, 2)
+  vatPercent     Decimal          @default(0) @db.Decimal(5, 2)
+  vatAmount      Decimal          @default(0) @db.Decimal(14, 2)
+  total          Decimal          @db.Decimal(14, 2)
+  paidAmount     Decimal          @db.Decimal(14, 2)
+  changeAmount   Decimal          @default(0) @db.Decimal(14, 2)
+  paymentMethod  PosPaymentMethod @default(CASH)
+  status         PosSaleStatus    @default(COMPLETED)
+  voidReason     String?          @db.VarChar(300)
+  createdBy      String           @db.VarChar(150)
+  voidedBy       String?          @db.VarChar(150)
+  voidedAt       DateTime?        @db.Timestamptz(3)
+  createdAt      DateTime         @default(now()) @db.Timestamptz(3)
+
+  businessUnit BusinessUnit  @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  counter      PosCounter    @relation(fields: [counterId], references: [id], onDelete: Restrict)
+  warehouse    Warehouse     @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+  lines        PosSaleLine[]
+
+  @@unique([businessUnitId, number])
+  @@index([businessUnitId, saleDate])
+  @@index([counterId])
+  @@map("pos_sales")
+}
+
+model PosSaleLine {
+  id       String  @id @default(uuid()) @db.Uuid
+  saleId   String  @db.Uuid
+  lineNo   Int
+  itemId   String  @db.Uuid
+  qty      Decimal @db.Decimal(14, 3)
+  rate     Decimal @db.Decimal(14, 2)
+  discount Decimal @default(0) @db.Decimal(14, 2)
+  amount   Decimal @db.Decimal(14, 2)
+
+  sale PosSale @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  item Item    @relation(fields: [itemId], references: [id], onDelete: Restrict)
+
+  @@index([saleId])
+  @@index([itemId])
+  @@map("pos_sale_lines")
 }

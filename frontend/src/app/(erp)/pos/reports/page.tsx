@@ -1,6 +1,8 @@
 "use client";
 
 import React, { useState, useMemo } from "react";
+import { useResource } from "@/hooks/use-resource";
+import { posApi } from "@/features/pos/services/pos.api";
 import {
   ChevronDown,
   Search,
@@ -107,58 +109,15 @@ interface ReportRow {
   status: string;
 }
 
-const MOCK_REPORT_DATA: Record<PosReportTabId, ReportRow[]> = {
-  INVENTORY_REPORT: [
-    { id: "inv-1", date: "2026-11-01", code: "ITM-STK-001", particulars: "Beef Ribeye Steak (250g)", category: "Main Course", qty: 85, uom: "Pcs", unitPrice: 1400, discount: 0, vat: 0, amount: 119000, status: "Normal" },
-    { id: "inv-2", date: "2026-11-01", code: "ITM-PST-002", particulars: "Chicken Alfredo Pasta", category: "Pasta", qty: 140, uom: "Portion", unitPrice: 600, discount: 0, vat: 0, amount: 84000, status: "Normal" },
-    { id: "inv-3", date: "2026-11-01", code: "ITM-PIZ-003", particulars: "Margherita Pizza (Large)", category: "Pizza", qty: 65, uom: "Pcs", unitPrice: 700, discount: 0, vat: 0, amount: 45500, status: "Normal" },
-    { id: "inv-4", date: "2026-11-01", code: "ITM-SEA-004", particulars: "Grilled Atlantic Salmon", category: "Seafood", qty: 12, uom: "Portion", unitPrice: 1400, discount: 0, vat: 0, amount: 16800, status: "Low Stock" },
-    { id: "inv-5", date: "2026-11-01", code: "ITM-APP-005", particulars: "BBQ Chicken Wings (8 pcs)", category: "Appetizers", qty: 190, uom: "Platter", unitPrice: 400, discount: 0, vat: 0, amount: 76000, status: "Normal" },
-    { id: "inv-6", date: "2026-11-01", code: "ITM-BEV-006", particulars: "Fresh Lime Mint Soda", category: "Beverages", qty: 240, uom: "Glass", unitPrice: 200, discount: 0, vat: 0, amount: 48000, status: "Normal" },
-    { id: "inv-7", date: "2026-11-01", code: "ITM-DES-007", particulars: "Chocolate Lava Cake", category: "Dessert", qty: 18, uom: "Pcs", unitPrice: 350, discount: 0, vat: 0, amount: 6300, status: "Low Stock" },
-    { id: "inv-8", date: "2026-11-01", code: "ITM-COF-008", particulars: "Cappuccino / Latte", category: "Coffee", qty: 320, uom: "Cup", unitPrice: 200, discount: 0, vat: 0, amount: 64000, status: "Normal" },
-  ],
-  POS_SALES_REPORT: [
-    { id: "pos-1", date: "2026-11-01", code: "INV-2026-0081", particulars: "Table 4 - ROOF TOP (Cashier: Usuf)", category: "Counter 01", qty: 4, uom: "Items", unitPrice: 850, discount: 340, vat: 229.5, amount: 3289.5, status: "Completed" },
-    { id: "pos-2", date: "2026-11-01", code: "INV-2026-0082", particulars: "Table 12 - HALLROOM (Cashier: Mirpur-14)", category: "Counter 02", qty: 6, uom: "Items", unitPrice: 720, discount: 432, vat: 291.6, amount: 4179.6, status: "Completed" },
-    { id: "pos-3", date: "2026-11-01", code: "INV-2026-0083", particulars: "VIP Cabin 2 (Cashier: Usuf)", category: "Counter 01", qty: 8, uom: "Items", unitPrice: 1100, discount: 880, vat: 594.0, amount: 8514.0, status: "Completed" },
-    { id: "pos-4", date: "2026-11-01", code: "INV-2026-0084", particulars: "Takeaway Order #19 (Cashier: Mirpur-14)", category: "Counter 02", qty: 3, uom: "Items", unitPrice: 550, discount: 0, vat: 123.75, amount: 1773.75, status: "Completed" },
-    { id: "pos-5", date: "2026-11-01", code: "INV-2026-0085", particulars: "Outdoor Table 6 (Cashier: Usuf)", category: "Counter 01", qty: 5, uom: "Items", unitPrice: 640, discount: 320, vat: 216.0, amount: 3096.0, status: "Completed" },
-    { id: "pos-6", date: "2026-11-01", code: "INV-2026-0086", particulars: "Table 1 - ROOF TOP (Cashier: Usuf)", category: "Counter 01", qty: 2, uom: "Items", unitPrice: 1400, discount: 280, vat: 189.0, amount: 2709.0, status: "Completed" },
-  ],
-  VAT_REPORT: [
-    { id: "vat-1", date: "2026-11-01", code: "VAT-REG-101", particulars: "Mushak 6.3 - INV-2026-0081", category: "Standard 7.5%", qty: 4, uom: "Txn", unitPrice: 3060, discount: 340, vat: 229.5, amount: 3289.5, status: "Reported" },
-    { id: "vat-2", date: "2026-11-01", code: "VAT-REG-102", particulars: "Mushak 6.3 - INV-2026-0082", category: "Standard 7.5%", qty: 6, uom: "Txn", unitPrice: 3888, discount: 432, vat: 291.6, amount: 4179.6, status: "Reported" },
-    { id: "vat-3", date: "2026-11-01", code: "VAT-REG-103", particulars: "Mushak 6.3 - INV-2026-0083", category: "Standard 7.5%", qty: 8, uom: "Txn", unitPrice: 7920, discount: 880, vat: 594.0, amount: 8514.0, status: "Reported" },
-    { id: "vat-4", date: "2026-11-01", code: "VAT-REG-104", particulars: "Mushak 6.3 - INV-2026-0084", category: "Standard 7.5%", qty: 3, uom: "Txn", unitPrice: 1650, discount: 0, vat: 123.75, amount: 1773.75, status: "Reported" },
-    { id: "vat-5", date: "2026-11-01", code: "VAT-REG-105", particulars: "Mushak 6.3 - INV-2026-0085", category: "Standard 7.5%", qty: 5, uom: "Txn", unitPrice: 2880, discount: 320, vat: 216.0, amount: 3096.0, status: "Reported" },
-  ],
-  DISCOUNT_REPORT: [
-    { id: "dsc-1", date: "2026-11-01", code: "DISC-OFF-01", particulars: "Happy Hours 10% Off", category: "Special Discount", qty: 28, uom: "Invoices", unitPrice: 2450, discount: 6860, vat: 4630, amount: 61740, status: "Active" },
-    { id: "dsc-2", date: "2026-11-01", code: "DISC-OFF-02", particulars: "Steak Special 15% Promotion", category: "Product Discount", qty: 16, uom: "Items", unitPrice: 1400, discount: 3360, vat: 1428, amount: 20468, status: "Active" },
-    { id: "dsc-3", date: "2026-11-01", code: "DISC-VOU-03", particulars: "Corporate Gift Voucher (500 BDT)", category: "Voucher Redeem", qty: 10, uom: "Vouchers", unitPrice: 500, discount: 5000, vat: 0, amount: 5000, status: "Redeemed" },
-    { id: "dsc-4", date: "2026-11-01", code: "DISC-PNT-04", particulars: "Loyalty Points Redemption", category: "Point Offer", qty: 8, uom: "Txn", unitPrice: 350, discount: 2800, vat: 0, amount: 2800, status: "Settled" },
-  ],
-  DATA_LOG_REPORT: [
-    { id: "log-1", date: "2026-11-01 14:22", code: "LOG-VD-0041", particulars: "Void Item: Beef Steak - Customer changed mind", category: "Item Void", qty: 1, uom: "Pcs", unitPrice: 1400, discount: 0, vat: 105, amount: 1400, status: "Authorized" },
-    { id: "log-2", date: "2026-11-01 16:45", code: "LOG-OVR-0012", particulars: "Manual Discount Override: VIP Guest 20%", category: "Price Override", qty: 1, uom: "Txn", unitPrice: 4200, discount: 840, vat: 252, amount: 3612, status: "Manager Approved" },
-    { id: "log-3", date: "2026-11-01 11:00", code: "LOG-SES-0001", particulars: "Counter 01 Terminal Shift Open (Float 5000 BDT)", category: "Session Log", qty: 1, uom: "Session", unitPrice: 5000, discount: 0, vat: 0, amount: 5000, status: "Logged" },
-    { id: "log-4", date: "2026-11-01 23:30", code: "LOG-SES-0002", particulars: "Counter 01 End of Day Settlement (Usuf Ali)", category: "Z-Report", qty: 1, uom: "Closing", unitPrice: 89500, discount: 4120, vat: 6712, amount: 92092, status: "Balanced" },
-  ],
-  MIS_REPORT: [
-    { id: "mis-1", date: "2026-11-01", code: "MIS-GRP-01", particulars: "Main Course & Steaks Gross Margin (62%)", category: "Outlet Marinozz", qty: 180, uom: "Servings", unitPrice: 1200, discount: 7200, vat: 15660, amount: 224460, status: "High Margin" },
-    { id: "mis-2", date: "2026-11-01", code: "MIS-GRP-02", particulars: "Beverages & Coffee Margin (78%)", category: "Outlet Marinozz", qty: 320, uom: "Cups/Glass", unitPrice: 200, discount: 1200, vat: 4710, amount: 67510, status: "High Margin" },
-    { id: "mis-3", date: "2026-11-01", code: "MIS-GRP-03", particulars: "Pasta & Pizza Margin (58%)", category: "Outlet Marinozz", qty: 210, uom: "Portions", unitPrice: 650, discount: 5400, vat: 9832, amount: 140932, status: "Healthy" },
-    { id: "mis-4", date: "2026-11-01", code: "MIS-GRP-04", particulars: "Desserts & Bakery Margin (65%)", category: "Outlet Marinozz", qty: 95, uom: "Plates", unitPrice: 350, discount: 1100, vat: 2411, amount: 34561, status: "Healthy" },
-  ],
-};
-
 export default function PosReportsPage() {
   const [activeTab, setActiveTab] = useState<PosReportTabId>("INVENTORY_REPORT");
   const [selectedReportType, setSelectedReportType] = useState("Current Stock Summary");
   const [searchQuery, setSearchQuery] = useState("");
-  const [fromDate, setFromDate] = useState("2026-11-01");
-  const [toDate, setToDate] = useState("2026-11-30");
+  const [fromDate, setFromDate] = useState(`${new Date().toISOString().slice(0, 7)}-01`);
+  const [toDate, setToDate] = useState(new Date().toISOString().slice(0, 10));
+  // Every tab is built from POS sales and counter stock for the dates chosen.
+  const validRange = !!fromDate && !!toDate && fromDate <= toDate;
+  const reports = useResource(validRange ? `pos-reports-${fromDate}-${toDate}` : null, () => posApi.reports({ from: fromDate, to: toDate }));
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   const showToast = (msg: string) => {
@@ -179,7 +138,7 @@ export default function PosReportsPage() {
 
   // Filtered Rows
   const filteredRows = useMemo(() => {
-    const list = MOCK_REPORT_DATA[activeTab] || [];
+    const list: ReportRow[] = reports.data?.[activeTab] ?? [];
     if (!searchQuery.trim()) return list;
     const q = searchQuery.toLowerCase().trim();
     return list.filter(
@@ -189,7 +148,7 @@ export default function PosReportsPage() {
         r.category.toLowerCase().includes(q) ||
         r.status.toLowerCase().includes(q)
     );
-  }, [activeTab, searchQuery]);
+  }, [reports.data, activeTab, searchQuery]);
 
   // Aggregate totals
   const totalQty = filteredRows.reduce((acc, r) => acc + r.qty, 0);

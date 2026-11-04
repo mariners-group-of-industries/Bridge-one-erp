@@ -9,6 +9,13 @@ export const posDashboard: NavLink = {
   keywords: ["pos", "dashboard", "point of sale", "retail", "counter sales"],
 };
 
+export const posTerminal: NavLink = {
+  label: "Terminal",
+  href: paths.terminal,
+  description: "Sell at a counter: pick items, take payment, print the receipt. Stock leaves the counter warehouse.",
+  keywords: ["pos terminal", "counter", "sell", "cash sale", "checkout", "receipt"],
+};
+
 export const posSetup: NavLink = {
   label: "Setup",
   href: paths.setup,
@@ -37,11 +44,11 @@ export const posWorkspace: Workspace = {
   href: paths.dashboard,
   description: "Point of sale operations, counter & offer setup, recipe & costing (R&C), and retail sales reporting.",
   status: "active",
-  shortcuts: [posDashboard, posSetup, posRc, posReports],
+  shortcuts: [posDashboard, posTerminal, posSetup, posRc, posReports],
   cards: [
     {
       label: "",
-      links: [posDashboard, posSetup, posRc, posReports],
+      links: [posDashboard, posTerminal, posSetup, posRc, posReports],
     },
   ],
 };

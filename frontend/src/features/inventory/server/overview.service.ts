@@ -20,6 +20,8 @@ export const STOCK_SOURCE_LABELS: Record<StockSource, string> = {
   STORE_ISSUE: "Store Issue",
   CONVERSION_OUT: "Conversion Out",
   CONVERSION_IN: "Conversion In",
+  POS_SALE: "POS Sale",
+  POS_RETURN: "POS Void",
 };
 
 const COLORS = ["#38effe", "#b939e5", "#3b82f6", "#facc15", "#22c55e", "#f97316", "#ef4444", "#64748b"];

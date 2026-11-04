@@ -122,6 +122,8 @@ Every other module depends on Configuration and nothing in Configuration depends
 | Purchase | Supplier payable | Receipts and ad-hoc bills raise `supplier.balance`, returns and payments lower it. `src/lib/purchase-store/payables.ts` applies payments to receipts and bills (linked document first, then oldest); what is left is the supplier's advance |
 | Inventory | Stock ledger | Stock updates and conversions post when approved; transfers post out when dispatched and in when received (shortfall goes back to the source); store issues post out when saved. Transfer requests and store requisitions are approved, then fulfilled by transfers and issues (`features/inventory/server`) |
 | Inventory | Dashboard and reports | Valuation, movements, turnover, coverage and the inventory / transfer reports are computed from the stock ledger (quantity × purchase price) |
+| POS | Stock ledger | A terminal sale (`/pos/terminal`) takes the items out of the counter's warehouse (`POS_SALE`); voiding it puts them back (`POS_RETURN`). Counters (POS Setup › Counter Setup) each sell from one warehouse |
+| POS | Dashboard and reports | Counter, payment, item and customer figures, VAT, discounts, voids and margins come from POS sales |
 | Connect | Configuration | Employee directory; routes need a signed-in user with the Connect permission |
 | HRM | Configuration | Employee profile kit and actions; attendance devices and API tokens |
 | HRM | Attendance agent | The agent reads the device on the LAN and posts punches with an API token |
@@ -137,7 +139,7 @@ computed from it, so every module sees the same stock.
 | Missing link | What it needs |
 |---|---|
 | Sales, Purchase, HRM payroll → Accounts | Nothing posts to the general ledger automatically; Accounts holds manual journals only. Needs a mapping of document types to GL accounts (receivables, revenue, payables, inventory, cash/bank, salary expense), decided by Accounts. |
-| POS → Sales / stock | POS pages show sample figures; sales made at the counter do not reduce stock or appear in Sales. |
+| POS setup (discounts & offers, sales setup, point redeem, floors & tables) | These setup screens are still saved in the browser only; counters are in the database. |
 
 ### Current data sources
 
@@ -147,7 +149,7 @@ computed from it, so every module sees the same stock.
 | Purchase | PostgreSQL through `src/lib/purchase-store`, served at `/api/v1/…` |
 | Connect | PostgreSQL through `src/lib/connect/db.ts` (`/api/connect/…`) |
 | Inventory | PostgreSQL (`InventoryDocument`, `StockEntry`) through `/api/inventory/<page>/…` |
-| POS | Sample data in the pages; not connected yet |
+| POS | PostgreSQL (`PosCounter`, `PosSale`) through `/api/pos/…`; other setup screens in the browser |
 | RTM, CRM | Planned |
 
 ### Shared platform code (`src/lib`)
