@@ -112,13 +112,14 @@ export default function BrgConnectChatPage() {
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [editText, setEditText] = useState("");
   const [isUploading, setIsUploading] = useState(false);
-  const [stagedAttachment, setStagedAttachment] = useState<{
+  const [stagedAttachments, setStagedAttachments] = useState<{
+    id: string;
     file: File;
     previewUrl?: string;
     name: string;
     sizeBytes: number;
     type: "image" | "file" | "doc" | "audio";
-  } | null>(null);
+  }[]>([]);
 
   // Real data from DB
   const [realErpRecords, setRealErpRecords] = useState<ErpRecordCard[]>([]);
@@ -947,85 +948,127 @@ export default function BrgConnectChatPage() {
     fetch(`/api/connect/conversations/${id}/read`, { method: "POST" }).catch(() => {});
   };
 
-  // Handle file selection from paperclip or drag-drop/paste
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  // Handle file selection from paperclip, bulk file picker, drag-drop, or paste
+  const handleFileSelect = (
+    input: React.ChangeEvent<HTMLInputElement> | FileList | File[] | null
+  ) => {
+    let files: File[] = [];
+    if (!input) return;
+    if ("target" in input) {
+      files = Array.from(input.target.files || []);
+    } else if (input instanceof FileList) {
+      files = Array.from(input);
+    } else if (Array.isArray(input)) {
+      files = input;
+    }
+    if (files.length === 0) return;
 
-    if (file.size > 25 * 1024 * 1024) {
-      alert("File exceeds maximum 25 MB limit.");
+    const oversized = files.filter((f) => f.size > 25 * 1024 * 1024);
+    if (oversized.length > 0) {
+      alert(
+        `The following file(s) exceed the 25 MB limit:\n${oversized
+          .map((f) => `• ${f.name} (${(f.size / (1024 * 1024)).toFixed(1)} MB)`)
+          .join("\n")}`
+      );
+    }
+
+    const validFiles = files.filter((f) => f.size <= 25 * 1024 * 1024);
+    if (validFiles.length === 0) {
       if (fileInputRef.current) fileInputRef.current.value = "";
       return;
     }
 
-    const mime = file.type || "application/octet-stream";
-    const attType: "image" | "file" | "doc" | "audio" = mime.startsWith("image/")
-      ? "image"
-      : mime.startsWith("audio/")
-      ? "audio"
-      : mime.includes("pdf") || mime.includes("document") || mime.includes("sheet") || mime.includes("excel")
-      ? "doc"
-      : "file";
-
-    const previewUrl = attType === "image" ? URL.createObjectURL(file) : undefined;
-
-    setStagedAttachment({
-      file,
-      previewUrl,
-      name: file.name,
-      sizeBytes: file.size,
-      type: attType,
+    const newAttachments = validFiles.map((file) => {
+      const mime = file.type || "application/octet-stream";
+      const attType: "image" | "file" | "doc" | "audio" = mime.startsWith("image/")
+        ? "image"
+        : mime.startsWith("audio/")
+        ? "audio"
+        : mime.includes("pdf") ||
+          mime.includes("document") ||
+          mime.includes("sheet") ||
+          mime.includes("excel")
+        ? "doc"
+        : "file";
+      const previewUrl = attType === "image" ? URL.createObjectURL(file) : undefined;
+      return {
+        id: `staged-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        file,
+        previewUrl,
+        name: file.name,
+        sizeBytes: file.size,
+        type: attType,
+      };
     });
 
+    setStagedAttachments((prev) => [...prev, ...newAttachments]);
+    if (fileInputRef.current) fileInputRef.current.value = "";
     setTimeout(() => chatInputRef.current?.focus(), 50);
   };
 
-  // Send real message to database (with staged file upload support)
+  // Send real message to database (with bulk file upload support)
   const handleSendMessage = async () => {
-    if (!activeConvId || (!messageText.trim() && !replyingTo && !stagedAttachment)) return;
+    if (!activeConvId || (!messageText.trim() && !replyingTo && stagedAttachments.length === 0)) return;
     const textToSend = messageText.trim();
     const currentReply = replyingTo;
-    const currentStaged = stagedAttachment;
+    const currentStagedList = [...stagedAttachments];
 
     setMessageText("");
     setReplyingTo(null);
-    setStagedAttachment(null);
+    setStagedAttachments([]);
     if (fileInputRef.current) fileInputRef.current.value = "";
 
-    // If a file was staged, upload it first
-    let uploadedAttachment: ConnectAttachment | null = null;
-    if (currentStaged) {
+    // Upload all staged files in bulk
+    let uploadedAttachments: ConnectAttachment[] = [];
+    if (currentStagedList.length > 0) {
       setIsUploading(true);
       try {
         const formData = new FormData();
-        formData.append("file", currentStaged.file);
+        currentStagedList.forEach((att) => {
+          formData.append("files", att.file);
+        });
         const res = await fetch("/api/connect/upload", {
           method: "POST",
           body: formData,
         });
         const data = await res.json();
-        if (data.success && data.attachment) {
-          uploadedAttachment = data.attachment;
+        if (data.success && Array.isArray(data.attachments)) {
+          uploadedAttachments = data.attachments;
+        } else if (data.success && data.attachment) {
+          uploadedAttachments = [data.attachment];
         } else {
-          alert(data.error || "Failed to upload attached file");
+          alert(data.error || "Failed to upload attached files");
           setIsUploading(false);
           return;
         }
       } catch (uploadErr) {
-        console.error("Upload failed:", uploadErr);
-        alert("Failed to upload file. Please check connection.");
+        console.error("Bulk upload failed:", uploadErr);
+        alert("Failed to upload files. Please check connection.");
         setIsUploading(false);
         return;
       } finally {
         setIsUploading(false);
+        currentStagedList.forEach((att) => {
+          if (att.previewUrl) URL.revokeObjectURL(att.previewUrl);
+        });
       }
     }
 
     const clientMsgId = `c-${Date.now()}`;
-    const messageBody = textToSend || (uploadedAttachment ? `Shared file: ${uploadedAttachment.name}` : "");
-    const messageType = uploadedAttachment
-      ? (uploadedAttachment.type === "image" ? "image" : "file")
-      : "text";
+    const messageBody =
+      textToSend ||
+      (uploadedAttachments.length > 0
+        ? uploadedAttachments.length === 1
+          ? `Shared file: ${uploadedAttachments[0].name}`
+          : `Shared ${uploadedAttachments.length} files`
+        : "");
+
+    const messageType =
+      uploadedAttachments.length > 0
+        ? uploadedAttachments.every((a) => a.type === "image")
+          ? "image"
+          : "file"
+        : "text";
 
     const newMsg: ConnectMessage = {
       id: `m-${Date.now()}`,
@@ -1042,7 +1085,7 @@ export default function BrgConnectChatPage() {
             body: currentReply.body.slice(0, 70),
           }
         : undefined,
-      attachments: uploadedAttachment ? [uploadedAttachment] : undefined,
+      attachments: uploadedAttachments.length > 0 ? uploadedAttachments : undefined,
       status: "sending",
       createdAt: formatMessageTime(new Date()),
     };
@@ -1062,7 +1105,7 @@ export default function BrgConnectChatPage() {
           senderId: authUser?.id || "user-current",
           senderName: authUser?.name || "Me",
           clientMsgId,
-          type: uploadedAttachment ? "FILE" : "TEXT",
+          type: uploadedAttachments.length > 0 ? "FILE" : "TEXT",
           bodyText: messageBody,
           replyToId: currentReply?.id || null,
           replyTo: currentReply
@@ -1072,7 +1115,7 @@ export default function BrgConnectChatPage() {
                 body: currentReply.body.slice(0, 70),
               }
             : null,
-          attachments: uploadedAttachment ? [uploadedAttachment] : undefined,
+          attachments: uploadedAttachments.length > 0 ? uploadedAttachments : undefined,
         }),
       });
       const data = await res.json();
@@ -1706,6 +1749,7 @@ export default function BrgConnectChatPage() {
         type="file"
         ref={fileInputRef}
         onChange={handleFileSelect}
+        multiple
         className="sr-only"
         tabIndex={-1}
         aria-hidden="true"
@@ -2036,7 +2080,15 @@ export default function BrgConnectChatPage() {
               </div>
 
               {/* Messages Scroll Area */}
-              <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-control/20">
+              <div
+                className="flex-1 overflow-y-auto p-4 space-y-3 bg-control/20"
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  const dropped = Array.from(e.dataTransfer.files || []);
+                  if (dropped.length > 0) handleFileSelect(dropped);
+                }}
+              >
                 {activeMessages.length === 0 ? (
                   <div className="flex flex-col items-center justify-center py-12 text-center space-y-2 text-ink-muted">
                     <p className="text-xs font-semibold text-ink">No messages yet in this conversation</p>
@@ -2387,42 +2439,79 @@ export default function BrgConnectChatPage() {
 
               {/* Bottom Message Composer */}
               <div className="p-3 border-t border-line bg-surface">
-                {/* Staged File Attachment Preview Chip */}
-                {stagedAttachment && (
-                  <div className="flex items-center justify-between gap-3 bg-control/70 border border-line rounded-lg px-3 py-2 mb-2 text-xs animate-in fade-in slide-in-from-bottom-2">
-                    <div className="flex items-center gap-2.5 min-w-0">
-                      {stagedAttachment.type === "image" && stagedAttachment.previewUrl ? (
-                        <img
-                          src={stagedAttachment.previewUrl}
-                          alt={stagedAttachment.name}
-                          className="size-10 rounded object-cover border border-line shrink-0"
-                        />
-                      ) : (
-                        <div className="size-10 rounded bg-blue-100 dark:bg-blue-950/60 text-blue-600 flex items-center justify-center shrink-0">
-                          <FileText className="size-5" />
-                        </div>
-                      )}
-                      <div className="min-w-0">
-                        <span className="font-semibold text-ink truncate block">
-                          {stagedAttachment.name}
-                        </span>
-                        <span className="text-[11px] text-ink-muted">
-                          {(stagedAttachment.sizeBytes / (1024 * 1024)).toFixed(2)} MB • Ready to send
+                {/* Staged File Attachments Preview (Bulk Upload Support) */}
+                {stagedAttachments.length > 0 && (
+                  <div className="bg-control/70 border border-line rounded-lg p-2.5 mb-2 text-xs space-y-2 animate-in fade-in slide-in-from-bottom-2">
+                    <div className="flex items-center justify-between text-ink-muted text-[11px] font-medium border-b border-line/60 pb-1.5">
+                      <div className="flex items-center gap-1.5">
+                        <Paperclip className="size-3.5 text-blue-600" />
+                        <span className="font-semibold text-ink">
+                          {stagedAttachments.length} file{stagedAttachments.length > 1 ? "s" : ""} selected for bulk upload
                         </span>
                       </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => fileInputRef.current?.click()}
+                          className="text-blue-600 hover:text-blue-700 font-semibold cursor-pointer"
+                        >
+                          + Add more
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            stagedAttachments.forEach((a) => {
+                              if (a.previewUrl) URL.revokeObjectURL(a.previewUrl);
+                            });
+                            setStagedAttachments([]);
+                            if (fileInputRef.current) fileInputRef.current.value = "";
+                          }}
+                          className="text-ink-muted hover:text-rose-600 cursor-pointer"
+                        >
+                          Clear all
+                        </button>
+                      </div>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (stagedAttachment.previewUrl) URL.revokeObjectURL(stagedAttachment.previewUrl);
-                        setStagedAttachment(null);
-                        if (fileInputRef.current) fileInputRef.current.value = "";
-                      }}
-                      className="p-1 rounded-full hover:bg-surface text-ink-muted hover:text-rose-600 transition cursor-pointer"
-                      title="Remove attachment"
-                    >
-                      <X className="size-4" />
-                    </button>
+
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 max-h-40 overflow-y-auto pr-1">
+                      {stagedAttachments.map((att) => (
+                        <div
+                          key={att.id}
+                          className="relative group flex items-center gap-2 p-1.5 rounded-md bg-surface border border-line shadow-2xs min-w-0"
+                        >
+                          {att.type === "image" && att.previewUrl ? (
+                            <img
+                              src={att.previewUrl}
+                              alt={att.name}
+                              className="size-8 rounded object-cover border border-line shrink-0"
+                            />
+                          ) : (
+                            <div className="size-8 rounded bg-blue-100 dark:bg-blue-950/60 text-blue-600 flex items-center justify-center shrink-0">
+                              <FileText className="size-4" />
+                            </div>
+                          )}
+                          <div className="min-w-0 flex-1">
+                            <span className="font-medium text-ink truncate block text-[11px]" title={att.name}>
+                              {att.name}
+                            </span>
+                            <span className="text-[10px] text-ink-muted block">
+                              {(att.sizeBytes / (1024 * 1024)).toFixed(2)} MB
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (att.previewUrl) URL.revokeObjectURL(att.previewUrl);
+                              setStagedAttachments((prev) => prev.filter((item) => item.id !== att.id));
+                            }}
+                            className="p-1 rounded-full text-ink-muted hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/50 transition cursor-pointer"
+                            title="Remove this file"
+                          >
+                            <X className="size-3.5" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 )}
 
@@ -2495,13 +2584,10 @@ export default function BrgConnectChatPage() {
                         rows={1}
                         placeholder="Type a message... (Enter to send, Shift+Enter for new line)"
                         onPaste={(e) => {
-                          const file = e.clipboardData.files?.[0];
-                          if (file) {
+                          const files = Array.from(e.clipboardData.files || []);
+                          if (files.length > 0) {
                             e.preventDefault();
-                            const fakeEvent = {
-                              target: { files: [file] },
-                            } as unknown as React.ChangeEvent<HTMLInputElement>;
-                            handleFileSelect(fakeEvent);
+                            handleFileSelect(files);
                           }
                         }}
                         className="flex-1 max-h-32 min-h-8 resize-none bg-transparent py-1.5 text-xs text-ink placeholder:text-ink-muted focus:outline-none"
@@ -2520,7 +2606,7 @@ export default function BrgConnectChatPage() {
                         <button
                           type="button"
                           onClick={handleSendMessage}
-                          disabled={(!messageText.trim() && !replyingTo && !stagedAttachment) || isUploading}
+                          disabled={(!messageText.trim() && !replyingTo && stagedAttachments.length === 0) || isUploading}
                           className="size-8 rounded-md bg-blue-600 hover:bg-blue-700 disabled:opacity-40 disabled:hover:bg-blue-600 text-white flex items-center justify-center transition cursor-pointer shadow-xs"
                           title="Send Message"
                         >

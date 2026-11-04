@@ -15,66 +15,81 @@ export async function POST(req: Request) {
     }
 
     const formData = await req.formData();
-    const file = formData.get("file") as File | null;
+    // Support bulk files ("files") and single file ("file")
+    const rawFiles = [
+      ...formData.getAll("files"),
+      ...formData.getAll("file"),
+    ].filter((f): f is File => f instanceof File && f.size > 0);
 
-    if (!file) {
+    if (rawFiles.length === 0) {
       return NextResponse.json({ success: false, error: "No file provided" }, { status: 400 });
     }
 
-    if (file.size > MAX_FILE_SIZE_BYTES) {
-      return NextResponse.json(
-        { success: false, error: "File exceeds 25 MB maximum limit" },
-        { status: 400 }
-      );
-    }
-
-    const bytes = await file.arrayBuffer();
-    const buffer = Buffer.from(bytes);
-    const safeKey = `connect/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9.-]/g, "_")}`;
-    const contentType = file.type || "application/octet-stream";
-
-    let fileUrl: string | null = null;
-
-    // 1. Try Cloudflare R2 / S3 Object Storage Driver (10 GB Free Tier, $0 Egress)
     const r2Config = r2ConfigFromEnv();
-    if (r2Config) {
-      try {
-        const r2 = new R2Storage(r2Config);
-        fileUrl = await r2.put(safeKey, buffer, contentType);
-      } catch (r2Err) {
-        console.warn("[Upload] Cloudflare R2 upload error, falling back to local storage:", r2Err);
+    const uploadDir = path.join(process.cwd(), "public", "uploads", "connect");
+    await fs.mkdir(uploadDir, { recursive: true });
+
+    const uploadedAttachments = [];
+
+    for (const file of rawFiles) {
+      if (file.size > MAX_FILE_SIZE_BYTES) {
+        return NextResponse.json(
+          { success: false, error: `File "${file.name}" exceeds 25 MB maximum limit` },
+          { status: 400 }
+        );
       }
-    }
 
-    // 2. Reliable Fallback: Local disk storage
-    if (!fileUrl) {
-      const uploadDir = path.join(process.cwd(), "public", "uploads", "connect");
-      await fs.mkdir(uploadDir, { recursive: true });
-      const safeName = `${Date.now()}-${file.name.replace(/[^a-zA-Z0-9.-]/g, "_")}`;
-      const filePath = path.join(uploadDir, safeName);
-      await fs.writeFile(filePath, buffer);
-      fileUrl = `/uploads/connect/${safeName}`;
-    }
+      const bytes = await file.arrayBuffer();
+      const buffer = Buffer.from(bytes);
+      const safeKey = `connect/${Date.now()}-${Math.random().toString(36).slice(2, 7)}-${file.name.replace(/[^a-zA-Z0-9.-]/g, "_")}`;
+      const contentType = file.type || "application/octet-stream";
 
-    const attachmentType = contentType.startsWith("image/")
-      ? "image"
-      : contentType.startsWith("audio/")
-      ? "audio"
-      : contentType.includes("pdf")
-      ? "doc"
-      : "file";
+      let fileUrl: string | null = null;
 
-    return NextResponse.json({
-      success: true,
-      attachment: {
-        id: `att-${Date.now()}`,
+      // 1. Try Cloudflare R2 / S3 Object Storage Driver
+      if (r2Config) {
+        try {
+          const r2 = new R2Storage(r2Config);
+          fileUrl = await r2.put(safeKey, buffer, contentType);
+        } catch (r2Err) {
+          console.warn("[Upload] Cloudflare R2 upload error, falling back to local storage:", r2Err);
+        }
+      }
+
+      // 2. Reliable Fallback: Local disk storage
+      if (!fileUrl) {
+        const safeName = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}-${file.name.replace(/[^a-zA-Z0-9.-]/g, "_")}`;
+        const filePath = path.join(uploadDir, safeName);
+        await fs.writeFile(filePath, buffer);
+        fileUrl = `/uploads/connect/${safeName}`;
+      }
+
+      const attachmentType = contentType.startsWith("image/")
+        ? "image"
+        : contentType.startsWith("audio/")
+        ? "audio"
+        : contentType.includes("pdf") ||
+          contentType.includes("document") ||
+          contentType.includes("sheet") ||
+          contentType.includes("excel")
+        ? "doc"
+        : "file";
+
+      uploadedAttachments.push({
+        id: `att-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
         name: file.name,
         fileKey: safeKey,
         sizeBytes: file.size,
         mimeType: contentType,
         url: fileUrl,
         type: attachmentType,
-      },
+      });
+    }
+
+    return NextResponse.json({
+      success: true,
+      attachment: uploadedAttachments[0], // for backward compatibility with single-file consumers
+      attachments: uploadedAttachments,   // full list for bulk consumers
     });
   } catch (error) {
     console.error("Error uploading file:", error);
