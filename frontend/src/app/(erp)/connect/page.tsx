@@ -1311,12 +1311,6 @@ export default function BrgConnectChatPage() {
             >
               Calls &amp; Meetings
             </Link>
-            <Link
-              href="/connect/docs"
-              className="rounded px-2.5 py-1 text-ink-muted hover:bg-control hover:text-ink transition"
-            >
-              Architecture &amp; Spec
-            </Link>
           </nav>
         </div>
 
