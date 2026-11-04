@@ -56,7 +56,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       throw new Error(`Server error (${res.status}). Please check server logs.`);
     }
     if (!res.ok) throw new Error(data?.error ?? "Login failed.");
-    setUser(data as SessionUser);
+    // The login response has no permissions; load them so menus and pages work without a reload.
+    const me = await fetch("/api/auth/me")
+      .then((r) => (r.ok ? r.json() : null))
+      .catch(() => null);
+    setUser((me ?? data) as SessionUser);
   }
 
   async function logout() {

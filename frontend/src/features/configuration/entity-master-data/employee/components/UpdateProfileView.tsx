@@ -22,7 +22,7 @@ import { PersonalInfoTab } from "./PersonalInfoTab";
 import { SalaryInfoTab } from "./SalaryInfoTab";
 import { UpdateDocumentTab } from "./UpdateDocumentTab";
 
-const TABS = [
+export const PROFILE_TABS = [
   { id: "personal-info", label: "Personal Info" },
   { id: "official-info", label: "Official Info" },
   { id: "salary-info", label: "Salary" },
@@ -37,7 +37,7 @@ function ProfileInner({ employeeId }: { employeeId: string }) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const rawTab = searchParams.get("tab");
-  const activeTab = TABS.find((tab) => tab.id === rawTab)?.id ?? DEFAULT_TAB;
+  const activeTab = PROFILE_TABS.find((tab) => tab.id === rawTab)?.id ?? DEFAULT_TAB;
 
   // Loaded once here: drives the header and is handed to the Personal Info tab.
   const profile = useResource(`personal-info:${employeeId}`, () => personalInfoApi.getPersonalInfo(employeeId));
@@ -73,7 +73,7 @@ function ProfileInner({ employeeId }: { employeeId: string }) {
       ) : (
         <>
           <ProfileHeader data={profile.data} />
-          <Tabs tabs={TABS} value={activeTab} onChange={setTab} label="Profile sections" tone="accent" className="mt-4">
+          <Tabs tabs={PROFILE_TABS} value={activeTab} onChange={setTab} label="Profile sections" tone="accent" className="mt-4">
             <div className="pt-4">
               <TabContent
                 tab={activeTab}

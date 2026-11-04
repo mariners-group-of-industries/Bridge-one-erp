@@ -14,7 +14,7 @@ import { useToast } from "@/components/ui/toast";
 import { useResource } from "@/hooks/use-resource";
 import { ApiClientError, errorMessage } from "@/lib/api/client";
 import { useSession } from "@/lib/auth/session";
-import { PERMISSION_ADMIN_FEATURE } from "@/lib/permissions/registry";
+import { PERMISSION_ADMIN_FEATURE, permissionFeatures } from "@/lib/permissions/registry";
 import { entityMasterDataBreadcrumbs } from "@/features/configuration/entity-master-data/breadcrumbs";
 import { CONTROL_CLASS, Field, FormGrid, Input, Notice, Panel, SaveState, Select, TextArea } from "@/features/configuration/entity-master-data/employee/components/kit";
 import { securityPaths } from "../../paths";
@@ -45,6 +45,9 @@ const STATUS = [
   { value: "INACTIVE", label: "Inactive" },
 ];
 type Tab = "permissions" | "users";
+
+/** Every permission ticked: how a full-access group is shown. */
+const allGrants = (): GrantMap => Object.fromEntries(permissionFeatures().map((f) => [f.key, [...f.actions]]));
 
 /** Permissions that let someone hand out access: granting them needs a second look. */
 const isCritical = (grants: GrantMap) => (grants[PERMISSION_ADMIN_FEATURE] ?? []).some((a) => a === "manage" || a === "assign");
@@ -155,9 +158,12 @@ function Editor({ saved, title, breadcrumbs, onSaved }: { saved: PermissionGroup
 
               <Panel title="Permission Matrix" description="Ticking any action also ticks View, so the page appears in the menu. Greyed-out boxes are permissions you do not hold yourself.">
                 {saved?.fullAccess ? (
-                  <p className="text-sm text-ink-muted">
-                    <Indicator color="orange">Full access</Indicator> This group grants every permission in the ERP. It was created by the permissions migration so existing users kept their access: assign proper groups to its users, then remove them from this group.
-                  </p>
+                  <div className="flex flex-col gap-3">
+                    <p className="text-sm text-ink-muted">
+                      <Indicator color="orange">Full access</Indicator> This group grants every permission in the ERP and cannot be edited. It was created by the permissions migration so existing users kept their access: assign proper groups to its users, then remove them from this group.
+                    </p>
+                    <PermissionMatrix mode="grant" value={allGrants()} readOnly onChange={() => undefined} />
+                  </div>
                 ) : (
                   <PermissionMatrix mode="grant" value={grants} readOnly={readOnly} holdable={(f, a) => can(f, a)} onChange={(next) => (setGrants(next), touch())} />
                 )}
