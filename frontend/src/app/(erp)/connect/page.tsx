@@ -203,7 +203,7 @@ export default function BrgConnectChatPage() {
             description: c.description,
             peerId: (c as { peerId?: string }).peerId,
             members: [authUser?.id || "user-current"],
-            unreadCount: 0,
+            unreadCount: typeof (c as { unreadCount?: number }).unreadCount === "number" ? Number((c as { unreadCount?: number }).unreadCount) : 0,
             lastMessage: c.lastMessage
               ? {
                   id: c.lastMessage.id,
@@ -248,6 +248,11 @@ export default function BrgConnectChatPage() {
             status?: string;
             erpRecordType?: string;
             erpRecordData?: ErpRecordCard;
+            replyTo?: {
+              id: string;
+              senderName: string;
+              body: string;
+            };
             createdAt: string;
             attachments?: Array<{
               id: string;
@@ -265,6 +270,7 @@ export default function BrgConnectChatPage() {
             type: (m.type.toLowerCase() as "text" | "erp_card" | "file") || "text",
             body: m.body,
             erpRecord: m.erpRecordData || undefined,
+            replyTo: m.replyTo ? { id: m.replyTo.id, senderName: m.replyTo.senderName, body: m.replyTo.body } : undefined,
             attachments: m.attachments?.map((a) => ({
               ...a,
               type: a.mimeType?.startsWith("image/") ? "image" : a.mimeType?.includes("pdf") ? "doc" : "file",
@@ -635,24 +641,21 @@ export default function BrgConnectChatPage() {
         };
       });
 
-      // Update sidebar conversation list
+      // Update sidebar conversation list and bring conversation to top
       setConversations((prev) => {
-        const exists = prev.some((c) => c.id === msg.conversationId);
-        if (!exists) {
+        const target = prev.find((c) => c.id === msg.conversationId);
+        if (!target) {
           loadConversations();
           return prev;
         }
-        return prev.map((c) => {
-          if (c.id === msg.conversationId) {
-            const isCurrentActive = c.id === activeConvIdRef.current;
-            return {
-              ...c,
-              unreadCount: isCurrentActive ? 0 : (c.unreadCount || 0) + 1,
-              lastMessage: formattedMsg,
-            };
-          }
-          return c;
-        });
+        const isCurrentActive = target.id === activeConvIdRef.current;
+        const updatedTarget = {
+          ...target,
+          unreadCount: isCurrentActive ? 0 : (target.unreadCount || 0) + 1,
+          lastMessage: formattedMsg,
+        };
+        const others = prev.filter((c) => c.id !== msg.conversationId);
+        return [updatedTarget, ...others];
       });
     });
 
@@ -1099,6 +1102,27 @@ export default function BrgConnectChatPage() {
       ...prev,
       [activeConvId]: [...(prev[activeConvId] || []), newMsg],
     }));
+
+    // Reorder sidebar so active chat is at top
+    setConversations((prev) => {
+      const target = prev.find((c) => c.id === activeConvId);
+      if (!target) return prev;
+      const updatedTarget = {
+        ...target,
+        lastMessage: {
+          id: newMsg.id,
+          conversationId: activeConvId,
+          senderId: newMsg.senderId,
+          senderName: newMsg.senderName,
+          clientMsgId,
+          type: newMsg.type,
+          body: newMsg.body,
+          status: "sending" as MessageDeliveryStatus,
+          createdAt: newMsg.createdAt,
+        },
+      };
+      return [updatedTarget, ...prev.filter((c) => c.id !== activeConvId)];
+    });
 
     // Post to real database endpoint
     try {
@@ -2222,10 +2246,15 @@ export default function BrgConnectChatPage() {
                               const isAudio =
                                 att.type === "audio" ||
                                 att.mimeType?.startsWith("audio/") ||
-                                att.name.endsWith(".webm") ||
                                 att.name.endsWith(".ogg") ||
                                 att.name.endsWith(".mp3") ||
                                 att.name.endsWith(".wav");
+                              const isVideo =
+                                att.mimeType?.startsWith("video/") ||
+                                att.name.endsWith(".mp4") ||
+                                att.name.endsWith(".mov") ||
+                                att.name.endsWith(".mkv") ||
+                                (att.name.endsWith(".webm") && !att.mimeType?.startsWith("audio/"));
 
                               if (isAudio) {
                                 return (
@@ -2257,6 +2286,44 @@ export default function BrgConnectChatPage() {
                                       preload="metadata"
                                       className="w-full h-8 rounded accent-blue-600"
                                     />
+                                  </div>
+                                );
+                              }
+
+                              if (isVideo) {
+                                return (
+                                  <div
+                                    key={att.id}
+                                    className="mt-2 rounded-lg overflow-hidden border border-line/40 max-w-sm shadow-xs bg-slate-950"
+                                  >
+                                    <video
+                                      controls
+                                      src={att.url}
+                                      preload="metadata"
+                                      className="w-full max-h-64 rounded-t-lg bg-black object-contain"
+                                    />
+                                    <div
+                                      className={`px-2.5 py-1.5 flex items-center justify-between text-[11px] ${
+                                        isMe ? "bg-blue-800/80 text-white" : "bg-control/70 text-ink"
+                                      }`}
+                                    >
+                                      <span className="truncate max-w-[200px] font-medium" title={att.name}>
+                                        {att.name}
+                                      </span>
+                                      <div className="flex items-center gap-2 shrink-0">
+                                        <span className="opacity-75 text-[10px]">
+                                          {(att.sizeBytes / (1024 * 1024)).toFixed(1)} MB
+                                        </span>
+                                        <a
+                                          href={att.url}
+                                          download={att.name}
+                                          className="hover:opacity-80 transition cursor-pointer p-0.5 rounded hover:bg-white/10"
+                                          title="Download Video"
+                                        >
+                                          <Download className="size-3.5" />
+                                        </a>
+                                      </div>
+                                    </div>
                                   </div>
                                 );
                               }

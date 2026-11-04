@@ -48,56 +48,70 @@ export async function GET(
       );
     }
 
-    // Fetch messages
+    // Fetch latest 100 messages in chronological order, with reply-to details
     const query = `
-      SELECT 
-        m.id,
-        m.conversation_id AS "conversationId",
-        m.sender_id AS "senderId",
-        COALESCE(u.name, e.name, 'Colleague') AS "senderName",
-        m.client_msg_id AS "clientMsgId",
-        m.type,
-        m.body,
-        m.reply_to_id AS "replyToId",
-        m.erp_record_type AS "erpRecordType",
-        m.erp_record_id AS "erpRecordId",
-        m.erp_record_data AS "erpRecordData",
-        m.edited_at AS "editedAt",
-        m.deleted_at AS "deletedAt",
-        m.created_at AS "createdAt",
-        (
-          SELECT json_agg(
-            json_build_object(
-              'id', a.id,
-              'name', a.file_name,
-              'sizeBytes', a.size_bytes,
-              'mimeType', a.mime_type,
-              'url', a.cdn_url
+      SELECT * FROM (
+        SELECT 
+          m.id,
+          m.conversation_id AS "conversationId",
+          m.sender_id AS "senderId",
+          COALESCE(u.name, e.name, 'Colleague') AS "senderName",
+          m.client_msg_id AS "clientMsgId",
+          m.type,
+          m.body,
+          m.reply_to_id AS "replyToId",
+          (
+            SELECT json_build_object(
+              'id', rm.id,
+              'senderName', COALESCE(ru.name, re.name, 'Colleague'),
+              'body', rm.body
             )
-          )
-          FROM connect_attachments a
-          WHERE a.message_id = m.id
-        ) AS attachments,
-        CASE
-          WHEN EXISTS (
-            SELECT 1 FROM connect_conversation_members cm
-            WHERE cm.conversation_id = m.conversation_id
-              AND (cm.user_id != m.sender_id AND cm.employee_id != m.sender_id)
-              AND cm.last_read_message_id IS NOT NULL
-              AND cm.last_read_message_id IN (
-                SELECT m2.id FROM connect_messages m2 
-                WHERE m2.conversation_id = m.conversation_id 
-                  AND m2.created_at >= m.created_at
+            FROM connect_messages rm
+            LEFT JOIN users ru ON ru.id = rm.sender_id
+            LEFT JOIN employees re ON (re.id = rm.sender_id OR re."userId" = rm.sender_id)
+            WHERE rm.id = m.reply_to_id
+          ) AS "replyTo",
+          m.erp_record_type AS "erpRecordType",
+          m.erp_record_id AS "erpRecordId",
+          m.erp_record_data AS "erpRecordData",
+          m.edited_at AS "editedAt",
+          m.deleted_at AS "deletedAt",
+          m.created_at AS "createdAt",
+          (
+            SELECT json_agg(
+              json_build_object(
+                'id', a.id,
+                'name', a.file_name,
+                'sizeBytes', a.size_bytes,
+                'mimeType', a.mime_type,
+                'url', a.cdn_url
               )
-          ) THEN 'seen'
-          ELSE 'delivered'
-        END AS status
-      FROM connect_messages m
-      LEFT JOIN users u ON u.id = m.sender_id
-      LEFT JOIN employees e ON (e.id = m.sender_id OR e."userId" = m.sender_id)
-      WHERE m.conversation_id = $1::uuid
-      ORDER BY m.created_at ASC
-      LIMIT 100;
+            )
+            FROM connect_attachments a
+            WHERE a.message_id = m.id
+          ) AS attachments,
+          CASE
+            WHEN EXISTS (
+              SELECT 1 FROM connect_conversation_members cm
+              WHERE cm.conversation_id = m.conversation_id
+                AND (cm.user_id != m.sender_id AND cm.employee_id != m.sender_id)
+                AND cm.last_read_message_id IS NOT NULL
+                AND cm.last_read_message_id IN (
+                  SELECT m2.id FROM connect_messages m2 
+                  WHERE m2.conversation_id = m.conversation_id 
+                    AND m2.created_at >= m.created_at
+                )
+            ) THEN 'seen'
+            ELSE 'delivered'
+          END AS status
+        FROM connect_messages m
+        LEFT JOIN users u ON u.id = m.sender_id
+        LEFT JOIN employees e ON (e.id = m.sender_id OR e."userId" = m.sender_id)
+        WHERE m.conversation_id = $1::uuid
+        ORDER BY m.created_at DESC
+        LIMIT 100
+      ) latest_msgs
+      ORDER BY "createdAt" ASC;
     `;
     const res = await pool.query(query, [id]);
 

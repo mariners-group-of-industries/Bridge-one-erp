@@ -71,7 +71,25 @@ export async function GET(req: Request) {
           SELECT COUNT(*)::int
           FROM connect_conversation_members cm_count
           WHERE cm_count.conversation_id = c.id
-        ) AS "memberCount"
+        ) AS "memberCount",
+        COALESCE(
+          (
+            SELECT COUNT(*)::int
+            FROM connect_messages unread_m
+            WHERE unread_m.conversation_id = c.id
+              AND unread_m.sender_id != $1::uuid
+              AND unread_m.sender_id != $2::uuid
+              AND (
+                cm.last_read_message_id IS NULL
+                OR unread_m.created_at > (
+                  SELECT COALESCE(read_m.created_at, '1970-01-01'::timestamp)
+                  FROM connect_messages read_m
+                  WHERE read_m.id = cm.last_read_message_id
+                )
+              )
+          ),
+          0
+        ) AS "unreadCount"
       FROM connect_conversations c
       LEFT JOIN connect_conversation_members cm 
         ON cm.conversation_id = c.id 
