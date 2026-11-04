@@ -32,10 +32,8 @@ import {
   X,
   Edit2,
   Copy,
-  AlertCircle,
   Briefcase,
   Monitor,
-  RefreshCw,
   MessageSquarePlus,
 } from "lucide-react";
 import { useSession } from "@/lib/auth/session";
@@ -92,7 +90,6 @@ export default function BrgConnectChatPage() {
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [editText, setEditText] = useState("");
   const [isUploading, setIsUploading] = useState(false);
-  const [isPusherConnected, setIsPusherConnected] = useState(false);
 
   // Real data from DB
   const [realErpRecords, setRealErpRecords] = useState<ErpRecordCard[]>([]);
@@ -412,17 +409,6 @@ export default function BrgConnectChatPage() {
     const pusher = getPusherClient();
     if (!pusher) return;
 
-    if (pusher.connection.state === "connected") {
-      queueMicrotask(() => setIsPusherConnected(true));
-    }
-
-    const onConnected = () => setIsPusherConnected(true);
-    const onDisconnected = () => setIsPusherConnected(false);
-
-    pusher.connection.bind("connected", onConnected);
-    pusher.connection.bind("disconnected", onDisconnected);
-    pusher.connection.bind("unavailable", onDisconnected);
-
     const globalChannel = pusher.subscribe("connect-global");
     globalChannel.bind("new-message", (msg: ConnectMessage) => {
       setConversations((prev) =>
@@ -543,9 +529,6 @@ export default function BrgConnectChatPage() {
     );
 
     return () => {
-      pusher.connection.unbind("connected", onConnected);
-      pusher.connection.unbind("disconnected", onDisconnected);
-      pusher.connection.unbind("unavailable", onDisconnected);
       globalChannel.unbind_all();
       pusher.unsubscribe("connect-global");
     };
@@ -1150,27 +1133,6 @@ export default function BrgConnectChatPage() {
         </div>
 
         <div className="flex items-center gap-3 text-xs">
-          <button
-            type="button"
-            onClick={loadConversations}
-            className="flex items-center gap-1 text-ink-muted hover:text-ink transition cursor-pointer"
-            title="Refresh database records"
-          >
-            <RefreshCw className="size-3" />
-            <span>Sync DB</span>
-          </button>
-          <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full border border-emerald-500/30 bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 font-medium">
-            <span className="size-2 rounded-full bg-emerald-500 animate-pulse" />
-            <span>Neon DB &bull; Live</span>
-          </div>
-          <div className={`flex items-center gap-1.5 px-2 py-0.5 rounded-full border text-[11px] font-semibold transition ${
-            isPusherConnected
-              ? "border-blue-500/30 bg-blue-50 dark:bg-blue-950/30 text-blue-600"
-              : "border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-500"
-          }`}>
-            <span className={`size-2 rounded-full ${isPusherConnected ? "bg-blue-500 animate-pulse" : "bg-slate-400"}`} />
-            <span>{isPusherConnected ? "Pusher Realtime • Live" : "Connecting..."}</span>
-          </div>
           <span className="text-ink-muted">
             Signed in as <strong>{authUser?.name || "ERP User"}</strong>
           </span>
@@ -1426,13 +1388,6 @@ export default function BrgConnectChatPage() {
 
               {/* Messages Scroll Area */}
               <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-control/20">
-                <div className="flex justify-center my-2">
-                  <div className="flex items-center gap-1.5 px-3 py-1 rounded-full border border-line bg-surface text-[11px] text-ink-muted shadow-2xs">
-                    <AlertCircle className="size-3 text-blue-500" />
-                    <span>Neon PostgreSQL Live • Real-time enterprise encryption</span>
-                  </div>
-                </div>
-
                 {activeMessages.length === 0 ? (
                   <div className="flex flex-col items-center justify-center py-12 text-center space-y-2 text-ink-muted">
                     <p className="text-xs font-semibold text-ink">No messages yet in this conversation</p>
