@@ -119,6 +119,7 @@ export default function BrgConnectChatPage() {
     callerId: string;
     callerName: string;
     callType: "audio" | "video";
+    offer?: RTCSessionDescriptionInit | null;
   } | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
@@ -126,9 +127,11 @@ export default function BrgConnectChatPage() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
   const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
+  const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const remoteStreamRef = useRef<MediaStream | null>(null);
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
+  const queuedIceCandidatesRef = useRef<RTCIceCandidateInit[]>([]);
 
   // Load real conversations from Neon DB
   const loadConversations = async () => {
@@ -353,6 +356,7 @@ export default function BrgConnectChatPage() {
 
   const cleanupCall = () => {
     stopRingtone();
+    queuedIceCandidatesRef.current = [];
     if (peerConnectionRef.current) {
       try {
         peerConnectionRef.current.close();
@@ -366,6 +370,11 @@ export default function BrgConnectChatPage() {
     if (remoteStreamRef.current) {
       remoteStreamRef.current.getTracks().forEach((t) => t.stop());
       remoteStreamRef.current = null;
+    }
+    if (localVideoRef.current) localVideoRef.current.srcObject = null;
+    if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
+    if (remoteAudioRef.current) {
+      remoteAudioRef.current.srcObject = null;
     }
     setActiveCall(null);
     setIncomingCall(null);
@@ -388,11 +397,23 @@ export default function BrgConnectChatPage() {
     };
 
     pc.ontrack = (event) => {
-      if (event.streams && event.streams[0]) {
-        remoteStreamRef.current = event.streams[0];
-        if (remoteVideoRef.current) {
-          remoteVideoRef.current.srcObject = event.streams[0];
-        }
+      const stream = (event.streams && event.streams[0])
+        ? event.streams[0]
+        : new MediaStream(event.track ? [event.track] : []);
+      remoteStreamRef.current = stream;
+
+      // 1. Play audio immediately via dedicated hidden audio element
+      if (remoteAudioRef.current) {
+        remoteAudioRef.current.srcObject = stream;
+        remoteAudioRef.current.play().catch((err) => {
+          console.warn("[WebRTC] Audio auto-play restricted by browser policy:", err);
+        });
+      }
+
+      // 2. Attach video if in video call
+      if (remoteVideoRef.current) {
+        remoteVideoRef.current.srcObject = stream;
+        remoteVideoRef.current.play().catch(() => {});
       }
     };
 
@@ -491,6 +512,7 @@ export default function BrgConnectChatPage() {
               callerId: signal.senderId,
               callerName: signal.senderName,
               callType: signal.callType,
+              offer: signal.sdp || null,
             });
             startIncomingRingtone();
             break;
@@ -498,23 +520,33 @@ export default function BrgConnectChatPage() {
 
           case "call-accept": {
             stopRingtone();
+            if (signal.sdp && peerConnectionRef.current) {
+              try {
+                await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(signal.sdp));
+                while (queuedIceCandidatesRef.current.length > 0) {
+                  const cand = queuedIceCandidatesRef.current.shift();
+                  if (cand) await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(cand));
+                }
+              } catch (err) {
+                console.warn("[WebRTC] Error setting remote description from answer:", err);
+              }
+            }
             setActiveCall((prev) => (prev ? { ...prev, status: "connected" } : null));
             break;
           }
 
           case "webrtc-offer": {
-            if (signal.sdp) {
+            if (signal.sdp && peerConnectionRef.current) {
               try {
-                if (!peerConnectionRef.current) {
-                  initPeerConnection(signal.conversationId, signal.callType);
-                }
                 const pc = peerConnectionRef.current;
-                if (pc) {
-                  await pc.setRemoteDescription(new RTCSessionDescription(signal.sdp));
-                  const answer = await pc.createAnswer();
-                  await pc.setLocalDescription(answer);
-                  sendCallSignal(signal.conversationId, "webrtc-answer", signal.callType, answer);
+                await pc.setRemoteDescription(new RTCSessionDescription(signal.sdp));
+                while (queuedIceCandidatesRef.current.length > 0) {
+                  const cand = queuedIceCandidatesRef.current.shift();
+                  if (cand) await pc.addIceCandidate(new RTCIceCandidate(cand));
                 }
+                const answer = await pc.createAnswer();
+                await pc.setLocalDescription(answer);
+                sendCallSignal(signal.conversationId, "webrtc-answer", signal.callType, answer);
               } catch (err) {
                 console.warn("Error handling WebRTC offer:", err);
               }
@@ -527,6 +559,10 @@ export default function BrgConnectChatPage() {
             if (signal.sdp && peerConnectionRef.current) {
               try {
                 await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(signal.sdp));
+                while (queuedIceCandidatesRef.current.length > 0) {
+                  const cand = queuedIceCandidatesRef.current.shift();
+                  if (cand) await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(cand));
+                }
                 setActiveCall((prev) => (prev ? { ...prev, status: "connected" } : null));
               } catch (err) {
                 console.warn("Error handling WebRTC answer:", err);
@@ -536,11 +572,14 @@ export default function BrgConnectChatPage() {
           }
 
           case "ice-candidate": {
-            if (signal.candidate && peerConnectionRef.current) {
-              try {
-                await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(signal.candidate));
-              } catch (err) {
-                console.warn("Error adding ICE candidate:", err);
+            if (signal.candidate) {
+              const pc = peerConnectionRef.current;
+              if (pc && pc.remoteDescription && pc.remoteDescription.type) {
+                pc.addIceCandidate(new RTCIceCandidate(signal.candidate)).catch((e) => {
+                  console.warn("[WebRTC] Error adding ICE candidate:", e);
+                });
+              } else {
+                queuedIceCandidatesRef.current.push(signal.candidate);
               }
             }
             break;
@@ -929,7 +968,11 @@ export default function BrgConnectChatPage() {
     try {
       if (typeof navigator !== "undefined" && navigator.mediaDevices) {
         const stream = await navigator.mediaDevices.getUserMedia({
-          audio: true,
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+          },
           video: type === "video",
         });
         mediaStreamRef.current = stream;
@@ -941,13 +984,12 @@ export default function BrgConnectChatPage() {
         const offer = await pc.createOffer();
         await pc.setLocalDescription(offer);
 
-        await sendCallSignal(activeConvId, "call-request", type);
-        await sendCallSignal(activeConvId, "webrtc-offer", type, offer);
+        await sendCallSignal(activeConvId, "call-request", type, offer);
       }
     } catch (err) {
       console.warn("Camera/mic access warning:", err);
       stopRingtone();
-      alert("Could not access camera or microphone. Please check browser permissions.");
+      alert("Could not access microphone or camera. Please check browser permissions.");
       setActiveCall(null);
     }
   };
@@ -958,6 +1000,7 @@ export default function BrgConnectChatPage() {
 
     const convId = incomingCall.conversationId;
     const callType = incomingCall.callType;
+    const offer = incomingCall.offer;
     setIncomingCall(null);
 
     setActiveConvId(convId);
@@ -974,7 +1017,11 @@ export default function BrgConnectChatPage() {
     try {
       if (typeof navigator !== "undefined" && navigator.mediaDevices) {
         const stream = await navigator.mediaDevices.getUserMedia({
-          audio: true,
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+          },
           video: callType === "video",
         });
         mediaStreamRef.current = stream;
@@ -982,8 +1029,20 @@ export default function BrgConnectChatPage() {
           localVideoRef.current.srcObject = stream;
         }
 
-        initPeerConnection(convId, callType);
-        await sendCallSignal(convId, "call-accept", callType);
+        const pc = initPeerConnection(convId, callType);
+
+        if (offer) {
+          await pc.setRemoteDescription(new RTCSessionDescription(offer));
+          while (queuedIceCandidatesRef.current.length > 0) {
+            const cand = queuedIceCandidatesRef.current.shift();
+            if (cand) await pc.addIceCandidate(new RTCIceCandidate(cand));
+          }
+          const answer = await pc.createAnswer();
+          await pc.setLocalDescription(answer);
+          await sendCallSignal(convId, "call-accept", callType, answer);
+        } else {
+          await sendCallSignal(convId, "call-accept", callType);
+        }
       }
     } catch (err) {
       console.warn("Could not access media devices on accept:", err);
@@ -1121,6 +1180,8 @@ export default function BrgConnectChatPage() {
 
   return (
     <div className="flex h-[calc(100vh-4rem)] flex-col bg-surface text-ink antialiased">
+      {/* Hidden audio element for WebRTC remote audio playback in all calls */}
+      <audio ref={remoteAudioRef} autoPlay playsInline className="hidden" />
       <input
         type="file"
         ref={fileInputRef}
