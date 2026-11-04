@@ -82,6 +82,10 @@ export default function BrgConnectChatPage() {
   const [conversations, setConversations] = useState<ConnectConversation[]>([]);
   const [messagesMap, setMessagesMap] = useState<Record<string, ConnectMessage[]>>({});
   const [activeConvId, setActiveConvId] = useState<string | null>(null);
+  const activeConvIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    activeConvIdRef.current = activeConvId;
+  }, [activeConvId]);
   const [filterTab, setFilterTab] = useState<"all" | "direct" | "group" | "unread">("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [messageText, setMessageText] = useState("");
@@ -396,22 +400,37 @@ export default function BrgConnectChatPage() {
       }
     };
 
+    pc.onconnectionstatechange = () => {
+      console.log("[WebRTC] Peer connection state:", pc.connectionState);
+      if (pc.connectionState === "connected") {
+        setActiveCall((prev) => (prev ? { ...prev, status: "connected" } : null));
+      } else if (pc.connectionState === "failed") {
+        console.warn("[WebRTC] Connection failed, attempting ICE restart...");
+        if (typeof pc.restartIce === "function") {
+          pc.restartIce();
+        }
+      }
+    };
+
     pc.ontrack = (event) => {
+      console.log("[WebRTC] Remote track received:", event.track.kind);
       const stream = (event.streams && event.streams[0])
         ? event.streams[0]
-        : new MediaStream(event.track ? [event.track] : []);
+        : new MediaStream([event.track]);
       remoteStreamRef.current = stream;
 
-      // 1. Play audio immediately via dedicated hidden audio element
+      // 1. Play audio immediately via dedicated audio element
       if (remoteAudioRef.current) {
         remoteAudioRef.current.srcObject = stream;
+        remoteAudioRef.current.volume = 1.0;
+        remoteAudioRef.current.muted = false;
         remoteAudioRef.current.play().catch((err) => {
           console.warn("[WebRTC] Audio auto-play restricted by browser policy:", err);
         });
       }
 
       // 2. Attach video if in video call
-      if (remoteVideoRef.current) {
+      if (remoteVideoRef.current && callType === "video") {
         remoteVideoRef.current.srcObject = stream;
         remoteVideoRef.current.play().catch(() => {});
       }
@@ -419,6 +438,7 @@ export default function BrgConnectChatPage() {
 
     if (mediaStreamRef.current) {
       mediaStreamRef.current.getTracks().forEach((track) => {
+        track.enabled = true;
         pc.addTrack(track, mediaStreamRef.current!);
       });
     }
@@ -469,7 +489,7 @@ export default function BrgConnectChatPage() {
         }
         return prev.map((c) => {
           if (c.id === msg.conversationId) {
-            const isCurrentActive = c.id === activeConvId;
+            const isCurrentActive = c.id === activeConvIdRef.current;
             return {
               ...c,
               unreadCount: isCurrentActive ? 0 : (c.unreadCount || 0) + 1,
@@ -502,17 +522,29 @@ export default function BrgConnectChatPage() {
         callType: "audio" | "video";
         sdp?: RTCSessionDescriptionInit | null;
         candidate?: RTCIceCandidateInit | null;
+        hasRemoteSdp?: boolean;
       }) => {
         if (signal.senderId === authUser?.id) return;
 
         switch (signal.type) {
           case "call-request": {
+            let offerSdp = signal.sdp || null;
+            if (!offerSdp && signal.hasRemoteSdp) {
+              try {
+                const res = await fetch(`/api/connect/calls/signal?conversationId=${signal.conversationId}`);
+                const data = await res.json();
+                if (data.success && data.sdp) offerSdp = data.sdp;
+              } catch (e) {
+                console.warn("[WebRTC] Error fetching offer SDP:", e);
+              }
+            }
+
             setIncomingCall({
               conversationId: signal.conversationId,
               callerId: signal.senderId,
               callerName: signal.senderName,
               callType: signal.callType,
-              offer: signal.sdp || null,
+              offer: offerSdp,
             });
             startIncomingRingtone();
             break;
@@ -520,9 +552,20 @@ export default function BrgConnectChatPage() {
 
           case "call-accept": {
             stopRingtone();
-            if (signal.sdp && peerConnectionRef.current) {
+            let answerSdp = signal.sdp || null;
+            if (!answerSdp && signal.hasRemoteSdp) {
               try {
-                await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(signal.sdp));
+                const res = await fetch(`/api/connect/calls/signal?conversationId=${signal.conversationId}`);
+                const data = await res.json();
+                if (data.success && data.sdp) answerSdp = data.sdp;
+              } catch (e) {
+                console.warn("[WebRTC] Error fetching answer SDP:", e);
+              }
+            }
+
+            if (answerSdp && peerConnectionRef.current) {
+              try {
+                await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(answerSdp));
                 while (queuedIceCandidatesRef.current.length > 0) {
                   const cand = queuedIceCandidatesRef.current.shift();
                   if (cand) await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(cand));
@@ -536,10 +579,21 @@ export default function BrgConnectChatPage() {
           }
 
           case "webrtc-offer": {
-            if (signal.sdp && peerConnectionRef.current) {
+            let offerSdp = signal.sdp || null;
+            if (!offerSdp && signal.hasRemoteSdp) {
+              try {
+                const res = await fetch(`/api/connect/calls/signal?conversationId=${signal.conversationId}`);
+                const data = await res.json();
+                if (data.success && data.sdp) offerSdp = data.sdp;
+              } catch (e) {
+                console.warn("[WebRTC] Error fetching offer SDP:", e);
+              }
+            }
+
+            if (offerSdp && peerConnectionRef.current) {
               try {
                 const pc = peerConnectionRef.current;
-                await pc.setRemoteDescription(new RTCSessionDescription(signal.sdp));
+                await pc.setRemoteDescription(new RTCSessionDescription(offerSdp));
                 while (queuedIceCandidatesRef.current.length > 0) {
                   const cand = queuedIceCandidatesRef.current.shift();
                   if (cand) await pc.addIceCandidate(new RTCIceCandidate(cand));
@@ -556,9 +610,20 @@ export default function BrgConnectChatPage() {
 
           case "webrtc-answer": {
             stopRingtone();
-            if (signal.sdp && peerConnectionRef.current) {
+            let answerSdp = signal.sdp || null;
+            if (!answerSdp && signal.hasRemoteSdp) {
               try {
-                await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(signal.sdp));
+                const res = await fetch(`/api/connect/calls/signal?conversationId=${signal.conversationId}`);
+                const data = await res.json();
+                if (data.success && data.sdp) answerSdp = data.sdp;
+              } catch (e) {
+                console.warn("[WebRTC] Error fetching answer SDP:", e);
+              }
+            }
+
+            if (answerSdp && peerConnectionRef.current) {
+              try {
+                await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(answerSdp));
                 while (queuedIceCandidatesRef.current.length > 0) {
                   const cand = queuedIceCandidatesRef.current.shift();
                   if (cand) await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(cand));
@@ -605,7 +670,7 @@ export default function BrgConnectChatPage() {
       globalChannel.unbind_all();
       pusher.unsubscribe("connect-global");
     };
-  }, [activeConvId]);
+  }, [authUser?.id]);
 
   // Realtime Pusher subscription for active conversation messages, edits, and deletions
   useEffect(() => {
@@ -954,6 +1019,11 @@ export default function BrgConnectChatPage() {
   const handleStartCall = async (type: "audio" | "video") => {
     if (!activeConvId || !activeConv) return;
 
+    // Prime audio playback during user click gesture to satisfy browser autoplay policies
+    if (remoteAudioRef.current) {
+      remoteAudioRef.current.play().catch(() => {});
+    }
+
     setActiveCall({
       type,
       status: "ringing",
@@ -998,9 +1068,14 @@ export default function BrgConnectChatPage() {
     if (!incomingCall) return;
     stopRingtone();
 
+    // Prime audio playback during user click gesture to satisfy browser autoplay policies
+    if (remoteAudioRef.current) {
+      remoteAudioRef.current.play().catch(() => {});
+    }
+
     const convId = incomingCall.conversationId;
     const callType = incomingCall.callType;
-    const offer = incomingCall.offer;
+    let offer = incomingCall.offer;
     setIncomingCall(null);
 
     setActiveConvId(convId);
@@ -1015,6 +1090,19 @@ export default function BrgConnectChatPage() {
     });
 
     try {
+      // If offer SDP was not in Pusher payload, fetch cached SDP from API
+      if (!offer) {
+        try {
+          const res = await fetch(`/api/connect/calls/signal?conversationId=${convId}`);
+          const data = await res.json();
+          if (data.success && data.sdp) {
+            offer = data.sdp;
+          }
+        } catch (fetchErr) {
+          console.warn("[WebRTC] Could not fetch cached offer SDP:", fetchErr);
+        }
+      }
+
       if (typeof navigator !== "undefined" && navigator.mediaDevices) {
         const stream = await navigator.mediaDevices.getUserMedia({
           audio: {
@@ -1180,8 +1268,13 @@ export default function BrgConnectChatPage() {
 
   return (
     <div className="flex h-[calc(100vh-4rem)] flex-col bg-surface text-ink antialiased">
-      {/* Hidden audio element for WebRTC remote audio playback in all calls */}
-      <audio ref={remoteAudioRef} autoPlay playsInline className="hidden" />
+      {/* Dedicated audio element for WebRTC remote audio playback in all calls */}
+      <audio
+        ref={remoteAudioRef}
+        autoPlay
+        playsInline
+        className="fixed -bottom-10 -right-10 size-1 opacity-0 pointer-events-none"
+      />
       <input
         type="file"
         ref={fileInputRef}
@@ -1975,14 +2068,20 @@ export default function BrgConnectChatPage() {
             )}
 
             {activeCall.type === "audio" && activeCall.status === "connected" && (
-              <div className="flex items-center justify-center gap-1.5 h-12">
-                {[40, 75, 50, 90, 60, 30, 80, 55].map((h, i) => (
-                  <span
-                    key={i}
-                    style={{ height: `${h}%` }}
-                    className="w-1.5 rounded-full bg-emerald-400 animate-pulse"
-                  />
-                ))}
+              <div className="space-y-2">
+                <div className="flex items-center justify-center gap-1.5 h-10">
+                  {[40, 75, 50, 90, 60, 30, 80, 55].map((h, i) => (
+                    <span
+                      key={i}
+                      style={{ height: `${h}%` }}
+                      className="w-1.5 rounded-full bg-emerald-400 animate-pulse"
+                    />
+                  ))}
+                </div>
+                <p className="text-xs font-medium text-emerald-400 flex items-center justify-center gap-1.5">
+                  <span className="size-2 rounded-full bg-emerald-500 animate-ping inline-block" />
+                  <span>{activeCall.isMuted ? "Microphone Muted" : "Voice Live & Bidirectional"}</span>
+                </p>
               </div>
             )}
 
