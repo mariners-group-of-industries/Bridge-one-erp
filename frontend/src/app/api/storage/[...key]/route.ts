@@ -54,18 +54,22 @@ export async function GET(
     // 1. Fetch from Cloudflare R2 Object Storage
     const r2Config = r2ConfigFromEnv();
     if (r2Config) {
-      const r2 = new R2Storage(r2Config);
-      const data = await r2.get(key);
-      if (data) {
-        return new NextResponse(Buffer.from(data), {
-          headers: {
-            "Content-Type": contentType,
-            "Cache-Control": "public, max-age=31536000, immutable",
-            "Content-Disposition": ext === "pdf" || contentType.startsWith("image/") || contentType.startsWith("audio/")
-              ? "inline"
-              : `attachment; filename="${path.basename(key)}"`,
-          },
-        });
+      try {
+        const r2 = new R2Storage(r2Config);
+        const data = await r2.get(key);
+        if (data) {
+          return new NextResponse(Buffer.from(data), {
+            headers: {
+              "Content-Type": contentType,
+              "Cache-Control": "public, max-age=31536000, immutable",
+              "Content-Disposition": ext === "pdf" || contentType.startsWith("image/") || contentType.startsWith("audio/")
+                ? "inline"
+                : `attachment; filename="${path.basename(key)}"`,
+            },
+          });
+        }
+      } catch (r2Err) {
+        console.warn("[Storage] R2 get error, falling back to local disk:", r2Err);
       }
     }
 

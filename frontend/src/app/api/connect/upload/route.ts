@@ -33,15 +33,21 @@ export async function POST(req: Request) {
     const safeKey = `connect/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9.-]/g, "_")}`;
     const contentType = file.type || "application/octet-stream";
 
-    let fileUrl: string;
+    let fileUrl: string | null = null;
 
     // 1. Try Cloudflare R2 / S3 Object Storage Driver (10 GB Free Tier, $0 Egress)
     const r2Config = r2ConfigFromEnv();
     if (r2Config) {
-      const r2 = new R2Storage(r2Config);
-      fileUrl = await r2.put(safeKey, buffer, contentType);
-    } else {
-      // 2. Fallback to local storage for offline development
+      try {
+        const r2 = new R2Storage(r2Config);
+        fileUrl = await r2.put(safeKey, buffer, contentType);
+      } catch (r2Err) {
+        console.warn("[Upload] Cloudflare R2 upload error, falling back to local storage:", r2Err);
+      }
+    }
+
+    // 2. Reliable Fallback: Local disk storage
+    if (!fileUrl) {
       const uploadDir = path.join(process.cwd(), "public", "uploads", "connect");
       await fs.mkdir(uploadDir, { recursive: true });
       const safeName = `${Date.now()}-${file.name.replace(/[^a-zA-Z0-9.-]/g, "_")}`;
@@ -63,6 +69,7 @@ export async function POST(req: Request) {
       attachment: {
         id: `att-${Date.now()}`,
         name: file.name,
+        fileKey: safeKey,
         sizeBytes: file.size,
         mimeType: contentType,
         url: fileUrl,

@@ -48,6 +48,7 @@ import type {
   ConnectConversation,
   ConnectMessage,
   ConnectUser,
+  ConnectAttachment,
   ErpRecordCard,
   MessageDeliveryStatus,
 } from "@/features/connect/types";
@@ -94,6 +95,13 @@ export default function BrgConnectChatPage() {
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [editText, setEditText] = useState("");
   const [isUploading, setIsUploading] = useState(false);
+  const [stagedAttachment, setStagedAttachment] = useState<{
+    file: File;
+    previewUrl?: string;
+    name: string;
+    sizeBytes: number;
+    type: "image" | "file" | "doc" | "audio";
+  } | null>(null);
 
   // Real data from DB
   const [realErpRecords, setRealErpRecords] = useState<ErpRecordCard[]>([]);
@@ -878,23 +886,94 @@ export default function BrgConnectChatPage() {
     fetch(`/api/connect/conversations/${id}/read`, { method: "POST" }).catch(() => {});
   };
 
-  // Send real message to database
+  // Handle file selection from paperclip or drag-drop/paste
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 25 * 1024 * 1024) {
+      alert("File exceeds maximum 25 MB limit.");
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      return;
+    }
+
+    const mime = file.type || "application/octet-stream";
+    const attType: "image" | "file" | "doc" | "audio" = mime.startsWith("image/")
+      ? "image"
+      : mime.startsWith("audio/")
+      ? "audio"
+      : mime.includes("pdf") || mime.includes("document") || mime.includes("sheet") || mime.includes("excel")
+      ? "doc"
+      : "file";
+
+    const previewUrl = attType === "image" ? URL.createObjectURL(file) : undefined;
+
+    setStagedAttachment({
+      file,
+      previewUrl,
+      name: file.name,
+      sizeBytes: file.size,
+      type: attType,
+    });
+
+    setTimeout(() => chatInputRef.current?.focus(), 50);
+  };
+
+  // Send real message to database (with staged file upload support)
   const handleSendMessage = async () => {
-    if (!activeConvId || (!messageText.trim() && !replyingTo)) return;
+    if (!activeConvId || (!messageText.trim() && !replyingTo && !stagedAttachment)) return;
     const textToSend = messageText.trim();
     const currentReply = replyingTo;
+    const currentStaged = stagedAttachment;
+
     setMessageText("");
     setReplyingTo(null);
+    setStagedAttachment(null);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+
+    // If a file was staged, upload it first
+    let uploadedAttachment: ConnectAttachment | null = null;
+    if (currentStaged) {
+      setIsUploading(true);
+      try {
+        const formData = new FormData();
+        formData.append("file", currentStaged.file);
+        const res = await fetch("/api/connect/upload", {
+          method: "POST",
+          body: formData,
+        });
+        const data = await res.json();
+        if (data.success && data.attachment) {
+          uploadedAttachment = data.attachment;
+        } else {
+          alert(data.error || "Failed to upload attached file");
+          setIsUploading(false);
+          return;
+        }
+      } catch (uploadErr) {
+        console.error("Upload failed:", uploadErr);
+        alert("Failed to upload file. Please check connection.");
+        setIsUploading(false);
+        return;
+      } finally {
+        setIsUploading(false);
+      }
+    }
 
     const clientMsgId = `c-${Date.now()}`;
+    const messageBody = textToSend || (uploadedAttachment ? `Shared file: ${uploadedAttachment.name}` : "");
+    const messageType = uploadedAttachment
+      ? (uploadedAttachment.type === "image" ? "image" : "file")
+      : "text";
+
     const newMsg: ConnectMessage = {
       id: `m-${Date.now()}`,
       conversationId: activeConvId,
       senderId: authUser?.id || "user-current",
       senderName: authUser?.name || "Me",
       clientMsgId,
-      type: "text",
-      body: textToSend,
+      type: messageType,
+      body: messageBody,
       replyTo: currentReply
         ? {
             id: currentReply.id,
@@ -902,6 +981,7 @@ export default function BrgConnectChatPage() {
             body: currentReply.body.slice(0, 70),
           }
         : undefined,
+      attachments: uploadedAttachment ? [uploadedAttachment] : undefined,
       status: "sending",
       createdAt: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
     };
@@ -921,8 +1001,8 @@ export default function BrgConnectChatPage() {
           senderId: authUser?.id || "user-current",
           senderName: authUser?.name || "Me",
           clientMsgId,
-          type: "TEXT",
-          bodyText: textToSend,
+          type: uploadedAttachment ? "FILE" : "TEXT",
+          bodyText: messageBody,
           replyToId: currentReply?.id || null,
           replyTo: currentReply
             ? {
@@ -931,6 +1011,7 @@ export default function BrgConnectChatPage() {
                 body: currentReply.body.slice(0, 70),
               }
             : null,
+          attachments: uploadedAttachment ? [uploadedAttachment] : undefined,
         }),
       });
       const data = await res.json();
@@ -1563,8 +1644,10 @@ export default function BrgConnectChatPage() {
       <input
         type="file"
         ref={fileInputRef}
-        onChange={handleFileUpload}
-        className="hidden"
+        onChange={handleFileSelect}
+        className="sr-only"
+        tabIndex={-1}
+        aria-hidden="true"
       />
 
       {/* Top Banner Navigation Bar */}
@@ -2243,6 +2326,45 @@ export default function BrgConnectChatPage() {
 
               {/* Bottom Message Composer */}
               <div className="p-3 border-t border-line bg-surface">
+                {/* Staged File Attachment Preview Chip */}
+                {stagedAttachment && (
+                  <div className="flex items-center justify-between gap-3 bg-control/70 border border-line rounded-lg px-3 py-2 mb-2 text-xs animate-in fade-in slide-in-from-bottom-2">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      {stagedAttachment.type === "image" && stagedAttachment.previewUrl ? (
+                        <img
+                          src={stagedAttachment.previewUrl}
+                          alt={stagedAttachment.name}
+                          className="size-10 rounded object-cover border border-line shrink-0"
+                        />
+                      ) : (
+                        <div className="size-10 rounded bg-blue-100 dark:bg-blue-950/60 text-blue-600 flex items-center justify-center shrink-0">
+                          <FileText className="size-5" />
+                        </div>
+                      )}
+                      <div className="min-w-0">
+                        <span className="font-semibold text-ink truncate block">
+                          {stagedAttachment.name}
+                        </span>
+                        <span className="text-[11px] text-ink-muted">
+                          {(stagedAttachment.sizeBytes / (1024 * 1024)).toFixed(2)} MB • Ready to send
+                        </span>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (stagedAttachment.previewUrl) URL.revokeObjectURL(stagedAttachment.previewUrl);
+                        setStagedAttachment(null);
+                        if (fileInputRef.current) fileInputRef.current.value = "";
+                      }}
+                      className="p-1 rounded-full hover:bg-surface text-ink-muted hover:text-rose-600 transition cursor-pointer"
+                      title="Remove attachment"
+                    >
+                      <X className="size-4" />
+                    </button>
+                  </div>
+                )}
+
                 <div className="flex items-end gap-2 rounded-lg border border-line bg-surface p-1.5 shadow-2xs focus-within:ring-1 focus-within:ring-blue-500">
                   <div className="flex items-center gap-1 text-ink-muted pb-1">
                     <button
@@ -2311,6 +2433,16 @@ export default function BrgConnectChatPage() {
                         }}
                         rows={1}
                         placeholder="Type a message... (Enter to send, Shift+Enter for new line)"
+                        onPaste={(e) => {
+                          const file = e.clipboardData.files?.[0];
+                          if (file) {
+                            e.preventDefault();
+                            const fakeEvent = {
+                              target: { files: [file] },
+                            } as unknown as React.ChangeEvent<HTMLInputElement>;
+                            handleFileSelect(fakeEvent);
+                          }
+                        }}
                         className="flex-1 max-h-32 min-h-8 resize-none bg-transparent py-1.5 text-xs text-ink placeholder:text-ink-muted focus:outline-none"
                       />
 
@@ -2327,11 +2459,15 @@ export default function BrgConnectChatPage() {
                         <button
                           type="button"
                           onClick={handleSendMessage}
-                          disabled={!messageText.trim() && !replyingTo}
+                          disabled={(!messageText.trim() && !replyingTo && !stagedAttachment) || isUploading}
                           className="size-8 rounded-md bg-blue-600 hover:bg-blue-700 disabled:opacity-40 disabled:hover:bg-blue-600 text-white flex items-center justify-center transition cursor-pointer shadow-xs"
                           title="Send Message"
                         >
-                          <Send className="size-3.5" />
+                          {isUploading ? (
+                            <Paperclip className="size-3.5 animate-spin" />
+                          ) : (
+                            <Send className="size-3.5" />
+                          )}
                         </button>
                       </div>
                     </>
