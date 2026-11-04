@@ -77,6 +77,7 @@ export interface ConnectConversation {
   name: string;
   avatar?: string;
   description?: string;
+  peerId?: string;
   members: string[]; // user IDs
   memberUsers?: ConnectUser[];
   unreadCount: number;

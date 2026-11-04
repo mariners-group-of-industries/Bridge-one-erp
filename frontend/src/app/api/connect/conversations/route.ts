@@ -39,6 +39,17 @@ export async function GET(req: Request) {
           )
           ELSE c.name
         END AS name,
+        CASE 
+          WHEN c.type = 'DIRECT' THEN (
+            SELECT COALESCE(other_cm.user_id::text, other_cm.employee_id::text)
+            FROM connect_conversation_members other_cm
+            WHERE other_cm.conversation_id = c.id
+              AND (other_cm.user_id IS NULL OR (other_cm.user_id != $1::uuid AND other_cm.user_id != $2::uuid))
+              AND (other_cm.employee_id IS NULL OR (other_cm.employee_id != $1::uuid AND other_cm.employee_id != $2::uuid))
+            LIMIT 1
+          )
+          ELSE NULL
+        END AS "peerId",
         c.description,
         c.avatar_url AS "avatarUrl",
         c.is_archived AS "isArchived",

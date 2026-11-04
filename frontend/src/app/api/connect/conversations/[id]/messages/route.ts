@@ -77,7 +77,21 @@ export async function GET(
           )
           FROM connect_attachments a
           WHERE a.message_id = m.id
-        ) AS attachments
+        ) AS attachments,
+        CASE
+          WHEN EXISTS (
+            SELECT 1 FROM connect_conversation_members cm
+            WHERE cm.conversation_id = m.conversation_id
+              AND (cm.user_id != m.sender_id AND cm.employee_id != m.sender_id)
+              AND cm.last_read_message_id IS NOT NULL
+              AND cm.last_read_message_id IN (
+                SELECT m2.id FROM connect_messages m2 
+                WHERE m2.conversation_id = m.conversation_id 
+                  AND m2.created_at >= m.created_at
+              )
+          ) THEN 'seen'
+          ELSE 'delivered'
+        END AS status
       FROM connect_messages m
       LEFT JOIN users u ON u.id = m.sender_id
       LEFT JOIN employees e ON (e.id = m.sender_id OR e."userId" = m.sender_id)
@@ -97,6 +111,16 @@ export async function GET(
            AND (user_id = $3::uuid OR employee_id = $3::uuid);`,
         [lastMsgId, id, user.id]
       ).catch((err) => console.error("Error updating last_read_message_id:", err));
+
+      const pusher = getPusherServer();
+      if (pusher) {
+        pusher.trigger([`chat-${id}`, "connect-global"], "messages-seen", {
+          conversationId: id,
+          readerId: user.id,
+          readerName: user.name,
+          timestamp: Date.now(),
+        }).catch(() => {});
+      }
     }
 
     return NextResponse.json({ success: true, messages: res.rows });

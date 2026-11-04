@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useRef, useMemo } from "react";
+import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import Link from "next/link";
 import {
   Bell,
@@ -99,6 +99,7 @@ export default function BrgConnectChatPage() {
   const [realErpRecords, setRealErpRecords] = useState<ErpRecordCard[]>([]);
   const [directoryEmployees, setDirectoryEmployees] = useState<ConnectUser[]>([]);
   const [directorySearch, setDirectorySearch] = useState("");
+  const [onlineUserIds, setOnlineUserIds] = useState<Set<string>>(new Set());
 
   // Modals
   const [isErpPickerOpen, setIsErpPickerOpen] = useState(false);
@@ -174,6 +175,7 @@ export default function BrgConnectChatPage() {
             type: c.type.toLowerCase() as "direct" | "group",
             name: c.name || "Conversation",
             description: c.description,
+            peerId: (c as { peerId?: string }).peerId,
             members: [authUser?.id || "user-current"],
             unreadCount: 0,
             lastMessage: c.lastMessage
@@ -217,6 +219,7 @@ export default function BrgConnectChatPage() {
             clientMsgId: string;
             type: string;
             body: string;
+            status?: string;
             erpRecordType?: string;
             erpRecordData?: ErpRecordCard;
             createdAt: string;
@@ -240,11 +243,13 @@ export default function BrgConnectChatPage() {
               ...a,
               type: a.mimeType?.startsWith("image/") ? "image" : a.mimeType?.includes("pdf") ? "doc" : "file",
             })),
-            status: "seen" as MessageDeliveryStatus,
+            status: ((m.status?.toLowerCase()) as MessageDeliveryStatus) || "delivered",
             createdAt: new Date(m.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
           })
         );
         setMessagesMap((prev) => ({ ...prev, [convId]: mapped }));
+        // Automatically mark messages as read for active conversation
+        fetch(`/api/connect/conversations/${convId}/read`, { method: "POST" }).catch(() => {});
       }
     } catch {
       // Ignored
@@ -286,6 +291,54 @@ export default function BrgConnectChatPage() {
       // Ignored
     }
   };
+
+  // Heartbeat & Online Presence Sync
+  useEffect(() => {
+    // Initial fetch of active online users
+    fetch("/api/connect/presence")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (d?.success && Array.isArray(d.onlineUserIds)) {
+          setOnlineUserIds(new Set(d.onlineUserIds));
+        }
+      })
+      .catch(() => {});
+
+    // Periodic heartbeat every 20 seconds
+    const interval = setInterval(() => {
+      fetch("/api/connect/presence", { method: "POST" }).catch(() => {});
+    }, 20000);
+
+    // Initial ping
+    fetch("/api/connect/presence", { method: "POST" }).catch(() => {});
+
+    // Notify server when window is closed / refreshed
+    const handleUnload = () => {
+      if (navigator.sendBeacon) {
+        navigator.sendBeacon("/api/connect/presence", JSON.stringify({ action: "offline" }));
+      }
+    };
+    window.addEventListener("beforeunload", handleUnload);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener("beforeunload", handleUnload);
+    };
+  }, []);
+
+  // Helper to determine if a direct conversation peer is online
+  const isPeerOnline = useCallback(
+    (conv: ConnectConversation) => {
+      if (conv.type !== "direct") return false;
+      if (conv.peerId && onlineUserIds.has(conv.peerId)) return true;
+      const matchingEmp = directoryEmployees.find(
+        (e) => e.name.toLowerCase() === conv.name.toLowerCase() || (conv.peerId && e.id === conv.peerId)
+      );
+      if (matchingEmp && onlineUserIds.has(matchingEmp.id)) return true;
+      return false;
+    },
+    [onlineUserIds, directoryEmployees]
+  );
 
   // Initial load
   useEffect(() => {
@@ -467,6 +520,33 @@ export default function BrgConnectChatPage() {
 
     globalChannel.bind("new-conversation", () => {
       loadConversations();
+    });
+
+    globalChannel.bind("user-presence", (data: { userId: string; status: "online" | "offline" }) => {
+      setOnlineUserIds((prev) => {
+        const next = new Set(prev);
+        if (data.status === "online") {
+          next.add(data.userId);
+        } else {
+          next.delete(data.userId);
+        }
+        return next;
+      });
+    });
+
+    globalChannel.bind("messages-seen", (data: { conversationId: string; readerId: string }) => {
+      if (data.readerId !== authUser?.id) {
+        setMessagesMap((prev) => {
+          const list = prev[data.conversationId] || [];
+          if (!list.length) return prev;
+          return {
+            ...prev,
+            [data.conversationId]: list.map((m) =>
+              m.senderId === authUser?.id ? { ...m, status: "seen" as MessageDeliveryStatus } : m
+            ),
+          };
+        });
+      }
     });
 
     globalChannel.bind("new-message", (msg: ConnectMessage) => {
@@ -694,6 +774,21 @@ export default function BrgConnectChatPage() {
     const channelName = `chat-${activeConvId}`;
     const channel = pusher.subscribe(channelName);
 
+    channel.bind("messages-seen", (data: { conversationId: string; readerId: string }) => {
+      if (data.readerId !== authUser?.id) {
+        setMessagesMap((prev) => {
+          const list = prev[data.conversationId] || [];
+          if (!list.length) return prev;
+          return {
+            ...prev,
+            [data.conversationId]: list.map((m) =>
+              m.senderId === authUser?.id ? { ...m, status: "seen" as MessageDeliveryStatus } : m
+            ),
+          };
+        });
+      }
+    });
+
     channel.bind("new-message", (msg: ConnectMessage) => {
       setMessagesMap((prev) => {
         const list = prev[msg.conversationId] || [];
@@ -780,6 +875,7 @@ export default function BrgConnectChatPage() {
     setConversations((prev) =>
       prev.map((c) => (c.id === id ? { ...c, unreadCount: 0 } : c))
     );
+    fetch(`/api/connect/conversations/${id}/read`, { method: "POST" }).catch(() => {});
   };
 
   // Send real message to database
@@ -840,7 +936,6 @@ export default function BrgConnectChatPage() {
       const data = await res.json();
       if (data.success) {
         updateMessageStatus(newMsg.id, "delivered");
-        setTimeout(() => updateMessageStatus(newMsg.id, "seen"), 1000);
       } else {
         updateMessageStatus(newMsg.id, "sent");
       }
@@ -1634,6 +1729,12 @@ export default function BrgConnectChatPage() {
                           {getInitials(c.name)}
                         </div>
                       )}
+                      {!isGroup && isPeerOnline(c) && (
+                        <span
+                          className="absolute -bottom-0.5 -right-0.5 size-2.5 rounded-full bg-emerald-500 ring-2 ring-surface"
+                          title="Online"
+                        />
+                      )}
                     </div>
 
                     <div className="flex-1 min-w-0">
@@ -1646,8 +1747,23 @@ export default function BrgConnectChatPage() {
                         </span>
                       </div>
 
-                      <p className="text-[11px] text-ink-muted truncate mt-0.5">
-                        {c.lastMessage?.body || c.description || "No messages yet"}
+                      <p className="text-[11px] text-ink-muted truncate mt-0.5 flex items-center gap-1">
+                        {c.lastMessage && c.lastMessage.senderId === authUser?.id && (
+                          <span className="shrink-0 inline-flex items-center">
+                            {c.lastMessage.status === "seen" ? (
+                              <CheckCheck className="size-3 text-[#34B7F1] stroke-[2.8]" />
+                            ) : c.lastMessage.status === "delivered" ? (
+                              <CheckCheck className="size-3 text-ink-muted stroke-[2]" />
+                            ) : c.lastMessage.status === "sent" ? (
+                              <Check className="size-3 text-ink-muted stroke-[2]" />
+                            ) : (
+                              <Clock className="size-2.5 text-ink-muted" />
+                            )}
+                          </span>
+                        )}
+                        <span className="truncate">
+                          {c.lastMessage?.body || c.description || "No messages yet"}
+                        </span>
                       </p>
 
                       <div className="flex items-center gap-1.5 mt-1">
@@ -1718,11 +1834,28 @@ export default function BrgConnectChatPage() {
                       <h3 className="text-sm font-bold text-ink truncate">{activeConv.name}</h3>
                       {activeConv.isMuted && <BellOff className="size-3 text-ink-muted" />}
                     </div>
-                    <span className="text-[11px] text-ink-muted block truncate">
-                      {activeConv.type === "group"
-                        ? `${activeConv.description || "Team Channel"}`
-                        : "Direct Message"}
-                    </span>
+                    {activeConv.type === "group" ? (
+                      <span className="text-[11px] text-ink-muted block truncate">
+                        {activeConv.description || "Team Channel"}
+                      </span>
+                    ) : (
+                      <div className="flex items-center gap-1.5 text-[11px] leading-tight">
+                        {isPeerOnline(activeConv) ? (
+                          <span className="flex items-center gap-1 font-medium text-emerald-600 dark:text-emerald-400">
+                            <span className="relative flex size-2">
+                              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75"></span>
+                              <span className="relative inline-flex size-2 rounded-full bg-emerald-500"></span>
+                            </span>
+                            Online
+                          </span>
+                        ) : (
+                          <span className="flex items-center gap-1 text-ink-muted">
+                            <span className="size-1.5 rounded-full bg-gray-400 dark:bg-gray-500"></span>
+                            Offline
+                          </span>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -2006,11 +2139,30 @@ export default function BrgConnectChatPage() {
                               <span>{msg.createdAt}</span>
 
                               {isMe && (
-                                <span title={`Status: ${msg.status}`}>
-                                  {msg.status === "sending" && <Clock className="size-3 text-blue-200 animate-spin" />}
-                                  {msg.status === "sent" && <Check className="size-3 text-blue-200" />}
-                                  {msg.status === "delivered" && <CheckCheck className="size-3 text-blue-200" />}
-                                  {msg.status === "seen" && <CheckCheck className="size-3 text-sky-300 font-bold" />}
+                                <span
+                                  title={
+                                    msg.status === "seen"
+                                      ? "Seen / Read"
+                                      : msg.status === "delivered"
+                                      ? "Delivered"
+                                      : msg.status === "sent"
+                                      ? "Sent"
+                                      : "Sending..."
+                                  }
+                                  className="inline-flex items-center ml-0.5"
+                                >
+                                  {msg.status === "sending" && (
+                                    <Clock className="size-3 text-white/70 animate-spin" />
+                                  )}
+                                  {msg.status === "sent" && (
+                                    <Check className="size-3.5 text-white/80 stroke-[2.5]" />
+                                  )}
+                                  {msg.status === "delivered" && (
+                                    <CheckCheck className="size-3.5 text-white/80 stroke-[2.5]" />
+                                  )}
+                                  {msg.status === "seen" && (
+                                    <CheckCheck className="size-3.5 text-[#34B7F1] stroke-[2.8] drop-shadow-[0_0_2px_rgba(52,183,241,0.6)]" />
+                                  )}
                                 </span>
                               )}
                             </div>
@@ -2633,7 +2785,14 @@ export default function BrgConnectChatPage() {
                         {emp.designation} • {emp.department}
                       </span>
                     </div>
-                    <span className="size-2 rounded-full bg-emerald-500" />
+                    {onlineUserIds.has(emp.id) ? (
+                      <span className="flex items-center gap-1 text-[10px] text-emerald-600 font-medium">
+                        <span className="size-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                        Online
+                      </span>
+                    ) : (
+                      <span className="size-2 rounded-full bg-gray-300 dark:bg-gray-600" title="Offline" />
+                    )}
                   </div>
                 ))
               )}
