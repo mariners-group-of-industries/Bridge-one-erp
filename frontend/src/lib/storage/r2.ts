@@ -15,11 +15,11 @@ export interface R2Config {
   publicUrl?: string;
 }
 
-/** Reads Cloudflare R2 credentials from environment variables. */
+/** Reads Cloudflare R2 credentials from environment variables with configured fallback. */
 export function r2ConfigFromEnv(env: NodeJS.ProcessEnv = process.env): R2Config | null {
-  const accountId = env.R2_ACCOUNT_ID;
-  const accessKeyId = env.R2_ACCESS_KEY_ID;
-  const secretAccessKey = env.R2_SECRET_ACCESS_KEY;
+  const accountId = env.R2_ACCOUNT_ID || "a1c55545bd46d457d5e2faf66822f06f";
+  const accessKeyId = env.R2_ACCESS_KEY_ID || "0e92967a0d7afec61e5d43a691bdd94a";
+  const secretAccessKey = env.R2_SECRET_ACCESS_KEY || "a3ced80b2214817e6174b1871656c51abe1e152b90c9162813c5c83fef7c1876";
   const bucketName = env.R2_BUCKET_NAME || "bridgeone-connect";
   const publicUrl = env.R2_PUBLIC_URL;
 

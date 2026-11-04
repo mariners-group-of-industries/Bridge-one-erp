@@ -26,9 +26,6 @@ export async function POST(req: Request) {
     }
 
     const r2Config = r2ConfigFromEnv();
-    const uploadDir = path.join(process.cwd(), "public", "uploads", "connect");
-    await fs.mkdir(uploadDir, { recursive: true });
-
     const uploadedAttachments = [];
 
     for (const file of rawFiles) {
@@ -46,22 +43,40 @@ export async function POST(req: Request) {
 
       let fileUrl: string | null = null;
 
-      // 1. Try Cloudflare R2 / S3 Object Storage Driver
+      // 1. Primary: Cloudflare R2 Object Storage
       if (r2Config) {
         try {
           const r2 = new R2Storage(r2Config);
           fileUrl = await r2.put(safeKey, buffer, contentType);
         } catch (r2Err) {
-          console.warn("[Upload] Cloudflare R2 upload error, falling back to local storage:", r2Err);
+          console.error("[Upload] Cloudflare R2 upload error:", r2Err);
         }
       }
 
-      // 2. Reliable Fallback: Local disk storage
+      // 2. Fallback: Local disk storage (wrapped in try/catch for read-only environments)
       if (!fileUrl) {
-        const safeName = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}-${file.name.replace(/[^a-zA-Z0-9.-]/g, "_")}`;
-        const filePath = path.join(uploadDir, safeName);
-        await fs.writeFile(filePath, buffer);
-        fileUrl = `/uploads/connect/${safeName}`;
+        try {
+          const uploadDir = path.join(process.cwd(), "public", "uploads", "connect");
+          await fs.mkdir(uploadDir, { recursive: true });
+          const safeName = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}-${file.name.replace(/[^a-zA-Z0-9.-]/g, "_")}`;
+          const filePath = path.join(uploadDir, safeName);
+          await fs.writeFile(filePath, buffer);
+          fileUrl = `/uploads/connect/${safeName}`;
+        } catch (diskErr) {
+          console.warn("[Upload] Local disk storage unavailable:", diskErr);
+        }
+      }
+
+      // 3. Fallback for files if cloud and local disk are unavailable: Data URI
+      if (!fileUrl) {
+        if (buffer.length <= 4 * 1024 * 1024) {
+          fileUrl = `data:${contentType};base64,${buffer.toString("base64")}`;
+        } else {
+          return NextResponse.json(
+            { success: false, error: `Could not store file "${file.name}". Storage driver unavailable.` },
+            { status: 500 }
+          );
+        }
       }
 
       const attachmentType = contentType.startsWith("image/")
@@ -88,11 +103,12 @@ export async function POST(req: Request) {
 
     return NextResponse.json({
       success: true,
-      attachment: uploadedAttachments[0], // for backward compatibility with single-file consumers
-      attachments: uploadedAttachments,   // full list for bulk consumers
+      attachment: uploadedAttachments[0], // backward compatibility
+      attachments: uploadedAttachments,   // bulk attachments
     });
   } catch (error) {
     console.error("Error uploading file:", error);
-    return NextResponse.json({ success: false, error: "Upload failed" }, { status: 500 });
+    const msg = error instanceof Error ? error.message : "Upload failed";
+    return NextResponse.json({ success: false, error: msg }, { status: 500 });
   }
 }

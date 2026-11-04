@@ -1018,32 +1018,36 @@ export default function BrgConnectChatPage() {
     setStagedAttachments([]);
     if (fileInputRef.current) fileInputRef.current.value = "";
 
-    // Upload all staged files in bulk
+    // Upload all staged files in parallel (safely staying within serverless payload limits)
     let uploadedAttachments: ConnectAttachment[] = [];
     if (currentStagedList.length > 0) {
       setIsUploading(true);
       try {
-        const formData = new FormData();
-        currentStagedList.forEach((att) => {
-          formData.append("files", att.file);
+        const uploadPromises = currentStagedList.map(async (att) => {
+          const singleFormData = new FormData();
+          singleFormData.append("file", att.file);
+          const res = await fetch("/api/connect/upload", {
+            method: "POST",
+            body: singleFormData,
+          });
+          const text = await res.text();
+          let data: { success?: boolean; attachment?: ConnectAttachment; error?: string } = {};
+          try {
+            data = JSON.parse(text);
+          } catch {
+            throw new Error(`Upload server error for "${att.name}" (Status ${res.status})`);
+          }
+          if (data.success && data.attachment) {
+            return data.attachment;
+          }
+          throw new Error(data.error || `Failed to upload "${att.name}"`);
         });
-        const res = await fetch("/api/connect/upload", {
-          method: "POST",
-          body: formData,
-        });
-        const data = await res.json();
-        if (data.success && Array.isArray(data.attachments)) {
-          uploadedAttachments = data.attachments;
-        } else if (data.success && data.attachment) {
-          uploadedAttachments = [data.attachment];
-        } else {
-          alert(data.error || "Failed to upload attached files");
-          setIsUploading(false);
-          return;
-        }
+
+        uploadedAttachments = await Promise.all(uploadPromises);
       } catch (uploadErr) {
         console.error("Bulk upload failed:", uploadErr);
-        alert("Failed to upload files. Please check connection.");
+        const errMessage = uploadErr instanceof Error ? uploadErr.message : "Failed to upload files. Please check connection.";
+        alert(errMessage);
         setIsUploading(false);
         return;
       } finally {
