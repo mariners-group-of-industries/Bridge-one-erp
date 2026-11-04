@@ -97,6 +97,7 @@ export default function BrgConnectChatPage() {
   const [messagesMap, setMessagesMap] = useState<Record<string, ConnectMessage[]>>({});
   const [activeConvId, setActiveConvId] = useState<string | null>(null);
   const activeConvIdRef = useRef<string | null>(null);
+  const handleAcceptIncomingCallByIdRef = useRef<((convId: string, callType?: "audio" | "video") => void) | null>(null);
   useEffect(() => {
     activeConvIdRef.current = activeConvId;
   }, [activeConvId]);
@@ -385,7 +386,7 @@ export default function BrgConnectChatPage() {
     [onlineUserIds, directoryEmployees]
   );
 
-  // Initial load
+  // Initial load & URL params check
   useEffect(() => {
     let active = true;
     queueMicrotask(() => {
@@ -400,7 +401,22 @@ export default function BrgConnectChatPage() {
           }
         })
         .catch(() => {});
+
+      if (typeof window !== "undefined") {
+        const params = new URLSearchParams(window.location.search);
+        const urlConvId = params.get("conversationId");
+        const autoAccept = params.get("autoAccept") === "true";
+        if (urlConvId) {
+          setActiveConvId(urlConvId);
+          if (autoAccept) {
+            setTimeout(() => {
+              handleAcceptIncomingCallByIdRef.current?.(urlConvId, "audio");
+            }, 600);
+          }
+        }
+      }
     });
+
     return () => {
       active = false;
     };
@@ -1562,20 +1578,17 @@ export default function BrgConnectChatPage() {
     }
   };
 
-  const handleAcceptIncomingCall = async () => {
-    if (!incomingCall) return;
+  const handleAcceptIncomingCallById = async (
+    convId: string,
+    callType: "audio" | "video" = "audio",
+    initialOffer?: RTCSessionDescriptionInit | null
+  ) => {
     stopRingtone();
-
-    // Prime audio playback during user click gesture to satisfy browser autoplay policies
     if (remoteAudioRef.current) {
       remoteAudioRef.current.play().catch(() => {});
     }
 
-    const convId = incomingCall.conversationId;
-    const callType = incomingCall.callType;
-    let offer = incomingCall.offer;
-    setIncomingCall(null);
-
+    let offer = initialOffer || null;
     setActiveConvId(convId);
 
     setActiveCall({
@@ -1588,7 +1601,6 @@ export default function BrgConnectChatPage() {
     });
 
     try {
-      // If offer SDP was not in Pusher payload, fetch cached SDP from API
       if (!offer) {
         try {
           const res = await fetch(`/api/connect/calls/signal?conversationId=${convId}`);
@@ -1634,6 +1646,17 @@ export default function BrgConnectChatPage() {
       console.warn("Could not access media devices on accept:", err);
       cleanupCall();
     }
+  };
+
+  useEffect(() => {
+    handleAcceptIncomingCallByIdRef.current = handleAcceptIncomingCallById;
+  }, []);
+
+  const handleAcceptIncomingCall = async () => {
+    if (!incomingCall) return;
+    const { conversationId, callType, offer } = incomingCall;
+    setIncomingCall(null);
+    await handleAcceptIncomingCallById(conversationId, callType, offer);
   };
 
   const handleRejectIncomingCall = async () => {
