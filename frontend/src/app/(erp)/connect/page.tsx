@@ -194,6 +194,7 @@ export default function BrgConnectChatPage() {
             id: string;
             conversationId: string;
             senderId: string;
+            senderName?: string;
             clientMsgId: string;
             type: string;
             body: string;
@@ -211,7 +212,7 @@ export default function BrgConnectChatPage() {
             id: m.id,
             conversationId: m.conversationId,
             senderId: m.senderId,
-            senderName: m.senderId === authUser?.id ? (authUser?.name || "Me") : "Colleague",
+            senderName: m.senderId === authUser?.id ? (authUser?.name || "Me") : (m.senderName || "Colleague"),
             clientMsgId: m.clientMsgId || `c-${m.id}`,
             type: (m.type.toLowerCase() as "text" | "erp_card" | "file") || "text",
             body: m.body,
@@ -410,9 +411,42 @@ export default function BrgConnectChatPage() {
     if (!pusher) return;
 
     const globalChannel = pusher.subscribe("connect-global");
+
+    globalChannel.bind("new-conversation", () => {
+      loadConversations();
+    });
+
     globalChannel.bind("new-message", (msg: ConnectMessage) => {
-      setConversations((prev) =>
-        prev.map((c) => {
+      // Append to active message thread immediately
+      setMessagesMap((prev) => {
+        const list = prev[msg.conversationId] || [];
+        const exists = list.some(
+          (m) => m.id === msg.id || (m.clientMsgId && m.clientMsgId === msg.clientMsgId)
+        );
+        if (exists) {
+          return {
+            ...prev,
+            [msg.conversationId]: list.map((m) =>
+              m.id === msg.id || (m.clientMsgId && m.clientMsgId === msg.clientMsgId)
+                ? { ...msg, status: "delivered" }
+                : m
+            ),
+          };
+        }
+        return {
+          ...prev,
+          [msg.conversationId]: [...list, msg],
+        };
+      });
+
+      // Update sidebar conversation list
+      setConversations((prev) => {
+        const exists = prev.some((c) => c.id === msg.conversationId);
+        if (!exists) {
+          loadConversations();
+          return prev;
+        }
+        return prev.map((c) => {
           if (c.id === msg.conversationId) {
             const isCurrentActive = c.id === activeConvId;
             return {
@@ -432,8 +466,8 @@ export default function BrgConnectChatPage() {
             };
           }
           return c;
-        })
-      );
+        });
+      });
     });
 
     // Realtime WebRTC call signaling via Pusher

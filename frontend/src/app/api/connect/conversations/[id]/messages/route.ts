@@ -22,7 +22,12 @@ export async function GET(
        FROM connect_conversations c
        LEFT JOIN connect_conversation_members cm
          ON cm.conversation_id = c.id
-         AND (cm.user_id = $2::uuid OR cm.employee_id = $2::uuid)
+         AND (
+           cm.user_id = $2::uuid 
+           OR cm.employee_id = $2::uuid
+           OR cm.employee_id IN (SELECT id FROM employees WHERE "userId" = $2::uuid)
+           OR cm.user_id IN (SELECT "userId" FROM employees WHERE id = $2::uuid)
+         )
          AND cm.left_at IS NULL
        WHERE c.id = $1::uuid;`,
       [id, user.id]
@@ -49,6 +54,7 @@ export async function GET(
         m.id,
         m.conversation_id AS "conversationId",
         m.sender_id AS "senderId",
+        COALESCE(u.name, e.name, 'Colleague') AS "senderName",
         m.client_msg_id AS "clientMsgId",
         m.type,
         m.body,
@@ -73,6 +79,8 @@ export async function GET(
           WHERE a.message_id = m.id
         ) AS attachments
       FROM connect_messages m
+      LEFT JOIN users u ON u.id = m.sender_id
+      LEFT JOIN employees e ON (e.id = m.sender_id OR e."userId" = m.sender_id)
       WHERE m.conversation_id = $1::uuid
       ORDER BY m.created_at ASC
       LIMIT 100;
@@ -117,7 +125,12 @@ export async function POST(
        FROM connect_conversations c
        LEFT JOIN connect_conversation_members cm
          ON cm.conversation_id = c.id
-         AND (cm.user_id = $2::uuid OR cm.employee_id = $2::uuid)
+         AND (
+           cm.user_id = $2::uuid 
+           OR cm.employee_id = $2::uuid
+           OR cm.employee_id IN (SELECT id FROM employees WHERE "userId" = $2::uuid)
+           OR cm.user_id IN (SELECT "userId" FROM employees WHERE id = $2::uuid)
+         )
          AND cm.left_at IS NULL
        WHERE c.id = $1::uuid;`,
       [id, user.id]
