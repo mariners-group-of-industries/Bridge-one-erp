@@ -40,6 +40,12 @@ import {
 } from "lucide-react";
 import { useSession } from "@/lib/auth/session";
 import { getPusherClient } from "@/lib/connect/pusher-client";
+import {
+  RTC_CONFIG,
+  startIncomingRingtone,
+  startOutgoingRingback,
+  stopRingtone,
+} from "@/lib/connect/webrtc";
 import type {
   ConnectConversation,
   ConnectMessage,
@@ -111,11 +117,21 @@ export default function BrgConnectChatPage() {
     isScreenSharing: boolean;
   } | null>(null);
 
+  const [incomingCall, setIncomingCall] = useState<{
+    conversationId: string;
+    callerId: string;
+    callerName: string;
+    callType: "audio" | "video";
+  } | null>(null);
+
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const chatInputRef = useRef<HTMLTextAreaElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
+  const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
+  const remoteStreamRef = useRef<MediaStream | null>(null);
+  const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
 
   // Load real conversations from Neon DB
   const loadConversations = async () => {
@@ -313,6 +329,84 @@ export default function BrgConnectChatPage() {
     return () => clearInterval(interval);
   }, [activeCall?.status]);
 
+  const sendCallSignal = async (
+    convId: string,
+    type: string,
+    callType: "audio" | "video",
+    sdp?: RTCSessionDescriptionInit | null,
+    candidate?: RTCIceCandidateInit | null
+  ) => {
+    try {
+      await fetch("/api/connect/calls/signal", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          conversationId: convId,
+          type,
+          callType,
+          sdp,
+          candidate,
+        }),
+      });
+    } catch (err) {
+      console.warn("Signal send failed:", err);
+    }
+  };
+
+  const cleanupCall = () => {
+    stopRingtone();
+    if (peerConnectionRef.current) {
+      try {
+        peerConnectionRef.current.close();
+      } catch {}
+      peerConnectionRef.current = null;
+    }
+    if (mediaStreamRef.current) {
+      mediaStreamRef.current.getTracks().forEach((t) => t.stop());
+      mediaStreamRef.current = null;
+    }
+    if (remoteStreamRef.current) {
+      remoteStreamRef.current.getTracks().forEach((t) => t.stop());
+      remoteStreamRef.current = null;
+    }
+    setActiveCall(null);
+    setIncomingCall(null);
+  };
+
+  const initPeerConnection = (convId: string, callType: "audio" | "video") => {
+    if (peerConnectionRef.current) {
+      try {
+        peerConnectionRef.current.close();
+      } catch {}
+    }
+
+    const pc = new RTCPeerConnection(RTC_CONFIG);
+    peerConnectionRef.current = pc;
+
+    pc.onicecandidate = (event) => {
+      if (event.candidate) {
+        sendCallSignal(convId, "ice-candidate", callType, null, event.candidate.toJSON());
+      }
+    };
+
+    pc.ontrack = (event) => {
+      if (event.streams && event.streams[0]) {
+        remoteStreamRef.current = event.streams[0];
+        if (remoteVideoRef.current) {
+          remoteVideoRef.current.srcObject = event.streams[0];
+        }
+      }
+    };
+
+    if (mediaStreamRef.current) {
+      mediaStreamRef.current.getTracks().forEach((track) => {
+        pc.addTrack(track, mediaStreamRef.current!);
+      });
+    }
+
+    return pc;
+  };
+
   // Realtime Pusher subscription for global updates
   useEffect(() => {
     const pusher = getPusherClient();
@@ -355,6 +449,98 @@ export default function BrgConnectChatPage() {
         })
       );
     });
+
+    // Realtime WebRTC call signaling via Pusher
+    globalChannel.bind(
+      "call-signal",
+      async (signal: {
+        conversationId: string;
+        senderId: string;
+        senderName: string;
+        type: string;
+        callType: "audio" | "video";
+        sdp?: RTCSessionDescriptionInit | null;
+        candidate?: RTCIceCandidateInit | null;
+      }) => {
+        if (signal.senderId === authUser?.id) return;
+
+        switch (signal.type) {
+          case "call-request": {
+            setIncomingCall({
+              conversationId: signal.conversationId,
+              callerId: signal.senderId,
+              callerName: signal.senderName,
+              callType: signal.callType,
+            });
+            startIncomingRingtone();
+            break;
+          }
+
+          case "call-accept": {
+            stopRingtone();
+            setActiveCall((prev) => (prev ? { ...prev, status: "connected" } : null));
+            break;
+          }
+
+          case "webrtc-offer": {
+            if (signal.sdp) {
+              try {
+                if (!peerConnectionRef.current) {
+                  initPeerConnection(signal.conversationId, signal.callType);
+                }
+                const pc = peerConnectionRef.current;
+                if (pc) {
+                  await pc.setRemoteDescription(new RTCSessionDescription(signal.sdp));
+                  const answer = await pc.createAnswer();
+                  await pc.setLocalDescription(answer);
+                  sendCallSignal(signal.conversationId, "webrtc-answer", signal.callType, answer);
+                }
+              } catch (err) {
+                console.warn("Error handling WebRTC offer:", err);
+              }
+            }
+            break;
+          }
+
+          case "webrtc-answer": {
+            stopRingtone();
+            if (signal.sdp && peerConnectionRef.current) {
+              try {
+                await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(signal.sdp));
+                setActiveCall((prev) => (prev ? { ...prev, status: "connected" } : null));
+              } catch (err) {
+                console.warn("Error handling WebRTC answer:", err);
+              }
+            }
+            break;
+          }
+
+          case "ice-candidate": {
+            if (signal.candidate && peerConnectionRef.current) {
+              try {
+                await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(signal.candidate));
+              } catch (err) {
+                console.warn("Error adding ICE candidate:", err);
+              }
+            }
+            break;
+          }
+
+          case "call-reject": {
+            stopRingtone();
+            alert(`${signal.senderName || "Colleague"} declined the call.`);
+            cleanupCall();
+            break;
+          }
+
+          case "call-hangup": {
+            stopRingtone();
+            cleanupCall();
+            break;
+          }
+        }
+      }
+    );
 
     return () => {
       pusher.connection.unbind("connected", onConnected);
@@ -708,8 +894,10 @@ export default function BrgConnectChatPage() {
     }
   };
 
-  // Real WebRTC Camera & Mic Stream
+  // Real WebRTC Calling & Media Stream
   const handleStartCall = async (type: "audio" | "video") => {
+    if (!activeConvId || !activeConv) return;
+
     setActiveCall({
       type,
       status: "ringing",
@@ -718,6 +906,8 @@ export default function BrgConnectChatPage() {
       isCameraOff: false,
       isScreenSharing: false,
     });
+
+    startOutgoingRingback();
 
     try {
       if (typeof navigator !== "undefined" && navigator.mediaDevices) {
@@ -729,14 +919,68 @@ export default function BrgConnectChatPage() {
         if (localVideoRef.current && type === "video") {
           localVideoRef.current.srcObject = stream;
         }
+
+        const pc = initPeerConnection(activeConvId, type);
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+
+        await sendCallSignal(activeConvId, "call-request", type);
+        await sendCallSignal(activeConvId, "webrtc-offer", type, offer);
       }
     } catch (err) {
       console.warn("Camera/mic access warning:", err);
+      stopRingtone();
+      alert("Could not access camera or microphone. Please check browser permissions.");
+      setActiveCall(null);
     }
+  };
 
-    setTimeout(() => {
-      setActiveCall((prev) => (prev ? { ...prev, status: "connected" } : null));
-    }, 2000);
+  const handleAcceptIncomingCall = async () => {
+    if (!incomingCall) return;
+    stopRingtone();
+
+    const convId = incomingCall.conversationId;
+    const callType = incomingCall.callType;
+    setIncomingCall(null);
+
+    setActiveConvId(convId);
+
+    setActiveCall({
+      type: callType,
+      status: "connected",
+      durationSec: 0,
+      isMuted: false,
+      isCameraOff: false,
+      isScreenSharing: false,
+    });
+
+    try {
+      if (typeof navigator !== "undefined" && navigator.mediaDevices) {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: true,
+          video: callType === "video",
+        });
+        mediaStreamRef.current = stream;
+        if (localVideoRef.current && callType === "video") {
+          localVideoRef.current.srcObject = stream;
+        }
+
+        initPeerConnection(convId, callType);
+        await sendCallSignal(convId, "call-accept", callType);
+      }
+    } catch (err) {
+      console.warn("Could not access media devices on accept:", err);
+      cleanupCall();
+    }
+  };
+
+  const handleRejectIncomingCall = async () => {
+    if (!incomingCall) return;
+    stopRingtone();
+    const convId = incomingCall.conversationId;
+    const callType = incomingCall.callType;
+    setIncomingCall(null);
+    await sendCallSignal(convId, "call-reject", callType);
   };
 
   const handleToggleMute = () => {
@@ -769,10 +1013,24 @@ export default function BrgConnectChatPage() {
         if (localVideoRef.current) {
           localVideoRef.current.srcObject = screenStream;
         }
+        if (peerConnectionRef.current) {
+          const videoTrack = screenStream.getVideoTracks()[0];
+          const sender = peerConnectionRef.current.getSenders().find((s) => s.track?.kind === "video");
+          if (sender) {
+            sender.replaceTrack(videoTrack);
+          }
+        }
         setActiveCall((prev) => (prev ? { ...prev, isScreenSharing: true } : null));
       } else {
         if (localVideoRef.current && mediaStreamRef.current) {
           localVideoRef.current.srcObject = mediaStreamRef.current;
+        }
+        if (peerConnectionRef.current && mediaStreamRef.current) {
+          const videoTrack = mediaStreamRef.current.getVideoTracks()[0];
+          const sender = peerConnectionRef.current.getSenders().find((s) => s.track?.kind === "video");
+          if (sender && videoTrack) {
+            sender.replaceTrack(videoTrack);
+          }
         }
         setActiveCall((prev) => (prev ? { ...prev, isScreenSharing: false } : null));
       }
@@ -784,11 +1042,10 @@ export default function BrgConnectChatPage() {
   const handleEndCall = async () => {
     if (!activeCall || !activeConvId) return;
     const duration = activeCall.durationSec;
+    const callType = activeCall.type;
 
-    if (mediaStreamRef.current) {
-      mediaStreamRef.current.getTracks().forEach((t) => t.stop());
-      mediaStreamRef.current = null;
-    }
+    stopRingtone();
+    await sendCallSignal(activeConvId, "call-hangup", callType);
 
     const callMsg: ConnectMessage = {
       id: `m-call-${Date.now()}`,
@@ -797,9 +1054,9 @@ export default function BrgConnectChatPage() {
       senderName: authUser?.name || "Me",
       clientMsgId: `c-call-${Date.now()}`,
       type: "call",
-      body: activeCall.type === "audio" ? "Audio Call" : "Video Call",
+      body: callType === "audio" ? "Audio Call" : "Video Call",
       callInfo: {
-        type: activeCall.type,
+        type: callType,
         status: duration > 0 ? "completed" : "missed",
         durationSec: duration,
       },
@@ -818,8 +1075,7 @@ export default function BrgConnectChatPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           conversationId: activeConvId,
-          startedById: authUser?.id || "user-current",
-          type: activeCall.type.toUpperCase(),
+          type: callType.toUpperCase(),
           status: duration > 0 ? "COMPLETED" : "MISSED",
           durationSec: duration,
         }),
@@ -828,7 +1084,7 @@ export default function BrgConnectChatPage() {
       // Ignored
     }
 
-    setActiveCall(null);
+    cleanupCall();
   };
 
   const formatTime = (sec: number) => {
@@ -1568,41 +1824,97 @@ export default function BrgConnectChatPage() {
         )}
       </div>
 
+      {/* Incoming Call Alert Modal */}
+      {incomingCall && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in">
+          <div className="w-full max-w-sm rounded-2xl bg-slate-900 border border-slate-800 p-6 text-white text-center shadow-2xl space-y-6">
+            <div className="relative size-24 mx-auto flex items-center justify-center">
+              <span className="absolute inset-0 rounded-full bg-emerald-500/20 animate-ping" />
+              <div
+                className={`relative size-20 rounded-full flex items-center justify-center font-bold text-2xl border-4 border-emerald-500 shadow-xl ${getAvatarBg(
+                  incomingCall.callerName
+                )}`}
+              >
+                {getInitials(incomingCall.callerName)}
+              </div>
+            </div>
+
+            <div className="space-y-1">
+              <h3 className="font-bold text-lg text-white">{incomingCall.callerName}</h3>
+              <p className="text-xs text-emerald-400 font-medium animate-pulse">
+                Incoming {incomingCall.callType === "video" ? "Video" : "Audio"} Call...
+              </p>
+            </div>
+
+            <div className="flex items-center justify-center gap-6 pt-2">
+              <button
+                type="button"
+                onClick={handleRejectIncomingCall}
+                className="size-14 rounded-full bg-rose-600 hover:bg-rose-700 text-white flex items-center justify-center shadow-lg hover:scale-105 transition cursor-pointer"
+                title="Decline"
+              >
+                <PhoneOff className="size-6" />
+              </button>
+
+              <button
+                type="button"
+                onClick={handleAcceptIncomingCall}
+                className="size-14 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white flex items-center justify-center shadow-lg hover:scale-105 transition cursor-pointer"
+                title="Accept"
+              >
+                <Phone className="size-6" />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Real WebRTC Call Modal with Camera / Screen Share */}
-      {activeCall && activeConv && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-xs p-4 animate-in fade-in">
+      {activeCall && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-xs p-4 animate-in fade-in">
           <div className="w-full max-w-lg rounded-2xl bg-slate-900 border border-slate-800 p-6 text-white text-center shadow-2xl space-y-6">
             <div className="space-y-2">
               <div
                 className={`size-20 mx-auto rounded-full flex items-center justify-center font-bold text-xl border-4 border-slate-700 ${getAvatarBg(
-                  activeConv.name
+                  activeConv?.name || "Colleague"
                 )}`}
               >
-                {getInitials(activeConv.name)}
+                {getInitials(activeConv?.name || "Colleague")}
               </div>
-              <h3 className="font-bold text-lg">{activeConv.name}</h3>
+              <h3 className="font-bold text-lg">{activeConv?.name || "Colleague"}</h3>
               <p className="text-xs text-slate-400">
                 {activeCall.status === "ringing"
-                  ? "Ringing WebRTC Peer (Coturn TURN active)..."
+                  ? "Ringing WebRTC Peer (Google STUN active)..."
                   : `Connected • ${formatTime(activeCall.durationSec)}`}
               </p>
             </div>
 
             {activeCall.type === "video" && (
-              <div className="relative h-56 rounded-xl bg-slate-950 flex items-center justify-center border border-slate-800 overflow-hidden shadow-inner">
+              <div className="relative h-64 rounded-xl bg-slate-950 flex items-center justify-center border border-slate-800 overflow-hidden shadow-inner">
+                {/* Main Remote Video Stream */}
                 <video
-                  ref={localVideoRef}
+                  ref={remoteVideoRef}
                   autoPlay
                   playsInline
-                  muted
-                  className={`w-full h-full object-cover ${activeCall.isCameraOff ? "hidden" : "block"}`}
+                  className="w-full h-full object-cover"
                 />
-                {activeCall.isCameraOff && (
-                  <span className="text-xs text-slate-400 flex items-center gap-1.5">
-                    <VideoOff className="size-4 text-slate-500" />
-                    <span>Camera is turned off</span>
-                  </span>
-                )}
+
+                {/* Picture-in-Picture Local Video Inset */}
+                <div className="absolute bottom-3 right-3 w-32 h-24 rounded-lg overflow-hidden border-2 border-slate-700 bg-slate-950 shadow-xl">
+                  <video
+                    ref={localVideoRef}
+                    autoPlay
+                    playsInline
+                    muted
+                    className={`w-full h-full object-cover ${activeCall.isCameraOff ? "hidden" : "block"}`}
+                  />
+                  {activeCall.isCameraOff && (
+                    <div className="w-full h-full flex items-center justify-center text-[10px] text-slate-400">
+                      Camera Off
+                    </div>
+                  )}
+                </div>
+
                 {activeCall.isScreenSharing && (
                   <span className="absolute top-2 left-2 px-2 py-0.5 rounded bg-blue-600 text-white text-[10px] font-semibold flex items-center gap-1">
                     <Monitor className="size-3" />
