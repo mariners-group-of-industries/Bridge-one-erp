@@ -16,6 +16,13 @@ export const posSetup: NavLink = {
   keywords: ["pos setup", "discount", "offer", "counter setup", "sales setup", "point redeem", "floor", "table"],
 };
 
+export const posRc: NavLink = {
+  label: "R&C",
+  href: paths.rc,
+  description: "Standard recipe & cost control, ingredient purchase master, batch costing, SOP, and menu engineering summary.",
+  keywords: ["rc", "r&c", "recipe", "costing", "ingredient master", "menu cost", "marinozz", "pantoa"],
+};
+
 export const posReports: NavLink = {
   label: "Reports",
   href: paths.reports,
@@ -28,14 +35,13 @@ export const posWorkspace: Workspace = {
   label: "POS",
   icon: Calculator,
   href: paths.dashboard,
-  description: "Point of sale operations, counter & offer setup, and retail sales reporting.",
+  description: "Point of sale operations, counter & offer setup, recipe & costing (R&C), and retail sales reporting.",
   status: "active",
-  shortcuts: [posDashboard, posSetup, posReports],
+  shortcuts: [posDashboard, posSetup, posRc, posReports],
   cards: [
     {
       label: "",
-      links: [posDashboard, posSetup, posReports],
+      links: [posDashboard, posSetup, posRc, posReports],
     },
   ],
 };
-

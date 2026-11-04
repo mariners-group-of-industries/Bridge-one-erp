@@ -1,6 +1,11 @@
 "use client";
 
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo, useEffect, Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { SalesSetupSection } from "./sales-setup";
+import { PointRedeemOtpSection } from "./point-redeem-otp";
+import { CounterSetupSection } from "./counter-setup";
+import { DiscountOfferSection } from "./discount-offer";
 import {
   ArrowLeft,
   Plus,
@@ -8,10 +13,8 @@ import {
   RotateCw,
   UtensilsCrossed,
   Bell,
-  Search,
   Trash2,
   CheckCircle,
-  AlertCircle,
   ChevronLeft,
   ChevronRight,
 } from "lucide-react";
@@ -250,8 +253,26 @@ const SETUP_CARDS: Array<{
   { id: "FLOOR_TABLE_SETUP", label: "Floor & Table Setup", Icon: CounterSetupIcon },
 ];
 
-export default function PosSetupPage() {
-  const [activeSection, setActiveSection] = useState<SetupSection>("FLOOR_TABLE_SETUP");
+function PosSetupContent() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const rawSection = searchParams.get("section");
+  const activeSection: SetupSection =
+    rawSection === "DISCOUNT_OFFER" ||
+    rawSection === "COUNTER_SETUP" ||
+    rawSection === "SALES_SETUP" ||
+    rawSection === "POINT_REDEEM_OTP" ||
+    rawSection === "FLOOR_TABLE_SETUP"
+      ? rawSection
+      : null;
+
+  const handleSelectSection = (id: Exclude<SetupSection, null>) => {
+    router.push('/pos/setup?section=' + id);
+  };
+
+  const handleBackToHub = () => {
+    router.push('/pos/setup');
+  };
 
   // Floor & Table specific states
   const [activeTab, setActiveTab] = useState<"FLOOR" | "FLOOR_LAYOUT">("FLOOR");
@@ -281,14 +302,16 @@ export default function PosSetupPage() {
     try {
       const storedFloors = localStorage.getItem("erp_pos_floors_v1");
       const storedTables = localStorage.getItem("erp_pos_tables_v1");
-      if (storedFloors) {
-        const parsed = JSON.parse(storedFloors);
-        if (Array.isArray(parsed) && parsed.length > 0) setFloors(parsed);
-      }
-      if (storedTables) {
-        const parsed = JSON.parse(storedTables);
-        if (Array.isArray(parsed) && parsed.length > 0) setTables(parsed);
-      }
+      queueMicrotask(() => {
+        if (storedFloors) {
+          const parsed = JSON.parse(storedFloors);
+          if (Array.isArray(parsed) && parsed.length > 0) setFloors(parsed);
+        }
+        if (storedTables) {
+          const parsed = JSON.parse(storedTables);
+          if (Array.isArray(parsed) && parsed.length > 0) setTables(parsed);
+        }
+      });
     } catch (e) {
       console.warn("Could not load from localStorage:", e);
     }
@@ -624,7 +647,7 @@ export default function PosSetupPage() {
             <button
               key={id}
               type="button"
-              onClick={() => setActiveSection(id)}
+              onClick={() => handleSelectSection(id)}
               className="group flex flex-col items-center justify-center gap-2.5 rounded-md border border-[#b6d4fe] dark:border-slate-800 bg-white dark:bg-slate-900 px-4 py-6 shadow-[0_2px_8px_rgba(13,110,253,0.08)] hover:border-[#0d6efd] hover:shadow-md transition-all cursor-pointer min-h-[125px]"
             >
               <div className="transition-transform group-hover:scale-105">
@@ -640,6 +663,22 @@ export default function PosSetupPage() {
     );
   }
 
+  if (activeSection === "DISCOUNT_OFFER") {
+    return <DiscountOfferSection onBack={handleBackToHub} />;
+  }
+
+  if (activeSection === "SALES_SETUP") {
+    return <SalesSetupSection onBack={handleBackToHub} />;
+  }
+
+  if (activeSection === "POINT_REDEEM_OTP") {
+    return <PointRedeemOtpSection onBack={handleBackToHub} />;
+  }
+
+  if (activeSection === "COUNTER_SETUP") {
+    return <CounterSetupSection onBack={handleBackToHub} />;
+  }
+
   // --- FLOOR & TABLE SETUP FULL VIEW ---
   return (
     <div className="min-h-[calc(100vh-3.5rem)] bg-white dark:bg-slate-950 p-4 sm:p-6 space-y-4">
@@ -647,7 +686,7 @@ export default function PosSetupPage() {
       <div className="flex items-center gap-3">
         <button
           type="button"
-          onClick={() => setActiveSection(null)}
+          onClick={handleBackToHub}
           className="text-slate-700 dark:text-slate-200 hover:text-blue-600 transition p-1"
           title="Back to Setup Menu"
         >
@@ -1321,5 +1360,18 @@ export default function PosSetupPage() {
         </div>
       )}
     </div>
+  );
+}
+export default function PosSetupPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-[calc(100vh-3.5rem)] bg-white dark:bg-slate-950 p-4 sm:p-6 flex items-center justify-center text-xs text-slate-400">
+          Loading POS Setup...
+        </div>
+      }
+    >
+      <PosSetupContent />
+    </Suspense>
   );
 }

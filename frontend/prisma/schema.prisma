@@ -4197,3 +4197,158 @@ model HrPolicyRecord {
   @@index([employeeId])
   @@map("hr_policy_records")
 }
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// BRG CONNECT: Realtime Enterprise Collaboration & Messaging
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum ConnectConversationType {
+  DIRECT
+  GROUP
+}
+
+enum ConnectMemberRole {
+  ADMIN
+  MEMBER
+}
+
+enum ConnectMessageType {
+  TEXT
+  FILE
+  IMAGE
+  SYSTEM
+  ERP_CARD
+  CALL
+}
+
+enum ConnectCallType {
+  AUDIO
+  VIDEO
+}
+
+enum ConnectCallStatus {
+  RINGING
+  ONGOING
+  COMPLETED
+  MISSED
+  REJECTED
+}
+
+/// Conversation channel or 1-to-1 direct chat thread
+model ConnectConversation {
+  id          String                  @id @default(uuid()) @db.Uuid
+  type        ConnectConversationType @default(DIRECT)
+  name        String?                 @db.VarChar(150)
+  description String?                 @db.VarChar(500)
+  avatarUrl   String?                 @db.VarChar(500)
+  isArchived  Boolean                 @default(false)
+  createdById String?                 @db.Uuid
+  createdAt   DateTime                @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime                @updatedAt @db.Timestamptz(3)
+
+  members     ConnectConversationMember[]
+  messages    ConnectMessage[]
+  calls       ConnectCall[]
+
+  @@map("connect_conversations")
+}
+
+/// Member participating in a conversation thread
+model ConnectConversationMember {
+  id                String            @id @default(uuid()) @db.Uuid
+  conversationId    String            @db.Uuid
+  userId            String            @db.Uuid
+  employeeId        String?           @db.Uuid
+  role              ConnectMemberRole @default(MEMBER)
+  lastReadMessageId String?           @db.Uuid
+  isMuted           Boolean           @default(false)
+  mutedUntil        DateTime?         @db.Timestamptz(3)
+  joinedAt          DateTime          @default(now()) @db.Timestamptz(3)
+  leftAt            DateTime?         @db.Timestamptz(3)
+
+  conversation      ConnectConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@unique([conversationId, userId])
+  @@index([userId, isMuted])
+  @@index([conversationId, role])
+  @@map("connect_conversation_members")
+}
+
+/// Real-time chat message record
+model ConnectMessage {
+  id             String             @id @default(uuid()) @db.Uuid
+  conversationId String             @db.Uuid
+  senderId       String             @db.Uuid
+  clientMsgId    String?            @db.VarChar(64)
+  type           ConnectMessageType @default(TEXT)
+  body           String             @db.Text
+  replyToId      String?            @db.Uuid
+  
+  // Embedded ERP Entity (PO, Requisition, Invoice, Item)
+  erpRecordType  String?            @db.VarChar(50)
+  erpRecordId    String?            @db.VarChar(100)
+  erpRecordData  Json?
+
+  editedAt       DateTime?          @db.Timestamptz(3)
+  deletedAt      DateTime?          @db.Timestamptz(3)
+  createdAt      DateTime           @default(now()) @db.Timestamptz(3)
+
+  conversation   ConnectConversation  @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  attachments    ConnectAttachment[]
+
+  @@index([conversationId, createdAt(sort: Desc)])
+  @@index([clientMsgId])
+  @@index([senderId])
+  @@map("connect_messages")
+}
+
+/// Files, images, and audio attachments stored in S3/MinIO
+model ConnectAttachment {
+  id         String   @id @default(uuid()) @db.Uuid
+  messageId  String   @db.Uuid
+  fileKey    String   @db.VarChar(500)
+  fileName   String   @db.VarChar(255)
+  mimeType   String   @db.VarChar(100)
+  sizeBytes  Int
+  cdnUrl     String   @db.VarChar(1000)
+  createdAt  DateTime @default(now()) @db.Timestamptz(3)
+
+  message    ConnectMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@index([messageId])
+  @@map("connect_attachments")
+}
+
+/// WebRTC Audio/Video call records
+model ConnectCall {
+  id             String            @id @default(uuid()) @db.Uuid
+  conversationId String            @db.Uuid
+  startedById    String            @db.Uuid
+  type           ConnectCallType   @default(AUDIO)
+  status         ConnectCallStatus @default(RINGING)
+  startedAt      DateTime          @default(now()) @db.Timestamptz(3)
+  endedAt        DateTime?         @db.Timestamptz(3)
+  durationSec    Int               @default(0)
+
+  conversation   ConnectConversation      @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  participants   ConnectCallParticipant[]
+
+  @@index([conversationId, startedAt(sort: Desc)])
+  @@map("connect_calls")
+}
+
+/// WebRTC Call participant joins and leaves
+model ConnectCallParticipant {
+  id       String    @id @default(uuid()) @db.Uuid
+  callId   String    @db.Uuid
+  userId   String    @db.Uuid
+  joinedAt DateTime  @default(now()) @db.Timestamptz(3)
+  leftAt   DateTime? @db.Timestamptz(3)
+
+  call     ConnectCall @relation(fields: [callId], references: [id], onDelete: Cascade)
+
+  @@unique([callId, userId])
+  @@index([userId])
+  @@map("connect_call_participants")
+}
