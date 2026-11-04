@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { apiHandler } from "@/lib/api/handler";
+import type { Actor } from "@/lib/auth/actor";
 import { purchaseStore } from "@/lib/purchase-store/store";
 import {
   CreateRequisitionSchema,
@@ -237,14 +238,16 @@ async function handleGET(
 
 async function handlePOST(
   request: Request,
-  { params }: { params: Promise<{ route: string[] }> }
+  { params }: { params: Promise<{ route: string[] }> },
+  actor: Actor
 ) {
   const { route } = await params;
   const path = route.join("/");
 
   try {
     const body = await request.json().catch(() => ({}));
-    const actorName = "Fuad Hossain";
+    // Recorded as "prepared by" / "received by": the signed-in user.
+    const actorName = actor.name ?? actor.id;
 
     // Create Requisition
     if (path === "purchase/requisitions") {
@@ -419,13 +422,15 @@ async function handlePOST(
 
 async function handlePUT(
   request: Request,
-  { params }: { params: Promise<{ route: string[] }> }
+  { params }: { params: Promise<{ route: string[] }> },
+  actor: Actor
 ) {
   const { route } = await params;
 
   try {
     const body = await request.json().catch(() => ({}));
-    const actorName = "Fuad Hossain";
+    // Recorded as "prepared by" / "received by": the signed-in user.
+    const actorName = actor.name ?? actor.id;
 
     // Update Requisition
     if (

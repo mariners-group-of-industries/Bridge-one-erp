@@ -41,6 +41,8 @@ const formatNum = (num: number) => {
 // ============================================================================
 interface DueListRow {
   sl: number;
+  /** Supplier id, needed to post a payment. */
+  supplierId: string;
   supplierCode: string;
   supplierName: string;
   mobileNumber: string;
@@ -109,9 +111,7 @@ interface LedgerReconRow {
 }
 
 const INITIAL_PENDING_BILLS: PendingBillRow[] = [];
-const INITIAL_DUE_LIST: DueListRow[] = [];
 const INITIAL_PAID_LIST: PaidRow[] = [];
-const INITIAL_DUE_INVOICES: DueInvoiceRow[] = [];
 const INITIAL_ADVANCE_LIST: AdvanceRow[] = [];
 const INITIAL_LEDGER_RECON_LIST: LedgerReconRow[] = [];
 
@@ -193,10 +193,63 @@ export default function SupplierPaymentsPage() {
   const [billDueDate, setBillDueDate] = useState(new Date().toISOString().split("T")[0]);
 
   // Dynamic Data Lists
-  const [dueList, setDueList] = useState<DueListRow[]>(INITIAL_DUE_LIST);
+  // Supplier payables and open receipts come from the server (receipts - returns - payments).
+  const { data: serverPayables } = useQuery<SupplierPaymentRecord[]>({
+    queryKey: ["supplierPayables"],
+    queryFn: () => fetchApi("/purchase/supplier-payments"),
+  });
+  const { data: serverInvoices } = useQuery<SupplierInvoiceItem[]>({
+    queryKey: ["supplierInvoices"],
+    queryFn: () => fetchApi("/purchase/supplier-payments/invoices"),
+  });
+  const dueList = useMemo<DueListRow[]>(
+    () =>
+      (serverPayables ?? [])
+        .filter((p) => p.totalPurchasedAmount > 0 || p.paidAmount > 0)
+        .map((p, i) => ({
+          sl: i + 1,
+          supplierId: p.supplierId,
+          supplierCode: p.supplierCode,
+          supplierName: p.supplierName,
+          mobileNumber: p.mobileNumber ?? "",
+          totalAmount: p.totalPurchasedAmount,
+          returnAmount: p.returnedAmount,
+          paymentAmount: p.paidAmount,
+          dueAmount: p.dueAmount,
+        })),
+    [serverPayables],
+  );
   const [pendingBills, setPendingBills] = useState<PendingBillRow[]>(INITIAL_PENDING_BILLS);
   const [paidList, setPaidList] = useState<PaidRow[]>(INITIAL_PAID_LIST);
-  const [dueInvoices, setDueInvoices] = useState<DueInvoiceRow[]>(INITIAL_DUE_INVOICES);
+  const dueInvoices = useMemo<DueInvoiceRow[]>(
+    () =>
+      (serverInvoices ?? []).map((inv, i) => ({
+        sl: i + 1,
+        receDate: inv.invoiceDate,
+        invoice: inv.invoiceNumber,
+        supplierName: inv.supplierName,
+        creditDays: 0,
+        exPaymentDate: inv.dueDate,
+        totalAmount: inv.totalAmount,
+        netAmount: inv.totalAmount,
+        dueAmount: inv.dueAmount,
+      })),
+    [serverInvoices],
+  );
+
+  // Posts a supplier payment: lowers the supplier's payable.
+  const paymentMutation = useMutation({
+    mutationFn: (payload: Record<string, unknown>) =>
+      fetchApi<{ number: string }>("/purchase/supplier-payments", { method: "POST", body: JSON.stringify(payload) }),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["supplierPayables"] });
+      queryClient.invalidateQueries({ queryKey: ["supplierInvoices"] });
+      queryClient.invalidateQueries({ queryKey: ["suppliers"] });
+      setQuickPayTarget(null);
+      toast.success(`Payment ${data.number} posted. Supplier payable updated.`);
+    },
+    onError: (err: Error) => toast.error(err.message),
+  });
   const [advanceList, setAdvanceList] = useState<AdvanceRow[]>(INITIAL_ADVANCE_LIST);
   const [ledgerReconList, setLedgerReconList] = useState<LedgerReconRow[]>(INITIAL_LEDGER_RECON_LIST);
 
@@ -238,6 +291,7 @@ export default function SupplierPaymentsPage() {
   const handlePayPendingBill = (bill: PendingBillRow) => {
     setQuickPayTarget({
       sl: 0,
+      supplierId: dueList.find((d) => d.supplierCode === bill.supplierCode)?.supplierId ?? "",
       supplierCode: bill.supplierCode,
       supplierName: bill.supplierName,
       mobileNumber: "01700000000",
@@ -334,33 +388,17 @@ export default function SupplierPaymentsPage() {
     e.preventDefault();
     if (!quickPayTarget) return;
 
-    // Update Due List
-    setDueList(
-      dueList.map((r) => {
-        if (r.supplierCode === quickPayTarget.supplierCode) {
-          const newPaid = r.paymentAmount + quickPayAmount;
-          const newDue = Math.max(0, r.totalAmount - newPaid);
-          return { ...r, paymentAmount: newPaid, dueAmount: newDue };
-        }
-        return r;
-      })
-    );
-
-    // Append to Paid GRN/Bill
-    const newPaidRow: PaidRow = {
-      sl: paidList.length + 1,
-      paidDate: new Date().toLocaleDateString("en-GB").replace(/\//g, "-"),
-      invoiceNo: `SETTLE-${quickPayTarget.supplierCode}`,
-      supplier: quickPayTarget.supplierName,
-      moneyReceiptNo: quickPayRef,
-      bankAmount: quickPayMode !== "CASH" ? quickPayAmount : 0,
-      cashAmount: quickPayMode === "CASH" ? quickPayAmount : 0,
-      paidAmount: quickPayAmount,
-    };
-    setPaidList([newPaidRow, ...paidList]);
-
-    setQuickPayTarget(null);
-    toast.success(`Payment of BDT ${formatCurrency(quickPayAmount)} to ${quickPayTarget.supplierName} completed successfully!`);
+    if (!quickPayTarget.supplierId) {
+      toast.error("This bill is not linked to a supplier yet.");
+      return;
+    }
+    paymentMutation.mutate({
+      supplierId: quickPayTarget.supplierId,
+      amount: quickPayAmount,
+      method: quickPayMode === "CASH" ? "CASH" : quickPayMode === "CHEQUE" ? "CHEQUE" : "BANK",
+      paymentDate: new Date().toISOString().split("T")[0],
+      narration: quickPayRef,
+    });
   };
 
   const handleCreateAdvancePayment = (e: React.FormEvent) => {

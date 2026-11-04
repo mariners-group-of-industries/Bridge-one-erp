@@ -509,7 +509,7 @@ export interface StockSummary {
     id: string;
     warehouseName: string;
     qty: number;
-    source: "OPENING" | "ADJUSTMENT" | "SALES_DELIVERY" | "SALES_RETURN" | "PRODUCTION_CONSUMPTION" | "PRODUCTION_OUTPUT";
+    source: "OPENING" | "ADJUSTMENT" | "SALES_DELIVERY" | "SALES_RETURN" | "PRODUCTION_CONSUMPTION" | "PRODUCTION_OUTPUT" | "PURCHASE_RECEIPT" | "PURCHASE_RETURN";
     postingDate: string;
     remarks: string | null;
     createdBy: string;

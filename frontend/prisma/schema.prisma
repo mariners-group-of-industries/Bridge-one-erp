@@ -2411,6 +2411,8 @@ enum StockSource {
   SALES_RETURN
   PRODUCTION_CONSUMPTION
   PRODUCTION_OUTPUT
+  PURCHASE_RECEIPT
+  PURCHASE_RETURN
 }
 
 /// Stock ledger: one signed quantity per movement. Stock = sum(qty) per
