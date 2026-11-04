@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
+import { connectRoute } from "@/lib/connect/route";
 import fs from "fs/promises";
 import path from "path";
 
-export async function POST(req: Request) {
+async function handlePOST(req: Request) {
   try {
     const formData = await req.formData();
     const file = formData.get("file") as File | null;
@@ -41,3 +42,5 @@ export async function POST(req: Request) {
   }
 }
 
+
+export const POST = connectRoute("configuration:write", handlePOST);

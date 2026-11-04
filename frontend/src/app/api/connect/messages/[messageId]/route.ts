@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
+import { connectRoute } from "@/lib/connect/route";
 import { getConnectPool } from "@/lib/connect/db";
 
-export async function PATCH(
+async function handlePATCH(
   req: Request,
   { params }: { params: Promise<{ messageId: string }> }
 ) {
@@ -32,7 +33,7 @@ export async function PATCH(
   }
 }
 
-export async function DELETE(
+async function handleDELETE(
   _req: Request,
   { params }: { params: Promise<{ messageId: string }> }
 ) {
@@ -56,3 +57,6 @@ export async function DELETE(
   }
 }
 
+
+export const PATCH = connectRoute("configuration:write", handlePATCH);
+export const DELETE = connectRoute("configuration:write", handleDELETE);

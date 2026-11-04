@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
+import { connectRoute } from "@/lib/connect/route";
 import { getConnectPool } from "@/lib/connect/db";
 
-export async function GET(req: Request) {
+async function handleGET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
     const search = searchParams.get("search") || "";
@@ -46,3 +47,5 @@ export async function GET(req: Request) {
   }
 }
 
+
+export const GET = connectRoute("employees:read", handleGET);

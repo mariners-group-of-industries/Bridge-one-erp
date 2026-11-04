@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
+import { connectRoute } from "@/lib/connect/route";
 import { getConnectPool } from "@/lib/connect/db";
 
-export async function GET(
+async function handleGET(
   _req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
@@ -50,7 +51,7 @@ export async function GET(
   }
 }
 
-export async function POST(
+async function handlePOST(
   req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
@@ -128,3 +129,6 @@ export async function POST(
   }
 }
 
+
+export const GET = connectRoute("employees:read", handleGET);
+export const POST = connectRoute("configuration:write", handlePOST);

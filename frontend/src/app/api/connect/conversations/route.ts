@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
+import { connectRoute } from "@/lib/connect/route";
 import { getConnectPool } from "@/lib/connect/db";
 
-export async function GET() {
+async function handleGET() {
   try {
     const pool = getConnectPool();
     const query = `
@@ -43,7 +44,7 @@ export async function GET() {
   }
 }
 
-export async function POST(req: Request) {
+async function handlePOST(req: Request) {
   try {
     const body = await req.json();
     const { type, name, description, avatarUrl, memberUserIds } = body;
@@ -96,3 +97,6 @@ export async function POST(req: Request) {
   }
 }
 
+
+export const GET = connectRoute("employees:read", handleGET);
+export const POST = connectRoute("configuration:write", handlePOST);
