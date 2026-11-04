@@ -169,6 +169,13 @@ export const API_RULES: Record<string, ApiRule> = {
   "/api/v1/purchase/supplier-bills": { feature: "/purchase/supplier-payments" },
   // Approving bills releases them for payment.
   "/api/v1/purchase/supplier-bills/approve-pending": { feature: "/purchase/supplier-payments", action: "approve" },
+
+  // ── Inventory (/api/inventory/<page>/… maps to its page automatically) ──
+  "/api/inventory/stock": { read: { anyViewIn: ["inventory"] } },
+  "/api/inventory/masters": { read: { anyViewIn: ["inventory"] } },
+  "/api/inventory/stock-ledger": { feature: "/inventory/inventory-reports" },
+  "/api/inventory/transfer/*/receive": { feature: "/inventory/transfer", action: "edit" },
+  "/api/inventory/gate-in-out/*/complete": { feature: "/inventory/gate-in-out", action: "edit" },
 };
 
 const segments = (path: string) => path.split("/").filter(Boolean);

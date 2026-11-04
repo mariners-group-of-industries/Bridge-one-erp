@@ -1,6 +1,12 @@
 "use client";
 
 import React, { useState, useMemo } from "react";
+import { useToast } from "@/components/ui/toast";
+import { useResource } from "@/hooks/use-resource";
+import { errorMessage } from "@/lib/api/client";
+import { InventoryDocumentDialog } from "@/features/inventory/components/InventoryDocumentDialog";
+import type { InventoryDocument } from "@/features/inventory/schemas/document.schema";
+import { dmy, inventoryApi } from "@/features/inventory/services/inventory.api";
 import {
   Search,
   Download,
@@ -21,6 +27,7 @@ type TabId = "REQUEST_LIST" | "REQUEST_SUMMARY" | "REQUEST_DETAILS";
 
 interface TransferRequestRow {
   sl: number;
+  id: string;
   reqDate: string;
   exptDate: string;
   reqCode: string;
@@ -58,195 +65,65 @@ interface DetailRow {
 // ============================================================================
 // MOCK DATA — REQUEST LIST
 // ============================================================================
-const MOCK_REQUEST_LIST: TransferRequestRow[] = [
-  {
-    sl: 1,
-    reqDate: "12-10-2026",
-    exptDate: "14-10-2026",
-    reqCode: "TR-MG261000045",
-    salesOrderNo: "SO-2026-0891",
-    reqOffice: "MG Sirajganj Factory",
-    reqWarehouse: "Finished Goods (FG) WH",
-    reqQty: 1040,
-    outQty: 1040,
-    inQty: 1040,
-    remainingQty: 0,
-    status: "Completed",
-    actionBy: "Md. Jakaria (01351149009)",
-    requestTo: "Tanvir Ahmed",
-  },
-  {
-    sl: 2,
-    reqDate: "11-10-2026",
-    exptDate: "13-10-2026",
-    reqCode: "TR-MG261000044",
-    salesOrderNo: "SO-2026-0888",
-    reqOffice: "MG Sirajganj Factory",
-    reqWarehouse: "PD Biscuit Store",
-    reqQty: 678,
-    outQty: 678,
-    inQty: 678,
-    remainingQty: 0,
-    status: "Approved",
-    actionBy: "Md. Jakaria (01351149009)",
-    requestTo: "Md. Rafiqul Islam",
-  },
-  {
-    sl: 3,
-    reqDate: "10-10-2026",
-    exptDate: "12-10-2026",
-    reqCode: "TR-MG261000043",
-    salesOrderNo: "SO-2026-0882",
-    reqOffice: "MG Sirajganj Factory",
-    reqWarehouse: "PD Snacks Store",
-    reqQty: 430,
-    outQty: 200,
-    inQty: 200,
-    remainingQty: 230,
-    status: "Partial",
-    actionBy: "Md. Jakaria (01351149009)",
-    requestTo: "Sumon Hossain",
-  },
-  {
-    sl: 4,
-    reqDate: "09-10-2026",
-    exptDate: "11-10-2026",
-    reqCode: "TR-MG261000042",
-    salesOrderNo: "SO-2026-0875",
-    reqOffice: "MG Sirajganj Factory",
-    reqWarehouse: "Material WH",
-    reqQty: 134,
-    outQty: 0,
-    inQty: 0,
-    remainingQty: 134,
-    status: "Pending",
-    actionBy: "Md. Jakaria (01351149009)",
-    requestTo: "Md. Rafiqul Islam",
-  },
-  {
-    sl: 5,
-    reqDate: "08-10-2026",
-    exptDate: "10-10-2026",
-    reqCode: "TR-MG261000041",
-    salesOrderNo: "SO-2026-0869",
-    reqOffice: "MG Sirajganj Factory",
-    reqWarehouse: "PD Biscuit Store",
-    reqQty: 274,
-    outQty: 274,
-    inQty: 274,
-    remainingQty: 0,
-    status: "Approved",
-    actionBy: "Md. Jakaria (01351149009)",
-    requestTo: "Tanvir Ahmed",
-  },
-  {
-    sl: 6,
-    reqDate: "07-10-2026",
-    exptDate: "09-10-2026",
-    reqCode: "TR-MG261000040",
-    salesOrderNo: "SO-2026-0860",
-    reqOffice: "MG Sirajganj Factory",
-    reqWarehouse: "Material WH",
-    reqQty: 555,
-    outQty: 0,
-    inQty: 0,
-    remainingQty: 555,
-    status: "Pending",
-    actionBy: "Md. Jakaria (01351149009)",
-    requestTo: "Md. Rafiqul Islam",
-  },
-];
+/** Request rows: quantity requested, sent by transfers, and received. */
+function toRequestRows(docs: InventoryDocument[]): TransferRequestRow[] {
+  return docs.map((d, i) => {
+    const outQty = d.processedQty;
+    const inQty = d.fulfilments.reduce((t, f) => t + f.receivedQty, 0);
+    const status: TransferRequestRow["status"] =
+      d.status === "PENDING" ? "Pending" : d.status === "REJECTED" ? "Rejected" : d.status === "COMPLETED" ? "Completed" : outQty > 0 ? "Partial" : "Approved";
+    return {
+      sl: i + 1,
+      id: d.id,
+      reqDate: dmy(d.docDate),
+      exptDate: dmy(d.expectedDate),
+      reqCode: d.number,
+      salesOrderNo: d.reference ?? "",
+      reqOffice: d.toWarehouse?.officeName ?? "",
+      reqWarehouse: d.toWarehouse?.name ?? "",
+      reqQty: d.totalQty,
+      outQty,
+      inQty,
+      remainingQty: Math.max(0, Math.round((d.totalQty - outQty) * 1000) / 1000),
+      status,
+      actionBy: d.createdBy,
+      requestTo: d.warehouse?.name ?? "",
+    };
+  });
+}
 
-// ============================================================================
-// MOCK DATA — REQUEST SUMMARY
-// ============================================================================
-const MOCK_SUMMARY: SummaryRow[] = [
-  {
-    sl: 1,
-    itemCode: "ITM-FLR-001",
-    itemType: "Raw Material",
-    itemCategory: "Flour & Grains",
-    itemName: "Premium Wheat Flour Grade A",
-    uom: "KG",
-    requestQty: 12500,
-    productionQty: 12000,
-  },
-  {
-    sl: 2,
-    itemCode: "ITM-SGR-002",
-    itemType: "Raw Material",
-    itemCategory: "Sweeteners",
-    itemName: "Refined White Cane Sugar",
-    uom: "KG",
-    requestQty: 4800,
-    productionQty: 4800,
-  },
-  {
-    sl: 3,
-    itemCode: "ITM-OIL-005",
-    itemType: "Raw Material",
-    itemCategory: "Oils & Fats",
-    itemName: "Edible Palm Olein Oil",
-    uom: "LTR",
-    requestQty: 3200,
-    productionQty: 3150,
-  },
-  {
-    sl: 4,
-    itemCode: "ITM-PKG-101",
-    itemType: "Packaging",
-    itemCategory: "Corrugated Box",
-    itemName: "Printed Master Carton 24x100g",
-    uom: "PCS",
-    requestQty: 1500,
-    productionQty: 1500,
-  },
-  {
-    sl: 5,
-    itemCode: "ITM-FLV-008",
-    itemType: "Ingredients",
-    itemCategory: "Flavourings",
-    itemName: "Butter Vanilla Flavour Concentrate",
-    uom: "LTR",
-    requestQty: 120,
-    productionQty: 120,
-  },
-];
+/** Requested items added up (summary tab). */
+function toSummaryRows(docs: InventoryDocument[]): SummaryRow[] {
+  const byItem = new Map<string, SummaryRow>();
+  for (const d of docs) {
+    if (d.status === "REJECTED") continue;
+    for (const l of d.lines) {
+      const row = byItem.get(l.itemId) ?? { sl: 0, itemCode: l.itemCode, itemType: "", itemCategory: l.category, itemName: l.itemName, uom: l.uom, requestQty: 0, productionQty: 0 };
+      row.requestQty += l.qty;
+      row.productionQty += l.processedQty;
+      byItem.set(l.itemId, row);
+    }
+  }
+  return [...byItem.values()].map((r, i) => ({ ...r, sl: i + 1 }));
+}
 
-const MOCK_DETAILS: DetailRow[] = [
-  {
-    itemCode: "ITM-FLR-001",
-    itemCategory: "Flour & Grains",
-    itemName: "Premium Wheat Flour Grade A",
-    uom: "KG",
-    totalQty: 12500,
-  },
-  {
-    itemCode: "ITM-SGR-002",
-    itemCategory: "Sweeteners",
-    itemName: "Refined White Cane Sugar",
-    uom: "KG",
-    totalQty: 4800,
-  },
-  {
-    itemCode: "ITM-OIL-005",
-    itemCategory: "Oils & Fats",
-    itemName: "Edible Palm Olein Oil",
-    uom: "LTR",
-    totalQty: 3200,
-  },
-  {
-    itemCode: "ITM-PKG-101",
-    itemCategory: "Corrugated Box",
-    itemName: "Printed Master Carton 24x100g",
-    uom: "PCS",
-    totalQty: 1500,
-  },
-];
+/** Requested items for one office / warehouse (details tab). */
+function toDetailRows(docs: InventoryDocument[], office: string, warehouse: string, expFrom: string, expTo: string): DetailRow[] {
+  const byItem = new Map<string, DetailRow>();
+  for (const d of docs) {
+    if (d.status === "REJECTED") continue;
+    if (office && d.toWarehouse?.officeName !== office) continue;
+    if (warehouse && d.toWarehouse?.name !== warehouse) continue;
+    if (d.expectedDate && ((expFrom && d.expectedDate < expFrom) || (expTo && d.expectedDate > expTo))) continue;
+    for (const l of d.lines) {
+      const row = byItem.get(l.itemId) ?? { itemCode: l.itemCode, itemCategory: l.category, itemName: l.itemName, uom: l.uom, totalQty: 0 };
+      row.totalQty += l.qty;
+      byItem.set(l.itemId, row);
+    }
+  }
+  return [...byItem.values()];
+}
 
-// ============================================================================
-// STATUS OPTIONS
-// ============================================================================
 const STATUS_OPTIONS = [
   { value: "", label: "All Status" },
   { value: "Pending", label: "Pending" },
@@ -254,31 +131,6 @@ const STATUS_OPTIONS = [
   { value: "Partial", label: "Partial" },
   { value: "Completed", label: "Completed" },
   { value: "Rejected", label: "Rejected" },
-];
-
-const PERSON_OPTIONS = [
-  { value: "", label: "All Persons" },
-  { value: "Md. Jakaria (01351149009)", label: "Md. Jakaria (01351149009)" },
-  { value: "Md. Rafiqul Islam", label: "Md. Rafiqul Islam" },
-  { value: "Tanvir Ahmed", label: "Tanvir Ahmed" },
-  { value: "Sumon Hossain", label: "Sumon Hossain" },
-];
-
-const OFFICE_OPTIONS = [
-  { value: "", label: "Office" },
-  { value: "MG Sirajganj Factory", label: "MG Sirajganj Factory" },
-  { value: "Dhaka Head Office", label: "Dhaka Head Office" },
-  { value: "Marinozz", label: "Marinozz" },
-  { value: "MOHS Eco", label: "MOHS Eco" },
-];
-
-const WAREHOUSE_OPTIONS = [
-  { value: "", label: "Warehouse" },
-  { value: "Central RM Warehouse", label: "Central RM Warehouse" },
-  { value: "Spinning Unit 1 Store", label: "Spinning Unit 1 Store" },
-  { value: "Central Dyes Store", label: "Central Dyes Store" },
-  { value: "Dyeing Plant Store", label: "Dyeing Plant Store" },
-  { value: "Finished Goods Warehouse", label: "Finished Goods Warehouse" },
 ];
 
 // ============================================================================
@@ -325,6 +177,7 @@ function statusBadge(status: TransferRequestRow["status"]) {
 // MAIN PAGE COMPONENT
 // ============================================================================
 export default function TransferRequestPage() {
+  const toast = useToast();
   const [activeTab, setActiveTab] = useState<TabId>("REQUEST_LIST");
   const [searchTerm, setSearchTerm] = useState("");
 
@@ -332,17 +185,40 @@ export default function TransferRequestPage() {
   const [listFromDate, setListFromDate] = useState(getDefaultFrom());
   const [listToDate, setListToDate] = useState(getDefaultTo());
   const [listStatus, setListStatus] = useState("Pending");
-  const [listPerson, setListPerson] = useState("Md. Jakaria (01351149009)");
+  const [listPerson, setListPerson] = useState("");
   const [listRowsPerPage, setListRowsPerPage] = useState(50);
   const [listPage, setListPage] = useState(1);
-  const [requestList] = useState<TransferRequestRow[]>(MOCK_REQUEST_LIST);
+  const [listPeriod, setListPeriod] = useState({ from: listFromDate, to: listToDate });
+  const listDocs = useResource(`transfer-request-${listPeriod.from}-${listPeriod.to}`, () => inventoryApi.list("transfer-request", listPeriod));
+  const requestList = useMemo(() => toRequestRows(listDocs.data ?? []), [listDocs.data]);
+  const PERSON_OPTIONS = useMemo(
+    () => [{ value: "", label: "All Persons" }, ...[...new Set(requestList.map((r) => r.actionBy))].sort().map((p) => ({ value: p, label: p }))],
+    [requestList],
+  );
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const review = async (row: TransferRequestRow, decision: "approve" | "reject") => {
+    const comment = window.prompt(decision === "approve" ? "Approval comment (optional)" : "Why is it rejected?") ?? undefined;
+    if (decision === "reject" && comment === undefined) return;
+    setBusyId(row.id);
+    try {
+      await inventoryApi.review("transfer-request", row.id, decision, comment || undefined);
+      toast.success(`${row.reqCode} ${decision === "approve" ? "approved. It can now be transferred." : "rejected."}`);
+      listDocs.reload();
+    } catch (error) {
+      toast.error(errorMessage(error));
+    } finally {
+      setBusyId(null);
+    }
+  };
 
   // ── REQUEST SUMMARY filters ──
   const [summaryFromDate, setSummaryFromDate] = useState(getDefaultFrom());
   const [summaryToDate, setSummaryToDate] = useState(getDefaultTo());
   const [summaryRowsPerPage, setSummaryRowsPerPage] = useState(50);
   const [summaryPage, setSummaryPage] = useState(1);
-  const [summaryList] = useState<SummaryRow[]>(MOCK_SUMMARY);
+  const [summaryPeriod, setSummaryPeriod] = useState({ from: summaryFromDate, to: summaryToDate });
+  const summaryDocs = useResource(`transfer-request-summary-${summaryPeriod.from}-${summaryPeriod.to}`, () => inventoryApi.list("transfer-request", summaryPeriod));
+  const summaryList = useMemo(() => toSummaryRows(summaryDocs.data ?? []), [summaryDocs.data]);
 
   // ── REQUEST DETAILS filters ──
   const [detailOffice, setDetailOffice] = useState("");
@@ -351,7 +227,22 @@ export default function TransferRequestPage() {
   const [detailToReqDate, setDetailToReqDate] = useState(getDefaultTo());
   const [detailFromExpDate, setDetailFromExpDate] = useState(getDefaultFrom());
   const [detailToExpDate, setDetailToExpDate] = useState(getDefaultTo());
-  const [detailList] = useState<DetailRow[]>(MOCK_DETAILS);
+  const [detailQuery, setDetailQuery] = useState({ from: detailFromReqDate, to: detailToReqDate, expFrom: detailFromExpDate, expTo: detailToExpDate, office: "", warehouse: "" });
+  const detailDocs = useResource(`transfer-request-detail-${detailQuery.from}-${detailQuery.to}`, () =>
+    inventoryApi.list("transfer-request", { from: detailQuery.from, to: detailQuery.to }),
+  );
+  const detailList = useMemo(
+    () => toDetailRows(detailDocs.data ?? [], detailQuery.office, detailQuery.warehouse, detailQuery.expFrom, detailQuery.expTo),
+    [detailDocs.data, detailQuery],
+  );
+  const OFFICE_OPTIONS = useMemo(
+    () => [{ value: "", label: "Office" }, ...[...new Set((detailDocs.data ?? []).map((d) => d.toWarehouse?.officeName ?? ""))].filter(Boolean).sort().map((o) => ({ value: o, label: o }))],
+    [detailDocs.data],
+  );
+  const WAREHOUSE_OPTIONS = useMemo(
+    () => [{ value: "", label: "Warehouse" }, ...[...new Set((detailDocs.data ?? []).map((d) => d.toWarehouse?.name ?? ""))].filter(Boolean).sort().map((w) => ({ value: w, label: w }))],
+    [detailDocs.data],
+  );
 
   // ── + Request modal ──
   const [isNewRequestOpen, setIsNewRequestOpen] = useState(false);
@@ -360,7 +251,7 @@ export default function TransferRequestPage() {
   const filteredList = useMemo(() => {
     return requestList.filter((row) => {
       if (listStatus && row.status !== listStatus) return false;
-      if (listPerson && !row.actionBy.includes(listPerson.split(" (")[0]) && !row.requestTo.includes(listPerson.split(" (")[0])) return false;
+      if (listPerson && row.actionBy !== listPerson) return false;
       if (searchTerm) {
         const s = searchTerm.toLowerCase();
         const match =
@@ -411,7 +302,7 @@ export default function TransferRequestPage() {
       ]);
       csvContent = "data:text/csv;charset=utf-8," + [headers.join(","), ...rows.map((e) => e.join(","))].join("\n");
     } else if (activeTab === "REQUEST_SUMMARY") {
-      const headers = ["SL", "Item Code", "Item Type", "Item Category", "Item Name", "UOM", "Request Qty", "Production Qty"];
+      const headers = ["SL", "Item Code", "Item Type", "Item Category", "Item Name", "UOM", "Request Qty", "Transferred Qty"];
       const rows = filteredSummary.map((r, i) => [
         i + 1, r.itemCode, r.itemType, `"${r.itemCategory}"`, `"${r.itemName}"`, r.uom, r.requestQty, r.productionQty,
       ]);
@@ -600,6 +491,7 @@ export default function TransferRequestPage() {
             <div>
               <button
                 type="button"
+                onClick={() => { setListPeriod({ from: listFromDate, to: listToDate }); setListPage(1); }}
                 className="px-6 py-1.5 bg-[#1976d2] hover:bg-[#1565c0] text-white text-xs font-bold rounded shadow-xs transition"
               >
                 View
@@ -688,11 +580,28 @@ export default function TransferRequestPage() {
                         </td>
                         <td className="p-2 border border-slate-300 text-center">
                           <div className="flex items-center justify-center gap-1.5 text-slate-600">
+                            {row.status === "Pending" && (
+                              <>
+                                <button
+                                  type="button"
+                                  disabled={busyId === row.id}
+                                  onClick={() => review(row, "approve")}
+                                  className="px-1.5 py-0.5 rounded bg-emerald-600 text-white text-[10px] font-semibold disabled:opacity-50"
+                                >
+                                  Approve
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={busyId === row.id}
+                                  onClick={() => review(row, "reject")}
+                                  className="px-1.5 py-0.5 rounded border border-red-300 text-red-600 text-[10px] font-semibold disabled:opacity-50"
+                                >
+                                  Reject
+                                </button>
+                              </>
+                            )}
                             <button type="button" className="p-0.5 hover:text-blue-600" title="View">
                               <Eye className="w-3.5 h-3.5" />
-                            </button>
-                            <button type="button" className="p-0.5 hover:text-blue-600" title="Edit">
-                              <Edit className="w-3.5 h-3.5" />
                             </button>
                             <button type="button" className="p-0.5 hover:text-blue-600" title="Print">
                               <Printer className="w-3.5 h-3.5" />
@@ -790,6 +699,7 @@ export default function TransferRequestPage() {
             <div>
               <button
                 type="button"
+                onClick={() => { setSummaryPeriod({ from: summaryFromDate, to: summaryToDate }); setSummaryPage(1); }}
                 className="px-6 py-1.5 bg-[#1976d2] hover:bg-[#1565c0] text-white text-xs font-bold rounded shadow-xs transition"
               >
                 View
@@ -809,7 +719,7 @@ export default function TransferRequestPage() {
                   <th className="p-2 border border-slate-300">Item Name</th>
                   <th className="p-2 border border-slate-300 w-20 text-center">UOM</th>
                   <th className="p-2 border border-slate-300 w-28 text-right">Request Qty</th>
-                  <th className="p-2 border border-slate-300 w-28 text-right">Production Qty</th>
+                  <th className="p-2 border border-slate-300 w-28 text-right">Transferred Qty</th>
                   <th className="p-2 border border-slate-300 w-20 text-center">Action</th>
                 </tr>
               </thead>
@@ -1011,6 +921,7 @@ export default function TransferRequestPage() {
           <div>
             <button
               type="button"
+              onClick={() => setDetailQuery({ from: detailFromReqDate, to: detailToReqDate, expFrom: detailFromExpDate, expTo: detailToExpDate, office: detailOffice, warehouse: detailWarehouse })}
               className="px-6 py-1.5 bg-[#1976d2] hover:bg-[#1565c0] text-white text-xs font-bold rounded shadow-xs transition"
             >
               View
@@ -1104,167 +1015,20 @@ export default function TransferRequestPage() {
       {/* ============================================================= */}
       {/* NEW REQUEST MODAL                                              */}
       {/* ============================================================= */}
-      {isNewRequestOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl mx-4 max-h-[90vh] overflow-y-auto">
-            {/* Modal Header */}
-            <div className="flex items-center justify-between px-5 py-3 border-b border-slate-200">
-              <h2 className="text-base font-bold text-slate-900">New Transfer Request</h2>
-              <button
-                type="button"
-                onClick={() => setIsNewRequestOpen(false)}
-                className="p-1 text-slate-400 hover:text-slate-700 transition"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            {/* Modal Body */}
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                setIsNewRequestOpen(false);
-              }}
-              className="p-5 space-y-4"
-            >
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-[11px] text-slate-600 mb-1 font-medium">
-                    Request Date <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    type="date"
-                    defaultValue={getDefaultTo()}
-                    className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white text-xs focus:ring-1 focus:ring-blue-500"
-                    required
-                  />
-                </div>
-                <div>
-                  <label className="block text-[11px] text-slate-600 mb-1 font-medium">
-                    Expected Date
-                  </label>
-                  <input
-                    type="date"
-                    className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white text-xs focus:ring-1 focus:ring-blue-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[11px] text-slate-600 mb-1 font-medium">
-                    Request Office <span className="text-red-500">*</span>
-                  </label>
-                  <select
-                    className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white text-xs focus:ring-1 focus:ring-blue-500"
-                    required
-                  >
-                    <option value="">Select Office</option>
-                    {OFFICE_OPTIONS.filter((o) => o.value).map((o) => (
-                      <option key={o.value} value={o.value}>{o.label}</option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-[11px] text-slate-600 mb-1 font-medium">
-                    Request Warehouse <span className="text-red-500">*</span>
-                  </label>
-                  <select
-                    className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white text-xs focus:ring-1 focus:ring-blue-500"
-                    required
-                  >
-                    <option value="">Select Warehouse</option>
-                    {WAREHOUSE_OPTIONS.filter((o) => o.value).map((o) => (
-                      <option key={o.value} value={o.value}>{o.label}</option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-[11px] text-slate-600 mb-1 font-medium">
-                    Sales Order No
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="Optional Sales Order reference"
-                    className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white text-xs focus:ring-1 focus:ring-blue-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[11px] text-slate-600 mb-1 font-medium">
-                    Request To
-                  </label>
-                  <select className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white text-xs focus:ring-1 focus:ring-blue-500">
-                    <option value="">Select Person</option>
-                    {PERSON_OPTIONS.filter((o) => o.value).map((o) => (
-                      <option key={o.value} value={o.value}>{o.label}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              {/* Items Section */}
-              <div className="border-t border-slate-200 pt-4">
-                <h4 className="text-xs font-bold text-slate-700 mb-2">Request Items</h4>
-                <div className="border border-slate-300 rounded overflow-x-auto">
-                  <table className="w-full text-xs border-collapse">
-                    <thead className="bg-[#e6f2fb] text-[11px] text-slate-700 font-semibold">
-                      <tr>
-                        <th className="p-2 border border-slate-300">Item Code</th>
-                        <th className="p-2 border border-slate-300">Item Name</th>
-                        <th className="p-2 border border-slate-300 w-20">UOM</th>
-                        <th className="p-2 border border-slate-300 w-24">Qty</th>
-                        <th className="p-2 border border-slate-300 w-16" />
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr>
-                        <td className="p-2 border border-slate-300">
-                          <input type="text" placeholder="Item code" className="w-full border border-slate-300 rounded px-2 py-1 text-xs" />
-                        </td>
-                        <td className="p-2 border border-slate-300">
-                          <input type="text" placeholder="Item name" className="w-full border border-slate-300 rounded px-2 py-1 text-xs" />
-                        </td>
-                        <td className="p-2 border border-slate-300">
-                          <input type="text" placeholder="UOM" className="w-full border border-slate-300 rounded px-2 py-1 text-xs" />
-                        </td>
-                        <td className="p-2 border border-slate-300">
-                          <input type="number" placeholder="0" className="w-full border border-slate-300 rounded px-2 py-1 text-xs text-right" />
-                        </td>
-                        <td className="p-2 border border-slate-300 text-center">
-                          <button type="button" className="text-red-400 hover:text-red-600">
-                            <X className="w-3.5 h-3.5" />
-                          </button>
-                        </td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-                <button
-                  type="button"
-                  className="mt-2 text-xs text-blue-600 hover:text-blue-800 font-medium flex items-center gap-1"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  Add Item
-                </button>
-              </div>
-
-              {/* Modal Footer */}
-              <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-200">
-                <button
-                  type="button"
-                  onClick={() => setIsNewRequestOpen(false)}
-                  className="h-8 px-4 text-xs font-medium text-slate-600 border border-slate-300 rounded hover:bg-slate-50 transition"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="h-8 px-5 text-xs font-semibold text-white bg-[#2563eb] hover:bg-blue-700 rounded shadow-xs transition"
-                >
-                  Submit Request
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+      <InventoryDocumentDialog
+        open={isNewRequestOpen}
+        onClose={() => setIsNewRequestOpen(false)}
+        onSaved={() => listDocs.reload()}
+        config={{
+          slug: "transfer-request",
+          title: "New Transfer Request",
+          warehouses: "two",
+          warehouseLabel: "Request to (supplying warehouse)",
+          toWarehouseLabel: "Requesting warehouse",
+          expectedDateLabel: "Expected date",
+          referenceLabel: "Sales order no",
+        }}
+      />
     </div>
   );
 }

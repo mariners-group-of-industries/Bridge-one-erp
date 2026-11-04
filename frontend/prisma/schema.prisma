@@ -505,6 +505,7 @@ model BusinessUnit {
   purchaseReturns      PurchaseReturn[]
   supplierPayments     SupplierPayment[]
   supplierBills        SupplierBill[]
+  inventoryDocuments   InventoryDocument[]
   supplierGroups       SupplierGroup[]
   taxBrackets          TaxBracket[]
   itemDivisions        ItemDivision[]
@@ -604,6 +605,8 @@ model Warehouse {
   productionSourceEntries ProductionEntry[] @relation("EntrySourceWarehouse")
   productionOutputEntries ProductionEntry[] @relation("EntryOutputWarehouse")
 
+  inventoryDocuments   InventoryDocument[] @relation("InventoryDocumentWarehouse")
+  inventoryInbound     InventoryDocument[] @relation("InventoryDocumentToWarehouse")
   @@unique([officeId, name])
   @@map("warehouses")
 }
@@ -875,6 +878,8 @@ model Item {
   targetPlanLines SalesTargetPlanLine[]
   commissionLines SalesCommissionLine[]
 
+  inventoryLines       InventoryDocumentLine[] @relation("InventoryLineItem")
+  inventoryTargetLines InventoryDocumentLine[] @relation("InventoryLineTargetItem")
   @@unique([businessUnitId, code])
   @@map("items")
 }
@@ -2414,6 +2419,11 @@ enum StockSource {
   PRODUCTION_OUTPUT
   PURCHASE_RECEIPT
   PURCHASE_RETURN
+  TRANSFER_OUT
+  TRANSFER_IN
+  STORE_ISSUE
+  CONVERSION_OUT
+  CONVERSION_IN
 }
 
 /// Stock ledger: one signed quantity per movement. Stock = sum(qty) per
@@ -4401,4 +4411,97 @@ model ConnectCallParticipant {
   @@unique([callId, userId])
   @@index([userId])
   @@map("connect_call_participants")
+}
+
+// ─── Inventory documents ─────────────────────────────────────────────────────
+
+enum InventoryDocType {
+  STOCK_UPDATE
+  TRANSFER_REQUEST
+  TRANSFER
+  STORE_REQUISITION
+  STORE_ISSUE
+  CONVERSION
+  GATE_PASS
+}
+
+enum InventoryDocStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  IN_TRANSIT
+  COMPLETED
+  CANCELLED
+}
+
+/// One inventory document. Stock-moving types post to the stock ledger
+/// (StockEntry): stock updates when approved, transfers when dispatched and
+/// received, store issues and conversions when saved. Requests (transfer
+/// requests, store requisitions) are approved and then fulfilled by transfers
+/// and issues that point to them.
+model InventoryDocument {
+  id             String             @id @default(uuid()) @db.Uuid
+  businessUnitId String             @db.Uuid
+  type           InventoryDocType
+  number         String             @db.VarChar(30)
+  docDate        DateTime           @db.Date
+  expectedDate   DateTime?          @db.Date
+  /// Source warehouse (the only one for updates, issues and conversions).
+  warehouseId    String?            @db.Uuid
+  /// Destination warehouse of transfers and transfer requests.
+  toWarehouseId  String?            @db.Uuid
+  /// The approved request this transfer or issue fulfils.
+  requestId      String?            @db.Uuid
+  status         InventoryDocStatus @default(PENDING)
+  /// Adjustment type, conversion type, requisition user type or gate pass kind.
+  subtype        String?            @db.VarChar(60)
+  /// Requesting user / department, or the gate pass party.
+  partyName      String?            @db.VarChar(150)
+  /// Outside reference: sales order, production entry, vehicle …
+  reference      String?            @db.VarChar(100)
+  /// Extra fields of a gate pass (driver, times, badge …).
+  meta           Json?
+  remarks        String?            @db.VarChar(500)
+  reviewComment  String?            @db.VarChar(500)
+  createdBy      String             @db.VarChar(150)
+  approvedBy     String?            @db.VarChar(150)
+  approvedAt     DateTime?          @db.Timestamptz(3)
+  completedAt    DateTime?          @db.Timestamptz(3)
+  createdAt      DateTime           @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime           @updatedAt @db.Timestamptz(3)
+
+  businessUnit BusinessUnit            @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  warehouse    Warehouse?              @relation("InventoryDocumentWarehouse", fields: [warehouseId], references: [id], onDelete: Restrict)
+  toWarehouse  Warehouse?              @relation("InventoryDocumentToWarehouse", fields: [toWarehouseId], references: [id], onDelete: Restrict)
+  request      InventoryDocument?      @relation("InventoryFulfilment", fields: [requestId], references: [id], onDelete: Restrict)
+  fulfilments  InventoryDocument[]     @relation("InventoryFulfilment")
+  lines        InventoryDocumentLine[]
+
+  @@unique([businessUnitId, number])
+  @@index([businessUnitId, type, docDate])
+  @@index([requestId])
+  @@map("inventory_documents")
+}
+
+model InventoryDocumentLine {
+  id           String   @id @default(uuid()) @db.Uuid
+  documentId   String   @db.Uuid
+  lineNo       Int
+  itemId       String   @db.Uuid
+  /// Signed for stock updates; positive otherwise.
+  qty          Decimal  @db.Decimal(14, 3)
+  /// Received (transfer) or issued (request) so far.
+  processedQty Decimal  @default(0) @db.Decimal(14, 3)
+  /// Conversion target.
+  toItemId     String?  @db.Uuid
+  toQty        Decimal? @db.Decimal(14, 3)
+  remarks      String?  @db.VarChar(300)
+
+  document InventoryDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  item     Item              @relation("InventoryLineItem", fields: [itemId], references: [id], onDelete: Restrict)
+  toItem   Item?             @relation("InventoryLineTargetItem", fields: [toItemId], references: [id], onDelete: Restrict)
+
+  @@index([documentId])
+  @@index([itemId])
+  @@map("inventory_document_lines")
 }

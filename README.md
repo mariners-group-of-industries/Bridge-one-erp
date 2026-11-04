@@ -120,21 +120,23 @@ Every other module depends on Configuration and nothing in Configuration depends
 | Purchase | Configuration | Offices, warehouses, suppliers and items (`/api/v1/master/…`) |
 | Purchase | Stock ledger | Goods receipts post accepted quantities in (`PURCHASE_RECEIPT`); purchase returns post stock out (`PURCHASE_RETURN`) and refuse to return more than is in stock |
 | Purchase | Supplier payable | Receipts and ad-hoc bills raise `supplier.balance`, returns and payments lower it. `src/lib/purchase-store/payables.ts` applies payments to receipts and bills (linked document first, then oldest); what is left is the supplier's advance |
+| Inventory | Stock ledger | Stock updates and conversions post when approved; transfers post out when dispatched and in when received (shortfall goes back to the source); store issues post out when saved. Transfer requests and store requisitions are approved, then fulfilled by transfers and issues (`features/inventory/server`) |
+| Inventory | Dashboard and reports | Valuation, movements, turnover, coverage and the inventory / transfer reports are computed from the stock ledger (quantity × purchase price) |
 | Connect | Configuration | Employee directory; routes need a signed-in user with the Connect permission |
 | HRM | Configuration | Employee profile kit and actions; attendance devices and API tokens |
 | HRM | Attendance agent | The agent reads the device on the LAN and posts punches with an API token |
 | Home | All | `home/overview.service.ts` reads stock, prices, sales targets, customers, suppliers, employees and (for Accounts readers) balances and budgets |
 
 The stock ledger (`StockEntry`) is the main shared table: opening stock, purchase receipts
-and returns, sales deliveries and returns, and production entries all write to it, and stock
-levels are always computed from it, so Purchase, Sales and Production see the same stock.
+and returns, sales deliveries and returns, production entries and inventory documents
+(updates, transfers, issues, conversions) all write to it, and stock levels are always
+computed from it, so every module sees the same stock.
 
 ### Links not built yet
 
 | Missing link | What it needs |
 |---|---|
 | Sales, Purchase, HRM payroll → Accounts | Nothing posts to the general ledger automatically; Accounts holds manual journals only. Needs a mapping of document types to GL accounts (receivables, revenue, payables, inventory, cash/bank, salary expense), decided by Accounts. |
-| Inventory → stock ledger | The Inventory pages (transfers, store issue, stock update, reports) show browser sample data. Transfers and issues should post `StockEntry` movements like Sales and Purchase do. |
 | POS → Sales / stock | POS pages show sample figures; sales made at the counter do not reduce stock or appear in Sales. |
 
 ### Current data sources
@@ -144,7 +146,7 @@ levels are always computed from it, so Purchase, Sales and Production see the sa
 | Configuration, Sales, Production, HRM, Accounts | PostgreSQL through Prisma (`/api/<module>/…`) |
 | Purchase | PostgreSQL through `src/lib/purchase-store`, served at `/api/v1/…` |
 | Connect | PostgreSQL through `src/lib/connect/db.ts` (`/api/connect/…`) |
-| Inventory | Sample data in the browser (`features/inventory/store`); not connected yet |
+| Inventory | PostgreSQL (`InventoryDocument`, `StockEntry`) through `/api/inventory/<page>/…` |
 | POS | Sample data in the pages; not connected yet |
 | RTM, CRM | Planned |
 
