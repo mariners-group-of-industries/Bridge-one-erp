@@ -100,6 +100,9 @@ export async function POST(
       ]);
 
       savedMsg = msgRes.rows[0];
+      if (!savedMsg) {
+        throw new Error("Failed to insert message");
+      }
 
       // Save attachments if any
       const savedAttachments: Array<Record<string, unknown>> = [];
