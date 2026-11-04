@@ -237,7 +237,7 @@ export default function BrgConnectChatPage() {
   // Load real employees for DM and Channel modals
   const loadDirectory = async () => {
     try {
-      const res = await fetch("/api/connect/directory");
+      const res = await fetch("/api/connect/directory?limit=1000");
       const data = await res.json();
       if (data.success && Array.isArray(data.employees)) {
         const mapped: ConnectUser[] = data.employees.map(
