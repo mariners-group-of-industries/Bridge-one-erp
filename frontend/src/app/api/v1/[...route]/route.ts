@@ -3,6 +3,14 @@ import { apiHandler } from "@/lib/api/handler";
 import type { Actor } from "@/lib/auth/actor";
 import { purchaseStore } from "@/lib/purchase-store/store";
 import {
+  approvePendingSupplierBills,
+  approveSupplierBill,
+  createSupplierBill,
+  listPaymentHistory,
+  listSupplierAdvances,
+  listSupplierBills,
+} from "@/lib/purchase-store/payables";
+import {
   CreateRequisitionSchema,
   CreatePurchaseOrderSchema,
   CreateGoodsReceiptSchema,
@@ -179,6 +187,19 @@ async function handleGET(
         data: list,
         meta: { total: list.length },
       });
+    }
+
+    if (path === "purchase/supplier-payments/history") {
+      const data = await listPaymentHistory();
+      return NextResponse.json({ success: true, data, meta: { total: data.length } });
+    }
+    if (path === "purchase/supplier-payments/advances") {
+      const data = await listSupplierAdvances();
+      return NextResponse.json({ success: true, data, meta: { total: data.length } });
+    }
+    if (path === "purchase/supplier-bills") {
+      const data = await listSupplierBills();
+      return NextResponse.json({ success: true, data, meta: { total: data.length } });
     }
 
     // 8. REPORTS
@@ -394,6 +415,20 @@ async function handlePOST(
     if (path === "purchase/supplier-payments") {
       const created = await purchaseStore.createSupplierPayment(body, actorName);
       return NextResponse.json({ success: true, data: created }, { status: 201 });
+    }
+
+    // Supplier bills: book, approve one, approve every pending bill
+    if (path === "purchase/supplier-bills") {
+      const created = await createSupplierBill(body, actorName);
+      return NextResponse.json({ success: true, data: created }, { status: 201 });
+    }
+    if (path === "purchase/supplier-bills/approve-pending") {
+      const result = await approvePendingSupplierBills(actorName);
+      return NextResponse.json({ success: true, data: result });
+    }
+    if (route[0] === "purchase" && route[1] === "supplier-bills" && route.length === 4 && route[3] === "approve") {
+      const updated = await approveSupplierBill(route[2], actorName);
+      return NextResponse.json({ success: true, data: updated });
     }
 
     // Approve Supplier Bill / Payment

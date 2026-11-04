@@ -162,8 +162,13 @@ export const API_RULES: Record<string, ApiRule> = {
   "/api/v1/purchase/requisitions": { feature: "/purchase/requisitions" },
   "/api/v1/purchase/orders": { feature: "/purchase/orders" },
   "/api/v1/purchase/receive": { feature: "/purchase/receive" },
+  "/api/v1/purchase/receipts": { feature: "/purchase/receive" },
+  "/api/v1/purchase/analytics": { feature: "/purchase/analytics" },
   "/api/v1/purchase/returns": { feature: "/purchase/returns" },
   "/api/v1/purchase/supplier-payments": { feature: "/purchase/supplier-payments" },
+  "/api/v1/purchase/supplier-bills": { feature: "/purchase/supplier-payments" },
+  // Approving bills releases them for payment.
+  "/api/v1/purchase/supplier-bills/approve-pending": { feature: "/purchase/supplier-payments", action: "approve" },
 };
 
 const segments = (path: string) => path.split("/").filter(Boolean);

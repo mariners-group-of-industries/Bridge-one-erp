@@ -504,6 +504,7 @@ model BusinessUnit {
   goodsReceipts        GoodsReceipt[]
   purchaseReturns      PurchaseReturn[]
   supplierPayments     SupplierPayment[]
+  supplierBills        SupplierBill[]
   supplierGroups       SupplierGroup[]
   taxBrackets          TaxBracket[]
   itemDivisions        ItemDivision[]
@@ -2587,6 +2588,7 @@ model Supplier {
   goodsReceipts  GoodsReceipt[]
   returns        PurchaseReturn[]
   payments       SupplierPayment[]
+  bills          SupplierBill[]
 
   @@unique([businessUnitId, code])
   @@index([businessUnitId, name])
@@ -2864,6 +2866,8 @@ model GoodsReceipt {
   supplier         Supplier           @relation(fields: [supplierId], references: [id], onDelete: Restrict)
   lines            GoodsReceiptLine[]
   returns          PurchaseReturn[]
+  bill             SupplierBill?
+  payments         SupplierPayment[]
 
   @@unique([businessUnitId, number])
   @@index([businessUnitId, status, receiveDate])
@@ -2976,17 +2980,61 @@ model SupplierPayment {
   referenceNumber String?               @db.VarChar(100)
   status          PurchasePaymentStatus @default(PAID)
   remarks         String?               @db.VarChar(500)
+  /// The goods receipt or supplier bill this payment settles; neither = on account.
+  receiptId       String?               @db.Uuid
+  billId          String?               @db.Uuid
+  /// Paid before goods or a bill; shown under Payment Advance until used up.
+  isAdvance       Boolean               @default(false)
+  createdBy       String?               @db.VarChar(150)
   createdAt       DateTime              @default(now()) @db.Timestamptz(3)
   updatedAt       DateTime              @updatedAt @db.Timestamptz(3)
 
   businessUnit    BusinessUnit          @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
   supplier        Supplier              @relation(fields: [supplierId], references: [id], onDelete: Restrict)
   order           PurchaseOrder?        @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  receipt         GoodsReceipt?         @relation(fields: [receiptId], references: [id], onDelete: SetNull)
+  bill            SupplierBill?         @relation(fields: [billId], references: [id], onDelete: SetNull)
 
   @@unique([businessUnitId, number])
   @@index([businessUnitId, paymentDate])
   @@index([supplierId])
   @@map("supplier_payments")
+}
+
+enum SupplierBillStatus {
+  PENDING
+  APPROVED
+  CANCELLED
+}
+
+/// A supplier's invoice. Against a goods receipt it only records the invoice and its
+/// approval (the receipt already made the amount payable); without one (services,
+/// utilities) it adds the amount to what is owed.
+model SupplierBill {
+  id             String             @id @default(uuid()) @db.Uuid
+  businessUnitId String             @db.Uuid
+  supplierId     String             @db.Uuid
+  receiptId      String?            @unique @db.Uuid
+  number         String             @db.VarChar(60)
+  billDate       DateTime           @db.Date
+  dueDate        DateTime           @db.Date
+  amount         Decimal            @db.Decimal(14, 2)
+  status         SupplierBillStatus @default(PENDING)
+  remarks        String?            @db.VarChar(500)
+  createdBy      String             @db.VarChar(150)
+  approvedBy     String?            @db.VarChar(150)
+  approvedAt     DateTime?          @db.Timestamptz(3)
+  createdAt      DateTime           @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime           @updatedAt @db.Timestamptz(3)
+
+  businessUnit BusinessUnit      @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  supplier     Supplier          @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  receipt      GoodsReceipt?     @relation(fields: [receiptId], references: [id], onDelete: Restrict)
+  payments     SupplierPayment[]
+
+  @@unique([supplierId, number])
+  @@index([businessUnitId, status])
+  @@map("supplier_bills")
 }
 
 // ─── Accounts Module Models ──────────────────────────────────────────────────

@@ -119,7 +119,7 @@ Every other module depends on Configuration and nothing in Configuration depends
 | Production | Configuration | Item schema; approval pipelines for order approval |
 | Purchase | Configuration | Offices, warehouses, suppliers and items (`/api/v1/master/…`) |
 | Purchase | Stock ledger | Goods receipts post accepted quantities in (`PURCHASE_RECEIPT`); purchase returns post stock out (`PURCHASE_RETURN`) and refuse to return more than is in stock |
-| Purchase | Supplier payable | Receipts raise `supplier.balance`, returns and payments lower it; the due list is receipts − returns − payments |
+| Purchase | Supplier payable | Receipts and ad-hoc bills raise `supplier.balance`, returns and payments lower it. `src/lib/purchase-store/payables.ts` applies payments to receipts and bills (linked document first, then oldest); what is left is the supplier's advance |
 | Connect | Configuration | Employee directory; routes need a signed-in user with the Connect permission |
 | HRM | Configuration | Employee profile kit and actions; attendance devices and API tokens |
 | HRM | Attendance agent | The agent reads the device on the LAN and posts punches with an API token |
@@ -136,7 +136,6 @@ levels are always computed from it, so Purchase, Sales and Production see the sa
 | Sales, Purchase, HRM payroll → Accounts | Nothing posts to the general ledger automatically; Accounts holds manual journals only. Needs a mapping of document types to GL accounts (receivables, revenue, payables, inventory, cash/bank, salary expense), decided by Accounts. |
 | Inventory → stock ledger | The Inventory pages (transfers, store issue, stock update, reports) show browser sample data. Transfers and issues should post `StockEntry` movements like Sales and Purchase do. |
 | POS → Sales / stock | POS pages show sample figures; sales made at the counter do not reduce stock or appear in Sales. |
-| Purchase bills, advances, paid list, ledger reconciliation | These Supplier Payments tabs are still screen-only; the due list, due invoices and payments are connected. |
 
 ### Current data sources
 

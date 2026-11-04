@@ -21,6 +21,7 @@ import type { Prisma, StockSource } from "@/generated/prisma/client";
 import { badRequest } from "@/lib/api/errors";
 import { db } from "@/lib/prisma/client";
 import { assertStockAvailable, lockWarehouse } from "@/features/sales/deliveries/services/stock.service";
+import { listSupplierInvoices, listSupplierPayables, validatePaymentLink } from "./payables";
 
 interface StockWarehouse {
   id: string;
@@ -954,122 +955,70 @@ class PurchaseDataStore {
   // SUPPLIER PAYMENTS & PAYABLES
   // -------------------------------------------------------------
   public async getSupplierPayments(filters: { search?: string; status?: string; category?: string }): Promise<SupplierPaymentRecord[]> {
-    const prisma = db();
-    // Payable = goods received - goods returned - payments (the same movements that change supplier.balance).
-    const [suppliers, receipts, returns, payments] = await Promise.all([
-      prisma.supplier.findMany({ where: { isActive: true }, orderBy: { name: "asc" } }),
-      prisma.goodsReceipt.findMany({ where: { status: { not: "CANCELLED" } }, select: { supplierId: true, totalAmount: true } }),
-      prisma.purchaseReturn.findMany({ where: { status: { not: "CANCELLED" } }, select: { supplierId: true, totalAmount: true } }),
-      prisma.supplierPayment.findMany({ where: { status: "PAID" }, select: { supplierId: true, amount: true, paymentDate: true } }),
-    ]);
-    const sum = (rows: { supplierId: string; totalAmount: unknown }[], supplierId: string) =>
-      rows.filter((r) => r.supplierId === supplierId).reduce((total, r) => total + Number(r.totalAmount), 0);
-
-    return suppliers
-      .map((s) => {
-        const totalPurchasedAmount = sum(receipts, s.id);
-        const returnedAmount = sum(returns, s.id);
-        const supPayments = payments.filter((p) => p.supplierId === s.id);
-        const paidAmount = supPayments.reduce((total, p) => total + Number(p.amount), 0);
-        const dueAmount = Math.max(0, totalPurchasedAmount - returnedAmount - paidAmount);
-        const lastPayment = supPayments.reduce<Date | null>((last, p) => (!last || p.paymentDate > last ? p.paymentDate : last), null);
-
-        let paymentStatus: SupplierPaymentRecord["paymentStatus"] = "PAID";
-        if (dueAmount > 0 && paidAmount > 0) paymentStatus = "PARTIALLY_PAID";
-        else if (dueAmount > 0) paymentStatus = "UNPAID";
-
-        return {
-          id: s.id,
-          supplierId: s.id,
-          supplierCode: s.code,
-          supplierName: s.name,
-          category: s.type === "FOREIGN" ? ("FOREIGN" as const) : ("LOCAL" as const),
-          mobileNumber: s.phone || "N/A",
-          totalPurchasedAmount,
-          returnedAmount,
-          paidAmount,
-          dueAmount,
-          lastPaymentDate: lastPayment ? toDateStr(lastPayment) : undefined,
-          openInvoicesCount: receipts.filter((r) => r.supplierId === s.id).length,
-          paymentStatus,
- currency: 'BDT',
-        };
-      })
-      .filter((sp) => {
-        if (filters.status && filters.status !== "ALL" && sp.paymentStatus !== filters.status) return false;
-        if (filters.category && filters.category !== "ALL" && sp.category !== filters.category) return false;
-        if (filters.search) {
-          const s = filters.search.toLowerCase();
-          return sp.supplierName.toLowerCase().includes(s) || sp.supplierCode.toLowerCase().includes(s);
-        }
-        return true;
-      });
+    const rows = await listSupplierPayables();
+    return rows.filter((sp) => {
+      if (filters.status && filters.status !== "ALL" && sp.paymentStatus !== filters.status) return false;
+      if (filters.category && filters.category !== "ALL" && sp.category !== filters.category) return false;
+      if (filters.search) {
+        const s = filters.search.toLowerCase();
+        return sp.supplierName.toLowerCase().includes(s) || sp.supplierCode.toLowerCase().includes(s);
+      }
+      return true;
+    });
   }
 
   public async getSupplierInvoices(filters: { search?: string; status?: string; type?: string }): Promise<SupplierInvoiceItem[]> {
-    const grns = await this.getGoodsReceipts({});
-    return grns
-      .map((g) => ({
-        id: g.id,
-        invoiceNumber: (g as any).challanNumber || `INV-${g.grnNumber}`,
-        poNumber: g.poNumber,
-        grnNumber: g.grnNumber,
-        supplierName: g.supplierName,
-        invoiceDate: g.receiptDate,
-        dueDate: g.receiptDate,
-        totalAmount: g.totalReceivedAmount,
-        paidAmount: 0,
-        dueAmount: g.totalReceivedAmount,
-        status: "UNPAID" as const,
-        type: "LOCAL" as const,
-      }))
-      .filter((inv) => {
-        if (filters.status && filters.status !== "ALL" && inv.status !== filters.status) return false;
-        if (filters.search) {
-          const s = filters.search.toLowerCase();
-          return inv.invoiceNumber.toLowerCase().includes(s) || inv.supplierName.toLowerCase().includes(s);
-        }
-        return true;
-      });
+    const rows = await listSupplierInvoices();
+    return rows.filter((inv) => {
+      if (filters.status && filters.status !== "ALL" && inv.status !== filters.status) return false;
+      if (filters.type && filters.type !== "ALL" && inv.type !== filters.type) return false;
+      if (filters.search) {
+        const s = filters.search.toLowerCase();
+        return inv.invoiceNumber.toLowerCase().includes(s) || inv.supplierName.toLowerCase().includes(s);
+      }
+      return true;
+    });
   }
 
+  /** Posts a payment to a supplier: settles a receipt or bill, an advance, or on account. */
   public async createSupplierPayment(input: any, actorName: string = "Admin") {
     const prisma = db();
-    const { businessUnitId } = await this.getContextData();
-
     const supplierId = input.supplierId;
     if (!isUuid(supplierId)) throw badRequest("Select the supplier being paid.");
-    if (!(Number(input.amount) > 0)) throw badRequest("Enter a payment amount greater than 0.");
-
-    const count = await prisma.supplierPayment.count({ where: { businessUnitId } });
-    const number = `PAY-2026-${String(count + 101).padStart(5, "0")}`;
-    const amount = Number(input.amount) || 0;
+    const amount = Math.round(Number(input.amount) * 100) / 100;
+    if (!(amount > 0)) throw badRequest("Enter a payment amount greater than 0.");
+    const receiptId = isUuid(input.receiptId) ? String(input.receiptId) : null;
+    const billId = isUuid(input.billId) ? String(input.billId) : null;
+    const isAdvance = input.isAdvance === true;
+    if (isAdvance && (receiptId || billId)) throw badRequest("An advance is paid before a receipt or bill, so it cannot settle one.");
 
     const supplier = await prisma.supplier.findUnique({ where: { id: supplierId }, select: { businessUnitId: true } });
     if (!supplier) throw badRequest("Supplier not found.");
+    await validatePaymentLink(supplierId, receiptId, billId, amount);
 
-    const created = await prisma.$transaction(async (tx) => {
-    const payment = await tx.supplierPayment.create({
-      data: {
-        businessUnitId: supplier.businessUnitId,
-        supplierId,
-        number,
-        paymentDate: new Date(input.paymentDate || new Date()),
-        amount,
-        method: input.method || "BANK",
-        status: "PAID",
-        remarks: input.narration || null,
-      },
+    return prisma.$transaction(async (tx) => {
+      const count = await tx.supplierPayment.count({ where: { businessUnitId: supplier.businessUnitId } });
+      const number = `PAY-${new Date().getFullYear()}-${String(count + 1).padStart(5, "0")}`;
+      const payment = await tx.supplierPayment.create({
+        data: {
+          businessUnitId: supplier.businessUnitId,
+          supplierId,
+          receiptId,
+          billId,
+          isAdvance,
+          number,
+          paymentDate: new Date(input.paymentDate || new Date()),
+          amount,
+          method: ["CASH", "BANK", "CHEQUE", "ONLINE"].includes(input.method) ? input.method : "BANK",
+          referenceNumber: input.referenceNumber ? String(input.referenceNumber).slice(0, 100) : null,
+          status: "PAID",
+          remarks: input.narration ? String(input.narration).slice(0, 500) : null,
+          createdBy: actorName,
+        },
+      });
+      await tx.supplier.update({ where: { id: supplierId }, data: { balance: { decrement: amount } } });
+      return payment;
     });
-
-    await tx.supplier.update({
-      where: { id: supplierId },
-      data: { balance: { decrement: amount } },
-    });
-    return payment;
-    });
-
-    return created;
   }
 
   public async approveSupplierPayment(id: string) {
