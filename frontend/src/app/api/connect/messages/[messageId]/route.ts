@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import { getConnectPool } from "@/lib/connect/db";
 import { getPusherServer } from "@/lib/connect/pusher-server";
+import { getConnectAuthUser } from "@/lib/connect/auth";
+
+const FIFTEEN_MINUTES_MS = 15 * 60 * 1000;
 
 export async function PATCH(
   req: Request,
@@ -8,26 +11,66 @@ export async function PATCH(
 ) {
   try {
     const { messageId } = await params;
+    const user = await getConnectAuthUser(req);
+    if (!user) {
+      return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
+    }
+
     const body = await req.json();
     const { newBody } = body;
 
-    if (!newBody || typeof newBody !== "string") {
+    if (!newBody || typeof newBody !== "string" || !newBody.trim()) {
       return NextResponse.json({ success: false, error: "newBody string required" }, { status: 400 });
     }
 
     const pool = getConnectPool();
-    const query = `
-      UPDATE connect_messages
-      SET body = $1, edited_at = CURRENT_TIMESTAMP
-      WHERE id = $2
-      RETURNING *;
-    `;
-    const res = await pool.query(query, [newBody, messageId]);
-    if (res.rowCount === 0) {
+
+    // 1. Fetch message and verify ownership
+    const msgRes = await pool.query(
+      `SELECT id, conversation_id, sender_id, created_at, deleted_at 
+       FROM connect_messages 
+       WHERE id = $1::uuid;`,
+      [messageId]
+    );
+
+    if (msgRes.rowCount === 0) {
       return NextResponse.json({ success: false, error: "Message not found" }, { status: 404 });
     }
 
-    const updated = res.rows[0];
+    const targetMsg = msgRes.rows[0];
+
+    // 2. Check if already deleted
+    if (targetMsg.deleted_at) {
+      return NextResponse.json({ success: false, error: "Cannot edit a deleted message" }, { status: 400 });
+    }
+
+    // 3. Sender ownership check
+    if (targetMsg.sender_id !== user.id) {
+      return NextResponse.json(
+        { success: false, error: "Forbidden. You can only edit your own messages." },
+        { status: 403 }
+      );
+    }
+
+    // 4. 15-Minute Time Limit Check
+    const messageAgeMs = Date.now() - new Date(targetMsg.created_at).getTime();
+    if (messageAgeMs > FIFTEEN_MINUTES_MS) {
+      return NextResponse.json(
+        { success: false, error: "Edit window expired. Messages can only be edited within 15 minutes of sending." },
+        { status: 400 }
+      );
+    }
+
+    // 5. Update message
+    const updateRes = await pool.query(
+      `UPDATE connect_messages
+       SET body = $1, edited_at = CURRENT_TIMESTAMP
+       WHERE id = $2::uuid
+       RETURNING *;`,
+      [newBody.trim(), messageId]
+    );
+
+    const updated = updateRes.rows[0];
 
     // Broadcast edit via Pusher
     const pusher = getPusherServer();
@@ -52,24 +95,86 @@ export async function PATCH(
 }
 
 export async function DELETE(
-  _req: Request,
+  req: Request,
   { params }: { params: Promise<{ messageId: string }> }
 ) {
   try {
     const { messageId } = await params;
+    const user = await getConnectAuthUser(req);
+    if (!user) {
+      return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
+    }
+
     const pool = getConnectPool();
-    const query = `
-      UPDATE connect_messages
-      SET body = 'This message was deleted', deleted_at = CURRENT_TIMESTAMP, erp_record_data = NULL
-      WHERE id = $1
-      RETURNING *;
-    `;
-    const res = await pool.query(query, [messageId]);
-    if (res.rowCount === 0) {
+
+    // 1. Fetch message details
+    const msgRes = await pool.query(
+      `SELECT id, conversation_id, sender_id, created_at, deleted_at 
+       FROM connect_messages 
+       WHERE id = $1::uuid;`,
+      [messageId]
+    );
+
+    if (msgRes.rowCount === 0) {
       return NextResponse.json({ success: false, error: "Message not found" }, { status: 404 });
     }
 
-    const deleted = res.rows[0];
+    const targetMsg = msgRes.rows[0];
+
+    // 2. Check if already deleted
+    if (targetMsg.deleted_at) {
+      return NextResponse.json({ success: true, message: targetMsg });
+    }
+
+    // 3. Check authorization: sender OR channel ADMIN
+    const isSender = targetMsg.sender_id === user.id;
+    let isAdmin = false;
+
+    if (!isSender) {
+      const adminCheck = await pool.query(
+        `SELECT role FROM connect_conversation_members 
+         WHERE conversation_id = $1::uuid 
+           AND (user_id = $2::uuid OR employee_id = $2::uuid)
+           AND role = 'ADMIN'
+           AND left_at IS NULL;`,
+        [targetMsg.conversation_id, user.id]
+      );
+      isAdmin = (adminCheck.rowCount ?? 0) > 0;
+    }
+
+    if (!isSender && !isAdmin) {
+      return NextResponse.json(
+        { success: false, error: "Forbidden. You can only delete your own messages unless you are a channel admin." },
+        { status: 403 }
+      );
+    }
+
+    // 4. For regular sender (not admin), enforce 15-minute time limit
+    if (isSender && !isAdmin) {
+      const messageAgeMs = Date.now() - new Date(targetMsg.created_at).getTime();
+      if (messageAgeMs > FIFTEEN_MINUTES_MS) {
+        return NextResponse.json(
+          { success: false, error: "Delete window expired. Messages can only be deleted within 15 minutes of sending." },
+          { status: 400 }
+        );
+      }
+    }
+
+    // 5. Soft-delete message and remove attachments
+    const deleteRes = await pool.query(
+      `UPDATE connect_messages
+       SET body = 'This message was deleted', deleted_at = CURRENT_TIMESTAMP, erp_record_data = NULL
+       WHERE id = $1::uuid
+       RETURNING *;`,
+      [messageId]
+    );
+
+    await pool.query(
+      `DELETE FROM connect_attachments WHERE message_id = $1::uuid;`,
+      [messageId]
+    );
+
+    const deleted = deleteRes.rows[0];
 
     // Broadcast delete via Pusher
     const pusher = getPusherServer();

@@ -658,11 +658,16 @@ export default function BrgConnectChatPage() {
     setEditText("");
 
     try {
-      await fetch(`/api/connect/messages/${msgId}`, {
+      const res = await fetch(`/api/connect/messages/${msgId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ newBody: updated }),
       });
+      const data = await res.json();
+      if (!data.success) {
+        alert(data.error || "Failed to edit message");
+        loadMessages(activeConvId);
+      }
     } catch {
       // Ignored
     }
@@ -691,7 +696,12 @@ export default function BrgConnectChatPage() {
       });
 
       try {
-        await fetch(`/api/connect/messages/${msgId}`, { method: "DELETE" });
+        const res = await fetch(`/api/connect/messages/${msgId}`, { method: "DELETE" });
+        const data = await res.json();
+        if (!data.success) {
+          alert(data.error || "Failed to delete message");
+          loadMessages(activeConvId);
+        }
       } catch {
         // Ignored
       }

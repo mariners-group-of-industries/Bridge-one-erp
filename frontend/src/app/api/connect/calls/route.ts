@@ -1,8 +1,14 @@
 import { NextResponse } from "next/server";
 import { getConnectPool } from "@/lib/connect/db";
+import { getConnectAuthUser, ensureValidUuid } from "@/lib/connect/auth";
 
-export async function GET() {
+export async function GET(req: Request) {
   try {
+    const user = await getConnectAuthUser(req);
+    if (!user) {
+      return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
+    }
+
     const pool = getConnectPool();
     const query = `
       SELECT 
@@ -18,10 +24,14 @@ export async function GET() {
         conv.type AS "conversationType"
       FROM connect_calls c
       LEFT JOIN connect_conversations conv ON conv.id = c.conversation_id
+      LEFT JOIN connect_conversation_members cm 
+        ON cm.conversation_id = c.conversation_id 
+        AND (cm.user_id = $1::uuid OR cm.employee_id = $1::uuid)
+      WHERE c.started_by_id = $1::uuid OR cm.id IS NOT NULL
       ORDER BY c.started_at DESC
       LIMIT 50;
     `;
-    const res = await pool.query(query);
+    const res = await pool.query(query, [user.id]);
     return NextResponse.json({ success: true, calls: res.rows });
   } catch (error) {
     console.error("Error fetching calls:", error);
@@ -31,18 +41,23 @@ export async function GET() {
 
 export async function POST(req: Request) {
   try {
+    const user = await getConnectAuthUser(req);
+    if (!user) {
+      return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
+    }
+
     const body = await req.json();
-    const { conversationId, startedById, type, status, durationSec } = body;
+    const { conversationId, type, status, durationSec } = body;
 
     const pool = getConnectPool();
     const query = `
       INSERT INTO connect_calls (conversation_id, started_by_id, type, status, duration_sec, started_at, ended_at)
-      VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP - ($5 || ' seconds')::interval, CURRENT_TIMESTAMP)
+      VALUES ($1::uuid, $2::uuid, $3, $4, $5, CURRENT_TIMESTAMP - ($5 || ' seconds')::interval, CURRENT_TIMESTAMP)
       RETURNING *;
     `;
     const res = await pool.query(query, [
-      conversationId || "00000000-0000-0000-0000-000000000001",
-      startedById || "00000000-0000-0000-0000-000000000099",
+      ensureValidUuid(conversationId),
+      user.id,
       type || "AUDIO",
       status || "COMPLETED",
       durationSec || 0,
@@ -53,4 +68,3 @@ export async function POST(req: Request) {
     return NextResponse.json({ success: false, error: "Failed to log call" }, { status: 500 });
   }
 }
-
