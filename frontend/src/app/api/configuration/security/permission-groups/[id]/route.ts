@@ -1,6 +1,7 @@
-import { permissionGroupInputSchema } from "@/features/configuration/security/groups/schemas/groups.schema";
-import { deletePermissionGroup, getPermissionGroup, savePermissionGroup } from "@/features/configuration/security/groups/server/groups.service";
+import { permissionGroupInputSchema } from "@/features/configuration/security/access/schemas/access.schema";
+import { deletePermissionGroup, getPermissionGroup, savePermissionGroup } from "@/features/configuration/security/access/server/access.service";
 import { apiHandler, noContent, ok, parseId, parseJson } from "@/lib/api/handler";
+import { clientOf } from "@/lib/audit/record";
 
 type Context = { params: Promise<{ id: string }> };
 const idOf = async (context: Context) => parseId((await context.params).id, "Permission group");
@@ -8,10 +9,11 @@ const idOf = async (context: Context) => parseId((await context.params).id, "Per
 export const GET = apiHandler("configuration:read", async (_request, context: Context, actor) => ok(await getPermissionGroup(actor, await idOf(context))));
 
 export const PUT = apiHandler("configuration:write", async (request, context: Context, actor) =>
-  ok(await savePermissionGroup(actor, await parseJson(request, permissionGroupInputSchema), await idOf(context))),
+  ok(await savePermissionGroup(actor, await parseJson(request, permissionGroupInputSchema), await idOf(context), clientOf(request))),
 );
 
-export const DELETE = apiHandler("configuration:write", async (_request, context: Context, actor) => {
-  await deletePermissionGroup(actor, await idOf(context));
+/** Only groups with no users; deactivate the others. */
+export const DELETE = apiHandler("configuration:write", async (request, context: Context, actor) => {
+  await deletePermissionGroup(actor, await idOf(context), clientOf(request));
   return noContent();
 });

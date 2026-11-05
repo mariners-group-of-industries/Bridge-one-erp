@@ -1,42 +1,22 @@
 "use client";
 
 import React, { useMemo, useState } from "react";
-import Link from "next/link";
 import {
-  Banknote,
-  Building2,
-  Calendar,
   Check,
-  CheckCircle2,
   ChevronLeft,
   ChevronRight,
-  Coins,
-  CreditCard,
   Download,
   Eye,
-  FileSpreadsheet,
-  FileText,
-  Filter,
-  Landmark,
-  Layers,
   Pencil,
   Plus,
-  Printer,
-  RotateCcw,
   Search,
   ShieldCheck,
-  Trash2,
   Upload,
-  X,
 } from "lucide-react";
 import { ModalDialog } from "@/components/purchase/ModalDialog";
 import { useAccountingStore } from "@/features/accounts/store/accounting-store";
 import type {
   BankAccountItem,
-  DepositItem,
-  FactoringItem,
-  LoanItem,
-  LoanPartnerItem,
 } from "@/features/accounts/types";
 
 export default function FinanceBankingPage() {
@@ -45,7 +25,6 @@ export default function FinanceBankingPage() {
   const loans = useAccountingStore((s) => s.loans);
   const factoring = useAccountingStore((s) => s.factoring);
   const loanPartners = useAccountingStore((s) => s.loanPartners);
-  const accounts = useAccountingStore((s) => s.accounts);
   const addBankAccount = useAccountingStore((s) => s.addBankAccount);
   const addDeposit = useAccountingStore((s) => s.addDeposit);
   const addLoan = useAccountingStore((s) => s.addLoan);
@@ -68,7 +47,6 @@ export default function FinanceBankingPage() {
 
   // Pagination states
   const [rowsPerPage, setRowsPerPage] = useState<number>(50);
-  const [currentPage, setCurrentPage] = useState<number>(1);
 
   // -------------------------------------------------------------
   // TAB 1: REGULAR BANKING FILTER STATES

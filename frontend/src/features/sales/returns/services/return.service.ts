@@ -1,6 +1,6 @@
 import { Prisma } from "@/generated/prisma/client";
 import { AppError, badRequest, conflict, notFound } from "@/lib/api/errors";
-import { assertCompanyAccess, type Actor } from "@/lib/auth/actor";
+import { canOn, assertCompanyAccess, type Actor } from "@/lib/auth/actor";
 import { db } from "@/lib/prisma/client";
 import { money } from "../../dashboard/lib/aggregate";
 import { assertStockAvailable, lockWarehouse, requireWarehouse } from "../../deliveries/services/stock.service";
@@ -59,7 +59,7 @@ function dateRange(from?: string, to?: string) {
 }
 
 function requireApprover(actor: Actor) {
-  if (!actor.permissions.has("sales:approve")) {
+  if (!canOn(actor, "/sales/returns", "approve", "sales:approve")) {
     throw new AppError(403, "FORBIDDEN", "You do not have permission to approve or remove approved sales returns.");
   }
 }

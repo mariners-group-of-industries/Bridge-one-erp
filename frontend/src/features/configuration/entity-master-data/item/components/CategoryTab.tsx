@@ -2,8 +2,6 @@
 
 import {
   Check,
-  ChevronDown,
-  ChevronRight,
   FolderTree,
   MinusSquare,
   Pencil,
@@ -294,7 +292,6 @@ export function CategoryTab({ search }: { search: string }) {
               {visibleRows.map(({ category, depth, hasChildren }, index) => {
                 const isCollapsed = collapsed.has(category.id);
                 const isEditingThis = editing === category.id;
-                const isEditingChild = editing === `new:${category.id}`;
 
                 if (isEditingThis) {
                   return editorRow(category.id, depth, category.level);

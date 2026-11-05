@@ -12,6 +12,24 @@ datasource db {
 
 // ─── Auth ────────────────────────────────────────────────────────────────────
 
+/// Whether an account may use the ERP (separate from deletion: history is kept).
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+}
+
+/// Individual permission override: Allow grants, Deny blocks (Deny wins).
+enum PermissionEffect {
+  ALLOW
+  DENY
+}
+
+enum PermissionGroupStatus {
+  ACTIVE
+  INACTIVE
+}
+
 enum UserRole {
   ADMINISTRATOR
   MANAGER
@@ -41,6 +59,9 @@ model User {
   roleId       String?   @db.Uuid
   isMaster     Boolean   @default(false)
   isActive     Boolean   @default(true)
+  /// May sign in to the ERP. New accounts start without access (and without permissions).
+  erpAccess    Boolean    @default(false)
+  status       UserStatus @default(ACTIVE)
   lastLoginAt  DateTime? @db.Timestamptz(3)
   createdAt    DateTime  @default(now()) @db.Timestamptz(3)
   updatedAt    DateTime  @updatedAt @db.Timestamptz(3)
@@ -58,6 +79,9 @@ model User {
   superApproverOf ApprovalPipeline[]      @relation("PipelineSuperUser")
   userGroups      UserGroupMember[]
   approverOf      ApprovalStageApprover[] @relation("ApproverUser")
+
+  permissionGroups    UserPermissionGroup[]
+  permissionOverrides UserPermissionOverride[]
 
   @@index([roleId])
   @@map("users")
@@ -210,14 +234,22 @@ model UserGroupMember {
 /// A permission matrix: per activity (a menu page, keyed by its path) which of
 /// Create / Edit / View / Delete / Approve are allowed. Only granted rows are stored.
 model PermissionGroup {
-  id            String   @id @default(uuid()) @db.Uuid
-  name          String   @unique @db.VarChar(150)
+  id            String                @id @default(uuid()) @db.Uuid
+  name          String                @unique @db.VarChar(150)
+  /// Unique short code, e.g. SALES_MANAGER.
+  code          String                @unique @db.VarChar(60)
+  description   String?               @db.VarChar(500)
+  status        PermissionGroupStatus @default(ACTIVE)
+  /// Grants every permission (the migrated "Legacy Full Access" group); only the master account can assign it.
+  fullAccess    Boolean               @default(false)
+  createdByName String?               @db.VarChar(150)
   updatedById   String?  @db.VarChar(100)
   updatedByName String?  @db.VarChar(150)
   createdAt     DateTime @default(now()) @db.Timestamptz(3)
   updatedAt     DateTime @updatedAt @db.Timestamptz(3)
 
   entries PermissionGroupEntry[]
+  users   UserPermissionGroup[]
 
   @@map("permission_groups")
 }
@@ -232,11 +264,65 @@ model PermissionGroupEntry {
   canView      Boolean @default(false)
   canDelete    Boolean @default(false)
   canApprove   Boolean @default(false)
+  canExport    Boolean @default(false)
+  canImport    Boolean @default(false)
+  canAssign    Boolean @default(false)
+  canManage    Boolean @default(false)
 
   group PermissionGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
 
   @@id([groupId, activityKey])
   @@map("permission_group_entries")
+}
+
+/// A user's permission groups; the grants of their active groups are combined (union).
+model UserPermissionGroup {
+  userId     String   @db.Uuid
+  groupId    String   @db.Uuid
+  assignedAt DateTime @default(now()) @db.Timestamptz(3)
+
+  user  User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  group PermissionGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@id([userId, groupId])
+  @@index([groupId])
+  @@map("user_permission_groups")
+}
+
+/// Allow or Deny one action of one activity for one user, over their groups.
+model UserPermissionOverride {
+  userId      String           @db.Uuid
+  activityKey String           @db.VarChar(200)
+  /// view | create | edit | delete | approve | export | import | assign | manage
+  action      String           @db.VarChar(20)
+  effect      PermissionEffect
+  createdAt   DateTime         @default(now()) @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, activityKey, action])
+  @@map("user_permission_overrides")
+}
+
+/// Who changed which user's access or which group, with the values before and after.
+model PermissionAuditLog {
+  id            String   @id @default(uuid()) @db.Uuid
+  actorUserId   String?  @db.VarChar(100)
+  actorName     String?  @db.VarChar(150)
+  targetUserId  String?  @db.Uuid
+  targetGroupId String?  @db.Uuid
+  /// USER_ACCESS_UPDATE, GROUP_CREATE, GROUP_UPDATE, GROUP_DELETE, GROUP_USERS_UPDATE …
+  operation     String   @db.VarChar(40)
+  previousValue Json?
+  newValue      Json?
+  ipAddress     String?  @db.VarChar(64)
+  userAgent     String?  @db.VarChar(300)
+  createdAt     DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([targetUserId, createdAt])
+  @@index([targetGroupId, createdAt])
+  @@index([createdAt])
+  @@map("permission_audit_logs")
 }
 
 // ─── Configuration › Community & Gateways › API Configuration ───────────────
@@ -418,6 +504,10 @@ model BusinessUnit {
   goodsReceipts        GoodsReceipt[]
   purchaseReturns      PurchaseReturn[]
   supplierPayments     SupplierPayment[]
+  supplierBills        SupplierBill[]
+  inventoryDocuments   InventoryDocument[]
+  posCounters          PosCounter[]
+  posSales             PosSale[]
   supplierGroups       SupplierGroup[]
   taxBrackets          TaxBracket[]
   itemDivisions        ItemDivision[]
@@ -517,6 +607,10 @@ model Warehouse {
   productionSourceEntries ProductionEntry[] @relation("EntrySourceWarehouse")
   productionOutputEntries ProductionEntry[] @relation("EntryOutputWarehouse")
 
+  inventoryDocuments   InventoryDocument[] @relation("InventoryDocumentWarehouse")
+  inventoryInbound     InventoryDocument[] @relation("InventoryDocumentToWarehouse")
+  posCounters          PosCounter[]
+  posSales             PosSale[]
   @@unique([officeId, name])
   @@map("warehouses")
 }
@@ -788,6 +882,9 @@ model Item {
   targetPlanLines SalesTargetPlanLine[]
   commissionLines SalesCommissionLine[]
 
+  inventoryLines       InventoryDocumentLine[] @relation("InventoryLineItem")
+  inventoryTargetLines InventoryDocumentLine[] @relation("InventoryLineTargetItem")
+  posSaleLines         PosSaleLine[]
   @@unique([businessUnitId, code])
   @@map("items")
 }
@@ -2325,6 +2422,15 @@ enum StockSource {
   SALES_RETURN
   PRODUCTION_CONSUMPTION
   PRODUCTION_OUTPUT
+  PURCHASE_RECEIPT
+  PURCHASE_RETURN
+  TRANSFER_OUT
+  TRANSFER_IN
+  STORE_ISSUE
+  CONVERSION_OUT
+  CONVERSION_IN
+  POS_SALE
+  POS_RETURN
 }
 
 /// Stock ledger: one signed quantity per movement. Stock = sum(qty) per
@@ -2499,6 +2605,7 @@ model Supplier {
   goodsReceipts  GoodsReceipt[]
   returns        PurchaseReturn[]
   payments       SupplierPayment[]
+  bills          SupplierBill[]
 
   @@unique([businessUnitId, code])
   @@index([businessUnitId, name])
@@ -2776,6 +2883,8 @@ model GoodsReceipt {
   supplier         Supplier           @relation(fields: [supplierId], references: [id], onDelete: Restrict)
   lines            GoodsReceiptLine[]
   returns          PurchaseReturn[]
+  bill             SupplierBill?
+  payments         SupplierPayment[]
 
   @@unique([businessUnitId, number])
   @@index([businessUnitId, status, receiveDate])
@@ -2888,17 +2997,61 @@ model SupplierPayment {
   referenceNumber String?               @db.VarChar(100)
   status          PurchasePaymentStatus @default(PAID)
   remarks         String?               @db.VarChar(500)
+  /// The goods receipt or supplier bill this payment settles; neither = on account.
+  receiptId       String?               @db.Uuid
+  billId          String?               @db.Uuid
+  /// Paid before goods or a bill; shown under Payment Advance until used up.
+  isAdvance       Boolean               @default(false)
+  createdBy       String?               @db.VarChar(150)
   createdAt       DateTime              @default(now()) @db.Timestamptz(3)
   updatedAt       DateTime              @updatedAt @db.Timestamptz(3)
 
   businessUnit    BusinessUnit          @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
   supplier        Supplier              @relation(fields: [supplierId], references: [id], onDelete: Restrict)
   order           PurchaseOrder?        @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  receipt         GoodsReceipt?         @relation(fields: [receiptId], references: [id], onDelete: SetNull)
+  bill            SupplierBill?         @relation(fields: [billId], references: [id], onDelete: SetNull)
 
   @@unique([businessUnitId, number])
   @@index([businessUnitId, paymentDate])
   @@index([supplierId])
   @@map("supplier_payments")
+}
+
+enum SupplierBillStatus {
+  PENDING
+  APPROVED
+  CANCELLED
+}
+
+/// A supplier's invoice. Against a goods receipt it only records the invoice and its
+/// approval (the receipt already made the amount payable); without one (services,
+/// utilities) it adds the amount to what is owed.
+model SupplierBill {
+  id             String             @id @default(uuid()) @db.Uuid
+  businessUnitId String             @db.Uuid
+  supplierId     String             @db.Uuid
+  receiptId      String?            @unique @db.Uuid
+  number         String             @db.VarChar(60)
+  billDate       DateTime           @db.Date
+  dueDate        DateTime           @db.Date
+  amount         Decimal            @db.Decimal(14, 2)
+  status         SupplierBillStatus @default(PENDING)
+  remarks        String?            @db.VarChar(500)
+  createdBy      String             @db.VarChar(150)
+  approvedBy     String?            @db.VarChar(150)
+  approvedAt     DateTime?          @db.Timestamptz(3)
+  createdAt      DateTime           @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime           @updatedAt @db.Timestamptz(3)
+
+  businessUnit BusinessUnit      @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  supplier     Supplier          @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  receipt      GoodsReceipt?     @relation(fields: [receiptId], references: [id], onDelete: Restrict)
+  payments     SupplierPayment[]
+
+  @@unique([supplierId, number])
+  @@index([businessUnitId, status])
+  @@map("supplier_bills")
 }
 
 // ─── Accounts Module Models ──────────────────────────────────────────────────
@@ -2928,6 +3081,7 @@ model Account {
   collectionAdjustAccounts SalesCollection[]          @relation("CollectionAdjustAccount")
   collectionDeductions     SalesCollectionDeduction[]
 
+  postingRoles             PostingAccount[]
   @@map("accounts")
 }
 
@@ -2967,6 +3121,9 @@ model JournalVoucher {
   status          String               @default("POSTED") @db.VarChar(30)
   reversalOfId    String?              @db.Uuid
   reversedById    String?              @db.Uuid
+  /// Document this voucher was posted from automatically ("SALES_DELIVERY", "POS_SALE" …); null for manual vouchers.
+  sourceType      String?              @db.VarChar(40)
+  sourceId        String?              @db.Uuid
   createdBy       String               @db.VarChar(150)
   preparedBy      String?              @db.VarChar(150)
   approvedBy      String?              @db.VarChar(150)
@@ -2976,6 +3133,7 @@ model JournalVoucher {
 
   lines           JournalVoucherLine[]
 
+  @@unique([sourceType, sourceId])
   @@map("journal_vouchers")
 }
 
@@ -4265,4 +4423,203 @@ model ConnectCallParticipant {
   @@unique([callId, userId])
   @@index([userId])
   @@map("connect_call_participants")
+}
+
+// ─── Inventory documents ─────────────────────────────────────────────────────
+
+enum InventoryDocType {
+  STOCK_UPDATE
+  TRANSFER_REQUEST
+  TRANSFER
+  STORE_REQUISITION
+  STORE_ISSUE
+  CONVERSION
+  GATE_PASS
+}
+
+enum InventoryDocStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  IN_TRANSIT
+  COMPLETED
+  CANCELLED
+}
+
+/// One inventory document. Stock-moving types post to the stock ledger
+/// (StockEntry): stock updates when approved, transfers when dispatched and
+/// received, store issues and conversions when saved. Requests (transfer
+/// requests, store requisitions) are approved and then fulfilled by transfers
+/// and issues that point to them.
+model InventoryDocument {
+  id             String             @id @default(uuid()) @db.Uuid
+  businessUnitId String             @db.Uuid
+  type           InventoryDocType
+  number         String             @db.VarChar(30)
+  docDate        DateTime           @db.Date
+  expectedDate   DateTime?          @db.Date
+  /// Source warehouse (the only one for updates, issues and conversions).
+  warehouseId    String?            @db.Uuid
+  /// Destination warehouse of transfers and transfer requests.
+  toWarehouseId  String?            @db.Uuid
+  /// The approved request this transfer or issue fulfils.
+  requestId      String?            @db.Uuid
+  status         InventoryDocStatus @default(PENDING)
+  /// Adjustment type, conversion type, requisition user type or gate pass kind.
+  subtype        String?            @db.VarChar(60)
+  /// Requesting user / department, or the gate pass party.
+  partyName      String?            @db.VarChar(150)
+  /// Outside reference: sales order, production entry, vehicle …
+  reference      String?            @db.VarChar(100)
+  /// Extra fields of a gate pass (driver, times, badge …).
+  meta           Json?
+  remarks        String?            @db.VarChar(500)
+  reviewComment  String?            @db.VarChar(500)
+  createdBy      String             @db.VarChar(150)
+  approvedBy     String?            @db.VarChar(150)
+  approvedAt     DateTime?          @db.Timestamptz(3)
+  completedAt    DateTime?          @db.Timestamptz(3)
+  createdAt      DateTime           @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime           @updatedAt @db.Timestamptz(3)
+
+  businessUnit BusinessUnit            @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  warehouse    Warehouse?              @relation("InventoryDocumentWarehouse", fields: [warehouseId], references: [id], onDelete: Restrict)
+  toWarehouse  Warehouse?              @relation("InventoryDocumentToWarehouse", fields: [toWarehouseId], references: [id], onDelete: Restrict)
+  request      InventoryDocument?      @relation("InventoryFulfilment", fields: [requestId], references: [id], onDelete: Restrict)
+  fulfilments  InventoryDocument[]     @relation("InventoryFulfilment")
+  lines        InventoryDocumentLine[]
+
+  @@unique([businessUnitId, number])
+  @@index([businessUnitId, type, docDate])
+  @@index([requestId])
+  @@map("inventory_documents")
+}
+
+model InventoryDocumentLine {
+  id           String   @id @default(uuid()) @db.Uuid
+  documentId   String   @db.Uuid
+  lineNo       Int
+  itemId       String   @db.Uuid
+  /// Signed for stock updates; positive otherwise.
+  qty          Decimal  @db.Decimal(14, 3)
+  /// Received (transfer) or issued (request) so far.
+  processedQty Decimal  @default(0) @db.Decimal(14, 3)
+  /// Conversion target.
+  toItemId     String?  @db.Uuid
+  toQty        Decimal? @db.Decimal(14, 3)
+  remarks      String?  @db.VarChar(300)
+
+  document InventoryDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  item     Item              @relation("InventoryLineItem", fields: [itemId], references: [id], onDelete: Restrict)
+  toItem   Item?             @relation("InventoryLineTargetItem", fields: [toItemId], references: [id], onDelete: Restrict)
+
+  @@index([documentId])
+  @@index([itemId])
+  @@map("inventory_document_lines")
+}
+
+// ─── POS ─────────────────────────────────────────────────────────────────────
+
+enum PosPaymentMethod {
+  CASH
+  CARD
+  MFS
+  VOUCHER
+}
+
+enum PosSaleStatus {
+  COMPLETED
+  VOIDED
+}
+
+/// A sales counter; it sells from one warehouse.
+model PosCounter {
+  id             String   @id @default(uuid()) @db.Uuid
+  businessUnitId String   @db.Uuid
+  code           String   @db.VarChar(20)
+  name           String   @db.VarChar(100)
+  warehouseId    String   @db.Uuid
+  floorName      String?  @db.VarChar(200)
+  userName       String?  @db.VarChar(150)
+  receiptMessage String?  @db.VarChar(300)
+  isEcommerce    Boolean  @default(false)
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime @updatedAt @db.Timestamptz(3)
+
+  businessUnit BusinessUnit @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  warehouse    Warehouse    @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+  sales        PosSale[]
+
+  @@unique([businessUnitId, code])
+  @@map("pos_counters")
+}
+
+/// A counter sale: paid at once, stock leaves the counter's warehouse (POS_SALE);
+/// voiding it puts the stock back (POS_RETURN).
+model PosSale {
+  id             String           @id @default(uuid()) @db.Uuid
+  businessUnitId String           @db.Uuid
+  counterId      String           @db.Uuid
+  warehouseId    String           @db.Uuid
+  number         String           @db.VarChar(30)
+  saleDate       DateTime         @db.Date
+  soldAt         DateTime         @default(now()) @db.Timestamptz(3)
+  customerName   String?          @db.VarChar(150)
+  customerMobile String?          @db.VarChar(30)
+  tableRef       String?          @db.VarChar(100)
+  subtotal       Decimal          @db.Decimal(14, 2)
+  discount       Decimal          @default(0) @db.Decimal(14, 2)
+  vatPercent     Decimal          @default(0) @db.Decimal(5, 2)
+  vatAmount      Decimal          @default(0) @db.Decimal(14, 2)
+  total          Decimal          @db.Decimal(14, 2)
+  paidAmount     Decimal          @db.Decimal(14, 2)
+  changeAmount   Decimal          @default(0) @db.Decimal(14, 2)
+  paymentMethod  PosPaymentMethod @default(CASH)
+  status         PosSaleStatus    @default(COMPLETED)
+  voidReason     String?          @db.VarChar(300)
+  createdBy      String           @db.VarChar(150)
+  voidedBy       String?          @db.VarChar(150)
+  voidedAt       DateTime?        @db.Timestamptz(3)
+  createdAt      DateTime         @default(now()) @db.Timestamptz(3)
+
+  businessUnit BusinessUnit  @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  counter      PosCounter    @relation(fields: [counterId], references: [id], onDelete: Restrict)
+  warehouse    Warehouse     @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+  lines        PosSaleLine[]
+
+  @@unique([businessUnitId, number])
+  @@index([businessUnitId, saleDate])
+  @@index([counterId])
+  @@map("pos_sales")
+}
+
+model PosSaleLine {
+  id       String  @id @default(uuid()) @db.Uuid
+  saleId   String  @db.Uuid
+  lineNo   Int
+  itemId   String  @db.Uuid
+  qty      Decimal @db.Decimal(14, 3)
+  rate     Decimal @db.Decimal(14, 2)
+  discount Decimal @default(0) @db.Decimal(14, 2)
+  amount   Decimal @db.Decimal(14, 2)
+
+  sale PosSale @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  item Item    @relation(fields: [itemId], references: [id], onDelete: Restrict)
+
+  @@index([saleId])
+  @@index([itemId])
+  @@map("pos_sale_lines")
+}
+
+/// Which GL account each automatic posting role uses (Accounts › Posting Setup).
+model PostingAccount {
+  key       String   @id @db.VarChar(40)
+  accountId String   @db.Uuid
+  updatedBy String?  @db.VarChar(150)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  account Account @relation(fields: [accountId], references: [id], onDelete: Restrict)
+
+  @@map("posting_accounts")
 }

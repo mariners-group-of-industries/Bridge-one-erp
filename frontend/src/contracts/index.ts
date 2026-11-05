@@ -362,6 +362,10 @@ export const SupplierPaymentRecordSchema = z.object({
   paymentStatus: SupplierPaymentStatusEnum,
   openInvoicesCount: z.number().default(0),
   currency: z.string().default("BDT"),
+  /** Stored supplier balance (moved by receipts, bills, returns and payments). */
+  ledgerBalance: z.number().optional(),
+  /** Paid but not yet used against a receipt or bill. */
+  advanceBalance: z.number().optional(),
 });
 export type SupplierPaymentRecord = z.infer<typeof SupplierPaymentRecordSchema>;
 
@@ -378,6 +382,14 @@ export const SupplierInvoiceItemSchema = z.object({
   dueAmount: z.number(),
   status: SupplierPaymentStatusEnum,
   type: z.enum(["LOCAL", "FOREIGN"]),
+  supplierId: z.string().optional(),
+  supplierCode: z.string().optional(),
+  /** Goods receipt behind the invoice, if any. */
+  receiptId: z.string().optional(),
+  /** The booked supplier bill, if any. */
+  billId: z.string().optional(),
+  billNumber: z.string().optional(),
+  billStatus: z.enum(["PENDING", "APPROVED", "CANCELLED"]).optional(),
 });
 export type SupplierInvoiceItem = z.infer<typeof SupplierInvoiceItemSchema>;
 

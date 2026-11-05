@@ -24,10 +24,11 @@ export function EmployeeActionMenu({ employee, onSelect }: EmployeeActionMenuPro
       {EMPLOYEE_ACTIONS.map((action) => {
         const Icon = action.icon;
         const label = `${action.label}: ${employee.name}`;
-        return action.profileTab ? (
+        const href = action.href ? action.href(employee.employeeId) : action.profileTab ? `${entityMasterDataPaths.employeeProfile(employee.employeeId)}?tab=${action.profileTab}` : null;
+        return href ? (
           <Link
             key={action.id}
-            href={`${entityMasterDataPaths.employeeProfile(employee.employeeId)}?tab=${action.profileTab}`}
+            href={href}
             title={action.label}
             aria-label={label}
             className={ACTION_BUTTON}

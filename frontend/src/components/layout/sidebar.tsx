@@ -5,12 +5,13 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useId, useState, type ReactNode } from "react";
 import { cn } from "@/lib/cn";
-import { findWorkspace, workspaces } from "@/lib/navigation/registry";
+import { useSession } from "@/lib/auth/session";
+import { findWorkspace, workspaces as allWorkspaces } from "@/lib/navigation/registry";
 import type { NavLink } from "@/lib/navigation/types";
 
 const isWithin = (pathname: string | null, href: string) => pathname === href || !!pathname?.startsWith(`${href}/`);
 const isPageActive = (pathname: string | null, href: string) =>
-  workspaces.some((workspace) => workspace.href === href) ? pathname === href : isWithin(pathname, href);
+  allWorkspaces.some((workspace) => workspace.href === href) ? pathname === href : isWithin(pathname, href);
 
 export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   return <SidebarNav pathname={usePathname()} onNavigate={onNavigate} />;
@@ -22,6 +23,8 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
  */
 export function SidebarNav({ pathname, onNavigate }: { pathname: string | null; onNavigate?: () => void }) {
   const current = pathname === null ? undefined : findWorkspace(pathname);
+  // Only modules and pages the user may open.
+  const { workspaces } = useSession();
 
   return (
     <nav aria-label="Modules" className="flex flex-col bg-surface px-2.5 py-3 text-sm">

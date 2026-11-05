@@ -1,10 +1,10 @@
 "use client";
 
+import Image from "next/image";
 import React, { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   PackageCheck,
-  PackagePlus,
   Eye,
   Printer,
   X,
@@ -13,12 +13,6 @@ import {
   Download,
   Plus,
   Truck,
-  CheckCircle2,
-  AlertTriangle,
-  FileCheck2,
-  Building2,
-  Calendar,
-  CornerDownLeft,
 } from "lucide-react";
 import { ModalDialog } from "@/components/purchase/ModalDialog";
 import { toast } from "@/components/purchase/Toast";
@@ -28,7 +22,6 @@ import {
   GoodsReceipt,
   PurchaseOrder,
   CreateGoodsReceiptInput,
-  Office,
   Warehouse,
   Supplier,
   Item,
@@ -45,11 +38,9 @@ export default function PurchaseReceivePage() {
   const [search, setSearch] = useState("");
 
   // Filters for Tab 1: APPROVED PO
-  const [appOffice, setAppOffice] = useState("ALL");
   const [expReceiveDate, setExpReceiveDate] = useState("");
 
   // Filters for Tab 2: RECEIVED PO
-  const [recOffice, setRecOffice] = useState("ALL");
   const [grnType, setGrnType] = useState("ALL");
   const [lcNo, setLcNo] = useState("ALL");
   const [itemType, setItemType] = useState("ALL");
@@ -67,10 +58,6 @@ export default function PurchaseReceivePage() {
   const [returnReason, setReturnReason] = useState("");
 
   // Queries
-  const { data: offices } = useQuery<Office[]>({
-    queryKey: ["offices"],
-    queryFn: () => fetchApi("/master/offices"),
-  });
   const { data: warehouses } = useQuery<Warehouse[]>({
     queryKey: ["warehouses"],
     queryFn: () => fetchApi("/master/warehouses"),
@@ -193,27 +180,16 @@ export default function PurchaseReceivePage() {
   const [formChallanNo, setFormChallanNo] = useState("CHAL-9921");
   const [formVatChallan, setFormVatChallan] = useState("MUSHAK-6.3-441");
   const [formInvoiceNo, setFormInvoiceNo] = useState("INV-2026-881");
-  const [formDeliveryNote, setFormDeliveryNote] = useState("DN-3321");
+  const [formDeliveryNote] = useState("DN-3321");
   const [formRemarks, setFormRemarks] = useState("");
   const [formReceiveItems, setFormReceiveItems] = useState<any[]>([]);
 
   // Direct Receive Form State
-  const [dirSupplierId, setDirSupplierId] = useState("sup-01");
-  const [dirWarehouseId, setDirWarehouseId] = useState("wh-01");
-  const [dirOfficeId, setDirOfficeId] = useState("off-01");
-  const [dirChallanNo, setDirChallanNo] = useState("DIR-CHAL-101");
-  const [dirVatChallan, setDirVatChallan] = useState("MUSHAK-6.3-901");
-  const [dirItems, setDirItems] = useState([
-    {
-      itemId: "itm-01",
-      itemCode: "RM-00518",
-      itemName: "Palm Oil Grade A",
-      uom: "KG",
-      receivedQuantity: 500,
-      unitPrice: 120,
-      lineTotal: 60000,
-    },
-  ]);
+  const emptyDirItem = { itemId: "", itemCode: "", itemName: "", uom: "", receivedQuantity: 1, unitPrice: 0, lineTotal: 0 };
+  const [dirSupplierId, setDirSupplierId] = useState("");
+  const [dirWarehouseId, setDirWarehouseId] = useState("");
+  const [dirChallanNo, setDirChallanNo] = useState("");
+  const [dirItems, setDirItems] = useState([emptyDirItem]);
 
   // Open Receive Workflow Modal
   const handleOpenReceive = (po: any) => {
@@ -292,11 +268,34 @@ export default function PurchaseReceivePage() {
   // Direct Receive Submit
   const handleDirectReceiveSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const total = dirItems.reduce((acc, it) => acc + it.lineTotal, 0);
-    toast.success(`Direct GRN created successfully for ${formatCurrency(total)}! Stock added to warehouse.`, {
-      title: "Direct GRN Generated",
-    });
-    setIsDirectReceiveOpen(false);
+    const lines = dirItems.filter((it) => it.itemId && it.receivedQuantity > 0);
+    if (!lines.length) {
+      toast.error("Select at least one item with a quantity.", { title: "Direct GRN" });
+      return;
+    }
+    // No purchase order: the server creates one for the receipt, then posts the stock.
+    receiveMutation.mutate({
+      companyId: "comp-bridgeone-01",
+      purchaseOrderId: "DIRECT",
+      receiptDate: new Date().toISOString().split("T")[0],
+      shipmentDocumentNumber: dirChallanNo,
+      supplierId: dirSupplierId,
+      warehouseId: dirWarehouseId,
+      officeId: warehouses?.find((w) => w.id === dirWarehouseId)?.officeId,
+      items: lines.map((it) => ({
+        poItemId: "",
+        itemId: it.itemId,
+        itemCode: it.itemCode,
+        itemName: it.itemName,
+        uom: it.uom,
+        orderedQuantity: it.receivedQuantity,
+        previouslyReceivedQuantity: 0,
+        currentReceivedQuantity: it.receivedQuantity,
+        rejectedDamagedQuantity: 0,
+        unitPrice: it.unitPrice,
+        lineTotal: it.lineTotal,
+      })),
+    } as CreateGoodsReceiptInput);
   };
 
   // Export CSV
@@ -1017,11 +1016,12 @@ export default function PurchaseReceivePage() {
                 className="w-full border border-slate-300 rounded p-1.5 text-xs bg-white"
                 required
               >
-                <option value="sup-01">M/S Sarkar Traders</option>
-                <option value="sup-02">M/S Vali Traders</option>
-                <option value="sup-03">Adar Sohag Departmental Store</option>
-                <option value="sup-04">G.M Traders</option>
-                <option value="sup-05">PITICON INDUSTRIES</option>
+                <option value="">Select supplier</option>
+                {suppliers?.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}
+                  </option>
+                ))}
               </select>
             </div>
             <div>
@@ -1032,8 +1032,12 @@ export default function PurchaseReceivePage() {
                 className="w-full border border-slate-300 rounded p-1.5 text-xs bg-white"
                 required
               >
-                <option value="wh-01">Material WH (Sirajganj)</option>
-                <option value="wh-02">Maintenance WH</option>
+                <option value="">Select warehouse</option>
+                {warehouses?.map((w) => (
+                  <option key={w.id} value={w.id}>
+                    {w.name}
+                  </option>
+                ))}
               </select>
             </div>
             <div>
@@ -1063,16 +1067,26 @@ export default function PurchaseReceivePage() {
                 {dirItems.map((it, idx) => (
                   <tr key={idx}>
                     <td className="p-2">
-                      <input
-                        type="text"
-                        value={it.itemName}
+                      <select
+                        value={it.itemId}
+                        required
                         onChange={(e) => {
+                          const picked = itemsCatalog?.find((i) => i.id === e.target.value);
                           const u = [...dirItems];
-                          u[idx].itemName = e.target.value;
+                          u[idx] = picked
+                            ? { ...u[idx], itemId: picked.id, itemCode: picked.code, itemName: picked.name, uom: picked.uom, unitPrice: picked.standardPrice, lineTotal: u[idx].receivedQuantity * picked.standardPrice }
+                            : { ...emptyDirItem };
                           setDirItems(u);
                         }}
-                        className="w-full border border-slate-300 rounded p-1 text-xs"
-                      />
+                        className="w-full border border-slate-300 rounded p-1 text-xs bg-white"
+                      >
+                        <option value="">Select item</option>
+                        {itemsCatalog?.map((i) => (
+                          <option key={i.id} value={i.id}>
+                            {i.code} · {i.name}
+                          </option>
+                        ))}
+                      </select>
                     </td>
                     <td className="p-2 text-center text-slate-600 font-mono">{it.uom}</td>
                     <td className="p-2">
@@ -1114,6 +1128,14 @@ export default function PurchaseReceivePage() {
             </table>
           </div>
 
+          <button
+            type="button"
+            onClick={() => setDirItems([...dirItems, { ...emptyDirItem }])}
+            className="px-3 py-1 border border-slate-300 rounded font-medium text-slate-700"
+          >
+            + Add item
+          </button>
+
           <div className="flex justify-end gap-2 pt-2 border-t">
             <button
               type="button"
@@ -1124,9 +1146,10 @@ export default function PurchaseReceivePage() {
             </button>
             <button
               type="submit"
-              className="px-5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded font-bold shadow-xs transition"
+              disabled={receiveMutation.isPending}
+              className="px-5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded font-bold shadow-xs transition disabled:opacity-60"
             >
-              Generate Direct GRN
+              {receiveMutation.isPending ? "Saving…" : "Generate Direct GRN"}
             </button>
           </div>
         </form>
@@ -1232,7 +1255,7 @@ export default function PurchaseReceivePage() {
               {/* Organization Header */}
               <div className="flex justify-between items-start border-b border-slate-200 pb-3 mb-3">
                 <div className="flex items-center gap-3.5">
-                  <img src="/logo.png" alt="BridgeOne Logo" className="h-10 w-auto object-contain" />
+                  <Image src="/logo.png" width={8452} height={1738} alt="BridgeOne Logo" className="h-10 w-auto object-contain" />
                   <div>
                     <h2 className="text-base font-bold text-slate-900 uppercase tracking-wide">
                       BridgeOne Technologies Ltd.

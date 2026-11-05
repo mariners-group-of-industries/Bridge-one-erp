@@ -3,7 +3,6 @@
 import React, { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
-  CreditCard,
   Eye,
   Printer,
   FileText,
@@ -14,10 +13,7 @@ import {
   ChevronRight,
   Truck,
   CheckCircle2,
-  DollarSign,
-  AlertCircle,
   Calendar,
-  Building,
 } from "lucide-react";
 import { ModalDialog } from "@/components/purchase/ModalDialog";
 import { toast } from "@/components/purchase/Toast";
@@ -41,6 +37,11 @@ const formatNum = (num: number) => {
 // ============================================================================
 interface DueListRow {
   sl: number;
+  /** Supplier id, needed to post a payment. */
+  supplierId: string;
+  /** Set when paying one receipt or bill. */
+  receiptId?: string;
+  billId?: string;
   supplierCode: string;
   supplierName: string;
   mobileNumber: string;
@@ -52,6 +53,9 @@ interface DueListRow {
 
 export interface PendingBillRow {
   sl: number;
+  billId: string;
+  supplierId: string;
+  receiptId?: string;
   billNo: string;
   billDate: string;
   supplierCode: string;
@@ -76,6 +80,24 @@ interface PaidRow {
   bankAmount: number;
   cashAmount: number;
   paidAmount: number;
+}
+
+interface PaymentHistoryRow {
+  id: string;
+  number: string;
+  paymentDate: string;
+  supplierName: string;
+  settles: string;
+  method: string;
+  referenceNumber: string;
+  amount: number;
+}
+
+interface AdvanceApiRow {
+  supplierName: string;
+  advanceAmount: number;
+  adjustAmount: number;
+  remainingAdvance: number;
 }
 
 interface DueInvoiceRow {
@@ -108,12 +130,6 @@ interface LedgerReconRow {
   difference: number;
 }
 
-const INITIAL_PENDING_BILLS: PendingBillRow[] = [];
-const INITIAL_DUE_LIST: DueListRow[] = [];
-const INITIAL_PAID_LIST: PaidRow[] = [];
-const INITIAL_DUE_INVOICES: DueInvoiceRow[] = [];
-const INITIAL_ADVANCE_LIST: AdvanceRow[] = [];
-const INITIAL_LEDGER_RECON_LIST: LedgerReconRow[] = [];
 
 export default function SupplierPaymentsPage() {
   const queryClient = useQueryClient();
@@ -180,25 +196,183 @@ export default function SupplierPaymentsPage() {
   const [printPaidVoucher, setPrintPaidVoucher] = useState<PaidRow | null>(null);
 
   // Advance Payment Modal inputs
-  const [advSupplier, setAdvSupplier] = useState("M/S Sarkar Traders");
-  const [advAmount, setAdvAmount] = useState(50000);
+  const [advSupplier, setAdvSupplier] = useState("");
+  const [advAmount, setAdvAmount] = useState(0);
   const [advDate, setAdvDate] = useState(new Date().toISOString().split("T")[0]);
-  const [advMode, setAdvMode] = useState("BANK_TRANSFER");
-  const [advRemarks, setAdvRemarks] = useState("Procurement advance token payment for upcoming delivery.");
+  const [advMode] = useState("BANK_TRANSFER");
+  const [advRemarks, setAdvRemarks] = useState("");
 
   // Create Bill Modal inputs
-  const [billSupplier, setBillSupplier] = useState("Shahin Auto Muri Mill");
-  const [billInvoiceNo, setBillInvoiceNo] = useState(`INV-MS2610${Math.floor(1000 + Math.random() * 9000)}`);
-  const [billAmount, setBillAmount] = useState(120000);
+  const [billSupplier, setBillSupplier] = useState("");
+  const [billReceiptId, setBillReceiptId] = useState("");
+  const [billInvoiceNo, setBillInvoiceNo] = useState("");
+  const [billAmount, setBillAmount] = useState(0);
+  const [billDate, setBillDate] = useState(new Date().toISOString().split("T")[0]);
   const [billDueDate, setBillDueDate] = useState(new Date().toISOString().split("T")[0]);
 
+  // Payment By GRN inputs
+  const [grnPaySupplier, setGrnPaySupplier] = useState("");
+  const [grnPayDate, setGrnPayDate] = useState(new Date().toISOString().split("T")[0]);
+  const [grnPaySelected, setGrnPaySelected] = useState<string[]>([]);
+
   // Dynamic Data Lists
-  const [dueList, setDueList] = useState<DueListRow[]>(INITIAL_DUE_LIST);
-  const [pendingBills, setPendingBills] = useState<PendingBillRow[]>(INITIAL_PENDING_BILLS);
-  const [paidList, setPaidList] = useState<PaidRow[]>(INITIAL_PAID_LIST);
-  const [dueInvoices, setDueInvoices] = useState<DueInvoiceRow[]>(INITIAL_DUE_INVOICES);
-  const [advanceList, setAdvanceList] = useState<AdvanceRow[]>(INITIAL_ADVANCE_LIST);
-  const [ledgerReconList, setLedgerReconList] = useState<LedgerReconRow[]>(INITIAL_LEDGER_RECON_LIST);
+  // Supplier payables and open receipts come from the server (receipts - returns - payments).
+  const { data: serverPayables } = useQuery<SupplierPaymentRecord[]>({
+    queryKey: ["supplierPayables"],
+    queryFn: () => fetchApi("/purchase/supplier-payments"),
+  });
+  const { data: serverInvoices } = useQuery<SupplierInvoiceItem[]>({
+    queryKey: ["supplierInvoices"],
+    queryFn: () => fetchApi("/purchase/supplier-payments/invoices"),
+  });
+  const dueList = useMemo<DueListRow[]>(
+    () =>
+      (serverPayables ?? [])
+        .filter((p) => p.totalPurchasedAmount > 0 || p.paidAmount > 0)
+        .map((p, i) => ({
+          sl: i + 1,
+          supplierId: p.supplierId,
+          supplierCode: p.supplierCode,
+          supplierName: p.supplierName,
+          mobileNumber: p.mobileNumber ?? "",
+          totalAmount: p.totalPurchasedAmount,
+          returnAmount: p.returnedAmount,
+          paymentAmount: p.paidAmount,
+          dueAmount: p.dueAmount,
+        })),
+    [serverPayables],
+  );
+  const { data: serverBills } = useQuery<SupplierInvoiceItem[]>({
+    queryKey: ["supplierBills"],
+    queryFn: () => fetchApi("/purchase/supplier-bills"),
+  });
+  const { data: serverHistory } = useQuery<PaymentHistoryRow[]>({
+    queryKey: ["supplierPaymentHistory"],
+    queryFn: () => fetchApi("/purchase/supplier-payments/history"),
+  });
+  const { data: serverAdvances } = useQuery<AdvanceApiRow[]>({
+    queryKey: ["supplierAdvances"],
+    queryFn: () => fetchApi("/purchase/supplier-payments/advances"),
+  });
+  // Booked bills that still have something to pay.
+  const pendingBills = useMemo<PendingBillRow[]>(
+    () =>
+      (serverBills ?? [])
+        .filter((b) => b.billStatus !== "CANCELLED" && b.dueAmount > 0)
+        .map((b, i) => ({
+          sl: i + 1,
+          billId: b.billId ?? b.id,
+          supplierId: b.supplierId ?? "",
+          receiptId: b.receiptId,
+          billNo: b.billNumber ?? b.invoiceNumber,
+          billDate: b.invoiceDate,
+          supplierCode: b.supplierCode ?? "",
+          supplierName: b.supplierName,
+          poNumber: b.poNumber || "—",
+          grnNumber: b.grnNumber ?? "Ad-hoc",
+          billType: b.type === "FOREIGN" ? ("Foreign" as const) : ("Local" as const),
+          currency: "BDT",
+          grossAmount: b.totalAmount,
+          taxVat: 0,
+          netPayable: b.dueAmount,
+          dueDate: b.dueDate,
+          status: b.billStatus === "APPROVED" ? ("Approved" as const) : ("Pending" as const),
+        })),
+    [serverBills],
+  );
+  const paidList = useMemo<PaidRow[]>(
+    () =>
+      (serverHistory ?? []).map((p, i) => ({
+        sl: i + 1,
+        paidDate: p.paymentDate,
+        invoiceNo: p.settles,
+        supplier: p.supplierName,
+        moneyReceiptNo: p.referenceNumber || p.number,
+        bankAmount: p.method === "CASH" ? 0 : p.amount,
+        cashAmount: p.method === "CASH" ? p.amount : 0,
+        paidAmount: p.amount,
+      })),
+    [serverHistory],
+  );
+  const dueInvoices = useMemo<DueInvoiceRow[]>(
+    () =>
+      (serverInvoices ?? []).map((inv, i) => ({
+        sl: i + 1,
+        receDate: inv.invoiceDate,
+        invoice: inv.invoiceNumber,
+        supplierName: inv.supplierName,
+        creditDays: 0,
+        exPaymentDate: inv.dueDate,
+        totalAmount: inv.totalAmount,
+        netAmount: inv.totalAmount,
+        dueAmount: inv.dueAmount,
+      })),
+    [serverInvoices],
+  );
+
+  // Posts a supplier payment: lowers the supplier's payable.
+  const paymentMutation = useMutation({
+    mutationFn: (payload: Record<string, unknown>) =>
+      fetchApi<{ number: string }>("/purchase/supplier-payments", { method: "POST", body: JSON.stringify(payload) }),
+    onSuccess: (data) => {
+      refreshPayables();
+      setQuickPayTarget(null);
+      setIsAdvancePaymentOpen(false);
+      toast.success(`Payment ${data.number} posted. Supplier payable updated.`);
+    },
+    onError: (err: Error) => toast.error(err.message),
+  });
+  const advanceList = useMemo<AdvanceRow[]>(
+    () => (serverAdvances ?? []).map((a, i) => ({ sl: i + 1, supplierName: a.supplierName, advanceAmount: a.advanceAmount, adjustAmount: a.adjustAmount, remainingAdvance: a.remainingAdvance })),
+    [serverAdvances],
+  );
+  // Payable worked out from documents vs the supplier balance stored on each movement.
+  const ledgerReconList = useMemo<LedgerReconRow[]>(
+    () =>
+      (serverPayables ?? [])
+        .filter((p) => p.totalPurchasedAmount > 0 || p.paidAmount > 0 || (p.ledgerBalance ?? 0) !== 0)
+        .map((p, i) => {
+          const due = Math.round((p.totalPurchasedAmount - p.returnedAmount - p.paidAmount) * 100) / 100;
+          const ledger = p.ledgerBalance ?? 0;
+          return {
+            sl: i + 1,
+            supplierCode: p.supplierCode,
+            supplierName: p.supplierName,
+            supplierGroup: p.category === "FOREIGN" ? "Foreign" : "Local",
+            purchasePaymentDue: due,
+            ledger,
+            difference: Math.round((ledger - due) * 100) / 100,
+          };
+        }),
+    [serverPayables],
+  );
+  const refreshPayables = () => {
+    for (const key of ["supplierPayables", "supplierInvoices", "supplierBills", "supplierPaymentHistory", "supplierAdvances", "suppliers"]) {
+      queryClient.invalidateQueries({ queryKey: [key] });
+    }
+  };
+  const billMutation = useMutation({
+    mutationFn: (payload: Record<string, unknown>) =>
+      fetchApi<{ number: string }>("/purchase/supplier-bills", { method: "POST", body: JSON.stringify(payload) }),
+    onSuccess: (data) => {
+      refreshPayables();
+      setIsCreateBillOpen(false);
+      setBillReceiptId("");
+      setBillInvoiceNo("");
+      setBillAmount(0);
+      toast.success(`Bill ${data.number} booked. Approve it to release it for payment.`);
+    },
+    onError: (err: Error) => toast.error(err.message),
+  });
+  const approveMutation = useMutation({
+    mutationFn: (billId: string | null) =>
+      fetchApi<{ approved?: number; number?: string }>(billId ? `/purchase/supplier-bills/${billId}/approve` : "/purchase/supplier-bills/approve-pending", { method: "POST", body: "{}" }),
+    onSuccess: (data) => {
+      refreshPayables();
+      toast.success(data.number ? `Bill ${data.number} approved for payment.` : `${data.approved ?? 0} bills approved for payment.`);
+    },
+    onError: (err: Error) => toast.error(err.message),
+  });
 
   // Filtering Tab 1
   const filteredDueList = useMemo(() => {
@@ -229,25 +403,27 @@ export default function SupplierPaymentsPage() {
   }, [pendingBills, pendingBillFilter, searchTerm]);
 
   const handleApproveBill = (billNo: string) => {
-    setPendingBills((prev) =>
-      prev.map((b) => (b.billNo === billNo ? { ...b, status: "Approved" } : b))
-    );
-    toast.success(`Bill ${billNo} approved successfully! Forwarded to Accounts Disbursement.`);
+    const bill = pendingBills.find((b) => b.billNo === billNo);
+    if (bill) approveMutation.mutate(bill.billId);
   };
 
   const handlePayPendingBill = (bill: PendingBillRow) => {
     setQuickPayTarget({
       sl: 0,
+      supplierId: bill.supplierId,
+      // A bill against a receipt settles the receipt; an ad-hoc bill settles itself.
+      receiptId: bill.receiptId,
+      billId: bill.receiptId ? undefined : bill.billId,
       supplierCode: bill.supplierCode,
       supplierName: bill.supplierName,
-      mobileNumber: "01700000000",
+      mobileNumber: "",
       totalAmount: bill.grossAmount,
       returnAmount: 0,
       paymentAmount: 0,
       dueAmount: bill.netPayable,
     });
     setQuickPayAmount(bill.netPayable);
-    setQuickPayRef(`BILL-${bill.billNo}`);
+    setQuickPayRef(bill.billNo);
   };
 
   // Filtering Tab 3
@@ -300,82 +476,84 @@ export default function SupplierPaymentsPage() {
       diff: diff.toFixed(2),
     };
   }, [filteredLedgerReconList]);
-  const totalDue1 = useMemo(() => {
-    return filteredDueList.reduce(
-      (acc, r) => ({
-        total: acc.total + r.totalAmount,
-        ret: acc.ret + r.returnAmount,
-        payment: acc.payment + r.paymentAmount,
-        due: acc.due + r.dueAmount,
-      }),
-      { total: 0, ret: 0, payment: 0, due: 0 }
-    );
-  }, [filteredDueList]);
 
-  const totalPaid3 = useMemo(() => {
-    return filteredPaidList.reduce(
-      (acc, r) => ({
-        bank: acc.bank + r.bankAmount,
-        cash: acc.cash + r.cashAmount,
-        paid: acc.paid + r.paidAmount,
-      }),
-      { bank: 0, cash: 0, paid: 0 }
-    );
-  }, [filteredPaidList]);
 
   // Handlers
   const handleOpenQuickPay = (row: DueListRow) => {
     setQuickPayTarget(row);
     setQuickPayAmount(row.dueAmount);
-    setQuickPayRef(`PAY-REF-${Date.now().toString().slice(-6)}`);
+    setQuickPayRef("");
   };
 
   const handleConfirmQuickPay = (e: React.FormEvent) => {
     e.preventDefault();
     if (!quickPayTarget) return;
 
-    // Update Due List
-    setDueList(
-      dueList.map((r) => {
-        if (r.supplierCode === quickPayTarget.supplierCode) {
-          const newPaid = r.paymentAmount + quickPayAmount;
-          const newDue = Math.max(0, r.totalAmount - newPaid);
-          return { ...r, paymentAmount: newPaid, dueAmount: newDue };
-        }
-        return r;
-      })
-    );
-
-    // Append to Paid GRN/Bill
-    const newPaidRow: PaidRow = {
-      sl: paidList.length + 1,
-      paidDate: new Date().toLocaleDateString("en-GB").replace(/\//g, "-"),
-      invoiceNo: `SETTLE-${quickPayTarget.supplierCode}`,
-      supplier: quickPayTarget.supplierName,
-      moneyReceiptNo: quickPayRef,
-      bankAmount: quickPayMode !== "CASH" ? quickPayAmount : 0,
-      cashAmount: quickPayMode === "CASH" ? quickPayAmount : 0,
-      paidAmount: quickPayAmount,
-    };
-    setPaidList([newPaidRow, ...paidList]);
-
-    setQuickPayTarget(null);
-    toast.success(`Payment of BDT ${formatCurrency(quickPayAmount)} to ${quickPayTarget.supplierName} completed successfully!`);
+    if (!quickPayTarget.supplierId) {
+      toast.error("This bill is not linked to a supplier yet.");
+      return;
+    }
+    paymentMutation.mutate({
+      supplierId: quickPayTarget.supplierId,
+      amount: quickPayAmount,
+      method: quickPayMode === "CASH" ? "CASH" : quickPayMode === "CHEQUE" ? "CHEQUE" : "BANK",
+      paymentDate: new Date().toISOString().split("T")[0],
+      receiptId: quickPayTarget.receiptId,
+      billId: quickPayTarget.billId,
+      referenceNumber: quickPayRef,
+    });
   };
 
   const handleCreateAdvancePayment = (e: React.FormEvent) => {
     e.preventDefault();
-    const newAdv: AdvanceRow = {
-      sl: advanceList.length + 1,
-      supplierName: advSupplier,
-      advanceAmount: advAmount,
-      adjustAmount: 0,
-      remainingAdvance: advAmount,
-    };
-    setAdvanceList([newAdv, ...advanceList]);
-    setIsAdvancePaymentOpen(false);
-    toast.success(`Advance payment voucher of BDT ${formatCurrency(advAmount)} for ${advSupplier} generated!`);
+    paymentMutation.mutate({
+      supplierId: advSupplier,
+      amount: advAmount,
+      isAdvance: true,
+      method: advMode === "CASH" ? "CASH" : advMode === "CHEQUE" ? "CHEQUE" : "BANK",
+      paymentDate: advDate,
+      narration: advRemarks,
+    });
   };
+
+  // Pays each ticked invoice in full (one payment per invoice).
+  const grnPayInvoices = (serverInvoices ?? []).filter((inv) => inv.supplierId === grnPaySupplier && inv.dueAmount > 0);
+  const handleConfirmGrnPayment = async () => {
+    const chosen = grnPayInvoices.filter((inv) => grnPaySelected.includes(inv.id));
+    if (!chosen.length) {
+      toast.error("Tick at least one invoice to settle.");
+      return;
+    }
+    try {
+      for (const inv of chosen) {
+        await paymentMutation.mutateAsync({
+          supplierId: grnPaySupplier,
+          amount: inv.dueAmount,
+          paymentDate: grnPayDate,
+          receiptId: inv.receiptId,
+          billId: inv.receiptId ? undefined : inv.billId,
+          referenceNumber: inv.invoiceNumber,
+        });
+      }
+      setIsPaymentByGRNOpen(false);
+      setGrnPaySelected([]);
+    } catch {
+      // paymentMutation already showed the error; the invoices paid so far stay paid.
+    }
+  };
+
+  const handleCreateBill = () => {
+    billMutation.mutate({
+      supplierId: billSupplier,
+      receiptId: billReceiptId || undefined,
+      number: billInvoiceNo,
+      amount: billAmount,
+      billDate,
+      dueDate: billDueDate,
+    });
+  };
+  // Receipts of the chosen supplier that have no bill yet.
+  const billableReceipts = (serverInvoices ?? []).filter((inv) => inv.supplierId === billSupplier && inv.receiptId && !inv.billId);
 
   const handleExportCSV = () => {
     const headers = ["SL", "Supplier Code", "Supplier Name", "Mobile No", "Total Amount", "Return Amount", "Payment Amount", "Due Amount"];
@@ -735,8 +913,7 @@ export default function SupplierPaymentsPage() {
                     toast.info("No pending bills left to approve.");
                     return;
                   }
-                  setPendingBills((prev) => prev.map((b) => (b.status === "Pending" ? { ...b, status: "Approved" } : b)));
-                  toast.success(`Batch approved ${pendingOnly.length} pending bills! Forwarded for disbursement.`);
+                  approveMutation.mutate(null);
                 }}
                 className="flex items-center gap-1.5 px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-xs font-semibold shadow-xs transition"
               >
@@ -755,7 +932,7 @@ export default function SupplierPaymentsPage() {
                 <span className="text-xs px-2 py-0.5 rounded bg-sky-100 text-sky-800 border border-sky-200 font-bold uppercase tracking-wider">ERP</span>
               </div>
               <p className="text-sm font-semibold text-slate-700">No Bills Found</p>
-              <p className="text-xs text-slate-400 mt-1 mb-3">There are no vendor bills currently matching the "{pendingBillFilter}" criteria.</p>
+              <p className="text-xs text-slate-400 mt-1 mb-3">There are no vendor bills currently matching the &ldquo;{pendingBillFilter}&rdquo; criteria.</p>
               <button
                 type="button"
                 onClick={() => {
@@ -1527,16 +1704,25 @@ export default function SupplierPaymentsPage() {
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-slate-700 font-semibold mb-1">Supplier / Vendor *</label>
-              <select className="w-full border border-slate-300 rounded p-1.5 text-xs bg-white">
-                <option>M/S Sarkar Traders (01734431700)</option>
-                <option>M/S Vai Vai Traders (01711117118)</option>
-                <option>Shahin Auto Muri Mill (01710503755)</option>
-                <option>PACKFIRM LIMITED (01844154045)</option>
+              <select
+                value={grnPaySupplier}
+                onChange={(e) => {
+                  setGrnPaySupplier(e.target.value);
+                  setGrnPaySelected([]);
+                }}
+                className="w-full border border-slate-300 rounded p-1.5 text-xs bg-white"
+              >
+                <option value="">Select supplier</option>
+                {dueList.filter((d) => d.dueAmount > 0).map((d) => (
+                  <option key={d.supplierId} value={d.supplierId}>
+                    {d.supplierName} (due {formatCurrency(d.dueAmount)})
+                  </option>
+                ))}
               </select>
             </div>
             <div>
               <label className="block text-slate-700 font-semibold mb-1">Payment Date *</label>
-              <input type="date" defaultValue={new Date().toISOString().split("T")[0]} className="w-full border border-slate-300 rounded p-1.5 text-xs bg-white" />
+              <input type="date" value={grnPayDate} onChange={(e) => setGrnPayDate(e.target.value)} className="w-full border border-slate-300 rounded p-1.5 text-xs bg-white" />
             </div>
           </div>
 
@@ -1554,14 +1740,28 @@ export default function SupplierPaymentsPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {dueInvoices.slice(0, 4).map((inv, idx) => (
-                    <tr key={idx} className="hover:bg-slate-50">
-                      <td className="p-2 text-center">
-                        <input type="checkbox" defaultChecked={idx === 0} className="rounded" />
+                  {grnPayInvoices.length === 0 && (
+                    <tr>
+                      <td colSpan={5} className="p-3 text-center text-slate-500">
+                        {grnPaySupplier ? "Nothing is due for this supplier." : "Select a supplier to see its open invoices."}
                       </td>
-                      <td className="p-2 font-mono font-bold text-slate-800">{inv.invoice}</td>
-                      <td className="p-2 text-slate-600">{inv.receDate}</td>
-                      <td className="p-2 text-right font-mono">{formatCurrency(inv.netAmount)}</td>
+                    </tr>
+                  )}
+                  {grnPayInvoices.map((inv) => (
+                    <tr key={inv.id} className="hover:bg-slate-50">
+                      <td className="p-2 text-center">
+                        <input
+                          type="checkbox"
+                          checked={grnPaySelected.includes(inv.id)}
+                          onChange={(e) =>
+                            setGrnPaySelected(e.target.checked ? [...grnPaySelected, inv.id] : grnPaySelected.filter((id) => id !== inv.id))
+                          }
+                          className="rounded"
+                        />
+                      </td>
+                      <td className="p-2 font-mono font-bold text-slate-800">{inv.invoiceNumber}</td>
+                      <td className="p-2 text-slate-600">{inv.invoiceDate}</td>
+                      <td className="p-2 text-right font-mono">{formatCurrency(inv.totalAmount)}</td>
                       <td className="p-2 text-right font-mono font-bold text-sky-800">{formatCurrency(inv.dueAmount)}</td>
                     </tr>
                   ))}
@@ -1580,10 +1780,8 @@ export default function SupplierPaymentsPage() {
             </button>
             <button
               type="button"
-              onClick={() => {
-                setIsPaymentByGRNOpen(false);
-                toast.success("GRN Payment batch posted successfully!");
-              }}
+              disabled={paymentMutation.isPending}
+              onClick={handleConfirmGrnPayment}
               className="px-5 py-1.5 bg-[#1976d2] hover:bg-[#1565c0] text-white font-bold rounded shadow-xs"
             >
               Confirm Settlement
@@ -1612,10 +1810,12 @@ export default function SupplierPaymentsPage() {
                 className="w-full border border-slate-300 rounded p-1.5 text-xs bg-white"
                 required
               >
-                <option value="M/S Sarkar Traders">M/S Sarkar Traders (01734431700)</option>
-                <option value="Star Agro Processing Industries">Star Agro Processing Industries (01312475727)</option>
-                <option value="Shahin Auto Muri Mill">Shahin Auto Muri Mill (01710503755)</option>
-                <option value="Ujjal Flower Mills">Ujjal Flower Mills (01711349594)</option>
+                <option value="">Select supplier</option>
+                {(serverPayables ?? []).map((p) => (
+                  <option key={p.supplierId} value={p.supplierId}>
+                    {p.supplierName}
+                  </option>
+                ))}
               </select>
             </div>
 
@@ -1687,10 +1887,47 @@ export default function SupplierPaymentsPage() {
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-slate-700 font-semibold mb-1">Supplier *</label>
-              <input
-                type="text"
+              <select
                 value={billSupplier}
-                onChange={(e) => setBillSupplier(e.target.value)}
+                onChange={(e) => {
+                  setBillSupplier(e.target.value);
+                  setBillReceiptId("");
+                }}
+                className="w-full border border-slate-300 rounded p-1.5 text-xs bg-white"
+              >
+                <option value="">Select supplier</option>
+                {(serverPayables ?? []).map((p) => (
+                  <option key={p.supplierId} value={p.supplierId}>
+                    {p.supplierName}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-slate-700 font-semibold mb-1">Against Goods Receipt</label>
+              <select
+                value={billReceiptId}
+                onChange={(e) => {
+                  setBillReceiptId(e.target.value);
+                  const receipt = billableReceipts.find((r) => r.receiptId === e.target.value);
+                  if (receipt) setBillAmount(receipt.totalAmount);
+                }}
+                className="w-full border border-slate-300 rounded p-1.5 text-xs bg-white"
+              >
+                <option value="">None (service / utility bill)</option>
+                {billableReceipts.map((r) => (
+                  <option key={r.receiptId} value={r.receiptId}>
+                    {r.grnNumber} · {formatCurrency(r.totalAmount)}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-slate-700 font-semibold mb-1">Bill Date *</label>
+              <input
+                type="date"
+                value={billDate}
+                onChange={(e) => setBillDate(e.target.value)}
                 className="w-full border border-slate-300 rounded p-1.5 text-xs bg-white"
               />
             </div>
@@ -1708,8 +1945,10 @@ export default function SupplierPaymentsPage() {
               <input
                 type="number"
                 value={billAmount}
+                disabled={Boolean(billReceiptId)}
+                title={billReceiptId ? "A bill against a goods receipt takes the receipt's value." : undefined}
                 onChange={(e) => setBillAmount(Number(e.target.value))}
-                className="w-full border border-slate-300 rounded p-1.5 text-xs bg-white font-mono font-bold"
+                className="w-full border border-slate-300 rounded p-1.5 text-xs bg-white font-mono font-bold disabled:bg-slate-100"
               />
             </div>
             <div>
@@ -1733,10 +1972,8 @@ export default function SupplierPaymentsPage() {
             </button>
             <button
               type="button"
-              onClick={() => {
-                setIsCreateBillOpen(false);
-                toast.success(`Vendor bill ${billInvoiceNo} booked into payables ledger!`);
-              }}
+              disabled={billMutation.isPending}
+              onClick={handleCreateBill}
               className="px-5 py-1.5 bg-[#1976d2] hover:bg-[#1565c0] text-white font-bold rounded shadow-xs"
             >
               Save Vendor Bill

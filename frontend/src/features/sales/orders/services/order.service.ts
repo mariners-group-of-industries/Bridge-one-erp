@@ -1,6 +1,6 @@
 import type { Prisma } from "@/generated/prisma/client";
 import { AppError, badRequest, conflict, notFound } from "@/lib/api/errors";
-import { assertCompanyAccess, type Actor } from "@/lib/auth/actor";
+import { assertCompanyAccess, canOn, type Actor } from "@/lib/auth/actor";
 import { db } from "@/lib/prisma/client";
 import { money } from "../../dashboard/lib/aggregate";
 import { fromDbDate, toDbDate } from "../../lib/dates";
@@ -560,7 +560,7 @@ async function holdReasonFor(order: OrderRecord, today: string): Promise<{ reaso
 }
 
 function requireApprover(actor: Actor) {
-  if (!actor.permissions.has("sales:approve")) {
+  if (!canOn(actor, "/sales/orders", "approve", "sales:approve")) {
     throw new AppError(403, "FORBIDDEN", "You do not have permission to approve sales orders.");
   }
 }

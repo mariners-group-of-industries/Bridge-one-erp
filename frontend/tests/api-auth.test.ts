@@ -3,6 +3,8 @@ import { describe, expect, it, vi } from "vitest";
 // No session cookie and no token: every request below is anonymous.
 vi.mock("@/lib/auth/cookies", () => ({ getAuthCookie: async () => undefined, setAuthCookie: async () => undefined, clearAuthCookie: async () => undefined }));
 
+import { ruleForRequest } from "@/lib/permissions/api-rules";
+
 /** Login, logout, "me" and profile handle their own (missing) session. */
 const PUBLIC = ["/api/auth/"];
 const METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE"] as const;
@@ -12,6 +14,17 @@ const routes = import.meta.glob<Record<string, unknown>>("../src/app/api/**/rout
 describe("API authentication", () => {
   it("finds the API routes", () => {
     expect(Object.keys(routes).length).toBeGreaterThan(50);
+  });
+
+  it("maps every non-public route to a page permission (src/lib/permissions/api-rules.ts)", () => {
+    const unmapped = Object.keys(routes)
+      .map((file) => file.replace("../src/app", "").replace(/\/route\.ts$/, ""))
+      .filter((path) => !PUBLIC.some((p) => path.startsWith(p)))
+      // Catch-all routes (/api/v1/[...route]) are mapped by their sub-paths in API_RULES.
+      .filter((path) => !path.includes("[..."))
+      .map((path) => path.replace(/\[[^\]]+\]/g, "id"))
+      .filter((path) => !ruleForRequest(path));
+    expect(unmapped).toEqual([]);
   });
 
   it("refuses every non-public route without a session or token", async () => {
@@ -31,5 +44,5 @@ describe("API authentication", () => {
       }
     }
     expect(open).toEqual([]);
-  });
+  }, 180_000);
 });

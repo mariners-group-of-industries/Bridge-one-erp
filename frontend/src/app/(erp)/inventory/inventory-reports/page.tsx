@@ -1,6 +1,8 @@
 "use client";
 
 import React, { useState, useMemo } from "react";
+import { useResource } from "@/hooks/use-resource";
+import { inventoryApi, monthAgo, today } from "@/features/inventory/services/inventory.api";
 import {
   Search,
   Download,
@@ -8,13 +10,6 @@ import {
   ChevronLeft,
   ChevronRight,
   X,
-  FileSpreadsheet,
-  CheckCircle2,
-  AlertTriangle,
-  Package,
-  Layers,
-  Building2,
-  Calendar,
 } from "lucide-react";
 
 // ============================================================================
@@ -41,257 +36,7 @@ interface InventoryReportItem {
   status: "In Stock" | "Low Stock" | "Reorder Required";
 }
 
-// ============================================================================
-// DEMO DATA (Realistic Mariners Group Food & Dairy Manufacturing)
-// ============================================================================
-const DEMO_INVENTORY_ITEMS: InventoryReportItem[] = [
-  {
-    sl: 1,
-    itemCode: "RM-0042",
-    itemName: "Raw Chilled Milk Bulk (Fat 4.2%)",
-    itemType: "Raw Material",
-    category: "Dairy Bulk",
-    subCategory: "Chilled Liquid",
-    warehouse: "Material WH",
-    office: "MG Sirajganj Factory",
-    supplier: "Sirajganj Dairy Cooperative",
-    openingQty: 18500.0,
-    inQty: 45000.0,
-    outQty: 48200.0,
-    closingQty: 15300.0,
-    uom: "LTR",
-    netWeightKg: 15759.0,
-    unitRate: 68.5,
-    totalValuation: 1048050.0,
-    status: "In Stock",
-  },
-  {
-    sl: 2,
-    itemCode: "ZZ-0096",
-    itemName: "Yogurt (Curd)(PCS)",
-    itemType: "Finished Goods",
-    category: "Cultured Dairy",
-    subCategory: "Cup Yogurt",
-    warehouse: "Finished Goods (FG) WH",
-    office: "MG Sirajganj Factory",
-    supplier: "In-House Production",
-    openingQty: 3200.0,
-    inQty: 12600.0,
-    outQty: 11450.0,
-    closingQty: 4350.0,
-    uom: "PCS",
-    netWeightKg: 2175.0,
-    unitRate: 42.0,
-    totalValuation: 182700.0,
-    status: "In Stock",
-  },
-  {
-    sl: 3,
-    itemCode: "ZZ-0104",
-    itemName: "Sweetened Curd 500g Tub",
-    itemType: "Finished Goods",
-    category: "Cultured Dairy",
-    subCategory: "Family Pack",
-    warehouse: "PD Biscuit Store",
-    office: "MG Sirajganj Factory",
-    supplier: "In-House Production",
-    openingQty: 850.0,
-    inQty: 3400.0,
-    outQty: 3750.0,
-    closingQty: 500.0,
-    uom: "PCS",
-    netWeightKg: 250.0,
-    unitRate: 95.0,
-    totalValuation: 47500.0,
-    status: "Low Stock",
-  },
-  {
-    sl: 4,
-    itemCode: "RM-0089",
-    itemName: "Refined White Crystal Sugar Grade-A",
-    itemType: "Raw Material",
-    category: "Sweeteners",
-    subCategory: "Dry Bulk",
-    warehouse: "Material WH",
-    office: "MG Sirajganj Factory",
-    supplier: "City Sugar Mills Ltd.",
-    openingQty: 14200.0,
-    inQty: 25000.0,
-    outQty: 29800.0,
-    closingQty: 9400.0,
-    uom: "KG",
-    netWeightKg: 9400.0,
-    unitRate: 134.0,
-    totalValuation: 1259600.0,
-    status: "In Stock",
-  },
-  {
-    sl: 5,
-    itemCode: "PK-0102",
-    itemName: "Biscuit Metallized Barrier Film 40 Micron",
-    itemType: "Packaging Material",
-    category: "Flexible Packaging",
-    subCategory: "Roll Film",
-    warehouse: "PD Biscuit Store",
-    office: "MG Sirajganj Factory",
-    supplier: "Meghna Packprint Ltd.",
-    openingQty: 340.0,
-    inQty: 1200.0,
-    outQty: 1380.0,
-    closingQty: 160.0,
-    uom: "ROLL",
-    netWeightKg: 4800.0,
-    unitRate: 4850.0,
-    totalValuation: 776000.0,
-    status: "Low Stock",
-  },
-  {
-    sl: 6,
-    itemCode: "RM-0115",
-    itemName: "Skimmed Milk Powder (SMP 25kg Bag)",
-    itemType: "Raw Material",
-    category: "Dairy Powder",
-    subCategory: "Bagged Ingredients",
-    warehouse: "Material WH",
-    office: "Dhaka Head Office",
-    supplier: "Fonterra Ingredients NZ",
-    openingQty: 450.0,
-    inQty: 600.0,
-    outQty: 980.0,
-    closingQty: 70.0,
-    uom: "BAG",
-    netWeightKg: 1750.0,
-    unitRate: 11200.0,
-    totalValuation: 784000.0,
-    status: "Reorder Required",
-  },
-  {
-    sl: 7,
-    itemCode: "ZZ-0105",
-    itemName: "Curd Snack Drink 200ml Bottle",
-    itemType: "Finished Goods",
-    category: "Cultured Dairy",
-    subCategory: "Beverages",
-    warehouse: "PD Snacks Store",
-    office: "MG Sirajganj Factory",
-    supplier: "In-House Production",
-    openingQty: 4800.0,
-    inQty: 18500.0,
-    outQty: 15200.0,
-    closingQty: 8100.0,
-    uom: "BTL",
-    netWeightKg: 1620.0,
-    unitRate: 30.0,
-    totalValuation: 243000.0,
-    status: "In Stock",
-  },
-  {
-    sl: 8,
-    itemCode: "SP-0045",
-    itemName: "Homogenizer Piston Seal Ring Kit",
-    itemType: "Spare Parts",
-    category: "Plant Maintenance",
-    subCategory: "Processing Seals",
-    warehouse: "Material WH",
-    office: "MG Sirajganj Factory",
-    supplier: "Tetra Pak Bangladesh",
-    openingQty: 12.0,
-    inQty: 20.0,
-    outQty: 18.0,
-    closingQty: 14.0,
-    uom: "SET",
-    netWeightKg: 7.0,
-    unitRate: 18500.0,
-    totalValuation: 259000.0,
-    status: "In Stock",
-  },
-  {
-    sl: 9,
-    itemCode: "PK-0145",
-    itemName: "Printed Corrugated Master Carton (24x)",
-    itemType: "Packaging Material",
-    category: "Rigid Packaging",
-    subCategory: "Cartons",
-    warehouse: "PD Biscuit Store",
-    office: "MG Sirajganj Factory",
-    supplier: "Karnaphuli Packaging Ltd.",
-    openingQty: 2800.0,
-    inQty: 8000.0,
-    outQty: 9200.0,
-    closingQty: 1600.0,
-    uom: "PCS",
-    netWeightKg: 960.0,
-    unitRate: 38.0,
-    totalValuation: 60800.0,
-    status: "In Stock",
-  },
-];
-
-const OFFICE_LIST = [
-  "All",
-  "MG Sirajganj Factory",
-  "Dhaka Head Office",
-  "Marinozz",
-  "MOHS Eco",
-];
-
-const WAREHOUSE_LIST = [
-  "All",
-  "Material WH",
-  "PD Biscuit Store",
-  "PD Snacks Store",
-  "Finished Goods (FG) WH",
-];
-
-const ITEM_TYPES = [
-  "All",
-  "Raw Material",
-  "Finished Goods",
-  "Packaging Material",
-  "Spare Parts",
-];
-
-const ITEM_CATEGORIES = [
-  "Item Category",
-  "Dairy Bulk",
-  "Cultured Dairy",
-  "Sweeteners",
-  "Flexible Packaging",
-  "Dairy Powder",
-  "Plant Maintenance",
-  "Rigid Packaging",
-];
-
-const SUB_CATEGORIES = [
-  "Select Sub Category",
-  "Chilled Liquid",
-  "Cup Yogurt",
-  "Family Pack",
-  "Dry Bulk",
-  "Roll Film",
-  "Beverages",
-  "Processing Seals",
-  "Cartons",
-];
-
-const MINOR_CATEGORIES = [
-  "Select Minor Category",
-  "Food Grade Grade-A",
-  "Aseptic Pack",
-  "Commercial Industrial",
-  "Retail Unit",
-];
-
-const SUPPLIERS = [
-  "Select/Search Supplier",
-  "Sirajganj Dairy Cooperative",
-  "In-House Production",
-  "City Sugar Mills Ltd.",
-  "Meghna Packprint Ltd.",
-  "Fonterra Ingredients NZ",
-  "Tetra Pak Bangladesh",
-  "Karnaphuli Packaging Ltd.",
-];
+const distinct = (placeholder: string, values: string[]) => [placeholder, ...[...new Set(values.filter(Boolean))].sort()];
 
 export default function InventoryReportPage() {
   // View By selector
@@ -306,8 +51,42 @@ export default function InventoryReportPage() {
   const [subCategory, setSubCategory] = useState("Select Sub Category");
   const [minorCategory, setMinorCategory] = useState("Select Minor Category");
   const [supplier, setSupplier] = useState("Select/Search Supplier");
-  const [fromDate, setFromDate] = useState("2026-09-13");
-  const [toDate, setToDate] = useState("2026-10-14");
+  const [fromDate, setFromDate] = useState(monthAgo());
+  const [toDate, setToDate] = useState(today());
+  // Opening / in / out / closing from the stock ledger for the period applied with View.
+  const [period, setPeriod] = useState({ from: fromDate, to: toDate });
+  const report = useResource(`inventory-report-${period.from}-${period.to}`, () => inventoryApi.inventoryReport(period));
+  const items = useMemo<InventoryReportItem[]>(
+    () =>
+      (report.data ?? []).map((r, i) => ({
+        sl: i + 1,
+        itemCode: r.itemCode,
+        itemName: r.itemName,
+        itemType: r.itemType,
+        category: r.category,
+        subCategory: "",
+        warehouse: r.warehouse,
+        office: r.office,
+        supplier: "",
+        openingQty: r.openingQty,
+        inQty: r.inQty,
+        outQty: r.outQty,
+        closingQty: r.closingQty,
+        uom: r.uom,
+        netWeightKg: Math.round(r.netWeight * r.closingQty * 1000) / 1000,
+        unitRate: r.rate,
+        totalValuation: r.value,
+        status: r.closingQty <= 0 ? "Reorder Required" : "In Stock",
+      })),
+    [report.data],
+  );
+  const OFFICE_LIST = distinct("All", items.map((i) => i.office));
+  const WAREHOUSE_LIST = distinct("All", items.map((i) => i.warehouse));
+  const ITEM_TYPES = distinct("All", items.map((i) => i.itemType));
+  const ITEM_CATEGORIES = distinct("Item Category", items.map((i) => i.category));
+  const SUB_CATEGORIES = ["Select Sub Category"];
+  const MINOR_CATEGORIES = ["Select Minor Category"];
+  const SUPPLIERS = ["Select/Search Supplier"];
   const [showNetWeight, setShowNetWeight] = useState(false);
 
   // Pagination
@@ -316,7 +95,7 @@ export default function InventoryReportPage() {
 
   // Filtered dataset
   const filteredData = useMemo(() => {
-    return DEMO_INVENTORY_ITEMS.filter((item) => {
+    return items.filter((item) => {
       if (office !== "All" && item.office !== office) return false;
       if (warehouse !== "All" && item.warehouse !== warehouse) return false;
       if (itemType !== "All" && item.itemType !== itemType) return false;
@@ -335,7 +114,7 @@ export default function InventoryReportPage() {
       }
       return true;
     });
-  }, [office, warehouse, itemType, itemCategory, subCategory, supplier, searchTerm]);
+  }, [items, office, warehouse, itemType, itemCategory, subCategory, supplier, searchTerm]);
 
   // Aggregated Totals
   const totals = useMemo(() => {
@@ -696,10 +475,14 @@ export default function InventoryReportPage() {
           <div>
             <button
               type="button"
-              onClick={() => setPage(1)}
+              onClick={() => {
+                setPeriod({ from: fromDate, to: toDate });
+                setPage(1);
+              }}
+              disabled={!fromDate || !toDate || fromDate > toDate}
               className="h-8 w-24 bg-[#1976d2] hover:bg-[#1565c0] text-white font-semibold text-xs rounded shadow-xs transition"
             >
-              View
+              {report.loading ? "Loading…" : "View"}
             </button>
           </div>
         </div>

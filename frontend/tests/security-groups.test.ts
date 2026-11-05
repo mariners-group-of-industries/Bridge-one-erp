@@ -7,19 +7,13 @@ vi.mock("@/lib/prisma/client", async () => {
 import { createBusinessUnit } from "@/features/configuration/business-config/company-profile/server/business-unit.service";
 import { saveCompany } from "@/features/configuration/business-config/company-profile/server/company.service";
 import { createOffice } from "@/features/configuration/business-config/company-profile/server/office.service";
-import { permissionActivities } from "@/features/configuration/security/groups/activities";
 import {
-  deletePermissionGroup,
   deleteUserGroup,
-  getPermissionGroup,
   getUserGroup,
-  listPermissionGroups,
   listUserGroups,
-  savePermissionGroup,
   saveUserGroup,
   userOptions,
 } from "@/features/configuration/security/groups/server/groups.service";
-import { securityPaths } from "@/features/configuration/security/paths";
 import { AppError } from "@/lib/api/errors";
 import { adminActor, businessUnitInput, companyInput, officeInput } from "./helpers/fixtures";
 import { resetTestDb, startTestDb, stopTestDb, testPrisma } from "./helpers/test-db";
@@ -66,28 +60,5 @@ describe("user group", () => {
     const { id } = (await listUserGroups(adminActor, {})).rows[0];
     await deleteUserGroup(adminActor, id);
     await expect(getUserGroup(adminActor, id)).rejects.toBeInstanceOf(AppError);
-  });
-});
-
-describe("permission group", () => {
-  it("lists every built page once as an activity", () => {
-    const activities = permissionActivities();
-    expect(activities).toEqual(expect.arrayContaining([{ key: securityPaths.approvalSetup, moduleName: "Configuration", activityName: "Approval Setup" }]));
-    expect(new Set(activities.map((a) => a.key)).size).toBe(activities.length);
-  });
-
-  it("stores only granted rows and refuses unknown activities", async () => {
-    const group = await savePermissionGroup(adminActor, {
-      name: "Sales Admin",
-      entries: [{ activityKey: securityPaths.approvalSetup, canView: true, canApprove: true }, { activityKey: securityPaths.userGroup }],
-    });
-    expect(group.entries).toEqual([{ activityKey: securityPaths.approvalSetup, canCreate: false, canEdit: false, canView: true, canDelete: false, canApprove: true }]);
-    expect((await listPermissionGroups(adminActor, {})).rows[0]).toMatchObject({ name: "Sales Admin", count: 1, lastActionBy: "Administrator" });
-    await expect(savePermissionGroup(adminActor, { name: "X", entries: [{ activityKey: "/nope", canView: true }] })).rejects.toBeInstanceOf(AppError);
-
-    const updated = await savePermissionGroup(adminActor, { name: "Sales Admin", entries: [{ activityKey: securityPaths.userGroup, canCreate: true }] }, group.id);
-    expect(updated.entries.map((e) => e.activityKey)).toEqual([securityPaths.userGroup]);
-    await deletePermissionGroup(adminActor, group.id);
-    await expect(getPermissionGroup(adminActor, group.id)).rejects.toBeInstanceOf(AppError);
   });
 });

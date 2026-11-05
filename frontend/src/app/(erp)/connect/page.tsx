@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import React, { useState, useEffect, useEffectEvent, useRef, useMemo, useCallback } from "react";
 import Link from "next/link";
 import {
   Bell,
@@ -55,6 +55,9 @@ import type {
   ErpRecordCard,
   MessageDeliveryStatus,
 } from "@/features/connect/types";
+
+/** Current time in ms; called from event handlers only. */
+const now = () => Date.now();
 
 function getInitials(name?: string | null): string {
   if (!name) return "U";
@@ -402,12 +405,17 @@ export default function BrgConnectChatPage() {
     [onlineUserIds, directoryEmployees]
   );
 
+  // Effects call these to use the latest loaders and toast without re-running.
+  const onLoadConversations = useEffectEvent(() => loadConversations());
+  const onLoadMessages = useEffectEvent((convId: string) => loadMessages(convId));
+  const onCallDeclined = useEffectEvent((name: string) => toast.info(`${name} declined the call.`));
+
   // Initial load & URL params check
   useEffect(() => {
     let active = true;
     queueMicrotask(() => {
       if (!active) return;
-      loadConversations();
+      onLoadConversations();
       loadDirectory();
       fetch("/api/connect/erp-records")
         .then((r) => (r.ok ? r.json() : null))
@@ -449,7 +457,7 @@ export default function BrgConnectChatPage() {
     let active = true;
     if (activeConvId) {
       queueMicrotask(() => {
-        if (active) loadMessages(activeConvId);
+        if (active) onLoadMessages(activeConvId);
       });
     }
     return () => {
@@ -474,13 +482,14 @@ export default function BrgConnectChatPage() {
   }, [activeMessages.length, activeConvId]);
 
   // Call duration timer
+  const activeCallStatus = activeCall?.status;
   useEffect(() => {
-    if (!activeCall || activeCall.status !== "connected") return;
+    if (activeCallStatus !== "connected") return;
     const interval = setInterval(() => {
       setActiveCall((prev) => (prev ? { ...prev, durationSec: prev.durationSec + 1 } : null));
     }, 1000);
     return () => clearInterval(interval);
-  }, [activeCall?.status]);
+  }, [activeCallStatus]);
 
   const sendCallSignal = async (
     convId: string,
@@ -603,7 +612,7 @@ export default function BrgConnectChatPage() {
     const globalChannel = pusher.subscribe("connect-global");
 
     globalChannel.bind("new-conversation", () => {
-      loadConversations();
+      onLoadConversations();
     });
 
     globalChannel.bind("user-presence", (data: { userId?: string; employeeId?: string; status: "online" | "offline" }) => {
@@ -684,7 +693,7 @@ export default function BrgConnectChatPage() {
       setConversations((prev) => {
         const target = prev.find((c) => c.id === msg.conversationId);
         if (!target) {
-          loadConversations();
+          onLoadConversations();
           return prev;
         }
         const isCurrentActive = target.id === activeConvIdRef.current;
@@ -839,7 +848,7 @@ export default function BrgConnectChatPage() {
 
           case "call-reject": {
             stopRingtone();
-            toast.info(`${signal.senderName || "Colleague"} declined the call.`);
+            onCallDeclined(signal.senderName || "Colleague");
             cleanupCall();
             break;
           }
@@ -1100,7 +1109,7 @@ export default function BrgConnectChatPage() {
       }
     }
 
-    const clientMsgId = `c-${Date.now()}`;
+    const clientMsgId = `c-${now()}`;
     const messageBody =
       textToSend ||
       (uploadedAttachments.length > 0
@@ -1117,7 +1126,7 @@ export default function BrgConnectChatPage() {
         : "text";
 
     const newMsg: ConnectMessage = {
-      id: `m-${Date.now()}`,
+      id: `m-${now()}`,
       conversationId: activeConvId,
       senderId: authUser?.id || "user-current",
       senderName: authUser?.name || "Me",
@@ -1386,68 +1395,13 @@ export default function BrgConnectChatPage() {
   };
 
   // Real File Upload Handler
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file || !activeConvId) return;
-
-    setIsUploading(true);
-    const formData = new FormData();
-    formData.append("file", file);
-
-    try {
-      const res = await fetch("/api/connect/upload", {
-        method: "POST",
-        body: formData,
-      });
-      const data = await res.json();
-
-      if (data.success && data.attachment) {
-        const clientMsgId = `c-att-${Date.now()}`;
-        const newMsg: ConnectMessage = {
-          id: `m-att-${Date.now()}`,
-          conversationId: activeConvId,
-          senderId: authUser?.id || "user-current",
-          senderName: authUser?.name || "Me",
-          clientMsgId,
-          type: "file",
-          body: `Shared file: ${data.attachment.name}`,
-          attachments: [data.attachment],
-          status: "delivered",
-          createdAt: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-        };
-
-        setMessagesMap((prev) => ({
-          ...prev,
-          [activeConvId]: [...(prev[activeConvId] || []), newMsg],
-        }));
-
-        await fetch(`/api/connect/conversations/${activeConvId}/messages`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            senderId: authUser?.id || "user-current",
-            senderName: authUser?.name || "Me",
-            clientMsgId,
-            type: "FILE",
-            bodyText: `Shared file: ${data.attachment.name}`,
-            attachments: [data.attachment],
-          }),
-        });
-      }
-    } catch (err) {
-      console.error("Upload failed:", err);
-    } finally {
-      setIsUploading(false);
-      if (fileInputRef.current) fileInputRef.current.value = "";
-    }
-  };
 
   // Share Real ERP Record from Database
   const handleShareErpCard = async (card: ErpRecordCard) => {
     if (!activeConvId) return;
-    const clientMsgId = `c-erp-${Date.now()}`;
+    const clientMsgId = `c-erp-${now()}`;
     const newMsg: ConnectMessage = {
-      id: `m-erp-${Date.now()}`,
+      id: `m-erp-${now()}`,
       conversationId: activeConvId,
       senderId: authUser?.id || "user-current",
       senderName: authUser?.name || "Me",
@@ -1687,7 +1641,7 @@ export default function BrgConnectChatPage() {
   useEffect(() => {
     handleAcceptIncomingCallByIdRef.current = handleAcceptIncomingCallById;
     handleStartCallRef.current = handleStartCall;
-  }, []);
+  });
 
   const handleAcceptIncomingCall = async () => {
     if (!incomingCall) return;
@@ -2395,7 +2349,7 @@ export default function BrgConnectChatPage() {
                                     className="mt-2 rounded-lg overflow-hidden border border-line/40 max-w-xs shadow-xs"
                                   >
                                     <a href={att.url} target="_blank" rel="noopener noreferrer" title="View Full Image">
-                                      <img
+                                      <img // eslint-disable-line @next/next/no-img-element -- user attachments (any host, or a local blob: preview) cannot go through next/image
                                         src={att.url}
                                         alt={att.name}
                                         className="w-full max-h-56 object-cover hover:opacity-95 transition cursor-pointer"
@@ -2611,7 +2565,7 @@ export default function BrgConnectChatPage() {
                           className="relative group flex items-center gap-2 p-1.5 rounded-md bg-surface border border-line shadow-2xs min-w-0"
                         >
                           {att.type === "image" && att.previewUrl ? (
-                            <img
+                            <img // eslint-disable-line @next/next/no-img-element -- user attachments (any host, or a local blob: preview) cannot go through next/image
                               src={att.previewUrl}
                               alt={att.name}
                               className="size-8 rounded object-cover border border-line shrink-0"

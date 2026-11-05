@@ -1,21 +1,18 @@
 "use client";
 
+import Image from "next/image";
 import React, { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Plus,
   Eye,
-  Check,
   X,
   Trash2,
-  FileText,
-  Clock,
   History,
   Pencil,
   Printer,
   RotateCcw,
   PlusCircle,
-  PrinterIcon,
   Search,
 } from "lucide-react";
 import { DataTable } from "@/components/purchase/DataTable";
@@ -1882,8 +1879,10 @@ export default function PurchaseRequisitionsPage() {
               {/* Organization Header */}
               <div className="flex justify-between items-start border-b border-slate-200 pb-3">
                 <div className="flex items-center gap-3.5">
-                  <img
+                  <Image
                     src="/logo.png"
+                    width={8452}
+                    height={1738}
                     alt="BridgeOne Logo"
                     className="h-10 w-auto object-contain"
                   />

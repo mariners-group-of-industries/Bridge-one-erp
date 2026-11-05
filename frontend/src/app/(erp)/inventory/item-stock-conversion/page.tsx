@@ -1,6 +1,12 @@
 "use client";
 
 import React, { useState, useMemo } from "react";
+import { useToast } from "@/components/ui/toast";
+import { useResource } from "@/hooks/use-resource";
+import { errorMessage } from "@/lib/api/client";
+import { InventoryDocumentDialog } from "@/features/inventory/components/InventoryDocumentDialog";
+import type { InventoryDocument } from "@/features/inventory/schemas/document.schema";
+import { inventoryApi, monthAgo, today } from "@/features/inventory/services/inventory.api";
 import {
   Search,
   Plus,
@@ -11,13 +17,10 @@ import {
   ChevronRight,
   X,
   FileSpreadsheet,
-  Calendar,
   CheckCircle2,
   Clock,
-  AlertCircle,
   XCircle,
   ArrowRight,
-  Filter,
 } from "lucide-react";
 
 // ============================================================================
@@ -27,6 +30,8 @@ type ConversionTab = "CONVERSION_LIST" | "REPORT";
 
 interface StockConversionRecord {
   sl: number;
+  /** Conversion document id (one record per line of it). */
+  id: string;
   code: string;
   conversionDate: string;
   office: string;
@@ -52,184 +57,44 @@ interface StockConversionRecord {
 // ============================================================================
 // INITIAL MOCK DATA (matches user's real Mariners Group ERP screenshot)
 // ============================================================================
-const INITIAL_CONVERSIONS: StockConversionRecord[] = [
-  {
-    sl: 1,
-    code: "ISC-MG261000042",
-    conversionDate: "2026-10-14",
-    office: "MG Sirajganj Factory",
-    warehouse: "PD Biscuit Store",
-    conversionType: "Stock Transfer",
-    sourceItemCode: "ZZ-0096",
-    sourceItemName: "Yogurt (Curd)(PCS)",
-    sourceQty: 850.0,
-    sourceUom: "PCS",
-    targetItemCode: "ZZ-0104",
-    targetItemName: "Sweetened Curd 500g Tub",
-    targetQty: 842.0,
-    targetUom: "PCS",
-    ratio: "1:1",
-    wastageQty: 8.0,
-    wastageUom: "PCS",
-    wastagePercent: 0.94,
-    status: "Pending",
-    operator: "MD. Tofajjol Hossin",
-    remarks: "Transfer for retail pack division packaging",
-  },
-  {
-    sl: 2,
-    code: "ISC-MG261000041",
-    conversionDate: "2026-10-13",
-    office: "MG Sirajganj Factory",
-    warehouse: "Material WH",
-    conversionType: "Stock Transfer",
-    sourceItemCode: "ZZ-0096",
-    sourceItemName: "Yogurt (Curd)(PCS)",
-    sourceQty: 1200.0,
-    sourceUom: "PCS",
-    targetItemCode: "ZZ-0096-B",
-    targetItemName: "Curd Institutional Pack (5 Kg)",
-    targetQty: 240.0,
-    targetUom: "BOX",
-    ratio: "5:1",
-    wastageQty: 0.0,
-    wastageUom: "PCS",
-    wastagePercent: 0.0,
-    status: "Pending",
-    operator: "Tanvir Ahmed",
-    remarks: "Repackaging into commercial catering cartons",
-  },
-  {
-    sl: 3,
-    code: "ISC-MG261000040",
-    conversionDate: "2026-10-12",
-    office: "MG Sirajganj Factory",
-    warehouse: "Finished Goods (FG) WH",
-    conversionType: "Stock Transfer",
-    sourceItemCode: "ZZ-0096",
-    sourceItemName: "Yogurt (Curd)(PCS)",
-    sourceQty: 500.0,
-    sourceUom: "PCS",
-    targetItemCode: "ZZ-0096",
-    targetItemName: "Yogurt (Curd)(PCS)",
-    targetQty: 498.0,
-    targetUom: "PCS",
-    ratio: "1:1",
-    wastageQty: 2.0,
-    wastageUom: "PCS",
-    wastagePercent: 0.4,
-    status: "Approved",
-    operator: "Md. Jakaria",
-    remarks: "Inter-department batch conversion",
-  },
-  {
-    sl: 4,
-    code: "ISC-MG261000039",
-    conversionDate: "2026-10-11",
-    office: "Dhaka Head Office",
-    warehouse: "Material WH",
-    conversionType: "Unit Conversion",
-    sourceItemCode: "RM-0042",
-    sourceItemName: "Raw Chilled Milk Bulk (Ltr)",
-    sourceQty: 3000.0,
-    sourceUom: "LTR",
-    targetItemCode: "ZZ-0096",
-    targetItemName: "Yogurt (Curd)(PCS)",
-    targetQty: 2950.0,
-    targetUom: "PCS",
-    ratio: "1:0.98",
-    wastageQty: 50.0,
-    wastageUom: "LTR",
-    wastagePercent: 1.67,
-    status: "Completed",
-    operator: "Shahriar Kabir",
-    remarks: "Processing fermented curd batch 088",
-  },
-  {
-    sl: 5,
-    code: "ISC-MG261000038",
-    conversionDate: "2026-10-10",
-    office: "MG Sirajganj Factory",
-    warehouse: "PD Snacks Store",
-    conversionType: "Stock Transfer",
-    sourceItemCode: "ZZ-0096",
-    sourceItemName: "Yogurt (Curd)(PCS)",
-    sourceQty: 620.0,
-    sourceUom: "PCS",
-    targetItemCode: "ZZ-0105",
-    targetItemName: "Curd Snack Drink 200ml",
-    targetQty: 615.0,
-    targetUom: "BTL",
-    ratio: "1:1",
-    wastageQty: 5.0,
-    wastageUom: "PCS",
-    wastagePercent: 0.81,
-    status: "Approved",
-    operator: "MD. Tofajjol Hossin",
-    remarks: "Converted for beverages dispatch line",
-  },
-  {
-    sl: 6,
-    code: "ISC-MG261000037",
-    conversionDate: "2026-10-09",
-    office: "Marinozz",
-    warehouse: "Material WH",
-    conversionType: "Stock Transfer",
-    sourceItemCode: "ZZ-0096",
-    sourceItemName: "Yogurt (Curd)(PCS)",
-    sourceQty: 450.0,
-    sourceUom: "PCS",
-    targetItemCode: "ZZ-0112",
-    targetItemName: "Whipped Greek Yogurt 250g",
-    targetQty: 440.0,
-    targetUom: "PCS",
-    ratio: "1:1",
-    wastageQty: 10.0,
-    wastageUom: "PCS",
-    wastagePercent: 2.22,
-    status: "Completed",
-    operator: "Fahim Rahman",
-    remarks: "Quality testing approved conversion",
-  },
-  {
-    sl: 7,
-    code: "ISC-MG261000036",
-    conversionDate: "2026-10-08",
-    office: "MG Sirajganj Factory",
-    warehouse: "PD Biscuit Store",
-    conversionType: "Stock Transfer",
-    sourceItemCode: "ZZ-0096",
-    sourceItemName: "Yogurt (Curd)(PCS)",
-    sourceQty: 900.0,
-    sourceUom: "PCS",
-    targetItemCode: "ZZ-0096",
-    targetItemName: "Yogurt (Curd)(PCS)",
-    targetQty: 895.0,
-    targetUom: "PCS",
-    ratio: "1:1",
-    wastageQty: 5.0,
-    wastageUom: "PCS",
-    wastagePercent: 0.55,
-    status: "Pending",
-    operator: "MD. Tofajjol Hossin",
-    remarks: "Re-sorting by production date lot #304",
-  },
-];
+/** One record per converted line; stock moves when the conversion is approved. */
+function toRecords(docs: InventoryDocument[]): StockConversionRecord[] {
+  const round = (n: number, d = 3) => Math.round(n * 10 ** d) / 10 ** d;
+  return docs.flatMap((d) =>
+    d.lines.map((l, i) => {
+      const sameUnit = l.uom === l.toUom;
+      const wastage = sameUnit ? Math.max(0, round(l.qty - (l.toQty ?? 0))) : 0;
+      return {
+        sl: 0,
+        id: d.id,
+        code: d.lines.length > 1 ? `${d.number}/${i + 1}` : d.number,
+        conversionDate: d.docDate,
+        office: d.warehouse?.officeName ?? "",
+        warehouse: d.warehouse?.name ?? "",
+        conversionType: d.subtype ?? "",
+        sourceItemCode: l.itemCode,
+        sourceItemName: l.itemName,
+        sourceQty: l.qty,
+        sourceUom: l.uom,
+        targetItemCode: l.toItemCode ?? "",
+        targetItemName: l.toItemName ?? "",
+        targetQty: l.toQty ?? 0,
+        targetUom: l.toUom ?? "",
+        ratio: l.qty > 0 ? `1:${round((l.toQty ?? 0) / l.qty)}` : "",
+        wastageQty: wastage,
+        wastageUom: l.uom,
+        wastagePercent: sameUnit && l.qty > 0 ? round((wastage / l.qty) * 100, 2) : 0,
+        status: d.status === "PENDING" ? "Pending" : d.status === "REJECTED" ? "Rejected" : "Completed",
+        operator: d.approvedBy ?? d.createdBy,
+        remarks: d.remarks ?? "",
+      } satisfies StockConversionRecord;
+    }),
+  ).map((r, i) => ({ ...r, sl: i + 1 }));
+}
 
-const OFFICE_OPTIONS = [
-  { value: "All", label: "All" },
-  { value: "MG Sirajganj Factory", label: "MG Sirajganj Factory" },
-  { value: "Dhaka Head Office", label: "Dhaka Head Office" },
-  { value: "Marinozz", label: "Marinozz" },
-  { value: "MOHS Eco", label: "MOHS Eco" },
-];
-
-const WAREHOUSE_OPTIONS = [
-  { value: "All", label: "Warehouse" },
-  { value: "Material WH", label: "Material WH" },
-  { value: "PD Biscuit Store", label: "PD Biscuit Store" },
-  { value: "PD Snacks Store", label: "PD Snacks Store" },
-  { value: "Finished Goods (FG) WH", label: "Finished Goods (FG) WH" },
+const optionsOf = (placeholder: string, all: string, values: string[]) => [
+  { value: all, label: placeholder },
+  ...[...new Set(values.filter(Boolean))].sort().map((v) => ({ value: v, label: v })),
 ];
 
 const CONVERSION_TYPE_OPTIONS = [
@@ -239,14 +104,6 @@ const CONVERSION_TYPE_OPTIONS = [
   { value: "Unit Conversion", label: "Unit Conversion" },
   { value: "Grade Categorization", label: "Grade Categorization" },
   { value: "Raw to FG Conversion", label: "Raw to FG Conversion" },
-];
-
-const BUNDLED_ITEM_OPTIONS = [
-  { value: "All", label: "All Items" },
-  { value: "ZZ-0096", label: "ZZ-0096 - Yogurt (Curd)(PCS)" },
-  { value: "ZZ-0104", label: "ZZ-0104 - Sweetened Curd 500g Tub" },
-  { value: "ZZ-0105", label: "ZZ-0105 - Curd Snack Drink 200ml" },
-  { value: "RM-0042", label: "RM-0042 - Raw Chilled Milk Bulk (Ltr)" },
 ];
 
 const STATUS_OPTIONS = [
@@ -266,22 +123,23 @@ const VIEW_BY_OPTIONS = [
 ];
 
 export default function ItemStockConversionPage() {
+  const toast = useToast();
   const [activeTab, setActiveTab] = useState<ConversionTab>("CONVERSION_LIST");
   const [searchTerm, setSearchTerm] = useState("");
 
   // Tab 1 Filters (Exact to Screenshot 1)
   const [officeFilter, setOfficeFilter] = useState("All");
-  const [typeFilter, setTypeFilter] = useState("Stock Transfer");
-  const [bundledItemFilter, setBundledItemFilter] = useState("ZZ-0096");
-  const [fromDate, setFromDate] = useState("2026-10-08");
-  const [toDate, setToDate] = useState("2026-10-14");
-  const [statusFilter, setStatusFilter] = useState("Pending");
+  const [typeFilter, setTypeFilter] = useState("All");
+  const [bundledItemFilter, setBundledItemFilter] = useState("All");
+  const [fromDate, setFromDate] = useState(monthAgo());
+  const [toDate, setToDate] = useState(today());
+  const [statusFilter, setStatusFilter] = useState("All");
 
   // Tab 2 Filters (Exact to Screenshot 2)
   const [reportOffice, setReportOffice] = useState("");
   const [reportWarehouse, setReportWarehouse] = useState("");
-  const [reportFromDate, setReportFromDate] = useState("2026-10-08");
-  const [reportToDate, setReportToDate] = useState("2026-10-14");
+  const [reportFromDate, setReportFromDate] = useState(monthAgo());
+  const [reportToDate, setReportToDate] = useState(today());
   const [reportViewBy, setReportViewBy] = useState("Item Wise");
   const [reportConversionType, setReportConversionType] = useState("");
   const [includeFromItem, setIncludeFromItem] = useState(true);
@@ -293,30 +151,35 @@ export default function ItemStockConversionPage() {
   const [page, setPage] = useState(1);
 
   // Dataset State
-  const [records, setRecords] = useState<StockConversionRecord[]>(INITIAL_CONVERSIONS);
+  const docs = useResource("item-stock-conversion-all", () => inventoryApi.list("item-stock-conversion"));
+  const records = useMemo(() => toRecords(docs.data ?? []), [docs.data]);
+  const OFFICE_OPTIONS = optionsOf("All", "All", records.map((r) => r.office));
+  const BUNDLED_ITEM_OPTIONS = [
+    { value: "All", label: "All Items" },
+    ...[...new Map(records.flatMap((r) => [[r.sourceItemCode, r.sourceItemName], [r.targetItemCode, r.targetItemName]] as const)).entries()]
+      .filter(([code]) => code)
+      .sort()
+      .map(([code, name]) => ({ value: code, label: `${code} - ${name}` })),
+  ];
+  const [approving, setApproving] = useState(false);
+  /** Approving posts the conversion: source items out, target items in. */
+  const approveConversion = async (record: StockConversionRecord) => {
+    setApproving(true);
+    try {
+      await inventoryApi.review("item-stock-conversion", record.id, "approve");
+      toast.success(`${record.code} approved. Stock converted.`);
+      setViewRecord(null);
+      docs.reload();
+    } catch (error) {
+      toast.error(errorMessage(error));
+    } finally {
+      setApproving(false);
+    }
+  };
 
   // Modals
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [viewRecord, setViewRecord] = useState<StockConversionRecord | null>(null);
-
-  // Form State for new entry
-  const [newEntry, setNewEntry] = useState({
-    office: "MG Sirajganj Factory",
-    warehouse: "PD Biscuit Store",
-    conversionType: "Stock Transfer",
-    conversionDate: "2026-10-14",
-    sourceItemCode: "ZZ-0096",
-    sourceItemName: "Yogurt (Curd)(PCS)",
-    sourceQty: 500,
-    sourceUom: "PCS",
-    targetItemCode: "ZZ-0104",
-    targetItemName: "Sweetened Curd 500g Tub",
-    targetQty: 495,
-    targetUom: "PCS",
-    ratio: "1:1",
-    wastageQty: 5,
-    remarks: "Converted for packaging department",
-  });
 
   // Filtered rows for Tab 1
   const filteredRecords = useMemo(() => {
@@ -502,41 +365,6 @@ export default function ItemStockConversionPage() {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-  };
-
-  // Handle Create submission
-  const handleCreateSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    const newRecord: StockConversionRecord = {
-      sl: records.length + 1,
-      code: `ISC-MG2610${String(records.length + 43).padStart(5, "0")}`,
-      conversionDate: newEntry.conversionDate,
-      office: newEntry.office,
-      warehouse: newEntry.warehouse,
-      conversionType: newEntry.conversionType,
-      sourceItemCode: newEntry.sourceItemCode,
-      sourceItemName: newEntry.sourceItemName,
-      sourceQty: Number(newEntry.sourceQty),
-      sourceUom: newEntry.sourceUom,
-      targetItemCode: newEntry.targetItemCode,
-      targetItemName: newEntry.targetItemName,
-      targetQty: Number(newEntry.targetQty),
-      targetUom: newEntry.targetUom,
-      ratio: newEntry.ratio,
-      wastageQty: Number(newEntry.wastageQty),
-      wastageUom: newEntry.sourceUom,
-      wastagePercent:
-        Number(newEntry.sourceQty) > 0
-          ? Number(
-              ((Number(newEntry.wastageQty) / Number(newEntry.sourceQty)) * 100).toFixed(2)
-            )
-          : 0,
-      status: "Pending",
-      operator: "Current User",
-      remarks: newEntry.remarks,
-    };
-    setRecords([newRecord, ...records]);
-    setIsCreateOpen(false);
   };
 
   return (
@@ -1316,236 +1144,19 @@ export default function ItemStockConversionPage() {
       {/* ───────────────────────────────────────────────────────────────── */}
       {/* 5. CREATE NEW STOCK CONVERSION MODAL                              */}
       {/* ───────────────────────────────────────────────────────────────── */}
-      {isCreateOpen && (
-        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-2xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-lg shadow-xl border border-slate-200 max-w-2xl w-full overflow-hidden animate-in fade-in zoom-in-95 duration-150">
-            {/* Modal Header */}
-            <div className="flex items-center justify-between px-5 py-3.5 bg-slate-50 border-b border-slate-200">
-              <div className="flex items-center gap-2">
-                <Plus className="w-4 h-4 text-blue-600" />
-                <h3 className="text-sm font-bold text-slate-900">
-                  New Item Stock Conversion
-                </h3>
-              </div>
-              <button
-                type="button"
-                onClick={() => setIsCreateOpen(false)}
-                className="text-slate-400 hover:text-slate-600 p-1 rounded"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
+      <InventoryDocumentDialog
+        open={isCreateOpen}
+        onClose={() => setIsCreateOpen(false)}
+        onSaved={() => docs.reload()}
+        config={{
+          slug: "item-stock-conversion",
+          title: "New Item Stock Conversion",
+          warehouses: "one",
+          conversion: true,
+          subtype: { label: "Conversion type", options: CONVERSION_TYPE_OPTIONS.filter((o) => o.value !== "All").map((o) => o.value) },
+        }}
+      />
 
-            {/* Modal Form */}
-            <form onSubmit={handleCreateSubmit} className="p-5 space-y-4 text-xs">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-                <div>
-                  <label className="block text-[11px] font-semibold text-slate-700 mb-1">
-                    Office / Factory
-                  </label>
-                  <select
-                    value={newEntry.office}
-                    onChange={(e) =>
-                      setNewEntry({ ...newEntry, office: e.target.value })
-                    }
-                    className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white text-xs"
-                    required
-                  >
-                    <option value="MG Sirajganj Factory">MG Sirajganj Factory</option>
-                    <option value="Dhaka Head Office">Dhaka Head Office</option>
-                    <option value="Marinozz">Marinozz</option>
-                    <option value="MOHS Eco">MOHS Eco</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-[11px] font-semibold text-slate-700 mb-1">
-                    Warehouse
-                  </label>
-                  <select
-                    value={newEntry.warehouse}
-                    onChange={(e) =>
-                      setNewEntry({ ...newEntry, warehouse: e.target.value })
-                    }
-                    className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white text-xs"
-                    required
-                  >
-                    <option value="PD Biscuit Store">PD Biscuit Store</option>
-                    <option value="Material WH">Material WH</option>
-                    <option value="PD Snacks Store">PD Snacks Store</option>
-                    <option value="Finished Goods (FG) WH">Finished Goods (FG) WH</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-[11px] font-semibold text-slate-700 mb-1">
-                    Conversion Type
-                  </label>
-                  <select
-                    value={newEntry.conversionType}
-                    onChange={(e) =>
-                      setNewEntry({ ...newEntry, conversionType: e.target.value })
-                    }
-                    className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white text-xs"
-                    required
-                  >
-                    <option value="Stock Transfer">Stock Transfer</option>
-                    <option value="Repackaging">Repackaging</option>
-                    <option value="Unit Conversion">Unit Conversion</option>
-                    <option value="Grade Categorization">Grade Categorization</option>
-                    <option value="Raw to FG Conversion">Raw to FG Conversion</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-[11px] font-semibold text-slate-700 mb-1">
-                    Conversion Date
-                  </label>
-                  <input
-                    type="date"
-                    value={newEntry.conversionDate}
-                    onChange={(e) =>
-                      setNewEntry({ ...newEntry, conversionDate: e.target.value })
-                    }
-                    className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white text-xs"
-                    required
-                  />
-                </div>
-              </div>
-
-              {/* Source Item Section */}
-              <div className="bg-slate-50 p-3 rounded border border-slate-200 space-y-2.5">
-                <div className="font-bold text-slate-800 text-[11px] uppercase tracking-wide">
-                  Source (From) Item Details
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  <div className="sm:col-span-2">
-                    <label className="block text-[11px] text-slate-600 mb-1">
-                      Source Item
-                    </label>
-                    <select
-                      value={newEntry.sourceItemCode}
-                      onChange={(e) => {
-                        const opt = BUNDLED_ITEM_OPTIONS.find((b) => b.value === e.target.value);
-                        setNewEntry({
-                          ...newEntry,
-                          sourceItemCode: e.target.value,
-                          sourceItemName: opt ? opt.label.split(" - ")[1] : "Custom Item",
-                        });
-                      }}
-                      className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white text-xs"
-                    >
-                      <option value="ZZ-0096">ZZ-0096 - Yogurt (Curd)(PCS)</option>
-                      <option value="RM-0042">RM-0042 - Raw Chilled Milk Bulk (Ltr)</option>
-                      <option value="ZZ-0104">ZZ-0104 - Sweetened Curd 500g Tub</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-[11px] text-slate-600 mb-1">
-                      Consume Qty ({newEntry.sourceUom})
-                    </label>
-                    <input
-                      type="number"
-                      step="any"
-                      value={newEntry.sourceQty}
-                      onChange={(e) =>
-                        setNewEntry({
-                          ...newEntry,
-                          sourceQty: Number(e.target.value),
-                          wastageQty: Math.max(0, Number(e.target.value) - Number(newEntry.targetQty)),
-                        })
-                      }
-                      className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white text-xs"
-                      required
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* Target Item Section */}
-              <div className="bg-blue-50/50 p-3 rounded border border-blue-200 space-y-2.5">
-                <div className="font-bold text-blue-900 text-[11px] uppercase tracking-wide">
-                  Target (Converted) Item Details
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  <div className="sm:col-span-2">
-                    <label className="block text-[11px] text-slate-600 mb-1">
-                      Converted Item
-                    </label>
-                    <input
-                      type="text"
-                      value={newEntry.targetItemName}
-                      onChange={(e) =>
-                        setNewEntry({ ...newEntry, targetItemName: e.target.value })
-                      }
-                      className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white text-xs"
-                      required
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-[11px] text-slate-600 mb-1">
-                      Target Qty Produced
-                    </label>
-                    <input
-                      type="number"
-                      step="any"
-                      value={newEntry.targetQty}
-                      onChange={(e) =>
-                        setNewEntry({
-                          ...newEntry,
-                          targetQty: Number(e.target.value),
-                          wastageQty: Math.max(0, Number(newEntry.sourceQty) - Number(e.target.value)),
-                        })
-                      }
-                      className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white text-xs"
-                      required
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* Remarks */}
-              <div>
-                <label className="block text-[11px] font-semibold text-slate-700 mb-1">
-                  Remarks / Purpose
-                </label>
-                <textarea
-                  rows={2}
-                  value={newEntry.remarks}
-                  onChange={(e) =>
-                    setNewEntry({ ...newEntry, remarks: e.target.value })
-                  }
-                  className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white text-xs focus:ring-1 focus:ring-blue-500"
-                  placeholder="Reason for stock conversion or transfer batch info..."
-                />
-              </div>
-
-              {/* Form Buttons */}
-              <div className="flex justify-end gap-2 pt-2 border-t border-slate-200">
-                <button
-                  type="button"
-                  onClick={() => setIsCreateOpen(false)}
-                  className="h-8 px-4 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 font-medium rounded text-xs transition"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="h-8 px-5 bg-[#1976d2] hover:bg-[#1565c0] text-white font-semibold rounded text-xs transition shadow-xs"
-                >
-                  Save & Submit
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* ───────────────────────────────────────────────────────────────── */}
-      {/* 6. VIEW DETAILS VOUCHER MODAL                                     */}
-      {/* ───────────────────────────────────────────────────────────────── */}
       {viewRecord && (
         <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-2xs flex items-center justify-center p-4">
           <div className="bg-white rounded-lg shadow-xl border border-slate-200 max-w-2xl w-full overflow-hidden animate-in fade-in zoom-in-95 duration-150">
@@ -1642,14 +1253,8 @@ export default function ItemStockConversionPage() {
                   {viewRecord.status === "Pending" && (
                     <button
                       type="button"
-                      onClick={() => {
-                        setRecords(
-                          records.map((r) =>
-                            r.code === viewRecord.code ? { ...r, status: "Approved" } : r
-                          )
-                        );
-                        setViewRecord({ ...viewRecord, status: "Approved" });
-                      }}
+                      disabled={approving}
+                      onClick={() => approveConversion(viewRecord)}
                       className="h-8 px-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-medium text-xs rounded transition"
                     >
                       Approve Conversion

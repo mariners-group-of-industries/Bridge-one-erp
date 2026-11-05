@@ -1,15 +1,6 @@
 import { z } from "zod";
 
-// User Group and Permission Group (Configuration › Identity & Security).
-
-export const PERMISSION_ACTIONS = [
-  { key: "canCreate", label: "Create" },
-  { key: "canEdit", label: "Edit" },
-  { key: "canView", label: "View" },
-  { key: "canDelete", label: "Delete" },
-  { key: "canApprove", label: "Approve" },
-] as const;
-export type PermissionAction = (typeof PERMISSION_ACTIONS)[number]["key"];
+// User Group (Configuration › Identity & Security).
 
 const groupName = z.string().trim().min(1, "Enter the group name.").max(150, "At most 150 characters.");
 
@@ -22,25 +13,6 @@ export const userGroupInputSchema = z.object({
     .refine((ids) => new Set(ids).size === ids.length, { message: "Each user can be added only once." }),
 });
 export type UserGroupInput = z.input<typeof userGroupInputSchema>;
-
-export const permissionEntrySchema = z.object({
-  activityKey: z.string().min(1).max(200),
-  canCreate: z.boolean().optional().default(false),
-  canEdit: z.boolean().optional().default(false),
-  canView: z.boolean().optional().default(false),
-  canDelete: z.boolean().optional().default(false),
-  canApprove: z.boolean().optional().default(false),
-});
-export type PermissionEntry = z.output<typeof permissionEntrySchema>;
-
-export const permissionGroupInputSchema = z.object({
-  name: groupName,
-  entries: z
-    .array(permissionEntrySchema)
-    .max(1000)
-    .refine((rows) => new Set(rows.map((r) => r.activityKey)).size === rows.length, { message: "Each activity can appear only once." }),
-});
-export type PermissionGroupInput = z.input<typeof permissionGroupInputSchema>;
 
 export const groupListQuerySchema = z.object({
   search: z.string().trim().max(100).optional().default(""),
@@ -77,10 +49,4 @@ export interface UserGroupDto {
   id: string;
   name: string;
   members: UserOption[];
-}
-
-export interface PermissionGroupDto {
-  id: string;
-  name: string;
-  entries: PermissionEntry[];
 }

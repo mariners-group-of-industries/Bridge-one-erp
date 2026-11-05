@@ -7,11 +7,6 @@ import {
   Package,
   PackageOpen,
   ChevronDown,
-  TrendingUp,
-  BarChart3,
-  Layers,
-  ArrowRight,
-  ArrowUpRight,
 } from "lucide-react";
 import {
   PieChart,
@@ -25,7 +20,8 @@ import {
   YAxis,
   CartesianGrid,
 } from "recharts";
-import { useInventoryStore } from "@/features/inventory/store/inventory-store";
+import { useResource } from "@/hooks/use-resource";
+import { inventoryApi, monthAgo, today } from "@/features/inventory/services/inventory.api";
 import type {
   ValuationCategory,
   MovingFrequencyItem,
@@ -34,31 +30,24 @@ import type {
 } from "@/features/inventory/types";
 
 export default function InventoryDashboardPage() {
-  const {
-    kpis,
-    valuationData,
-    topTransactions,
-    movingFrequencies,
-    turnoverRatios,
-  } = useInventoryStore();
-
-  const [fromDate, setFromDate] = useState("10/01/2026");
-  const [toDate, setToDate] = useState("10/13/2026");
+  const [fromDate, setFromDate] = useState(monthAgo());
+  const [toDate, setToDate] = useState(today());
   const [warehouse1, setWarehouse1] = useState("");
   const [warehouse2, setWarehouse2] = useState("");
-  const [itemCategory, setItemCategory] = useState("Item Category");
-  const [showCoverageSample, setShowCoverageSample] = useState(false);
-
-  // Daily coverage sample data if user toggles view
-  const sampleCoverageData = [
-    { day: "Oct 01", days: 38 },
-    { day: "Oct 03", days: 42 },
-    { day: "Oct 05", days: 35 },
-    { day: "Oct 07", days: 40 },
-    { day: "Oct 09", days: 44 },
-    { day: "Oct 11", days: 39 },
-    { day: "Oct 13", days: 41 },
-  ];
+  const [itemCategory, setItemCategory] = useState("");
+  // Everything below is worked out from the stock ledger for the period applied with View.
+  const [period, setPeriod] = useState({ from: fromDate, to: toDate });
+  const overview = useResource(`inventory-overview-${period.from}-${period.to}-${warehouse1}-${itemCategory}`, () =>
+    inventoryApi.overview({ ...period, warehouseId: warehouse1 || undefined, category: itemCategory || undefined }),
+  );
+  const data = overview.data;
+  const kpis = data?.kpis ?? { totalBalance: 0, openingBalance: 0, inventoryOut: 0, inventoryIn: 0 };
+  const valuationData = data?.valuationData ?? [];
+  const topTransactions = data?.topTransactions ?? [];
+  const movingFrequencies = data?.movingFrequencies ?? [];
+  const turnoverRatios = data?.turnoverRatios ?? [];
+  const coverageData = data?.coverage ?? [];
+  const maxFrequency = Math.max(1, ...movingFrequencies.map((m) => m.frequency));
 
   // Custom label renderer to match screenshot's on-slice percentage labels
   const renderValuationLabel = ({
@@ -104,8 +93,9 @@ export default function InventoryDashboardPage() {
           </label>
           <div className="relative flex items-center">
             <input
-              type="text"
+              type="date"
               value={fromDate}
+              max={toDate}
               onChange={(e) => setFromDate(e.target.value)}
               className="h-8 w-36 sm:w-44 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2.5 pr-8 text-xs text-slate-700 dark:text-slate-200 shadow-2xs focus:border-blue-500 focus:outline-none"
             />
@@ -120,8 +110,9 @@ export default function InventoryDashboardPage() {
           </label>
           <div className="relative flex items-center">
             <input
-              type="text"
+              type="date"
               value={toDate}
+              min={fromDate}
               onChange={(e) => setToDate(e.target.value)}
               className="h-8 w-36 sm:w-44 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2.5 pr-8 text-xs text-slate-700 dark:text-slate-200 shadow-2xs focus:border-blue-500 focus:outline-none"
             />
@@ -133,6 +124,8 @@ export default function InventoryDashboardPage() {
         <div>
           <button
             type="button"
+            onClick={() => setPeriod({ from: fromDate, to: toDate })}
+            disabled={!fromDate || !toDate || fromDate > toDate}
             className="h-8 rounded bg-[#1877f2] hover:bg-[#166fe5] px-5 text-xs font-semibold text-white shadow-2xs transition-colors flex items-center justify-center cursor-pointer active:scale-98"
           >
             View
@@ -223,10 +216,12 @@ export default function InventoryDashboardPage() {
                   onChange={(e) => setWarehouse1(e.target.value)}
                   className="appearance-none bg-transparent pr-5 text-xs text-slate-400 dark:text-slate-400 focus:outline-none cursor-pointer"
                 >
-                  <option value="">Select...</option>
-                  <option value="Central Store">Central Store</option>
-                  <option value="Raw Material Store">Raw Material Store</option>
-                  <option value="Finished Goods Store">Finished Goods Store</option>
+                  <option value="">All warehouses</option>
+                  {(data?.warehouses ?? []).map((w) => (
+                    <option key={w.id} value={w.id}>
+                      {w.name}
+                    </option>
+                  ))}
                 </select>
                 <ChevronDown className="pointer-events-none absolute right-0 size-3 text-slate-400" />
               </div>
@@ -237,10 +232,7 @@ export default function InventoryDashboardPage() {
                   onChange={(e) => setWarehouse2(e.target.value)}
                   className="appearance-none bg-transparent pr-5 text-xs text-slate-400 dark:text-slate-400 focus:outline-none cursor-pointer"
                 >
-                  <option value="">Select...</option>
-                  <option value="FIFO">FIFO Valuation</option>
-                  <option value="Weighted Avg">Weighted Avg</option>
-                  <option value="Standard">Standard Cost</option>
+                  <option value="">Valued at purchase price</option>
                 </select>
                 <ChevronDown className="pointer-events-none absolute right-0 size-3 text-slate-400" />
               </div>
@@ -280,24 +272,15 @@ export default function InventoryDashboardPage() {
             </ResponsiveContainer>
           </div>
 
-          {/* Legend Matching Screenshot */}
+          {/* Legend: one entry per category */}
           <div className="flex flex-wrap items-center justify-center gap-x-5 gap-y-2 pt-2 border-t border-slate-100 dark:border-slate-800 text-xs text-slate-700 dark:text-slate-300">
-            <div className="flex items-center gap-1.5">
-              <span className="size-2.5 rounded-full bg-[#b939e5]" />
-              <span className="font-medium text-[11px] sm:text-xs">MRO</span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <span className="size-2.5 rounded-full bg-[#facc15]" />
-              <span className="font-medium text-[11px] sm:text-xs">Asset</span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <span className="size-2.5 rounded-full bg-[#38effe]" />
-              <span className="font-medium text-[11px] sm:text-xs">Raw</span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <span className="size-2.5 rounded-full bg-[#3b82f6]" />
-              <span className="font-medium text-[11px] sm:text-xs">Finished Goods</span>
-            </div>
+            {valuationData.length === 0 && <span className="text-[11px] text-slate-400">{overview.loading ? "Loading…" : "No stock in this period."}</span>}
+            {valuationData.map((entry) => (
+              <div key={entry.name} className="flex items-center gap-1.5">
+                <span className="size-2.5 rounded-full" style={{ backgroundColor: entry.color }} />
+                <span className="font-medium text-[11px] sm:text-xs">{entry.name}</span>
+              </div>
+            ))}
           </div>
         </div>
 
@@ -320,12 +303,12 @@ export default function InventoryDashboardPage() {
                 onChange={(e) => setItemCategory(e.target.value)}
                 className="appearance-none bg-transparent pr-5 text-xs text-slate-500 dark:text-slate-300 focus:outline-none cursor-pointer"
               >
-                <option value="Item Category">Item Category</option>
-                <option value="Raw Materials">Raw Materials</option>
-                <option value="Yarn & Fabric">Yarn & Fabric</option>
-                <option value="Dyes & Chemicals">Dyes & Chemicals</option>
-                <option value="Packaging">Packaging</option>
-                <option value="MRO & Spares">MRO & Spares</option>
+                <option value="">All categories</option>
+                {(data?.categories ?? []).map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
               </select>
               <ChevronDown className="pointer-events-none absolute right-2 size-3 text-slate-400" />
             </div>
@@ -333,33 +316,21 @@ export default function InventoryDashboardPage() {
 
           {/* Body Content */}
           <div className="min-h-64 sm:min-h-72 flex flex-col items-center justify-center p-6">
-            {!showCoverageSample ? (
+            {coverageData.length === 0 ? (
               <div className="text-center space-y-2">
                 <p className="text-xl sm:text-2xl font-bold tracking-tight text-slate-700 dark:text-slate-300">
-                  No Data Found !
+                  {overview.loading ? "Loading…" : "No Data Found !"}
                 </p>
-                <button
-                  type="button"
-                  onClick={() => setShowCoverageSample(true)}
-                  className="text-[11px] text-blue-500 hover:text-blue-600 underline cursor-pointer mt-1"
-                >
-                  Preview daily coverage chart
-                </button>
+                <p className="text-[11px] text-slate-400">Coverage needs stock going out in the period.</p>
               </div>
             ) : (
               <div className="w-full h-64">
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-xs font-medium text-slate-500">Days of Inventory Outstanding</span>
-                  <button
-                    type="button"
-                    onClick={() => setShowCoverageSample(false)}
-                    className="text-[11px] text-slate-400 hover:text-slate-600 cursor-pointer"
-                  >
-                    Reset to Empty View
-                  </button>
+
                 </div>
                 <ResponsiveContainer width="100%" height="90%">
-                  <BarChart data={sampleCoverageData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                  <BarChart data={coverageData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
                     <XAxis dataKey="day" tick={{ fontSize: 11, fill: "#64748b" }} />
                     <YAxis tick={{ fontSize: 11, fill: "#64748b" }} />
@@ -412,7 +383,7 @@ export default function InventoryDashboardPage() {
                   <div className="h-1.5 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
                     <div
                       className="h-full bg-blue-500 rounded-full"
-                      style={{ width: `${Math.min(100, (item.frequency / 1500) * 100)}%` }}
+                      style={{ width: `${Math.min(100, (item.frequency / maxFrequency) * 100)}%` }}
                     />
                   </div>
                 </div>
@@ -477,7 +448,7 @@ export default function InventoryDashboardPage() {
                   Overall Annualized Turnover
                 </span>
                 <span className="text-2xl font-bold text-slate-900 dark:text-slate-100">
-                  8.4x
+                  {data?.overallTurnover ?? 0}x
                 </span>
               </div>
               <div className="text-right">
@@ -485,7 +456,7 @@ export default function InventoryDashboardPage() {
                   Healthy Velocity
                 </span>
                 <span className="text-[11px] text-slate-400 block mt-1">
-                  Avg Velocity: 43.5 Days
+                  Coverage: {data?.overallCoverageDays ?? 0} Days
                 </span>
               </div>
             </div>

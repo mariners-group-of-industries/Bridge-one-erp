@@ -5,6 +5,7 @@ export const entityMasterDataPaths = {
   employee: `${ROOT}/employee`,
   employeeCreate: `${ROOT}/employee/create`,
   employeeProfile: (id: string) => `${ROOT}/employee/${id}/profile`,
+  employeePermissions: (id: string) => `${ROOT}/employee/${id}/permissions`,
   itemProfile: `${ROOT}/item-profile`,
   itemCreate: `${ROOT}/item-profile/new`,
   itemEdit: (id: string) => `${ROOT}/item-profile/${id}`,

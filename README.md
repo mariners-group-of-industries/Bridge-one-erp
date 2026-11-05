@@ -55,3 +55,114 @@ Login with the credentials created by the seed script (check `prisma/seed.ts`).
 - **Database**: PostgreSQL via Neon, Prisma 7
 - **Auth**: Argon2id password hashing, RS256 JWT in httpOnly cookie
 - **Testing**: Vitest + PGlite (in-process Postgres)
+
+## How the modules connect
+
+All modules live in one Next.js app (`frontend/`) and share one PostgreSQL database. A module
+is a folder in `src/features/<module>/` with its pages in `src/app/(erp)/<module>/`, its API
+in `src/app/api/<module>/`, and its menu in `navigation.ts`. Modules connect in three ways:
+shared master data in the database, direct service imports, and the shared platform code in
+`src/lib`.
+
+```
+                        ┌──────────────────────────────────────────┐
+                        │ Configuration (master data + security)    │
+                        │ company · business units · offices ·      │
+                        │ warehouses · items · customers · suppliers│
+                        │ employees · users · permission groups ·   │
+                        │ approval pipelines · API tokens · devices │
+                        └───────┬──────────┬──────────┬────────┬────┘
+                                │          │          │        │
+              ┌─────────────────▼─┐   ┌────▼─────┐ ┌──▼─────┐ ┌▼─────────┐
+              │ Sales             │◄──┤Production│ │  HRM   │ │ Purchase │
+              │ orders, deliveries│   │ BOM,     │ │        │ │          │
+              │ returns, bills,   │   │ orders,  │ │        │ │          │
+              │ collections       │   │ entries  │ │        │ │          │
+              └───┬──────────┬────┘   └────┬─────┘ └───▲────┘ └──────────┘
+                  │          │             │           │
+                  │   ┌──────▼─────────────▼──┐   ZKTeco agent
+                  │   │ Stock ledger           │   (tools/zk-attendance-agent)
+                  │   │ (StockEntry table)     │
+                  │   └────────────┬───────────┘
+                  ▼                ▼
+             ┌──────────┐   ┌────────────┐
+             │ Accounts │   │ Home       │  reads stock, sales, customers,
+             │ (GL)     │──►│ dashboard  │  employees and account balances
+             └──────────┘   └────────────┘
+```
+
+### Configuration is the hub
+
+Every other module depends on Configuration and nothing in Configuration depends on them
+(except the shared document-number generator, `sales/lib/sequence`).
+
+| Configuration provides | Used by |
+|---|---|
+| Company › business unit › office › warehouse | Scopes almost every record (`businessUnitId`, `officeId`, `warehouseId`) |
+| Items, categories, UOMs, opening stock | Sales, Production, Purchase, Home |
+| Customers, customer groups, territories, price lists | Sales, Home |
+| Suppliers | Purchase, Sales (supplier forms), HRM |
+| Employees | HRM (attendance, payroll, leave, governance), Sales persons, Production operators |
+| Users, permission groups, overrides | Every API request (see [docs/permissions.md](docs/permissions.md)) |
+| Approval pipelines | Production orders |
+| API tokens, attendance devices | Integrations and the ZKTeco attendance agent |
+
+### Module-to-module links
+
+| From | To | How |
+|---|---|---|
+| Sales | Configuration | Item, customer and supplier schemas and forms (`entity-master-data`) |
+| Sales | Stock ledger | Deliveries post stock out and returns post stock in (`StockEntry`) |
+| Sales | Accounts | Collections reference GL accounts for cash, adjustment and deductions |
+| Production | Sales | Reuses sales helpers (`sales/lib`: scope, dates, forms, sequences) and the stock service (`sales/deliveries/services/stock.service`) |
+| Production | Stock ledger | Entries consume materials and add finished goods; orders check stock levels |
+| Production | Configuration | Item schema; approval pipelines for order approval |
+| Purchase | Configuration | Offices, warehouses, suppliers and items (`/api/v1/master/…`) |
+| Purchase | Stock ledger | Goods receipts post accepted quantities in (`PURCHASE_RECEIPT`); purchase returns post stock out (`PURCHASE_RETURN`) and refuse to return more than is in stock |
+| Purchase | Supplier payable | Receipts and ad-hoc bills raise `supplier.balance`, returns and payments lower it. `src/lib/purchase-store/payables.ts` applies payments to receipts and bills (linked document first, then oldest); what is left is the supplier's advance |
+| Inventory | Stock ledger | Stock updates and conversions post when approved; transfers post out when dispatched and in when received (shortfall goes back to the source); store issues post out when saved. Transfer requests and store requisitions are approved, then fulfilled by transfers and issues (`features/inventory/server`) |
+| Inventory | Dashboard and reports | Valuation, movements, turnover, coverage and the inventory / transfer reports are computed from the stock ledger (quantity × purchase price) |
+| POS | Stock ledger | A terminal sale (`/pos/terminal`) takes the items out of the counter's warehouse (`POS_SALE`); voiding it puts them back (`POS_RETURN`). Counters (POS Setup › Counter Setup) each sell from one warehouse |
+| POS | Dashboard and reports | Counter, payment, item and customer figures, VAT, discounts, voids and margins come from POS sales |
+| Sales, Purchase, POS, Inventory, HRM payroll | Accounts | After each save, `src/lib/accounting/posting.service.ts` posts new documents to the general ledger (one voucher per document, `JournalVoucher.sourceType/sourceId`) using the GL accounts chosen in Accounts › Posting Setup; cancelled documents get a reversing voucher. Rules: `src/lib/accounting/posting-rules.ts` |
+| Connect | Configuration | Employee directory; routes need a signed-in user with the Connect permission |
+| HRM | Configuration | Employee profile kit and actions; attendance devices and API tokens |
+| HRM | Attendance agent | The agent reads the device on the LAN and posts punches with an API token |
+| Home | All | `home/overview.service.ts` reads stock, prices, sales targets, customers, suppliers, employees and (for Accounts readers) balances and budgets |
+
+The stock ledger (`StockEntry`) is the main shared table: opening stock, purchase receipts
+and returns, sales deliveries and returns, production entries and inventory documents
+(updates, transfers, issues, conversions) all write to it, and stock levels are always
+computed from it, so every module sees the same stock.
+
+### Links not built yet
+
+| Missing link | What it needs |
+|---|---|
+| POS setup (discounts & offers, sales setup, point redeem, floors & tables) | These setup screens are still saved in the browser only; counters are in the database. |
+
+### Current data sources
+
+| Module | Data |
+|---|---|
+| Configuration, Sales, Production, HRM, Accounts | PostgreSQL through Prisma (`/api/<module>/…`) |
+| Purchase | PostgreSQL through `src/lib/purchase-store`, served at `/api/v1/…` |
+| Connect | PostgreSQL through `src/lib/connect/db.ts` (`/api/connect/…`) |
+| Inventory | PostgreSQL (`InventoryDocument`, `StockEntry`) through `/api/inventory/<page>/…` |
+| POS | PostgreSQL (`PosCounter`, `PosSale`) through `/api/pos/…`; other setup screens in the browser |
+| RTM, CRM | Planned |
+
+### Shared platform code (`src/lib`)
+
+- `auth/`: sessions (JWT cookie plus `UserSession`), API tokens and `requireActor`.
+- `permissions/`: the permission registry built from every module's `navigation.ts`, and the
+  API-path → page/action rules. Each module's menu therefore also defines its permissions.
+- `api/handler.ts`: `apiHandler(permission, handler)` wraps every route with authentication,
+  permission checks and error handling.
+- `audit/`: the audit trail written by all modules.
+- `navigation/registry.ts`: the sidebar, search and home page list every module's workspace.
+- `prisma/`: the single database client.
+
+To add a module: create `src/features/<module>/navigation.ts`, register it in
+`src/lib/navigation/registry.ts`, add its API rules in `src/lib/permissions/api-rules.ts`,
+and wrap its routes with `apiHandler`.

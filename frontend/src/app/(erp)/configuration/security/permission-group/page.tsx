@@ -1,10 +1,10 @@
 import type { Metadata } from "next";
-import { GroupListView } from "@/features/configuration/security/groups/components/GroupListView";
+import { PermissionGroupListView } from "@/features/configuration/security/access/components/PermissionGroupListView";
 
 export const instant = false;
 
-export const metadata: Metadata = { title: "Permission Group" };
+export const metadata: Metadata = { title: "Permission Groups" };
 
 export default function PermissionGroupPage() {
-  return <GroupListView kind="permission" />;
+  return <PermissionGroupListView />;
 }

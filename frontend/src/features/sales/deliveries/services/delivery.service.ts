@@ -1,6 +1,6 @@
 import { Prisma } from "@/generated/prisma/client";
 import { badRequest, conflict, notFound } from "@/lib/api/errors";
-import { assertCompanyAccess, type Actor } from "@/lib/auth/actor";
+import { canOn, assertCompanyAccess, type Actor } from "@/lib/auth/actor";
 import { db } from "@/lib/prisma/client";
 import { money } from "../../dashboard/lib/aggregate";
 import { fromDbDate, toDbDate } from "../../lib/dates";
@@ -1239,6 +1239,6 @@ export async function confirmDelivery(actor: Actor, id: string, raw: unknown): P
     throw error;
   }
   // Approvers settle it at once (stock back, due reduced); otherwise it waits on Sales Return.
-  if (salesReturn && actor.permissions.has("sales:approve")) await approveReturn(actor, salesReturn.id, { version: salesReturn.updatedAt });
+  if (salesReturn && canOn(actor, "/sales/returns", "approve", "sales:approve")) await approveReturn(actor, salesReturn.id, { version: salesReturn.updatedAt });
   return getDelivery(actor, id);
 }

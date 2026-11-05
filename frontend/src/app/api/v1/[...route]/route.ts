@@ -1,6 +1,15 @@
 import { NextResponse } from "next/server";
 import { apiHandler } from "@/lib/api/handler";
+import type { Actor } from "@/lib/auth/actor";
 import { purchaseStore } from "@/lib/purchase-store/store";
+import {
+  approvePendingSupplierBills,
+  approveSupplierBill,
+  createSupplierBill,
+  listPaymentHistory,
+  listSupplierAdvances,
+  listSupplierBills,
+} from "@/lib/purchase-store/payables";
 import {
   CreateRequisitionSchema,
   CreatePurchaseOrderSchema,
@@ -180,6 +189,19 @@ async function handleGET(
       });
     }
 
+    if (path === "purchase/supplier-payments/history") {
+      const data = await listPaymentHistory();
+      return NextResponse.json({ success: true, data, meta: { total: data.length } });
+    }
+    if (path === "purchase/supplier-payments/advances") {
+      const data = await listSupplierAdvances();
+      return NextResponse.json({ success: true, data, meta: { total: data.length } });
+    }
+    if (path === "purchase/supplier-bills") {
+      const data = await listSupplierBills();
+      return NextResponse.json({ success: true, data, meta: { total: data.length } });
+    }
+
     // 8. REPORTS
     if (path === "purchase/reports") {
       const query = ReportQuerySchema.parse({
@@ -237,14 +259,16 @@ async function handleGET(
 
 async function handlePOST(
   request: Request,
-  { params }: { params: Promise<{ route: string[] }> }
+  { params }: { params: Promise<{ route: string[] }> },
+  actor: Actor
 ) {
   const { route } = await params;
   const path = route.join("/");
 
   try {
     const body = await request.json().catch(() => ({}));
-    const actorName = "Fuad Hossain";
+    // Recorded as "prepared by" / "received by": the signed-in user.
+    const actorName = actor.name ?? actor.id;
 
     // Create Requisition
     if (path === "purchase/requisitions") {
@@ -393,6 +417,20 @@ async function handlePOST(
       return NextResponse.json({ success: true, data: created }, { status: 201 });
     }
 
+    // Supplier bills: book, approve one, approve every pending bill
+    if (path === "purchase/supplier-bills") {
+      const created = await createSupplierBill(body, actorName);
+      return NextResponse.json({ success: true, data: created }, { status: 201 });
+    }
+    if (path === "purchase/supplier-bills/approve-pending") {
+      const result = await approvePendingSupplierBills(actorName);
+      return NextResponse.json({ success: true, data: result });
+    }
+    if (route[0] === "purchase" && route[1] === "supplier-bills" && route.length === 4 && route[3] === "approve") {
+      const updated = await approveSupplierBill(route[2], actorName);
+      return NextResponse.json({ success: true, data: updated });
+    }
+
     // Approve Supplier Bill / Payment
     if (
       route[0] === "purchase" &&
@@ -419,13 +457,15 @@ async function handlePOST(
 
 async function handlePUT(
   request: Request,
-  { params }: { params: Promise<{ route: string[] }> }
+  { params }: { params: Promise<{ route: string[] }> },
+  actor: Actor
 ) {
   const { route } = await params;
 
   try {
     const body = await request.json().catch(() => ({}));
-    const actorName = "Fuad Hossain";
+    // Recorded as "prepared by" / "received by": the signed-in user.
+    const actorName = actor.name ?? actor.id;
 
     // Update Requisition
     if (

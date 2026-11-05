@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useEffectEvent, useMemo } from "react";
 import Link from "next/link";
 import {
   Building2,
@@ -86,10 +86,12 @@ export default function BrgConnectDirectoryPage() {
     }
   };
 
+  // Reload when the department changes, using the latest fetchDirectory.
+  const onFetchDirectory = useEffectEvent(() => fetchDirectory());
   useEffect(() => {
     let active = true;
     queueMicrotask(() => {
-      if (active) fetchDirectory();
+      if (active) onFetchDirectory();
     });
     return () => { active = false; };
   }, [selectedDept]);

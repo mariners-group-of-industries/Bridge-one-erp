@@ -172,17 +172,18 @@ export async function updateAccountSettings(
 export async function getCredentials(id: string, actor: Actor): Promise<CredentialsDto> {
   const emp = await loadEmployee(id, actor);
   if (!emp.userId) {
-    return { hasAccount: false, phone: emp.mobile, roleId: null, roleName: null, userSystemRole: null, isActive: null };
+    return { hasAccount: false, userId: null, phone: emp.mobile, roleId: null, roleName: null, userSystemRole: null, isActive: null };
   }
   const user = await db().user.findUnique({
     where: { id: emp.userId },
     include: { dynamicRole: { select: { id: true, name: true } } },
   });
   if (!user) {
-    return { hasAccount: false, phone: emp.mobile, roleId: null, roleName: null, userSystemRole: null, isActive: null };
+    return { hasAccount: false, userId: null, phone: emp.mobile, roleId: null, roleName: null, userSystemRole: null, isActive: null };
   }
   return {
     hasAccount: true,
+    userId: user.id,
     phone: user.phone,
     roleId: user.roleId,
     roleName: user.dynamicRole?.name ?? null,

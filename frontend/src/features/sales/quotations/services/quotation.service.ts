@@ -1,6 +1,6 @@
 import { Prisma } from "@/generated/prisma/client";
 import { AppError, badRequest, conflict, notFound } from "@/lib/api/errors";
-import { assertCompanyAccess, type Actor } from "@/lib/auth/actor";
+import { assertCompanyAccess, canOn, type Actor } from "@/lib/auth/actor";
 import { db } from "@/lib/prisma/client";
 import { richTextToPlain, type RichTextNode } from "@/lib/rich-text";
 import { fromDbDate, toDbDate } from "../../lib/dates";
@@ -356,7 +356,7 @@ export async function changeQuotationStatus(actor: Actor, id: string, raw: unkno
   const { action, version, reason } = quotationActionSchema.parse(raw);
   await loadQuotation(actor, id);
   const transition = TRANSITIONS[action];
-  if (transition.approver && !actor.permissions.has("sales:approve")) {
+  if (transition.approver && !canOn(actor, "/sales/quotations", "approve", "sales:approve")) {
     throw new AppError(403, "FORBIDDEN", "You do not have permission to approve or reject quotations.");
   }
   if (action === "reject" && !reason) throw badRequest("Enter why the quotation is rejected.");

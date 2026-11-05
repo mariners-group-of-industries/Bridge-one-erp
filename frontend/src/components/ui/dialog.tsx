@@ -53,6 +53,12 @@ export function Dialog({
     } else {
       if (dialog.open) dialog.close();
     }
+    // Next.js keeps a page you navigate away from mounted but hidden (<Activity>).
+    // A modal left open there would make the whole app inert, so close it when
+    // effects clean up; it reopens if the page is shown again with `open` still set.
+    return () => {
+      if (dialog.open) dialog.close();
+    };
   }, [open]);
 
   const isComposable = !title;

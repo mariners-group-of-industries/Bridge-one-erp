@@ -36,6 +36,13 @@ export const employeeListQuerySchema = z.object({
   viewBy: z.preprocess(emptyToUndefined, z.string().max(50).optional()),
   userType: z.preprocess(emptyToUndefined, z.string().trim().max(50).optional()),
   status: z.preprocess(emptyToUndefined, z.enum(EMPLOYEE_STATUSES).optional()),
+  officeId: z.preprocess(emptyToUndefined, z.string().regex(UUID_PATTERN, { message: "Invalid office." }).optional()),
+  department: z.preprocess(emptyToUndefined, z.string().trim().max(100).optional()),
+  designation: z.preprocess(emptyToUndefined, z.string().trim().max(100).optional()),
+  /** "yes" = has an ERP login, "no" = has none. */
+  login: z.preprocess(emptyToUndefined, z.enum(["yes", "no"]).optional()),
+  joinedFrom: z.preprocess(emptyToUndefined, z.string().regex(/^\d{4}-\d{2}-\d{2}$/, { message: "Invalid date." }).optional()),
+  joinedTo: z.preprocess(emptyToUndefined, z.string().regex(/^\d{4}-\d{2}-\d{2}$/, { message: "Invalid date." }).optional()),
   sort: z.preprocess(emptyToUndefined, z.enum(EMPLOYEE_SORT_FIELDS).default("employeeCode")),
   order: z.preprocess(emptyToUndefined, z.enum(["asc", "desc"]).default("asc")),
 });
@@ -80,6 +87,9 @@ export interface EmployeeList {
 
 export interface EmployeeFilterOptions {
   employeeTypes: string[];
+  offices: FilterOption[];
+  departments: string[];
+  designations: string[];
 }
 
 // ─── Create ──────────────────────────────────────────────────────────────────

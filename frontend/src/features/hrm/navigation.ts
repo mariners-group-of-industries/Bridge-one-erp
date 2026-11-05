@@ -1,16 +1,5 @@
 import {
-  Banknote,
-  Briefcase,
-  CalendarCheck,
-  CalendarDays,
-  Clock,
-  FileSpreadsheet,
-  FileText,
-  Footprints,
-  TrendingUp,
-  UserCheck,
   Users,
-  UserSquare2,
 } from "lucide-react";
 import type { NavLink, Workspace } from "@/lib/navigation/types";
 import { hrmPaths, hrmPatterns } from "./paths";
