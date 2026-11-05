@@ -35,6 +35,8 @@ import {
   Briefcase,
   Monitor,
   MessageSquarePlus,
+  Minimize2,
+  Maximize2,
 } from "lucide-react";
 import { useSession } from "@/lib/auth/session";
 import { useToast } from "@/components/ui/toast";
@@ -161,6 +163,7 @@ export default function BrgConnectChatPage() {
 
 
   // WebRTC Call state
+  const [isCallMinimized, setIsCallMinimized] = useState(false);
   const [activeCall, setActiveCall] = useState<{
     type: "audio" | "video";
     status: "ringing" | "connected";
@@ -518,6 +521,7 @@ export default function BrgConnectChatPage() {
     if (remoteAudioRef.current) {
       remoteAudioRef.current.srcObject = null;
     }
+    setIsCallMinimized(false);
     setActiveCall(null);
     setIncomingCall(null);
   };
@@ -2860,28 +2864,94 @@ export default function BrgConnectChatPage() {
         </div>
       )}
 
-      {/* Real WebRTC Call Modal with Camera / Screen Share */}
+      {/* Real WebRTC Call Modal (Supports Minimizing to Screen Corner / PiP) */}
       {activeCall && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-xs p-4 animate-in fade-in">
-          <div className="w-full max-w-lg rounded-2xl bg-slate-900 border border-slate-800 p-6 text-white text-center shadow-2xl space-y-6">
-            <div className="space-y-2">
-              <div
-                className={`size-20 mx-auto rounded-full flex items-center justify-center font-bold text-xl border-4 border-slate-700 ${getAvatarBg(
-                  activeConv?.name || "Colleague"
-                )}`}
-              >
-                {getInitials(activeConv?.name || "Colleague")}
+        <div
+          className={
+            isCallMinimized
+              ? "fixed bottom-5 right-5 z-50 pointer-events-auto animate-in slide-in-from-bottom-5 duration-200"
+              : "fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-xs p-4 animate-in fade-in"
+          }
+        >
+          <div
+            className={
+              isCallMinimized
+                ? "w-80 rounded-2xl bg-slate-900 border-2 border-slate-700/80 p-3.5 text-white shadow-2xl space-y-3"
+                : "w-full max-w-lg rounded-2xl bg-slate-900 border border-slate-800 p-6 text-white text-center shadow-2xl space-y-6 relative"
+            }
+          >
+            {/* Header / Title Row */}
+            {isCallMinimized ? (
+              <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                <div className="flex items-center gap-2 min-w-0">
+                  <div
+                    className={`size-7 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 ${getAvatarBg(
+                      activeConv?.name || "Colleague"
+                    )}`}
+                  >
+                    {getInitials(activeConv?.name || "Colleague")}
+                  </div>
+                  <div className="min-w-0">
+                    <h4 className="font-semibold text-xs text-white truncate max-w-[140px]">
+                      {activeConv?.name || "Colleague"}
+                    </h4>
+                    <p className="text-[10px] text-emerald-400 font-medium">
+                      {activeCall.status === "ringing" ? "Ringing..." : formatTime(activeCall.durationSec)}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-1 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setIsCallMinimized(false)}
+                    className="p-1 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition cursor-pointer"
+                    title="Maximize to Full Screen"
+                    aria-label="Maximize Call"
+                  >
+                    <Maximize2 className="size-3.5" />
+                  </button>
+                </div>
               </div>
-              <h3 className="font-bold text-lg">{activeConv?.name || "Colleague"}</h3>
-              <p className="text-xs text-slate-400">
-                {activeCall.status === "ringing"
-                  ? "Ringing WebRTC Peer (Google STUN active)..."
-                  : `Connected • ${formatTime(activeCall.durationSec)}`}
-              </p>
-            </div>
+            ) : (
+              <>
+                <div className="absolute top-4 right-4 flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setIsCallMinimized(true)}
+                    className="p-1.5 rounded-lg bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white transition cursor-pointer flex items-center gap-1 text-xs"
+                    title="Minimize to right corner (PiP)"
+                    aria-label="Minimize Call"
+                  >
+                    <Minimize2 className="size-4" />
+                    <span className="text-[11px] font-medium hidden sm:inline">Minimize</span>
+                  </button>
+                </div>
 
+                <div className="space-y-2">
+                  <div
+                    className={`size-20 mx-auto rounded-full flex items-center justify-center font-bold text-xl border-4 border-slate-700 ${getAvatarBg(
+                      activeConv?.name || "Colleague"
+                    )}`}
+                  >
+                    {getInitials(activeConv?.name || "Colleague")}
+                  </div>
+                  <h3 className="font-bold text-lg">{activeConv?.name || "Colleague"}</h3>
+                  <p className="text-xs text-slate-400">
+                    {activeCall.status === "ringing"
+                      ? "Ringing WebRTC Peer (Google STUN active)..."
+                      : `Connected • ${formatTime(activeCall.durationSec)}`}
+                  </p>
+                </div>
+              </>
+            )}
+
+            {/* Video Stream Area */}
             {activeCall.type === "video" && (
-              <div className="relative h-64 rounded-xl bg-slate-950 flex items-center justify-center border border-slate-800 overflow-hidden shadow-inner">
+              <div
+                className={`relative rounded-xl bg-slate-950 flex items-center justify-center border border-slate-800 overflow-hidden shadow-inner ${
+                  isCallMinimized ? "h-36" : "h-64"
+                }`}
+              >
                 {/* Main Remote Video Stream */}
                 <video
                   ref={remoteVideoRef}
@@ -2891,7 +2961,11 @@ export default function BrgConnectChatPage() {
                 />
 
                 {/* Picture-in-Picture Local Video Inset */}
-                <div className="absolute bottom-3 right-3 w-32 h-24 rounded-lg overflow-hidden border-2 border-slate-700 bg-slate-950 shadow-xl">
+                <div
+                  className={`absolute bottom-2 right-2 rounded-lg overflow-hidden border-2 border-slate-700 bg-slate-950 shadow-xl ${
+                    isCallMinimized ? "w-20 h-14" : "w-32 h-24"
+                  }`}
+                >
                   <video
                     ref={localVideoRef}
                     autoPlay
@@ -2900,25 +2974,26 @@ export default function BrgConnectChatPage() {
                     className={`w-full h-full object-cover ${activeCall.isCameraOff ? "hidden" : "block"}`}
                   />
                   {activeCall.isCameraOff && (
-                    <div className="w-full h-full flex items-center justify-center text-[10px] text-slate-400">
-                      Camera Off
+                    <div className="w-full h-full flex items-center justify-center text-[9px] text-slate-400">
+                      Off
                     </div>
                   )}
                 </div>
 
                 {activeCall.isScreenSharing && (
-                  <span className="absolute top-2 left-2 px-2 py-0.5 rounded bg-blue-600 text-white text-[10px] font-semibold flex items-center gap-1">
-                    <Monitor className="size-3" />
-                    <span>Sharing Screen</span>
+                  <span className="absolute top-2 left-2 px-1.5 py-0.5 rounded bg-blue-600 text-white text-[9px] font-semibold flex items-center gap-1">
+                    <Monitor className="size-2.5" />
+                    <span>Sharing</span>
                   </span>
                 )}
               </div>
             )}
 
+            {/* Audio Wave Visualizer */}
             {activeCall.type === "audio" && activeCall.status === "connected" && (
               <div className="space-y-2">
-                <div className="flex items-center justify-center gap-1.5 h-10">
-                  {[40, 75, 50, 90, 60, 30, 80, 55].map((h, i) => (
+                <div className={`flex items-center justify-center gap-1.5 ${isCallMinimized ? "h-6" : "h-10"}`}>
+                  {[40, 75, 50, 90, 60, 30, 80, 55].slice(0, isCallMinimized ? 6 : 8).map((h, i) => (
                     <span
                       key={i}
                       style={{ height: `${h}%` }}
@@ -2933,16 +3008,21 @@ export default function BrgConnectChatPage() {
               </div>
             )}
 
-            <div className="flex items-center justify-center gap-4">
+            {/* Action Buttons Bar */}
+            <div className={`flex items-center justify-center ${isCallMinimized ? "gap-2.5 pt-1" : "gap-4"}`}>
               <button
                 type="button"
                 onClick={handleToggleMute}
-                className={`size-12 rounded-full flex items-center justify-center transition cursor-pointer ${
-                  activeCall.isMuted ? "bg-rose-600 text-white" : "bg-slate-800 hover:bg-slate-700 text-white"
-                }`}
+                className={`rounded-full flex items-center justify-center transition cursor-pointer ${
+                  isCallMinimized ? "size-9" : "size-12"
+                } ${activeCall.isMuted ? "bg-rose-600 text-white" : "bg-slate-800 hover:bg-slate-700 text-white"}`}
                 title={activeCall.isMuted ? "Unmute Mic" : "Mute Mic"}
               >
-                {activeCall.isMuted ? <MicOff className="size-5" /> : <Mic className="size-5" />}
+                {activeCall.isMuted ? (
+                  <MicOff className={isCallMinimized ? "size-4" : "size-5"} />
+                ) : (
+                  <Mic className={isCallMinimized ? "size-4" : "size-5"} />
+                )}
               </button>
 
               {activeCall.type === "video" && (
@@ -2950,34 +3030,51 @@ export default function BrgConnectChatPage() {
                   <button
                     type="button"
                     onClick={handleToggleCamera}
-                    className={`size-12 rounded-full flex items-center justify-center transition cursor-pointer ${
-                      activeCall.isCameraOff ? "bg-rose-600 text-white" : "bg-slate-800 hover:bg-slate-700 text-white"
-                    }`}
+                    className={`rounded-full flex items-center justify-center transition cursor-pointer ${
+                      isCallMinimized ? "size-9" : "size-12"
+                    } ${activeCall.isCameraOff ? "bg-rose-600 text-white" : "bg-slate-800 hover:bg-slate-700 text-white"}`}
                     title={activeCall.isCameraOff ? "Turn On Camera" : "Turn Off Camera"}
                   >
-                    {activeCall.isCameraOff ? <VideoOff className="size-5" /> : <Video className="size-5" />}
+                    {activeCall.isCameraOff ? (
+                      <VideoOff className={isCallMinimized ? "size-4" : "size-5"} />
+                    ) : (
+                      <Video className={isCallMinimized ? "size-4" : "size-5"} />
+                    )}
                   </button>
 
-                  <button
-                    type="button"
-                    onClick={handleToggleScreenShare}
-                    className={`size-12 rounded-full flex items-center justify-center transition cursor-pointer ${
-                      activeCall.isScreenSharing ? "bg-blue-600 text-white" : "bg-slate-800 hover:bg-slate-700 text-white"
-                    }`}
-                    title={activeCall.isScreenSharing ? "Stop Screen Share" : "Share Screen"}
-                  >
-                    <Monitor className="size-5" />
-                  </button>
+                  {!isCallMinimized && (
+                    <button
+                      type="button"
+                      onClick={handleToggleScreenShare}
+                      className="size-12 rounded-full flex items-center justify-center transition cursor-pointer bg-slate-800 hover:bg-slate-700 text-white"
+                      title={activeCall.isScreenSharing ? "Stop Screen Share" : "Share Screen"}
+                    >
+                      <Monitor className="size-5" />
+                    </button>
+                  )}
                 </>
+              )}
+
+              {isCallMinimized && (
+                <button
+                  type="button"
+                  onClick={() => setIsCallMinimized(false)}
+                  className="size-9 rounded-full bg-slate-800 hover:bg-slate-700 text-white flex items-center justify-center transition cursor-pointer"
+                  title="Expand to Full Modal"
+                >
+                  <Maximize2 className="size-4" />
+                </button>
               )}
 
               <button
                 type="button"
                 onClick={handleEndCall}
-                className="size-12 rounded-full bg-rose-600 hover:bg-rose-700 text-white flex items-center justify-center transition cursor-pointer shadow-lg"
+                className={`rounded-full bg-rose-600 hover:bg-rose-700 text-white flex items-center justify-center transition cursor-pointer shadow-lg ${
+                  isCallMinimized ? "size-9" : "size-12"
+                }`}
                 title="Hang Up"
               >
-                <PhoneOff className="size-5" />
+                <PhoneOff className={isCallMinimized ? "size-4" : "size-5"} />
               </button>
             </div>
           </div>
