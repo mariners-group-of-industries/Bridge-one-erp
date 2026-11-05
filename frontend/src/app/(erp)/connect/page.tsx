@@ -421,11 +421,12 @@ export default function BrgConnectChatPage() {
         const params = new URLSearchParams(window.location.search);
         const urlConvId = params.get("conversationId");
         const autoAccept = params.get("autoAccept") === "true";
+        const callTypeFromUrl = (params.get("callType") as "audio" | "video") || "audio";
         if (urlConvId) {
           setActiveConvId(urlConvId);
           if (autoAccept) {
             setTimeout(() => {
-              handleAcceptIncomingCallByIdRef.current?.(urlConvId, "audio");
+              handleAcceptIncomingCallByIdRef.current?.(urlConvId, callTypeFromUrl);
             }, 600);
           }
         }

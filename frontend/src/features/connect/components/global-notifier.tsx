@@ -129,6 +129,8 @@ export function ConnectGlobalNotifier() {
 
   // Open Floating Mini Chat window on current page
   const openMiniChat = async (conversationId: string, senderName: string) => {
+    if (!conversationId) return;
+
     setActiveMiniChat({
       conversationId,
       senderName,
@@ -138,6 +140,11 @@ export function ConnectGlobalNotifier() {
     // Dismiss any matching toast
     setToasts((prev) => prev.filter((t) => t.conversationId !== conversationId));
 
+    // Auto mark as read in DB & Pusher
+    try {
+      fetch(`/api/connect/conversations/${conversationId}/read`, { method: "POST" }).catch(() => {});
+    } catch {}
+
     // Fetch conversation messages
     setIsMiniChatLoading(true);
     try {
@@ -145,21 +152,38 @@ export function ConnectGlobalNotifier() {
       const data = await res.json();
       if (data?.success && Array.isArray(data.messages)) {
         setMiniChatMessages(
-          data.messages.slice(-25).map((m: {
+          data.messages.slice(-30).map((m: {
             id: string;
             senderId: string;
             senderName: string;
             body: string;
+            type?: string;
+            deletedAt?: string | null;
             createdAt?: string;
-          }) => ({
-            id: m.id,
-            senderId: m.senderId,
-            senderName: m.senderName,
-            body: m.body,
-            createdAt: m.createdAt
-              ? new Date(m.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
-              : "",
-          }))
+          }) => {
+            let bodyText = m.body;
+            if (m.deletedAt) {
+              bodyText = "This message was deleted";
+            } else if (!bodyText) {
+              if (m.type === "FILE") bodyText = "📎 Sent a file attachment";
+              else if (m.type === "ERP_CARD") bodyText = "📋 Shared live ERP record";
+            }
+
+            let formattedTime = "";
+            if (m.createdAt) {
+              try {
+                formattedTime = new Date(m.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+              } catch {}
+            }
+
+            return {
+              id: m.id,
+              senderId: m.senderId,
+              senderName: m.senderName,
+              body: bodyText,
+              createdAt: formattedTime,
+            };
+          })
         );
       }
     } catch (err) {
@@ -223,6 +247,16 @@ export function ConnectGlobalNotifier() {
 
     // Open the mini chat so user can see conversation continuing seamlessly
     await openMiniChat(toast.conversationId, toast.senderName);
+
+    // Optimistically add to mini chat messages so user sees it instantly
+    const optimisticMsg: MiniChatMessage = {
+      id: `m-opt-${Date.now()}`,
+      senderId: authUser.id,
+      senderName: authUser.name || "Me",
+      body: text,
+      createdAt: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+    };
+    setMiniChatMessages((prev) => [...prev, optimisticMsg]);
 
     try {
       await fetch(`/api/connect/conversations/${toast.conversationId}/messages`, {
@@ -419,10 +453,10 @@ export function ConnectGlobalNotifier() {
   // Handle Accept Call
   const handleAcceptCall = () => {
     if (!incomingCall) return;
-    const { conversationId } = incomingCall;
+    const { conversationId, callType } = incomingCall;
     stopRingtone();
     setIncomingCall(null);
-    router.push(`/connect?conversationId=${conversationId}&autoAccept=true`);
+    router.push(`/connect?conversationId=${conversationId}&autoAccept=true&callType=${callType || "audio"}`);
   };
 
   // Handle Decline Call
