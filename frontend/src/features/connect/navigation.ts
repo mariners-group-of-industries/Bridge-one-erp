@@ -23,13 +23,6 @@ export const callsLink: NavLink = {
   keywords: ["calls", "webrtc", "video", "audio", "meetings", "conferencing"],
 };
 
-export const docsLink: NavLink = {
-  label: "Architecture & Spec",
-  href: connectPaths.docs,
-  description: "Technical architecture, WebSocket protocol, Redis pub/sub, MinIO storage, and WebRTC Coturn guide.",
-  keywords: ["architecture", "spec", "api", "websocket", "redis", "coturn", "webrtc", "minio"],
-};
-
 export const connectWorkspace: Workspace = {
   id: "connect",
   label: "BRG Connect",
@@ -37,11 +30,11 @@ export const connectWorkspace: Workspace = {
   href: connectPaths.chat,
   description: "Integrated enterprise team messaging, channels, ERP workflow cards, and WebRTC audio/video calling.",
   status: "active",
-  shortcuts: [chatLink, directoryLink, callsLink, docsLink],
+  shortcuts: [chatLink, directoryLink, callsLink],
   cards: [
     {
       label: "",
-      links: [chatLink, directoryLink, callsLink, docsLink],
+      links: [chatLink, directoryLink, callsLink],
     },
   ],
 };

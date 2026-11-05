@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useRef, useMemo } from "react";
+import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import Link from "next/link";
 import {
   Bell,
@@ -32,17 +32,26 @@ import {
   X,
   Edit2,
   Copy,
-  AlertCircle,
   Briefcase,
   Monitor,
-  RefreshCw,
   MessageSquarePlus,
+  Minimize2,
+  Maximize2,
 } from "lucide-react";
 import { useSession } from "@/lib/auth/session";
+import { useToast } from "@/components/ui/toast";
+import { getPusherClient } from "@/lib/connect/pusher-client";
+import {
+  RTC_CONFIG,
+  startIncomingRingtone,
+  startOutgoingRingback,
+  stopRingtone,
+} from "@/lib/connect/webrtc";
 import type {
   ConnectConversation,
   ConnectMessage,
   ConnectUser,
+  ConnectAttachment,
   ErpRecordCard,
   MessageDeliveryStatus,
 } from "@/features/connect/types";
@@ -71,12 +80,36 @@ function getAvatarBg(name?: string | null): string {
   return colors[index];
 }
 
+function formatMessageTime(dateInput?: string | Date | null): string {
+  if (!dateInput) return "";
+  try {
+    const d = new Date(dateInput);
+    if (!isNaN(d.getTime())) {
+      return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    }
+    return String(dateInput);
+  } catch {
+    return String(dateInput);
+  }
+}
+
 export default function BrgConnectChatPage() {
   const { user: authUser } = useSession();
+  const toast = useToast();
 
   const [conversations, setConversations] = useState<ConnectConversation[]>([]);
   const [messagesMap, setMessagesMap] = useState<Record<string, ConnectMessage[]>>({});
   const [activeConvId, setActiveConvId] = useState<string | null>(null);
+  const activeConvIdRef = useRef<string | null>(null);
+  const handleAcceptIncomingCallByIdRef = useRef<((convId: string, callType?: "audio" | "video") => void) | null>(null);
+  const handleStartCallRef = useRef<((type: "audio" | "video") => void) | null>(null);
+  useEffect(() => {
+    activeConvIdRef.current = activeConvId;
+  }, [activeConvId]);
+  const authUserRef = useRef(authUser);
+  useEffect(() => {
+    authUserRef.current = authUser;
+  }, [authUser]);
   const [filterTab, setFilterTab] = useState<"all" | "direct" | "group" | "unread">("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [messageText, setMessageText] = useState("");
@@ -85,21 +118,53 @@ export default function BrgConnectChatPage() {
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [editText, setEditText] = useState("");
   const [isUploading, setIsUploading] = useState(false);
+  const [stagedAttachments, setStagedAttachments] = useState<{
+    id: string;
+    file: File;
+    previewUrl?: string;
+    name: string;
+    sizeBytes: number;
+    type: "image" | "file" | "doc" | "audio";
+  }[]>([]);
 
   // Real data from DB
   const [realErpRecords, setRealErpRecords] = useState<ErpRecordCard[]>([]);
   const [directoryEmployees, setDirectoryEmployees] = useState<ConnectUser[]>([]);
   const [directorySearch, setDirectorySearch] = useState("");
+  const [onlineUserIds, setOnlineUserIds] = useState<Set<string>>(new Set());
 
   // Modals
+  // Centered confirmation modal
+  const [confirmModal, setConfirmModal] = useState<{
+    isOpen: boolean;
+    title: string;
+    description: string;
+    confirmLabel?: string;
+    cancelLabel?: string;
+    isDestructive?: boolean;
+    onConfirm: () => void;
+  } | null>(null);
   const [isErpPickerOpen, setIsErpPickerOpen] = useState(false);
   const [isNewChatOpen, setIsNewChatOpen] = useState(false);
   const [isNewGroupOpen, setIsNewGroupOpen] = useState(false);
   const [newGroupName, setNewGroupName] = useState("");
   const [newGroupDesc, setNewGroupDesc] = useState("");
   const [selectedGroupMembers, setSelectedGroupMembers] = useState<string[]>([]);
+  // Voice Note Recording State
+  const [isRecordingVoice, setIsRecordingVoice] = useState(false);
+  const [recordingDuration, setRecordingDuration] = useState(0);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const voiceStreamRef = useRef<MediaStream | null>(null);
+  const voiceChunksRef = useRef<Blob[]>([]);
+  const voiceTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // ERP Picker filter & search
+  const [erpSearchQuery, setErpSearchQuery] = useState("");
+  const [erpFilterType, setErpFilterType] = useState<"ALL" | "PURCHASE_ORDER" | "REQUISITION">("ALL");
+
 
   // WebRTC Call state
+  const [isCallMinimized, setIsCallMinimized] = useState(false);
   const [activeCall, setActiveCall] = useState<{
     type: "audio" | "video";
     status: "ringing" | "connected";
@@ -109,11 +174,24 @@ export default function BrgConnectChatPage() {
     isScreenSharing: boolean;
   } | null>(null);
 
+  const [incomingCall, setIncomingCall] = useState<{
+    conversationId: string;
+    callerId: string;
+    callerName: string;
+    callType: "audio" | "video";
+    offer?: RTCSessionDescriptionInit | null;
+  } | null>(null);
+
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const chatInputRef = useRef<HTMLTextAreaElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
+  const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
+  const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
+  const remoteStreamRef = useRef<MediaStream | null>(null);
+  const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
+  const queuedIceCandidatesRef = useRef<RTCIceCandidateInit[]>([]);
 
   // Load real conversations from Neon DB
   const loadConversations = async () => {
@@ -140,8 +218,9 @@ export default function BrgConnectChatPage() {
             type: c.type.toLowerCase() as "direct" | "group",
             name: c.name || "Conversation",
             description: c.description,
+            peerId: (c as { peerId?: string }).peerId,
             members: [authUser?.id || "user-current"],
-            unreadCount: 0,
+            unreadCount: typeof (c as { unreadCount?: number }).unreadCount === "number" ? Number((c as { unreadCount?: number }).unreadCount) : 0,
             lastMessage: c.lastMessage
               ? {
                   id: c.lastMessage.id,
@@ -152,7 +231,7 @@ export default function BrgConnectChatPage() {
                   type: "text",
                   body: c.lastMessage.body,
                   status: "seen",
-                  createdAt: new Date(c.lastMessage.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+                  createdAt: formatMessageTime(c.lastMessage.createdAt),
                 }
               : undefined,
             createdAt: c.createdAt,
@@ -179,11 +258,18 @@ export default function BrgConnectChatPage() {
             id: string;
             conversationId: string;
             senderId: string;
+            senderName?: string;
             clientMsgId: string;
             type: string;
             body: string;
+            status?: string;
             erpRecordType?: string;
             erpRecordData?: ErpRecordCard;
+            replyTo?: {
+              id: string;
+              senderName: string;
+              body: string;
+            };
             createdAt: string;
             attachments?: Array<{
               id: string;
@@ -196,20 +282,23 @@ export default function BrgConnectChatPage() {
             id: m.id,
             conversationId: m.conversationId,
             senderId: m.senderId,
-            senderName: m.senderId === authUser?.id ? (authUser?.name || "Me") : "Colleague",
+            senderName: m.senderId === authUser?.id ? (authUser?.name || "Me") : (m.senderName || "Colleague"),
             clientMsgId: m.clientMsgId || `c-${m.id}`,
             type: (m.type.toLowerCase() as "text" | "erp_card" | "file") || "text",
             body: m.body,
             erpRecord: m.erpRecordData || undefined,
+            replyTo: m.replyTo ? { id: m.replyTo.id, senderName: m.replyTo.senderName, body: m.replyTo.body } : undefined,
             attachments: m.attachments?.map((a) => ({
               ...a,
               type: a.mimeType?.startsWith("image/") ? "image" : a.mimeType?.includes("pdf") ? "doc" : "file",
             })),
-            status: "seen" as MessageDeliveryStatus,
-            createdAt: new Date(m.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+            status: ((m.status?.toLowerCase()) as MessageDeliveryStatus) || "delivered",
+            createdAt: formatMessageTime(m.createdAt),
           })
         );
         setMessagesMap((prev) => ({ ...prev, [convId]: mapped }));
+        // Automatically mark messages as read for active conversation
+        fetch(`/api/connect/conversations/${convId}/read`, { method: "POST" }).catch(() => {});
       }
     } catch {
       // Ignored
@@ -219,7 +308,7 @@ export default function BrgConnectChatPage() {
   // Load real employees for DM and Channel modals
   const loadDirectory = async () => {
     try {
-      const res = await fetch("/api/connect/directory");
+      const res = await fetch("/api/connect/directory?limit=1000");
       const data = await res.json();
       if (data.success && Array.isArray(data.employees)) {
         const mapped: ConnectUser[] = data.employees.map(
@@ -252,7 +341,68 @@ export default function BrgConnectChatPage() {
     }
   };
 
-  // Initial load
+  // Heartbeat & Online Presence Sync
+  useEffect(() => {
+    // Initial fetch of active online users
+    fetch("/api/connect/presence")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (d?.success && Array.isArray(d.onlineUserIds)) {
+          setOnlineUserIds(new Set(d.onlineUserIds));
+        }
+      })
+      .catch(() => {});
+
+    // Periodic heartbeat every 15 seconds
+    const interval = setInterval(() => {
+      fetch("/api/connect/presence", { method: "POST" }).catch(() => {});
+    }, 15000);
+
+    // Periodic presence poll every 12 seconds to keep online users in sync
+    const pollInterval = setInterval(() => {
+      fetch("/api/connect/presence")
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d) => {
+          if (d?.success && Array.isArray(d.onlineUserIds)) {
+            setOnlineUserIds(new Set(d.onlineUserIds));
+          }
+        })
+        .catch(() => {});
+    }, 12000);
+
+    // Initial ping
+    fetch("/api/connect/presence", { method: "POST" }).catch(() => {});
+
+    // Notify server when window is closed / refreshed
+    const handleUnload = () => {
+      if (navigator.sendBeacon) {
+        navigator.sendBeacon("/api/connect/presence", JSON.stringify({ action: "offline" }));
+      }
+    };
+    window.addEventListener("beforeunload", handleUnload);
+
+    return () => {
+      clearInterval(interval);
+      clearInterval(pollInterval);
+      window.removeEventListener("beforeunload", handleUnload);
+    };
+  }, []);
+
+  // Helper to determine if a direct conversation peer is online
+  const isPeerOnline = useCallback(
+    (conv: ConnectConversation) => {
+      if (conv.type !== "direct") return false;
+      if (conv.peerId && onlineUserIds.has(conv.peerId)) return true;
+      const matchingEmp = directoryEmployees.find(
+        (e) => e.name.toLowerCase() === conv.name.toLowerCase() || (conv.peerId && e.id === conv.peerId)
+      );
+      if (matchingEmp && onlineUserIds.has(matchingEmp.id)) return true;
+      return false;
+    },
+    [onlineUserIds, directoryEmployees]
+  );
+
+  // Initial load & URL params check
   useEffect(() => {
     let active = true;
     queueMicrotask(() => {
@@ -267,7 +417,28 @@ export default function BrgConnectChatPage() {
           }
         })
         .catch(() => {});
+
+      if (typeof window !== "undefined") {
+        const params = new URLSearchParams(window.location.search);
+        const urlConvId = params.get("conversationId");
+        const autoAccept = params.get("autoAccept") === "true";
+        const autoStart = params.get("autoStart") === "true" || params.get("startCall") === "true";
+        const callTypeFromUrl = (params.get("callType") as "audio" | "video") || "audio";
+        if (urlConvId) {
+          setActiveConvId(urlConvId);
+          if (autoAccept) {
+            setTimeout(() => {
+              handleAcceptIncomingCallByIdRef.current?.(urlConvId, callTypeFromUrl);
+            }, 600);
+          } else if (autoStart) {
+            setTimeout(() => {
+              handleStartCallRef.current?.(callTypeFromUrl);
+            }, 600);
+          }
+        }
+      }
     });
+
     return () => {
       active = false;
     };
@@ -311,6 +482,491 @@ export default function BrgConnectChatPage() {
     return () => clearInterval(interval);
   }, [activeCall?.status]);
 
+  const sendCallSignal = async (
+    convId: string,
+    type: string,
+    callType: "audio" | "video",
+    sdp?: RTCSessionDescriptionInit | null,
+    candidate?: RTCIceCandidateInit | null
+  ) => {
+    try {
+      await fetch("/api/connect/calls/signal", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          conversationId: convId,
+          type,
+          callType,
+          sdp,
+          candidate,
+        }),
+      });
+    } catch (err) {
+      console.warn("Signal send failed:", err);
+    }
+  };
+
+  const cleanupCall = () => {
+    stopRingtone();
+    queuedIceCandidatesRef.current = [];
+    if (peerConnectionRef.current) {
+      try {
+        peerConnectionRef.current.close();
+      } catch {}
+      peerConnectionRef.current = null;
+    }
+    if (mediaStreamRef.current) {
+      mediaStreamRef.current.getTracks().forEach((t) => t.stop());
+      mediaStreamRef.current = null;
+    }
+    if (remoteStreamRef.current) {
+      remoteStreamRef.current.getTracks().forEach((t) => t.stop());
+      remoteStreamRef.current = null;
+    }
+    if (localVideoRef.current) localVideoRef.current.srcObject = null;
+    if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
+    if (remoteAudioRef.current) {
+      remoteAudioRef.current.srcObject = null;
+    }
+    setIsCallMinimized(false);
+    setActiveCall(null);
+    setIncomingCall(null);
+  };
+
+  const initPeerConnection = (convId: string, callType: "audio" | "video") => {
+    if (peerConnectionRef.current) {
+      try {
+        peerConnectionRef.current.close();
+      } catch {}
+    }
+
+    const pc = new RTCPeerConnection(RTC_CONFIG);
+    peerConnectionRef.current = pc;
+
+    pc.onicecandidate = (event) => {
+      if (event.candidate) {
+        sendCallSignal(convId, "ice-candidate", callType, null, event.candidate.toJSON());
+      }
+    };
+
+    pc.onconnectionstatechange = () => {
+      console.log("[WebRTC] Peer connection state:", pc.connectionState);
+      if (pc.connectionState === "connected") {
+        setActiveCall((prev) => (prev ? { ...prev, status: "connected" } : null));
+      } else if (pc.connectionState === "failed") {
+        console.warn("[WebRTC] Connection failed, attempting ICE restart...");
+        if (typeof pc.restartIce === "function") {
+          pc.restartIce();
+        }
+      }
+    };
+
+    pc.ontrack = (event) => {
+      console.log("[WebRTC] Remote track received:", event.track.kind);
+      const stream = (event.streams && event.streams[0])
+        ? event.streams[0]
+        : new MediaStream([event.track]);
+      remoteStreamRef.current = stream;
+
+      // 1. Play audio immediately via dedicated audio element
+      if (remoteAudioRef.current) {
+        remoteAudioRef.current.srcObject = stream;
+        remoteAudioRef.current.volume = 1.0;
+        remoteAudioRef.current.muted = false;
+        remoteAudioRef.current.play().catch((err) => {
+          console.warn("[WebRTC] Audio auto-play restricted by browser policy:", err);
+        });
+      }
+
+      // 2. Attach video if in video call
+      if (remoteVideoRef.current && callType === "video") {
+        remoteVideoRef.current.srcObject = stream;
+        remoteVideoRef.current.play().catch(() => {});
+      }
+    };
+
+    if (mediaStreamRef.current) {
+      mediaStreamRef.current.getTracks().forEach((track) => {
+        track.enabled = true;
+        pc.addTrack(track, mediaStreamRef.current!);
+      });
+    }
+
+    return pc;
+  };
+
+  // Realtime Pusher subscription for global updates
+  useEffect(() => {
+    const pusher = getPusherClient();
+    if (!pusher) return;
+
+    const globalChannel = pusher.subscribe("connect-global");
+
+    globalChannel.bind("new-conversation", () => {
+      loadConversations();
+    });
+
+    globalChannel.bind("user-presence", (data: { userId?: string; employeeId?: string; status: "online" | "offline" }) => {
+      setOnlineUserIds((prev) => {
+        const next = new Set(prev);
+        if (data.status === "online") {
+          if (data.userId) next.add(data.userId);
+          if (data.employeeId) next.add(data.employeeId);
+        } else {
+          if (data.userId) next.delete(data.userId);
+          if (data.employeeId) next.delete(data.employeeId);
+        }
+        return next;
+      });
+    });
+
+    const handleGlobalMessagesSeen = (data: { conversationId: string; readerId: string }) => {
+      setMessagesMap((prev) => {
+        const list = prev[data.conversationId] || [];
+        if (!list.length) return prev;
+        return {
+          ...prev,
+          [data.conversationId]: list.map((m) =>
+            m.senderId !== data.readerId ? { ...m, status: "seen" as MessageDeliveryStatus } : m
+          ),
+        };
+      });
+      setConversations((prev) =>
+        prev.map((c) => {
+          if (c.id === data.conversationId && c.lastMessage && c.lastMessage.senderId !== data.readerId) {
+            return {
+              ...c,
+              lastMessage: { ...c.lastMessage, status: "seen" as MessageDeliveryStatus },
+            };
+          }
+          return c;
+        })
+      );
+    };
+
+    globalChannel.bind("messages-seen", handleGlobalMessagesSeen);
+
+    globalChannel.bind("new-message", (msg: ConnectMessage) => {
+      // If currently open and sent by someone else, auto mark read immediately
+      if (activeConvIdRef.current === msg.conversationId && msg.senderId !== authUserRef.current?.id) {
+        fetch(`/api/connect/conversations/${msg.conversationId}/read`, { method: "POST" }).catch(() => {});
+      }
+
+      const formattedMsg: ConnectMessage = {
+        ...msg,
+        createdAt: formatMessageTime(msg.createdAt),
+        status: (msg.status as MessageDeliveryStatus) || "delivered",
+      };
+
+      // Append to active message thread immediately
+      setMessagesMap((prev) => {
+        const list = prev[msg.conversationId] || [];
+        const exists = list.some(
+          (m) => m.id === msg.id || (m.clientMsgId && m.clientMsgId === msg.clientMsgId)
+        );
+        if (exists) {
+          return {
+            ...prev,
+            [msg.conversationId]: list.map((m) =>
+              m.id === msg.id || (m.clientMsgId && m.clientMsgId === msg.clientMsgId)
+                ? formattedMsg
+                : m
+            ),
+          };
+        }
+        return {
+          ...prev,
+          [msg.conversationId]: [...list, formattedMsg],
+        };
+      });
+
+      // Update sidebar conversation list and bring conversation to top
+      setConversations((prev) => {
+        const target = prev.find((c) => c.id === msg.conversationId);
+        if (!target) {
+          loadConversations();
+          return prev;
+        }
+        const isCurrentActive = target.id === activeConvIdRef.current;
+        const updatedTarget = {
+          ...target,
+          unreadCount: isCurrentActive ? 0 : (target.unreadCount || 0) + 1,
+          lastMessage: formattedMsg,
+        };
+        const others = prev.filter((c) => c.id !== msg.conversationId);
+        return [updatedTarget, ...others];
+      });
+    });
+
+    // Realtime WebRTC call signaling via Pusher
+    globalChannel.bind(
+      "call-signal",
+      async (signal: {
+        conversationId: string;
+        senderId: string;
+        senderName: string;
+        type: string;
+        callType: "audio" | "video";
+        sdp?: RTCSessionDescriptionInit | null;
+        candidate?: RTCIceCandidateInit | null;
+        hasRemoteSdp?: boolean;
+      }) => {
+        if (signal.senderId === authUser?.id) return;
+
+        switch (signal.type) {
+          case "call-request": {
+            let offerSdp = signal.sdp || null;
+            if (!offerSdp && signal.hasRemoteSdp) {
+              try {
+                const res = await fetch(`/api/connect/calls/signal?conversationId=${signal.conversationId}`);
+                const data = await res.json();
+                if (data.success && data.sdp) offerSdp = data.sdp;
+              } catch (e) {
+                console.warn("[WebRTC] Error fetching offer SDP:", e);
+              }
+            }
+
+            setIncomingCall({
+              conversationId: signal.conversationId,
+              callerId: signal.senderId,
+              callerName: signal.senderName,
+              callType: signal.callType,
+              offer: offerSdp,
+            });
+            startIncomingRingtone();
+            break;
+          }
+
+          case "call-accept": {
+            stopRingtone();
+            let answerSdp = signal.sdp || null;
+            if (!answerSdp && signal.hasRemoteSdp) {
+              try {
+                const res = await fetch(`/api/connect/calls/signal?conversationId=${signal.conversationId}`);
+                const data = await res.json();
+                if (data.success && data.sdp) answerSdp = data.sdp;
+              } catch (e) {
+                console.warn("[WebRTC] Error fetching answer SDP:", e);
+              }
+            }
+
+            if (answerSdp && peerConnectionRef.current) {
+              try {
+                await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(answerSdp));
+                while (queuedIceCandidatesRef.current.length > 0) {
+                  const cand = queuedIceCandidatesRef.current.shift();
+                  if (cand) await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(cand));
+                }
+              } catch (err) {
+                console.warn("[WebRTC] Error setting remote description from answer:", err);
+              }
+            }
+            setActiveCall((prev) => (prev ? { ...prev, status: "connected" } : null));
+            break;
+          }
+
+          case "webrtc-offer": {
+            let offerSdp = signal.sdp || null;
+            if (!offerSdp && signal.hasRemoteSdp) {
+              try {
+                const res = await fetch(`/api/connect/calls/signal?conversationId=${signal.conversationId}`);
+                const data = await res.json();
+                if (data.success && data.sdp) offerSdp = data.sdp;
+              } catch (e) {
+                console.warn("[WebRTC] Error fetching offer SDP:", e);
+              }
+            }
+
+            if (offerSdp && peerConnectionRef.current) {
+              try {
+                const pc = peerConnectionRef.current;
+                await pc.setRemoteDescription(new RTCSessionDescription(offerSdp));
+                while (queuedIceCandidatesRef.current.length > 0) {
+                  const cand = queuedIceCandidatesRef.current.shift();
+                  if (cand) await pc.addIceCandidate(new RTCIceCandidate(cand));
+                }
+                const answer = await pc.createAnswer();
+                await pc.setLocalDescription(answer);
+                sendCallSignal(signal.conversationId, "webrtc-answer", signal.callType, answer);
+              } catch (err) {
+                console.warn("Error handling WebRTC offer:", err);
+              }
+            }
+            break;
+          }
+
+          case "webrtc-answer": {
+            stopRingtone();
+            let answerSdp = signal.sdp || null;
+            if (!answerSdp && signal.hasRemoteSdp) {
+              try {
+                const res = await fetch(`/api/connect/calls/signal?conversationId=${signal.conversationId}`);
+                const data = await res.json();
+                if (data.success && data.sdp) answerSdp = data.sdp;
+              } catch (e) {
+                console.warn("[WebRTC] Error fetching answer SDP:", e);
+              }
+            }
+
+            if (answerSdp && peerConnectionRef.current) {
+              try {
+                await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(answerSdp));
+                while (queuedIceCandidatesRef.current.length > 0) {
+                  const cand = queuedIceCandidatesRef.current.shift();
+                  if (cand) await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(cand));
+                }
+                setActiveCall((prev) => (prev ? { ...prev, status: "connected" } : null));
+              } catch (err) {
+                console.warn("Error handling WebRTC answer:", err);
+              }
+            }
+            break;
+          }
+
+          case "ice-candidate": {
+            if (signal.candidate) {
+              const pc = peerConnectionRef.current;
+              if (pc && pc.remoteDescription && pc.remoteDescription.type) {
+                pc.addIceCandidate(new RTCIceCandidate(signal.candidate)).catch((e) => {
+                  console.warn("[WebRTC] Error adding ICE candidate:", e);
+                });
+              } else {
+                queuedIceCandidatesRef.current.push(signal.candidate);
+              }
+            }
+            break;
+          }
+
+          case "call-reject": {
+            stopRingtone();
+            toast.info(`${signal.senderName || "Colleague"} declined the call.`);
+            cleanupCall();
+            break;
+          }
+
+          case "call-hangup": {
+            stopRingtone();
+            cleanupCall();
+            break;
+          }
+        }
+      }
+    );
+
+    return () => {
+      globalChannel.unbind_all();
+      pusher.unsubscribe("connect-global");
+    };
+  }, [authUser?.id]);
+
+  // Realtime Pusher subscription for active conversation messages, edits, and deletions
+  useEffect(() => {
+    if (!activeConvId) return;
+
+    const pusher = getPusherClient();
+    if (!pusher) return;
+
+    const channelName = `chat-${activeConvId}`;
+    const channel = pusher.subscribe(channelName);
+
+    channel.bind("messages-seen", (data: { conversationId: string; readerId: string }) => {
+      setMessagesMap((prev) => {
+        const list = prev[data.conversationId] || [];
+        if (!list.length) return prev;
+        return {
+          ...prev,
+          [data.conversationId]: list.map((m) =>
+            m.senderId !== data.readerId ? { ...m, status: "seen" as MessageDeliveryStatus } : m
+          ),
+        };
+      });
+      setConversations((prev) =>
+        prev.map((c) => {
+          if (c.id === data.conversationId && c.lastMessage && c.lastMessage.senderId !== data.readerId) {
+            return {
+              ...c,
+              lastMessage: { ...c.lastMessage, status: "seen" as MessageDeliveryStatus },
+            };
+          }
+          return c;
+        })
+      );
+    });
+
+    channel.bind("new-message", (msg: ConnectMessage) => {
+      if (activeConvIdRef.current === msg.conversationId && msg.senderId !== authUserRef.current?.id) {
+        fetch(`/api/connect/conversations/${msg.conversationId}/read`, { method: "POST" }).catch(() => {});
+      }
+      const formattedMsg: ConnectMessage = {
+        ...msg,
+        createdAt: formatMessageTime(msg.createdAt),
+        status: (msg.status as MessageDeliveryStatus) || "delivered",
+      };
+      setMessagesMap((prev) => {
+        const list = prev[msg.conversationId] || [];
+        const exists = list.some(
+          (m) => m.id === msg.id || (m.clientMsgId && m.clientMsgId === msg.clientMsgId)
+        );
+        if (exists) {
+          return {
+            ...prev,
+            [msg.conversationId]: list.map((m) =>
+              m.id === msg.id || (m.clientMsgId && m.clientMsgId === msg.clientMsgId)
+                ? formattedMsg
+                : m
+            ),
+          };
+        }
+        return {
+          ...prev,
+          [msg.conversationId]: [...list, formattedMsg],
+        };
+      });
+    });
+
+    channel.bind(
+      "message-edited",
+      (data: { messageId: string; conversationId: string; newBody: string }) => {
+        setMessagesMap((prev) => {
+          const list = prev[data.conversationId] || [];
+          return {
+            ...prev,
+            [data.conversationId]: list.map((m) =>
+              m.id === data.messageId ? { ...m, body: data.newBody } : m
+            ),
+          };
+        });
+      }
+    );
+
+    channel.bind(
+      "message-deleted",
+      (data: { messageId: string; conversationId: string }) => {
+        setMessagesMap((prev) => {
+          const list = prev[data.conversationId] || [];
+          return {
+            ...prev,
+            [data.conversationId]: list.map((m) =>
+              m.id === data.messageId
+                ? {
+                    ...m,
+                    body: "This message was deleted",
+                    erpRecord: undefined,
+                    attachments: undefined,
+                  }
+                : m
+            ),
+          };
+        });
+      }
+    );
+
+    return () => {
+      channel.unbind_all();
+      pusher.unsubscribe(channelName);
+    };
+  }, [activeConvId]);
+
   // Filter conversations
   const filteredConversations = useMemo(() => {
     return conversations.filter((c) => {
@@ -331,25 +987,143 @@ export default function BrgConnectChatPage() {
     setConversations((prev) =>
       prev.map((c) => (c.id === id ? { ...c, unreadCount: 0 } : c))
     );
+    fetch(`/api/connect/conversations/${id}/read`, { method: "POST" }).catch(() => {});
   };
 
-  // Send real message to database
+  // Handle file selection from paperclip, bulk file picker, drag-drop, or paste
+  const handleFileSelect = (
+    input: React.ChangeEvent<HTMLInputElement> | FileList | File[] | null
+  ) => {
+    let files: File[] = [];
+    if (!input) return;
+    if ("target" in input) {
+      files = Array.from(input.target.files || []);
+    } else if (input instanceof FileList) {
+      files = Array.from(input);
+    } else if (Array.isArray(input)) {
+      files = input;
+    }
+    if (files.length === 0) return;
+
+    const oversized = files.filter((f) => f.size > 25 * 1024 * 1024);
+    if (oversized.length > 0) {
+      alert(
+        `The following file(s) exceed the 25 MB limit:\n${oversized
+          .map((f) => `• ${f.name} (${(f.size / (1024 * 1024)).toFixed(1)} MB)`)
+          .join("\n")}`
+      );
+    }
+
+    const validFiles = files.filter((f) => f.size <= 25 * 1024 * 1024);
+    if (validFiles.length === 0) {
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      return;
+    }
+
+    const newAttachments = validFiles.map((file) => {
+      const mime = file.type || "application/octet-stream";
+      const attType: "image" | "file" | "doc" | "audio" = mime.startsWith("image/")
+        ? "image"
+        : mime.startsWith("audio/")
+        ? "audio"
+        : mime.includes("pdf") ||
+          mime.includes("document") ||
+          mime.includes("sheet") ||
+          mime.includes("excel")
+        ? "doc"
+        : "file";
+      const previewUrl = attType === "image" ? URL.createObjectURL(file) : undefined;
+      return {
+        id: `staged-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        file,
+        previewUrl,
+        name: file.name,
+        sizeBytes: file.size,
+        type: attType,
+      };
+    });
+
+    setStagedAttachments((prev) => [...prev, ...newAttachments]);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+    setTimeout(() => chatInputRef.current?.focus(), 50);
+  };
+
+  // Send real message to database (with bulk file upload support)
   const handleSendMessage = async () => {
-    if (!activeConvId || (!messageText.trim() && !replyingTo)) return;
+    if (!activeConvId || (!messageText.trim() && !replyingTo && stagedAttachments.length === 0)) return;
     const textToSend = messageText.trim();
     const currentReply = replyingTo;
+    const currentStagedList = [...stagedAttachments];
+
     setMessageText("");
     setReplyingTo(null);
+    setStagedAttachments([]);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+
+    // Upload all staged files in parallel (safely staying within serverless payload limits)
+    let uploadedAttachments: ConnectAttachment[] = [];
+    if (currentStagedList.length > 0) {
+      setIsUploading(true);
+      try {
+        const uploadPromises = currentStagedList.map(async (att) => {
+          const singleFormData = new FormData();
+          singleFormData.append("file", att.file);
+          const res = await fetch("/api/connect/upload", {
+            method: "POST",
+            body: singleFormData,
+          });
+          const text = await res.text();
+          let data: { success?: boolean; attachment?: ConnectAttachment; error?: string } = {};
+          try {
+            data = JSON.parse(text);
+          } catch {
+            throw new Error(`Upload server error for "${att.name}" (Status ${res.status})`);
+          }
+          if (data.success && data.attachment) {
+            return data.attachment;
+          }
+          throw new Error(data.error || `Failed to upload "${att.name}"`);
+        });
+
+        uploadedAttachments = await Promise.all(uploadPromises);
+      } catch (uploadErr) {
+        console.error("Bulk upload failed:", uploadErr);
+        const errMessage = uploadErr instanceof Error ? uploadErr.message : "Failed to upload files. Please check connection.";
+        toast.error(errMessage);
+        setIsUploading(false);
+        return;
+      } finally {
+        setIsUploading(false);
+        currentStagedList.forEach((att) => {
+          if (att.previewUrl) URL.revokeObjectURL(att.previewUrl);
+        });
+      }
+    }
 
     const clientMsgId = `c-${Date.now()}`;
+    const messageBody =
+      textToSend ||
+      (uploadedAttachments.length > 0
+        ? uploadedAttachments.length === 1
+          ? `Shared file: ${uploadedAttachments[0].name}`
+          : `Shared ${uploadedAttachments.length} files`
+        : "");
+
+    const messageType =
+      uploadedAttachments.length > 0
+        ? uploadedAttachments.every((a) => a.type === "image")
+          ? "image"
+          : "file"
+        : "text";
+
     const newMsg: ConnectMessage = {
       id: `m-${Date.now()}`,
       conversationId: activeConvId,
       senderId: authUser?.id || "user-current",
       senderName: authUser?.name || "Me",
       clientMsgId,
-      type: "text",
-      body: textToSend,
+      type: messageType,
+      body: messageBody,
       replyTo: currentReply
         ? {
             id: currentReply.id,
@@ -357,8 +1131,9 @@ export default function BrgConnectChatPage() {
             body: currentReply.body.slice(0, 70),
           }
         : undefined,
+      attachments: uploadedAttachments.length > 0 ? uploadedAttachments : undefined,
       status: "sending",
-      createdAt: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+      createdAt: formatMessageTime(new Date()),
     };
 
     // Optimistic UI append
@@ -367,6 +1142,27 @@ export default function BrgConnectChatPage() {
       [activeConvId]: [...(prev[activeConvId] || []), newMsg],
     }));
 
+    // Reorder sidebar so active chat is at top
+    setConversations((prev) => {
+      const target = prev.find((c) => c.id === activeConvId);
+      if (!target) return prev;
+      const updatedTarget = {
+        ...target,
+        lastMessage: {
+          id: newMsg.id,
+          conversationId: activeConvId,
+          senderId: newMsg.senderId,
+          senderName: newMsg.senderName,
+          clientMsgId,
+          type: newMsg.type,
+          body: newMsg.body,
+          status: "sending" as MessageDeliveryStatus,
+          createdAt: newMsg.createdAt,
+        },
+      };
+      return [updatedTarget, ...prev.filter((c) => c.id !== activeConvId)];
+    });
+
     // Post to real database endpoint
     try {
       const res = await fetch(`/api/connect/conversations/${activeConvId}/messages`, {
@@ -374,16 +1170,24 @@ export default function BrgConnectChatPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           senderId: authUser?.id || "user-current",
+          senderName: authUser?.name || "Me",
           clientMsgId,
-          type: "TEXT",
-          bodyText: textToSend,
+          type: uploadedAttachments.length > 0 ? "FILE" : "TEXT",
+          bodyText: messageBody,
           replyToId: currentReply?.id || null,
+          replyTo: currentReply
+            ? {
+                id: currentReply.id,
+                senderName: currentReply.senderName,
+                body: currentReply.body.slice(0, 70),
+              }
+            : null,
+          attachments: uploadedAttachments.length > 0 ? uploadedAttachments : undefined,
         }),
       });
       const data = await res.json();
       if (data.success) {
         updateMessageStatus(newMsg.id, "delivered");
-        setTimeout(() => updateMessageStatus(newMsg.id, "seen"), 1000);
       } else {
         updateMessageStatus(newMsg.id, "sent");
       }
@@ -401,6 +1205,184 @@ export default function BrgConnectChatPage() {
         [activeConvId]: list.map((m) => (m.id === msgId ? { ...m, status } : m)),
       };
     });
+  };
+
+  
+  const loadErpRecords = async () => {
+    try {
+      const res = await fetch("/api/connect/erp-records");
+      const d = await res.json();
+      if (d?.success && Array.isArray(d.records)) {
+        setRealErpRecords(d.records);
+      }
+    } catch {
+      // Ignored
+    }
+  };
+
+  const filteredErpRecords = useMemo(() => {
+    return realErpRecords.filter((rec) => {
+      const matchesType = erpFilterType === "ALL" || rec.type === erpFilterType;
+      const q = erpSearchQuery.trim().toLowerCase();
+      if (!q) return matchesType;
+      const matchesSearch =
+        rec.code.toLowerCase().includes(q) ||
+        rec.title.toLowerCase().includes(q) ||
+        (rec.subtitle && rec.subtitle.toLowerCase().includes(q)) ||
+        rec.status.toLowerCase().includes(q);
+      return matchesType && matchesSearch;
+    });
+  }, [realErpRecords, erpFilterType, erpSearchQuery]);
+
+  const startVoiceRecording = async () => {
+    if (!activeConvId) return;
+    try {
+      if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
+        toast.error("Audio recording is not supported in this browser.");
+        return;
+      }
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      voiceStreamRef.current = stream;
+      voiceChunksRef.current = [];
+
+      let mimeType = "audio/webm";
+      if (typeof MediaRecorder !== "undefined") {
+        if (MediaRecorder.isTypeSupported("audio/webm;codecs=opus")) {
+          mimeType = "audio/webm;codecs=opus";
+        } else if (MediaRecorder.isTypeSupported("audio/ogg;codecs=opus")) {
+          mimeType = "audio/ogg;codecs=opus";
+        } else if (MediaRecorder.isTypeSupported("audio/mp4")) {
+          mimeType = "audio/mp4";
+        }
+      }
+
+      const recorder = new MediaRecorder(stream, { mimeType });
+      mediaRecorderRef.current = recorder;
+
+      recorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) {
+          voiceChunksRef.current.push(e.data);
+        }
+      };
+
+      recorder.start(250);
+      setIsRecordingVoice(true);
+      setRecordingDuration(0);
+
+      voiceTimerRef.current = setInterval(() => {
+        setRecordingDuration((prev) => prev + 1);
+      }, 1000);
+    } catch (err) {
+      console.warn("Could not start voice recording:", err);
+      toast.error("Could not access microphone for voice message. Please check permissions.");
+    }
+  };
+
+  const cancelVoiceRecording = () => {
+    if (voiceTimerRef.current) {
+      clearInterval(voiceTimerRef.current);
+      voiceTimerRef.current = null;
+    }
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+      try {
+        mediaRecorderRef.current.stop();
+      } catch {}
+    }
+    if (voiceStreamRef.current) {
+      voiceStreamRef.current.getTracks().forEach((t) => t.stop());
+      voiceStreamRef.current = null;
+    }
+    mediaRecorderRef.current = null;
+    voiceChunksRef.current = [];
+    setIsRecordingVoice(false);
+    setRecordingDuration(0);
+  };
+
+  const stopAndSendVoiceRecording = async () => {
+    if (!activeConvId || !mediaRecorderRef.current) return;
+
+    if (voiceTimerRef.current) {
+      clearInterval(voiceTimerRef.current);
+      voiceTimerRef.current = null;
+    }
+
+    const recorder = mediaRecorderRef.current;
+    const dur = recordingDuration;
+    setIsRecordingVoice(false);
+    setIsUploading(true);
+
+    recorder.onstop = async () => {
+      try {
+        if (voiceStreamRef.current) {
+          voiceStreamRef.current.getTracks().forEach((t) => t.stop());
+          voiceStreamRef.current = null;
+        }
+
+        const mime = recorder.mimeType || "audio/webm";
+        const ext = mime.includes("mp4") ? "mp4" : mime.includes("ogg") ? "ogg" : "webm";
+        const audioBlob = new Blob(voiceChunksRef.current, { type: mime });
+        voiceChunksRef.current = [];
+
+        const file = new File([audioBlob], `voice-note-${Date.now()}.${ext}`, { type: mime });
+        const formData = new FormData();
+        formData.append("file", file);
+
+        const res = await fetch("/api/connect/upload", {
+          method: "POST",
+          body: formData,
+        });
+        const data = await res.json();
+
+        if (data.success && data.attachment) {
+          const clientMsgId = `c-voice-${Date.now()}`;
+          const newMsg: ConnectMessage = {
+            id: `m-voice-${Date.now()}`,
+            conversationId: activeConvId,
+            senderId: authUser?.id || "user-current",
+            senderName: authUser?.name || "Me",
+            clientMsgId,
+            type: "file",
+            body: `Voice Note (${formatTime(dur)})`,
+            attachments: [{
+              ...data.attachment,
+              type: "audio",
+            }],
+            status: "delivered",
+            createdAt: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+          };
+
+          setMessagesMap((prev) => ({
+            ...prev,
+            [activeConvId]: [...(prev[activeConvId] || []), newMsg],
+          }));
+
+          await fetch(`/api/connect/conversations/${activeConvId}/messages`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              senderId: authUser?.id || "user-current",
+              senderName: authUser?.name || "Me",
+              clientMsgId,
+              type: "FILE",
+              bodyText: `Voice Note (${formatTime(dur)})`,
+              attachments: [{
+                ...data.attachment,
+                type: "audio",
+              }],
+            }),
+          });
+        }
+      } catch (err) {
+        console.error("Voice upload failed:", err);
+      } finally {
+        setIsUploading(false);
+        setRecordingDuration(0);
+      }
+    };
+
+    if (recorder.state !== "inactive") {
+      recorder.stop();
+    }
   };
 
   // Real File Upload Handler
@@ -444,6 +1426,7 @@ export default function BrgConnectChatPage() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             senderId: authUser?.id || "user-current",
+            senderName: authUser?.name || "Me",
             clientMsgId,
             type: "FILE",
             bodyText: `Shared file: ${data.attachment.name}`,
@@ -488,6 +1471,7 @@ export default function BrgConnectChatPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           senderId: authUser?.id || "user-current",
+          senderName: authUser?.name || "Me",
           clientMsgId,
           type: "ERP_CARD",
           bodyText: `Shared live ERP record (${card.code}) for team review:`,
@@ -518,48 +1502,78 @@ export default function BrgConnectChatPage() {
     setEditText("");
 
     try {
-      await fetch(`/api/connect/messages/${msgId}`, {
+      const res = await fetch(`/api/connect/messages/${msgId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ newBody: updated }),
       });
+      const data = await res.json();
+      if (!data.success) {
+        toast.error(data.error || "Failed to edit message");
+        loadMessages(activeConvId);
+      }
     } catch {
       // Ignored
     }
   };
 
   // Delete Message via API
-  const handleDeleteMessage = async (msgId: string) => {
+  const handleDeleteMessage = (msgId: string) => {
     if (!activeConvId) return;
-    if (confirm("Delete this message for everyone?")) {
-      setMessagesMap((prev) => {
-        const list = prev[activeConvId] || [];
-        return {
-          ...prev,
-          [activeConvId]: list.map((m) =>
-            m.id === msgId
-              ? {
-                  ...m,
-                  body: "This message was deleted",
-                  deletedAt: new Date().toLocaleTimeString(),
-                  erpRecord: undefined,
-                  attachments: undefined,
-                }
-              : m
-          ),
-        };
-      });
+    setConfirmModal({
+      isOpen: true,
+      title: "Delete message for everyone?",
+      description: "Are you sure you want to delete this message? This action will permanently remove the message for all members in this conversation.",
+      confirmLabel: "Delete for Everyone",
+      cancelLabel: "Cancel",
+      isDestructive: true,
+      onConfirm: () => executeDeleteMessage(msgId),
+    });
+  };
 
-      try {
-        await fetch(`/api/connect/messages/${msgId}`, { method: "DELETE" });
-      } catch {
-        // Ignored
+  const executeDeleteMessage = async (msgId: string) => {
+    if (!activeConvId) return;
+    setMessagesMap((prev) => {
+      const list = prev[activeConvId] || [];
+      return {
+        ...prev,
+        [activeConvId]: list.map((m) =>
+          m.id === msgId
+            ? {
+                ...m,
+                body: "This message was deleted",
+                deletedAt: new Date().toLocaleTimeString(),
+                erpRecord: undefined,
+                attachments: undefined,
+              }
+            : m
+        ),
+      };
+    });
+
+    try {
+      const res = await fetch(`/api/connect/messages/${msgId}`, { method: "DELETE" });
+      const data = await res.json();
+      if (!data.success) {
+        toast.error(data.error || "Failed to delete message");
+        loadMessages(activeConvId);
+      } else {
+        toast.success("Message deleted for everyone");
       }
+    } catch {
+      toast.error("Failed to delete message");
     }
   };
 
-  // Real WebRTC Camera & Mic Stream
+  // Real WebRTC Calling & Media Stream
   const handleStartCall = async (type: "audio" | "video") => {
+    if (!activeConvId || !activeConv) return;
+
+    // Prime audio playback during user click gesture to satisfy browser autoplay policies
+    if (remoteAudioRef.current) {
+      remoteAudioRef.current.play().catch(() => {});
+    }
+
     setActiveCall({
       type,
       status: "ringing",
@@ -569,24 +1583,126 @@ export default function BrgConnectChatPage() {
       isScreenSharing: false,
     });
 
+    startOutgoingRingback();
+
     try {
       if (typeof navigator !== "undefined" && navigator.mediaDevices) {
         const stream = await navigator.mediaDevices.getUserMedia({
-          audio: true,
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+          },
           video: type === "video",
         });
         mediaStreamRef.current = stream;
         if (localVideoRef.current && type === "video") {
           localVideoRef.current.srcObject = stream;
         }
+
+        const pc = initPeerConnection(activeConvId, type);
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+
+        await sendCallSignal(activeConvId, "call-request", type, offer);
       }
     } catch (err) {
       console.warn("Camera/mic access warning:", err);
+      stopRingtone();
+      toast.error("Could not access microphone or camera. Please check browser permissions.");
+      setActiveCall(null);
+    }
+  };
+
+  const handleAcceptIncomingCallById = async (
+    convId: string,
+    callType: "audio" | "video" = "audio",
+    initialOffer?: RTCSessionDescriptionInit | null
+  ) => {
+    stopRingtone();
+    if (remoteAudioRef.current) {
+      remoteAudioRef.current.play().catch(() => {});
     }
 
-    setTimeout(() => {
-      setActiveCall((prev) => (prev ? { ...prev, status: "connected" } : null));
-    }, 2000);
+    let offer = initialOffer || null;
+    setActiveConvId(convId);
+
+    setActiveCall({
+      type: callType,
+      status: "connected",
+      durationSec: 0,
+      isMuted: false,
+      isCameraOff: false,
+      isScreenSharing: false,
+    });
+
+    try {
+      if (!offer) {
+        try {
+          const res = await fetch(`/api/connect/calls/signal?conversationId=${convId}`);
+          const data = await res.json();
+          if (data.success && data.sdp) {
+            offer = data.sdp;
+          }
+        } catch (fetchErr) {
+          console.warn("[WebRTC] Could not fetch cached offer SDP:", fetchErr);
+        }
+      }
+
+      if (typeof navigator !== "undefined" && navigator.mediaDevices) {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+          },
+          video: callType === "video",
+        });
+        mediaStreamRef.current = stream;
+        if (localVideoRef.current && callType === "video") {
+          localVideoRef.current.srcObject = stream;
+        }
+
+        const pc = initPeerConnection(convId, callType);
+
+        if (offer) {
+          await pc.setRemoteDescription(new RTCSessionDescription(offer));
+          while (queuedIceCandidatesRef.current.length > 0) {
+            const cand = queuedIceCandidatesRef.current.shift();
+            if (cand) await pc.addIceCandidate(new RTCIceCandidate(cand));
+          }
+          const answer = await pc.createAnswer();
+          await pc.setLocalDescription(answer);
+          await sendCallSignal(convId, "call-accept", callType, answer);
+        } else {
+          await sendCallSignal(convId, "call-accept", callType);
+        }
+      }
+    } catch (err) {
+      console.warn("Could not access media devices on accept:", err);
+      cleanupCall();
+    }
+  };
+
+  useEffect(() => {
+    handleAcceptIncomingCallByIdRef.current = handleAcceptIncomingCallById;
+    handleStartCallRef.current = handleStartCall;
+  }, []);
+
+  const handleAcceptIncomingCall = async () => {
+    if (!incomingCall) return;
+    const { conversationId, callType, offer } = incomingCall;
+    setIncomingCall(null);
+    await handleAcceptIncomingCallById(conversationId, callType, offer);
+  };
+
+  const handleRejectIncomingCall = async () => {
+    if (!incomingCall) return;
+    stopRingtone();
+    const convId = incomingCall.conversationId;
+    const callType = incomingCall.callType;
+    setIncomingCall(null);
+    await sendCallSignal(convId, "call-reject", callType);
   };
 
   const handleToggleMute = () => {
@@ -619,10 +1735,24 @@ export default function BrgConnectChatPage() {
         if (localVideoRef.current) {
           localVideoRef.current.srcObject = screenStream;
         }
+        if (peerConnectionRef.current) {
+          const videoTrack = screenStream.getVideoTracks()[0];
+          const sender = peerConnectionRef.current.getSenders().find((s) => s.track?.kind === "video");
+          if (sender) {
+            sender.replaceTrack(videoTrack);
+          }
+        }
         setActiveCall((prev) => (prev ? { ...prev, isScreenSharing: true } : null));
       } else {
         if (localVideoRef.current && mediaStreamRef.current) {
           localVideoRef.current.srcObject = mediaStreamRef.current;
+        }
+        if (peerConnectionRef.current && mediaStreamRef.current) {
+          const videoTrack = mediaStreamRef.current.getVideoTracks()[0];
+          const sender = peerConnectionRef.current.getSenders().find((s) => s.track?.kind === "video");
+          if (sender && videoTrack) {
+            sender.replaceTrack(videoTrack);
+          }
         }
         setActiveCall((prev) => (prev ? { ...prev, isScreenSharing: false } : null));
       }
@@ -634,11 +1764,10 @@ export default function BrgConnectChatPage() {
   const handleEndCall = async () => {
     if (!activeCall || !activeConvId) return;
     const duration = activeCall.durationSec;
+    const callType = activeCall.type;
 
-    if (mediaStreamRef.current) {
-      mediaStreamRef.current.getTracks().forEach((t) => t.stop());
-      mediaStreamRef.current = null;
-    }
+    stopRingtone();
+    await sendCallSignal(activeConvId, "call-hangup", callType);
 
     const callMsg: ConnectMessage = {
       id: `m-call-${Date.now()}`,
@@ -647,9 +1776,9 @@ export default function BrgConnectChatPage() {
       senderName: authUser?.name || "Me",
       clientMsgId: `c-call-${Date.now()}`,
       type: "call",
-      body: activeCall.type === "audio" ? "Audio Call" : "Video Call",
+      body: callType === "audio" ? "Audio Call" : "Video Call",
       callInfo: {
-        type: activeCall.type,
+        type: callType,
         status: duration > 0 ? "completed" : "missed",
         durationSec: duration,
       },
@@ -668,8 +1797,7 @@ export default function BrgConnectChatPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           conversationId: activeConvId,
-          startedById: authUser?.id || "user-current",
-          type: activeCall.type.toUpperCase(),
+          type: callType.toUpperCase(),
           status: duration > 0 ? "COMPLETED" : "MISSED",
           durationSec: duration,
         }),
@@ -678,7 +1806,7 @@ export default function BrgConnectChatPage() {
       // Ignored
     }
 
-    setActiveCall(null);
+    cleanupCall();
   };
 
   const formatTime = (sec: number) => {
@@ -698,11 +1826,21 @@ export default function BrgConnectChatPage() {
 
   return (
     <div className="flex h-[calc(100vh-4rem)] flex-col bg-surface text-ink antialiased">
+      {/* Dedicated audio element for WebRTC remote audio playback in all calls */}
+      <audio
+        ref={remoteAudioRef}
+        autoPlay
+        playsInline
+        className="fixed -bottom-10 -right-10 size-1 opacity-0 pointer-events-none"
+      />
       <input
         type="file"
         ref={fileInputRef}
-        onChange={handleFileUpload}
-        className="hidden"
+        onChange={handleFileSelect}
+        multiple
+        className="sr-only"
+        tabIndex={-1}
+        aria-hidden="true"
       />
 
       {/* Top Banner Navigation Bar */}
@@ -734,29 +1872,10 @@ export default function BrgConnectChatPage() {
             >
               Calls &amp; Meetings
             </Link>
-            <Link
-              href="/connect/docs"
-              className="rounded px-2.5 py-1 text-ink-muted hover:bg-control hover:text-ink transition"
-            >
-              Architecture &amp; Spec
-            </Link>
           </nav>
         </div>
 
         <div className="flex items-center gap-3 text-xs">
-          <button
-            type="button"
-            onClick={loadConversations}
-            className="flex items-center gap-1 text-ink-muted hover:text-ink transition cursor-pointer"
-            title="Refresh database records"
-          >
-            <RefreshCw className="size-3" />
-            <span>Sync DB</span>
-          </button>
-          <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full border border-emerald-500/30 bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 font-medium">
-            <span className="size-2 rounded-full bg-emerald-500 animate-pulse" />
-            <span>Neon DB &bull; Live</span>
-          </div>
           <span className="text-ink-muted">
             Signed in as <strong>{authUser?.name || "ERP User"}</strong>
           </span>
@@ -886,6 +2005,12 @@ export default function BrgConnectChatPage() {
                           {getInitials(c.name)}
                         </div>
                       )}
+                      {!isGroup && isPeerOnline(c) && (
+                        <span
+                          className="absolute -bottom-0.5 -right-0.5 size-2.5 rounded-full bg-emerald-500 ring-2 ring-surface"
+                          title="Online"
+                        />
+                      )}
                     </div>
 
                     <div className="flex-1 min-w-0">
@@ -894,12 +2019,27 @@ export default function BrgConnectChatPage() {
                           {c.name}
                         </span>
                         <span className="text-[10px] text-ink-muted shrink-0 ml-1">
-                          {c.lastMessage?.createdAt || ""}
+                          {formatMessageTime(c.lastMessage?.createdAt)}
                         </span>
                       </div>
 
-                      <p className="text-[11px] text-ink-muted truncate mt-0.5">
-                        {c.lastMessage?.body || c.description || "No messages yet"}
+                      <p className="text-[11px] text-ink-muted truncate mt-0.5 flex items-center gap-1">
+                        {c.lastMessage && c.lastMessage.senderId === authUser?.id && (
+                          <span className="shrink-0 inline-flex items-center">
+                            {c.lastMessage.status === "seen" ? (
+                              <CheckCheck className="size-3 text-[#34B7F1] stroke-[2.8]" />
+                            ) : c.lastMessage.status === "delivered" ? (
+                              <CheckCheck className="size-3 text-ink-muted stroke-[2]" />
+                            ) : c.lastMessage.status === "sent" ? (
+                              <Check className="size-3 text-ink-muted stroke-[2]" />
+                            ) : (
+                              <Clock className="size-2.5 text-ink-muted" />
+                            )}
+                          </span>
+                        )}
+                        <span className="truncate">
+                          {c.lastMessage?.body || c.description || "No messages yet"}
+                        </span>
                       </p>
 
                       <div className="flex items-center gap-1.5 mt-1">
@@ -970,11 +2110,28 @@ export default function BrgConnectChatPage() {
                       <h3 className="text-sm font-bold text-ink truncate">{activeConv.name}</h3>
                       {activeConv.isMuted && <BellOff className="size-3 text-ink-muted" />}
                     </div>
-                    <span className="text-[11px] text-ink-muted block truncate">
-                      {activeConv.type === "group"
-                        ? `${activeConv.description || "Team Channel"}`
-                        : "Direct Message"}
-                    </span>
+                    {activeConv.type === "group" ? (
+                      <span className="text-[11px] text-ink-muted block truncate">
+                        {activeConv.description || "Team Channel"}
+                      </span>
+                    ) : (
+                      <div className="flex items-center gap-1.5 text-[11px] leading-tight">
+                        {isPeerOnline(activeConv) ? (
+                          <span className="flex items-center gap-1 font-medium text-emerald-600 dark:text-emerald-400">
+                            <span className="relative flex size-2">
+                              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75"></span>
+                              <span className="relative inline-flex size-2 rounded-full bg-emerald-500"></span>
+                            </span>
+                            Online
+                          </span>
+                        ) : (
+                          <span className="flex items-center gap-1 text-ink-muted">
+                            <span className="size-1.5 rounded-full bg-gray-400 dark:bg-gray-500"></span>
+                            Offline
+                          </span>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -1011,14 +2168,15 @@ export default function BrgConnectChatPage() {
               </div>
 
               {/* Messages Scroll Area */}
-              <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-control/20">
-                <div className="flex justify-center my-2">
-                  <div className="flex items-center gap-1.5 px-3 py-1 rounded-full border border-line bg-surface text-[11px] text-ink-muted shadow-2xs">
-                    <AlertCircle className="size-3 text-blue-500" />
-                    <span>Neon PostgreSQL Live • Real-time enterprise encryption</span>
-                  </div>
-                </div>
-
+              <div
+                className="flex-1 overflow-y-auto p-4 space-y-3 bg-control/20"
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  const dropped = Array.from(e.dataTransfer.files || []);
+                  if (dropped.length > 0) handleFileSelect(dropped);
+                }}
+              >
                 {activeMessages.length === 0 ? (
                   <div className="flex flex-col items-center justify-center py-12 text-center space-y-2 text-ink-muted">
                     <p className="text-xs font-semibold text-ink">No messages yet in this conversation</p>
@@ -1142,35 +2300,150 @@ export default function BrgConnectChatPage() {
                               </div>
                             )}
 
-                            {/* Attachments */}
-                            {msg.attachments?.map((att) => (
-                              <div
-                                key={att.id}
-                                className={`mt-2 flex items-center gap-2.5 p-2 rounded border ${
-                                  isMe
-                                    ? "bg-blue-700/50 border-white/30 text-white"
-                                    : "bg-control/40 border-line text-ink"
-                                }`}
-                              >
-                                <FileText className="size-4 shrink-0" />
-                                <div className="flex-1 min-w-0">
-                                  <span className="block truncate font-medium text-[11px]">{att.name}</span>
-                                  <span className="text-[10px] opacity-75">
-                                    {(att.sizeBytes / 1024 / 1024).toFixed(2)} MB
-                                  </span>
-                                </div>
-                                <a
-                                  href={att.url}
-                                  download={att.name}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="size-6 rounded hover:bg-surface/20 flex items-center justify-center transition cursor-pointer"
-                                  title="Download attachment"
+                            {/* Attachments (Voice notes, Images, Documents) */}
+                            {msg.attachments?.map((att) => {
+                              const isImage = att.type === "image" || att.mimeType?.startsWith("image/");
+                              const isAudio =
+                                att.type === "audio" ||
+                                att.mimeType?.startsWith("audio/") ||
+                                att.name.endsWith(".ogg") ||
+                                att.name.endsWith(".mp3") ||
+                                att.name.endsWith(".wav");
+                              const isVideo =
+                                att.mimeType?.startsWith("video/") ||
+                                att.name.endsWith(".mp4") ||
+                                att.name.endsWith(".mov") ||
+                                att.name.endsWith(".mkv") ||
+                                (att.name.endsWith(".webm") && !att.mimeType?.startsWith("audio/"));
+
+                              if (isAudio) {
+                                return (
+                                  <div
+                                    key={att.id}
+                                    className={`mt-2 p-2.5 rounded-lg border shadow-xs space-y-1.5 max-w-xs ${
+                                      isMe
+                                        ? "bg-blue-700/60 border-white/20 text-white"
+                                        : "bg-surface border-line text-ink"
+                                    }`}
+                                  >
+                                    <div className="flex items-center justify-between text-xs font-semibold">
+                                      <div className="flex items-center gap-1.5">
+                                        <Mic className="size-3.5 text-blue-400" />
+                                        <span>Voice Note</span>
+                                      </div>
+                                      <a
+                                        href={att.url}
+                                        download={att.name}
+                                        className="hover:opacity-75 transition cursor-pointer"
+                                        title="Download Voice Note"
+                                      >
+                                        <Download className="size-3" />
+                                      </a>
+                                    </div>
+                                    <audio
+                                      controls
+                                      src={att.url}
+                                      preload="metadata"
+                                      className="w-full h-8 rounded accent-blue-600"
+                                    />
+                                  </div>
+                                );
+                              }
+
+                              if (isVideo) {
+                                return (
+                                  <div
+                                    key={att.id}
+                                    className="mt-2 rounded-lg overflow-hidden border border-line/40 max-w-sm shadow-xs bg-slate-950"
+                                  >
+                                    <video
+                                      controls
+                                      src={att.url}
+                                      preload="metadata"
+                                      className="w-full max-h-64 rounded-t-lg bg-black object-contain"
+                                    />
+                                    <div
+                                      className={`px-2.5 py-1.5 flex items-center justify-between text-[11px] ${
+                                        isMe ? "bg-blue-800/80 text-white" : "bg-control/70 text-ink"
+                                      }`}
+                                    >
+                                      <span className="truncate max-w-[200px] font-medium" title={att.name}>
+                                        {att.name}
+                                      </span>
+                                      <div className="flex items-center gap-2 shrink-0">
+                                        <span className="opacity-75 text-[10px]">
+                                          {(att.sizeBytes / (1024 * 1024)).toFixed(1)} MB
+                                        </span>
+                                        <a
+                                          href={att.url}
+                                          download={att.name}
+                                          className="hover:opacity-80 transition cursor-pointer p-0.5 rounded hover:bg-white/10"
+                                          title="Download Video"
+                                        >
+                                          <Download className="size-3.5" />
+                                        </a>
+                                      </div>
+                                    </div>
+                                  </div>
+                                );
+                              }
+
+                              if (isImage) {
+                                return (
+                                  <div
+                                    key={att.id}
+                                    className="mt-2 rounded-lg overflow-hidden border border-line/40 max-w-xs shadow-xs"
+                                  >
+                                    <a href={att.url} target="_blank" rel="noopener noreferrer" title="View Full Image">
+                                      <img
+                                        src={att.url}
+                                        alt={att.name}
+                                        className="w-full max-h-56 object-cover hover:opacity-95 transition cursor-pointer"
+                                      />
+                                    </a>
+                                    <div
+                                      className={`px-2 py-1 flex items-center justify-between text-[10px] ${
+                                        isMe ? "bg-blue-800/60 text-white" : "bg-control/50 text-ink-muted"
+                                      }`}
+                                    >
+                                      <span className="truncate">{att.name}</span>
+                                      <a href={att.url} download={att.name} className="hover:text-blue-500">
+                                        <Download className="size-3" />
+                                      </a>
+                                    </div>
+                                  </div>
+                                );
+                              }
+
+                              return (
+                                <div
+                                  key={att.id}
+                                  className={`mt-2 flex items-center gap-2.5 p-2 rounded border ${
+                                    isMe
+                                      ? "bg-blue-700/50 border-white/30 text-white"
+                                      : "bg-control/40 border-line text-ink"
+                                  }`}
                                 >
-                                  <Download className="size-3.5" />
-                                </a>
-                              </div>
-                            ))}
+                                  <FileText className="size-4 shrink-0" />
+                                  <div className="flex-1 min-w-0">
+                                    <span className="block truncate font-medium text-[11px]">{att.name}</span>
+                                    <span className="text-[10px] opacity-75">
+                                      {(att.sizeBytes / 1024 / 1024).toFixed(2)} MB
+                                    </span>
+                                  </div>
+                                  <a
+                                    href={att.url}
+                                    download={att.name}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="size-6 rounded hover:bg-surface/20 flex items-center justify-center transition cursor-pointer"
+                                    title="Download attachment"
+                                  >
+                                    <Download className="size-3.5" />
+                                  </a>
+                                </div>
+                              );
+                            })}
 
                             {/* Call Info */}
                             {msg.callInfo && (
@@ -1190,14 +2463,33 @@ export default function BrgConnectChatPage() {
                               }`}
                             >
                               {msg.editedAt && <span>(edited)</span>}
-                              <span>{msg.createdAt}</span>
+                              <span>{formatMessageTime(msg.createdAt)}</span>
 
                               {isMe && (
-                                <span title={`Status: ${msg.status}`}>
-                                  {msg.status === "sending" && <Clock className="size-3 text-blue-200 animate-spin" />}
-                                  {msg.status === "sent" && <Check className="size-3 text-blue-200" />}
-                                  {msg.status === "delivered" && <CheckCheck className="size-3 text-blue-200" />}
-                                  {msg.status === "seen" && <CheckCheck className="size-3 text-sky-300 font-bold" />}
+                                <span
+                                  title={
+                                    msg.status === "seen"
+                                      ? "Seen / Read"
+                                      : msg.status === "delivered"
+                                      ? "Delivered"
+                                      : msg.status === "sent"
+                                      ? "Sent"
+                                      : "Sending..."
+                                  }
+                                  className="inline-flex items-center ml-0.5"
+                                >
+                                  {msg.status === "sending" && (
+                                    <Clock className="size-3 text-white/70 animate-spin" />
+                                  )}
+                                  {msg.status === "sent" && (
+                                    <Check className="size-3.5 text-white/80 stroke-[2.5]" />
+                                  )}
+                                  {msg.status === "delivered" && (
+                                    <CheckCheck className="size-3.5 text-white/80 stroke-[2.5]" />
+                                  )}
+                                  {msg.status === "seen" && (
+                                    <CheckCheck className="size-3.5 text-[#34B7F1] stroke-[2.8] drop-shadow-[0_0_2px_rgba(52,183,241,0.6)]" />
+                                  )}
                                 </span>
                               )}
                             </div>
@@ -1278,61 +2570,186 @@ export default function BrgConnectChatPage() {
 
               {/* Bottom Message Composer */}
               <div className="p-3 border-t border-line bg-surface">
+                {/* Staged File Attachments Preview (Bulk Upload Support) */}
+                {stagedAttachments.length > 0 && (
+                  <div className="bg-control/70 border border-line rounded-lg p-2.5 mb-2 text-xs space-y-2 animate-in fade-in slide-in-from-bottom-2">
+                    <div className="flex items-center justify-between text-ink-muted text-[11px] font-medium border-b border-line/60 pb-1.5">
+                      <div className="flex items-center gap-1.5">
+                        <Paperclip className="size-3.5 text-blue-600" />
+                        <span className="font-semibold text-ink">
+                          {stagedAttachments.length} file{stagedAttachments.length > 1 ? "s" : ""} selected for bulk upload
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => fileInputRef.current?.click()}
+                          className="text-blue-600 hover:text-blue-700 font-semibold cursor-pointer"
+                        >
+                          + Add more
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            stagedAttachments.forEach((a) => {
+                              if (a.previewUrl) URL.revokeObjectURL(a.previewUrl);
+                            });
+                            setStagedAttachments([]);
+                            if (fileInputRef.current) fileInputRef.current.value = "";
+                          }}
+                          className="text-ink-muted hover:text-rose-600 cursor-pointer"
+                        >
+                          Clear all
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 max-h-40 overflow-y-auto pr-1">
+                      {stagedAttachments.map((att) => (
+                        <div
+                          key={att.id}
+                          className="relative group flex items-center gap-2 p-1.5 rounded-md bg-surface border border-line shadow-2xs min-w-0"
+                        >
+                          {att.type === "image" && att.previewUrl ? (
+                            <img
+                              src={att.previewUrl}
+                              alt={att.name}
+                              className="size-8 rounded object-cover border border-line shrink-0"
+                            />
+                          ) : (
+                            <div className="size-8 rounded bg-blue-100 dark:bg-blue-950/60 text-blue-600 flex items-center justify-center shrink-0">
+                              <FileText className="size-4" />
+                            </div>
+                          )}
+                          <div className="min-w-0 flex-1">
+                            <span className="font-medium text-ink truncate block text-[11px]" title={att.name}>
+                              {att.name}
+                            </span>
+                            <span className="text-[10px] text-ink-muted block">
+                              {(att.sizeBytes / (1024 * 1024)).toFixed(2)} MB
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (att.previewUrl) URL.revokeObjectURL(att.previewUrl);
+                              setStagedAttachments((prev) => prev.filter((item) => item.id !== att.id));
+                            }}
+                            className="p-1 rounded-full text-ink-muted hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/50 transition cursor-pointer"
+                            title="Remove this file"
+                          >
+                            <X className="size-3.5" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 <div className="flex items-end gap-2 rounded-lg border border-line bg-surface p-1.5 shadow-2xs focus-within:ring-1 focus-within:ring-blue-500">
                   <div className="flex items-center gap-1 text-ink-muted pb-1">
                     <button
                       type="button"
                       onClick={() => fileInputRef.current?.click()}
-                      disabled={isUploading}
-                      className="size-7 rounded hover:bg-control flex items-center justify-center hover:text-ink transition cursor-pointer"
-                      title="Upload & Attach File"
+                      disabled={isUploading || isRecordingVoice}
+                      className="size-7 rounded hover:bg-control flex items-center justify-center text-ink-muted hover:text-ink transition cursor-pointer disabled:opacity-40"
+                      title="Attach File / Photo / Document"
                     >
                       <Paperclip className={`size-4 ${isUploading ? "animate-spin text-blue-600" : ""}`} />
                     </button>
                     <button
                       type="button"
-                      onClick={() => setIsErpPickerOpen(true)}
-                      className="size-7 rounded hover:bg-control flex items-center justify-center text-blue-600 hover:text-blue-700 transition cursor-pointer"
+                      onClick={() => {
+                        loadErpRecords();
+                        setIsErpPickerOpen(true);
+                      }}
+                      disabled={isRecordingVoice}
+                      className="size-7 rounded hover:bg-control flex items-center justify-center text-blue-600 hover:text-blue-700 transition cursor-pointer disabled:opacity-40"
                       title="Attach Live ERP Record (PO, Requisition)"
                     >
                       <Share2 className="size-4" />
                     </button>
                   </div>
 
-                  <textarea
-                    ref={chatInputRef}
-                    value={messageText}
-                    onChange={(e) => setMessageText(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" && !e.shiftKey) {
-                        e.preventDefault();
-                        handleSendMessage();
-                      }
-                    }}
-                    rows={1}
-                    placeholder="Type a message... (Enter to send, Shift+Enter for new line)"
-                    className="flex-1 max-h-32 min-h-8 resize-none bg-transparent py-1.5 text-xs text-ink placeholder:text-ink-muted focus:outline-none"
-                  />
+                  {isRecordingVoice ? (
+                    <div className="flex-1 flex items-center justify-between px-3 py-1.5 bg-rose-50 dark:bg-rose-950/40 rounded-lg border border-rose-200 dark:border-rose-900/50 text-rose-600 animate-in fade-in">
+                      <div className="flex items-center gap-2">
+                        <span className="size-2 rounded-full bg-rose-600 animate-ping" />
+                        <span className="text-xs font-semibold">Recording Voice Note...</span>
+                        <span className="font-mono text-xs font-bold text-rose-700 dark:text-rose-300">
+                          {formatTime(recordingDuration)}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={cancelVoiceRecording}
+                          className="p-1 rounded text-rose-500 hover:text-rose-700 hover:bg-rose-100 dark:hover:bg-rose-900/50 transition cursor-pointer"
+                          title="Discard Recording"
+                        >
+                          <Trash2 className="size-4" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={stopAndSendVoiceRecording}
+                          className="px-2.5 py-1 rounded bg-rose-600 hover:bg-rose-700 text-white font-semibold text-xs flex items-center gap-1 transition cursor-pointer shadow-xs"
+                          title="Send Voice Note"
+                        >
+                          <Send className="size-3" />
+                          <span>Send</span>
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <textarea
+                        ref={chatInputRef}
+                        value={messageText}
+                        onChange={(e) => setMessageText(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" && !e.shiftKey) {
+                            e.preventDefault();
+                            handleSendMessage();
+                          }
+                        }}
+                        rows={1}
+                        placeholder="Type a message... (Enter to send, Shift+Enter for new line)"
+                        onPaste={(e) => {
+                          const files = Array.from(e.clipboardData.files || []);
+                          if (files.length > 0) {
+                            e.preventDefault();
+                            handleFileSelect(files);
+                          }
+                        }}
+                        className="flex-1 max-h-32 min-h-8 resize-none bg-transparent py-1.5 text-xs text-ink placeholder:text-ink-muted focus:outline-none"
+                      />
 
-                  <div className="flex items-center gap-1 pb-1">
-                    <button
-                      type="button"
-                      onClick={() => handleStartCall("audio")}
-                      className="size-7 rounded hover:bg-control flex items-center justify-center text-ink-muted hover:text-ink transition cursor-pointer"
-                      title="Voice Call"
-                    >
-                      <Mic className="size-4" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleSendMessage}
-                      disabled={!messageText.trim() && !replyingTo}
-                      className="size-8 rounded-md bg-blue-600 hover:bg-blue-700 disabled:opacity-40 disabled:hover:bg-blue-600 text-white flex items-center justify-center transition cursor-pointer shadow-xs"
-                      title="Send Message"
-                    >
-                      <Send className="size-3.5" />
-                    </button>
-                  </div>
+                      <div className="flex items-center gap-1 pb-1">
+                        <button
+                          type="button"
+                          onClick={startVoiceRecording}
+                          disabled={isUploading}
+                          className="size-7 rounded hover:bg-control flex items-center justify-center text-ink-muted hover:text-rose-600 transition cursor-pointer"
+                          title="Record Voice Note"
+                        >
+                          <Mic className="size-4" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleSendMessage}
+                          disabled={(!messageText.trim() && !replyingTo && stagedAttachments.length === 0) || isUploading}
+                          className="size-8 rounded-md bg-blue-600 hover:bg-blue-700 disabled:opacity-40 disabled:hover:bg-blue-600 text-white flex items-center justify-center transition cursor-pointer shadow-xs"
+                          title="Send Message"
+                        >
+                          {isUploading ? (
+                            <Paperclip className="size-3.5 animate-spin" />
+                          ) : (
+                            <Send className="size-3.5" />
+                          )}
+                        </button>
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
             </>
@@ -1410,72 +2827,210 @@ export default function BrgConnectChatPage() {
         )}
       </div>
 
-      {/* Real WebRTC Call Modal with Camera / Screen Share */}
-      {activeCall && activeConv && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-xs p-4 animate-in fade-in">
-          <div className="w-full max-w-lg rounded-2xl bg-slate-900 border border-slate-800 p-6 text-white text-center shadow-2xl space-y-6">
-            <div className="space-y-2">
+      {/* Incoming Call Alert Modal */}
+      {incomingCall && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in">
+          <div className="w-full max-w-sm rounded-2xl bg-slate-900 border border-slate-800 p-6 text-white text-center shadow-2xl space-y-6">
+            <div className="relative size-24 mx-auto flex items-center justify-center">
+              <span className="absolute inset-0 rounded-full bg-emerald-500/20 animate-ping" />
               <div
-                className={`size-20 mx-auto rounded-full flex items-center justify-center font-bold text-xl border-4 border-slate-700 ${getAvatarBg(
-                  activeConv.name
+                className={`relative size-20 rounded-full flex items-center justify-center font-bold text-2xl border-4 border-emerald-500 shadow-xl ${getAvatarBg(
+                  incomingCall.callerName
                 )}`}
               >
-                {getInitials(activeConv.name)}
+                {getInitials(incomingCall.callerName)}
               </div>
-              <h3 className="font-bold text-lg">{activeConv.name}</h3>
-              <p className="text-xs text-slate-400">
-                {activeCall.status === "ringing"
-                  ? "Ringing WebRTC Peer (Coturn TURN active)..."
-                  : `Connected • ${formatTime(activeCall.durationSec)}`}
+            </div>
+
+            <div className="space-y-1">
+              <h3 className="font-bold text-lg text-white">{incomingCall.callerName}</h3>
+              <p className="text-xs text-emerald-400 font-medium animate-pulse">
+                Incoming {incomingCall.callType === "video" ? "Video" : "Audio"} Call...
               </p>
             </div>
 
+            <div className="flex items-center justify-center gap-6 pt-2">
+              <button
+                type="button"
+                onClick={handleRejectIncomingCall}
+                className="size-14 rounded-full bg-rose-600 hover:bg-rose-700 text-white flex items-center justify-center shadow-lg hover:scale-105 transition cursor-pointer"
+                title="Decline"
+              >
+                <PhoneOff className="size-6" />
+              </button>
+
+              <button
+                type="button"
+                onClick={handleAcceptIncomingCall}
+                className="size-14 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white flex items-center justify-center shadow-lg hover:scale-105 transition cursor-pointer"
+                title="Accept"
+              >
+                <Phone className="size-6" />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Real WebRTC Call Modal (Supports Minimizing to Screen Corner / PiP) */}
+      {activeCall && (
+        <div
+          className={
+            isCallMinimized
+              ? "fixed bottom-5 right-5 z-50 pointer-events-auto animate-in slide-in-from-bottom-5 duration-200"
+              : "fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-xs p-4 animate-in fade-in"
+          }
+        >
+          <div
+            className={
+              isCallMinimized
+                ? "w-80 rounded-2xl bg-slate-900 border-2 border-slate-700/80 p-3.5 text-white shadow-2xl space-y-3"
+                : "w-full max-w-lg rounded-2xl bg-slate-900 border border-slate-800 p-6 text-white text-center shadow-2xl space-y-6 relative"
+            }
+          >
+            {/* Header / Title Row */}
+            {isCallMinimized ? (
+              <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                <div className="flex items-center gap-2 min-w-0">
+                  <div
+                    className={`size-7 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 ${getAvatarBg(
+                      activeConv?.name || "Colleague"
+                    )}`}
+                  >
+                    {getInitials(activeConv?.name || "Colleague")}
+                  </div>
+                  <div className="min-w-0">
+                    <h4 className="font-semibold text-xs text-white truncate max-w-[140px]">
+                      {activeConv?.name || "Colleague"}
+                    </h4>
+                    <p className="text-[10px] text-emerald-400 font-medium">
+                      {activeCall.status === "ringing" ? "Ringing..." : formatTime(activeCall.durationSec)}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-1 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setIsCallMinimized(false)}
+                    className="p-1 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition cursor-pointer"
+                    title="Maximize to Full Screen"
+                    aria-label="Maximize Call"
+                  >
+                    <Maximize2 className="size-3.5" />
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <>
+                <div className="absolute top-4 right-4 flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setIsCallMinimized(true)}
+                    className="p-1.5 rounded-lg bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white transition cursor-pointer flex items-center gap-1 text-xs"
+                    title="Minimize to right corner (PiP)"
+                    aria-label="Minimize Call"
+                  >
+                    <Minimize2 className="size-4" />
+                    <span className="text-[11px] font-medium hidden sm:inline">Minimize</span>
+                  </button>
+                </div>
+
+                <div className="space-y-2">
+                  <div
+                    className={`size-20 mx-auto rounded-full flex items-center justify-center font-bold text-xl border-4 border-slate-700 ${getAvatarBg(
+                      activeConv?.name || "Colleague"
+                    )}`}
+                  >
+                    {getInitials(activeConv?.name || "Colleague")}
+                  </div>
+                  <h3 className="font-bold text-lg">{activeConv?.name || "Colleague"}</h3>
+                  <p className="text-xs text-slate-400">
+                    {activeCall.status === "ringing"
+                      ? "Ringing WebRTC Peer (Google STUN active)..."
+                      : `Connected • ${formatTime(activeCall.durationSec)}`}
+                  </p>
+                </div>
+              </>
+            )}
+
+            {/* Video Stream Area */}
             {activeCall.type === "video" && (
-              <div className="relative h-56 rounded-xl bg-slate-950 flex items-center justify-center border border-slate-800 overflow-hidden shadow-inner">
+              <div
+                className={`relative rounded-xl bg-slate-950 flex items-center justify-center border border-slate-800 overflow-hidden shadow-inner ${
+                  isCallMinimized ? "h-36" : "h-64"
+                }`}
+              >
+                {/* Main Remote Video Stream */}
                 <video
-                  ref={localVideoRef}
+                  ref={remoteVideoRef}
                   autoPlay
                   playsInline
-                  muted
-                  className={`w-full h-full object-cover ${activeCall.isCameraOff ? "hidden" : "block"}`}
+                  className="w-full h-full object-cover"
                 />
-                {activeCall.isCameraOff && (
-                  <span className="text-xs text-slate-400 flex items-center gap-1.5">
-                    <VideoOff className="size-4 text-slate-500" />
-                    <span>Camera is turned off</span>
-                  </span>
-                )}
-                {activeCall.isScreenSharing && (
-                  <span className="absolute top-2 left-2 px-2 py-0.5 rounded bg-blue-600 text-white text-[10px] font-semibold flex items-center gap-1">
-                    <Monitor className="size-3" />
-                    <span>Sharing Screen</span>
-                  </span>
-                )}
-              </div>
-            )}
 
-            {activeCall.type === "audio" && activeCall.status === "connected" && (
-              <div className="flex items-center justify-center gap-1.5 h-12">
-                {[40, 75, 50, 90, 60, 30, 80, 55].map((h, i) => (
-                  <span
-                    key={i}
-                    style={{ height: `${h}%` }}
-                    className="w-1.5 rounded-full bg-emerald-400 animate-pulse"
+                {/* Picture-in-Picture Local Video Inset */}
+                <div
+                  className={`absolute bottom-2 right-2 rounded-lg overflow-hidden border-2 border-slate-700 bg-slate-950 shadow-xl ${
+                    isCallMinimized ? "w-20 h-14" : "w-32 h-24"
+                  }`}
+                >
+                  <video
+                    ref={localVideoRef}
+                    autoPlay
+                    playsInline
+                    muted
+                    className={`w-full h-full object-cover ${activeCall.isCameraOff ? "hidden" : "block"}`}
                   />
-                ))}
+                  {activeCall.isCameraOff && (
+                    <div className="w-full h-full flex items-center justify-center text-[9px] text-slate-400">
+                      Off
+                    </div>
+                  )}
+                </div>
+
+                {activeCall.isScreenSharing && (
+                  <span className="absolute top-2 left-2 px-1.5 py-0.5 rounded bg-blue-600 text-white text-[9px] font-semibold flex items-center gap-1">
+                    <Monitor className="size-2.5" />
+                    <span>Sharing</span>
+                  </span>
+                )}
               </div>
             )}
 
-            <div className="flex items-center justify-center gap-4">
+            {/* Audio Wave Visualizer */}
+            {activeCall.type === "audio" && activeCall.status === "connected" && (
+              <div className="space-y-2">
+                <div className={`flex items-center justify-center gap-1.5 ${isCallMinimized ? "h-6" : "h-10"}`}>
+                  {[40, 75, 50, 90, 60, 30, 80, 55].slice(0, isCallMinimized ? 6 : 8).map((h, i) => (
+                    <span
+                      key={i}
+                      style={{ height: `${h}%` }}
+                      className="w-1.5 rounded-full bg-emerald-400 animate-pulse"
+                    />
+                  ))}
+                </div>
+                <p className="text-xs font-medium text-emerald-400 flex items-center justify-center gap-1.5">
+                  <span className="size-2 rounded-full bg-emerald-500 animate-ping inline-block" />
+                  <span>{activeCall.isMuted ? "Microphone Muted" : "Voice Live & Bidirectional"}</span>
+                </p>
+              </div>
+            )}
+
+            {/* Action Buttons Bar */}
+            <div className={`flex items-center justify-center ${isCallMinimized ? "gap-2.5 pt-1" : "gap-4"}`}>
               <button
                 type="button"
                 onClick={handleToggleMute}
-                className={`size-12 rounded-full flex items-center justify-center transition cursor-pointer ${
-                  activeCall.isMuted ? "bg-rose-600 text-white" : "bg-slate-800 hover:bg-slate-700 text-white"
-                }`}
+                className={`rounded-full flex items-center justify-center transition cursor-pointer ${
+                  isCallMinimized ? "size-9" : "size-12"
+                } ${activeCall.isMuted ? "bg-rose-600 text-white" : "bg-slate-800 hover:bg-slate-700 text-white"}`}
                 title={activeCall.isMuted ? "Unmute Mic" : "Mute Mic"}
               >
-                {activeCall.isMuted ? <MicOff className="size-5" /> : <Mic className="size-5" />}
+                {activeCall.isMuted ? (
+                  <MicOff className={isCallMinimized ? "size-4" : "size-5"} />
+                ) : (
+                  <Mic className={isCallMinimized ? "size-4" : "size-5"} />
+                )}
               </button>
 
               {activeCall.type === "video" && (
@@ -1483,34 +3038,92 @@ export default function BrgConnectChatPage() {
                   <button
                     type="button"
                     onClick={handleToggleCamera}
-                    className={`size-12 rounded-full flex items-center justify-center transition cursor-pointer ${
-                      activeCall.isCameraOff ? "bg-rose-600 text-white" : "bg-slate-800 hover:bg-slate-700 text-white"
-                    }`}
+                    className={`rounded-full flex items-center justify-center transition cursor-pointer ${
+                      isCallMinimized ? "size-9" : "size-12"
+                    } ${activeCall.isCameraOff ? "bg-rose-600 text-white" : "bg-slate-800 hover:bg-slate-700 text-white"}`}
                     title={activeCall.isCameraOff ? "Turn On Camera" : "Turn Off Camera"}
                   >
-                    {activeCall.isCameraOff ? <VideoOff className="size-5" /> : <Video className="size-5" />}
+                    {activeCall.isCameraOff ? (
+                      <VideoOff className={isCallMinimized ? "size-4" : "size-5"} />
+                    ) : (
+                      <Video className={isCallMinimized ? "size-4" : "size-5"} />
+                    )}
                   </button>
 
-                  <button
-                    type="button"
-                    onClick={handleToggleScreenShare}
-                    className={`size-12 rounded-full flex items-center justify-center transition cursor-pointer ${
-                      activeCall.isScreenSharing ? "bg-blue-600 text-white" : "bg-slate-800 hover:bg-slate-700 text-white"
-                    }`}
-                    title={activeCall.isScreenSharing ? "Stop Screen Share" : "Share Screen"}
-                  >
-                    <Monitor className="size-5" />
-                  </button>
+                  {!isCallMinimized && (
+                    <button
+                      type="button"
+                      onClick={handleToggleScreenShare}
+                      className="size-12 rounded-full flex items-center justify-center transition cursor-pointer bg-slate-800 hover:bg-slate-700 text-white"
+                      title={activeCall.isScreenSharing ? "Stop Screen Share" : "Share Screen"}
+                    >
+                      <Monitor className="size-5" />
+                    </button>
+                  )}
                 </>
+              )}
+
+              {isCallMinimized && (
+                <button
+                  type="button"
+                  onClick={() => setIsCallMinimized(false)}
+                  className="size-9 rounded-full bg-slate-800 hover:bg-slate-700 text-white flex items-center justify-center transition cursor-pointer"
+                  title="Expand to Full Modal"
+                >
+                  <Maximize2 className="size-4" />
+                </button>
               )}
 
               <button
                 type="button"
                 onClick={handleEndCall}
-                className="size-12 rounded-full bg-rose-600 hover:bg-rose-700 text-white flex items-center justify-center transition cursor-pointer shadow-lg"
+                className={`rounded-full bg-rose-600 hover:bg-rose-700 text-white flex items-center justify-center transition cursor-pointer shadow-lg ${
+                  isCallMinimized ? "size-9" : "size-12"
+                }`}
                 title="Hang Up"
               >
-                <PhoneOff className="size-5" />
+                <PhoneOff className={isCallMinimized ? "size-4" : "size-5"} />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Centered Beautiful Confirmation Modal */}
+      {confirmModal && confirmModal.isOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-2xs animate-in fade-in duration-150">
+          <div className="w-full max-w-sm rounded-xl border border-line bg-surface p-5 text-ink shadow-2xl space-y-4 animate-in zoom-in-95 duration-150">
+            <div className="flex items-start gap-3">
+              <div className="size-10 rounded-full bg-rose-100 dark:bg-rose-950/60 text-rose-600 flex items-center justify-center shrink-0">
+                <Trash2 className="size-5" />
+              </div>
+              <div className="space-y-1 min-w-0">
+                <h3 className="font-bold text-sm text-ink">{confirmModal.title}</h3>
+                <p className="text-xs text-ink-muted leading-relaxed">{confirmModal.description}</p>
+              </div>
+            </div>
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-line/60">
+              <button
+                type="button"
+                onClick={() => setConfirmModal(null)}
+                className="px-3.5 py-1.5 rounded-lg border border-line text-xs font-medium text-ink hover:bg-control transition cursor-pointer"
+              >
+                {confirmModal.cancelLabel || "Cancel"}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const cb = confirmModal.onConfirm;
+                  setConfirmModal(null);
+                  cb();
+                }}
+                className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer shadow-xs ${
+                  confirmModal.isDestructive
+                    ? "bg-rose-600 hover:bg-rose-700 text-white"
+                    : "bg-blue-600 hover:bg-blue-700 text-white"
+                }`}
+              >
+                {confirmModal.confirmLabel || "Confirm"}
               </button>
             </div>
           </div>
@@ -1535,21 +3148,74 @@ export default function BrgConnectChatPage() {
               </button>
             </div>
 
-            <p className="text-xs text-ink-muted">
-              Select an active Purchase Order or Requisition from the database:
-            </p>
+            {/* Filter Tabs & Search */}
+            <div className="space-y-2">
+              <div className="flex items-center gap-1.5 text-xs">
+                <button
+                  type="button"
+                  onClick={() => setErpFilterType("ALL")}
+                  className={`px-2.5 py-1 rounded font-medium transition cursor-pointer ${
+                    erpFilterType === "ALL"
+                      ? "bg-blue-600 text-white"
+                      : "bg-control text-ink-muted hover:text-ink"
+                  }`}
+                >
+                  All ({realErpRecords.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setErpFilterType("PURCHASE_ORDER")}
+                  className={`px-2.5 py-1 rounded font-medium transition cursor-pointer ${
+                    erpFilterType === "PURCHASE_ORDER"
+                      ? "bg-blue-600 text-white"
+                      : "bg-control text-ink-muted hover:text-ink"
+                  }`}
+                >
+                  Purchase Orders ({realErpRecords.filter((r) => r.type === "PURCHASE_ORDER").length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setErpFilterType("REQUISITION")}
+                  className={`px-2.5 py-1 rounded font-medium transition cursor-pointer ${
+                    erpFilterType === "REQUISITION"
+                      ? "bg-blue-600 text-white"
+                      : "bg-control text-ink-muted hover:text-ink"
+                  }`}
+                >
+                  Requisitions ({realErpRecords.filter((r) => r.type === "REQUISITION").length})
+                </button>
+              </div>
+
+              <div className="relative">
+                <Search className="size-3.5 absolute left-2.5 top-2.5 text-ink-muted" />
+                <input
+                  type="text"
+                  value={erpSearchQuery}
+                  onChange={(e) => setErpSearchQuery(e.target.value)}
+                  placeholder="Search by code (e.g. PO-2026, REQ), title, or status..."
+                  className="w-full h-8 pl-8 pr-3 text-xs rounded border border-line bg-surface text-ink placeholder:text-ink-muted focus:outline-none focus:ring-1 focus:ring-blue-500"
+                />
+              </div>
+            </div>
 
             <div className="space-y-2 max-h-80 overflow-y-auto">
-              {realErpRecords.length === 0 ? (
-                <div className="p-4 text-center text-xs text-ink-muted">
-                  No active ERP purchase orders or requisitions found in database.
+              {filteredErpRecords.length === 0 ? (
+                <div className="p-6 text-center text-xs text-ink-muted space-y-2">
+                  <p>No matching ERP purchase orders or requisitions found.</p>
+                  <button
+                    type="button"
+                    onClick={loadErpRecords}
+                    className="text-xs text-blue-600 font-semibold hover:underline cursor-pointer"
+                  >
+                    Refresh Records
+                  </button>
                 </div>
               ) : (
-                realErpRecords.map((card) => (
+                filteredErpRecords.map((card) => (
                   <div
                     key={card.id}
                     onClick={() => handleShareErpCard(card)}
-                    className="flex items-center justify-between p-3 rounded-lg border border-line bg-control/30 hover:bg-control/80 transition cursor-pointer"
+                    className="flex items-center justify-between p-3 rounded-lg border border-line bg-control/30 hover:bg-control/80 hover:border-blue-500/40 transition cursor-pointer group"
                   >
                     <div className="space-y-1 min-w-0">
                       <div className="flex items-center gap-2">
@@ -1557,9 +3223,12 @@ export default function BrgConnectChatPage() {
                         <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-surface border border-line uppercase">
                           {card.status}
                         </span>
+                        <span className="text-[10px] text-ink-muted uppercase">
+                          {card.type === "PURCHASE_ORDER" ? "PO" : "Requisition"}
+                        </span>
                       </div>
                       <span className="block font-medium text-xs text-ink truncate">{card.title}</span>
-                      {card.subtitle && <span className="block text-[11px] text-ink-muted">{card.subtitle}</span>}
+                      {card.subtitle && <span className="block text-[11px] text-ink-muted truncate">{card.subtitle}</span>}
                     </div>
                     {card.amount && (
                       <span className="font-mono font-bold text-xs text-emerald-600 shrink-0 ml-2">
@@ -1664,7 +3333,14 @@ export default function BrgConnectChatPage() {
                         {emp.designation} • {emp.department}
                       </span>
                     </div>
-                    <span className="size-2 rounded-full bg-emerald-500" />
+                    {onlineUserIds.has(emp.id) ? (
+                      <span className="flex items-center gap-1 text-[10px] text-emerald-600 font-medium">
+                        <span className="size-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                        Online
+                      </span>
+                    ) : (
+                      <span className="size-2 rounded-full bg-gray-300 dark:bg-gray-600" title="Offline" />
+                    )}
                   </div>
                 ))
               )}

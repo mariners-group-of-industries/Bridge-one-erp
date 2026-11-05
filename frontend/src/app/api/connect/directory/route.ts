@@ -1,9 +1,15 @@
 import { NextResponse } from "next/server";
 import { connectRoute } from "@/lib/connect/route";
 import { getConnectPool } from "@/lib/connect/db";
+import { getConnectAuthUser } from "@/lib/connect/auth";
 
 async function handleGET(req: Request) {
   try {
+    const user = await getConnectAuthUser(req);
+    if (!user) {
+      return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
+    }
+
     const { searchParams } = new URL(req.url);
     const search = searchParams.get("search") || "";
     const department = searchParams.get("department") || "";
@@ -25,7 +31,7 @@ async function handleGET(req: Request) {
       WHERE 1=1
     `;
 
-    const values: (string | boolean)[] = [];
+    const values: (string | boolean | number)[] = [];
 
     if (search) {
       values.push(`%${search}%`);
@@ -37,7 +43,16 @@ async function handleGET(req: Request) {
       query += ` AND e.department = $${values.length}`;
     }
 
-    query += ` ORDER BY e.name ASC LIMIT 50;`;
+    const limitParam = searchParams.get("limit");
+    const limit = limitParam ? parseInt(limitParam, 10) : 500;
+
+    query += ` ORDER BY e.name ASC`;
+    if (limit > 0) {
+      values.push(limit);
+      query += ` LIMIT $${values.length};`;
+    } else {
+      query += `;`;
+    }
 
     const res = await pool.query(query, values);
     return NextResponse.json({ success: true, employees: res.rows });

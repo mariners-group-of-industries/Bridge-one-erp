@@ -51,6 +51,9 @@ function ShellInner({ children }: { children: ReactNode }) {
 
   return (
     <>
+      {/* Global Realtime Notifier for Incoming Calls & Messages (WhatsApp Style) */}
+      <ConnectGlobalNotifier />
+
       <a href="#main" className="sr-only z-50 rounded bg-surface px-3 py-2 focus:not-sr-only focus:fixed focus:top-2 focus:left-2">
         Skip to content
       </a>
