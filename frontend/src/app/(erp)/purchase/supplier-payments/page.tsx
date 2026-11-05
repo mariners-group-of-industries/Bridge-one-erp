@@ -3,7 +3,6 @@
 import React, { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
-  CreditCard,
   Eye,
   Printer,
   FileText,
@@ -14,10 +13,7 @@ import {
   ChevronRight,
   Truck,
   CheckCircle2,
-  DollarSign,
-  AlertCircle,
   Calendar,
-  Building,
 } from "lucide-react";
 import { ModalDialog } from "@/components/purchase/ModalDialog";
 import { toast } from "@/components/purchase/Toast";
@@ -203,7 +199,7 @@ export default function SupplierPaymentsPage() {
   const [advSupplier, setAdvSupplier] = useState("");
   const [advAmount, setAdvAmount] = useState(0);
   const [advDate, setAdvDate] = useState(new Date().toISOString().split("T")[0]);
-  const [advMode, setAdvMode] = useState("BANK_TRANSFER");
+  const [advMode] = useState("BANK_TRANSFER");
   const [advRemarks, setAdvRemarks] = useState("");
 
   // Create Bill Modal inputs
@@ -480,28 +476,7 @@ export default function SupplierPaymentsPage() {
       diff: diff.toFixed(2),
     };
   }, [filteredLedgerReconList]);
-  const totalDue1 = useMemo(() => {
-    return filteredDueList.reduce(
-      (acc, r) => ({
-        total: acc.total + r.totalAmount,
-        ret: acc.ret + r.returnAmount,
-        payment: acc.payment + r.paymentAmount,
-        due: acc.due + r.dueAmount,
-      }),
-      { total: 0, ret: 0, payment: 0, due: 0 }
-    );
-  }, [filteredDueList]);
 
-  const totalPaid3 = useMemo(() => {
-    return filteredPaidList.reduce(
-      (acc, r) => ({
-        bank: acc.bank + r.bankAmount,
-        cash: acc.cash + r.cashAmount,
-        paid: acc.paid + r.paidAmount,
-      }),
-      { bank: 0, cash: 0, paid: 0 }
-    );
-  }, [filteredPaidList]);
 
   // Handlers
   const handleOpenQuickPay = (row: DueListRow) => {
@@ -957,7 +932,7 @@ export default function SupplierPaymentsPage() {
                 <span className="text-xs px-2 py-0.5 rounded bg-sky-100 text-sky-800 border border-sky-200 font-bold uppercase tracking-wider">ERP</span>
               </div>
               <p className="text-sm font-semibold text-slate-700">No Bills Found</p>
-              <p className="text-xs text-slate-400 mt-1 mb-3">There are no vendor bills currently matching the "{pendingBillFilter}" criteria.</p>
+              <p className="text-xs text-slate-400 mt-1 mb-3">There are no vendor bills currently matching the &ldquo;{pendingBillFilter}&rdquo; criteria.</p>
               <button
                 type="button"
                 onClick={() => {

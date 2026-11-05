@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ChevronUp, ChevronDown, Calendar, Search, Info } from "lucide-react";
+import { ChevronUp, ChevronDown } from "lucide-react";
 import type { FilterState, EmployeeRosterItem } from "../types";
 import type { CalendarAssignMeta } from "../services/calendar-assign.service";
 
@@ -22,7 +22,6 @@ export function CalendarFilterSection({
   onOpenCalendarInfo,
   employees,
   options,
-  loading = false,
 }: CalendarFilterSectionProps) {
   const [collapsed, setCollapsed] = useState(false);
 

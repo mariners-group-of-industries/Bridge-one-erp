@@ -10,13 +10,6 @@ import {
   ChevronLeft,
   ChevronRight,
   X,
-  FileSpreadsheet,
-  CheckCircle2,
-  AlertTriangle,
-  Package,
-  Layers,
-  Building2,
-  Calendar,
 } from "lucide-react";
 
 // ============================================================================

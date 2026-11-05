@@ -1,23 +1,16 @@
 "use client";
 
 import React, { useMemo, useState } from "react";
-import Link from "next/link";
 import {
-  Banknote,
-  Check,
-  CheckCircle2,
   ChevronLeft,
   ChevronRight,
   Eye,
-  FileSpreadsheet,
   FolderOpen,
-  Pencil,
   Plus,
   Printer,
   RotateCcw,
   Search,
   Trash2,
-  X,
 } from "lucide-react";
 import { ModalDialog } from "@/components/purchase/ModalDialog";
 import { useAccountingStore } from "@/features/accounts/store/accounting-store";
@@ -49,7 +42,7 @@ export default function ChequeIssuePage() {
   const [errorMessage, setErrorMessage] = useState("");
 
   // Create Form State
-  const [form, setForm] = useState({
+  const [form, setForm] = useState(() => ({
     bankAccountId: "ba-1",
     bankName: "PRIME BANK LTD PLC",
     chequeBookId: "cb-1",
@@ -62,7 +55,7 @@ export default function ChequeIssuePage() {
     purpose: "",
     referenceVoucher: "JV-2026-CHQ",
     status: "ISSUED" as ChequeStatus,
-  });
+  }));
 
   // Extract unique bank names and transaction numbers for filters
   const bankOptions = useMemo(() => {

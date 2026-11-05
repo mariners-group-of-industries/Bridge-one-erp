@@ -6,14 +6,9 @@ import {
   Plus,
   Search,
   CheckCircle,
-  FileSpreadsheet,
   Info,
   Trash2,
   Edit2,
-  Check,
-  X,
-  ChevronLeft,
-  ChevronRight,
   ChevronDown,
   ChevronUp,
   Download,
@@ -219,7 +214,7 @@ export function SalesSetupSection({ onBack }: SalesSetupSectionProps) {
   const [priceRecords, setPriceRecords] = useState<SellingPriceRecord[]>(SAMPLE_PRICE_RECORDS);
   const [itemSalesRecords, setItemSalesRecords] = useState<ItemSalesRecord[]>(SAMPLE_ITEM_SALES);
   const [vatRecords, setVatRecords] = useState<VatRecord[]>(SAMPLE_VAT_RECORDS);
-  const [targetRecords, setTargetRecords] = useState<TargetRecord[]>(SAMPLE_TARGET_RECORDS);
+  const [targetRecords] = useState<TargetRecord[]>(SAMPLE_TARGET_RECORDS);
   const [policyRecords, setPolicyRecords] = useState<ReturnPolicyRecord[]>(SAMPLE_POLICY_RECORDS);
 
   // 1. Selling Price Update Create Form
@@ -234,9 +229,9 @@ export function SalesSetupSection({ onBack }: SalesSetupSectionProps) {
   const [formValue, setFormValue] = useState("");
   const [formItemChecked, setFormItemChecked] = useState(true);
   const [formBarcode, setFormBarcode] = useState("");
-  const [formStock, setFormStock] = useState("45");
-  const [formAvgCost, setFormAvgCost] = useState("180");
-  const [formLastCost, setFormLastCost] = useState("175");
+  const [formStock] = useState("45");
+  const [formAvgCost] = useState("180");
+  const [formLastCost] = useState("175");
   const [formOldPrice, setFormOldPrice] = useState("250");
   const [formNewPrice, setFormNewPrice] = useState("280");
 

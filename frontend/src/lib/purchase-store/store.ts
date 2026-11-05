@@ -11,8 +11,6 @@ import {
   SupplierInvoiceItem,
   CreateRequisitionInput,
   CreatePurchaseOrderInput,
-  CreateGoodsReceiptInput,
-  CreatePurchaseReturnInput,
   DashboardAnalytics,
   ReportQuery,
   ReportResult,
@@ -347,7 +345,7 @@ class PurchaseDataStore {
     return this.getRequisitionById(updated.id);
   }
 
-  public async updateRequisition(id: string, input: Partial<CreateRequisitionInput>, actorName: string) {
+  public async updateRequisition(id: string, input: Partial<CreateRequisitionInput>, _actorName: string) {
     const prisma = db();
     const req = await prisma.purchaseRequisition.findFirst({
       where: isUuid(id) ? { id } : { number: id },
@@ -563,7 +561,7 @@ class PurchaseDataStore {
     return res!;
   }
 
-  public async updatePurchaseOrder(id: string, input: Partial<CreatePurchaseOrderInput>, actorName: string) {
+  public async updatePurchaseOrder(id: string, input: Partial<CreatePurchaseOrderInput>, _actorName: string) {
     const prisma = db();
     const po = await prisma.purchaseOrder.findFirst({
       where: isUuid(id) ? { id } : { number: id },

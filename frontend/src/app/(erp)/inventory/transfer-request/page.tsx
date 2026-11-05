@@ -15,7 +15,6 @@ import {
   ChevronRight,
   X,
   Eye,
-  Edit,
   Printer,
   FileSpreadsheet,
 } from "lucide-react";
@@ -146,15 +145,6 @@ function getDefaultTo() {
   return new Date().toISOString().split("T")[0];
 }
 
-function formatDateForDisplay(iso: string) {
-  if (!iso) return "";
-  const d = new Date(iso);
-  return d.toLocaleDateString("en-GB", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-  });
-}
 
 function statusBadge(status: TransferRequestRow["status"]) {
   const map: Record<string, string> = {

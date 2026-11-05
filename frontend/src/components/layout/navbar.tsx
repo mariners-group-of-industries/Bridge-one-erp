@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import {
   Bell,
   Building2,
@@ -56,8 +57,10 @@ export function Navbar({ onToggleSidebar, sidebarHidden, onOpenSearch }: NavbarP
 
       {/* Logo */}
       <Link href="/" className="flex shrink-0 items-center rounded-lg px-1 focus-visible:outline-2" title="BridgeOne ERP">
-        <img
+        <Image
           src="/logo.png"
+          width={8452}
+          height={1738}
           alt="BridgeOne"
           className="h-7 w-auto max-w-[140px] object-contain"
         />

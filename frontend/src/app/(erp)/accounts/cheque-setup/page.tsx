@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import React, { useMemo, useState } from "react";
 import {
   ChevronLeft,
@@ -22,8 +23,10 @@ type TabKey = "REGISTER" | "OUTGOING_REPORT" | "POST_DATE_REPORT" | "RECEIVE_REP
 function BridgeOneEmptyState() {
   return (
     <div className="py-24 flex flex-col items-center justify-center select-none bg-white">
-      <img
+      <Image
         src="/logo.png"
+        width={8452}
+        height={1738}
         alt="BridgeOne Logo"
         className="h-11 w-auto max-w-[190px] object-contain mb-2"
       />
