@@ -3,9 +3,6 @@
 import { useState, useMemo, useEffect } from "react";
 import {
   FileText,
-  Filter,
-  RefreshCw,
-  Printer,
   CalendarDays,
   CheckCircle2,
   AlertTriangle,
@@ -142,7 +139,7 @@ export function DailyAttendanceView({
       } else {
         toast.error("Failed to remove attendance data");
       }
-    } catch (e) {
+    } catch {
       setRecords([]);
       setSelectedIds(new Set());
       toast.success("All daily attendance data removed.");

@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { AlertCircle, Eye, EyeOff, Lock, Moon, Phone, Sun } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, useSyncExternalStore } from "react";
@@ -76,8 +77,10 @@ export default function LoginPage() {
           {/* Logo & Header */}
           <div className="flex flex-col items-center text-center">
             <div className="mb-4 inline-flex items-center justify-center rounded-xl bg-white px-4 py-2 border border-slate-200/80 shadow-xs dark:border-slate-700">
-              <img
+              <Image
                 src="/logo.png"
+                width={8452}
+                height={1738}
                 alt="BridgeOne ERP"
                 className="h-8 w-auto object-contain"
               />

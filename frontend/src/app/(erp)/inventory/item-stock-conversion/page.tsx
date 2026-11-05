@@ -17,13 +17,10 @@ import {
   ChevronRight,
   X,
   FileSpreadsheet,
-  Calendar,
   CheckCircle2,
   Clock,
-  AlertCircle,
   XCircle,
   ArrowRight,
-  Filter,
 } from "lucide-react";
 
 // ============================================================================
@@ -157,7 +154,6 @@ export default function ItemStockConversionPage() {
   const docs = useResource("item-stock-conversion-all", () => inventoryApi.list("item-stock-conversion"));
   const records = useMemo(() => toRecords(docs.data ?? []), [docs.data]);
   const OFFICE_OPTIONS = optionsOf("All", "All", records.map((r) => r.office));
-  const WAREHOUSE_OPTIONS = optionsOf("Warehouse", "All", records.map((r) => r.warehouse));
   const BUNDLED_ITEM_OPTIONS = [
     { value: "All", label: "All Items" },
     ...[...new Map(records.flatMap((r) => [[r.sourceItemCode, r.sourceItemName], [r.targetItemCode, r.targetItemName]] as const)).entries()]

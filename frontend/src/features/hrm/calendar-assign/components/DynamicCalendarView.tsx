@@ -1,14 +1,11 @@
 "use client";
 
-import { useState, useMemo, useEffect, useCallback } from "react";
+import Image from "next/image";
+import { useState, useMemo } from "react";
 import {
-  CalendarDays,
-  Save,
-  CheckCircle2,
   RefreshCw,
   SlidersHorizontal,
   CalendarCheck,
-  FileSpreadsheet,
 } from "lucide-react";
 import { CalendarFilterSection } from "./CalendarFilterSection";
 import { BulkAssignToolbar } from "./BulkAssignToolbar";
@@ -17,7 +14,6 @@ import { CalendarInfoModal } from "./CalendarInfoModal";
 import { useToast } from "@/components/ui/toast";
 import {
   CALENDAR_DEFINITIONS,
-  CALENDAR_CODE_MAP,
 } from "../constants";
 import type {
   FilterState,
@@ -454,8 +450,10 @@ export function DynamicCalendarView({
           <div className="max-w-xl mx-auto space-y-6">
             {/* Company Logo */}
             <div className="flex justify-center">
-              <img
+              <Image
                 src="/logo.png"
+                width={8452}
+                height={1738}
                 alt="BridgeOne ERP"
                 className="h-14 sm:h-16 w-auto object-contain drop-shadow-xs"
               />

@@ -5,16 +5,13 @@ import Image from "next/image";
 import {
   ChevronDown,
   Download,
-  FileSpreadsheet,
   Inbox,
   Printer,
-  Search,
 } from "lucide-react";
 import { useAccountingStore } from "@/features/accounts/store/accounting-store";
 
 export default function FinancialReportsPage() {
   const accounts = useAccountingStore((s) => s.accounts);
-  const vouchers = useAccountingStore((s) => s.vouchers);
   const getTrialBalance = useAccountingStore((s) => s.getTrialBalance);
   const getProfitAndLoss = useAccountingStore((s) => s.getProfitAndLoss);
   const getBalanceSheet = useAccountingStore((s) => s.getBalanceSheet);

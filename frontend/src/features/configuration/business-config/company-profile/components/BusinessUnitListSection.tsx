@@ -71,7 +71,7 @@ function DateFormatPicker({
         dateFormat: fmt,
       });
       onUpdated(saved);
-    } catch (err) {
+    } catch {
       // bubble up handled by parent toast
     } finally {
       setSaving(false);

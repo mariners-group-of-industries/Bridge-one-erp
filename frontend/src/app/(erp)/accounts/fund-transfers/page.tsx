@@ -2,39 +2,22 @@
 
 import React, { useMemo, useState } from "react";
 import {
-  AlertTriangle,
-  ArrowRight,
-  ArrowRightLeft,
-  CheckCircle2,
   ChevronLeft,
   ChevronRight,
-  Clock,
   DollarSign,
-  Download,
   Eye,
-  Filter,
   Pencil,
-  Plus,
-  Printer,
-  RotateCcw,
   Search,
-  Send,
-  ShieldCheck,
-  Truck,
   X,
 } from "lucide-react";
 import { ModalDialog } from "@/components/purchase/ModalDialog";
 import { useAccountingStore } from "@/features/accounts/store/accounting-store";
-import type { FundTransferRecord, FundTransferStatus } from "@/features/accounts/types";
+import type { FundTransferRecord } from "@/features/accounts/types";
 
 export default function FundTransferPage() {
   const transfers = useAccountingStore((s) => s.transfers);
-  const accounts = useAccountingStore((s) => s.accounts);
   const createTransfer = useAccountingStore((s) => s.createTransfer);
-  const approveTransfer = useAccountingStore((s) => s.approveTransfer);
-  const dispatchTransfer = useAccountingStore((s) => s.dispatchTransfer);
   const receiveTransfer = useAccountingStore((s) => s.receiveTransfer);
-  const returnTransfer = useAccountingStore((s) => s.returnTransfer);
 
   // Tabs: REQUEST | OUT | IN_TRANSIT | IN_RECEIVED | RETURN
   const [activeTab, setActiveTab] = useState<
@@ -59,7 +42,7 @@ export default function FundTransferPage() {
   const [receiveTarget, setReceiveTarget] = useState<FundTransferRecord | null>(null);
 
   // Create Form State
-  const [form, setForm] = useState({
+  const [form, setForm] = useState(() => ({
     requestDate: new Date().toISOString().split("T")[0],
     expectedDate: new Date(Date.now() + 86400000).toISOString().split("T")[0],
     fromOfficeId: "office-mgv",
@@ -74,7 +57,7 @@ export default function FundTransferPage() {
     responsiblePerson: "Md. Roni Mridha",
     purpose: "Operational liquidity and factory support",
     referenceNumber: "",
-  });
+  }));
 
   const officeList = [
     { id: "ALL", name: "All Offices" },

@@ -7,11 +7,6 @@ import {
   Package,
   PackageOpen,
   ChevronDown,
-  TrendingUp,
-  BarChart3,
-  Layers,
-  ArrowRight,
-  ArrowUpRight,
 } from "lucide-react";
 import {
   PieChart,

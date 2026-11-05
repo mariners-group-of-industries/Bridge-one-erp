@@ -9,11 +9,8 @@ import { dmy, inventoryApi, today } from "@/features/inventory/services/inventor
 import {
   Search,
   Plus,
-  Edit,
   Printer,
   Eye,
-  ChevronLeft,
-  ChevronRight,
   X,
   FileSpreadsheet,
 } from "lucide-react";

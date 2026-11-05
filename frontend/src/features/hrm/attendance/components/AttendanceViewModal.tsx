@@ -1,6 +1,6 @@
 "use client";
 
-import { X, Eye, Calendar, Clock, MapPin, CheckCircle, ShieldAlert } from "lucide-react";
+import { X, Eye, Clock, MapPin } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { AttendanceRecord } from "../types";
 

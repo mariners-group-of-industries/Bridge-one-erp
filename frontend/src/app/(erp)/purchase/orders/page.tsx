@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import React, { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -12,12 +13,6 @@ import {
   Search,
   Download,
   Check,
-  ShoppingCart,
-  Calendar,
-  Building2,
-  FileSpreadsheet,
-  AlertCircle,
-  CheckCircle2,
 } from "lucide-react";
 import { ModalDialog } from "@/components/purchase/ModalDialog";
 import { toast } from "@/components/purchase/Toast";
@@ -28,11 +23,12 @@ import {
   Office,
   Warehouse,
   Supplier,
-  Item,
   PurchaseRequisition,
   CreatePurchaseOrderInput,
 } from "@bridgeone/contracts";
-import { calculateDocumentTotals } from "@bridgeone/purchase-calculations";
+
+/** Current time in ms; called from event handlers only. */
+const now = () => Date.now();
 
 // -------------------------------------------------------------
 // Fallback datasets (empty - real data loaded via API)
@@ -75,7 +71,7 @@ export default function PurchaseOrdersPage() {
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [viewPO, setViewPO] = useState<PurchaseOrder | null>(null);
   const [printPO, setPrintPO] = useState<PurchaseOrder | null>(null);
-  const [editPO, setEditPO] = useState<PurchaseOrder | null>(null);
+  const [, setEditPO] = useState<PurchaseOrder | null>(null);
   const [closePO, setClosePO] = useState<PurchaseOrder | null>(null);
   const [closeComment, setCloseComment] = useState("");
   const [reversePO, setReversePO] = useState<PurchaseOrder | null>(null);
@@ -83,7 +79,6 @@ export default function PurchaseOrdersPage() {
 
   // Tab 3 Modals
   const [viewReqModal, setViewReqModal] = useState<any | null>(null);
-  const [convertReqModal, setConvertReqModal] = useState<any | null>(null);
 
   // Method select map for Tab 3 interactive rows
   const [rowMethods, setRowMethods] = useState<Record<string, string>>({
@@ -116,16 +111,12 @@ export default function PurchaseOrdersPage() {
     queryKey: ["suppliers"],
     queryFn: () => fetchApi("/master/suppliers"),
   });
-  const { data: itemsCatalog } = useQuery<Item[]>({
-    queryKey: ["items"],
-    queryFn: () => fetchApi("/master/items"),
-  });
   const { data: approvedReqs } = useQuery<PurchaseRequisition[]>({
     queryKey: ["approvedReqs"],
     queryFn: () => fetchApi("/purchase/requisitions?status=APPROVED"),
   });
 
-  const { data: apiOrders, isLoading, refetch } = useQuery<PurchaseOrder[]>({
+  const { data: apiOrders, refetch } = useQuery<PurchaseOrder[]>({
     queryKey: ["purchaseOrders", selectedOffice, selectedSupplier, search, fromDate, toDate],
     queryFn: () => {
       const params = new URLSearchParams();
@@ -207,7 +198,7 @@ export default function PurchaseOrdersPage() {
   const [formExpectedDate, setFormExpectedDate] = useState("2026-10-25");
   const [formPaymentTerms, setFormPaymentTerms] = useState("Net 30 Days");
   const [formDeliveryTerms, setFormDeliveryTerms] = useState("FOB Warehouse");
-  const [formShippingFee, setFormShippingFee] = useState(0);
+  const [formShippingFee] = useState(0);
   const [formProject, setFormProject] = useState("OPS-FACTORY-2026");
   const [formLineItems, setFormLineItems] = useState([
     {
@@ -316,7 +307,7 @@ export default function PurchaseOrdersPage() {
   // Convert Requisition from Tab 3 to PO
   const handleConvertToPO = (req: any) => {
     setFormProject(req.remarks || "FACTORY-PROD");
-    setFormExpectedDate(new Date(Date.now() + 7 * 86400000).toISOString().split("T")[0]);
+    setFormExpectedDate(new Date(now() + 7 * 86400000).toISOString().split("T")[0]);
     setIsCreateOpen(true);
   };
 
@@ -1434,7 +1425,7 @@ export default function PurchaseOrdersPage() {
               {/* Organization Header */}
               <div className="flex justify-between items-start border-b border-slate-200 pb-3 mb-3">
                 <div className="flex items-center gap-3.5">
-                  <img src="/logo.png" alt="BridgeOne Logo" className="h-10 w-auto object-contain" />
+                  <Image src="/logo.png" width={8452} height={1738} alt="BridgeOne Logo" className="h-10 w-auto object-contain" />
                   <div>
                     <h2 className="text-base font-bold text-slate-900 uppercase tracking-wide">
                       BridgeOne Technologies Ltd.

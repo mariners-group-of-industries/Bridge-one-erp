@@ -1,4 +1,4 @@
-import { Factory, Handshake, Route } from "lucide-react";
+import { Factory, Handshake } from "lucide-react";
 import type { Workspace } from "./types";
 
 /**
@@ -16,7 +16,6 @@ const planned = (id: string, label: string, icon: Workspace["icon"], description
 });
 
 export const productionWorkspace = planned("production", "Production", Factory, "Bills of materials, work orders and production output.");
-export const rtmWorkspace = planned("rtm", "RTM", Route, "Route to market: distributors, routes, outlets and field force.");
 export const crmWorkspace: Workspace = {
   id: "crm",
   label: "CRM",

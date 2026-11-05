@@ -1,6 +1,6 @@
 "use client";
 
-import { Search, Calendar, RefreshCw } from "lucide-react";
+import { RefreshCw } from "lucide-react";
 import type { AttendanceFilterState, EmployeeOption } from "../types";
 
 interface AttendanceFilterBarProps {

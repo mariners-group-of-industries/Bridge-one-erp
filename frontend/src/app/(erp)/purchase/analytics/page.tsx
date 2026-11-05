@@ -3,24 +3,17 @@
 import React, { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
-  TrendingUp,
   Clock,
-  RotateCcw,
   Package,
   Layers,
-  Award,
   Download,
   Printer,
   Filter,
   CheckCircle2,
   DollarSign,
-  Building2,
-  Calendar,
   ArrowUpRight,
   Percent,
   ShieldCheck,
-  Briefcase,
-  ChevronRight,
 } from "lucide-react";
 import {
   ResponsiveContainer,
@@ -32,12 +25,10 @@ import {
   PieChart,
   Pie,
   Cell,
-  Legend,
   AreaChart,
   Area,
   CartesianGrid,
 } from "recharts";
-import { PageHeader } from "@/components/purchase/PageHeader";
 import { fetchApi } from "@/lib/api";
 import { formatCurrency } from "@/lib/utils";
 import { DashboardAnalytics, Office } from "@bridgeone/contracts";
@@ -69,7 +60,7 @@ export default function PurchaseAnalyticsPage() {
     queryFn: () => fetchApi("/master/offices"),
   });
 
-  const { data: apiData, isLoading, refetch } = useQuery<DashboardAnalytics & { averageApprovalTurnaroundHours: number }>({
+  const { data: apiData, refetch } = useQuery<DashboardAnalytics & { averageApprovalTurnaroundHours: number }>({
     queryKey: ["purchaseAnalytics", fromDate, toDate, selectedOffice],
     queryFn: () => {
       const p = new URLSearchParams();

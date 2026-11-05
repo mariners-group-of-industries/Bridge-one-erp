@@ -1,10 +1,10 @@
 "use client";
 
+import Image from "next/image";
 import React, { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   PackageCheck,
-  PackagePlus,
   Eye,
   Printer,
   X,
@@ -13,12 +13,6 @@ import {
   Download,
   Plus,
   Truck,
-  CheckCircle2,
-  AlertTriangle,
-  FileCheck2,
-  Building2,
-  Calendar,
-  CornerDownLeft,
 } from "lucide-react";
 import { ModalDialog } from "@/components/purchase/ModalDialog";
 import { toast } from "@/components/purchase/Toast";
@@ -28,7 +22,6 @@ import {
   GoodsReceipt,
   PurchaseOrder,
   CreateGoodsReceiptInput,
-  Office,
   Warehouse,
   Supplier,
   Item,
@@ -45,11 +38,9 @@ export default function PurchaseReceivePage() {
   const [search, setSearch] = useState("");
 
   // Filters for Tab 1: APPROVED PO
-  const [appOffice, setAppOffice] = useState("ALL");
   const [expReceiveDate, setExpReceiveDate] = useState("");
 
   // Filters for Tab 2: RECEIVED PO
-  const [recOffice, setRecOffice] = useState("ALL");
   const [grnType, setGrnType] = useState("ALL");
   const [lcNo, setLcNo] = useState("ALL");
   const [itemType, setItemType] = useState("ALL");
@@ -67,10 +58,6 @@ export default function PurchaseReceivePage() {
   const [returnReason, setReturnReason] = useState("");
 
   // Queries
-  const { data: offices } = useQuery<Office[]>({
-    queryKey: ["offices"],
-    queryFn: () => fetchApi("/master/offices"),
-  });
   const { data: warehouses } = useQuery<Warehouse[]>({
     queryKey: ["warehouses"],
     queryFn: () => fetchApi("/master/warehouses"),
@@ -193,7 +180,7 @@ export default function PurchaseReceivePage() {
   const [formChallanNo, setFormChallanNo] = useState("CHAL-9921");
   const [formVatChallan, setFormVatChallan] = useState("MUSHAK-6.3-441");
   const [formInvoiceNo, setFormInvoiceNo] = useState("INV-2026-881");
-  const [formDeliveryNote, setFormDeliveryNote] = useState("DN-3321");
+  const [formDeliveryNote] = useState("DN-3321");
   const [formRemarks, setFormRemarks] = useState("");
   const [formReceiveItems, setFormReceiveItems] = useState<any[]>([]);
 
@@ -1268,7 +1255,7 @@ export default function PurchaseReceivePage() {
               {/* Organization Header */}
               <div className="flex justify-between items-start border-b border-slate-200 pb-3 mb-3">
                 <div className="flex items-center gap-3.5">
-                  <img src="/logo.png" alt="BridgeOne Logo" className="h-10 w-auto object-contain" />
+                  <Image src="/logo.png" width={8452} height={1738} alt="BridgeOne Logo" className="h-10 w-auto object-contain" />
                   <div>
                     <h2 className="text-base font-bold text-slate-900 uppercase tracking-wide">
                       BridgeOne Technologies Ltd.

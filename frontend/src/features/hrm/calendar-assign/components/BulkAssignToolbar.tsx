@@ -3,7 +3,6 @@
 import { useState } from "react";
 import { Sparkles, CheckCheck, CalendarOff, RotateCcw } from "lucide-react";
 import { CALENDAR_DEFINITIONS } from "../constants";
-import type { CalendarDefinition } from "../types";
 
 interface BulkAssignToolbarProps {
   selectedShift: string;
