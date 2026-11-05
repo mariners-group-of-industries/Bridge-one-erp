@@ -20,7 +20,7 @@ export interface ConnectAttachment {
   sizeBytes: number;
   mimeType: string;
   url: string;
-  type: "image" | "file" | "doc";
+  type: "image" | "file" | "doc" | "audio";
 }
 
 export type ErpRecordType =
@@ -77,6 +77,7 @@ export interface ConnectConversation {
   name: string;
   avatar?: string;
   description?: string;
+  peerId?: string;
   members: string[]; // user IDs
   memberUsers?: ConnectUser[];
   unreadCount: number;

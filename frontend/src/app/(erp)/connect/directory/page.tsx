@@ -48,6 +48,7 @@ export default function BrgConnectDirectoryPage() {
     setIsLoading(true);
     try {
       const params = new URLSearchParams();
+      params.set("limit", "1000");
       if (searchTerm) params.set("search", searchTerm);
       if (dept !== "All") params.set("department", dept);
 
