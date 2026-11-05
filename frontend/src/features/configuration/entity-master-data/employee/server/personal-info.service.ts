@@ -220,6 +220,8 @@ export async function updateCredentials(
         passwordHash,
         roleId,
         isActive:     true,
+        // Creating a login here is meant to let the employee sign in; page permissions are still granted separately.
+        erpAccess:    true,
       },
     });
     await db().employee.update({
