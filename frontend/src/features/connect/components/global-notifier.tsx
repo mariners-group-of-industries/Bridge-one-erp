@@ -22,6 +22,7 @@ import {
   ChevronLeft,
   Search,
   CheckCheck,
+  FileText,
 } from "lucide-react";
 
 interface ExtendedNotificationOptions extends NotificationOptions {
@@ -299,7 +300,7 @@ export function ConnectGlobalNotifier() {
         type: string;
         callType: "audio" | "video";
       }) => {
-        if (signal.senderId === authUser.id) return;
+        if (String(signal.senderId).toLowerCase() === String(authUser.id).toLowerCase()) return;
 
         if (signal.type === "call-request") {
           const isTabHidden = typeof document !== "undefined" && document.hidden;
@@ -367,7 +368,7 @@ export function ConnectGlobalNotifier() {
         type?: string;
         attachments?: { url: string; name: string; size?: number; mimeType?: string }[];
       }) => {
-        if (msg.senderId === authUser.id) return;
+        if (String(msg.senderId).toLowerCase() === String(authUser.id).toLowerCase()) return;
 
         const isTabHidden = typeof document !== "undefined" && document.hidden;
         const isDifferentPage = pathname !== "/connect";
@@ -391,21 +392,25 @@ export function ConnectGlobalNotifier() {
           setActiveConvName(msg.senderName || "Colleague");
           setViewMode("chat");
 
-          // Append to messages if current active chat
-          setMessages((prev) => [
-            ...prev,
-            {
-              id: msg.id || `m-new-${Date.now()}`,
-              senderId: msg.senderId,
-              senderName: msg.senderName,
-              body: previewText,
-              type: msg.type,
-              createdAt: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-              rawDate: new Date().toISOString(),
-              status: "delivered",
-              attachments: msg.attachments,
-            },
-          ]);
+          // If currently viewing this conversation, append seamlessly; otherwise load full messages
+          if (activeConvIdRef.current === msg.conversationId) {
+            setMessages((prev) => [
+              ...prev,
+              {
+                id: msg.id || `m-new-${Date.now()}`,
+                senderId: msg.senderId,
+                senderName: msg.senderName,
+                body: previewText,
+                type: msg.type,
+                createdAt: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+                rawDate: new Date().toISOString(),
+                status: "delivered",
+                attachments: msg.attachments,
+              },
+            ]);
+          } else {
+            loadMessages(msg.conversationId);
+          }
 
           // Mark as read in DB
           fetch(`/api/connect/conversations/${msg.conversationId}/read`, { method: "POST" }).catch(() => {});
@@ -440,6 +445,16 @@ export function ConnectGlobalNotifier() {
         }
       }
     );
+
+    // 3. Live Seen Receipts
+    channel.bind("messages-seen", (data: { conversationId: string; readerId: string }) => {
+      if (
+        String(data.readerId).toLowerCase() !== String(authUser.id).toLowerCase() &&
+        activeConvIdRef.current === data.conversationId
+      ) {
+        setMessages((prev) => prev.map((m) => ({ ...m, status: "read" })));
+      }
+    });
 
     return () => {
       channel.unbind_all();
@@ -541,7 +556,8 @@ export function ConnectGlobalNotifier() {
         body: formData,
       });
       const upData = await upRes.json();
-      if (upData?.success && upData.url) {
+      const att = upData?.attachment || upData?.attachments?.[0];
+      if (att?.url) {
         await fetch(`/api/connect/conversations/${activeConvId}/messages`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -553,7 +569,7 @@ export function ConnectGlobalNotifier() {
             senderName: authUser?.name || "Me",
             attachments: [
               {
-                url: upData.url,
+                url: att.url,
                 name: file.name,
                 size: file.size,
                 mimeType: file.type,
@@ -916,7 +932,7 @@ export function ConnectGlobalNotifier() {
                   </div>
                 ) : (
                   messages.map((m, idx) => {
-                    const isMe = m.senderId === authUser?.id;
+                    const isMe = String(m.senderId).toLowerCase() === String(authUser?.id).toLowerCase();
                     const prevMsg = idx > 0 ? messages[idx - 1] : null;
                     const dateLabel = getMessageDateLabel(m.rawDate);
                     const prevDateLabel = prevMsg ? getMessageDateLabel(prevMsg.rawDate) : null;
@@ -977,6 +993,46 @@ export function ConnectGlobalNotifier() {
                                 {m.body}
                               </p>
 
+                              {/* Attachment preview if any */}
+                              {m.attachments && m.attachments.length > 0 && (
+                                <div className="mt-1.5 space-y-1">
+                                  {m.attachments.map((att, aIdx) => {
+                                    const isImg =
+                                      att.mimeType?.startsWith("image/") ||
+                                      att.url?.match(/\.(jpeg|jpg|gif|png|webp)/i);
+                                    return (
+                                      <div key={aIdx} className="mt-1">
+                                        {isImg ? (
+                                          <a
+                                            href={att.url}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="block overflow-hidden rounded-lg border border-black/10 dark:border-white/10"
+                                          >
+                                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                                            <img
+                                              src={att.url}
+                                              alt={att.name}
+                                              className="max-h-48 rounded-lg object-cover hover:opacity-90 transition"
+                                            />
+                                          </a>
+                                        ) : (
+                                          <a
+                                            href={att.url}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="flex items-center gap-2 p-1.5 rounded-lg bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10 transition"
+                                          >
+                                            <FileText className="size-4 text-emerald-600 shrink-0" />
+                                            <span className="truncate underline font-medium text-[11px]">{att.name}</span>
+                                          </a>
+                                        )}
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              )}
+
                               {/* Footer Timestamp & Status */}
                               <div className="flex items-center justify-end gap-1 mt-1 select-none">
                                 {m.createdAt && (
@@ -985,7 +1041,11 @@ export function ConnectGlobalNotifier() {
                                   </span>
                                 )}
                                 {isMe && (
-                                  <CheckCheck className="size-3 text-[#53bdeb] inline shrink-0" />
+                                  <CheckCheck
+                                    className={`size-3 inline shrink-0 ${
+                                      m.status === "read" ? "text-[#53bdeb]" : "text-slate-400"
+                                    }`}
+                                  />
                                 )}
                               </div>
                             </div>
@@ -1023,6 +1083,12 @@ export function ConnectGlobalNotifier() {
                   type="text"
                   value={inputText}
                   onChange={(e) => setInputText(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.shiftKey) {
+                      e.preventDefault();
+                      handleSendMessage();
+                    }
+                  }}
                   placeholder="Type a message... (Enter to send)"
                   disabled={isSending}
                   className="flex-1 h-9 px-4 text-xs sm:text-sm rounded-full bg-white dark:bg-[#2a3942] border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-emerald-500 shadow-2xs"
