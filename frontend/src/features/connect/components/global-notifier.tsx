@@ -153,7 +153,7 @@ export function ConnectGlobalNotifier() {
       if (perm === "granted") {
         try {
           const testNotif = new Notification("BRG Connect Desktop Notifications", {
-            body: "ডেস্কটপ নোটিফিকেশন চালু হয়েছে! ব্রাউজার ব্যাকগ্রাউন্ডে থাকলেও কল ও মেসেজ স্ক্রিনের কোনায় ভেসে উঠবে।",
+            body: "Desktop notifications are now enabled! You will receive instant call and message alerts in the corner of your screen.",
             icon: "/favicon.ico",
             badge: "/favicon.ico",
             tag: "brg-welcome",
@@ -605,9 +605,9 @@ export function ConnectGlobalNotifier() {
             <Bell className="size-4 animate-bounce" />
           </div>
           <div className="flex-1 text-xs space-y-1.5">
-            <p className="font-semibold text-ink dark:text-white">ডেস্কটপ নোটিফিকেশন চালু করুন</p>
+            <p className="font-semibold text-ink dark:text-white">Enable Desktop Notifications</p>
             <p className="text-ink-muted text-[11px] leading-relaxed">
-              ব্রাউজার মিনিমাইজ থাকলেও স্ক্রিনের কোণায় কল ও মেসেজ পপআপ পাওয়ার জন্য অনুমতি দিন।
+              Allow notifications to receive instant call and message popups in the corner of your screen, even when the browser is minimized.
             </p>
             <div className="flex items-center gap-2 pt-1">
               <button
@@ -615,14 +615,14 @@ export function ConnectGlobalNotifier() {
                 onClick={requestDesktopPermission}
                 className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded text-[11px] cursor-pointer transition shadow-xs"
               >
-                অনুমতি দিন (Allow)
+                Allow
               </button>
               <button
                 type="button"
                 onClick={() => setHidePermissionBanner(true)}
                 className="px-2 py-1 text-ink-muted hover:text-ink text-[11px] cursor-pointer"
               >
-                পরে
+                Later
               </button>
             </div>
           </div>
