@@ -1,5 +1,5 @@
 import { apiRequest } from "@/lib/api/client";
-import type { GroupList, PermissionGroupDto, PermissionGroupInput, UserGroupDto, UserGroupInput, UserOption } from "../schemas/groups.schema";
+import type { GroupList, UserGroupDto, UserGroupInput, UserOption } from "../schemas/groups.schema";
 
 const BASE = "/api/configuration/security";
 const json = (method: string, body: unknown): RequestInit => ({ method, body: JSON.stringify(body) });
@@ -16,10 +16,3 @@ export const userGroupApi = {
   remove: (id: string) => apiRequest<void>(`${BASE}/user-groups/${id}`, { method: "DELETE" }),
 };
 
-export const permissionGroupApi = {
-  list: (params: ListParams) => apiRequest<GroupList>(`${BASE}/permission-groups?${query(params)}`),
-  get: (id: string) => apiRequest<PermissionGroupDto>(`${BASE}/permission-groups/${id}`),
-  create: (input: PermissionGroupInput) => apiRequest<PermissionGroupDto>(`${BASE}/permission-groups`, json("POST", input)),
-  update: (id: string, input: PermissionGroupInput) => apiRequest<PermissionGroupDto>(`${BASE}/permission-groups/${id}`, json("PUT", input)),
-  remove: (id: string) => apiRequest<void>(`${BASE}/permission-groups/${id}`, { method: "DELETE" }),
-};

@@ -1,6 +1,11 @@
 "use client";
 
 import React, { useState, useMemo } from "react";
+import { useToast } from "@/components/ui/toast";
+import { useResource } from "@/hooks/use-resource";
+import { errorMessage } from "@/lib/api/client";
+import { InventoryDocumentDialog } from "@/features/inventory/components/InventoryDocumentDialog";
+import { dmy, inventoryApi, today } from "@/features/inventory/services/inventory.api";
 import {
   Search,
   Plus,
@@ -20,6 +25,7 @@ type StoreRequisitionTab = "REQUISITION_LIST" | "REQUISITION_SUMMARY";
 
 interface RequisitionRow {
   sl: number;
+  id: string;
   reqCode: string;
   date: string;
   userType: string;
@@ -40,265 +46,99 @@ interface SummaryRow {
   pendingQty: number;
 }
 
-// ============================================================================
-// SAMPLE DATA (Directly matched to user's ERP screenshot)
-// ============================================================================
-const MOCK_REQUISITION_LIST: RequisitionRow[] = [
-  {
-    sl: 1,
-    reqCode: "SR-MG261000046",
-    date: "11-10-2026",
-    userType: "N/A",
-    user: "",
-    remarks: "PRO-MG261000040- Item Name: SFG-00656 - SFGSNCHIKONSEMAI (KG)",
-    status: "Approved",
-    reviewComment: "",
-  },
-  {
-    sl: 2,
-    reqCode: "SR-MG261000045",
-    date: "11-10-2026",
-    userType: "N/A",
-    user: "",
-    remarks: "PRO-MG261000039- Item Name: FGSN230207 - Peawal Bar-B-Q Biriyani Chanachur 12gm (24x36) (PCS)",
-    status: "Approved",
-    reviewComment: "",
-  },
-  {
-    sl: 3,
-    reqCode: "SR-MG261000044",
-    date: "11-10-2026",
-    userType: "N/A",
-    user: "",
-    remarks: "PRO-MG261000038- Item Name: SFG-00658 - SFGSNCHIPS (KG)",
-    status: "Completed",
-    reviewComment: "",
-  },
-  {
-    sl: 4,
-    reqCode: "SR-MG261000043",
-    date: "11-10-2026",
-    userType: "N/A",
-    user: "",
-    remarks: "PRO-MG261000037- Item Name: FGCHIPS240613 - Marine Potato Chips 12gm (20x4) (PCS)",
-    status: "Completed",
-    reviewComment: "",
-  },
-  {
-    sl: 5,
-    reqCode: "SR-MG261000042",
-    date: "08-10-2026",
-    userType: "N/A",
-    user: "",
-    remarks: "PRO-MG261000036- Item Name: FGBIS250543 - Marine Special Toast 200gx6 (PCS)",
-    status: "Completed",
-    reviewComment: "",
-  },
-  {
-    sl: 6,
-    reqCode: "SR-MG261000041",
-    date: "07-10-2026",
-    userType: "N/A",
-    user: "",
-    remarks: "PRO-MG261000035- Item Name: SFG-00669 - SFGSWTOASTTASTM (KG)",
-    status: "Completed",
-    reviewComment: "",
-  },
-  {
-    sl: 7,
-    reqCode: "SR-MG261000040",
-    date: "07-10-2026",
-    userType: "N/A",
-    user: "",
-    remarks: "PRO-MG261000034- Item Name: FGBIS250542 - Marine Sweet Toast 200gx6 (PCS)",
-    status: "Completed",
-    reviewComment: "",
-  },
-  {
-    sl: 8,
-    reqCode: "SR-MG261000039",
-    date: "07-10-2026",
-    userType: "N/A",
-    user: "",
-    remarks: "PRO-MG261000032- Item Name: SFG-00661 - SFGSNMOTOR (KG)",
-    status: "Completed",
-    reviewComment: "",
-  },
-  {
-    sl: 9,
-    reqCode: "SR-MG261000038",
-    date: "07-10-2026",
-    userType: "N/A",
-    user: "",
-    remarks: "PRO-MG261000033- Item Name: SFG-00659 - SFGSNPEANUT (KG)",
-    status: "Completed",
-    reviewComment: "",
-  },
-  {
-    sl: 10,
-    reqCode: "SR-MG261000037",
-    date: "07-10-2026",
-    userType: "N/A",
-    user: "",
-    remarks: "PRO-MG261000031- Item Name: FGSN220111 - Peawal Badam-Motor 12gm (24x36) (PCS)",
-    status: "Completed",
-    reviewComment: "",
-  },
-  {
-    sl: 11,
-    reqCode: "SR-MG261000036",
-    date: "07-10-2026",
-    userType: "N/A",
-    user: "",
-    remarks: "PRO-MG261000030- Item Name: SFG-00658 - SFGSNCHIPS (KG)",
-    status: "Completed",
-    reviewComment: "",
-  },
-  {
-    sl: 12,
-    reqCode: "SR-MG261000035",
-    date: "07-10-2026",
-    userType: "N/A",
-    user: "",
-    remarks: "PRO-MG261000029- Item Name: FGCHIPS240613 - Marine Potato Chips 12gm (20x4) (PCS)",
-    status: "Completed",
-    reviewComment: "",
-  },
-  {
-    sl: 13,
-    reqCode: "SR-MG261000034",
-    date: "06-10-2026",
-    userType: "N/A",
-    user: "",
-    remarks: "PRO-MG261000028- Item Name: FGBIS260944 - Marine Choco Bite Biscuit 200 gm (1x6) (PCS)",
-    status: "Completed",
-    reviewComment: "",
-  },
-  {
-    sl: 14,
-    reqCode: "SR-MG261000033",
-    date: "06-10-2026",
-    userType: "N/A",
-    user: "",
-    remarks: "PRO-MG261000027- Item Name: FGBIS260944 - Marine Choco Bite Biscuit 200 gm (1x6) (PCS)",
-    status: "Closed",
-    reviewComment: "",
-  },
-];
-
-const MOCK_SUMMARY_LIST: SummaryRow[] = [
-  {
-    sl: 1,
-    itemCode: "SFG-00656",
-    itemName: "SFGSNCHIKONSEMAI",
-    itemCategory: "Semi-Finished Goods",
-    uom: "KG",
-    totalReqQty: 850.0,
-    issuedQty: 850.0,
-    pendingQty: 0.0,
-  },
-  {
-    sl: 2,
-    itemCode: "SFG-00658",
-    itemName: "SFGSNCHIPS",
-    itemCategory: "Semi-Finished Goods",
-    uom: "KG",
-    totalReqQty: 1200.0,
-    issuedQty: 1200.0,
-    pendingQty: 0.0,
-  },
-  {
-    sl: 3,
-    itemCode: "SFG-00669",
-    itemName: "SFGSWTOASTTASTM",
-    itemCategory: "Semi-Finished Goods",
-    uom: "KG",
-    totalReqQty: 640.0,
-    issuedQty: 640.0,
-    pendingQty: 0.0,
-  },
-  {
-    sl: 4,
-    itemCode: "SFG-00661",
-    itemName: "SFGSNMOTOR",
-    itemCategory: "Semi-Finished Goods",
-    uom: "KG",
-    totalReqQty: 450.0,
-    issuedQty: 450.0,
-    pendingQty: 0.0,
-  },
-  {
-    sl: 5,
-    itemCode: "SFG-00659",
-    itemName: "SFGSNPEANUT",
-    itemCategory: "Semi-Finished Goods",
-    uom: "KG",
-    totalReqQty: 320.0,
-    issuedQty: 320.0,
-    pendingQty: 0.0,
-  },
-  {
-    sl: 6,
-    itemCode: "RAW-FLR-001",
-    itemName: "Wheat Flour Special",
-    itemCategory: "Raw Materials",
-    uom: "KG",
-    totalReqQty: 5000.0,
-    issuedQty: 4800.0,
-    pendingQty: 200.0,
-  },
-];
-
-const OFFICE_OPTIONS = [
-  { value: "All", label: "All" },
-  { value: "MG Sirajganj Factory", label: "MG Sirajganj Factory" },
-  { value: "Dhaka Head Office", label: "Dhaka Head Office" },
-  { value: "Marinozz", label: "Marinozz" },
-  { value: "MOHS Eco", label: "MOHS Eco" },
-];
+/** Who a requisition can be for; issues against it record the same user type. */
+const REQUISITION_USER_TYPES = ["Department", "Production", "Employee", "Maintenance", "Other"] as const;
 
 export default function StoreRequisitionPage() {
+  const toast = useToast();
   const [activeTab, setActiveTab] = useState<StoreRequisitionTab>("REQUISITION_LIST");
+  const docs = useResource("store-requisition-all", () => inventoryApi.list("store-requisition"));
+  const allRequisitions = useMemo(() => docs.data ?? [], [docs.data]);
+  const requisitionRows = useMemo<RequisitionRow[]>(
+    () =>
+      allRequisitions.map((d, i) => ({
+        sl: i + 1,
+        id: d.id,
+        reqCode: d.number,
+        date: dmy(d.docDate),
+        userType: d.subtype ?? "",
+        user: d.partyName ?? "",
+        remarks: d.remarks ?? "",
+        status: d.status === "PENDING" ? "Pending" : d.status === "APPROVED" ? "Approved" : d.status === "COMPLETED" ? "Completed" : d.status === "REJECTED" ? "Rejected" : "Closed",
+        reviewComment: d.reviewComment ?? "",
+      })),
+    [allRequisitions],
+  );
+  const OFFICE_OPTIONS = useMemo(
+    () => [{ value: "All", label: "All" }, ...[...new Set(allRequisitions.map((d) => d.warehouse?.officeName ?? ""))].filter(Boolean).sort().map((o) => ({ value: o, label: o }))],
+    [allRequisitions],
+  );
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const review = async (row: RequisitionRow, decision: "approve" | "reject") => {
+    const comment = window.prompt(decision === "approve" ? "Approval comment (optional)" : "Why is it rejected?") ?? undefined;
+    if (decision === "reject" && comment === undefined) return;
+    setBusyId(row.id);
+    try {
+      await inventoryApi.review("store-requisition", row.id, decision, comment || undefined);
+      toast.success(`${row.reqCode} ${decision === "approve" ? "approved. The store can now issue it." : "rejected."}`);
+      docs.reload();
+    } catch (error) {
+      toast.error(errorMessage(error));
+    } finally {
+      setBusyId(null);
+    }
+  };
   const [searchTerm, setSearchTerm] = useState("");
 
   // Summary tab filters
   const [summaryOffice, setSummaryOffice] = useState("All");
-  const [summaryFromDate, setSummaryFromDate] = useState("2026-10-14");
-  const [summaryToDate, setSummaryToDate] = useState("2026-10-14");
+  const [summaryFromDate, setSummaryFromDate] = useState(today());
+  const [summaryToDate, setSummaryToDate] = useState(today());
 
   // Modal for new requisition
   const [isModalOpen, setIsModalOpen] = useState(false);
 
-  // New Requisition Form State
-  const [newRequisition, setNewRequisition] = useState({
-    date: new Date().toISOString().slice(0, 10),
-    office: "MG Sirajganj Factory",
-    remarks: "",
-  });
 
   // Filtered requisition list
   const filteredRequisitions = useMemo(() => {
-    if (!searchTerm) return MOCK_REQUISITION_LIST;
+    if (!searchTerm) return requisitionRows;
     const s = searchTerm.toLowerCase();
-    return MOCK_REQUISITION_LIST.filter(
+    return requisitionRows.filter(
       (r) =>
         r.reqCode.toLowerCase().includes(s) ||
         r.remarks.toLowerCase().includes(s) ||
         r.status.toLowerCase().includes(s)
     );
-  }, [searchTerm]);
+  }, [requisitionRows, searchTerm]);
 
   // Filtered summary list
+  // Requested vs issued per item, for the office and dates chosen.
+  const summaryList = useMemo<SummaryRow[]>(() => {
+    const byItem = new Map<string, SummaryRow>();
+    for (const d of allRequisitions) {
+      if (d.status === "REJECTED") continue;
+      if (summaryOffice && summaryOffice !== "All" && d.warehouse?.officeName !== summaryOffice) continue;
+      if ((summaryFromDate && d.docDate < summaryFromDate) || (summaryToDate && d.docDate > summaryToDate)) continue;
+      for (const l of d.lines) {
+        const row = byItem.get(l.itemId) ?? { sl: 0, itemCode: l.itemCode, itemName: l.itemName, itemCategory: l.category, uom: l.uom, totalReqQty: 0, issuedQty: 0, pendingQty: 0 };
+        row.totalReqQty += l.qty;
+        row.issuedQty += l.processedQty;
+        row.pendingQty = Math.max(0, row.totalReqQty - row.issuedQty);
+        byItem.set(l.itemId, row);
+      }
+    }
+    return [...byItem.values()].map((r, i) => ({ ...r, sl: i + 1 }));
+  }, [allRequisitions, summaryOffice, summaryFromDate, summaryToDate]);
   const filteredSummary = useMemo(() => {
-    if (!searchTerm) return MOCK_SUMMARY_LIST;
+    if (!searchTerm) return summaryList;
     const s = searchTerm.toLowerCase();
-    return MOCK_SUMMARY_LIST.filter(
+    return summaryList.filter(
       (r) =>
         r.itemCode.toLowerCase().includes(s) ||
         r.itemName.toLowerCase().includes(s) ||
         r.itemCategory.toLowerCase().includes(s)
     );
-  }, [searchTerm]);
+  }, [summaryList, searchTerm]);
 
   // Status badge styling
   const renderStatus = (status: RequisitionRow["status"]) => {
@@ -563,7 +403,7 @@ export default function StoreRequisitionPage() {
                   </tr>
                 ) : (
                   filteredRequisitions.map((row) => (
-                    <tr key={row.sl} className="hover:bg-slate-50/80 transition-colors">
+                    <tr key={row.id} className="hover:bg-slate-50/80 transition-colors">
                       <td className="p-2 border border-slate-300 text-center font-mono text-slate-600">
                         {row.sl}
                       </td>
@@ -590,13 +430,26 @@ export default function StoreRequisitionPage() {
                       </td>
                       <td className="p-2 border border-slate-300 text-center">
                         <div className="flex items-center justify-center gap-1 text-slate-600">
-                          <button
-                            type="button"
-                            className="p-1 hover:text-blue-600"
-                            title="Edit"
-                          >
-                            <Edit className="w-3.5 h-3.5" />
-                          </button>
+                          {row.status === "Pending" && (
+                            <>
+                              <button
+                                type="button"
+                                disabled={busyId === row.id}
+                                onClick={() => review(row, "approve")}
+                                className="px-1.5 py-0.5 rounded bg-emerald-600 text-white text-[10px] font-semibold disabled:opacity-50"
+                              >
+                                Approve
+                              </button>
+                              <button
+                                type="button"
+                                disabled={busyId === row.id}
+                                onClick={() => review(row, "reject")}
+                                className="px-1.5 py-0.5 rounded border border-red-300 text-red-600 text-[10px] font-semibold disabled:opacity-50"
+                              >
+                                Reject
+                              </button>
+                            </>
+                          )}
                           <button
                             type="button"
                             className="p-1 hover:text-blue-600"
@@ -700,97 +553,19 @@ export default function StoreRequisitionPage() {
       {/* ─────────────────────────────────────────────────── */}
       {/* 6. + REQUISITION MODAL                              */}
       {/* ─────────────────────────────────────────────────── */}
-      {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-lg border border-slate-200 overflow-hidden animate-in fade-in zoom-in-95 duration-150">
-            {/* Modal Header */}
-            <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 bg-slate-50">
-              <h2 className="text-sm font-bold text-slate-900">
-                New Store Requisition
-              </h2>
-              <button
-                type="button"
-                onClick={() => setIsModalOpen(false)}
-                className="text-slate-400 hover:text-slate-600"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            {/* Modal Body */}
-            <div className="p-4 space-y-3 text-xs">
-              <div>
-                <label className="block text-[11px] font-semibold text-slate-700 mb-1">
-                  Requisition Date <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="date"
-                  value={newRequisition.date}
-                  onChange={(e) =>
-                    setNewRequisition({ ...newRequisition, date: e.target.value })
-                  }
-                  className="w-full border border-slate-300 rounded px-2.5 py-1.5 focus:ring-1 focus:ring-blue-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-semibold text-slate-700 mb-1">
-                  Office / Branch <span className="text-red-500">*</span>
-                </label>
-                <select
-                  value={newRequisition.office}
-                  onChange={(e) =>
-                    setNewRequisition({ ...newRequisition, office: e.target.value })
-                  }
-                  className="w-full border border-slate-300 rounded px-2.5 py-1.5 focus:ring-1 focus:ring-blue-500"
-                >
-                  {OFFICE_OPTIONS.filter((o) => o.value !== "All").map((o) => (
-                    <option key={o.value} value={o.value}>
-                      {o.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-semibold text-slate-700 mb-1">
-                  Remarks / Production Reference
-                </label>
-                <textarea
-                  rows={3}
-                  placeholder="e.g. PRO-MG261000041 - Item Name: SFG-00656"
-                  value={newRequisition.remarks}
-                  onChange={(e) =>
-                    setNewRequisition({ ...newRequisition, remarks: e.target.value })
-                  }
-                  className="w-full border border-slate-300 rounded p-2 focus:ring-1 focus:ring-blue-500 placeholder-slate-400"
-                />
-              </div>
-            </div>
-
-            {/* Modal Footer */}
-            <div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-slate-200 bg-slate-50">
-              <button
-                type="button"
-                onClick={() => setIsModalOpen(false)}
-                className="px-3.5 py-1.5 text-xs text-slate-600 hover:text-slate-800 font-medium"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  alert("Store Requisition created successfully!");
-                  setIsModalOpen(false);
-                }}
-                className="px-4 py-1.5 bg-[#2563eb] hover:bg-blue-700 text-white font-semibold text-xs rounded shadow-xs transition"
-              >
-                Save Requisition
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <InventoryDocumentDialog
+        open={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        onSaved={() => docs.reload()}
+        config={{
+          slug: "store-requisition",
+          title: "New Store Requisition",
+          warehouses: "one",
+          warehouseLabel: "Store (warehouse)",
+          subtype: { label: "User type", options: REQUISITION_USER_TYPES },
+          partyLabel: "Requested for (user / department)",
+        }}
+      />
     </div>
   );
 }

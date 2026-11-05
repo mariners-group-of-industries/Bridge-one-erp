@@ -1,6 +1,6 @@
 import { Prisma } from "@/generated/prisma/client";
 import { AppError, badRequest, conflict, notFound } from "@/lib/api/errors";
-import type { Actor } from "@/lib/auth/actor";
+import { canOn, type Actor } from "@/lib/auth/actor";
 import { db } from "@/lib/prisma/client";
 import { stockLevels } from "@/features/sales/deliveries/services/stock.service";
 import { fromDbDate, toDbDate } from "@/features/sales/lib/dates";
@@ -139,7 +139,7 @@ interface StageState {
 /** Whether the actor may approve / reject this stage now. */
 function canActOnStage(actor: Actor, stage: StageState, superApproverUserId: string | null): boolean {
   if (superApproverUserId && actor.id === superApproverUserId) return true;
-  if (stage.approverUserIds.length === 0) return actor.permissions.has("production:approve");
+  if (stage.approverUserIds.length === 0) return canOn(actor, "/production/orders", "approve", "production:approve");
   if (stage.approvedUserIds.includes(actor.id)) return false;
   if (stage.approvalOrder === "SEQUENTIAL") return stage.approverUserIds[stage.approvedUserIds.length] === actor.id;
   return stage.approverUserIds.includes(actor.id);
@@ -151,7 +151,7 @@ function allowedActions(
   stages: (StageState & { status: string })[],
 ): OrderAction[] {
   const actions: OrderAction[] = [];
-  const write = actor.permissions.has("production:write");
+  const write = canOn(actor, "/production/orders", "edit", "production:write");
   const current = stages.find((stage) => stage.status === "PENDING");
   if (order.status === "PENDING_APPROVAL" && current && canActOnStage(actor, current, order.superApproverUserId)) actions.push("approve", "reject");
   if (write && order.status === "APPROVED") actions.push("start");
@@ -228,7 +228,7 @@ export async function listOrders(actor: Actor, raw: unknown): Promise<OrderRow[]
     orderBy: [{ orderDate: "desc" }, { number: "desc" }],
     take: ORDER_LIST_LIMIT,
   });
-  const canWrite = actor.permissions.has("production:write");
+  const canWrite = canOn(actor, "/production/orders", "edit", "production:write");
   return records.map((record) => toRow(record, canWrite));
 }
 
@@ -304,7 +304,7 @@ export async function getOrder(actor: Actor, id: string): Promise<OrderDetail> {
     })),
     allowedActions: actions,
     canEdit:
-      actor.permissions.has("production:write") &&
+      canOn(actor, "/production/orders", "edit", "production:write") &&
       record.status === "PENDING_APPROVAL" &&
       record.approvals.every((stage) => stage.approvedUserIds.length === 0 && stage.status === "PENDING"),
   };
@@ -482,7 +482,7 @@ export async function orderLookups(actor: Actor): Promise<OrderLookups> {
     entry.boms.push({ id: output.bom.id, name: output.bom.name, lotSize: num(output.lotSizeQty) });
     items.set(output.item.id, entry);
   }
-  return { offices, warehouses, workCenters, items: [...items.values()], boms, canApprove: actor.permissions.has("production:approve") };
+  return { offices, warehouses, workCenters, items: [...items.values()], boms, canApprove: canOn(actor, "/production/orders", "approve", "production:approve") };
 }
 
 export async function searchCustomers(actor: Actor, raw: unknown): Promise<CustomerOption[]> {

@@ -1,6 +1,9 @@
 import { AppError } from "@/lib/api/errors";
 import { getAuthCookie } from "@/lib/auth/cookies";
 import { verifyToken } from "@/lib/auth/jwt";
+import { checkApiAccess } from "@/lib/permissions/api-rules";
+import { FULL_ACCESS, grantsAllow, grantsAllowInModule, type AccessGrants, type PermissionAction } from "@/lib/permissions/registry";
+import { resolveGrants } from "@/lib/permissions/resolve";
 import { db } from "@/lib/prisma/client";
 import { resolveTokenActor } from "./api-token";
 
@@ -29,6 +32,10 @@ export interface Actor {
   permissions: ReadonlySet<Permission>;
   /** Companies this actor may access. "ALL" is reserved for system administrators. */
   companyScope: "ALL" | readonly string[];
+  /** How the request authenticated; session users are authorized per page and action. */
+  via?: "session" | "token";
+  /** Effective page permissions (registry keys). Absent for internal/system actors. */
+  grants?: AccessGrants;
 }
 
 export const ALL_PERMISSIONS: readonly Permission[] = [
@@ -48,11 +55,74 @@ export const ALL_PERMISSIONS: readonly Permission[] = [
 ];
 
 /**
- * When RBAC is built, replace this with a real role→permission lookup.
- * The master account always bypasses this via isMaster in the JWT.
+ * Module-level permissions for code that still asks coarse questions ("may this
+ * actor approve sales documents?"), derived from the page permissions.
  */
-function permissionsForRole(_role: string): ReadonlySet<Permission> {
-  return new Set<Permission>(ALL_PERMISSIONS);
+function coarsePermissions(grants: AccessGrants): ReadonlySet<Permission> {
+  const any = (moduleId: string, actions: PermissionAction[]) => actions.some((a) => grantsAllowInModule(grants, moduleId, a));
+  const write: PermissionAction[] = ["create", "edit", "delete"];
+  const set = new Set<Permission>();
+  const add = (permission: Permission, ok: boolean) => ok && set.add(permission);
+  add("configuration:read", any("configuration", ["view"]));
+  add("configuration:write", any("configuration", write));
+  add("employees:read", any("hrm", ["view"]) || grantsAllow(grants, "/configuration/entity-master-data/employee", "view"));
+  add("sales:read", any("sales", ["view"]));
+  add("sales:write", any("sales", write));
+  add("sales:approve", any("sales", ["approve"]));
+  add("accounts:read", any("account", ["view"]));
+  add("accounts:write", any("account", write));
+  add("production:read", any("production", ["view"]));
+  add("production:write", any("production", write));
+  add("production:approve", any("production", ["approve"]));
+  add("purchase:read", any("purchase", ["view"]));
+  add("purchase:write", any("purchase", write));
+  return set;
+}
+
+/** Why an account may not use the ERP right now, or null when it may. */
+export function accountBlock(user: { isActive: boolean; erpAccess: boolean; status: string }): string | null {
+  if (!user.isActive || user.status === "INACTIVE") return "This account is inactive.";
+  if (user.status === "SUSPENDED") return "This account is suspended.";
+  if (!user.erpAccess) return "ERP access is not enabled for this account.";
+  return null;
+}
+
+/** A signed-in user's actor. Permissions are read on every request, so changes apply to open sessions at once. */
+async function sessionActor(jti: string, userId: string): Promise<Actor | null> {
+  const session = await db().userSession.findUnique({
+    where: { jti },
+    select: {
+      expiresAt: true,
+      user: {
+        select: {
+          id: true,
+          name: true,
+          role: true,
+          isMaster: true,
+          isActive: true,
+          erpAccess: true,
+          status: true,
+          permissionGroups: { select: { group: { select: { name: true, status: true, fullAccess: true, entries: true } } } },
+          permissionOverrides: { select: { activityKey: true, action: true, effect: true } },
+        },
+      },
+    },
+  });
+  if (!session || session.expiresAt < new Date() || session.user.id !== userId) return null;
+  const user = session.user;
+  // The master account can never be locked out by these flags.
+  if (!user.isMaster && accountBlock(user)) return null;
+  const grants = user.isMaster ? FULL_ACCESS : resolveGrants(user.permissionGroups.map((g) => g.group), user.permissionOverrides);
+  return {
+    id: user.id,
+    name: user.name,
+    role: user.role,
+    isMaster: user.isMaster,
+    permissions: user.isMaster ? new Set<Permission>(ALL_PERMISSIONS) : coarsePermissions(grants),
+    companyScope: "ALL",
+    via: "session",
+    grants,
+  };
 }
 
 export async function resolveActor(request: Request): Promise<Actor | null> {
@@ -64,28 +134,31 @@ export async function resolveActor(request: Request): Promise<Actor | null> {
     if (!token) return null;
 
     const payload = await verifyToken(token);
-
-    const session = await db().userSession.findUnique({ where: { jti: payload.jti } });
-    if (!session || session.expiresAt < new Date()) return null;
-
-    // isMaster is embedded in the JWT at login — no extra DB query needed.
-    const isMaster = payload.isMaster;
-
-    return {
-      id: payload.sub,
-      name: payload.name,
-      role: payload.role,
-      isMaster,
-      permissions: isMaster
-        ? new Set<Permission>(ALL_PERMISSIONS)
-        : permissionsForRole(payload.role),
-      companyScope: "ALL",
-    };
+    return await sessionActor(payload.jti, payload.sub);
   } catch {
     return null;
   }
 }
 
+/** Whether the actor may perform `action` on the page `featureKey` (master always may). */
+export function can(actor: Actor, featureKey: string, action: PermissionAction = "view"): boolean {
+  return actor.isMaster || grantsAllow(actor.grants, featureKey, action);
+}
+
+/**
+ * In-service check for an action on one page (e.g. approving sales orders). Actors
+ * without page permissions (system jobs) fall back to the module-level permission.
+ */
+export function canOn(actor: Actor, featureKey: string, action: PermissionAction, legacy: Permission): boolean {
+  // Signed-in master accounts carry full grants, so no separate master shortcut is needed.
+  return actor.grants ? grantsAllow(actor.grants, featureKey, action) : actor.permissions.has(legacy);
+}
+
+/**
+ * Authenticates the request. API tokens are checked against the route's coarse
+ * `permission`; signed-in users against the page and action the API path and
+ * method map to (src/lib/permissions/api-rules.ts). Unmapped routes are denied.
+ */
 export async function requireActor(
   request: Request,
   permission: Permission,
@@ -95,8 +168,13 @@ export async function requireActor(
     throw new AppError(401, "UNAUTHORIZED", "Authentication required.");
   }
   // Master bypasses permission checks entirely.
-  if (!actor.isMaster && !actor.permissions.has(permission)) {
+  if (actor.isMaster) return actor;
+  if (actor.via === "token" && !actor.permissions.has(permission)) {
     throw new AppError(403, "FORBIDDEN", "You do not have permission to perform this action.");
+  }
+  const check = checkApiAccess(actor.grants, request.method, new URL(request.url).pathname);
+  if (!check.allowed) {
+    throw new AppError(403, "FORBIDDEN", "You do not have permission to perform this action.", check.required ? { required: check.required } : undefined);
   }
   return actor;
 }

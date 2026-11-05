@@ -124,6 +124,8 @@ export type UpdateCredentialsInput = z.infer<typeof updateCredentialsSchema>;
 
 export interface CredentialsDto {
   hasAccount: boolean;
+  /** The ERP user account, when there is one (for Access › permissions). */
+  userId: string | null;
   phone: string | null;
   roleId: string | null;
   roleName: string | null;

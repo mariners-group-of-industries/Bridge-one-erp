@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import * as argon2 from "argon2";
 import { z } from "zod";
 import { db } from "@/lib/prisma/client";
+import { accountBlock } from "@/lib/auth/actor";
 import { verifyToken } from "@/lib/auth/jwt";
 import { getAuthCookie } from "@/lib/auth/cookies";
 
@@ -11,8 +12,10 @@ async function getAuthedUser() {
   try {
     const payload = await verifyToken(token);
     const session = await db().userSession.findUnique({ where: { jti: payload.jti } });
-    if (!session || session.expiresAt < new Date()) return null;
-    return await db().user.findUnique({ where: { id: payload.sub } });
+    if (!session || session.expiresAt < new Date() || session.userId !== payload.sub) return null;
+    const user = await db().user.findUnique({ where: { id: payload.sub } });
+    // Accounts without ERP access, suspended or inactive cannot use their profile either.
+    return user && (user.isMaster || !accountBlock(user)) ? user : null;
   } catch {
     return null;
   }

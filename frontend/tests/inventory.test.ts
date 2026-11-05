@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { inventoryWorkspace } from "@/features/inventory/navigation";
 import { paths } from "@/features/inventory/paths";
-import { useInventoryStore } from "@/features/inventory/store/inventory-store";
+import { INVENTORY_DOC_TYPES } from "@/features/inventory/schemas/document.schema";
+import { STOCK_SOURCE_LABELS } from "@/features/inventory/server/overview.service";
+import { StockSource } from "@/generated/prisma/enums";
 import { findWorkspace } from "@/lib/navigation/registry";
 
 describe("Inventory Navigation & Workspace", () => {
@@ -31,37 +33,13 @@ describe("Inventory Navigation & Workspace", () => {
   });
 });
 
-describe("Inventory Store Data", () => {
-  it("contains initial KPIs matching the screenshot values", () => {
-    const state = useInventoryStore.getState();
-    expect(state.kpis.totalBalance).toBe(-468631.72);
-    expect(state.kpis.openingBalance).toBe(17060438.88);
-    expect(state.kpis.inventoryOut).toBe(4698645.86);
-    expect(state.kpis.inventoryIn).toBe(4230014.13);
+describe("Inventory documents and the stock ledger", () => {
+  it("keeps each document type on an inventory page of the menu", () => {
+    const pages = new Set((inventoryWorkspace.cards?.[0]?.links ?? []).map((l) => l.href));
+    for (const slug of Object.keys(INVENTORY_DOC_TYPES)) expect(pages.has(`/inventory/${slug}`)).toBe(true);
   });
 
-  it("contains top 5 transaction values matching the screenshot", () => {
-    const state = useInventoryStore.getState();
-    expect(state.topTransactions.length).toBe(5);
-    expect(state.topTransactions[0].name).toBe("Receive from Production");
-    expect(state.topTransactions[0].amount).toBe(65039272.72);
-    expect(state.topTransactions[1].name).toBe("Transfer In");
-    expect(state.topTransactions[1].amount).toBe(54679213.56);
-    expect(state.topTransactions[2].name).toBe("Purchase");
-    expect(state.topTransactions[2].amount).toBe(46585968.07);
-    expect(state.topTransactions[3].name).toBe("Opening Balance");
-    expect(state.topTransactions[3].amount).toBe(21443147.68);
-    expect(state.topTransactions[4].name).toBe("Sales Return");
-    expect(state.topTransactions[4].amount).toBe(4210017.61);
-  });
-
-  it("contains valuation percentage categories", () => {
-    const state = useInventoryStore.getState();
-    const raw = state.valuationData.find((d) => d.name === "Raw");
-    const mro = state.valuationData.find((d) => d.name === "MRO");
-    const fg = state.valuationData.find((d) => d.name === "Finished Goods");
-    expect(raw?.percentage).toBe(76.5);
-    expect(mro?.percentage).toBe(14.4);
-    expect(fg?.percentage).toBe(9.0);
+  it("names every stock movement shown on the dashboard and reports", () => {
+    for (const source of Object.values(StockSource)) expect(STOCK_SOURCE_LABELS[source]).toBeTruthy();
   });
 });

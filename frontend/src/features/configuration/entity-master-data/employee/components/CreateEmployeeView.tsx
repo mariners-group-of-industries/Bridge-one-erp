@@ -1,11 +1,12 @@
 "use client";
 
-import { Check, ImagePlus, Plus, X } from "lucide-react";
+import { Check, ImagePlus, Lock, Plus, X } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { PageContainer, PageHead } from "@/components/layout/page";
 import { Button, buttonClasses } from "@/components/ui/button";
+import { Tabs } from "@/components/ui/tabs";
 import { useResource } from "@/hooks/use-resource";
 import { cn } from "@/lib/cn";
 import { entityMasterDataBreadcrumbs } from "../../breadcrumbs";
@@ -16,8 +17,10 @@ import {
   RELIGION_OPTIONS,
   type CreateEmployeeInput,
 } from "../schemas/employee.schema";
+import type { ProfileTab } from "../actions/employee-actions";
 import { employeeApi } from "../services/employee.api";
-import { Checkbox, Field, FormGrid, Input, Notice, Panel, Select, TextArea } from "./kit";
+import { Checkbox, EmptyBlock, Field, FormGrid, Input, Notice, Panel, Select, TextArea } from "./kit";
+import { PROFILE_TABS } from "./UpdateProfileView";
 
 const BREADCRUMBS = [
   ...entityMasterDataBreadcrumbs(entityMasterDataPaths.employee),
@@ -121,6 +124,7 @@ function AddableSelect({ label, value, options, onChange }: {
 
 export function CreateEmployeeView() {
   const router = useRouter();
+  const [tab, setTab] = useState<ProfileTab>("personal-info");
   const [form, setForm] = useState<CreateEmployeeInput>(EMPTY);
   const [errors, setErrors] = useState<FieldErrors>({});
   const [submitting, setSubmitting] = useState(false);
@@ -170,12 +174,16 @@ export function CreateEmployeeView() {
   };
 
   const handleSubmit = async () => {
-    if (!validate()) return;
+    if (!validate()) {
+      setTab("personal-info");
+      return;
+    }
     setSubmitting(true);
     setServerError("");
     try {
-      await employeeApi.create(form);
-      router.push(entityMasterDataPaths.employee);
+      const created = await employeeApi.create(form);
+      // Continue in the profile, where the remaining tabs can be filled in.
+      router.push(`${entityMasterDataPaths.employeeProfile(created.id)}?tab=official-info`);
     } catch (err: unknown) {
       setServerError(err instanceof Error ? err.message : "Failed to create employee.");
     } finally {
@@ -216,7 +224,7 @@ export function CreateEmployeeView() {
   );
 
   return (
-    <PageContainer>
+    <PageContainer full>
       <PageHead
         title="New Employee"
         subtitle="Fields marked * are required. Everything else can be completed later from the profile."
@@ -224,7 +232,21 @@ export function CreateEmployeeView() {
         actions={actions}
       />
 
+      <Tabs tabs={PROFILE_TABS} value={tab} onChange={setTab} label="Profile sections" className="mb-4">
+        {tab !== "personal-info" && (
+          <div className="pt-4">
+            <EmptyBlock icon={<Lock />} title={`${PROFILE_TABS.find((t) => t.id === tab)?.label} opens after the employee is saved`}>
+              <p>Fill in Personal Info and click Save Employee. The profile then opens on Official Info so you can complete the rest.</p>
+              <Button size="sm" className="mt-3" onClick={() => setTab("personal-info")}>
+                Back to Personal Info
+              </Button>
+            </EmptyBlock>
+          </div>
+        )}
+      </Tabs>
+
       <form
+        hidden={tab !== "personal-info"}
         noValidate
         onSubmit={(e) => {
           e.preventDefault();

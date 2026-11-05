@@ -6,6 +6,9 @@ import { Button } from "@/components/ui/button";
 import { ErrorState, LoadingState } from "@/components/ui/section";
 import { useToast } from "@/components/ui/toast";
 import { useResource } from "@/hooks/use-resource";
+import { useSession } from "@/lib/auth/session";
+import { PERMISSION_ADMIN_FEATURE } from "@/lib/permissions/registry";
+import { UserAccessPanel } from "@/features/configuration/security/access/components/UserAccessPanel";
 import { errorMessage } from "@/lib/api/client";
 import type {
   CredentialsDto,
@@ -283,7 +286,20 @@ function OrgAccessPanel({
 
 // ─── Section ──────────────────────────────────────────────────────────────────
 
+/** Logins, data access and permissions decide who can sign in and what they see: permission administrators only. */
 export function ErpAccessSection({ employeeId }: { employeeId: string }) {
+  const { can } = useSession();
+  if (!can(PERMISSION_ADMIN_FEATURE, "manage")) {
+    return (
+      <Panel title="ERP Login">
+        <p className="text-sm text-ink-muted">Only users with Manage Permissions (Identity & Security › Permission Group) can set up logins and access.</p>
+      </Panel>
+    );
+  }
+  return <ErpAccessEditor employeeId={employeeId} />;
+}
+
+function ErpAccessEditor({ employeeId }: { employeeId: string }) {
   const [roles, setRoles] = useState<RoleDto[]>([]);
 
   const creds = useResource(`creds:${employeeId}`, () => personalInfoApi.getCredentials(employeeId));
@@ -319,6 +335,7 @@ export function ErpAccessSection({ employeeId }: { employeeId: string }) {
         onRolesChange={setRoles}
         onSaved={creds.reload}
       />
+      {creds.data.userId && <UserAccessPanel userId={creds.data.userId} />}
       {creds.data.hasAccount && (
         <OrgAccessPanel employeeId={employeeId} access={access.data} options={options.data} onSaved={access.reload} />
       )}

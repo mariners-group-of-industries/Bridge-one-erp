@@ -2,8 +2,9 @@ import { NextResponse } from "next/server";
 import { getConnectPool } from "@/lib/connect/db";
 import { getPusherServer } from "@/lib/connect/pusher-server";
 import { getConnectAuthUser, ensureValidUuid } from "@/lib/connect/auth";
+import { connectRoute } from "@/lib/connect/route";
 
-export async function GET(
+async function handleGET(
   req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
@@ -144,7 +145,7 @@ export async function GET(
   }
 }
 
-export async function POST(
+async function handlePOST(
   req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
@@ -315,3 +316,6 @@ export async function POST(
     return NextResponse.json({ success: false, error: "Failed to send message" }, { status: 500 });
   }
 }
+
+export const GET = connectRoute("employees:read", handleGET);
+export const POST = connectRoute("configuration:write", handlePOST);

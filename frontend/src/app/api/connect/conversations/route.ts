@@ -2,8 +2,9 @@ import { NextResponse } from "next/server";
 import { getConnectPool } from "@/lib/connect/db";
 import { getConnectAuthUser, ensureValidUuid } from "@/lib/connect/auth";
 import { getPusherServer } from "@/lib/connect/pusher-server";
+import { connectRoute } from "@/lib/connect/route";
 
-export async function GET(req: Request) {
+async function handleGET(req: Request) {
   try {
     const user = await getConnectAuthUser(req);
     if (!user) {
@@ -115,7 +116,7 @@ export async function GET(req: Request) {
   }
 }
 
-export async function POST(req: Request) {
+async function handlePOST(req: Request) {
   try {
     const user = await getConnectAuthUser(req);
     if (!user) {
@@ -305,3 +306,6 @@ export async function POST(req: Request) {
     return NextResponse.json({ success: false, error: "Failed to create conversation" }, { status: 500 });
   }
 }
+
+export const GET = connectRoute("employees:read", handleGET);
+export const POST = connectRoute("configuration:write", handlePOST);

@@ -24,7 +24,9 @@ import { formatCurrency } from "@/lib/utils";
 import {
   PurchaseReturn,
   GoodsReceipt,
-  CreatePurchaseReturnInput,
+  Supplier,
+  Warehouse,
+  Item,
 } from "@bridgeone/contracts";
 
 // ============================================================================
@@ -32,6 +34,8 @@ import {
 // ============================================================================
 interface ReceivedRow {
   sl: number;
+  /** Goods receipt id, sent with the return so the stock leaves the receipt's warehouse. */
+  grnId: string;
   receiveDate: string;
   poNo: string;
   returnInvoiceNo: string;
@@ -72,8 +76,6 @@ interface ReturnRow {
   }>;
 }
 
-const INITIAL_RECEIVED_LIST: ReceivedRow[] = [];
-const INITIAL_RETURN_LIST: ReturnRow[] = [];
 
 export default function PurchaseReturnsPage() {
   const queryClient = useQueryClient();
@@ -108,6 +110,7 @@ export default function PurchaseReturnsPage() {
   const [fullReturnReason, setFullReturnReason] = useState("Excess / Transit Damaged consignment rejected during QC inspection.");
   const [partialReturnItems, setPartialReturnItems] = useState<
     Array<{
+      itemId: string;
       itemCode: string;
       itemName: string;
       uom: string;
@@ -120,13 +123,13 @@ export default function PurchaseReturnsPage() {
   >([]);
 
   // Return Without Ref Form State
-  const [noRefSupplier, setNoRefSupplier] = useState("M/S Sarkar Traders");
-  const [noRefOffice, setNoRefOffice] = useState("MG Sirajganj Factory");
+  const [noRefSupplierId, setNoRefSupplierId] = useState("");
+  const [noRefWarehouseId, setNoRefWarehouseId] = useState("");
   const [noRefDate, setNoRefDate] = useState(new Date().toISOString().split("T")[0]);
-  const [noRefAmount, setNoRefAmount] = useState<number>(25000);
-  const [noRefRemarks, setNoRefRemarks] = useState("Direct supplier return without prior goods receipt reference.");
-  const [noRefItemName, setNoRefItemName] = useState("Industrial Raw Material Surplus");
-  const [noRefQty, setNoRefQty] = useState(100);
+  const [noRefItemId, setNoRefItemId] = useState("");
+  const [noRefUnitPrice, setNoRefUnitPrice] = useState(0);
+  const [noRefRemarks, setNoRefRemarks] = useState("");
+  const [noRefQty, setNoRefQty] = useState(1);
 
   // API Queries with TanStack
   const { data: serverEligible } = useQuery<GoodsReceipt[]>({
@@ -141,9 +144,110 @@ export default function PurchaseReturnsPage() {
     staleTime: 60000,
   });
 
-  // Local state for dynamic changes
-  const [receivedList, setReceivedList] = useState<ReceivedRow[]>(INITIAL_RECEIVED_LIST);
-  const [returnList, setReturnList] = useState<ReturnRow[]>(INITIAL_RETURN_LIST);
+  const { data: suppliers } = useQuery<Supplier[]>({ queryKey: ["suppliers"], queryFn: () => fetchApi("/master/suppliers") });
+  const { data: warehouses } = useQuery<Warehouse[]>({ queryKey: ["warehouses"], queryFn: () => fetchApi("/master/warehouses") });
+  const { data: itemsCatalog } = useQuery<Item[]>({ queryKey: ["items"], queryFn: () => fetchApi("/master/items") });
+
+  // Lists come from the server: receipts that can be returned, and posted returns.
+  const receivedList = useMemo<ReceivedRow[]>(
+    () =>
+      (serverEligible ?? [])
+        .filter((g) => g.status === "RECEIVED")
+        .map((g, i) => ({
+          sl: i + 1,
+          grnId: g.id,
+          receiveDate: g.receiptDate,
+          poNo: g.poNumber,
+          returnInvoiceNo: g.grnNumber,
+          remarks: g.remarks ?? "",
+          supplier: g.supplierName,
+          amount: g.totalReceivedAmount,
+          office: g.officeName,
+          items: g.items.map((it) => ({
+            itemId: it.itemId,
+            itemCode: it.itemCode,
+            itemName: it.itemName,
+            uom: it.uom,
+            quantity: it.currentReceivedQuantity - it.rejectedDamagedQuantity,
+            unitPrice: it.unitPrice,
+            lineTotal: it.lineTotal,
+          })),
+        })),
+    [serverEligible],
+  );
+  const returnList = useMemo<ReturnRow[]>(
+    () =>
+      (serverReturns ?? []).map((r, i) => ({
+        sl: i + 1,
+        officeName: r.officeName,
+        returnDate: r.returnDate,
+        poNo: r.poNumber,
+        returnNo: r.returnNumber,
+        remarks: r.items[0]?.reason ?? "",
+        supplier: r.supplierName,
+        amount: r.totalReturnAmount,
+        returnType: r.grnNumber === "Direct Return" ? "Direct / Ad-hoc" : "Against GRN",
+        status: r.status === "CANCELLED" ? "Rejected" : "Approved",
+        items: r.items.map((it) => ({
+          itemCode: it.itemCode,
+          itemName: it.itemName,
+          uom: it.uom,
+          quantity: it.returnQuantity,
+          unitPrice: it.unitPrice,
+          lineTotal: it.lineTotal,
+          reason: it.reason,
+        })),
+      })),
+    [serverReturns],
+  );
+
+  // Posts the return: stock leaves the warehouse and the supplier balance goes down.
+  const returnMutation = useMutation({
+    mutationFn: (payload: Record<string, unknown>) => fetchApi<PurchaseReturn>("/purchase/returns", { method: "POST", body: JSON.stringify(payload) }),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["returnsList"] });
+      queryClient.invalidateQueries({ queryKey: ["eligibleGRNs"] });
+      queryClient.invalidateQueries({ queryKey: ["suppliers"] });
+      setFullReturnTarget(null);
+      setPartialReturnTarget(null);
+      setIsReturnWithoutRefOpen(false);
+      setActiveTab("RETURN_LIST");
+      toast.success(`Return ${data.returnNumber} posted. Stock and supplier balance updated.`, { title: "Purchase Return Posted" });
+    },
+    onError: (err: Error) => toast.error(err.message, { title: "Return Failed" }),
+  });
+
+  type ReturnLine = { itemId: string; itemCode: string; itemName: string; uom: string; receivedQty: number; returnQty: number; unitPrice: number; reason: string; condition?: string };
+  const submitReturn = (goodsReceiptId: string, returnDate: string, lines: ReturnLine[], extra: Record<string, unknown> = {}) => {
+    const items = lines.filter((l) => l.returnQty > 0);
+    if (!items.length) {
+      toast.error("Enter a return quantity for at least one item.", { title: "Purchase Return" });
+      return;
+    }
+    returnMutation.mutate({
+      companyId: "comp-bridgeone-01",
+      goodsReceiptId,
+      returnDate,
+      returnType: "REFUND_CREDIT",
+      ...extra,
+      items: items.map((l) => ({
+        grnItemId: "",
+        itemId: l.itemId,
+        itemCode: l.itemCode,
+        itemName: l.itemName,
+        uom: l.uom,
+        receivedQuantity: l.receivedQty,
+        previouslyReturnedQuantity: 0,
+        eligibleReturnQuantity: l.receivedQty,
+        returnQuantity: l.returnQty,
+        unitPrice: l.unitPrice,
+        lineTotal: l.returnQty * l.unitPrice,
+        reason: l.reason || "Returned to supplier",
+        condition: l.condition ?? "DAMAGED",
+      })),
+    });
+  };
+  const today = () => new Date().toISOString().split("T")[0];
 
   // Handle Full Return Click
   const handleOpenFullReturn = (row: ReceivedRow) => {
@@ -154,128 +258,52 @@ export default function PurchaseReturnsPage() {
   // Handle Partial Return Click
   const handleOpenPartialReturn = (row: ReceivedRow) => {
     setPartialReturnTarget(row);
-    const items = row.items || [
-      { itemId: "it-def", itemCode: "MAT-01", itemName: "Consignment Material Package", uom: "PKG", quantity: 100, unitPrice: row.amount / 100, lineTotal: row.amount },
-    ];
     setPartialReturnItems(
-      items.map((it) => ({
+      (row.items ?? []).map((it) => ({
+        itemId: it.itemId,
         itemCode: it.itemCode,
         itemName: it.itemName,
         uom: it.uom,
         receivedQty: it.quantity,
-        returnQty: Math.max(1, Math.round(it.quantity * 0.2)),
+        returnQty: 0,
         unitPrice: it.unitPrice,
         condition: "DAMAGED",
-        reason: "Transit damage observed during store verification",
+        reason: "",
       }))
     );
   };
 
-  // Submit Full Return
+  // Submit Full Return: every accepted quantity of the receipt goes back.
   const handleConfirmFullReturn = () => {
     if (!fullReturnTarget) return;
-
-    const newReturnNo = `POB-MG2609${String(Math.floor(10000 + Math.random() * 90000))}`;
-    const newRecord: ReturnRow = {
-      sl: returnList.length + 1,
-      officeName: fullReturnTarget.office || "MG Sirajganj Factory",
-      returnDate: new Date().toLocaleDateString("en-GB").replace(/\//g, "-"),
-      poNo: fullReturnTarget.poNo,
-      returnNo: newReturnNo,
-      remarks: fullReturnReason,
-      supplier: fullReturnTarget.supplier,
-      amount: fullReturnTarget.amount,
-      returnType: "Full Return",
-      status: "Approved",
-      items: fullReturnTarget.items?.map((it) => ({
-        itemCode: it.itemCode,
-        itemName: it.itemName,
-        uom: it.uom,
-        quantity: it.quantity,
-        unitPrice: it.unitPrice,
-        lineTotal: it.lineTotal,
-        reason: fullReturnReason,
-      })),
-    };
-
-    setReturnList([newRecord, ...returnList]);
-    setReceivedList(receivedList.filter((r) => r.returnInvoiceNo !== fullReturnTarget.returnInvoiceNo));
-    setFullReturnTarget(null);
-    toast.success(`Full Return Voucher ${newReturnNo} successfully generated! Financial debit note posted.`, {
-      title: "Debit Note Posted",
-    });
+    submitReturn(
+      fullReturnTarget.grnId,
+      today(),
+      (fullReturnTarget.items ?? []).map((it) => ({ ...it, receivedQty: it.quantity, returnQty: it.quantity, reason: fullReturnReason })),
+      { remarks: fullReturnReason },
+    );
   };
 
   // Submit Partial Return
   const handleConfirmPartialReturn = () => {
     if (!partialReturnTarget) return;
-
-    const totalRetAmount = partialReturnItems.reduce((acc, it) => acc + it.returnQty * it.unitPrice, 0);
-    const newReturnNo = `POB-MG2609${String(Math.floor(10000 + Math.random() * 90000))}`;
-
-    const newRecord: ReturnRow = {
-      sl: returnList.length + 1,
-      officeName: partialReturnTarget.office || "MG Sirajganj Factory",
-      returnDate: new Date().toLocaleDateString("en-GB").replace(/\//g, "-"),
-      poNo: partialReturnTarget.poNo,
-      returnNo: newReturnNo,
-      remarks: `Partial return of selected items against ${partialReturnTarget.returnInvoiceNo}`,
-      supplier: partialReturnTarget.supplier,
-      amount: totalRetAmount,
-      returnType: "Partial",
-      status: "Approved",
-      items: partialReturnItems.map((it) => ({
-        itemCode: it.itemCode,
-        itemName: it.itemName,
-        uom: it.uom,
-        quantity: it.returnQty,
-        unitPrice: it.unitPrice,
-        lineTotal: it.returnQty * it.unitPrice,
-        reason: it.reason,
-      })),
-    };
-
-    setReturnList([newRecord, ...returnList]);
-    setPartialReturnTarget(null);
-    toast.success(`Partial Return Voucher ${newReturnNo} (BDT ${formatCurrency(totalRetAmount)}) generated!`, {
-      title: "Partial Return Posted",
-    });
+    submitReturn(partialReturnTarget.grnId, today(), partialReturnItems);
   };
 
-  // Submit Return Without Ref
+  // Submit Return Without Ref: stock leaves the selected warehouse.
   const handleConfirmReturnWithoutRef = (e: React.FormEvent) => {
     e.preventDefault();
-    const newReturnNo = `POB-MG2610${String(Math.floor(10000 + Math.random() * 90000))}`;
-
-    const newRecord: ReturnRow = {
-      sl: returnList.length + 1,
-      officeName: noRefOffice,
-      returnDate: new Date(noRefDate).toLocaleDateString("en-GB").replace(/\//g, "-"),
-      poNo: "Direct",
-      returnNo: newReturnNo,
-      remarks: noRefRemarks,
-      supplier: noRefSupplier,
-      amount: noRefAmount,
-      returnType: "Direct / Ad-hoc",
-      status: "Approved",
-      items: [
-        {
-          itemCode: "DIR-RET-01",
-          itemName: noRefItemName,
-          uom: "LOT",
-          quantity: noRefQty,
-          unitPrice: noRefAmount / (noRefQty || 1),
-          lineTotal: noRefAmount,
-          reason: noRefRemarks,
-        },
-      ],
-    };
-
-    setReturnList([newRecord, ...returnList]);
-    setIsReturnWithoutRefOpen(false);
-    toast.success(`Return Voucher Without Ref ${newReturnNo} generated successfully!`, {
-      title: "Ad-hoc Return Posted",
-    });
+    const item = itemsCatalog?.find((i) => i.id === noRefItemId);
+    if (!item) {
+      toast.error("Select the item being returned.", { title: "Purchase Return" });
+      return;
+    }
+    submitReturn(
+      "WITHOUT_REF",
+      noRefDate,
+      [{ itemId: item.id, itemCode: item.code, itemName: item.name, uom: item.uom, receivedQty: noRefQty, returnQty: noRefQty, unitPrice: noRefUnitPrice, reason: noRefRemarks }],
+      { supplierId: noRefSupplierId, warehouseId: noRefWarehouseId, remarks: noRefRemarks },
+    );
   };
 
   // Filtered Received List
@@ -1023,32 +1051,34 @@ export default function PurchaseReturnsPage() {
             <div>
               <label className="block text-slate-700 font-semibold mb-1">Supplier / Vendor *</label>
               <select
-                value={noRefSupplier}
-                onChange={(e) => setNoRefSupplier(e.target.value)}
+                value={noRefSupplierId}
+                onChange={(e) => setNoRefSupplierId(e.target.value)}
                 className="w-full border border-slate-300 rounded p-2 text-xs bg-white"
                 required
               >
-                <option value="M/S Sarkar Traders">M/S Sarkar Traders (01734431700)</option>
-                <option value="PITICON INDUSTRIES">PITICON INDUSTRIES (01730302047)</option>
-                <option value="TOHA CORPORATION">TOHA CORPORATION (01768116460)</option>
-                <option value="Adar Sohag Departmental Store">Adar Sohag Departmental Store (01739870931)</option>
-                <option value="BridgeOne Technologies Ltd">BridgeOne Technologies Ltd (01329731801)</option>
-                <option value="Furniture Concept">Furniture Concept (01329749970)</option>
+                <option value="">Select supplier</option>
+                {suppliers?.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}
+                  </option>
+                ))}
               </select>
             </div>
 
             <div>
-              <label className="block text-slate-700 font-semibold mb-1">Factory / Office *</label>
+              <label className="block text-slate-700 font-semibold mb-1">Return From Warehouse *</label>
               <select
-                value={noRefOffice}
-                onChange={(e) => setNoRefOffice(e.target.value)}
+                value={noRefWarehouseId}
+                onChange={(e) => setNoRefWarehouseId(e.target.value)}
                 className="w-full border border-slate-300 rounded p-2 text-xs bg-white"
                 required
               >
-                <option value="MG Sirajganj Factory">MG Sirajganj Factory</option>
-                <option value="Dhaka Head Office">Dhaka Head Office</option>
-                <option value="Marinozz">Marinozz</option>
-                <option value="MOHS Eco">MOHS Eco</option>
+                <option value="">Select warehouse</option>
+                {warehouses?.map((w) => (
+                  <option key={w.id} value={w.id}>
+                    {w.name}
+                  </option>
+                ))}
               </select>
             </div>
 
@@ -1064,27 +1094,38 @@ export default function PurchaseReturnsPage() {
             </div>
 
             <div>
-              <label className="block text-slate-700 font-semibold mb-1">Return Value (BDT) *</label>
+              <label className="block text-slate-700 font-semibold mb-1">Unit Price (BDT) *</label>
               <input
                 type="number"
                 min="0"
                 step="0.01"
-                value={noRefAmount}
-                onChange={(e) => setNoRefAmount(Number(e.target.value))}
+                value={noRefUnitPrice}
+                onChange={(e) => setNoRefUnitPrice(Number(e.target.value))}
                 className="w-full border border-slate-300 rounded p-2 text-xs bg-white font-mono font-bold"
                 required
               />
+              <p className="mt-1 text-slate-500">Return value: {formatCurrency(noRefUnitPrice * noRefQty)}</p>
             </div>
 
             <div>
-              <label className="block text-slate-700 font-semibold mb-1">Item Name / Description</label>
-              <input
-                type="text"
-                value={noRefItemName}
-                onChange={(e) => setNoRefItemName(e.target.value)}
+              <label className="block text-slate-700 font-semibold mb-1">Item *</label>
+              <select
+                value={noRefItemId}
+                onChange={(e) => {
+                  setNoRefItemId(e.target.value);
+                  const picked = itemsCatalog?.find((i) => i.id === e.target.value);
+                  if (picked) setNoRefUnitPrice(picked.standardPrice);
+                }}
                 className="w-full border border-slate-300 rounded p-2 text-xs bg-white"
                 required
-              />
+              >
+                <option value="">Select item</option>
+                {itemsCatalog?.map((i) => (
+                  <option key={i.id} value={i.id}>
+                    {i.code} · {i.name}
+                  </option>
+                ))}
+              </select>
             </div>
 
             <div>
@@ -1386,9 +1427,9 @@ export default function PurchaseReturnsPage() {
               <button
                 type="button"
                 onClick={() => {
-                  setReturnList(returnList.map((r) => (r.returnNo === editReturnTarget.returnNo ? editReturnTarget : r)));
+                  // There is no update endpoint: a posted return has already moved stock.
                   setEditReturnTarget(null);
-                  toast.success(`Return ${editReturnTarget.returnNo} updated successfully!`);
+                  toast.error(`Return ${editReturnTarget.returnNo} is posted and has moved stock, so it cannot be edited.`);
                 }}
                 className="px-4 py-1.5 bg-blue-600 text-white rounded font-bold hover:bg-blue-700"
               >

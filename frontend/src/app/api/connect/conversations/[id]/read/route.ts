@@ -2,8 +2,9 @@ import { NextResponse } from "next/server";
 import { getConnectPool } from "@/lib/connect/db";
 import { getConnectAuthUser } from "@/lib/connect/auth";
 import { getPusherServer } from "@/lib/connect/pusher-server";
+import { connectRoute } from "@/lib/connect/route";
 
-export async function POST(
+async function handlePOST(
   req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
@@ -65,3 +66,4 @@ export async function POST(
   }
 }
 
+export const POST = connectRoute("configuration:write", handlePOST);

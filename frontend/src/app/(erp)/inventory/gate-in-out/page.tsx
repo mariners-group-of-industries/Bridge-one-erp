@@ -1,6 +1,12 @@
 "use client";
 
 import React, { useState, useMemo } from "react";
+import { useToast } from "@/components/ui/toast";
+import { useResource } from "@/hooks/use-resource";
+import { errorMessage } from "@/lib/api/client";
+import { InventoryDocumentDialog } from "@/features/inventory/components/InventoryDocumentDialog";
+import type { InventoryDocument } from "@/features/inventory/schemas/document.schema";
+import { dmy, inventoryApi, monthAgo, today } from "@/features/inventory/services/inventory.api";
 import {
   Search,
   Plus,
@@ -19,6 +25,8 @@ type GateTab = "GATE_IN" | "GATE_OUT" | "VISITOR";
 
 interface GatePassRow {
   sl: number;
+  id: string;
+  docDate: string;
   gatePassNo: string;
   refType: string;
   refNo: string;
@@ -35,6 +43,8 @@ interface GatePassRow {
 
 interface VisitorRow {
   sl: number;
+  id: string;
+  docDate: string;
   visitorPassNo: string;
   date: string;
   inTime: string;
@@ -49,176 +59,77 @@ interface VisitorRow {
   status: "Inside" | "Exited";
 }
 
-// ============================================================================
-// SAMPLE DATA
-// ============================================================================
-const MOCK_GATE_IN: GatePassRow[] = [
-  {
-    sl: 1,
-    gatePassNo: "GIN-MG261000108",
-    refType: "Purchase Order",
-    refNo: "PO-MG260900084",
-    date: "14-10-2026",
-    time: "08:45 AM",
-    vehicleNo: "DM-UA-18-9941",
-    driverName: "Mofiz Uddin",
-    driverPhone: "01711-234567",
-    partyName: "Meghna Flour Mills Ltd.",
-    purpose: "Raw Material Delivery",
-    totalItems: 250,
-    status: "In",
-  },
-  {
-    sl: 2,
-    gatePassNo: "GIN-MG261000107",
-    refType: "Transfer In",
-    refNo: "ITO-MG261000039",
-    date: "13-10-2026",
-    time: "02:15 PM",
-    vehicleNo: "DM-DA-14-3321",
-    driverName: "Kalam Sheikh",
-    driverPhone: "01819-876543",
-    partyName: "MG Sirajganj Factory (Branch)",
-    purpose: "Inter-store Transfer Receipt",
-    totalItems: 1040,
-    status: "Cleared",
-  },
-  {
-    sl: 3,
-    gatePassNo: "GIN-MG261000106",
-    refType: "Others",
-    refNo: "CH-2026-902",
-    date: "13-10-2026",
-    time: "11:30 AM",
-    vehicleNo: "DHAKA METRO-TA-12-8812",
-    driverName: "Rashid Mia",
-    driverPhone: "01912-345678",
-    partyName: "Crown Corrugation Industries",
-    purpose: "Printed Master Cartons delivery",
-    totalItems: 1500,
-    status: "Cleared",
-  },
-  {
-    sl: 4,
-    gatePassNo: "GIN-MG261000105",
-    refType: "Purchase Order",
-    refNo: "PO-MG260900078",
-    date: "12-10-2026",
-    time: "09:10 AM",
-    vehicleNo: "DM-NA-11-4091",
-    driverName: "Anwar Hossain",
-    driverPhone: "01722-998877",
-    partyName: "City Edible Oils & Fats",
-    purpose: "Palm Olein Supply",
-    totalItems: 120,
-    status: "Cleared",
-  },
-];
+const timeOf = (iso: string | null) => (iso ? new Date(iso).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) : "");
 
-const MOCK_GATE_OUT: GatePassRow[] = [
-  {
-    sl: 1,
-    gatePassNo: "GOUT-MG261000092",
-    refType: "Stock Transfer",
-    refNo: "ITO-MG261000038",
-    date: "14-10-2026",
-    time: "09:30 AM",
-    vehicleNo: "DM-TA-15-7762",
-    driverName: "Babul Mia",
-    driverPhone: "01733-112233",
-    partyName: "Dhaka Central Distribution Hub",
-    purpose: "Stock Transfer Out (Snacks Store)",
-    totalItems: 678,
-    status: "Out",
-  },
-  {
-    sl: 2,
-    gatePassNo: "GOUT-MG261000091",
-    refType: "Sales Delivery",
-    refNo: "DO-2026-00452",
-    date: "13-10-2026",
-    time: "04:50 PM",
-    vehicleNo: "DM-UA-18-9941",
-    driverName: "Mofiz Uddin",
-    driverPhone: "01711-234567",
-    partyName: "Rahman Traders & Sons",
-    purpose: "Finished Goods Delivery",
-    totalItems: 500,
-    status: "Cleared",
-  },
-  {
-    sl: 3,
-    gatePassNo: "GOUT-MG261000090",
-    refType: "Return to Vendor",
-    refNo: "RTV-2026-0012",
-    date: "12-10-2026",
-    time: "01:20 PM",
-    vehicleNo: "DM-DA-14-3321",
-    driverName: "Kalam Sheikh",
-    driverPhone: "01819-876543",
-    partyName: "Star Packaging Ltd.",
-    purpose: "Damaged box return",
-    totalItems: 45,
-    status: "Cleared",
-  },
-];
+function toGateRow(d: InventoryDocument, i: number): GatePassRow {
+  return {
+    sl: i + 1,
+    id: d.id,
+    docDate: d.docDate,
+    gatePassNo: d.number,
+    refType: d.meta?.refType ?? "",
+    refNo: d.reference ?? "",
+    date: dmy(d.docDate),
+    time: timeOf(d.createdAt),
+    vehicleNo: d.meta?.vehicleNo ?? "",
+    driverName: d.meta?.driverName ?? "",
+    driverPhone: d.meta?.driverPhone ?? "",
+    partyName: d.partyName ?? "",
+    purpose: d.meta?.purpose ?? "",
+    totalItems: d.totalQty,
+    status: d.subtype === "Gate Out" ? "Out" : "In",
+  };
+}
 
-const MOCK_VISITORS: VisitorRow[] = [
-  {
-    sl: 1,
-    visitorPassNo: "VIS-2026-0089",
-    date: "14-10-2026",
-    inTime: "09:15 AM",
-    outTime: "",
-    visitorName: "Engr. Mahmudul Hassan",
-    companyName: "Siemens Bangladesh Ltd.",
-    contactNo: "01712-445566",
-    personToMeet: "Md. Jakaria",
-    department: "Maintenance & Plant Engineering",
-    purpose: "Generator Inspection & Audit",
-    badgeNo: "V-12",
-    status: "Inside",
-  },
-  {
-    sl: 2,
-    visitorPassNo: "VIS-2026-0088",
-    date: "13-10-2026",
-    inTime: "11:00 AM",
-    outTime: "01:30 PM",
-    visitorName: "Tanvir Chowdhury",
-    companyName: "BSTI Quality Inspection",
-    contactNo: "01819-112233",
-    personToMeet: "Tanvir Ahmed",
-    department: "Quality Assurance (QA)",
-    purpose: "Annual Food Safety Certification",
-    badgeNo: "V-05",
-    status: "Exited",
-  },
-  {
-    sl: 3,
-    visitorPassNo: "VIS-2026-0087",
-    date: "12-10-2026",
-    inTime: "02:30 PM",
-    outTime: "04:15 PM",
-    visitorName: "Kazi Sazzad Hossain",
-    companyName: "Delta Logistics",
-    contactNo: "01911-778899",
-    personToMeet: "Sumon Hossain",
-    department: "Supply Chain & Logistics",
-    purpose: "Vehicle contract discussion",
-    badgeNo: "V-08",
-    status: "Exited",
-  },
-];
+function toVisitorRow(d: InventoryDocument, i: number): VisitorRow {
+  return {
+    sl: i + 1,
+    id: d.id,
+    docDate: d.docDate,
+    visitorPassNo: d.number,
+    date: dmy(d.docDate),
+    inTime: timeOf(d.createdAt),
+    outTime: timeOf(d.completedAt),
+    visitorName: d.partyName ?? "",
+    companyName: d.meta?.companyName ?? "",
+    contactNo: d.meta?.contactNo ?? "",
+    personToMeet: d.meta?.personToMeet ?? "",
+    department: d.meta?.department ?? "",
+    purpose: d.meta?.purpose ?? "",
+    badgeNo: d.meta?.badgeNo ?? "",
+    status: d.status === "COMPLETED" ? "Exited" : "Inside",
+  };
+}
+
+const GOODS = ["Gate In", "Gate Out"] as const;
 
 export default function GateInOutPage() {
+  const toast = useToast();
   const [activeTab, setActiveTab] = useState<GateTab>("GATE_IN");
+  const docs = useResource("gate-in-out-all", () => inventoryApi.list("gate-in-out"));
+  const all = useMemo(() => docs.data ?? [], [docs.data]);
+  const gateInRows = useMemo(() => all.filter((d) => d.subtype === "Gate In").map(toGateRow), [all]);
+  const gateOutRows = useMemo(() => all.filter((d) => d.subtype === "Gate Out").map(toGateRow), [all]);
+  const visitorRows = useMemo(() => all.filter((d) => d.subtype === "Visitor").map(toVisitorRow), [all]);
+  const [exitingId, setExitingId] = useState<string | null>(null);
+  const markExit = async (row: VisitorRow) => {
+    setExitingId(row.id);
+    try {
+      await inventoryApi.completeGatePass(row.id);
+      toast.success(`${row.visitorName} has left.`);
+      docs.reload();
+    } catch (error) {
+      toast.error(errorMessage(error));
+    } finally {
+      setExitingId(null);
+    }
+  };
   const [searchTerm, setSearchTerm] = useState("");
 
   // Filters matching screenshot
   const [refType, setRefType] = useState("");
-  const [fromDate, setFromDate] = useState("2026-09-13");
-  const [toDate, setToDate] = useState("2026-10-14");
+  const [fromDate, setFromDate] = useState(monthAgo());
+  const [toDate, setToDate] = useState(today());
   const [isDetails, setIsDetails] = useState(false);
 
   // Pagination
@@ -227,16 +138,6 @@ export default function GateInOutPage() {
 
   // Modal State for "+ Create Get In Out"
   const [isCreateOpen, setIsCreateOpen] = useState(false);
-  const [createForm, setCreateForm] = useState({
-    type: "Gate In",
-    refType: "Purchase Order",
-    refNo: "",
-    vehicleNo: "",
-    driverName: "",
-    driverPhone: "",
-    partyName: "",
-    purpose: "",
-  });
 
   const tabs: { id: GateTab; label: string }[] = [
     { id: "GATE_IN", label: "GATE IN" },
@@ -246,7 +147,8 @@ export default function GateInOutPage() {
 
   // Filtering Gate In
   const filteredGateIn = useMemo(() => {
-    return MOCK_GATE_IN.filter((row) => {
+    return gateInRows.filter((row) => {
+      if ((fromDate && row.docDate < fromDate) || (toDate && row.docDate > toDate)) return false;
       if (refType && row.refType !== refType) return false;
       if (searchTerm) {
         const s = searchTerm.toLowerCase();
@@ -260,11 +162,12 @@ export default function GateInOutPage() {
       }
       return true;
     });
-  }, [refType, searchTerm]);
+  }, [gateInRows, fromDate, toDate, refType, searchTerm]);
 
   // Filtering Gate Out
   const filteredGateOut = useMemo(() => {
-    return MOCK_GATE_OUT.filter((row) => {
+    return gateOutRows.filter((row) => {
+      if ((fromDate && row.docDate < fromDate) || (toDate && row.docDate > toDate)) return false;
       if (refType && row.refType !== refType) return false;
       if (searchTerm) {
         const s = searchTerm.toLowerCase();
@@ -278,11 +181,12 @@ export default function GateInOutPage() {
       }
       return true;
     });
-  }, [refType, searchTerm]);
+  }, [gateOutRows, fromDate, toDate, refType, searchTerm]);
 
   // Filtering Visitor
   const filteredVisitors = useMemo(() => {
-    return MOCK_VISITORS.filter((row) => {
+    return visitorRows.filter((row) => {
+      if ((fromDate && row.docDate < fromDate) || (toDate && row.docDate > toDate)) return false;
       if (searchTerm) {
         const s = searchTerm.toLowerCase();
         return (
@@ -295,7 +199,7 @@ export default function GateInOutPage() {
       }
       return true;
     });
-  }, [searchTerm]);
+  }, [visitorRows, fromDate, toDate, searchTerm]);
 
   return (
     <div className="space-y-3 p-1">
@@ -696,6 +600,16 @@ export default function GateInOutPage() {
                     </td>
                     <td className="p-2 border border-slate-300 text-center">
                       <div className="flex items-center justify-center gap-1.5 text-slate-600">
+                        {row.status === "Inside" && (
+                          <button
+                            type="button"
+                            disabled={exitingId === row.id}
+                            onClick={() => markExit(row)}
+                            className="px-1.5 py-0.5 rounded bg-slate-700 text-white text-[10px] font-semibold disabled:opacity-50"
+                          >
+                            Mark Exit
+                          </button>
+                        )}
                         <button type="button" className="p-1 hover:text-blue-600" title="View">
                           <Eye className="w-3.5 h-3.5" />
                         </button>
@@ -715,177 +629,32 @@ export default function GateInOutPage() {
       {/* ─────────────────────────────────────────────────── */}
       {/* 5. + CREATE MODAL                                   */}
       {/* ─────────────────────────────────────────────────── */}
-      {isCreateOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-lg border border-slate-200 overflow-hidden animate-in fade-in zoom-in-95 duration-150">
-            <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 bg-slate-50">
-              <h2 className="text-sm font-bold text-slate-900">
-                Create Gate In / Out Entry
-              </h2>
-              <button
-                type="button"
-                onClick={() => setIsCreateOpen(false)}
-                className="text-slate-400 hover:text-slate-600"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div className="p-4 space-y-3 text-xs">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-[11px] font-semibold text-slate-700 mb-1">
-                    Movement Type <span className="text-red-500">*</span>
-                  </label>
-                  <select
-                    value={createForm.type}
-                    onChange={(e) =>
-                      setCreateForm({ ...createForm, type: e.target.value })
-                    }
-                    className="w-full border border-slate-300 rounded px-2.5 py-1.5 focus:ring-1 focus:ring-blue-500"
-                  >
-                    <option value="Gate In">Gate In (Inward Entry)</option>
-                    <option value="Gate Out">Gate Out (Outward Exit)</option>
-                    <option value="Visitor">Visitor Entry</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-[11px] font-semibold text-slate-700 mb-1">
-                    Reference Type
-                  </label>
-                  <select
-                    value={createForm.refType}
-                    onChange={(e) =>
-                      setCreateForm({ ...createForm, refType: e.target.value })
-                    }
-                    className="w-full border border-slate-300 rounded px-2.5 py-1.5 focus:ring-1 focus:ring-blue-500"
-                  >
-                    <option value="Purchase Order">Purchase Order</option>
-                    <option value="Transfer In">Transfer In / Out</option>
-                    <option value="Sales Delivery">Sales Delivery</option>
-                    <option value="Others">Others</option>
-                  </select>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-[11px] font-semibold text-slate-700 mb-1">
-                    Reference / Challan No
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="e.g. PO-MG260900084"
-                    value={createForm.refNo}
-                    onChange={(e) =>
-                      setCreateForm({ ...createForm, refNo: e.target.value })
-                    }
-                    className="w-full border border-slate-300 rounded px-2.5 py-1.5 focus:ring-1 focus:ring-blue-500"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-[11px] font-semibold text-slate-700 mb-1">
-                    Vehicle Number <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="e.g. DM-UA-18-9941"
-                    value={createForm.vehicleNo}
-                    onChange={(e) =>
-                      setCreateForm({ ...createForm, vehicleNo: e.target.value })
-                    }
-                    className="w-full border border-slate-300 rounded px-2.5 py-1.5 focus:ring-1 focus:ring-blue-500 font-mono"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-[11px] font-semibold text-slate-700 mb-1">
-                    Driver / Contact Name <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="Full Name"
-                    value={createForm.driverName}
-                    onChange={(e) =>
-                      setCreateForm({ ...createForm, driverName: e.target.value })
-                    }
-                    className="w-full border border-slate-300 rounded px-2.5 py-1.5 focus:ring-1 focus:ring-blue-500"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-[11px] font-semibold text-slate-700 mb-1">
-                    Driver Phone
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="e.g. 01711-234567"
-                    value={createForm.driverPhone}
-                    onChange={(e) =>
-                      setCreateForm({ ...createForm, driverPhone: e.target.value })
-                    }
-                    className="w-full border border-slate-300 rounded px-2.5 py-1.5 focus:ring-1 focus:ring-blue-500 font-mono"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-semibold text-slate-700 mb-1">
-                  Party / Supplier / Destination
-                </label>
-                <input
-                  type="text"
-                  placeholder="e.g. Meghna Flour Mills Ltd."
-                  value={createForm.partyName}
-                  onChange={(e) =>
-                    setCreateForm({ ...createForm, partyName: e.target.value })
-                  }
-                  className="w-full border border-slate-300 rounded px-2.5 py-1.5 focus:ring-1 focus:ring-blue-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-semibold text-slate-700 mb-1">
-                  Purpose / Item Details
-                </label>
-                <textarea
-                  rows={2}
-                  placeholder="Material description or security gate notes..."
-                  value={createForm.purpose}
-                  onChange={(e) =>
-                    setCreateForm({ ...createForm, purpose: e.target.value })
-                  }
-                  className="w-full border border-slate-300 rounded p-2 focus:ring-1 focus:ring-blue-500"
-                />
-              </div>
-            </div>
-
-            <div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-slate-200 bg-slate-50">
-              <button
-                type="button"
-                onClick={() => setIsCreateOpen(false)}
-                className="px-3.5 py-1.5 text-xs text-slate-600 hover:text-slate-800 font-medium"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  alert("Gate Pass created successfully!");
-                  setIsCreateOpen(false);
-                }}
-                className="px-4 py-1.5 bg-[#2563eb] hover:bg-blue-700 text-white font-semibold text-xs rounded shadow-xs transition"
-              >
-                Save Gate Pass
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <InventoryDocumentDialog
+        open={isCreateOpen}
+        onClose={() => setIsCreateOpen(false)}
+        onSaved={() => docs.reload()}
+        config={{
+          slug: "gate-in-out",
+          title: "Create Gate In / Out Entry",
+          warehouses: "none",
+          linesOptional: true,
+          subtype: { label: "Movement type", options: ["Gate In", "Gate Out", "Visitor"] },
+          partyLabel: "Party / visitor name",
+          referenceLabel: "Reference no",
+          meta: [
+            { key: "refType", label: "Reference type", when: GOODS },
+            { key: "vehicleNo", label: "Vehicle no", when: GOODS },
+            { key: "driverName", label: "Driver name", when: GOODS },
+            { key: "driverPhone", label: "Driver phone", when: GOODS },
+            { key: "companyName", label: "Visitor company", when: ["Visitor"] },
+            { key: "contactNo", label: "Contact no", when: ["Visitor"] },
+            { key: "personToMeet", label: "Person to meet", when: ["Visitor"] },
+            { key: "department", label: "Department", when: ["Visitor"] },
+            { key: "badgeNo", label: "Badge no", when: ["Visitor"] },
+            { key: "purpose", label: "Purpose" },
+          ],
+        }}
+      />
     </div>
   );
 }

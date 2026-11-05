@@ -1,6 +1,9 @@
 "use client";
 
 import React, { useState, useMemo } from "react";
+import { useResource } from "@/hooks/use-resource";
+import type { InventoryDocument } from "@/features/inventory/schemas/document.schema";
+import { inventoryApi, monthAgo, today } from "@/features/inventory/services/inventory.api";
 import {
   Search,
   Download,
@@ -78,356 +81,90 @@ interface TransferInTransitRecord {
 }
 
 // ============================================================================
-// DEMO DATA (Matched to Mariners Group Factory & Inter-Store Transfers)
+// ROWS FROM TRANSFERS (one per item line)
 // ============================================================================
-const DEMO_TRANSFER_OUT: TransferOutRecord[] = [
-  {
-    sl: 1,
-    transferDate: "2026-10-12",
-    transferCode: "ITO-MG261000039",
-    requestCode: "TR-MG261000045",
-    fromOffice: "MG Sirajganj Factory",
-    fromWarehouse: "PD Biscuit Store",
-    receiveOffice: "MG Sirajganj Factory",
-    receiveWarehouse: "Finished Goods (FG) WH",
-    itemCode: "ZZ-0096",
-    itemName: "Yogurt (Curd)(PCS)",
-    uom: "PCS",
-    totalQty: 1040.0,
-    receivedQty: 1040.0,
-    returnQty: 0.0,
-    inTransitQty: 0.0,
-    status: "Completed",
-  },
-  {
-    sl: 2,
-    transferDate: "2026-10-11",
-    transferCode: "ITO-MG261000038",
-    requestCode: "TR-MG261000044",
-    fromOffice: "MG Sirajganj Factory",
-    fromWarehouse: "Material WH",
-    receiveOffice: "MG Sirajganj Factory",
-    receiveWarehouse: "PD Snacks Store",
-    itemCode: "RM-0089",
-    itemName: "Refined White Crystal Sugar Grade-A",
-    uom: "KG",
-    totalQty: 678.0,
-    receivedQty: 678.0,
-    returnQty: 0.0,
-    inTransitQty: 0.0,
-    status: "Completed",
-  },
-  {
-    sl: 3,
-    transferDate: "2026-10-10",
-    transferCode: "ITO-MG261000037",
-    requestCode: "TR-MG261000043",
-    fromOffice: "MG Sirajganj Factory",
-    fromWarehouse: "Finished Goods (FG) WH",
-    receiveOffice: "MG Sirajganj Factory",
-    receiveWarehouse: "PD Biscuit Store",
-    itemCode: "PK-0102",
-    itemName: "Biscuit Metallized Barrier Film 40 Micron",
-    uom: "ROLL",
-    totalQty: 15.0,
-    receivedQty: 15.0,
-    returnQty: 0.0,
-    inTransitQty: 0.0,
-    status: "Completed",
-  },
-  {
-    sl: 4,
-    transferDate: "2026-10-08",
-    transferCode: "ITO-MG261000036",
-    requestCode: "TR-MG261000042",
-    fromOffice: "MG Sirajganj Factory",
-    fromWarehouse: "Material WH",
-    receiveOffice: "MG Sirajganj Factory",
-    receiveWarehouse: "PD Biscuit Store",
-    itemCode: "RM-0115",
-    itemName: "Skimmed Milk Powder (SMP 25kg)",
-    uom: "BAG",
-    totalQty: 6.0,
-    receivedQty: 6.0,
-    returnQty: 0.0,
-    inTransitQty: 0.0,
-    status: "Completed",
-  },
-  {
-    sl: 5,
-    transferDate: "2026-10-07",
-    transferCode: "ITO-MG261000035",
-    requestCode: "TR-MG261000041",
-    fromOffice: "MG Sirajganj Factory",
-    fromWarehouse: "Material WH",
-    receiveOffice: "MG Sirajganj Factory",
-    receiveWarehouse: "PD Biscuit Store",
-    itemCode: "PK-0145",
-    itemName: "Printed Corrugated Master Carton (24x)",
-    uom: "PCS",
-    totalQty: 134.0,
-    receivedQty: 134.0,
-    returnQty: 0.0,
-    inTransitQty: 0.0,
-    status: "Completed",
-  },
-  {
-    sl: 6,
-    transferDate: "2026-10-07",
-    transferCode: "ITO-MG261000034",
-    requestCode: "TR-MG261000040",
-    fromOffice: "MG Sirajganj Factory",
-    fromWarehouse: "Material WH",
-    receiveOffice: "MG Sirajganj Factory",
-    receiveWarehouse: "PD Snacks Store",
-    itemCode: "ZZ-0105",
-    itemName: "Curd Snack Drink 200ml Bottle",
-    uom: "BTL",
-    totalQty: 430.0,
-    receivedQty: 430.0,
-    returnQty: 0.0,
-    inTransitQty: 0.0,
-    status: "Completed",
-  },
-  {
-    sl: 7,
-    transferDate: "2026-10-07",
-    transferCode: "ITO-MG261000033",
-    requestCode: "TR-MG261000039",
-    fromOffice: "MG Sirajganj Factory",
-    fromWarehouse: "PD Biscuit Store",
-    receiveOffice: "MG Sirajganj Factory",
-    receiveWarehouse: "Finished Goods (FG) WH",
-    itemCode: "ZZ-0104",
-    itemName: "Sweetened Curd 500g Tub",
-    uom: "PCS",
-    totalQty: 274.0,
-    receivedQty: 274.0,
-    returnQty: 0.0,
-    inTransitQty: 0.0,
-    status: "Completed",
-  },
-  {
-    sl: 8,
-    transferDate: "2026-10-07",
-    transferCode: "ITO-MG261000032",
-    requestCode: "TR-MG261000038",
-    fromOffice: "MG Sirajganj Factory",
-    fromWarehouse: "Material WH",
-    receiveOffice: "MG Sirajganj Factory",
-    receiveWarehouse: "PD Snacks Store",
-    itemCode: "RM-0042",
-    itemName: "Raw Chilled Milk Bulk (Fat 4.2%)",
-    uom: "LTR",
-    totalQty: 211.0,
-    receivedQty: 211.0,
-    returnQty: 0.0,
-    inTransitQty: 0.0,
-    status: "Completed",
-  },
-  {
-    sl: 9,
-    transferDate: "2026-10-07",
-    transferCode: "ITO-MG261000031",
-    requestCode: "TR-MG261000037",
-    fromOffice: "MG Sirajganj Factory",
-    fromWarehouse: "PD Biscuit Store",
-    receiveOffice: "MG Sirajganj Factory",
-    receiveWarehouse: "Finished Goods (FG) WH",
-    itemCode: "ZZ-0096",
-    itemName: "Yogurt (Curd)(PCS)",
-    uom: "PCS",
-    totalQty: 3666.0,
-    receivedQty: 3666.0,
-    returnQty: 0.0,
-    inTransitQty: 0.0,
-    status: "Completed",
-  },
-  {
-    sl: 10,
-    transferDate: "2026-10-07",
-    transferCode: "ITO-MG261000030",
-    requestCode: "TR-MG261000036",
-    fromOffice: "MG Sirajganj Factory",
-    fromWarehouse: "PD Snacks Store",
-    receiveOffice: "MG Sirajganj Factory",
-    receiveWarehouse: "Finished Goods (FG) WH",
-    itemCode: "ZZ-0105",
-    itemName: "Curd Snack Drink 200ml Bottle",
-    uom: "BTL",
-    totalQty: 12606.0,
-    receivedQty: 12606.0,
-    returnQty: 0.0,
-    inTransitQty: 0.0,
-    status: "Completed",
-  },
-  {
-    sl: 11,
-    transferDate: "2026-10-13",
-    transferCode: "ITO-MG261000040",
-    requestCode: "TR-MG261000046",
-    fromOffice: "MG Sirajganj Factory",
-    fromWarehouse: "Material WH",
-    receiveOffice: "Dhaka Head Office",
-    receiveWarehouse: "Central Finished WH",
-    itemCode: "RM-0042",
-    itemName: "Raw Chilled Milk Bulk (Fat 4.2%)",
-    uom: "LTR",
-    totalQty: 5000.0,
-    receivedQty: 0.0,
-    returnQty: 0.0,
-    inTransitQty: 5000.0,
-    status: "In Transit",
-  },
-];
+const round3 = (n: number) => Math.round(n * 1000) / 1000;
 
-const DEMO_TRANSFER_RECEIVED: TransferReceivedRecord[] = [
-  {
-    sl: 1,
-    receiveDate: "2026-10-12",
-    transferDate: "2026-10-12",
-    transferCode: "ITO-MG261000039",
-    fromOffice: "MG Sirajganj Factory",
-    fromWarehouse: "PD Biscuit Store",
-    receiveWarehouse: "Finished Goods (FG) WH",
-    itemCode: "ZZ-0096",
-    itemName: "Yogurt (Curd)(PCS)",
-    uom: "PCS",
-    receivedQty: 1040.0,
-    loadingTemp: "4.2 °C",
-    chillingTemp: "3.8 °C",
-    vehicleNo: "DHAKA-METRO-TA-14-8890",
-    receivedBy: "Md. Jakaria",
-    status: "Accepted",
-  },
-  {
-    sl: 2,
-    receiveDate: "2026-10-11",
-    transferDate: "2026-10-11",
-    transferCode: "ITO-MG261000038",
-    fromOffice: "MG Sirajganj Factory",
-    fromWarehouse: "Material WH",
-    receiveWarehouse: "PD Snacks Store",
-    itemCode: "RM-0089",
-    itemName: "Refined White Crystal Sugar Grade-A",
-    uom: "KG",
-    receivedQty: 678.0,
-    loadingTemp: "N/A",
-    chillingTemp: "N/A",
-    vehicleNo: "INTERNAL-FORKLIFT-02",
-    receivedBy: "Tanvir Ahmed",
-    status: "Accepted",
-  },
-  {
-    sl: 3,
-    receiveDate: "2026-10-07",
-    transferDate: "2026-10-07",
-    transferCode: "ITO-MG261000033",
-    fromOffice: "MG Sirajganj Factory",
-    fromWarehouse: "PD Biscuit Store",
-    receiveWarehouse: "Finished Goods (FG) WH",
-    itemCode: "ZZ-0104",
-    itemName: "Sweetened Curd 500g Tub",
-    uom: "PCS",
-    receivedQty: 274.0,
-    loadingTemp: "4.5 °C",
-    chillingTemp: "4.0 °C",
-    vehicleNo: "DHAKA-METRO-TA-11-2033",
-    receivedBy: "Md. Jakaria",
-    status: "Quality Checked",
-  },
-  {
-    sl: 4,
-    receiveDate: "2026-10-07",
-    transferDate: "2026-10-07",
-    transferCode: "ITO-MG261000031",
-    fromOffice: "MG Sirajganj Factory",
-    fromWarehouse: "PD Biscuit Store",
-    receiveWarehouse: "Finished Goods (FG) WH",
-    itemCode: "ZZ-0096",
-    itemName: "Yogurt (Curd)(PCS)",
-    uom: "PCS",
-    receivedQty: 3666.0,
-    loadingTemp: "4.1 °C",
-    chillingTemp: "3.9 °C",
-    vehicleNo: "DHAKA-METRO-TA-14-8890",
-    receivedBy: "Md. Jakaria",
-    status: "Accepted",
-  },
-  {
-    sl: 5,
-    receiveDate: "2026-10-07",
-    transferDate: "2026-10-07",
-    transferCode: "ITO-MG261000030",
-    fromOffice: "MG Sirajganj Factory",
-    fromWarehouse: "PD Snacks Store",
-    receiveWarehouse: "Finished Goods (FG) WH",
-    itemCode: "ZZ-0105",
-    itemName: "Curd Snack Drink 200ml Bottle",
-    uom: "BTL",
-    receivedQty: 12606.0,
-    loadingTemp: "5.0 °C",
-    chillingTemp: "4.2 °C",
-    vehicleNo: "DHAKA-METRO-TA-19-4501",
-    receivedBy: "Md. Jakaria",
-    status: "Accepted",
-  },
-];
+function outRecords(transfers: InventoryDocument[]): TransferOutRecord[] {
+  return transfers.flatMap((d) =>
+    d.lines.map((l) => {
+      const done = d.status === "COMPLETED";
+      const received = done ? l.processedQty : 0;
+      return {
+        sl: 0,
+        transferDate: d.docDate,
+        transferCode: d.number,
+        requestCode: d.request?.number ?? "Direct",
+        fromOffice: d.warehouse?.officeName ?? "",
+        fromWarehouse: d.warehouse?.name ?? "",
+        receiveOffice: d.toWarehouse?.officeName ?? "",
+        receiveWarehouse: d.toWarehouse?.name ?? "",
+        itemCode: l.itemCode,
+        itemName: l.itemName,
+        uom: l.uom,
+        totalQty: l.qty,
+        receivedQty: received,
+        returnQty: done ? round3(l.qty - received) : 0,
+        inTransitQty: d.status === "IN_TRANSIT" ? l.qty : 0,
+        status: (d.status === "IN_TRANSIT" ? "In Transit" : !done ? "Pending" : received + 1e-9 >= l.qty ? "Completed" : "Partial") as TransferOutRecord["status"],
+      };
+    }),
+  ).map((r, i) => ({ ...r, sl: i + 1 }));
+}
 
-const DEMO_TRANSFER_IN_TRANSIT: TransferInTransitRecord[] = [
-  {
-    sl: 1,
-    dispatchDate: "2026-10-14",
-    transferCode: "ITO-MG261000041",
-    requestCode: "TR-MG261000047",
-    fromWarehouse: "PD Biscuit Store",
-    destinationWarehouse: "Dhaka Central Distribution Store",
-    itemCode: "ZZ-0096",
-    itemName: "Yogurt (Curd)(PCS)",
-    uom: "PCS",
-    dispatchedQty: 4500.0,
-    inTransitQty: 4500.0,
-    vehicleNo: "DHAKA-METRO-TA-16-9204 (Refrigerated)",
-    driverName: "Md. Kamal Hossain",
-    driverContact: "+880 1712-445588",
-    estArrival: "14-10-2026 18:30",
-    status: "On Highway",
-  },
-  {
-    sl: 2,
-    dispatchDate: "2026-10-13",
-    transferCode: "ITO-MG261000040",
-    requestCode: "TR-MG261000046",
-    fromWarehouse: "Material WH",
-    destinationWarehouse: "Chittagong Depot WH",
-    itemCode: "RM-0042",
-    itemName: "Raw Chilled Milk Bulk (Fat 4.2%)",
-    uom: "LTR",
-    dispatchedQty: 5000.0,
-    inTransitQty: 5000.0,
-    vehicleNo: "DHAKA-METRO-CHA-11-7821 (Tanker)",
-    driverName: "Abdur Rahim",
-    driverContact: "+880 1819-332211",
-    estArrival: "15-10-2026 09:00",
-    status: "On Highway",
-  },
-];
+function receivedRecords(transfers: InventoryDocument[]): TransferReceivedRecord[] {
+  return transfers
+    .filter((d) => d.status === "COMPLETED")
+    .flatMap((d) =>
+      d.lines.map((l) => ({
+        sl: 0,
+        receiveDate: d.completedAt?.slice(0, 10) ?? d.docDate,
+        transferDate: d.docDate,
+        transferCode: d.number,
+        fromOffice: d.warehouse?.officeName ?? "",
+        fromWarehouse: d.warehouse?.name ?? "",
+        receiveWarehouse: d.toWarehouse?.name ?? "",
+        itemCode: l.itemCode,
+        itemName: l.itemName,
+        uom: l.uom,
+        receivedQty: l.processedQty,
+        loadingTemp: d.meta?.loadingTemp ?? "",
+        chillingTemp: d.meta?.chillingTemp ?? "",
+        vehicleNo: d.reference ?? "",
+        receivedBy: "",
+        status: (l.processedQty + 1e-9 >= l.qty ? "Accepted" : "Discrepancy") as TransferReceivedRecord["status"],
+      })),
+    )
+    .map((r, i) => ({ ...r, sl: i + 1 }));
+}
 
-const OFFICE_OPTIONS = [
-  "All Offices",
-  "MG Sirajganj Factory",
-  "Dhaka Head Office",
-  "Marinozz",
-  "MOHS Eco",
-];
+function inTransitRecords(transfers: InventoryDocument[]): TransferInTransitRecord[] {
+  return transfers
+    .filter((d) => d.status === "IN_TRANSIT")
+    .flatMap((d) =>
+      d.lines.map((l) => ({
+        sl: 0,
+        dispatchDate: d.docDate,
+        transferCode: d.number,
+        requestCode: d.request?.number ?? "Direct",
+        fromWarehouse: d.warehouse?.name ?? "",
+        destinationWarehouse: d.toWarehouse?.name ?? "",
+        itemCode: l.itemCode,
+        itemName: l.itemName,
+        uom: l.uom,
+        dispatchedQty: l.qty,
+        inTransitQty: l.qty,
+        vehicleNo: d.reference ?? "",
+        driverName: d.meta?.driverName ?? "",
+        driverContact: d.meta?.driverPhone ?? "",
+        estArrival: d.expectedDate ?? "",
+        status: "On Highway" as const,
+      })),
+    )
+    .map((r, i) => ({ ...r, sl: i + 1 }));
+}
 
-const WAREHOUSE_OPTIONS = [
-  "All Warehouses",
-  "Material WH",
-  "PD Biscuit Store",
-  "PD Snacks Store",
-  "Finished Goods (FG) WH",
-];
+const distinct = (placeholder: string, values: string[]) => [placeholder, ...[...new Set(values.filter(Boolean))].sort()];
 
 export default function TransferReportPage() {
   // Screenshot 2 Primary View Selector: "View By *"
@@ -439,8 +176,16 @@ export default function TransferReportPage() {
   const [toOffice, setToOffice] = useState("All Offices");
   const [fromWarehouse, setFromWarehouse] = useState("All Warehouses");
   const [toWarehouse, setToWarehouse] = useState("All Warehouses");
-  const [fromDate, setFromDate] = useState("2026-09-13");
-  const [toDate, setToDate] = useState("2026-10-14");
+  const [fromDate, setFromDate] = useState(monthAgo());
+  const [toDate, setToDate] = useState(today());
+  const [period, setPeriod] = useState({ from: fromDate, to: toDate });
+  const report = useResource(`transfer-report-${period.from}-${period.to}`, () => inventoryApi.transferReport(period));
+  const transfers = useMemo(() => report.data?.transfers ?? [], [report.data]);
+  const outRows = useMemo(() => outRecords(transfers), [transfers]);
+  const receivedRows = useMemo(() => receivedRecords(transfers), [transfers]);
+  const inTransitRows = useMemo(() => inTransitRecords(transfers), [transfers]);
+  const OFFICE_OPTIONS = distinct("All Offices", transfers.flatMap((d) => [d.warehouse?.officeName ?? "", d.toWarehouse?.officeName ?? ""]));
+  const WAREHOUSE_OPTIONS = distinct("All Warehouses", transfers.flatMap((d) => [d.warehouse?.name ?? "", d.toWarehouse?.name ?? ""]));
 
   // Pagination
   const [page, setPage] = useState(1);
@@ -448,7 +193,7 @@ export default function TransferReportPage() {
 
   // Filter Transfer Out Data
   const filteredTransferOut = useMemo(() => {
-    return DEMO_TRANSFER_OUT.filter((r) => {
+    return outRows.filter((r) => {
       if (fromOffice !== "All Offices" && r.fromOffice !== fromOffice) return false;
       if (toOffice !== "All Offices" && r.receiveOffice !== toOffice) return false;
       if (fromWarehouse !== "All Warehouses" && r.fromWarehouse !== fromWarehouse) return false;
@@ -467,11 +212,11 @@ export default function TransferReportPage() {
       }
       return true;
     });
-  }, [fromOffice, toOffice, fromWarehouse, toWarehouse, fromDate, toDate, searchTerm]);
+  }, [outRows, fromOffice, toOffice, fromWarehouse, toWarehouse, fromDate, toDate, searchTerm]);
 
   // Filter Transfer Received Data
   const filteredReceived = useMemo(() => {
-    return DEMO_TRANSFER_RECEIVED.filter((r) => {
+    return receivedRows.filter((r) => {
       if (fromOffice !== "All Offices" && r.fromOffice !== fromOffice) return false;
       if (fromWarehouse !== "All Warehouses" && r.fromWarehouse !== fromWarehouse) return false;
       if (toWarehouse !== "All Warehouses" && r.receiveWarehouse !== toWarehouse) return false;
@@ -488,11 +233,11 @@ export default function TransferReportPage() {
       }
       return true;
     });
-  }, [fromOffice, fromWarehouse, toWarehouse, fromDate, toDate, searchTerm]);
+  }, [receivedRows, fromOffice, fromWarehouse, toWarehouse, fromDate, toDate, searchTerm]);
 
   // Filter Transfer In Transit Data
   const filteredInTransit = useMemo(() => {
-    return DEMO_TRANSFER_IN_TRANSIT.filter((r) => {
+    return inTransitRows.filter((r) => {
       if (fromWarehouse !== "All Warehouses" && r.fromWarehouse !== fromWarehouse) return false;
       if (toWarehouse !== "All Warehouses" && r.destinationWarehouse !== toWarehouse) return false;
       if (fromDate && r.dispatchDate < fromDate) return false;
@@ -509,7 +254,7 @@ export default function TransferReportPage() {
       }
       return true;
     });
-  }, [fromWarehouse, toWarehouse, fromDate, toDate, searchTerm]);
+  }, [inTransitRows, fromWarehouse, toWarehouse, fromDate, toDate, searchTerm]);
 
   // Current active data list
   const currentCount =
@@ -784,10 +529,13 @@ export default function TransferReportPage() {
               />
               <button
                 type="button"
-                onClick={() => setPage(1)}
+                onClick={() => {
+                  setPeriod({ from: fromDate, to: toDate });
+                  setPage(1);
+                }}
                 className="h-8 px-4 bg-[#1976d2] hover:bg-[#1565c0] text-white font-semibold text-xs rounded transition"
               >
-                View
+                {report.loading ? "Loading…" : "View"}
               </button>
             </div>
           </div>

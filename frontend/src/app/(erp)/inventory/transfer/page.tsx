@@ -1,6 +1,11 @@
 "use client";
 
 import React, { useState, useMemo } from "react";
+import { useResource } from "@/hooks/use-resource";
+import { InventoryDocumentDialog } from "@/features/inventory/components/InventoryDocumentDialog";
+import { ReceiveTransferDialog } from "@/features/inventory/components/ReceiveTransferDialog";
+import type { InventoryDocument } from "@/features/inventory/schemas/document.schema";
+import { dmy, inventoryApi, monthAgo, today } from "@/features/inventory/services/inventory.api";
 import {
   Search,
   Upload,
@@ -25,6 +30,7 @@ type TransferTabId =
 
 interface TransferOutRow {
   sl: number;
+  id: string;
   transferDate: string;
   requestCode: string;
   transferCode: string;
@@ -42,6 +48,7 @@ interface TransferOutRow {
 
 interface ReturnRow {
   sl: number;
+  id: string;
   returnDate: string;
   transferCode: string;
   returnCode: string;
@@ -55,6 +62,7 @@ interface ReturnRow {
 
 interface ReceivedRow {
   sl: number;
+  id: string;
   transferDate: string;
   receiveDate: string;
   transferRequestNumber: string;
@@ -69,515 +77,35 @@ interface ReceivedRow {
 }
 
 // ============================================================================
-// SAMPLE DATA
+// ROWS FROM TRANSFERS
 // ============================================================================
-const MOCK_TRANSFER_OUT: TransferOutRow[] = [
-  {
-    sl: 1,
-    transferDate: "12-10-2026",
-    requestCode: "",
-    transferCode: "ITO-MG261000039",
-    fromOffice: "MG Sirajganj Factory",
-    fromWarehouse: "PD Biscuit Store",
-    receiveOffice: "MG Sirajganj Factory",
-    receiveWarehouse: "Finished Goods (FG) WH",
-    requestBy: "",
-    requestTo: "",
-    totalQty: 1040.0,
-    receivedQty: 1040.0,
-    returnQty: 0.0,
-    inTransitQty: 0.0,
-  },
-  {
-    sl: 2,
-    transferDate: "11-10-2026",
-    requestCode: "",
-    transferCode: "ITO-MG261000038",
-    fromOffice: "MG Sirajganj Factory",
-    fromWarehouse: "Material WH",
-    receiveOffice: "MG Sirajganj Factory",
-    receiveWarehouse: "PD Snacks Store",
-    requestBy: "",
-    requestTo: "",
-    totalQty: 678.0,
-    receivedQty: 678.0,
-    returnQty: 0.0,
-    inTransitQty: 0.0,
-  },
-  {
-    sl: 3,
-    transferDate: "01-10-2026",
-    requestCode: "",
-    transferCode: "ITO-MG261000037",
-    fromOffice: "MG Sirajganj Factory",
-    fromWarehouse: "Finished Goods (FG) WH",
-    receiveOffice: "MG Sirajganj Factory",
-    receiveWarehouse: "PD Biscuit Store",
-    requestBy: "",
-    requestTo: "",
-    totalQty: 15.0,
-    receivedQty: 15.0,
-    returnQty: 0.0,
-    inTransitQty: 0.0,
-  },
-  {
-    sl: 4,
-    transferDate: "08-10-2026",
-    requestCode: "",
-    transferCode: "ITO-MG261000036",
-    fromOffice: "MG Sirajganj Factory",
-    fromWarehouse: "Material WH",
-    receiveOffice: "MG Sirajganj Factory",
-    receiveWarehouse: "PD Biscuit Store",
-    requestBy: "",
-    requestTo: "",
-    totalQty: 6.0,
-    receivedQty: 6.0,
-    returnQty: 0.0,
-    inTransitQty: 0.0,
-  },
-  {
-    sl: 5,
-    transferDate: "07-10-2026",
-    requestCode: "",
-    transferCode: "ITO-MG261000035",
-    fromOffice: "MG Sirajganj Factory",
-    fromWarehouse: "Material WH",
-    receiveOffice: "MG Sirajganj Factory",
-    receiveWarehouse: "PD Biscuit Store",
-    requestBy: "",
-    requestTo: "",
-    totalQty: 134.0,
-    receivedQty: 134.0,
-    returnQty: 0.0,
-    inTransitQty: 0.0,
-  },
-  {
-    sl: 6,
-    transferDate: "07-10-2026",
-    requestCode: "",
-    transferCode: "ITO-MG261000034",
-    fromOffice: "MG Sirajganj Factory",
-    fromWarehouse: "Material WH",
-    receiveOffice: "MG Sirajganj Factory",
-    receiveWarehouse: "PD Snacks Store",
-    requestBy: "",
-    requestTo: "",
-    totalQty: 430.0,
-    receivedQty: 430.0,
-    returnQty: 0.0,
-    inTransitQty: 0.0,
-  },
-  {
-    sl: 7,
-    transferDate: "07-10-2026",
-    requestCode: "",
-    transferCode: "ITO-MG261000033",
-    fromOffice: "MG Sirajganj Factory",
-    fromWarehouse: "PD Biscuit Store",
-    receiveOffice: "MG Sirajganj Factory",
-    receiveWarehouse: "Finished Goods (FG) WH",
-    requestBy: "",
-    requestTo: "",
-    totalQty: 274.0,
-    receivedQty: 274.0,
-    returnQty: 0.0,
-    inTransitQty: 0.0,
-  },
-  {
-    sl: 8,
-    transferDate: "07-10-2026",
-    requestCode: "",
-    transferCode: "ITO-MG261000032",
-    fromOffice: "MG Sirajganj Factory",
-    fromWarehouse: "Material WH",
-    receiveOffice: "MG Sirajganj Factory",
-    receiveWarehouse: "PD Snacks Store",
-    requestBy: "",
-    requestTo: "",
-    totalQty: 211.0,
-    receivedQty: 211.0,
-    returnQty: 0.0,
-    inTransitQty: 0.0,
-  },
-  {
-    sl: 9,
-    transferDate: "07-10-2026",
-    requestCode: "",
-    transferCode: "ITO-MG261000031",
-    fromOffice: "MG Sirajganj Factory",
-    fromWarehouse: "PD Biscuit Store",
-    receiveOffice: "MG Sirajganj Factory",
-    receiveWarehouse: "Finished Goods (FG) WH",
-    requestBy: "",
-    requestTo: "",
-    totalQty: 3666.0,
-    receivedQty: 3666.0,
-    returnQty: 0.0,
-    inTransitQty: 0.0,
-  },
-  {
-    sl: 10,
-    transferDate: "07-10-2026",
-    requestCode: "",
-    transferCode: "ITO-MG261000030",
-    fromOffice: "MG Sirajganj Factory",
-    fromWarehouse: "PD Snacks Store",
-    receiveOffice: "MG Sirajganj Factory",
-    receiveWarehouse: "Finished Goods (FG) WH",
-    requestBy: "",
-    requestTo: "",
-    totalQty: 12606.0,
-    receivedQty: 12606.0,
-    returnQty: 0.0,
-    inTransitQty: 0.0,
-  },
-  {
-    sl: 11,
-    transferDate: "06-10-2026",
-    requestCode: "",
-    transferCode: "ITO-MG261000029",
-    fromOffice: "MG Sirajganj Factory",
-    fromWarehouse: "Material WH",
-    receiveOffice: "MG Sirajganj Factory",
-    receiveWarehouse: "PD Biscuit Store",
-    requestBy: "",
-    requestTo: "",
-    totalQty: 2.0,
-    receivedQty: 2.0,
-    returnQty: 0.0,
-    inTransitQty: 0.0,
-  },
-  {
-    sl: 12,
-    transferDate: "06-10-2026",
-    requestCode: "",
-    transferCode: "ITO-MG261000028",
-    fromOffice: "MG Sirajganj Factory",
-    fromWarehouse: "PD Snacks Store",
-    receiveOffice: "MG Sirajganj Factory",
-    receiveWarehouse: "PD Biscuit Store",
-    requestBy: "",
-    requestTo: "",
-    totalQty: 98.0,
-    receivedQty: 98.0,
-    returnQty: 0.0,
-    inTransitQty: 0.0,
-  },
-  {
-    sl: 13,
-    transferDate: "06-10-2026",
-    requestCode: "",
-    transferCode: "ITO-MG261000027",
-    fromOffice: "MG Sirajganj Factory",
-    fromWarehouse: "Material WH",
-    receiveOffice: "MG Sirajganj Factory",
-    receiveWarehouse: "PD Snacks Store",
-    requestBy: "",
-    requestTo: "",
-    totalQty: 555.0,
-    receivedQty: 555.0,
-    returnQty: 0.0,
-    inTransitQty: 0.0,
-  },
-  {
-    sl: 14,
-    transferDate: "05-10-2026",
-    requestCode: "",
-    transferCode: "ITO-MG261000026",
-    fromOffice: "MG Sirajganj Factory",
-    fromWarehouse: "Material WH",
-    receiveOffice: "MG Sirajganj Factory",
-    receiveWarehouse: "PD Snacks Store",
-    requestBy: "",
-    requestTo: "",
-    totalQty: 65.0,
-    receivedQty: 65.0,
-    returnQty: 0.0,
-    inTransitQty: 0.0,
-  },
-  {
-    sl: 15,
-    transferDate: "05-10-2026",
-    requestCode: "",
-    transferCode: "ITO-MG261000025",
-    fromOffice: "MG Sirajganj Factory",
-    fromWarehouse: "Material WH",
-    receiveOffice: "MG Sirajganj Factory",
-    receiveWarehouse: "PD Snacks Store",
-    requestBy: "",
-    requestTo: "",
-    totalQty: 40.0,
-    receivedQty: 40.0,
-    returnQty: 0.0,
-    inTransitQty: 0.0,
-  },
-];
+const round3 = (n: number) => Math.round(n * 1000) / 1000;
+const receivedOf = (d: InventoryDocument) => (d.status === "COMPLETED" ? d.processedQty : 0);
 
-const MOCK_RETURN_LIST: ReturnRow[] = [
-  {
-    sl: 1,
-    returnDate: "26-07-2026",
-    transferCode: "ITO-MG260500047",
-    returnCode: "TR-MG260700015",
-    fromOffice: "MG Sirajganj Factory",
-    fromWarehouse: "Material WH",
-    receiveOffice: "MG Sirajganj Factory",
-    receiveWarehouse: "PD Biscuit Store",
-    returnQty: 2.0,
-    status: "Approved",
-  },
-  {
-    sl: 2,
-    returnDate: "26-07-2026",
-    transferCode: "ITO-MBBL251100016",
-    returnCode: "TR-MG260700014",
-    fromOffice: "MG Sirajganj Factory",
-    fromWarehouse: "Material WH",
-    receiveOffice: "MG Sirajganj Factory",
-    receiveWarehouse: "PD Biscuit Store",
-    returnQty: 1689.6,
-    status: "Approved",
-  },
-  {
-    sl: 3,
-    returnDate: "26-07-2026",
-    transferCode: "ITO-MBBL251100114",
-    returnCode: "TR-MG260700013",
-    fromOffice: "MG Sirajganj Factory",
-    fromWarehouse: "Material WH",
-    receiveOffice: "MG Sirajganj Factory",
-    receiveWarehouse: "PD Snacks Store",
-    returnQty: 250.0,
-    status: "Approved",
-  },
-  {
-    sl: 4,
-    returnDate: "22-07-2026",
-    transferCode: "ITO-MBBL251100133",
-    returnCode: "TR-MG260700012",
-    fromOffice: "MG Sirajganj Factory",
-    fromWarehouse: "Material WH",
-    receiveOffice: "MG Sirajganj Factory",
-    receiveWarehouse: "PD Snacks Store",
-    returnQty: 1.0,
-    status: "Approved",
-  },
-  {
-    sl: 5,
-    returnDate: "22-07-2026",
-    transferCode: "ITO-MBBL251100139",
-    returnCode: "TR-MG260700011",
-    fromOffice: "MG Sirajganj Factory",
-    fromWarehouse: "Material WH",
-    receiveOffice: "MG Sirajganj Factory",
-    receiveWarehouse: "PD Snacks Store",
-    returnQty: 1.0,
-    status: "Approved",
-  },
-  {
-    sl: 6,
-    returnDate: "22-07-2026",
-    transferCode: "ITO-MBBL251200022",
-    returnCode: "TR-MG260700010",
-    fromOffice: "MG Sirajganj Factory",
-    fromWarehouse: "Material WH",
-    receiveOffice: "MG Sirajganj Factory",
-    receiveWarehouse: "PD Snacks Store",
-    returnQty: 271.6,
-    status: "Approved",
-  },
-  {
-    sl: 7,
-    returnDate: "22-07-2026",
-    transferCode: "ITO-MBBL251200023",
-    returnCode: "TR-MG260700009",
-    fromOffice: "MG Sirajganj Factory",
-    fromWarehouse: "Material WH",
-    receiveOffice: "MG Sirajganj Factory",
-    receiveWarehouse: "PD Snacks Store",
-    returnQty: 267.0,
-    status: "Approved",
-  },
-  {
-    sl: 8,
-    returnDate: "22-07-2026",
-    transferCode: "ITO-MBBL251200102",
-    returnCode: "TR-MG260700008",
-    fromOffice: "MG Sirajganj Factory",
-    fromWarehouse: "Material WH",
-    receiveOffice: "MG Sirajganj Factory",
-    receiveWarehouse: "PD Snacks Store",
-    returnQty: 24.5,
-    status: "Approved",
-  },
-];
+function toTransferOutRow(d: InventoryDocument, i: number): TransferOutRow {
+  const received = receivedOf(d);
+  return {
+    sl: i + 1,
+    id: d.id,
+    transferDate: dmy(d.docDate),
+    requestCode: d.request?.number ?? "Direct",
+    transferCode: d.number,
+    fromOffice: d.warehouse?.officeName ?? "",
+    fromWarehouse: d.warehouse?.name ?? "",
+    receiveOffice: d.toWarehouse?.officeName ?? "",
+    receiveWarehouse: d.toWarehouse?.name ?? "",
+    requestBy: d.createdBy,
+    requestTo: d.toWarehouse?.name ?? "",
+    totalQty: d.totalQty,
+    receivedQty: received,
+    returnQty: d.status === "COMPLETED" ? round3(d.totalQty - received) : 0,
+    inTransitQty: d.status === "IN_TRANSIT" ? d.totalQty : 0,
+  };
+}
 
-const MOCK_RECEIVED_LIST: ReceivedRow[] = [
-  {
-    sl: 1,
-    transferDate: "12-10-2026",
-    receiveDate: "12-10-2026",
-    transferRequestNumber: "",
-    transferCode: "ITO-MG261000039",
-    fromWarehouse: "PD Biscuit Store",
-    receiveWarehouse: "Finished Goods (FG) WH",
-    requestTo: "",
-    receivedQty: 1040.0,
-    loadingTime: "",
-    loadingTemp: "",
-    chillingTemp: "",
-  },
-  {
-    sl: 2,
-    transferDate: "11-10-2026",
-    receiveDate: "11-10-2026",
-    transferRequestNumber: "",
-    transferCode: "ITO-MG261000038",
-    fromWarehouse: "Material WH",
-    receiveWarehouse: "PD Snacks Store",
-    requestTo: "",
-    receivedQty: 678.0,
-    loadingTime: "",
-    loadingTemp: "",
-    chillingTemp: "",
-  },
-  {
-    sl: 3,
-    transferDate: "01-10-2026",
-    receiveDate: "01-10-2026",
-    transferRequestNumber: "",
-    transferCode: "ITO-MG261000037",
-    fromWarehouse: "Finished Goods (FG) WH",
-    receiveWarehouse: "PD Biscuit Store",
-    requestTo: "",
-    receivedQty: 15.0,
-    loadingTime: "",
-    loadingTemp: "",
-    chillingTemp: "",
-  },
-  {
-    sl: 4,
-    transferDate: "08-10-2026",
-    receiveDate: "08-10-2026",
-    transferRequestNumber: "",
-    transferCode: "ITO-MG261000036",
-    fromWarehouse: "Material WH",
-    receiveWarehouse: "PD Biscuit Store",
-    requestTo: "",
-    receivedQty: 6.0,
-    loadingTime: "",
-    loadingTemp: "",
-    chillingTemp: "",
-  },
-  {
-    sl: 5,
-    transferDate: "07-10-2026",
-    receiveDate: "07-10-2026",
-    transferRequestNumber: "",
-    transferCode: "ITO-MG261000035",
-    fromWarehouse: "Material WH",
-    receiveWarehouse: "PD Biscuit Store",
-    requestTo: "",
-    receivedQty: 134.0,
-    loadingTime: "",
-    loadingTemp: "",
-    chillingTemp: "",
-  },
-  {
-    sl: 6,
-    transferDate: "07-10-2026",
-    receiveDate: "07-10-2026",
-    transferRequestNumber: "",
-    transferCode: "ITO-MG261000034",
-    fromWarehouse: "Material WH",
-    receiveWarehouse: "PD Snacks Store",
-    requestTo: "",
-    receivedQty: 430.0,
-    loadingTime: "",
-    loadingTemp: "",
-    chillingTemp: "",
-  },
-  {
-    sl: 7,
-    transferDate: "07-10-2026",
-    receiveDate: "07-10-2026",
-    transferRequestNumber: "",
-    transferCode: "ITO-MG261000033",
-    fromWarehouse: "PD Biscuit Store",
-    receiveWarehouse: "Finished Goods (FG) WH",
-    requestTo: "",
-    receivedQty: 274.0,
-    loadingTime: "",
-    loadingTemp: "",
-    chillingTemp: "",
-  },
-  {
-    sl: 8,
-    transferDate: "07-10-2026",
-    receiveDate: "07-10-2026",
-    transferRequestNumber: "",
-    transferCode: "ITO-MG261000032",
-    fromWarehouse: "Material WH",
-    receiveWarehouse: "PD Snacks Store",
-    requestTo: "",
-    receivedQty: 211.0,
-    loadingTime: "",
-    loadingTemp: "",
-    chillingTemp: "",
-  },
-];
-
-// In transit sample
-const MOCK_IN_TRANSIT: TransferOutRow[] = [
-  {
-    sl: 1,
-    transferDate: "13-10-2026",
-    requestCode: "TR-MG261000045",
-    transferCode: "ITO-MG261000040",
-    fromOffice: "MG Sirajganj Factory",
-    fromWarehouse: "Material WH",
-    receiveOffice: "MG Sirajganj Factory",
-    receiveWarehouse: "PD Biscuit Store",
-    requestBy: "Md. Jakaria",
-    requestTo: "Tanvir Ahmed",
-    totalQty: 500.0,
-    receivedQty: 0.0,
-    returnQty: 0.0,
-    inTransitQty: 500.0,
-  },
-];
-
-const OFFICE_OPTIONS = [
-  { value: "", label: "From Office" },
-  { value: "MG Sirajganj Factory", label: "MG Sirajganj Factory" },
-  { value: "Dhaka Head Office", label: "Dhaka Head Office" },
-  { value: "Marinozz", label: "Marinozz" },
-  { value: "MOHS Eco", label: "MOHS Eco" },
-];
-
-const TO_OFFICE_OPTIONS = [
-  { value: "", label: "To Office" },
-  { value: "MG Sirajganj Factory", label: "MG Sirajganj Factory" },
-  { value: "Dhaka Head Office", label: "Dhaka Head Office" },
-  { value: "Marinozz", label: "Marinozz" },
-  { value: "MOHS Eco", label: "MOHS Eco" },
-];
-
-const WAREHOUSE_OPTIONS = [
-  { value: "", label: "From Warehouse" },
-  { value: "Material WH", label: "Material WH" },
-  { value: "PD Biscuit Store", label: "PD Biscuit Store" },
-  { value: "PD Snacks Store", label: "PD Snacks Store" },
-  { value: "Finished Goods (FG) WH", label: "Finished Goods (FG) WH" },
-];
-
-const TO_WAREHOUSE_OPTIONS = [
-  { value: "", label: "To Warehouse / Requesting Warehouse" },
-  { value: "Material WH", label: "Material WH" },
-  { value: "PD Biscuit Store", label: "PD Biscuit Store" },
-  { value: "PD Snacks Store", label: "PD Snacks Store" },
-  { value: "Finished Goods (FG) WH", label: "Finished Goods (FG) WH" },
+const options = (placeholder: string, values: string[]) => [
+  { value: "", label: placeholder },
+  ...[...new Set(values.filter(Boolean))].sort().map((v) => ({ value: v, label: v })),
 ];
 
 export default function TransferPage() {
@@ -590,12 +118,89 @@ export default function TransferPage() {
   const [fromWarehouse, setFromWarehouse] = useState("");
   const [toWarehouse, setToWarehouse] = useState("");
   const [requestTo, setRequestTo] = useState("");
-  const [fromDate, setFromDate] = useState("2026-09-13");
-  const [toDate, setToDate] = useState("2026-10-14");
+  const [fromDate, setFromDate] = useState(monthAgo());
+  const [toDate, setToDate] = useState(today());
 
   // Pagination
   const [rowsPerPage, setRowsPerPage] = useState(20);
   const [page, setPage] = useState(1);
+
+  // Transfers of the period and approved requests waiting to be sent.
+  const [period, setPeriod] = useState({ from: fromDate, to: toDate });
+  const applyPeriod = () => {
+    setPeriod({ from: fromDate, to: toDate });
+    setPage(1);
+  };
+  const transfers = useResource(`transfer-${period.from}-${period.to}`, () => inventoryApi.list("transfer", period));
+  const approved = useResource("transfer-request-approved", () => inventoryApi.list("transfer-request", { status: "APPROVED" }));
+  const reload = () => {
+    transfers.reload();
+    approved.reload();
+  };
+  const [createOpen, setCreateOpen] = useState(false);
+  const [createRequestId, setCreateRequestId] = useState<string | undefined>();
+  const [receiveTarget, setReceiveTarget] = useState<InventoryDocument | null>(null);
+  const openTransfer = (requestId?: string) => {
+    setCreateRequestId(requestId);
+    setCreateOpen(true);
+  };
+
+  const docs = useMemo(() => transfers.data ?? [], [transfers.data]);
+  const transferOutRows = useMemo(() => docs.map(toTransferOutRow), [docs]);
+  const inTransitRows = useMemo(() => docs.filter((d) => d.status === "IN_TRANSIT").map(toTransferOutRow), [docs]);
+  // What was not received went back to the sending warehouse.
+  const returnRows = useMemo<ReturnRow[]>(
+    () =>
+      docs
+        .filter((d) => d.status === "COMPLETED" && d.totalQty - d.processedQty > 1e-9)
+        .map((d, i) => ({
+          sl: i + 1,
+          id: d.id,
+          returnDate: dmy(d.completedAt?.slice(0, 10)),
+          transferCode: d.number,
+          returnCode: `${d.number}-R`,
+          fromOffice: d.toWarehouse?.officeName ?? "",
+          fromWarehouse: d.toWarehouse?.name ?? "",
+          receiveOffice: d.warehouse?.officeName ?? "",
+          receiveWarehouse: d.warehouse?.name ?? "",
+          returnQty: round3(d.totalQty - d.processedQty),
+          status: "Approved" as const,
+        })),
+    [docs],
+  );
+  const receivedRows = useMemo<ReceivedRow[]>(
+    () =>
+      docs
+        .filter((d) => d.status === "COMPLETED")
+        .map((d, i) => ({
+          sl: i + 1,
+          id: d.id,
+          transferDate: dmy(d.docDate),
+          receiveDate: dmy(d.completedAt?.slice(0, 10)),
+          transferRequestNumber: d.request?.number ?? "Direct",
+          transferCode: d.number,
+          fromWarehouse: d.warehouse?.name ?? "",
+          receiveWarehouse: d.toWarehouse?.name ?? "",
+          requestTo: d.toWarehouse?.name ?? "",
+          receivedQty: d.processedQty,
+          loadingTime: d.meta?.loadingTime ?? "",
+          loadingTemp: d.meta?.loadingTemp ?? "",
+          chillingTemp: d.meta?.chillingTemp ?? "",
+        })),
+    [docs],
+  );
+  const OFFICE_OPTIONS = options("From Office", docs.map((d) => d.warehouse?.officeName ?? ""));
+  const TO_OFFICE_OPTIONS = options("To Office", docs.map((d) => d.toWarehouse?.officeName ?? ""));
+  const WAREHOUSE_OPTIONS = options("From Warehouse", docs.map((d) => d.warehouse?.name ?? ""));
+  const TO_WAREHOUSE_OPTIONS = options("To Warehouse / Requesting Warehouse", docs.map((d) => d.toWarehouse?.name ?? ""));
+  const approvedRequests = (approved.data ?? []).filter((r) => {
+    if (fromOffice && r.warehouse?.officeName !== fromOffice) return false;
+    if (fromWarehouse && r.warehouse?.name !== fromWarehouse) return false;
+    if (toOffice && r.toWarehouse?.officeName !== toOffice) return false;
+    if (toWarehouse && r.toWarehouse?.name !== toWarehouse) return false;
+    if (requestTo.length >= 3 && !(r.toWarehouse?.name ?? "").toLowerCase().includes(requestTo.toLowerCase())) return false;
+    return true;
+  });
 
   // Tabs definition
   const tabs: { id: TransferTabId; label: string }[] = [
@@ -608,7 +213,7 @@ export default function TransferPage() {
 
   // Filter Transfer Out rows
   const filteredTransferOut = useMemo(() => {
-    return MOCK_TRANSFER_OUT.filter((row) => {
+    return transferOutRows.filter((row) => {
       if (fromOffice && row.fromOffice !== fromOffice) return false;
       if (fromWarehouse && row.fromWarehouse !== fromWarehouse) return false;
       if (toWarehouse && row.receiveWarehouse !== toWarehouse) return false;
@@ -622,11 +227,11 @@ export default function TransferPage() {
       }
       return true;
     });
-  }, [fromOffice, fromWarehouse, toWarehouse, searchTerm]);
+  }, [transferOutRows, fromOffice, fromWarehouse, toWarehouse, searchTerm]);
 
   // Filter Return rows
   const filteredReturn = useMemo(() => {
-    return MOCK_RETURN_LIST.filter((row) => {
+    return returnRows.filter((row) => {
       if (searchTerm) {
         const s = searchTerm.toLowerCase();
         return (
@@ -638,11 +243,11 @@ export default function TransferPage() {
       }
       return true;
     });
-  }, [searchTerm]);
+  }, [returnRows, searchTerm]);
 
   // Filter Received rows
   const filteredReceived = useMemo(() => {
-    return MOCK_RECEIVED_LIST.filter((row) => {
+    return receivedRows.filter((row) => {
       if (fromWarehouse && row.fromWarehouse !== fromWarehouse) return false;
       if (toWarehouse && row.receiveWarehouse !== toWarehouse) return false;
       if (searchTerm) {
@@ -655,13 +260,13 @@ export default function TransferPage() {
       }
       return true;
     });
-  }, [fromWarehouse, toWarehouse, searchTerm]);
+  }, [receivedRows, fromWarehouse, toWarehouse, searchTerm]);
 
   // CSV Export
   const handleExportCSV = () => {
     let csvContent = "";
     if (activeTab === "TRANSFER_OUT" || activeTab === "IN_TRANSIT") {
-      const source = activeTab === "TRANSFER_OUT" ? filteredTransferOut : MOCK_IN_TRANSIT;
+      const source = activeTab === "TRANSFER_OUT" ? filteredTransferOut : inTransitRows;
       const headers = [
         "SL",
         "Transfer Date",
@@ -806,6 +411,7 @@ export default function TransferPage() {
           {/* Direct Transfer Out Button */}
           <button
             type="button"
+            onClick={() => openTransfer()}
             className="h-9 px-4 bg-[#1976d2] hover:bg-[#1565c0] text-white font-semibold text-xs rounded flex items-center gap-1.5 shadow-xs transition whitespace-nowrap"
           >
             <span>Direct Transfer Out</span>
@@ -936,20 +542,64 @@ export default function TransferPage() {
               <div>
                 <button
                   type="button"
+                  onClick={applyPeriod}
                   className="px-6 py-1.5 bg-[#1976d2] hover:bg-[#1565c0] text-white text-xs font-bold rounded shadow-xs transition"
                 >
-                  View
+                  {transfers.loading ? "Loading…" : "View"}
                 </button>
               </div>
             </div>
           </div>
 
-          <div className="border border-slate-300 bg-white rounded shadow-2xs p-12 text-center text-slate-400">
-            <div className="flex flex-col items-center gap-2">
-              <FileSpreadsheet className="w-8 h-8 stroke-[1.5] text-slate-300" />
-              <span className="text-sm font-medium">No approved transfer requests pending transfer out.</span>
+          {approvedRequests.length === 0 ? (
+            <div className="border border-slate-300 bg-white rounded shadow-2xs p-12 text-center text-slate-400">
+              <div className="flex flex-col items-center gap-2">
+                <FileSpreadsheet className="w-8 h-8 stroke-[1.5] text-slate-300" />
+                <span className="text-sm font-medium">{approved.loading ? "Loading…" : "No approved transfer requests pending transfer out."}</span>
+              </div>
             </div>
-          </div>
+          ) : (
+            <div className="border border-slate-300 bg-white rounded shadow-2xs overflow-x-auto">
+              <table className="erp-table w-full text-left text-xs border-collapse">
+                <thead className="bg-[#e6f2fb] text-slate-800 font-semibold text-[11px] border-b border-slate-300">
+                  <tr>
+                    <th className="p-2 border border-slate-300 w-10 text-center">SL</th>
+                    <th className="p-2 border border-slate-300">Request Date</th>
+                    <th className="p-2 border border-slate-300">Request Code</th>
+                    <th className="p-2 border border-slate-300">From Warehouse</th>
+                    <th className="p-2 border border-slate-300">Requesting Warehouse</th>
+                    <th className="p-2 border border-slate-300 text-right">Requested</th>
+                    <th className="p-2 border border-slate-300 text-right">Sent</th>
+                    <th className="p-2 border border-slate-300 text-right">Open</th>
+                    <th className="p-2 border border-slate-300 w-28 text-center">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200 text-[11px] text-slate-800">
+                  {approvedRequests.map((r, i) => (
+                    <tr key={r.id} className="hover:bg-slate-50/80">
+                      <td className="p-2 border border-slate-300 text-center font-mono">{i + 1}</td>
+                      <td className="p-2 border border-slate-300 whitespace-nowrap">{dmy(r.docDate)}</td>
+                      <td className="p-2 border border-slate-300 font-mono font-medium">{r.number}</td>
+                      <td className="p-2 border border-slate-300">{r.warehouse?.name}</td>
+                      <td className="p-2 border border-slate-300">{r.toWarehouse?.name}</td>
+                      <td className="p-2 border border-slate-300 text-right font-mono">{r.totalQty}</td>
+                      <td className="p-2 border border-slate-300 text-right font-mono">{r.processedQty}</td>
+                      <td className="p-2 border border-slate-300 text-right font-mono font-bold">{round3(r.totalQty - r.processedQty)}</td>
+                      <td className="p-2 border border-slate-300 text-center">
+                        <button
+                          type="button"
+                          onClick={() => openTransfer(r.id)}
+                          className="px-2 py-0.5 rounded bg-[#1976d2] text-white text-[10px] font-semibold"
+                        >
+                          Transfer Out
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       )}
 
@@ -1053,9 +703,10 @@ export default function TransferPage() {
               <div>
                 <button
                   type="button"
+                  onClick={applyPeriod}
                   className="px-6 py-1.5 bg-[#1976d2] hover:bg-[#1565c0] text-white text-xs font-bold rounded shadow-xs transition"
                 >
-                  View
+                  {transfers.loading ? "Loading…" : "View"}
                 </button>
               </div>
             </div>
@@ -1085,7 +736,7 @@ export default function TransferPage() {
               </thead>
               <tbody className="divide-y divide-slate-200 text-[11px] text-slate-800">
                 {filteredTransferOut.map((row) => (
-                  <tr key={row.sl} className="hover:bg-slate-50/80 transition-colors">
+                  <tr key={row.id} className="hover:bg-slate-50/80 transition-colors">
                     <td className="p-2 border border-slate-300 text-center font-mono text-slate-600">
                       {row.sl}
                     </td>
@@ -1243,9 +894,10 @@ export default function TransferPage() {
               <div>
                 <button
                   type="button"
+                  onClick={applyPeriod}
                   className="px-6 py-1.5 bg-[#1976d2] hover:bg-[#1565c0] text-white text-xs font-bold rounded shadow-xs transition"
                 >
-                  View
+                  {transfers.loading ? "Loading…" : "View"}
                 </button>
               </div>
             </div>
@@ -1274,8 +926,8 @@ export default function TransferPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200 text-[11px] text-slate-800">
-                {MOCK_IN_TRANSIT.map((row) => (
-                  <tr key={row.sl} className="hover:bg-slate-50/80 transition-colors">
+                {inTransitRows.map((row) => (
+                  <tr key={row.id} className="hover:bg-slate-50/80 transition-colors">
                     <td className="p-2 border border-slate-300 text-center font-mono text-slate-600">
                       {row.sl}
                     </td>
@@ -1320,6 +972,13 @@ export default function TransferPage() {
                     </td>
                     <td className="p-2 border border-slate-300 text-center">
                       <div className="flex items-center justify-center gap-1.5 text-slate-600">
+                        <button
+                          type="button"
+                          onClick={() => setReceiveTarget(docs.find((d) => d.id === row.id) ?? null)}
+                          className="px-2 py-0.5 rounded bg-emerald-600 text-white text-[10px] font-semibold"
+                        >
+                          Receive
+                        </button>
                         <button type="button" className="p-0.5 hover:text-blue-600" title="Print">
                           <Printer className="w-3.5 h-3.5" />
                         </button>
@@ -1363,9 +1022,10 @@ export default function TransferPage() {
             <div>
               <button
                 type="button"
+                onClick={applyPeriod}
                 className="px-6 py-1.5 bg-[#1976d2] hover:bg-[#1565c0] text-white text-xs font-bold rounded shadow-xs transition"
               >
-                View
+                {transfers.loading ? "Loading…" : "View"}
               </button>
             </div>
           </div>
@@ -1390,7 +1050,7 @@ export default function TransferPage() {
               </thead>
               <tbody className="divide-y divide-slate-200 text-[11px] text-slate-800">
                 {filteredReturn.map((row) => (
-                  <tr key={row.sl} className="hover:bg-slate-50/80 transition-colors">
+                  <tr key={row.id} className="hover:bg-slate-50/80 transition-colors">
                     <td className="p-2 border border-slate-300 text-center font-mono text-slate-600">
                       {row.sl}
                     </td>
@@ -1507,9 +1167,10 @@ export default function TransferPage() {
               <div>
                 <button
                   type="button"
+                  onClick={applyPeriod}
                   className="px-6 py-1.5 bg-[#1976d2] hover:bg-[#1565c0] text-white text-xs font-bold rounded shadow-xs transition"
                 >
-                  View
+                  {transfers.loading ? "Loading…" : "View"}
                 </button>
               </div>
             </div>
@@ -1537,7 +1198,7 @@ export default function TransferPage() {
               </thead>
               <tbody className="divide-y divide-slate-200 text-[11px] text-slate-800">
                 {filteredReceived.map((row) => (
-                  <tr key={row.sl} className="hover:bg-slate-50/80 transition-colors">
+                  <tr key={row.id} className="hover:bg-slate-50/80 transition-colors">
                     <td className="p-2 border border-slate-300 text-center font-mono text-slate-600">
                       {row.sl}
                     </td>
@@ -1591,6 +1252,22 @@ export default function TransferPage() {
           </div>
         </div>
       )}
+      <InventoryDocumentDialog
+        open={createOpen}
+        onClose={() => setCreateOpen(false)}
+        onSaved={reload}
+        initialRequestId={createRequestId}
+        config={{
+          slug: "transfer",
+          title: "Transfer Out",
+          warehouses: "two",
+          warehouseLabel: "From warehouse",
+          toWarehouseLabel: "To warehouse",
+          fulfils: { slug: "transfer-request", label: "Against transfer request" },
+          referenceLabel: "Vehicle / challan no",
+        }}
+      />
+      <ReceiveTransferDialog transfer={receiveTarget} onClose={() => setReceiveTarget(null)} onReceived={reload} />
     </div>
   );
 }

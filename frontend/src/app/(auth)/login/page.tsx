@@ -3,6 +3,7 @@
 import { AlertCircle, Eye, EyeOff, Lock, Moon, Phone, Sun } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, useSyncExternalStore } from "react";
+import { PageLoader } from "@/components/ui/spinner";
 import { useSession } from "@/lib/auth/session";
 import { applyTheme, readTheme } from "@/lib/theme";
 
@@ -16,7 +17,7 @@ function subscribeTheme(onChange: () => void) {
 }
 
 export default function LoginPage() {
-  const { login, user } = useSession();
+  const { login, user, loading: checkingSession } = useSession();
   const router = useRouter();
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
@@ -40,12 +41,16 @@ export default function LoginPage() {
     setLoading(true);
     try {
       await login(phone.trim(), password);
+      // Signed in: stay in the loading state until the redirect to the home page.
     } catch (err) {
       setError(err instanceof Error ? err.message : "Invalid phone number or password.");
-    } finally {
       setLoading(false);
     }
   }
+
+  // While the session is checked, after signing in, and while redirecting, show one loading screen
+  // instead of flashing the form.
+  if (checkingSession || user) return <PageLoader label={user ? "Opening BridgeOne…" : "Checking your session…"} />;
 
   return (
     <div className="relative flex min-h-dvh flex-col items-center justify-between bg-canvas px-4 py-8">

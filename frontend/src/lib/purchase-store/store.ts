@@ -17,7 +17,66 @@ import {
   ReportQuery,
   ReportResult,
 } from "@bridgeone/contracts";
+import type { Prisma, StockSource } from "@/generated/prisma/client";
+import { badRequest } from "@/lib/api/errors";
 import { db } from "@/lib/prisma/client";
+import { assertStockAvailable, lockWarehouse } from "@/features/sales/deliveries/services/stock.service";
+import { listSupplierInvoices, listSupplierPayables, validatePaymentLink } from "./payables";
+
+interface StockWarehouse {
+  id: string;
+  businessUnitId: string;
+}
+
+/** The warehouse a receipt or return moves stock in; it decides the business unit. */
+async function stockWarehouse(warehouseId: string | null | undefined): Promise<StockWarehouse> {
+  const warehouse = isUuid(warehouseId)
+    ? await db().warehouse.findUnique({ where: { id: warehouseId! }, select: { id: true, office: { select: { businessUnitId: true } } } })
+    : null;
+  if (!warehouse) throw badRequest("Select the warehouse the goods are received into or returned from.");
+  return { id: warehouse.id, businessUnitId: warehouse.office.businessUnitId };
+}
+
+/**
+ * Posts purchase movements to the stock ledger (StockEntry), the same ledger
+ * Sales and Production read. Lines without an item (free-text, services) are
+ * not stocked. Outgoing quantities must be in stock.
+ */
+async function postStock(
+  tx: Prisma.TransactionClient,
+  warehouse: StockWarehouse,
+  lines: { itemId: string | null; qty: number }[],
+  entry: { source: StockSource; sourceId: string; postingDate: Date; remarks: string; createdBy: string },
+) {
+  const qtyByItem = new Map<string, number>();
+  for (const line of lines) {
+    if (line.itemId && line.qty) qtyByItem.set(line.itemId, (qtyByItem.get(line.itemId) ?? 0) + line.qty);
+  }
+  if (!qtyByItem.size) return;
+
+  const items = await tx.item.findMany({
+    where: { id: { in: [...qtyByItem.keys()] }, businessUnitId: warehouse.businessUnitId },
+    select: { id: true, name: true },
+  });
+  if (items.length !== qtyByItem.size) throw badRequest("Some items do not belong to the warehouse's business unit.");
+
+  const outgoing = new Map([...qtyByItem].filter(([, qty]) => qty < 0).map(([id, qty]) => [id, -qty]));
+  if (outgoing.size) await assertStockAvailable(tx, warehouse.id, outgoing, new Map(items.map((i) => [i.id, i.name])));
+
+  await tx.stockEntry.createMany({
+    data: [...qtyByItem].map(([itemId, qty]) => ({
+      businessUnitId: warehouse.businessUnitId,
+      warehouseId: warehouse.id,
+      itemId,
+      qty,
+      source: entry.source,
+      sourceId: entry.sourceId,
+      postingDate: entry.postingDate,
+      remarks: entry.remarks,
+      createdBy: entry.createdBy.slice(0, 100),
+    })),
+  });
+}
 
 function toDateStr(d: Date | string | null | undefined): string {
   if (!d) return new Date().toISOString().split("T")[0];
@@ -674,8 +733,10 @@ class PurchaseDataStore {
     const number = `GRN-2026-${String(count + 46).padStart(5, "0")}`;
 
     let totalAmount = 0;
-    const linesData = input.items.map((it: any, idx: number) => {
-      const recvQty = Number(it.currentReceivedQuantity) || 1;
+    const receivedItems = input.items.filter((it: any) => Number(it.currentReceivedQuantity) > 0);
+    if (!receivedItems.length) throw badRequest("Enter a received quantity for at least one item.");
+    const linesData = receivedItems.map((it: any, idx: number) => {
+      const recvQty = Number(it.currentReceivedQuantity);
       const rejQty = Number(it.rejectedDamagedQuantity) || 0;
       const rate = Number(it.unitPrice) || 0;
       const total = recvQty * rate;
@@ -695,15 +756,20 @@ class PurchaseDataStore {
       };
     });
 
-    const created = await prisma.goodsReceipt.create({
+    const warehouse = await stockWarehouse(po.warehouseId || input.warehouseId);
+    const receivedAt = new Date(input.receiptDate || new Date());
+
+    const created = await prisma.$transaction(async (tx) => {
+    await lockWarehouse(tx, warehouse.id);
+    const receipt = await tx.goodsReceipt.create({
       data: {
-        businessUnitId,
+        businessUnitId: warehouse.businessUnitId,
         officeId: po.officeId,
-        warehouseId: po.warehouseId,
+        warehouseId: warehouse.id,
         orderId: po.id,
         supplierId: po.supplierId,
         number,
-        receiveDate: new Date(input.receiptDate || new Date()),
+        receiveDate: receivedAt,
         challanNumber: input.challanNumber || null,
         gatePassNumber: input.gatePassNumber || null,
         status: "RECEIVED",
@@ -711,22 +777,32 @@ class PurchaseDataStore {
         receivedBy: actorName,
         lines: { create: linesData },
       },
-      include: { lines: true, supplier: true, office: true, warehouse: true, order: true },
+    });
+
+    // Accepted quantities go into the warehouse, so Sales and Production see the stock.
+    await postStock(tx, warehouse, linesData.map((l: { itemId: string | null; acceptedQty: number }) => ({ itemId: l.itemId, qty: l.acceptedQty })), {
+      source: "PURCHASE_RECEIPT",
+      sourceId: receipt.id,
+      postingDate: receivedAt,
+      remarks: `Goods receipt ${number}`,
+      createdBy: actorName,
     });
 
     // Update PO status
-    await prisma.purchaseOrder.update({
+    await tx.purchaseOrder.update({
       where: { id: po.id },
       data: { status: "RECEIVED" },
     });
 
     // Update supplier balance
     if (totalAmount > 0) {
-      await prisma.supplier.update({
+      await tx.supplier.update({
         where: { id: po.supplierId },
         data: { balance: { increment: totalAmount } },
       });
     }
+    return receipt;
+    });
 
     const res = await this.getGoodsReceipts({});
     return res.find((g) => g.id === created.id)!;
@@ -805,8 +881,10 @@ class PurchaseDataStore {
       include: { supplier: true, order: true },
     });
 
-    const officeId = grn?.officeId || (await prisma.office.findFirst())?.id || "";
-    const supplierId = grn?.supplierId || (await prisma.supplier.findFirst())?.id || "";
+    const warehouse = await stockWarehouse(grn?.warehouseId || input.warehouseId);
+    const officeId = grn?.officeId || (await prisma.warehouse.findUniqueOrThrow({ where: { id: warehouse.id }, select: { officeId: true } })).officeId;
+    const supplierId = grn?.supplierId || (isUuid(input.supplierId) ? input.supplierId : "");
+    if (!supplierId) throw badRequest("Select the supplier the goods are returned to.");
 
     const count = await prisma.purchaseReturn.count({ where: { businessUnitId } });
     const number = `PR-2026-${String(count + 13).padStart(5, "0")}`;
@@ -830,16 +908,20 @@ class PurchaseDataStore {
       };
     });
 
-    const created = await prisma.purchaseReturn.create({
+    const returnedAt = new Date(input.returnDate || new Date());
+
+    const created = await prisma.$transaction(async (tx) => {
+    await lockWarehouse(tx, warehouse.id);
+    const purchaseReturn = await tx.purchaseReturn.create({
       data: {
-        businessUnitId,
+        businessUnitId: warehouse.businessUnitId,
         officeId,
-        warehouseId: grn?.warehouseId || null,
+        warehouseId: warehouse.id,
         supplierId,
         receiptId: grn?.id || null,
         orderId: grn?.orderId || null,
         number,
-        returnDate: new Date(input.returnDate || new Date()),
+        returnDate: returnedAt,
         reason: input.items[0]?.reason || "Defective",
         status: "COMPLETED",
         totalAmount,
@@ -847,12 +929,23 @@ class PurchaseDataStore {
       },
     });
 
+    // Returned goods leave the warehouse; refuses to return more than is in stock.
+    await postStock(tx, warehouse, linesData.map((l: { itemId: string | null; qty: number }) => ({ itemId: l.itemId, qty: -l.qty })), {
+      source: "PURCHASE_RETURN",
+      sourceId: purchaseReturn.id,
+      postingDate: returnedAt,
+      remarks: `Purchase return ${number}`,
+      createdBy: actorName,
+    });
+
     if (totalAmount > 0) {
-      await prisma.supplier.update({
+      await tx.supplier.update({
         where: { id: supplierId },
         data: { balance: { decrement: totalAmount } },
       });
     }
+    return purchaseReturn;
+    });
 
     const res = await this.getPurchaseReturns({});
     return res.find((r) => r.id === created.id)!;
@@ -862,114 +955,70 @@ class PurchaseDataStore {
   // SUPPLIER PAYMENTS & PAYABLES
   // -------------------------------------------------------------
   public async getSupplierPayments(filters: { search?: string; status?: string; category?: string }): Promise<SupplierPaymentRecord[]> {
-    const prisma = db();
-    const [suppliers, pos, payments] = await Promise.all([
-      prisma.supplier.findMany({ where: { isActive: true }, orderBy: { name: "asc" } }),
-      prisma.purchaseOrder.findMany({ where: { status: { not: "CANCELLED" } } }),
-      prisma.supplierPayment.findMany({ where: { status: "PAID" } }),
-    ]);
-
-    return suppliers
-      .map((s) => {
-        const supPos = pos.filter((p) => p.supplierId === s.id);
-        const totalPurchasedAmount = supPos.reduce((sum, p) => sum + Number(p.totalAmount), 0);
-        const supPayments = payments.filter((p) => p.supplierId === s.id);
-        const paidAmount = supPayments.reduce((sum, p) => sum + Number(p.amount), 0);
-        const dueAmount = Math.max(0, totalPurchasedAmount - paidAmount);
-
-        let paymentStatus: SupplierPaymentRecord["paymentStatus"] = "PAID";
-        if (dueAmount > 0 && paidAmount > 0) paymentStatus = "PARTIALLY_PAID";
-        else if (dueAmount > 0) paymentStatus = "UNPAID";
-
-        return {
-          id: s.id,
-          supplierId: s.id,
-          supplierCode: s.code,
-          supplierName: s.name,
-          category: s.type === "FOREIGN" ? ("FOREIGN" as const) : ("LOCAL" as const),
-          mobileNumber: s.phone || "N/A",
-          totalPurchasedAmount,
-          returnedAmount: 0,
-          paidAmount,
-          dueAmount,
-          openInvoicesCount: supPos.length,
-          paymentStatus,
- currency: 'BDT',
-        };
-      })
-      .filter((sp) => {
-        if (filters.status && filters.status !== "ALL" && sp.paymentStatus !== filters.status) return false;
-        if (filters.category && filters.category !== "ALL" && sp.category !== filters.category) return false;
-        if (filters.search) {
-          const s = filters.search.toLowerCase();
-          return sp.supplierName.toLowerCase().includes(s) || sp.supplierCode.toLowerCase().includes(s);
-        }
-        return true;
-      });
+    const rows = await listSupplierPayables();
+    return rows.filter((sp) => {
+      if (filters.status && filters.status !== "ALL" && sp.paymentStatus !== filters.status) return false;
+      if (filters.category && filters.category !== "ALL" && sp.category !== filters.category) return false;
+      if (filters.search) {
+        const s = filters.search.toLowerCase();
+        return sp.supplierName.toLowerCase().includes(s) || sp.supplierCode.toLowerCase().includes(s);
+      }
+      return true;
+    });
   }
 
   public async getSupplierInvoices(filters: { search?: string; status?: string; type?: string }): Promise<SupplierInvoiceItem[]> {
-    const grns = await this.getGoodsReceipts({});
-    return grns
-      .map((g) => ({
-        id: g.id,
-        invoiceNumber: (g as any).challanNumber || `INV-${g.grnNumber}`,
-        poNumber: g.poNumber,
-        grnNumber: g.grnNumber,
-        supplierName: g.supplierName,
-        invoiceDate: g.receiptDate,
-        dueDate: g.receiptDate,
-        totalAmount: g.totalReceivedAmount,
-        paidAmount: 0,
-        dueAmount: g.totalReceivedAmount,
-        status: "UNPAID" as const,
-        type: "LOCAL" as const,
-      }))
-      .filter((inv) => {
-        if (filters.status && filters.status !== "ALL" && inv.status !== filters.status) return false;
-        if (filters.search) {
-          const s = filters.search.toLowerCase();
-          return inv.invoiceNumber.toLowerCase().includes(s) || inv.supplierName.toLowerCase().includes(s);
-        }
-        return true;
-      });
+    const rows = await listSupplierInvoices();
+    return rows.filter((inv) => {
+      if (filters.status && filters.status !== "ALL" && inv.status !== filters.status) return false;
+      if (filters.type && filters.type !== "ALL" && inv.type !== filters.type) return false;
+      if (filters.search) {
+        const s = filters.search.toLowerCase();
+        return inv.invoiceNumber.toLowerCase().includes(s) || inv.supplierName.toLowerCase().includes(s);
+      }
+      return true;
+    });
   }
 
+  /** Posts a payment to a supplier: settles a receipt or bill, an advance, or on account. */
   public async createSupplierPayment(input: any, actorName: string = "Admin") {
     const prisma = db();
-    const { businessUnitId } = await this.getContextData();
+    const supplierId = input.supplierId;
+    if (!isUuid(supplierId)) throw badRequest("Select the supplier being paid.");
+    const amount = Math.round(Number(input.amount) * 100) / 100;
+    if (!(amount > 0)) throw badRequest("Enter a payment amount greater than 0.");
+    const receiptId = isUuid(input.receiptId) ? String(input.receiptId) : null;
+    const billId = isUuid(input.billId) ? String(input.billId) : null;
+    const isAdvance = input.isAdvance === true;
+    if (isAdvance && (receiptId || billId)) throw badRequest("An advance is paid before a receipt or bill, so it cannot settle one.");
 
-    let supplierId = input.supplierId;
-    if (!isUuid(supplierId)) {
-      const s = await prisma.supplier.findFirst();
-      supplierId = s?.id || "";
-    }
+    const supplier = await prisma.supplier.findUnique({ where: { id: supplierId }, select: { businessUnitId: true } });
+    if (!supplier) throw badRequest("Supplier not found.");
+    await validatePaymentLink(supplierId, receiptId, billId, amount);
 
-    const count = await prisma.supplierPayment.count({ where: { businessUnitId } });
-    const number = `PAY-2026-${String(count + 101).padStart(5, "0")}`;
-    const amount = Number(input.amount) || 0;
-
-    const created = await prisma.supplierPayment.create({
-      data: {
-        businessUnitId,
-        supplierId,
-        number,
-        paymentDate: new Date(input.paymentDate || new Date()),
-        amount,
-        method: input.method || "BANK",
-        status: "PAID",
-        remarks: input.narration || null,
-      },
-    });
-
-    if (amount > 0) {
-      await prisma.supplier.update({
-        where: { id: supplierId },
-        data: { balance: { decrement: amount } },
+    return prisma.$transaction(async (tx) => {
+      const count = await tx.supplierPayment.count({ where: { businessUnitId: supplier.businessUnitId } });
+      const number = `PAY-${new Date().getFullYear()}-${String(count + 1).padStart(5, "0")}`;
+      const payment = await tx.supplierPayment.create({
+        data: {
+          businessUnitId: supplier.businessUnitId,
+          supplierId,
+          receiptId,
+          billId,
+          isAdvance,
+          number,
+          paymentDate: new Date(input.paymentDate || new Date()),
+          amount,
+          method: ["CASH", "BANK", "CHEQUE", "ONLINE"].includes(input.method) ? input.method : "BANK",
+          referenceNumber: input.referenceNumber ? String(input.referenceNumber).slice(0, 100) : null,
+          status: "PAID",
+          remarks: input.narration ? String(input.narration).slice(0, 500) : null,
+          createdBy: actorName,
+        },
       });
-    }
-
-    return created;
+      await tx.supplier.update({ where: { id: supplierId }, data: { balance: { decrement: amount } } });
+      return payment;
+    });
   }
 
   public async approveSupplierPayment(id: string) {

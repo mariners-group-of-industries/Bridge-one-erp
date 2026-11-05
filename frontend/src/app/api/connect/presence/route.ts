@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getConnectAuthUser } from "@/lib/connect/auth";
 import { getConnectPool } from "@/lib/connect/db";
 import { getPusherServer } from "@/lib/connect/pusher-server";
+import { connectRoute } from "@/lib/connect/route";
 
 // In-memory heartbeat tracker for real-time user presence
 interface ActivePresence {
@@ -24,7 +25,7 @@ function cleanupStalePresence() {
   }
 }
 
-export async function GET(req: Request) {
+async function handleGET(req: Request) {
   try {
     const user = await getConnectAuthUser(req);
     if (!user) {
@@ -50,7 +51,7 @@ export async function GET(req: Request) {
   }
 }
 
-export async function POST(req: Request) {
+async function handlePOST(req: Request) {
   try {
     const user = await getConnectAuthUser(req);
     if (!user) {
@@ -130,3 +131,6 @@ export async function POST(req: Request) {
     return NextResponse.json({ success: false, error: "Failed to update presence" }, { status: 500 });
   }
 }
+
+export const GET = connectRoute("employees:read", handleGET);
+export const POST = connectRoute("configuration:write", handlePOST);

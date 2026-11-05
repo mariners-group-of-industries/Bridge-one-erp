@@ -1,5 +1,9 @@
 "use client";
 
+import { useResource } from "@/hooks/use-resource";
+import { apiRequest, errorMessage } from "@/lib/api/client";
+import type { PosCounter } from "@/features/pos/schemas/pos.schema";
+import { posApi } from "@/features/pos/services/pos.api";
 import React, { useState, useMemo, useEffect } from "react";
 import {
   ArrowLeft,
@@ -34,6 +38,8 @@ const SEQUENCE_SUB_TABS: Array<{ id: SequenceSubTab; label: string }> = [
 
 interface PosCounterRecord {
   id: string;
+  warehouseId: string;
+  receiptMessage: string;
   counterCode: string;
   counterName: string;
   officeName: string;
@@ -74,36 +80,30 @@ interface SequenceConfigItem {
   status: "Active" | "Inactive";
 }
 
-const INITIAL_COUNTERS: PosCounterRecord[] = [
-  {
-    id: "cnt-1",
-    counterCode: "12",
-    counterName: "Counter 01",
-    officeName: "Marinozz",
-    warehouseName: "Marinozz",
-    floorName: "ROOF TOP,OUTDOOR,VIP,HALLROOM",
-    userName: "Marinozz-Mirpur-14 [01335149059]",
+/** Offices and warehouses a counter can be placed in (Configuration). */
+interface OrgOptions {
+  offices: { id: string; name: string }[];
+  warehouses: { id: string; name: string; officeId: string }[];
+}
+
+function toRecord(c: PosCounter, token: string | null): PosCounterRecord {
+  return {
+    id: c.id,
+    warehouseId: c.warehouseId,
+    receiptMessage: c.receiptMessage ?? "",
+    counterCode: c.code,
+    counterName: c.name,
+    officeName: c.officeName,
+    warehouseName: c.warehouseName,
+    floorName: c.floorName ?? "",
+    userName: c.userName ?? "",
     baseUrl: "N/A",
-    token: null,
-    isEcommerce: false,
-    exeVersion: "1.1.4.0",
-    status: "Active",
-  },
-  {
-    id: "cnt-2",
-    counterCode: "11",
-    counterName: "Counter 01",
-    officeName: "Marinozz",
-    warehouseName: "Marinozz",
-    floorName: "ROOF TOP,OUTDOOR,VIP,HALLROOM",
-    userName: "Md. Usuf Ali [10000]",
-    baseUrl: "N/A",
-    token: null,
-    isEcommerce: false,
-    exeVersion: "1.1.3.0",
-    status: "Active",
-  },
-];
+    token,
+    isEcommerce: c.isEcommerce,
+    exeVersion: "",
+    status: c.isActive ? "Active" : "Inactive",
+  };
+}
 
 const INITIAL_MESSAGES: MessageSetupRecord[] = [
   {
@@ -187,7 +187,12 @@ export function CounterSetupSection({ onBack }: CounterSetupSectionProps) {
   const [activeSequenceSubTab, setActiveSequenceSubTab] = useState<SequenceSubTab>("DEPARTMENT_SORT");
 
   // Data states
-  const [counters, setCounters] = useState<PosCounterRecord[]>(INITIAL_COUNTERS);
+  // Counters are stored in the database; terminals sell from the counter's warehouse.
+  const counterData = useResource("pos-setup-counters", posApi.counters);
+  const org = useResource("pos-setup-org", () => apiRequest<OrgOptions>("/api/configuration/org-options"));
+  const [tokens, setTokens] = useState<Record<string, string>>({});
+  const counters = (counterData.data ?? []).map((c) => toRecord(c, tokens[c.id] ?? null));
+  const [savingCounter, setSavingCounter] = useState(false);
   const [messages, setMessages] = useState<MessageSetupRecord[]>(INITIAL_MESSAGES);
   const [currencyNotes, setCurrencyNotes] = useState<CurrencyNoteRecord[]>(INITIAL_CURRENCY_NOTES);
   const [sequences, setSequences] = useState<SequenceConfigItem[]>(INITIAL_SEQUENCES);
@@ -226,9 +231,9 @@ export function CounterSetupSection({ onBack }: CounterSetupSectionProps) {
   };
 
   // Pos Counter Form fields
-  const [formOffice, setFormOffice] = useState("Marinozz");
-  const [formWarehouse, setFormWarehouse] = useState("Marinozz");
-  const [formUser, setFormUser] = useState("Md. Usuf Ali [10000]");
+  const [formOffice, setFormOffice] = useState("");
+  const [formWarehouse, setFormWarehouse] = useState("");
+  const [formUser, setFormUser] = useState("");
   const [formCounterName, setFormCounterName] = useState("");
   const [formMessage, setFormMessage] = useState("Thank You for Your Purchase");
   const [formFloor, setFormFloor] = useState("ROOF TOP,OUTDOOR,VIP,HALLROOM");
@@ -241,15 +246,10 @@ export function CounterSetupSection({ onBack }: CounterSetupSectionProps) {
   useEffect(() => {
     if (typeof window === "undefined") return;
     try {
-      const storedCounters = localStorage.getItem("erp_pos_counters_v1");
       const storedMessages = localStorage.getItem("erp_pos_messages_v1");
       const storedNotes = localStorage.getItem("erp_pos_currency_notes_v1");
       const storedSeqs = localStorage.getItem("erp_pos_sequences_v1");
       queueMicrotask(() => {
-        if (storedCounters) {
-          const parsed = JSON.parse(storedCounters);
-          if (Array.isArray(parsed) && parsed.length > 0) setCounters(parsed);
-        }
         if (storedMessages) {
           const parsed = JSON.parse(storedMessages);
           if (Array.isArray(parsed) && parsed.length > 0) setMessages(parsed);
@@ -267,17 +267,6 @@ export function CounterSetupSection({ onBack }: CounterSetupSectionProps) {
       console.warn("Could not load from localStorage:", e);
     }
   }, []);
-
-  const saveCounters = (newCounters: PosCounterRecord[]) => {
-    setCounters(newCounters);
-    if (typeof window !== "undefined") {
-      try {
-        localStorage.setItem("erp_pos_counters_v1", JSON.stringify(newCounters));
-      } catch (e) {
-        console.warn("Error saving counters:", e);
-      }
-    }
-  };
 
   const saveMessages = (newMessages: MessageSetupRecord[]) => {
     setMessages(newMessages);
@@ -315,12 +304,12 @@ export function CounterSetupSection({ onBack }: CounterSetupSectionProps) {
   // Open Create Pos Counter
   const handleOpenCreateCounter = () => {
     setEditingCounterId(null);
-    setFormOffice("Marinozz");
-    setFormWarehouse("Marinozz");
-    setFormUser("Md. Usuf Ali [10000]");
+    setFormOffice("");
+    setFormWarehouse("");
+    setFormUser("");
     setFormCounterName("");
     setFormMessage("Thank You for Your Purchase");
-    setFormFloor("ROOF TOP,OUTDOOR,VIP,HALLROOM");
+    setFormFloor("");
     setFormIsEcommerce(false);
     setIsCreatingCounter(true);
   };
@@ -328,77 +317,70 @@ export function CounterSetupSection({ onBack }: CounterSetupSectionProps) {
   // Open Edit Pos Counter
   const handleOpenEditCounter = (c: PosCounterRecord) => {
     setEditingCounterId(c.id);
-    setFormOffice(c.officeName);
-    setFormWarehouse(c.warehouseName);
+    setFormOffice(org.data?.warehouses.find((w) => w.id === c.warehouseId)?.officeId ?? "");
+    setFormWarehouse(c.warehouseId);
     setFormUser(c.userName);
     setFormCounterName(c.counterName);
-    setFormMessage("Thank You for Your Purchase");
+    setFormMessage(c.receiptMessage);
     setFormFloor(c.floorName);
     setFormIsEcommerce(c.isEcommerce);
     setIsCreatingCounter(true);
   };
 
   // Save Pos Counter
-  const handleSaveCounter = (e: React.FormEvent) => {
+  const handleSaveCounter = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formCounterName.trim()) {
       showToast("Counter Name is required!");
       return;
     }
 
-    if (editingCounterId) {
-      const updated = counters.map((c) =>
-        c.id === editingCounterId
-          ? {
-              ...c,
-              officeName: formOffice,
-              warehouseName: formWarehouse,
-              userName: formUser,
-              counterName: formCounterName.trim(),
-              floorName: formFloor,
-              isEcommerce: formIsEcommerce,
-            }
-          : c
-      );
-      saveCounters(updated);
-      showToast(`Counter "${formCounterName}" updated successfully`);
-    } else {
-      const newCounter: PosCounterRecord = {
-        id: `cnt-${Date.now()}`,
-        counterCode: String(Math.floor(10 + Math.random() * 90)),
-        counterName: formCounterName.trim(),
-        officeName: formOffice,
-        warehouseName: formWarehouse,
-        floorName: formFloor,
-        userName: formUser,
-        baseUrl: "N/A",
-        token: null,
-        isEcommerce: formIsEcommerce,
-        exeVersion: "1.1.4.0",
-        status: "Active",
-      };
-      saveCounters([newCounter, ...counters]);
-      showToast(`Counter "${formCounterName}" created successfully`);
+    if (!formWarehouse) {
+      showToast("Select the warehouse the counter sells from.");
+      return;
     }
-
+    const input = {
+      name: formCounterName.trim(),
+      warehouseId: formWarehouse,
+      userName: formUser || undefined,
+      floorName: formFloor || undefined,
+      receiptMessage: formMessage || undefined,
+      isEcommerce: formIsEcommerce,
+    };
+    setSavingCounter(true);
+    try {
+      if (editingCounterId) await posApi.updateCounter(editingCounterId, input);
+      else await posApi.createCounter(input);
+      showToast(`Counter "${input.name}" ${editingCounterId ? "updated" : "created"}`);
+      counterData.reload();
+      setIsCreatingCounter(false);
+    } catch (error) {
+      showToast(errorMessage(error));
+    } finally {
+      setSavingCounter(false);
+    }
     setIsCreatingCounter(false);
   };
 
   // Toggle Counter Status
   const handleToggleCounterStatus = (id: string) => {
-    const updated = counters.map((c) =>
-      c.id === id ? { ...c, status: c.status === "Active" ? ("Inactive" as const) : ("Active" as const) } : c
-    );
-    saveCounters(updated);
-    const target = updated.find((c) => c.id === id);
-    showToast(`Counter is now ${target?.status}`);
+    const target = counters.find((c) => c.id === id);
+    if (!target) return;
+    const isActive = target.status !== "Active";
+    posApi
+      .updateCounter(id, { isActive })
+      .then(() => {
+        showToast(`Counter is now ${isActive ? "Active" : "Inactive"}`);
+        counterData.reload();
+      })
+      .catch((error: unknown) => showToast(errorMessage(error)));
   };
 
   // Generate Token
   const handleGenerateToken = (id: string) => {
     const generatedToken = "TKN-" + Math.random().toString(36).substring(2, 10).toUpperCase();
-    const updated = counters.map((c) => (c.id === id ? { ...c, token: generatedToken } : c));
-    saveCounters(updated);
+    // Shown for this session only; counter tokens are not stored yet.
+    setTokens({ ...tokens, [id]: generatedToken });
     showToast(`Token generated: ${generatedToken}`);
   };
 
@@ -618,9 +600,10 @@ export function CounterSetupSection({ onBack }: CounterSetupSectionProps) {
           <button
             type="button"
             onClick={handleSaveCounter}
-            className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs rounded uppercase tracking-wider shadow-xs transition cursor-pointer"
+            disabled={savingCounter}
+            className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs rounded uppercase tracking-wider shadow-xs transition cursor-pointer disabled:opacity-60"
           >
-            SAVE
+            {savingCounter ? "SAVING…" : "SAVE"}
           </button>
         </div>
 
@@ -637,10 +620,12 @@ export function CounterSetupSection({ onBack }: CounterSetupSectionProps) {
                 onChange={(e) => setFormOffice(e.target.value)}
                 className="w-full h-9 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-blue-500"
               >
-                <option value="Marinozz">Marinozz</option>
-                <option value="Head Office">Head Office</option>
-                <option value="Dhanmondi Branch">Dhanmondi Branch</option>
-                <option value="Gulshan Branch">Gulshan Branch</option>
+                <option value="">Select office</option>
+                {(org.data?.offices ?? []).map((o) => (
+                  <option key={o.id} value={o.id}>
+                    {o.name}
+                  </option>
+                ))}
               </select>
             </div>
 
@@ -654,9 +639,14 @@ export function CounterSetupSection({ onBack }: CounterSetupSectionProps) {
                 onChange={(e) => setFormWarehouse(e.target.value)}
                 className="w-full h-9 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-blue-500"
               >
-                <option value="Marinozz">Marinozz</option>
-                <option value="Central Warehouse">Central Warehouse</option>
-                <option value="Kitchen Store">Kitchen Store</option>
+                <option value="">Select warehouse</option>
+                {(org.data?.warehouses ?? [])
+                  .filter((w) => !formOffice || w.officeId === formOffice)
+                  .map((w) => (
+                    <option key={w.id} value={w.id}>
+                      {w.name}
+                    </option>
+                  ))}
               </select>
             </div>
 
@@ -665,16 +655,14 @@ export function CounterSetupSection({ onBack }: CounterSetupSectionProps) {
               <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
                 User <span className="text-red-500">*</span>
               </label>
-              <select
+              <input
+                type="text"
                 value={formUser}
+                maxLength={150}
+                placeholder="Cashier name / ID"
                 onChange={(e) => setFormUser(e.target.value)}
                 className="w-full h-9 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-blue-500"
-              >
-                <option value="Md. Usuf Ali [10000]">Md. Usuf Ali [10000]</option>
-                <option value="Marinozz-Mirpur-14 [01335149059]">Marinozz-Mirpur-14 [01335149059]</option>
-                <option value="Admin User [10001]">Admin User [10001]</option>
-                <option value="Cashier 02 [10002]">Cashier 02 [10002]</option>
-              </select>
+              />
             </div>
 
             {/* Counter Name */}

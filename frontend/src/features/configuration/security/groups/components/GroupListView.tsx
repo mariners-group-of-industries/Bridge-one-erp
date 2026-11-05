@@ -16,7 +16,7 @@ import { entityMasterDataBreadcrumbs } from "@/features/configuration/entity-mas
 import { CONTROL_CLASS, EmptyBlock } from "@/features/configuration/entity-master-data/employee/components/kit";
 import { securityPaths } from "../../paths";
 import type { GroupList, GroupRow } from "../schemas/groups.schema";
-import { permissionGroupApi, userGroupApi } from "../services/groups.api";
+import { userGroupApi } from "../services/groups.api";
 
 const PAGE_SIZES = [10, 25, 50, 100] as const;
 const dateTime = (iso: string) => new Date(iso).toLocaleString("en-GB", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", hour12: true });
@@ -32,19 +32,9 @@ const KINDS = {
     api: userGroupApi,
     countLabel: "Users",
   },
-  permission: {
-    title: "Permission Group",
-    noun: "permission group",
-    subtitle: "Permission matrices: Create, Edit, View, Delete and Approve per activity.",
-    path: securityPaths.permissionGroup,
-    newPath: securityPaths.permissionGroupNew,
-    editPath: securityPaths.permissionGroupEdit,
-    api: permissionGroupApi,
-    countLabel: "Activities",
-  },
 } as const;
 
-/** List of user groups or permission groups (same columns and actions). */
+/** List of user groups (permission groups have their own list in security/access). */
 export function GroupListView({ kind }: { kind: keyof typeof KINDS }) {
   const config = KINDS[kind];
   const toast = useToast();

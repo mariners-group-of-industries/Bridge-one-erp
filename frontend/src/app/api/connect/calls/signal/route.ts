@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getPusherServer } from "@/lib/connect/pusher-server";
 import { getConnectAuthUser } from "@/lib/connect/auth";
+import { connectRoute } from "@/lib/connect/route";
 
 // In-memory cache for large WebRTC SDP payloads to protect against Pusher 10KB message limits
 interface CachedSdp {
@@ -12,7 +13,7 @@ interface CachedSdp {
 
 const sdpStore = new Map<string, CachedSdp>();
 
-export async function GET(req: Request) {
+async function handleGET(req: Request) {
   try {
     const user = await getConnectAuthUser(req);
     if (!user) {
@@ -52,7 +53,7 @@ export async function GET(req: Request) {
   }
 }
 
-export async function POST(req: Request) {
+async function handlePOST(req: Request) {
   try {
     const user = await getConnectAuthUser(req);
     if (!user) {
@@ -138,3 +139,6 @@ export async function POST(req: Request) {
     );
   }
 }
+
+export const GET = connectRoute("employees:read", handleGET);
+export const POST = connectRoute("configuration:write", handlePOST);

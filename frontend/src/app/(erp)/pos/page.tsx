@@ -1,6 +1,8 @@
 "use client";
 
 import React, { useState, useMemo } from "react";
+import { useResource } from "@/hooks/use-resource";
+import { posApi } from "@/features/pos/services/pos.api";
 import {
   Calendar as CalendarIcon,
   ChevronDown,
@@ -20,51 +22,6 @@ import {
   YAxis,
 } from "recharts";
 
-// 12-Month Sales History (2025 - 2026)
-const MONTHLY_SALES_2026 = [
-  { month: "Jan 26", sales: 175400, orders: 132 },
-  { month: "Feb 26", sales: 189200, orders: 144 },
-  { month: "Mar 26", sales: 210500, orders: 158 },
-  { month: "Apr 26", sales: 235000, orders: 176 },
-  { month: "May 26", sales: 220800, orders: 165 },
-  { month: "Jun 26", sales: 245300, orders: 182 },
-  { month: "Jul 26", sales: 260100, orders: 195 },
-  { month: "Aug 26", sales: 250900, orders: 188 },
-  { month: "Sep 26", sales: 275600, orders: 204 },
-  { month: "Oct 26", sales: 290400, orders: 218 },
-  { month: "Nov 26", sales: 194250, orders: 148 },
-  { month: "Dec 26", sales: 310000, orders: 230 },
-];
-
-const MONTHLY_SALES_2025 = [
-  { month: "Jan 25", sales: 145000, orders: 110 },
-  { month: "Feb 25", sales: 152000, orders: 118 },
-  { month: "Mar 25", sales: 168000, orders: 126 },
-  { month: "Apr 25", sales: 180000, orders: 135 },
-  { month: "May 25", sales: 172000, orders: 130 },
-  { month: "Jun 25", sales: 195000, orders: 145 },
-  { month: "Jul 25", sales: 205000, orders: 152 },
-  { month: "Aug 25", sales: 198000, orders: 148 },
-  { month: "Sep 25", sales: 215000, orders: 160 },
-  { month: "Oct 25", sales: 228000, orders: 172 },
-  { month: "Nov 25", sales: 235000, orders: 178 },
-  { month: "Dec 25", sales: 260000, orders: 195 },
-];
-
-const QUARTERLY_SALES_2026 = [
-  { month: "Q1 2026", sales: 575100, orders: 434 },
-  { month: "Q2 2026", sales: 701100, orders: 523 },
-  { month: "Q3 2026", sales: 786600, orders: 587 },
-  { month: "Q4 2026 (Est)", sales: 794650, orders: 596 },
-];
-
-const QUARTERLY_SALES_2025 = [
-  { month: "Q1 2025", sales: 465000, orders: 354 },
-  { month: "Q2 2025", sales: 547000, orders: 410 },
-  { month: "Q3 2025", sales: 618000, orders: 460 },
-  { month: "Q4 2025", sales: 723000, orders: 545 },
-];
-
 interface CounterStat {
   code: string;
   name: string;
@@ -74,13 +31,6 @@ interface CounterStat {
   color: string;
 }
 
-const COUNTER_STATS: CounterStat[] = [
-  { code: "11", name: "Counter 01", floor: "HALLROOM", freq: 68, val: 89500, color: "bg-blue-600" },
-  { code: "12", name: "Counter 02", floor: "ROOF TOP", freq: 42, val: 54200, color: "bg-emerald-600" },
-  { code: "13", name: "Counter 03", floor: "VIP LOUNGE", freq: 24, val: 31450, color: "bg-amber-600" },
-  { code: "14", name: "Counter 04", floor: "OUTDOOR", freq: 14, val: 19100, color: "bg-purple-600" },
-];
-
 interface PaymentStat {
   name: string;
   freq: number;
@@ -89,13 +39,6 @@ interface PaymentStat {
   badge: string;
 }
 
-const PAYMENT_STATS: PaymentStat[] = [
-  { name: "Cash", freq: 72, val: 88400, color: "bg-emerald-500", badge: "text-emerald-700 bg-emerald-50 border-emerald-200" },
-  { name: "Card (POS Terminal)", freq: 46, val: 64550, color: "bg-blue-500", badge: "text-blue-700 bg-blue-50 border-blue-200" },
-  { name: "MFS (bKash/Nagad)", freq: 25, val: 35300, color: "bg-pink-500", badge: "text-pink-700 bg-pink-50 border-pink-200" },
-  { name: "Gift Voucher / Points", freq: 5, val: 6000, color: "bg-purple-500", badge: "text-purple-700 bg-purple-50 border-purple-200" },
-];
-
 interface ItemStat {
   rank: number;
   name: string;
@@ -103,19 +46,6 @@ interface ItemStat {
   freq: number;
   val: number;
 }
-
-const TOP_ITEMS: ItemStat[] = [
-  { rank: 1, name: "Beef Ribeye Steak (250g)", category: "Main Course", freq: 78, val: 109200 },
-  { rank: 2, name: "Chicken Alfredo Pasta", category: "Pasta", freq: 112, val: 67200 },
-  { rank: 3, name: "Margherita Pizza (Large)", category: "Pizza", freq: 95, val: 66500 },
-  { rank: 4, name: "Grilled Atlantic Salmon", category: "Seafood", freq: 42, val: 58800 },
-  { rank: 5, name: "BBQ Chicken Wings (8 pcs)", category: "Appetizers", freq: 124, val: 49600 },
-  { rank: 6, name: "Seafood Fried Rice", category: "Rice & Platters", freq: 88, val: 39600 },
-  { rank: 7, name: "Fresh Lime Mint Soda", category: "Beverages", freq: 180, val: 36000 },
-  { rank: 8, name: "Chocolate Lava Cake", category: "Dessert", freq: 92, val: 32200 },
-  { rank: 9, name: "Caesar Salad with Chicken", category: "Salads", freq: 64, val: 28800 },
-  { rank: 10, name: "Vanilla Latte / Cappuccino", category: "Coffee", freq: 145, val: 29000 },
-];
 
 interface CustomerStat {
   rank: number;
@@ -126,28 +56,30 @@ interface CustomerStat {
   tier: "Platinum" | "Gold" | "Silver";
 }
 
-const TOP_CUSTOMERS: CustomerStat[] = [
-  { rank: 1, name: "Dr. Farhan Ahmed", mobile: "01711-234567", freq: 18, val: 28450, tier: "Platinum" },
-  { rank: 2, name: "Sabrina Yasmin", mobile: "01819-345678", freq: 14, val: 22800, tier: "Platinum" },
-  { rank: 3, name: "Tanvir Hasan", mobile: "01912-456789", freq: 12, val: 19400, tier: "Gold" },
-  { rank: 4, name: "Nusrat Jahan", mobile: "01755-567890", freq: 11, val: 17250, tier: "Gold" },
-  { rank: 5, name: "Kazi Mahmud", mobile: "01678-678901", freq: 9, val: 15900, tier: "Gold" },
-  { rank: 6, name: "Afroza Begum", mobile: "01844-789012", freq: 8, val: 13600, tier: "Silver" },
-  { rank: 7, name: "Rafiqul Islam", mobile: "01722-890123", freq: 7, val: 12100, tier: "Silver" },
-  { rank: 8, name: "Mehnaz Tabassum", mobile: "01933-901234", freq: 6, val: 10850, tier: "Silver" },
-  { rank: 9, name: "Shafiul Alam", mobile: "01555-012345", freq: 6, val: 9900, tier: "Silver" },
-  { rank: 10, name: "Parveen Akter", mobile: "01733-123456", freq: 5, val: 8750, tier: "Silver" },
-];
+const money = (n: number) => `${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} BDT`;
+const THIS_YEAR = new Date().getFullYear();
+const YEARS = [String(THIS_YEAR), String(THIS_YEAR - 1)];
 
 export default function PosDashboardPage() {
-  const [fromDate, setFromDate] = useState("2026-11-01");
-  const [toDate, setToDate] = useState("2026-11-30");
+  const [fromDate, setFromDate] = useState(`${new Date().toISOString().slice(0, 7)}-01`);
+  const [toDate, setToDate] = useState(new Date().toISOString().slice(0, 10));
   const [counterMode, setCounterMode] = useState<"freq" | "val">("val");
   const [paymentMode, setPaymentMode] = useState<"freq" | "val">("val");
   const [itemMode, setItemMode] = useState<"freq" | "val">("val");
   const [customerMode, setCustomerMode] = useState<"freq" | "val">("val");
   const [periodUnit, setPeriodUnit] = useState<"Month" | "Quarter">("Month");
-  const [periodYear, setPeriodYear] = useState<"2026" | "2025">("2026");
+  const [periodYear, setPeriodYear] = useState(YEARS[0]);
+  // Figures come from POS sales (completed, not voided) for the period applied with View.
+  const [period, setPeriod] = useState({ from: fromDate, to: toDate });
+  const dashboard = useResource(`pos-dashboard-${period.from}-${period.to}-${periodYear}`, () =>
+    posApi.dashboard({ ...period, year: Number(periodYear) }),
+  );
+  const data = dashboard.data;
+  const COUNTER_STATS: CounterStat[] = data?.counters ?? [];
+  const PAYMENT_STATS: PaymentStat[] = data?.payments ?? [];
+  const TOP_ITEMS: ItemStat[] = data?.topItems ?? [];
+  const TOP_CUSTOMERS: CustomerStat[] = data?.topCustomers ?? [];
+  const summary = data?.summary ?? { invoices: 0, gross: 0, vat: 0, discount: 0, net: 0 };
 
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -161,36 +93,36 @@ export default function PosDashboardPage() {
 
   const handleRefresh = () => {
     setIsRefreshing(true);
-    setTimeout(() => {
-      setIsRefreshing(false);
-      showToast("POS Dashboard metrics refreshed successfully");
-    }, 400);
+    dashboard.reload();
+    setTimeout(() => setIsRefreshing(false), 400);
   };
 
   const handleApplyFilter = () => {
-    showToast(`Filtering POS data for ${fromDate || "Start"} to ${toDate || "Present"}`);
+    if (!fromDate || !toDate || fromDate > toDate) {
+      showToast("Choose a valid date range");
+      return;
+    }
+    setPeriod({ from: fromDate, to: toDate });
   };
 
   // Chart data selection
   const chartData = useMemo(() => {
-    if (periodUnit === "Quarter") {
-      return periodYear === "2026" ? QUARTERLY_SALES_2026 : QUARTERLY_SALES_2025;
-    }
-    return periodYear === "2026" ? MONTHLY_SALES_2026 : MONTHLY_SALES_2025;
-  }, [periodUnit, periodYear]);
+    return (periodUnit === "Quarter" ? data?.quarterly : data?.monthly) ?? [];
+  }, [periodUnit, data]);
 
   // Aggregations
-  const totalCounterVal = COUNTER_STATS.reduce((acc, c) => acc + c.val, 0);
-  const totalCounterFreq = COUNTER_STATS.reduce((acc, c) => acc + c.freq, 0);
+  // "|| 1" keeps the percentages at 0 instead of NaN when there are no sales.
+  const totalCounterVal = COUNTER_STATS.reduce((acc, c) => acc + c.val, 0) || 1;
+  const totalCounterFreq = COUNTER_STATS.reduce((acc, c) => acc + c.freq, 0) || 1;
 
-  const totalPaymentVal = PAYMENT_STATS.reduce((acc, p) => acc + p.val, 0);
-  const totalPaymentFreq = PAYMENT_STATS.reduce((acc, p) => acc + p.freq, 0);
+  const totalPaymentVal = PAYMENT_STATS.reduce((acc, p) => acc + p.val, 0) || 1;
+  const totalPaymentFreq = PAYMENT_STATS.reduce((acc, p) => acc + p.freq, 0) || 1;
 
-  const maxItemVal = Math.max(...TOP_ITEMS.map((i) => i.val));
-  const maxItemFreq = Math.max(...TOP_ITEMS.map((i) => i.freq));
+  const maxItemVal = Math.max(1, ...TOP_ITEMS.map((i) => i.val));
+  const maxItemFreq = Math.max(1, ...TOP_ITEMS.map((i) => i.freq));
 
-  const maxCustVal = Math.max(...TOP_CUSTOMERS.map((c) => c.val));
-  const maxCustFreq = Math.max(...TOP_CUSTOMERS.map((c) => c.freq));
+  const maxCustVal = Math.max(1, ...TOP_CUSTOMERS.map((c) => c.val));
+  const maxCustFreq = Math.max(1, ...TOP_CUSTOMERS.map((c) => c.freq));
 
   return (
     <div className="min-h-screen bg-[#f8fafc] dark:bg-slate-950 p-3 sm:p-5 space-y-4 text-slate-800 dark:text-slate-100">
@@ -325,7 +257,7 @@ export default function PosDashboardPage() {
           </div>
 
           <div className="pt-3 mt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400">
-            <span>Total Across 4 Counters</span>
+            <span>Total Across {COUNTER_STATS.length} Counters</span>
             <span className="font-bold text-slate-900 dark:text-slate-100">
               {counterMode === "val"
                 ? `${totalCounterVal.toLocaleString()} BDT`
@@ -435,13 +367,13 @@ export default function PosDashboardPage() {
                 <div className="text-[10.5px] text-slate-500 dark:text-slate-400 pl-2 mt-0.5">
                   Total Number :{" "}
                   <span className="font-semibold text-slate-800 dark:text-slate-200">
-                    148
+                    {summary.invoices}
                   </span>
                 </div>
                 <div className="text-[10.5px] text-slate-500 dark:text-slate-400 pl-2">
                   Total Amount :{" "}
                   <span className="font-semibold text-slate-800 dark:text-slate-200">
-                    194,250.00 BDT
+                    {money(summary.gross)}
                   </span>
                 </div>
               </li>
@@ -450,15 +382,15 @@ export default function PosDashboardPage() {
                   VAT & Discount Summary
                 </div>
                 <div className="text-[10.5px] text-slate-500 dark:text-slate-400 pl-2 mt-0.5">
-                  Total VAT (7.5%) :{" "}
+                  Total VAT :{" "}
                   <span className="font-semibold text-emerald-600 dark:text-emerald-400">
-                    +14,568.75 BDT
+                    +{money(summary.vat)}
                   </span>
                 </div>
                 <div className="text-[10.5px] text-slate-500 dark:text-slate-400 pl-2">
                   Total Discount :{" "}
                   <span className="font-semibold text-rose-500 dark:text-rose-400">
-                    -9,820.00 BDT
+                    -{money(summary.discount)}
                   </span>
                 </div>
               </li>
@@ -468,7 +400,7 @@ export default function PosDashboardPage() {
           <div className="pt-3 mt-3 border-t border-slate-100 dark:border-slate-800 bg-blue-50/50 dark:bg-blue-950/20 -mx-4 -mb-4 p-3 rounded-b flex items-center justify-between text-xs">
             <span className="font-medium text-blue-900 dark:text-blue-300">Net Sales Realized</span>
             <span className="font-bold text-blue-700 dark:text-blue-400 text-sm">
-              198,998.75 BDT
+              {money(summary.net)}
             </span>
           </div>
         </div>
@@ -484,7 +416,7 @@ export default function PosDashboardPage() {
               </h3>
               <span className="inline-flex items-center gap-1 rounded bg-emerald-50 dark:bg-emerald-950/30 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">
                 <TrendingUp className="size-3" />
-                +14.8% YoY
+                {money((data?.monthly ?? []).reduce((t, m) => t + m.sales, 0))} in {periodYear}
               </span>
             </div>
             <span className="text-[10px] text-slate-400">
@@ -508,11 +440,14 @@ export default function PosDashboardPage() {
             <div className="relative flex items-center border-b border-slate-300 dark:border-slate-700 pb-0.5">
               <select
                 value={periodYear}
-                onChange={(e) => setPeriodYear(e.target.value as "2026" | "2025")}
+                onChange={(e) => setPeriodYear(e.target.value)}
                 className="appearance-none bg-transparent pr-4 text-[11px] text-slate-600 dark:text-slate-300 focus:outline-none cursor-pointer"
               >
-                <option value="2026">2026</option>
-                <option value="2025">2025</option>
+                {YEARS.map((y) => (
+                  <option key={y} value={y}>
+                    {y}
+                  </option>
+                ))}
               </select>
               <ChevronDown className="pointer-events-none absolute right-0 size-3 text-slate-400" />
             </div>
