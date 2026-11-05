@@ -26,6 +26,9 @@ function searchWhere(search: string): Prisma.EmployeeWhereInput {
       { employeeCode: contains },
       { attendanceId: contains },
       { name: contains },
+      // "Mobile" is the employee's own numbers, and the phone of their ERP login.
+      { mobile: contains },
+      { officialContact: contains },
       { user: { is: { phone: contains } } },
     ],
   };
