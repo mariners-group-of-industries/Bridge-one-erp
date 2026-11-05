@@ -102,6 +102,7 @@ export default function BrgConnectChatPage() {
   const [activeConvId, setActiveConvId] = useState<string | null>(null);
   const activeConvIdRef = useRef<string | null>(null);
   const handleAcceptIncomingCallByIdRef = useRef<((convId: string, callType?: "audio" | "video") => void) | null>(null);
+  const handleStartCallRef = useRef<((type: "audio" | "video") => void) | null>(null);
   useEffect(() => {
     activeConvIdRef.current = activeConvId;
   }, [activeConvId]);
@@ -421,12 +422,17 @@ export default function BrgConnectChatPage() {
         const params = new URLSearchParams(window.location.search);
         const urlConvId = params.get("conversationId");
         const autoAccept = params.get("autoAccept") === "true";
+        const autoStart = params.get("autoStart") === "true" || params.get("startCall") === "true";
         const callTypeFromUrl = (params.get("callType") as "audio" | "video") || "audio";
         if (urlConvId) {
           setActiveConvId(urlConvId);
           if (autoAccept) {
             setTimeout(() => {
               handleAcceptIncomingCallByIdRef.current?.(urlConvId, callTypeFromUrl);
+            }, 600);
+          } else if (autoStart) {
+            setTimeout(() => {
+              handleStartCallRef.current?.(callTypeFromUrl);
             }, 600);
           }
         }
@@ -1680,6 +1686,7 @@ export default function BrgConnectChatPage() {
 
   useEffect(() => {
     handleAcceptIncomingCallByIdRef.current = handleAcceptIncomingCallById;
+    handleStartCallRef.current = handleStartCall;
   }, []);
 
   const handleAcceptIncomingCall = async () => {

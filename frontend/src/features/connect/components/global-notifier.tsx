@@ -1,27 +1,28 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { usePathname, useRouter } from "next/navigation";
+import { useSession } from "@/lib/auth/session";
+import { getPusherClient } from "@/lib/connect/pusher-client";
+import { playMessageChime, startIncomingRingtone, stopRingtone } from "@/lib/connect/webrtc";
 import {
   Phone,
   PhoneOff,
   Video,
-  X,
-  MessageSquare,
-  Bell,
-  Send,
-  Minus,
-  ExternalLink,
   MessageCircle,
+  MessageSquare,
+  Send,
+  X,
+  ExternalLink,
+  Bell,
   Loader2,
+  Minus,
+  Paperclip,
+  ArrowLeftRight,
+  ChevronLeft,
+  Search,
+  CheckCheck,
 } from "lucide-react";
-import { useSession } from "@/lib/auth/session";
-import { getPusherClient } from "@/lib/connect/pusher-client";
-import {
-  startIncomingRingtone,
-  stopRingtone,
-  playMessageChime,
-} from "@/lib/connect/webrtc";
 
 interface ExtendedNotificationOptions extends NotificationOptions {
   renotify?: boolean;
@@ -36,28 +37,45 @@ interface IncomingCallData {
   timestamp: number;
 }
 
-interface MessageToastData {
+interface WhatsAppConversation {
   id: string;
-  conversationId: string;
-  senderId: string;
-  senderName: string;
-  body: string;
+  name: string;
   type: string;
-  hasAttachment?: boolean;
+  unreadCount?: number;
+  lastMessage?: {
+    id: string;
+    body: string;
+    createdAt?: string;
+  };
 }
 
-interface ActiveMiniChat {
-  conversationId: string;
-  senderName: string;
-  isMinimized: boolean;
-}
-
-interface MiniChatMessage {
+interface WhatsAppChatMessage {
   id: string;
   senderId: string;
   senderName: string;
   body: string;
+  type?: string;
+  deletedAt?: string | null;
   createdAt: string;
+  rawDate?: string;
+  status?: "sent" | "delivered" | "read";
+  attachments?: { url: string; name: string; size?: number; mimeType?: string }[];
+}
+
+function getMessageDateLabel(dateStr?: string): string {
+  if (!dateStr) return "Today";
+  try {
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return "Today";
+    const today = new Date();
+    if (d.toDateString() === today.toDateString()) return "Today";
+    const yesterday = new Date();
+    yesterday.setDate(today.getDate() - 1);
+    if (d.toDateString() === yesterday.toDateString()) return "Yesterday";
+    return d.toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" });
+  } catch {
+    return "Today";
+  }
 }
 
 export function ConnectGlobalNotifier() {
@@ -65,9 +83,11 @@ export function ConnectGlobalNotifier() {
   const pathname = usePathname();
   const router = useRouter();
 
+  // Incoming Call Overlay state
   const [incomingCall, setIncomingCall] = useState<IncomingCallData | null>(null);
-  const [toasts, setToasts] = useState<MessageToastData[]>([]);
-  const [toastReplyInputs, setToastReplyInputs] = useState<Record<string, string>>({});
+  const incomingCallRef = useRef<IncomingCallData | null>(null);
+
+  // Desktop Notification permission banner
   const [notificationPermission, setNotificationPermission] = useState<NotificationPermission>(() => {
     if (typeof window !== "undefined" && "Notification" in window) {
       return Notification.permission;
@@ -76,33 +96,51 @@ export function ConnectGlobalNotifier() {
   });
   const [hidePermissionBanner, setHidePermissionBanner] = useState(false);
 
-  // Floating Mini Chat (PiP Messenger across all ERP pages)
-  const [activeMiniChat, setActiveMiniChat] = useState<ActiveMiniChat | null>(null);
-  const [miniChatMessages, setMiniChatMessages] = useState<MiniChatMessage[]>([]);
-  const [miniChatInput, setMiniChatInput] = useState("");
-  const [isMiniChatLoading, setIsMiniChatLoading] = useState(false);
-  const [isMiniChatSending, setIsMiniChatSending] = useState(false);
+  // WhatsApp Floating Messenger State
+  const [isOpen, setIsOpen] = useState(false);
+  const [isMinimized, setIsMinimized] = useState(false);
+  const [dockSide, setDockSide] = useState<"left" | "right">(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("brg_connect_dock_side");
+      if (saved === "right" || saved === "left") return saved;
+    }
+    return "left"; // Default to left side as in user's screenshot
+  });
 
-  const miniChatEndRef = useRef<HTMLDivElement | null>(null);
-  const activeMiniChatRef = useRef<ActiveMiniChat | null>(null);
-  const incomingCallRef = useRef<IncomingCallData | null>(null);
+  const [viewMode, setViewMode] = useState<"chat" | "conversations">("chat");
+  const [activeConvId, setActiveConvId] = useState<string | null>(null);
+  const [activeConvName, setActiveConvName] = useState<string>("BRG Connect");
+  const activeConvIdRef = useRef<string | null>(null);
+
+  const [conversations, setConversations] = useState<WhatsAppConversation[]>([]);
+  const [convSearch, setConvSearch] = useState("");
+  const [isLoadingConversations, setIsLoadingConversations] = useState(false);
+  const [unreadTotal, setUnreadTotal] = useState(0);
+
+  const [messages, setMessages] = useState<WhatsAppChatMessage[]>([]);
+  const [isLoadingMessages, setIsLoadingMessages] = useState(false);
+  const [inputText, setInputText] = useState("");
+  const [isSending, setIsSending] = useState(false);
+
+  const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     incomingCallRef.current = incomingCall;
   }, [incomingCall]);
 
   useEffect(() => {
-    activeMiniChatRef.current = activeMiniChat;
-  }, [activeMiniChat]);
+    activeConvIdRef.current = activeConvId;
+  }, [activeConvId]);
 
-  // Auto-scroll mini chat to bottom on new messages
+  // Auto-scroll chat to bottom
   useEffect(() => {
-    if (activeMiniChat && !activeMiniChat.isMinimized) {
-      miniChatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    if (isOpen && !isMinimized && viewMode === "chat") {
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     }
-  }, [miniChatMessages, activeMiniChat]);
+  }, [messages, isOpen, isMinimized, viewMode]);
 
-  // Request browser Notification permission via direct user action
+  // Request browser Notification permission
   const requestDesktopPermission = async () => {
     if (typeof window === "undefined" || !("Notification" in window)) {
       alert("This browser does not support desktop notifications.");
@@ -114,45 +152,69 @@ export function ConnectGlobalNotifier() {
       if (perm === "granted") {
         try {
           const testNotif = new Notification("BRG Connect Desktop Notifications", {
-            body: "ডেস্কটপ নোটিফিকেশন সফলভাবে চালু হয়েছে! ব্রাউজার ব্যাকগ্রাউন্ডে থাকলেও স্ক্রিনের কোণায় কল ও মেসেজ ভেসে উঠবে।",
+            body: "ডেস্কটপ নোটিফিকেশন চালু হয়েছে! ব্রাউজার ব্যাকগ্রাউন্ডে থাকলেও কল ও মেসেজ স্ক্রিনের কোনায় ভেসে উঠবে।",
             icon: "/favicon.ico",
             badge: "/favicon.ico",
             tag: "brg-welcome",
           });
-          testNotif.onclick = () => window.focus();
+          setTimeout(() => testNotif.close(), 5000);
         } catch {}
       }
-    } catch (err) {
-      console.warn("Notification permission error:", err);
+    } catch (e) {
+      console.warn("Notification permission request error:", e);
     }
   };
 
-  // Open Floating Mini Chat window on current page
-  const openMiniChat = async (conversationId: string, senderName: string) => {
-    if (!conversationId) return;
-
-    setActiveMiniChat({
-      conversationId,
-      senderName,
-      isMinimized: false,
-    });
-
-    // Dismiss any matching toast
-    setToasts((prev) => prev.filter((t) => t.conversationId !== conversationId));
-
-    // Auto mark as read in DB & Pusher
+  // Load all recent conversations
+  const loadConversations = async () => {
     try {
-      fetch(`/api/connect/conversations/${conversationId}/read`, { method: "POST" }).catch(() => {});
-    } catch {}
+      setIsLoadingConversations(true);
+      const res = await fetch("/api/connect/conversations");
+      const data = await res.json();
+      if (data?.success && Array.isArray(data.conversations)) {
+        const mapped: WhatsAppConversation[] = data.conversations.map((c: {
+          id: string;
+          name: string;
+          type: string;
+          unreadCount?: number;
+          lastMessage?: { id: string; body: string; createdAt?: string };
+        }) => ({
+          id: c.id,
+          name: c.name || "Conversation",
+          type: c.type,
+          unreadCount: c.unreadCount || 0,
+          lastMessage: c.lastMessage,
+        }));
+        setConversations(mapped);
+        const total = mapped.reduce((acc, c) => acc + (c.unreadCount || 0), 0);
+        setUnreadTotal(total);
 
-    // Fetch conversation messages
-    setIsMiniChatLoading(true);
+        // If no active conversation yet, pick the first recent one
+        if (!activeConvIdRef.current && mapped.length > 0) {
+          setActiveConvId(mapped[0].id);
+          setActiveConvName(mapped[0].name);
+        }
+      }
+    } catch (err) {
+      console.warn("Failed to load conversations:", err);
+    } finally {
+      setIsLoadingConversations(false);
+    }
+  };
+
+  // Load messages for a specific conversation
+  const loadMessages = async (convId: string) => {
+    if (!convId) return;
+    setIsLoadingMessages(true);
     try {
-      const res = await fetch(`/api/connect/conversations/${conversationId}/messages`);
+      // Clear unread in backend
+      fetch(`/api/connect/conversations/${convId}/read`, { method: "POST" }).catch(() => {});
+
+      const res = await fetch(`/api/connect/conversations/${convId}/messages`);
       const data = await res.json();
       if (data?.success && Array.isArray(data.messages)) {
-        setMiniChatMessages(
-          data.messages.slice(-30).map((m: {
+        setMessages(
+          data.messages.slice(-40).map((m: {
             id: string;
             senderId: string;
             senderName: string;
@@ -160,6 +222,7 @@ export function ConnectGlobalNotifier() {
             type?: string;
             deletedAt?: string | null;
             createdAt?: string;
+            attachments?: { url: string; name: string; size?: number; mimeType?: string }[];
           }) => {
             let bodyText = m.body;
             if (m.deletedAt) {
@@ -167,6 +230,7 @@ export function ConnectGlobalNotifier() {
             } else if (!bodyText) {
               if (m.type === "FILE") bodyText = "📎 Sent a file attachment";
               else if (m.type === "ERP_CARD") bodyText = "📋 Shared live ERP record";
+              else if (m.type === "CALL_LOG") bodyText = "📞 Voice call - Accepted on another device";
             }
 
             let formattedTime = "";
@@ -181,101 +245,43 @@ export function ConnectGlobalNotifier() {
               senderId: m.senderId,
               senderName: m.senderName,
               body: bodyText,
+              type: m.type,
+              deletedAt: m.deletedAt,
               createdAt: formattedTime,
+              rawDate: m.createdAt,
+              status: "read" as const,
+              attachments: m.attachments,
             };
           })
         );
       }
     } catch (err) {
-      console.warn("Could not load mini chat messages:", err);
+      console.warn("Failed to load conversation messages:", err);
     } finally {
-      setIsMiniChatLoading(false);
+      setIsLoadingMessages(false);
     }
   };
 
-  // Send message from Mini Chat
-  const handleSendMiniChatMessage = async (e?: React.FormEvent) => {
-    e?.preventDefault();
-    if (!miniChatInput.trim() || !activeMiniChat || !authUser?.id) return;
-    const textToSend = miniChatInput.trim();
-    const convId = activeMiniChat.conversationId;
-    const clientMsgId = `c-mini-${Date.now()}`;
+  // Open specific conversation in chat view
+  const openConversation = (convId: string, convName: string) => {
+    setActiveConvId(convId);
+    setActiveConvName(convName);
+    setViewMode("chat");
+    setIsOpen(true);
+    setIsMinimized(false);
+    loadMessages(convId);
+  };
 
-    const optimisticMsg: MiniChatMessage = {
-      id: `m-opt-${Date.now()}`,
-      senderId: authUser.id,
-      senderName: authUser.name || "Me",
-      body: textToSend,
-      createdAt: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-    };
-
-    setMiniChatMessages((prev) => [...prev, optimisticMsg]);
-    setMiniChatInput("");
-
-    try {
-      setIsMiniChatSending(true);
-      await fetch(`/api/connect/conversations/${convId}/messages`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          clientMsgId,
-          type: "TEXT",
-          bodyText: textToSend,
-          senderId: authUser.id,
-          senderName: authUser.name || "Me",
-        }),
+  // Initial load
+  useEffect(() => {
+    if (authUser?.id && pathname !== "/connect") {
+      queueMicrotask(() => {
+        loadConversations();
       });
-    } catch (err) {
-      console.warn("Failed to send quick message:", err);
-    } finally {
-      setIsMiniChatSending(false);
     }
-  };
+  }, [authUser?.id, pathname]);
 
-  // Quick reply directly from toast input without opening full mini chat
-  const handleSendToastReply = async (toast: MessageToastData) => {
-    const text = (toastReplyInputs[toast.id] || "").trim();
-    if (!text || !authUser?.id) return;
-
-    // Clear toast input & dismiss
-    setToastReplyInputs((prev) => {
-      const next = { ...prev };
-      delete next[toast.id];
-      return next;
-    });
-    setToasts((prev) => prev.filter((t) => t.id !== toast.id));
-
-    // Open the mini chat so user can see conversation continuing seamlessly
-    await openMiniChat(toast.conversationId, toast.senderName);
-
-    // Optimistically add to mini chat messages so user sees it instantly
-    const optimisticMsg: MiniChatMessage = {
-      id: `m-opt-${Date.now()}`,
-      senderId: authUser.id,
-      senderName: authUser.name || "Me",
-      body: text,
-      createdAt: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-    };
-    setMiniChatMessages((prev) => [...prev, optimisticMsg]);
-
-    try {
-      await fetch(`/api/connect/conversations/${toast.conversationId}/messages`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          clientMsgId: `c-quick-${Date.now()}`,
-          type: "TEXT",
-          bodyText: text,
-          senderId: authUser.id,
-          senderName: authUser.name || "Me",
-        }),
-      });
-    } catch (err) {
-      console.warn("Toast reply failed:", err);
-    }
-  };
-
-  // Listen to global Pusher events
+  // Pusher Global Events
   useEffect(() => {
     if (!authUser?.id) return;
     const pusher = getPusherClient();
@@ -283,7 +289,7 @@ export function ConnectGlobalNotifier() {
 
     const channel = pusher.subscribe("connect-global");
 
-    // 1. Incoming Call Signal Handler
+    // 1. Call signal event
     channel.bind(
       "call-signal",
       (signal: {
@@ -293,10 +299,8 @@ export function ConnectGlobalNotifier() {
         type: string;
         callType: "audio" | "video";
       }) => {
-        // Ignore calls originated by ourselves
         if (signal.senderId === authUser.id) return;
 
-        // When someone is calling us
         if (signal.type === "call-request") {
           const isTabHidden = typeof document !== "undefined" && document.hidden;
           const isDifferentPage = pathname !== "/connect";
@@ -309,18 +313,16 @@ export function ConnectGlobalNotifier() {
             timestamp: Date.now(),
           };
 
-          // Show in-app call modal if not already on /connect
           if (isDifferentPage) {
             setIncomingCall(callData);
             startIncomingRingtone();
           }
 
-          // Native Windows desktop notification
           if ((isTabHidden || isDifferentPage) && typeof window !== "undefined" && "Notification" in window) {
             if (Notification.permission === "granted") {
               try {
                 const callOptions: ExtendedNotificationOptions = {
-                  body: `${signal.callType === "video" ? "📹 Incoming Video Call" : "🎙️ Incoming Voice Call"} on BRG Connect. Click here to answer.`,
+                  body: `${signal.callType === "video" ? "📹 Incoming Video Call" : "🎙️ Incoming Voice Call"} on BRG Connect. Click to answer.`,
                   icon: "/favicon.ico",
                   badge: "/favicon.ico",
                   tag: `call-${signal.conversationId}`,
@@ -335,7 +337,7 @@ export function ConnectGlobalNotifier() {
                   window.focus();
                   stopRingtone();
                   setIncomingCall(null);
-                  router.push(`/connect?conversationId=${signal.conversationId}&autoAccept=true`);
+                  router.push(`/connect?conversationId=${signal.conversationId}&autoAccept=true&callType=${signal.callType || "audio"}`);
                 };
               } catch (e) {
                 console.warn("[WebRTC] Native desktop call notification error:", e);
@@ -344,7 +346,6 @@ export function ConnectGlobalNotifier() {
           }
         }
 
-        // When caller cancels, hangs up, or someone rejects
         if (signal.type === "call-reject" || signal.type === "call-hangup") {
           if (incomingCallRef.current?.conversationId === signal.conversationId) {
             stopRingtone();
@@ -354,7 +355,7 @@ export function ConnectGlobalNotifier() {
       }
     );
 
-    // 2. Incoming New Message Handler
+    // 2. Incoming message event
     channel.bind(
       "new-message",
       (msg: {
@@ -364,15 +365,13 @@ export function ConnectGlobalNotifier() {
         senderName: string;
         body?: string;
         type?: string;
-        attachments?: unknown[];
+        attachments?: { url: string; name: string; size?: number; mimeType?: string }[];
       }) => {
-        // Ignore our own messages
         if (msg.senderId === authUser.id) return;
 
         const isTabHidden = typeof document !== "undefined" && document.hidden;
         const isDifferentPage = pathname !== "/connect";
 
-        // Format message preview text
         let previewText = msg.body?.trim() || "";
         const hasAttachments = Array.isArray(msg.attachments) && msg.attachments.length > 0;
         if (!previewText && hasAttachments) {
@@ -381,45 +380,39 @@ export function ConnectGlobalNotifier() {
           previewText = "Shared a live ERP document card";
         }
 
-        // Live update active mini chat if already chatting with this user on this page
-        if (activeMiniChatRef.current?.conversationId === msg.conversationId) {
-          setMiniChatMessages((prev) => [
+        // Play chime sound
+        playMessageChime();
+
+        // If on another page (/purchase, /account, /inventory, etc.), auto-hover the WhatsApp messenger!
+        if (isDifferentPage) {
+          setIsOpen(true);
+          setIsMinimized(false);
+          setActiveConvId(msg.conversationId);
+          setActiveConvName(msg.senderName || "Colleague");
+          setViewMode("chat");
+
+          // Append to messages if current active chat
+          setMessages((prev) => [
             ...prev,
             {
-              id: msg.id,
+              id: msg.id || `m-new-${Date.now()}`,
               senderId: msg.senderId,
               senderName: msg.senderName,
               body: previewText,
+              type: msg.type,
               createdAt: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+              rawDate: new Date().toISOString(),
+              status: "delivered",
+              attachments: msg.attachments,
             },
           ]);
+
+          // Mark as read in DB
+          fetch(`/api/connect/conversations/${msg.conversationId}/read`, { method: "POST" }).catch(() => {});
+          loadConversations();
         }
 
-        // If on another page, play chime and show in-app floating quick-reply toast
-        if (isDifferentPage) {
-          playMessageChime();
-
-          const newToast: MessageToastData = {
-            id: msg.id || `toast-${Date.now()}-${Math.random()}`,
-            conversationId: msg.conversationId,
-            senderId: msg.senderId,
-            senderName: msg.senderName || "Colleague",
-            body: previewText,
-            type: msg.type || "text",
-            hasAttachment: hasAttachments,
-          };
-
-          setToasts((prev) => [newToast, ...prev.filter((t) => t.conversationId !== msg.conversationId).slice(0, 2)]);
-
-          // Auto remove after 9 seconds if user doesn't interact
-          setTimeout(() => {
-            setToasts((prev) => prev.filter((t) => t.id !== newToast.id));
-          }, 9000);
-        } else if (isTabHidden) {
-          playMessageChime();
-        }
-
-        // Native Windows desktop notification in the screen corner
+        // Desktop corner notification
         if ((isTabHidden || isDifferentPage) && typeof window !== "undefined" && "Notification" in window) {
           if (Notification.permission === "granted") {
             try {
@@ -433,10 +426,15 @@ export function ConnectGlobalNotifier() {
               const notif = new Notification(msg.senderName || "BRG Connect", msgOptions);
               notif.onclick = () => {
                 window.focus();
-                openMiniChat(msg.conversationId, msg.senderName || "Colleague");
+                setIsOpen(true);
+                setIsMinimized(false);
+                setActiveConvId(msg.conversationId);
+                setActiveConvName(msg.senderName || "Colleague");
+                setViewMode("chat");
+                loadMessages(msg.conversationId);
               };
             } catch (e) {
-              console.warn("[WebRTC] Native desktop message notification error:", e);
+              console.warn("[WebRTC] Native desktop notification error:", e);
             }
           }
         }
@@ -450,7 +448,7 @@ export function ConnectGlobalNotifier() {
     };
   }, [authUser?.id, pathname, router]);
 
-  // Handle Accept Call
+  // Handle Call Accept & Decline
   const handleAcceptCall = () => {
     if (!incomingCall) return;
     const { conversationId, callType } = incomingCall;
@@ -459,13 +457,11 @@ export function ConnectGlobalNotifier() {
     router.push(`/connect?conversationId=${conversationId}&autoAccept=true&callType=${callType || "audio"}`);
   };
 
-  // Handle Decline Call
   const handleDeclineCall = async () => {
     if (!incomingCall) return;
     const { conversationId } = incomingCall;
     stopRingtone();
     setIncomingCall(null);
-
     try {
       await fetch("/api/connect/calls/signal", {
         method: "POST",
@@ -477,20 +473,118 @@ export function ConnectGlobalNotifier() {
           senderName: authUser?.name,
         }),
       });
-    } catch {
-      // Ignored
+    } catch {}
+  };
+
+  // Start outgoing call from WhatsApp header
+  const handleStartCall = (type: "audio" | "video") => {
+    if (!activeConvId) return;
+    router.push(`/connect?conversationId=${activeConvId}&startCall=true&callType=${type}`);
+  };
+
+  // Send message
+  const handleSendMessage = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    const text = inputText.trim();
+    if (!text || !activeConvId || isSending) return;
+
+    const optimisticMsg: WhatsAppChatMessage = {
+      id: `m-opt-${Date.now()}`,
+      senderId: authUser?.id || "user-current",
+      senderName: authUser?.name || "Me",
+      body: text,
+      createdAt: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+      rawDate: new Date().toISOString(),
+      status: "sent",
+    };
+
+    setMessages((prev) => [...prev, optimisticMsg]);
+    setInputText("");
+    setIsSending(true);
+
+    try {
+      const res = await fetch(`/api/connect/conversations/${activeConvId}/messages`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          clientMsgId: `c-${Date.now()}`,
+          type: "TEXT",
+          bodyText: text,
+          senderId: authUser?.id || "user-current",
+          senderName: authUser?.name || "Me",
+        }),
+      });
+      const data = await res.json();
+      if (data?.success) {
+        setMessages((prev) =>
+          prev.map((m) => (m.id === optimisticMsg.id ? { ...m, status: "delivered" } : m))
+        );
+      }
+    } catch (err) {
+      console.warn("Failed to send message:", err);
+    } finally {
+      setIsSending(false);
     }
   };
 
-  const handleDismissToast = (id: string) => {
-    setToasts((prev) => prev.filter((t) => t.id !== id));
+  // File upload from paperclip
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !activeConvId) return;
+
+    setIsSending(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const upRes = await fetch("/api/connect/upload", {
+        method: "POST",
+        body: formData,
+      });
+      const upData = await upRes.json();
+      if (upData?.success && upData.url) {
+        await fetch(`/api/connect/conversations/${activeConvId}/messages`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            clientMsgId: `c-file-${Date.now()}`,
+            type: "FILE",
+            bodyText: file.name,
+            senderId: authUser?.id || "user-current",
+            senderName: authUser?.name || "Me",
+            attachments: [
+              {
+                url: upData.url,
+                name: file.name,
+                size: file.size,
+                mimeType: file.type,
+              },
+            ],
+          }),
+        });
+        loadMessages(activeConvId);
+      }
+    } catch (err) {
+      console.warn("File upload failed:", err);
+    } finally {
+      setIsSending(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
   };
+
+  // If already on /connect, do not show duplicate hover window
+  if (pathname === "/connect") {
+    return null;
+  }
+
+  const filteredConversations = conversations.filter((c) =>
+    c.name.toLowerCase().includes(convSearch.toLowerCase())
+  );
 
   return (
     <>
-      {/* 1. Desktop Notification Permission Prompt Banner in Screen Corner */}
+      {/* 1. Desktop Notification Permission Banner in Corner */}
       {notificationPermission === "default" && !hidePermissionBanner && (
-        <div className="fixed top-16 right-5 z-[9998] max-w-sm w-full rounded-xl border border-blue-500/40 bg-surface dark:bg-slate-900 p-3.5 shadow-2xl flex items-start gap-3 animate-in slide-in-from-top-4 duration-200">
+        <div className="fixed top-16 right-5 z-[99998] max-w-sm w-full rounded-xl border border-blue-500/40 bg-surface dark:bg-slate-900 p-3.5 shadow-2xl flex items-start gap-3 animate-in slide-in-from-top-4 duration-200">
           <div className="size-8 rounded-full bg-blue-100 dark:bg-blue-950 flex items-center justify-center shrink-0 text-blue-600 dark:text-blue-400">
             <Bell className="size-4 animate-bounce" />
           </div>
@@ -527,16 +621,13 @@ export function ConnectGlobalNotifier() {
         </div>
       )}
 
-      {/* 2. WhatsApp-Style Incoming Call Banner Overlay */}
+      {/* 2. Full Incoming Call Alert Modal */}
       {incomingCall && (
         <div className="fixed inset-0 z-[99999] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
           <div className="w-full max-w-sm rounded-2xl bg-slate-900 border border-slate-800 text-white p-6 shadow-2xl text-center space-y-6">
             <div className="relative mx-auto w-24 h-24 flex items-center justify-center">
-              {/* Outer Pulsing Rings */}
               <span className="absolute inset-0 rounded-full bg-emerald-500/20 animate-ping duration-1000" />
               <span className="absolute inset-2 rounded-full bg-emerald-500/30 animate-pulse" />
-
-              {/* Avatar Center */}
               <div className="relative w-20 h-20 rounded-full bg-gradient-to-tr from-emerald-600 to-teal-500 flex items-center justify-center text-white font-bold text-2xl shadow-lg border-2 border-emerald-400">
                 {incomingCall.callerName.slice(0, 2).toUpperCase()}
               </div>
@@ -560,7 +651,6 @@ export function ConnectGlobalNotifier() {
               <p className="text-xs text-slate-400">BRG Connect Enterprise</p>
             </div>
 
-            {/* Accept & Decline Buttons */}
             <div className="flex items-center justify-center gap-6 pt-2">
               <button
                 type="button"
@@ -588,255 +678,363 @@ export function ConnectGlobalNotifier() {
         </div>
       )}
 
-      {/* 3. Floating Quick-Reply Message Toasts (Hovering on current page) */}
-      {toasts.length > 0 && !activeMiniChat && (
-        <div className="fixed bottom-5 right-5 z-[9999] flex flex-col gap-3 max-w-sm w-full pointer-events-none">
-          {toasts.map((toast) => (
-            <div
-              key={toast.id}
-              className="pointer-events-auto bg-surface dark:bg-slate-900 border-2 border-blue-500/40 shadow-2xl rounded-2xl p-4 flex flex-col gap-2.5 transition-all hover:border-blue-500 animate-in slide-in-from-bottom-5 duration-200"
-            >
-              {/* Header */}
-              <div className="flex items-start justify-between gap-2.5">
-                <div className="flex items-center gap-2.5 min-w-0">
-                  <div className="size-8 rounded-full bg-gradient-to-tr from-blue-600 to-indigo-600 text-white font-bold text-xs flex items-center justify-center shrink-0 shadow-xs">
-                    {toast.senderName.slice(0, 2).toUpperCase()}
-                  </div>
-                  <div className="min-w-0">
-                    <span className="font-bold text-xs text-ink dark:text-white truncate block">
-                      {toast.senderName}
-                    </span>
-                    <span className="text-[10px] text-ink-muted">Just now</span>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-1">
-                  <button
-                    type="button"
-                    onClick={() => openMiniChat(toast.conversationId, toast.senderName)}
-                    className="p-1 rounded-md text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/60 transition cursor-pointer"
-                    title="Open on-page chat drawer"
-                  >
-                    <MessageCircle className="size-4" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleDismissToast(toast.id)}
-                    className="text-ink-muted hover:text-ink p-1 rounded-md transition cursor-pointer"
-                    aria-label="Dismiss"
-                  >
-                    <X className="size-3.5" />
-                  </button>
-                </div>
-              </div>
-
-              {/* Message snippet */}
-              <p className="text-xs text-ink-muted dark:text-slate-300 line-clamp-2 font-normal leading-relaxed pl-0.5">
-                {toast.body}
-              </p>
-
-              {/* Instant Quick Reply Row right on the toast */}
-              <div className="flex items-center gap-1.5 pt-1 border-t border-line/60">
-                <input
-                  type="text"
-                  value={toastReplyInputs[toast.id] || ""}
-                  onChange={(e) =>
-                    setToastReplyInputs((prev) => ({ ...prev, [toast.id]: e.target.value }))
-                  }
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      handleSendToastReply(toast);
-                    }
-                  }}
-                  placeholder="Quick reply without leaving page..."
-                  className="flex-1 h-7 text-[11px] px-2.5 rounded-lg border border-line bg-surface dark:bg-slate-950 text-ink placeholder:text-ink-muted focus:outline-none focus:ring-1 focus:ring-blue-500"
-                />
-                <button
-                  type="button"
-                  onClick={() => handleSendToastReply(toast)}
-                  disabled={!(toastReplyInputs[toast.id] || "").trim()}
-                  className="size-7 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white flex items-center justify-center transition cursor-pointer shadow-xs shrink-0"
-                  title="Send quick reply"
-                >
-                  <Send className="size-3" />
-                </button>
-              </div>
-
-              {/* Action Buttons */}
-              <div className="flex items-center justify-between text-[11px] pt-0.5">
-                <button
-                  type="button"
-                  onClick={() => openMiniChat(toast.conversationId, toast.senderName)}
-                  className="font-semibold text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1 cursor-pointer"
-                >
-                  <MessageSquare className="size-3" />
-                  <span>Open On-Page Chat</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => router.push(`/connect?conversationId=${toast.conversationId}`)}
-                  className="text-ink-muted hover:text-ink flex items-center gap-0.5 text-[10px] cursor-pointer"
-                >
-                  <span>Full Screen</span>
-                  <ExternalLink className="size-2.5" />
-                </button>
-              </div>
-            </div>
-          ))}
+      {/* 3. Floating WhatsApp Launcher (FAB) in the Screen Corner */}
+      {(!isOpen || isMinimized) && (
+        <div
+          className={`fixed z-[9999] pointer-events-auto transition-all ${
+            dockSide === "left" ? "bottom-5 left-5" : "bottom-5 right-5"
+          }`}
+        >
+          <button
+            type="button"
+            onClick={() => {
+              setIsOpen(true);
+              setIsMinimized(false);
+              if (activeConvId) {
+                loadMessages(activeConvId);
+              } else if (conversations.length > 0) {
+                openConversation(conversations[0].id, conversations[0].name);
+              } else {
+                loadConversations();
+              }
+            }}
+            className="relative size-13 rounded-full bg-[#25d366] hover:bg-[#20ba59] text-white shadow-2xl flex items-center justify-center hover:scale-105 active:scale-95 transition cursor-pointer group border-2 border-white dark:border-slate-800"
+            title="Open BRG Connect (WhatsApp On-Page Chat)"
+          >
+            <MessageCircle className="size-6 text-white" />
+            {unreadTotal > 0 && (
+              <span className="absolute -top-1 -right-1 size-5 rounded-full bg-rose-500 text-white font-bold text-[10px] flex items-center justify-center shadow-md animate-pulse">
+                {unreadTotal > 9 ? "9+" : unreadTotal}
+              </span>
+            )}
+          </button>
         </div>
       )}
 
-      {/* 4. Floating Mini Chat Window (Work on page & chat simultaneously) */}
-      {activeMiniChat && (
+      {/* 4. WhatsApp Hover Messenger (Pins on Left or Right of Screen Over Any Page) */}
+      {isOpen && !isMinimized && (
         <div
-          className={`fixed bottom-5 right-5 z-[9999] pointer-events-auto transition-all duration-200 ${
-            activeMiniChat.isMinimized
-              ? "w-auto"
-              : "w-80 sm:w-96 h-[440px] rounded-2xl bg-surface dark:bg-slate-900 border-2 border-line dark:border-slate-800 shadow-2xl flex flex-col overflow-hidden animate-in slide-in-from-bottom-5"
+          className={`fixed top-3 bottom-3 z-[99999] w-[370px] sm:w-[410px] max-w-[calc(100vw-24px)] rounded-2xl shadow-2xl border border-slate-300 dark:border-slate-800 bg-[#efeae2] dark:bg-[#0b141a] flex flex-col overflow-hidden animate-in duration-200 pointer-events-auto ${
+            dockSide === "left" ? "left-3 slide-in-from-left-5" : "right-3 slide-in-from-right-5"
           }`}
+          style={{
+            backgroundImage: `radial-gradient(currentColor 0.75px, transparent 0.75px)`,
+            backgroundSize: "16px 16px",
+          }}
         >
-          {activeMiniChat.isMinimized ? (
-            /* Minimized Pill Badge in Corner */
-            <div
-              onClick={() => setActiveMiniChat((prev) => (prev ? { ...prev, isMinimized: false } : null))}
-              className="flex items-center gap-2.5 px-3.5 py-2.5 rounded-full bg-blue-600 hover:bg-blue-700 text-white shadow-2xl cursor-pointer transition animate-in zoom-in-95 group"
-            >
-              <div className="relative">
-                <MessageCircle className="size-5" />
-                <span className="size-2 rounded-full bg-emerald-400 absolute -top-0.5 -right-0.5 animate-pulse" />
+          {/* Top Bar (WhatsApp Style) */}
+          <div className="h-14 px-3 bg-[#f0f2f5] dark:bg-[#202c33] border-b border-slate-200 dark:border-slate-700/80 flex items-center justify-between shrink-0 select-none">
+            <div className="flex items-center gap-2.5 min-w-0">
+              {viewMode === "chat" && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setViewMode("conversations");
+                    loadConversations();
+                  }}
+                  className="p-1 rounded-full hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 transition cursor-pointer"
+                  title="View All Chats"
+                >
+                  <ChevronLeft className="size-5" />
+                </button>
+              )}
+
+              {/* Avatar */}
+              <div className="relative size-9 rounded-full bg-gradient-to-tr from-emerald-600 to-teal-500 text-white font-bold text-xs flex items-center justify-center shrink-0 shadow-xs">
+                {activeConvName.slice(0, 2).toUpperCase() || "WA"}
+                <span className="size-2.5 rounded-full bg-emerald-400 border-2 border-white dark:border-slate-900 absolute -bottom-0.5 -right-0.5" />
               </div>
-              <span className="font-semibold text-xs truncate max-w-[150px]">
-                {activeMiniChat.senderName}
-              </span>
+
+              {/* Title & Status */}
+              <div className="min-w-0">
+                <h3 className="font-bold text-xs text-slate-900 dark:text-white truncate">
+                  {viewMode === "chat" ? activeConvName : "BRG Connect Chats"}
+                </h3>
+                <p className="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium flex items-center gap-1">
+                  <span className="size-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                  <span>{viewMode === "chat" ? "Online" : `${conversations.length} Active Chats`}</span>
+                </p>
+              </div>
+            </div>
+
+            {/* Header Action Icons */}
+            <div className="flex items-center gap-0.5 text-slate-600 dark:text-slate-300">
+              {viewMode === "chat" && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => handleStartCall("video")}
+                    className="p-1.5 rounded-full hover:bg-slate-200 dark:hover:bg-slate-700 hover:text-emerald-600 transition cursor-pointer"
+                    title="Start Video Call"
+                  >
+                    <Video className="size-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleStartCall("audio")}
+                    className="p-1.5 rounded-full hover:bg-slate-200 dark:hover:bg-slate-700 hover:text-emerald-600 transition cursor-pointer"
+                    title="Start Voice Call"
+                  >
+                    <Phone className="size-4" />
+                  </button>
+                </>
+              )}
+
+              {/* Dock Toggle: Left <-> Right */}
               <button
                 type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setActiveMiniChat(null);
+                onClick={() => {
+                  const nextSide = dockSide === "left" ? "right" : "left";
+                  setDockSide(nextSide);
+                  try {
+                    localStorage.setItem("brg_connect_dock_side", nextSide);
+                  } catch {}
                 }}
-                className="p-1 rounded-full hover:bg-white/20 transition cursor-pointer"
-                title="Close chat"
+                className="p-1.5 rounded-full hover:bg-slate-200 dark:hover:bg-slate-700 hover:text-slate-900 dark:text-slate-300 transition cursor-pointer"
+                title={`Dock to ${dockSide === "left" ? "Right" : "Left"} side`}
+              >
+                <ArrowLeftRight className="size-3.5" />
+              </button>
+
+              {/* Fullscreen into /connect */}
+              <button
+                type="button"
+                onClick={() => router.push(activeConvId ? `/connect?conversationId=${activeConvId}` : "/connect")}
+                className="p-1.5 rounded-full hover:bg-slate-200 dark:hover:bg-slate-700 hover:text-slate-900 dark:text-slate-300 transition cursor-pointer"
+                title="Open in Full Screen"
+              >
+                <ExternalLink className="size-3.5" />
+              </button>
+
+              {/* Minimize to FAB */}
+              <button
+                type="button"
+                onClick={() => setIsMinimized(true)}
+                className="p-1.5 rounded-full hover:bg-slate-200 dark:hover:bg-slate-700 hover:text-slate-900 dark:text-slate-300 transition cursor-pointer"
+                title="Minimize"
+              >
+                <Minus className="size-3.5" />
+              </button>
+
+              {/* Close */}
+              <button
+                type="button"
+                onClick={() => setIsOpen(false)}
+                className="p-1.5 rounded-full hover:bg-slate-200 dark:hover:bg-slate-700 hover:text-slate-900 dark:text-slate-300 transition cursor-pointer"
+                title="Close"
               >
                 <X className="size-3.5" />
               </button>
             </div>
-          ) : (
-            /* Full Floating Mini Chat Box */
-            <>
-              {/* Header */}
-              <div className="flex items-center justify-between px-3.5 py-2.5 bg-control/40 dark:bg-slate-950/80 border-b border-line">
-                <div className="flex items-center gap-2.5 min-w-0">
-                  <div className="size-8 rounded-full bg-gradient-to-tr from-blue-600 to-indigo-600 text-white font-bold text-xs flex items-center justify-center shrink-0 shadow-xs">
-                    {activeMiniChat.senderName.slice(0, 2).toUpperCase()}
-                  </div>
-                  <div className="min-w-0">
-                    <h4 className="font-bold text-xs text-ink dark:text-white truncate">
-                      {activeMiniChat.senderName}
-                    </h4>
-                    <p className="text-[10px] text-emerald-500 font-medium flex items-center gap-1">
-                      <span className="size-1.5 rounded-full bg-emerald-500 inline-block animate-ping" />
-                      <span>On-Page Live Chat</span>
-                    </p>
-                  </div>
-                </div>
+          </div>
 
-                <div className="flex items-center gap-1 text-ink-muted">
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setActiveMiniChat((prev) => (prev ? { ...prev, isMinimized: true } : null))
-                    }
-                    className="p-1 rounded hover:bg-control hover:text-ink transition cursor-pointer"
-                    title="Minimize to corner bubble"
-                  >
-                    <Minus className="size-3.5" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      router.push(`/connect?conversationId=${activeMiniChat.conversationId}`)
-                    }
-                    className="p-1 rounded hover:bg-control hover:text-ink transition cursor-pointer"
-                    title="Open Full Screen Chat"
-                  >
-                    <ExternalLink className="size-3.5" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setActiveMiniChat(null)}
-                    className="p-1 rounded hover:bg-control hover:text-ink transition cursor-pointer"
-                    title="Close chat"
-                  >
-                    <X className="size-3.5" />
-                  </button>
+          {/* Body Content */}
+          {viewMode === "conversations" ? (
+            /* WhatsApp Conversation List View */
+            <div className="flex-1 overflow-y-auto bg-white dark:bg-[#111b21] flex flex-col">
+              <div className="p-2.5 border-b border-slate-200 dark:border-slate-800 bg-[#f0f2f5] dark:bg-[#202c33]">
+                <div className="relative">
+                  <Search className="size-3.5 absolute left-3 top-2.5 text-slate-400" />
+                  <input
+                    type="text"
+                    value={convSearch}
+                    onChange={(e) => setConvSearch(e.target.value)}
+                    placeholder="Search colleagues or chats..."
+                    className="w-full h-8 pl-8 pr-3 text-xs rounded-lg bg-white dark:bg-[#2a3942] border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                  />
                 </div>
               </div>
 
-              {/* Messages Body */}
-              <div className="flex-1 overflow-y-auto p-3 space-y-2 bg-canvas/30 dark:bg-slate-950/40 text-xs">
-                {isMiniChatLoading ? (
-                  <div className="h-full flex flex-col items-center justify-center gap-2 text-ink-muted">
-                    <Loader2 className="size-5 animate-spin text-blue-600" />
-                    <span className="text-[11px]">Loading conversation...</span>
+              <div className="flex-1 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800/60">
+                {isLoadingConversations ? (
+                  <div className="h-40 flex flex-col items-center justify-center text-slate-400 gap-2">
+                    <Loader2 className="size-5 animate-spin text-emerald-600" />
+                    <span className="text-xs">Loading chats...</span>
                   </div>
-                ) : miniChatMessages.length === 0 ? (
-                  <div className="h-full flex flex-col items-center justify-center text-center p-4 text-ink-muted">
-                    <MessageSquare className="size-8 text-blue-500/40 mb-2" />
-                    <p className="font-medium text-xs">Start a conversation</p>
-                    <p className="text-[10px] mt-0.5">Send a quick reply without leaving this page</p>
+                ) : filteredConversations.length === 0 ? (
+                  <div className="h-40 flex flex-col items-center justify-center text-slate-400 text-center p-4">
+                    <MessageCircle className="size-8 text-slate-300 dark:text-slate-600 mb-1" />
+                    <p className="text-xs font-medium">No chats found</p>
                   </div>
                 ) : (
-                  miniChatMessages.map((m) => {
-                    const isMe = m.senderId === authUser?.id;
-                    return (
-                      <div
-                        key={m.id}
-                        className={`flex flex-col ${isMe ? "items-end" : "items-start"}`}
-                      >
-                        <div
-                          className={`max-w-[85%] rounded-2xl px-3 py-2 text-xs shadow-2xs ${
-                            isMe
-                              ? "bg-blue-600 text-white rounded-tr-xs"
-                              : "bg-surface dark:bg-slate-800 text-ink dark:text-slate-200 border border-line rounded-tl-xs"
-                          }`}
-                        >
-                          <p className="whitespace-pre-wrap break-words leading-relaxed">{m.body}</p>
-                          {m.createdAt && (
-                            <span
-                              className={`text-[9px] block text-right mt-1 opacity-75 font-mono`}
-                            >
-                              {m.createdAt}
+                  filteredConversations.map((conv) => (
+                    <div
+                      key={conv.id}
+                      onClick={() => openConversation(conv.id, conv.name)}
+                      className={`flex items-center gap-3 p-3 hover:bg-[#f5f6f6] dark:hover:bg-[#202c33] cursor-pointer transition ${
+                        activeConvId === conv.id ? "bg-[#f0f2f5] dark:bg-[#202c33]" : ""
+                      }`}
+                    >
+                      <div className="size-10 rounded-full bg-gradient-to-tr from-emerald-600 to-teal-500 text-white font-bold text-xs flex items-center justify-center shrink-0 shadow-xs">
+                        {conv.name.slice(0, 2).toUpperCase()}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between">
+                          <h4 className="font-semibold text-xs text-slate-900 dark:text-white truncate">
+                            {conv.name}
+                          </h4>
+                          {conv.lastMessage?.createdAt && (
+                            <span className="text-[10px] text-slate-400 font-mono">
+                              {new Date(conv.lastMessage.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                             </span>
                           )}
                         </div>
+                        <div className="flex items-center justify-between mt-0.5">
+                          <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate max-w-[200px]">
+                            {conv.lastMessage?.body || "Tap to chat"}
+                          </p>
+                          {conv.unreadCount && conv.unreadCount > 0 ? (
+                            <span className="size-4.5 rounded-full bg-[#25d366] text-white font-bold text-[9px] flex items-center justify-center shrink-0">
+                              {conv.unreadCount}
+                            </span>
+                          ) : null}
+                        </div>
                       </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          ) : (
+            /* WhatsApp Chat Message View */
+            <>
+              <div className="flex-1 overflow-y-auto p-3 space-y-2.5 text-xs">
+                {isLoadingMessages ? (
+                  <div className="h-full flex flex-col items-center justify-center gap-2 text-slate-500">
+                    <Loader2 className="size-5 animate-spin text-emerald-600" />
+                    <span className="text-[11px]">Loading messages...</span>
+                  </div>
+                ) : messages.length === 0 ? (
+                  <div className="h-full flex flex-col items-center justify-center text-center p-4 text-slate-500">
+                    <MessageSquare className="size-8 text-emerald-600/40 mb-2" />
+                    <p className="font-semibold text-xs text-slate-700 dark:text-slate-300">
+                      Chat with {activeConvName}
+                    </p>
+                    <p className="text-[11px] mt-0.5 text-slate-500">
+                      Send a message without leaving your active work page
+                    </p>
+                  </div>
+                ) : (
+                  messages.map((m, idx) => {
+                    const isMe = m.senderId === authUser?.id;
+                    const prevMsg = idx > 0 ? messages[idx - 1] : null;
+                    const dateLabel = getMessageDateLabel(m.rawDate);
+                    const prevDateLabel = prevMsg ? getMessageDateLabel(prevMsg.rawDate) : null;
+                    const showDateHeader = !prevMsg || dateLabel !== prevDateLabel;
+
+                    const isCallLog =
+                      m.type === "CALL_LOG" ||
+                      m.body.toLowerCase().includes("voice call") ||
+                      m.body.toLowerCase().includes("video call");
+
+                    return (
+                      <React.Fragment key={m.id}>
+                        {/* Centered WhatsApp Date Header Pill */}
+                        {showDateHeader && (
+                          <div className="flex justify-center my-2">
+                            <span className="rounded-md bg-white/90 dark:bg-slate-800 text-[11px] font-medium text-slate-600 dark:text-slate-300 px-3 py-0.5 shadow-2xs border border-slate-200/50 dark:border-slate-700/50 select-none">
+                              {dateLabel}
+                            </span>
+                          </div>
+                        )}
+
+                        <div className={`flex flex-col ${isMe ? "items-end" : "items-start"}`}>
+                          {isCallLog ? (
+                            /* WhatsApp Voice / Video Call Card */
+                            <div className="bg-white/95 dark:bg-[#1f2c34] border border-slate-200/80 dark:border-slate-700/80 rounded-xl p-3 shadow-xs space-y-1 max-w-[85%]">
+                              <div className="flex items-center gap-2.5">
+                                <div className="size-8 rounded-full bg-emerald-100 dark:bg-emerald-950 flex items-center justify-center text-emerald-600 dark:text-emerald-400 shrink-0">
+                                  <Phone className="size-4" />
+                                </div>
+                                <div className="min-w-0">
+                                  <p className="font-bold text-xs text-slate-900 dark:text-white">Voice call</p>
+                                  <p className="text-[10px] text-slate-500 dark:text-slate-400">Accepted on another device</p>
+                                </div>
+                              </div>
+                              {m.createdAt && (
+                                <span className="text-[9px] text-slate-400 block text-right font-mono">
+                                  {m.createdAt}
+                                </span>
+                              )}
+                            </div>
+                          ) : (
+                            /* Standard WhatsApp Speech Bubble */
+                            <div
+                              className={`max-w-[85%] px-3 py-2 text-xs shadow-xs transition-all ${
+                                isMe
+                                  ? "bg-[#d9fdd3] dark:bg-[#005c4b] text-[#111b21] dark:text-[#e9edef] rounded-2xl rounded-tr-xs ml-auto"
+                                  : "bg-white dark:bg-[#202c33] text-[#111b21] dark:text-[#e9edef] rounded-2xl rounded-tl-xs mr-auto border border-slate-200/60 dark:border-slate-700/60"
+                              }`}
+                            >
+                              {!isMe && (
+                                <span className="text-[10px] font-bold text-emerald-700 dark:text-emerald-400 block mb-0.5">
+                                  {m.senderName}
+                                </span>
+                              )}
+                              <p className={`whitespace-pre-wrap break-words leading-relaxed ${
+                                m.deletedAt ? "italic text-slate-500 dark:text-slate-400" : ""
+                              }`}>
+                                {m.body}
+                              </p>
+
+                              {/* Footer Timestamp & Status */}
+                              <div className="flex items-center justify-end gap-1 mt-1 select-none">
+                                {m.createdAt && (
+                                  <span className="text-[9px] text-slate-500 dark:text-slate-400 font-mono">
+                                    {m.createdAt}
+                                  </span>
+                                )}
+                                {isMe && (
+                                  <CheckCheck className="size-3 text-[#53bdeb] inline shrink-0" />
+                                )}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </React.Fragment>
                     );
                   })
                 )}
-                <div ref={miniChatEndRef} />
+                <div ref={messagesEndRef} />
               </div>
 
-              {/* Quick Reply Form Footer */}
+              {/* WhatsApp Input Bar Footer */}
               <form
-                onSubmit={handleSendMiniChatMessage}
-                className="p-2.5 bg-surface dark:bg-slate-900 border-t border-line flex items-center gap-2"
+                onSubmit={handleSendMessage}
+                className="p-2.5 bg-[#f0f2f5] dark:bg-[#202c33] border-t border-slate-200 dark:border-slate-700/80 flex items-center gap-2 shrink-0 select-none"
               >
                 <input
-                  type="text"
-                  value={miniChatInput}
-                  onChange={(e) => setMiniChatInput(e.target.value)}
-                  placeholder="Type a message... (Enter to send)"
-                  disabled={isMiniChatSending}
-                  className="flex-1 h-9 px-3 text-xs rounded-xl border border-line bg-canvas dark:bg-slate-950 text-ink placeholder:text-ink-muted focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  type="file"
+                  ref={fileInputRef}
+                  onChange={handleFileUpload}
+                  className="hidden"
                 />
                 <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={isSending}
+                  className="p-2 rounded-full hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 transition cursor-pointer shrink-0"
+                  title="Attach file"
+                >
+                  <Paperclip className="size-4" />
+                </button>
+
+                <input
+                  type="text"
+                  value={inputText}
+                  onChange={(e) => setInputText(e.target.value)}
+                  placeholder="Type a message... (Enter to send)"
+                  disabled={isSending}
+                  className="flex-1 h-9 px-4 text-xs sm:text-sm rounded-full bg-white dark:bg-[#2a3942] border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-emerald-500 shadow-2xs"
+                />
+
+                <button
                   type="submit"
-                  disabled={!miniChatInput.trim() || isMiniChatSending}
-                  className="size-9 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white flex items-center justify-center transition cursor-pointer shadow-xs shrink-0"
+                  disabled={!inputText.trim() || isSending}
+                  className="size-9 rounded-full bg-[#00a884] hover:bg-[#008f6f] disabled:opacity-40 text-white flex items-center justify-center transition cursor-pointer shadow-md shrink-0 active:scale-95"
                   title="Send message"
                 >
-                  {isMiniChatSending ? (
+                  {isSending ? (
                     <Loader2 className="size-4 animate-spin" />
                   ) : (
                     <Send className="size-4" />
