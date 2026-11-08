@@ -12,7 +12,7 @@ import { featureForPath, grantsAllow, grantsAllowInModule, PERMISSION_ADMIN_FEAT
  */
 
 /** Modules (navigation ids) whose pages read shared lookups. */
-type ModuleId = "purchase" | "inventory" | "production" | "sales" | "account" | "hrm" | "configuration";
+type ModuleId = "purchase" | "inventory" | "production" | "sales" | "account" | "hrm" | "configuration" | "rtm";
 
 export interface ApiRule {
   /** Page whose permission writes (and, unless `read` says otherwise, reads) need. */
@@ -169,6 +169,13 @@ export const API_RULES: Record<string, ApiRule> = {
   "/api/v1/purchase/supplier-bills": { feature: "/purchase/supplier-payments" },
   // Approving bills releases them for payment.
   "/api/v1/purchase/supplier-bills/approve-pending": { feature: "/purchase/supplier-payments", action: "approve" },
+
+  // ── RTM (/api/rtm/<page>/… maps to its page automatically) ──
+  "/api/rtm/lookups": { read: { anyViewIn: ["rtm"] } },
+  "/api/rtm/stock": { read: { anyViewIn: ["rtm"] } },
+  // Issuing moves stock that was already approved: the Issue page edits the transfer.
+  "/api/rtm/distributor-stock-transfer-issue/*/issue": { feature: "/rtm/distributor-stock-transfer-issue", action: "edit" },
+  "/api/rtm/retail-order/*/cancel": { feature: "/rtm/retail-order", action: "edit" },
 
   // ── Inventory (/api/inventory/<page>/… maps to its page automatically) ──
   "/api/inventory/stock": { read: { anyViewIn: ["inventory"] } },
