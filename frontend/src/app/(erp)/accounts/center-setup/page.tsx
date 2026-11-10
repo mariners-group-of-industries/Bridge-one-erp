@@ -5,15 +5,11 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
-  Edit2,
   Eye,
-  FileSpreadsheet,
   Inbox,
   Pencil,
   Plus,
-  Printer,
   Search,
-  Trash2,
 } from "lucide-react";
 import { ModalDialog } from "@/components/purchase/ModalDialog";
 import { useAccountingStore } from "@/features/accounts/store/accounting-store";
@@ -44,8 +40,8 @@ export default function CenterSetupPage() {
 
   // Modal dialog states
   const [isCreateOpen, setIsCreateOpen] = useState(false);
-  const [editTarget, setEditTarget] = useState<CostCenterItem | null>(null);
-  const [viewTarget, setViewTarget] = useState<CostCenterItem | null>(null);
+  const [, setEditTarget] = useState<CostCenterItem | null>(null);
+  const [, setViewTarget] = useState<CostCenterItem | null>(null);
 
   // Create Form State
   const [createForm, setCreateForm] = useState({

@@ -43,7 +43,7 @@ export async function fetchApi<T>(
       if (errData?.error?.message) {
         errMessage = errData.error.message;
       }
-    } catch (_) {}
+    } catch {}
     throw new Error(errMessage);
   }
 

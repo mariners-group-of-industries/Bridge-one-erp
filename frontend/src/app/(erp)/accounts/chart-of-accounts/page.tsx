@@ -1,42 +1,23 @@
 "use client";
 
 import React, { useMemo, useState } from "react";
-import Link from "next/link";
 import {
   AlertCircle,
-  Check,
-  CheckCircle2,
-  ChevronDown,
-  ChevronRight,
   Download,
-  Edit2,
-  FileSpreadsheet,
   FileText,
   Folder,
-  FolderOpen,
-  FolderPlus,
-  HelpCircle,
-  Key,
-  Layers,
   MinusSquare,
   Pencil,
   Plus,
-  PlusCircle,
   PlusSquare,
   Printer,
-  RotateCcw,
-  Search,
-  Shield,
-  ShieldCheck,
   Trash2,
   Upload,
   User,
-  UserCheck,
-  X,
 } from "lucide-react";
 import { ModalDialog } from "@/components/purchase/ModalDialog";
 import { useAccountingStore } from "@/features/accounts/store/accounting-store";
-import type { AccountItem, AccountType, CoaPermissionItem, NormalBalance } from "@/features/accounts/types";
+import type { AccountItem, AccountType, NormalBalance } from "@/features/accounts/types";
 
 export default function ChartOfAccountsPage() {
   const accounts = useAccountingStore((s) => s.accounts);
@@ -110,7 +91,7 @@ export default function ChartOfAccountsPage() {
   });
 
   const [errorMessage, setErrorMessage] = useState("");
-  const [successMessage, setSuccessMessage] = useState("");
+  const [, setSuccessMessage] = useState("");
 
   // Toggle tree node expansion
   const toggleTreeNode = (code: string) => {

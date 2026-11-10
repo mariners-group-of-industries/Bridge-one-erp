@@ -17,6 +17,9 @@ import {
   ChevronRight,
 } from "lucide-react";
 
+/** A random counter token; called from the "Generate Token" button only. */
+const randomToken = () => "TKN-" + Math.random().toString(36).substring(2, 10).toUpperCase();
+
 type CounterTab = "COUNTER_SETUP" | "MESSAGE_SETUP" | "CURRENCY_NOTE_SETUP" | "SEQUENCE_SETUP";
 
 type SequenceSubTab =
@@ -378,7 +381,7 @@ export function CounterSetupSection({ onBack }: CounterSetupSectionProps) {
 
   // Generate Token
   const handleGenerateToken = (id: string) => {
-    const generatedToken = "TKN-" + Math.random().toString(36).substring(2, 10).toUpperCase();
+    const generatedToken = randomToken();
     // Shown for this session only; counter tokens are not stored yet.
     setTokens({ ...tokens, [id]: generatedToken });
     showToast(`Token generated: ${generatedToken}`);

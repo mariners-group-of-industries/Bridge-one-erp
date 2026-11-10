@@ -10,9 +10,6 @@ import {
   Search,
   Upload,
   Download,
-  Plus,
-  ChevronLeft,
-  ChevronRight,
   Printer,
   Eye,
   FileSpreadsheet,
@@ -122,8 +119,7 @@ export default function TransferPage() {
   const [toDate, setToDate] = useState(today());
 
   // Pagination
-  const [rowsPerPage, setRowsPerPage] = useState(20);
-  const [page, setPage] = useState(1);
+  const [, setPage] = useState(1);
 
   // Transfers of the period and approved requests waiting to be sent.
   const [period, setPeriod] = useState({ from: fromDate, to: toDate });

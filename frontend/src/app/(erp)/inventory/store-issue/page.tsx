@@ -11,7 +11,6 @@ import {
   Eye,
   ChevronLeft,
   ChevronRight,
-  X,
   FileSpreadsheet,
 } from "lucide-react";
 

@@ -12,9 +12,6 @@ import {
   Plus,
   Printer,
   Eye,
-  ChevronLeft,
-  ChevronRight,
-  X,
   FileSpreadsheet,
 } from "lucide-react";
 
@@ -133,8 +130,7 @@ export default function GateInOutPage() {
   const [isDetails, setIsDetails] = useState(false);
 
   // Pagination
-  const [rowsPerPage, setRowsPerPage] = useState(50);
-  const [page, setPage] = useState(1);
+  const [, setPage] = useState(1);
 
   // Modal State for "+ Create Get In Out"
   const [isCreateOpen, setIsCreateOpen] = useState(false);

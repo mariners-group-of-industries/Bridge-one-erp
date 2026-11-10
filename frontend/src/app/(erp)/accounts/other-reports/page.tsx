@@ -5,17 +5,10 @@ import Image from "next/image";
 import {
   ChevronDown,
   Download,
-  FileSpreadsheet,
-  FileText,
-  Inbox,
   Printer,
-  Search,
 } from "lucide-react";
-import { useAccountingStore } from "@/features/accounts/store/accounting-store";
 
 export default function OtherReportsPage() {
-  const vouchers = useAccountingStore((s) => s.vouchers);
-  const expenses = useAccountingStore((s) => s.expenses);
 
   // Filters from Screenshot 4
   const [viewBy, setViewBy] = useState("AIT and Tax Register Report");
@@ -126,13 +119,6 @@ export default function OtherReportsPage() {
     () =>
       taxTransactions
         .filter((t) => t.status === "DEPOSITED")
-        .reduce((s, t) => s + t.withholdingTax, 0),
-    [taxTransactions],
-  );
-  const totalPending = useMemo(
-    () =>
-      taxTransactions
-        .filter((t) => t.status === "PENDING_DEPOSIT")
         .reduce((s, t) => s + t.withholdingTax, 0),
     [taxTransactions],
   );

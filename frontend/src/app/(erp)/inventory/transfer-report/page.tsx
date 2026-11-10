@@ -8,14 +8,6 @@ import {
   Search,
   Download,
   Printer,
-  ChevronLeft,
-  ChevronRight,
-  Truck,
-  ArrowRightLeft,
-  PackageCheck,
-  Building2,
-  Calendar,
-  X,
 } from "lucide-react";
 
 // ============================================================================
@@ -173,7 +165,7 @@ export default function TransferReportPage() {
   // Filter criteria
   const [searchTerm, setSearchTerm] = useState("");
   const [fromOffice, setFromOffice] = useState("All Offices");
-  const [toOffice, setToOffice] = useState("All Offices");
+  const [toOffice] = useState("All Offices");
   const [fromWarehouse, setFromWarehouse] = useState("All Warehouses");
   const [toWarehouse, setToWarehouse] = useState("All Warehouses");
   const [fromDate, setFromDate] = useState(monthAgo());
@@ -188,8 +180,7 @@ export default function TransferReportPage() {
   const WAREHOUSE_OPTIONS = distinct("All Warehouses", transfers.flatMap((d) => [d.warehouse?.name ?? "", d.toWarehouse?.name ?? ""]));
 
   // Pagination
-  const [page, setPage] = useState(1);
-  const [rowsPerPage, setRowsPerPage] = useState(20);
+  const [, setPage] = useState(1);
 
   // Filter Transfer Out Data
   const filteredTransferOut = useMemo(() => {
@@ -264,7 +255,6 @@ export default function TransferReportPage() {
       ? filteredReceived.length
       : filteredInTransit.length;
 
-  const totalPages = Math.ceil(currentCount / rowsPerPage) || 1;
 
   // Format Date for report display
   const formatDateDisplay = (d: string) => {

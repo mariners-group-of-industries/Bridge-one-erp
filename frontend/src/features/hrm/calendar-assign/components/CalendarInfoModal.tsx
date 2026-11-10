@@ -13,7 +13,6 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { CALENDAR_DEFINITIONS } from "../constants";
-import type { CalendarDefinition } from "../types";
 
 interface CalendarInfoModalProps {
   open: boolean;

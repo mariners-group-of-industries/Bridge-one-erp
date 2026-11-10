@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useMemo, useState, type ReactNode } from "react";
 import { PageContainer, PageHead } from "@/components/layout/page";
 import { Button, buttonClasses } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/form-field";
 import { ErrorState, LoadingState } from "@/components/ui/section";
 import { useToast } from "@/components/ui/toast";
 import { useResource } from "@/hooks/use-resource";
@@ -164,6 +165,8 @@ function PermissionForm({
     () => new Set(access.overrides.filter((o) => o.effect === "ALLOW" && isMatrixAction(o.action)).map((o) => cellKey(o.featureKey, o.action))),
   );
   const [businessIds, setBusinessIds] = useState<string[]>(org.businessUnitIds);
+  // New logins start without ERP access; permissions do nothing until it is on.
+  const [erpAccess, setErpAccess] = useState(access.user.erpAccess);
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const readOnly = !access.editable.access;
@@ -217,7 +220,7 @@ function PermissionForm({
         const [featureKey, action] = key.split("|") as [string, MatrixAction];
         return { featureKey, action, effect: "ALLOW" };
       });
-      await userAccessApi.update(access.user.id, { erpAccess: access.user.erpAccess, status: access.user.status, groupIds: access.groupIds, overrides: [...kept, ...allows] });
+      await userAccessApi.update(access.user.id, { erpAccess, status: access.user.status, groupIds: access.groupIds, overrides: [...kept, ...allows] });
       const businessChanged = businessIds.length !== org.businessUnitIds.length || businessIds.some((id) => !org.businessUnitIds.includes(id));
       if (businessChanged) await personalInfoApi.updateOrgAccess(employeeId, { ...org, businessUnitIds: businessIds });
       toast.success("Permissions saved. They apply from the employee's next action.");
@@ -255,6 +258,22 @@ function PermissionForm({
   return (
     <>
       {readOnly && <Notice tone="error">{access.editable.reason ?? "You can view these permissions but not change them."}</Notice>}
+      <label className="flex w-fit items-center gap-2 text-sm">
+        <Checkbox
+          tone="accent"
+          checked={erpAccess}
+          disabled={readOnly}
+          onChange={(e) => {
+            setErpAccess(e.target.checked);
+            setDirty(true);
+          }}
+        />
+        <span className="font-semibold text-ink">ERP access</span>
+        <span className="text-xs text-ink-faint">The employee can sign in to the ERP.</span>
+      </label>
+      {!erpAccess && (
+        <Notice tone="error">ERP access is off, so this employee cannot sign in and these permissions have no effect. Tick ERP access and save.</Notice>
+      )}
       {activeGroups.length > 0 && (
         <p className="text-xs text-ink-muted">
           Permission groups: <span className="font-semibold text-ink">{activeGroups.map((g) => g.name).join(", ")}</span>. What they grant is shaded green and applies even when unticked here.

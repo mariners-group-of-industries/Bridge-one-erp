@@ -11,8 +11,6 @@ import {
   Building,
   Calendar,
   Layers,
-  TrendingUp,
-  FileText,
   DollarSign,
   Package,
   ShieldCheck,

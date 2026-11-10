@@ -3,22 +3,15 @@
 import React, { useMemo, useState } from "react";
 import Link from "next/link";
 import {
-  ArrowDownRight,
-  ArrowUpRight,
   Banknote,
   BookOpen,
-  Calendar,
   CheckCircle2,
   ChevronRight,
   Clock,
   DollarSign,
-  FileSpreadsheet,
   FileText,
-  Filter,
-  Layers,
   PieChart as PieChartIcon,
   Plus,
-  RefreshCw,
   Scale,
   ShieldCheck,
   TrendingDown,
@@ -31,10 +24,7 @@ import {
   Bar,
   BarChart,
   CartesianGrid,
-  Cell,
   Legend,
-  Pie,
-  PieChart,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -60,9 +50,6 @@ export default function AccountDashboardPage() {
 
   const getDashboardKPIs = useAccountingStore((s) => s.getDashboardKPIs);
   const vouchers = useAccountingStore((s) => s.vouchers);
-  const expenses = useAccountingStore((s) => s.expenses);
-  const transfers = useAccountingStore((s) => s.transfers);
-  const costCenters = useAccountingStore((s) => s.costCenters);
 
   const kpis = useMemo(() => getDashboardKPIs(), [getDashboardKPIs]);
 
@@ -75,39 +62,6 @@ export default function AccountDashboardPage() {
 
   const recentVouchers = useMemo(() => vouchers.slice(0, 6), [vouchers]);
 
-  const pendingApprovals = useMemo(() => {
-    const pendingV = vouchers
-      .filter((v) => v.status === "PENDING" || v.status === "DRAFT")
-      .map((v) => ({
-        id: v.id,
-        title: `Voucher ${v.voucherNumber}`,
-        subtitle: `${v.journalType} • ${v.officeName}`,
-        amount: v.totalDebit,
-        href: "/accounts/journal",
-        type: "Voucher",
-      }));
-    const pendingE = expenses
-      .filter((e) => e.status === "PENDING")
-      .map((e) => ({
-        id: e.id,
-        title: `Expense ${e.expenseNumber}`,
-        subtitle: `${e.expenseType} • ${e.payeeName}`,
-        amount: e.amount,
-        href: "/accounts/expenses",
-        type: "Expense",
-      }));
-    const pendingT = transfers
-      .filter((t) => t.status === "PENDING_APPROVAL" || t.status === "IN_TRANSIT")
-      .map((t) => ({
-        id: t.id,
-        title: `Transfer ${t.transferNumber}`,
-        subtitle: `${t.fromOfficeName} → ${t.toOfficeName}`,
-        amount: t.requestedAmount,
-        href: "/accounts/fund-transfers",
-        type: "Transfer",
-      }));
-    return [...pendingV, ...pendingE, ...pendingT].slice(0, 6);
-  }, [vouchers, expenses, transfers]);
 
   return (
     <div className="space-y-3 font-sans pb-12">

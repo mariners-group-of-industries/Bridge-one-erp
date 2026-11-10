@@ -2,15 +2,11 @@
 
 import { useState, useRef, useEffect } from "react";
 import {
-  CalendarDays,
-  Clock,
   ChevronDown,
   Info,
-  Check,
-  AlertCircle,
   RefreshCw,
 } from "lucide-react";
-import type { EmployeeRosterItem, RosterGridData, CalendarDefinition } from "../types";
+import type { EmployeeRosterItem, RosterGridData } from "../types";
 import { CALENDAR_DEFINITIONS, CALENDAR_CODE_MAP } from "../constants";
 
 interface DateInfo {
