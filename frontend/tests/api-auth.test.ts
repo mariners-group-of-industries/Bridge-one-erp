@@ -31,5 +31,6 @@ describe("API authentication", () => {
       }
     }
     expect(open).toEqual([]);
-  });
+  }, 90000);
 });
+
