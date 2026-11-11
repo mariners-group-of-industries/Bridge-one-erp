@@ -26,7 +26,7 @@ export function ApprovalListView() {
   const toast = useToast();
   const [searchText, setSearchText] = useState("");
   const [search, setSearch] = useState("");
-  const [pageSize, setPageSize] = useState<number>(25);
+  const [pageSize, setPageSize] = useState<number>(50);
   const [paging, setPaging] = useState({ page: 1, search: "" });
   const page = paging.search === search ? paging.page : 1;
   const list = useResource(`approval-pipelines?${search}&p=${page}&s=${pageSize}`, () => approvalApi.list({ search, page, pageSize }));
@@ -60,7 +60,7 @@ export function ApprovalListView() {
                   type="search"
                   value={searchText}
                   maxLength={100}
-                  placeholder="Pipeline, feature or approver… (Enter)"
+                  placeholder="Search pipeline…"
                   onChange={(event) => {
                     setSearchText(event.target.value);
                     if (event.target.value === "") setSearch("");
@@ -70,7 +70,7 @@ export function ApprovalListView() {
               </label>
             </form>
             <Link href={securityPaths.approvalNew} className={buttonClasses("accent", "md")}>
-              <Plus /> Add Approval Setup
+              <Plus /> Approval Setup
             </Link>
           </>
         }
@@ -88,7 +88,7 @@ export function ApprovalListView() {
                 "Try a different search."
               ) : (
                 <Link href={securityPaths.approvalNew} className={buttonClasses("accent", "sm", "mt-3")}>
-                  <Plus /> Add Approval Setup
+                  <Plus /> Approval Setup
                 </Link>
               )}
             </EmptyBlock>
@@ -205,24 +205,33 @@ function PipelineViewDialog({ row, onClose }: { row: PipelineRow | null; onClose
         <div className="flex flex-col gap-4">
           <dl className="grid grid-cols-1 gap-3 rounded border border-line bg-canvas px-4 py-3 sm:grid-cols-2 lg:grid-cols-3">
             <Detail label="Pipeline Name">{data.name}</Detail>
+            <Detail label="Module">{data.module || "—"}</Detail>
             <Detail label="Approval Feature">{data.feature}</Detail>
             <Detail label="User Type">{labelOf(USER_TYPES, data.userType)}</Detail>
             <Detail label="Super Approver">{data.superApproverName ?? "—"}</Detail>
             <Detail label="Remarks">{data.remarks || "N/A"}</Detail>
+            <Detail label="Applied">
+              {[data.isOfficeWise && "Office wise", data.isTerritoryWise && "Territory wise", data.isItemCategoryWise && "Item category wise"].filter(Boolean).join(", ") || "All documents"}
+            </Detail>
           </dl>
           {data.stages.map((stage) => (
             <section key={stage.id} aria-label={`Stage ${stage.stageNo}`} className="rounded border border-line">
               <h3 className="border-b border-line bg-canvas px-4 py-2 text-sm font-semibold text-ink">Stage {stage.stageNo}</h3>
-              <dl className="grid grid-cols-1 gap-3 px-4 py-3 sm:grid-cols-3">
+              <dl className="grid grid-cols-1 gap-3 px-4 py-3 sm:grid-cols-2 lg:grid-cols-4">
                 <Detail label="Stage Name">{stage.name}</Detail>
                 <Detail label="Approval Order">{labelOf(APPROVAL_ORDERS, stage.approvalOrder)}</Detail>
                 <Detail label="Number of Person">{stage.requiredCount}</Detail>
+                {stage.allowThreshold && (
+                  <Detail label="Amount Threshold">
+                    {stage.thresholdMin} – {stage.thresholdMax || "No limit"}
+                  </Detail>
+                )}
               </dl>
               <div className={cn(TABLE.wrap, "mx-4 mb-4")}>
                 <table className={TABLE.table}>
                   <thead className={TABLE.head}>
                     <tr>
-                      {["SL", "User Type", "Approver Name", "Authorization Type"].map((h) => (
+                      {["SL", "User Type", "Business Unit", "Approver Name", "Authorization Type"].map((h) => (
                         <th key={h} scope="col" className={TABLE.th}>
                           {h}
                         </th>
@@ -234,6 +243,7 @@ function PipelineViewDialog({ row, onClose }: { row: PipelineRow | null; onClose
                       <tr key={a.id} className={TABLE.row}>
                         <td className={`${TABLE.td} w-12 text-right tabular-nums`}>{index + 1}</td>
                         <td className={TABLE.td}>{labelOf(USER_TYPES, a.userType)}</td>
+                        <td className={TABLE.td}>{a.businessUnitName ?? "All"}</td>
                         <td className={`${TABLE.td} font-medium`}>{a.approverName}</td>
                         <td className={TABLE.td}>{labelOf(AUTHORIZATION_TYPES, a.authorizationType)}</td>
                       </tr>

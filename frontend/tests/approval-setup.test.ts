@@ -120,4 +120,35 @@ describe("approval setup", () => {
     expect((await getApprovalFormOptions(outsider)).employees).toEqual([]);
     await expect(createPipeline(outsider, input({ name: "Y" }))).rejects.toBeInstanceOf(AppError);
   });
+  it("stores module, scope flags and stage thresholds; derives the module when omitted", async () => {
+    const created = await createPipeline(
+      adminActor,
+      input({
+        module: "Purchase",
+        isOfficeWise: true,
+        isItemCategoryWise: true,
+        stages: [{ name: "Big orders", approvalOrder: "SEQUENTIAL", requiredCount: 2, allowThreshold: true, thresholdMin: "100000", thresholdMax: "", approvers: [approver(helalId), approver(alAminId)] }],
+      }),
+    );
+    expect(created).toMatchObject({
+      module: "Purchase",
+      isOfficeWise: true,
+      isTerritoryWise: false,
+      isItemCategoryWise: true,
+      stages: [{ allowThreshold: true, thresholdMin: "100000.00", thresholdMax: "" }],
+    });
+    expect((await listPipelines(adminActor, {})).rows[0]).toMatchObject({ module: "Purchase" });
+
+    const derived = await createPipeline(adminActor, input({ name: "Journal", feature: "Journal Voucher" }));
+    expect(derived.module).toBe("Accounts");
+
+    // The feature must belong to the chosen module, and min ≤ max.
+    await expect(createPipeline(adminActor, input({ name: "X", module: "Sales", feature: "Purchase Order" }))).rejects.toThrow();
+    await expect(
+      createPipeline(
+        adminActor,
+        input({ name: "Z", stages: [{ name: "S", approvalOrder: "ANY", requiredCount: 1, allowThreshold: true, thresholdMin: "500", thresholdMax: "100", approvers: [approver(helalId)] }] }),
+      ),
+    ).rejects.toThrow();
+  });
 });
