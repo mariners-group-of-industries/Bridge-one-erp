@@ -1,9 +1,10 @@
 import type { Metadata } from "next";
-import { RtmPagePlaceholder } from "@/features/rtm/components/RtmPagePlaceholder";
+import { DeliveryView } from "@/features/rtm/views/sales";
 import { delivery } from "@/features/rtm/navigation";
 
+export const instant = false;
 export const metadata: Metadata = { title: delivery.label };
 
 export default function DeliveryPage() {
-  return <RtmPagePlaceholder page={delivery} />;
+  return <DeliveryView />;
 }

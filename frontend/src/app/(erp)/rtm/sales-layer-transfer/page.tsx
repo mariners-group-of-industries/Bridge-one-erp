@@ -1,9 +1,10 @@
 import type { Metadata } from "next";
-import { RtmPagePlaceholder } from "@/features/rtm/components/RtmPagePlaceholder";
+import { SalesLayerTransferView } from "@/features/rtm/views/field";
 import { salesLayerTransfer } from "@/features/rtm/navigation";
 
+export const instant = false;
 export const metadata: Metadata = { title: salesLayerTransfer.label };
 
 export default function SalesLayerTransferPage() {
-  return <RtmPagePlaceholder page={salesLayerTransfer} />;
+  return <SalesLayerTransferView />;
 }
