@@ -1,9 +1,10 @@
 import type { Metadata } from "next";
-import { RtmPagePlaceholder } from "@/features/rtm/components/RtmPagePlaceholder";
+import { OutletLedgerView } from "@/features/rtm/views/sales";
 import { outletLedger } from "@/features/rtm/navigation";
 
+export const instant = false;
 export const metadata: Metadata = { title: outletLedger.label };
 
 export default function OutletLedgerPage() {
-  return <RtmPagePlaceholder page={outletLedger} />;
+  return <OutletLedgerView />;
 }

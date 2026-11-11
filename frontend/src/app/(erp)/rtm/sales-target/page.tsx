@@ -1,9 +1,10 @@
 import type { Metadata } from "next";
-import { RtmPagePlaceholder } from "@/features/rtm/components/RtmPagePlaceholder";
+import { SalesTargetView } from "@/features/rtm/views/setup";
 import { salesTarget } from "@/features/rtm/navigation";
 
+export const instant = false;
 export const metadata: Metadata = { title: salesTarget.label };
 
 export default function SalesTargetPage() {
-  return <RtmPagePlaceholder page={salesTarget} />;
+  return <SalesTargetView />;
 }

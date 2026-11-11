@@ -55,10 +55,17 @@ function entriesFromGrants(grants: GrantMap) {
     });
 }
 
+/**
+ * True when the page is still registered and the action applies to it. Stored
+ * grants and overrides can outlive a page removed from the menus; they grant
+ * nothing, so they are left out when access is read and dropped on the next save.
+ */
+const applies = (key: string, action: PermissionAction) => !!findFeature(key)?.actions.includes(action);
+
 function grantsFromEntries(entries: EntryRow[]): GrantMap {
   const grants: GrantMap = {};
   for (const entry of entries) {
-    const actions = PERMISSION_ACTIONS.filter((a) => entry[ACTION_COLUMNS[a]]);
+    const actions = PERMISSION_ACTIONS.filter((a) => entry[ACTION_COLUMNS[a]] && applies(entry.activityKey, a));
     if (actions.length) grants[entry.activityKey] = actions;
   }
   return grants;
@@ -312,7 +319,9 @@ export async function getUserAccess(actor: Actor, userId: string): Promise<UserA
   return {
     user: { ...toAccessUser(user), erpAccess: user.erpAccess, status: user.status, lastLoginAt: user.lastLoginAt?.toISOString() ?? null },
     groupIds: user.permissionGroups.map((g) => g.groupId),
-    overrides: user.permissionOverrides.map((o) => ({ featureKey: o.activityKey, action: o.action as PermissionAction, effect: o.effect })),
+    overrides: user.permissionOverrides
+      .filter((o) => applies(o.activityKey, o.action as PermissionAction))
+      .map((o) => ({ featureKey: o.activityKey, action: o.action as PermissionAction, effect: o.effect })),
     groups: groups.map((g) => ({ id: g.id, name: g.name, code: g.code, status: g.status, fullAccess: g.fullAccess, grants: g.fullAccess ? {} : grantsFromEntries(g.entries), assignable: canAssignGroup(actor, g) })),
     editable: { access: reason === null, master: actor.isMaster && reason === null, reason },
   };

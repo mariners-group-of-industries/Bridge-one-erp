@@ -1,9 +1,10 @@
 import type { Metadata } from "next";
-import { RtmPagePlaceholder } from "@/features/rtm/components/RtmPagePlaceholder";
+import { RetailOrderView } from "@/features/rtm/views/sales";
 import { retailOrder } from "@/features/rtm/navigation";
 
+export const instant = false;
 export const metadata: Metadata = { title: retailOrder.label };
 
 export default function RetailOrderPage() {
-  return <RtmPagePlaceholder page={retailOrder} />;
+  return <RetailOrderView />;
 }

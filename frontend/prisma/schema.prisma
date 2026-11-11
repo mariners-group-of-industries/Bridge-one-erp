@@ -533,6 +533,21 @@ model BusinessUnit {
   targetPlans      SalesTargetPlan[]
   commissions      SalesCommission[]
 
+  rtmChannels          RtmChannel[]
+  rtmOutlets           RtmOutlet[]
+  rtmOrders            RtmOrder[]
+  rtmDeliveries        RtmDelivery[]
+  rtmCollections       RtmCollection[]
+  rtmReturns           RtmReturn[]
+  rtmStockEntries      RtmStockEntry[]
+  rtmStockTransfers    RtmStockTransfer[]
+  rtmStockAdjustments  RtmStockAdjustment[]
+  rtmCalendarDays      RtmSrCalendarDay[]
+  rtmTourPlans         RtmTourPlan[]
+  rtmVisits            RtmVisit[]
+  rtmOffers            RtmOffer[]
+  rtmTargets           RtmTarget[]
+  rtmSettings          RtmSetting[]
   @@unique([companyId, name])
   @@map("business_units")
 }
@@ -796,6 +811,17 @@ model Customer {
   productionOrders ProductionOrder[]
   targetPlanLines SalesTargetPlanLine[]
 
+  rtmOutlets           RtmOutlet[]           @relation("RtmOutletDistributor")
+  rtmOrders            RtmOrder[]            @relation("RtmOrderDistributor")
+  rtmDeliveries        RtmDelivery[]         @relation("RtmDeliveryDistributor")
+  rtmCollections       RtmCollection[]       @relation("RtmCollectionDistributor")
+  rtmReturns           RtmReturn[]           @relation("RtmReturnDistributor")
+  rtmStockEntries      RtmStockEntry[]       @relation("RtmStockDistributor")
+  rtmTransfersOut      RtmStockTransfer[]    @relation("RtmTransferFrom")
+  rtmTransfersIn       RtmStockTransfer[]    @relation("RtmTransferTo")
+  rtmAdjustments       RtmStockAdjustment[]  @relation("RtmAdjustmentDistributor")
+  rtmTourPlans         RtmTourPlan[]         @relation("RtmTourPlanDistributor")
+  rtmTargets           RtmTarget[]           @relation("RtmTargetDistributor")
   @@unique([businessUnitId, code])
   @@index([businessUnitId, name])
   @@index([officeId])
@@ -885,6 +911,14 @@ model Item {
   inventoryLines       InventoryDocumentLine[] @relation("InventoryLineItem")
   inventoryTargetLines InventoryDocumentLine[] @relation("InventoryLineTargetItem")
   posSaleLines         PosSaleLine[]
+  rtmOrderLines        RtmOrderLine[]
+  rtmDeliveryLines     RtmDeliveryLine[]
+  rtmReturnLines       RtmReturnLine[]
+  rtmStockEntries      RtmStockEntry[]
+  rtmTransferLines     RtmStockTransferLine[]
+  rtmAdjustmentLines   RtmStockAdjustmentLine[]
+  rtmOffers            RtmOffer[]
+  rtmTargets           RtmTarget[]
   @@unique([businessUnitId, code])
   @@map("items")
 }
@@ -1607,6 +1641,8 @@ model SalesArea {
   sectionAddresses   CustomerAddress[] @relation("CustomerAddressSection")
   territoryNode      SalesTerritoryNode?
 
+  rtmOutlets           RtmOutlet[]
+  rtmTourPlans         RtmTourPlan[]
   @@unique([businessUnitId, kind, name])
   @@map("sales_areas")
 }
@@ -3420,6 +3456,13 @@ model Employee {
   hrPolicyRecords      HrPolicyRecord[]
   workCenterOperators ProductionWorkCenterOperator[]
 
+  rtmOrders            RtmOrder[]            @relation("RtmOrderSr")
+  rtmDeliveries        RtmDelivery[]         @relation("RtmDeliverySr")
+  rtmCollections       RtmCollection[]       @relation("RtmCollectionSr")
+  rtmCalendarDays      RtmSrCalendarDay[]
+  rtmTourPlans         RtmTourPlan[]         @relation("RtmTourPlanSr")
+  rtmVisits            RtmVisit[]
+  rtmTargets           RtmTarget[]           @relation("RtmTargetSr")
   @@index([officeId])
   @@index([employeeCode])
   @@index([attendanceId])
@@ -4622,4 +4665,490 @@ model PostingAccount {
   account Account @relation(fields: [accountId], references: [id], onDelete: Restrict)
 
   @@map("posting_accounts")
+}
+
+// ─── RTM (route to market) ───────────────────────────────────────────────────
+// Secondary sales: distributors (customers of type DISTRIBUTOR) sell to retail
+// outlets through sales representatives (employees) on routes (SalesArea ROUTE).
+// Distributor stock has its own ledger (RtmStockEntry).
+
+enum RtmDocStatus {
+  PENDING
+  APPROVED
+  COMPLETED
+  REJECTED
+  CANCELLED
+}
+
+enum RtmStockSource {
+  OPENING
+  ADJUSTMENT
+  DELIVERY
+  RETURN
+  TRANSFER_OUT
+  TRANSFER_IN
+}
+
+enum RtmPaymentMethod {
+  CASH
+  BANK
+  MFS
+  CHEQUE
+}
+
+enum RtmDayType {
+  WORKING
+  WEEKEND
+  HOLIDAY
+  LEAVE
+}
+
+enum RtmVisitKind {
+  CHECK_IN
+  VISIT
+  CHECK_OUT
+}
+
+/// General trade, modern trade, wholesale …
+model RtmChannel {
+  id             String   @id @default(uuid()) @db.Uuid
+  businessUnitId String   @db.Uuid
+  code           String   @db.VarChar(20)
+  name           String   @db.VarChar(100)
+  description    String?  @db.VarChar(300)
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime @updatedAt @db.Timestamptz(3)
+
+  businessUnit BusinessUnit @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  outlets      RtmOutlet[]
+  offers       RtmOffer[]
+
+  @@unique([businessUnitId, code])
+  @@map("rtm_channels")
+}
+
+/// A retail outlet served by one distributor on one route.
+model RtmOutlet {
+  id             String   @id @default(uuid()) @db.Uuid
+  businessUnitId String   @db.Uuid
+  code           String   @db.VarChar(30)
+  name           String   @db.VarChar(150)
+  ownerName      String?  @db.VarChar(150)
+  phone          String?  @db.VarChar(30)
+  address        String?  @db.VarChar(300)
+  channelId      String?  @db.Uuid
+  distributorId  String   @db.Uuid
+  routeId        String?  @db.Uuid
+  latitude       Decimal? @db.Decimal(10, 7)
+  longitude      Decimal? @db.Decimal(10, 7)
+  creditLimit    Decimal? @db.Decimal(14, 2)
+  isActive       Boolean  @default(true)
+  createdBy      String   @db.VarChar(150)
+  createdAt      DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime @updatedAt @db.Timestamptz(3)
+
+  businessUnit BusinessUnit    @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  channel      RtmChannel?     @relation(fields: [channelId], references: [id], onDelete: SetNull)
+  distributor  Customer        @relation("RtmOutletDistributor", fields: [distributorId], references: [id], onDelete: Restrict)
+  route        SalesArea?      @relation(fields: [routeId], references: [id], onDelete: SetNull)
+  orders       RtmOrder[]
+  deliveries   RtmDelivery[]
+  collections  RtmCollection[]
+  returns      RtmReturn[]
+  visits       RtmVisit[]
+
+  @@unique([businessUnitId, code])
+  @@index([distributorId])
+  @@map("rtm_outlets")
+}
+
+/// An order taken from an outlet; delivered (in full or part) by the distributor.
+model RtmOrder {
+  id             String       @id @default(uuid()) @db.Uuid
+  businessUnitId String       @db.Uuid
+  number         String       @db.VarChar(30)
+  orderDate      DateTime     @db.Date
+  outletId       String       @db.Uuid
+  distributorId  String       @db.Uuid
+  srId           String?      @db.Uuid
+  status         RtmDocStatus @default(PENDING)
+  subtotal       Decimal      @db.Decimal(14, 2)
+  discount       Decimal      @default(0) @db.Decimal(14, 2)
+  total          Decimal      @db.Decimal(14, 2)
+  offerId        String?      @db.Uuid
+  remarks        String?      @db.VarChar(500)
+  createdBy      String       @db.VarChar(150)
+  createdAt      DateTime     @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime     @updatedAt @db.Timestamptz(3)
+
+  businessUnit BusinessUnit   @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  outlet       RtmOutlet      @relation(fields: [outletId], references: [id], onDelete: Restrict)
+  distributor  Customer       @relation("RtmOrderDistributor", fields: [distributorId], references: [id], onDelete: Restrict)
+  sr           Employee?      @relation("RtmOrderSr", fields: [srId], references: [id], onDelete: SetNull)
+  offer        RtmOffer?      @relation(fields: [offerId], references: [id], onDelete: SetNull)
+  lines        RtmOrderLine[]
+  deliveries   RtmDelivery[]
+
+  @@unique([businessUnitId, number])
+  @@index([businessUnitId, orderDate])
+  @@index([outletId])
+  @@map("rtm_orders")
+}
+
+model RtmOrderLine {
+  id           String  @id @default(uuid()) @db.Uuid
+  orderId      String  @db.Uuid
+  lineNo       Int
+  itemId       String  @db.Uuid
+  qty          Decimal @db.Decimal(14, 3)
+  rate         Decimal @db.Decimal(14, 2)
+  amount       Decimal @db.Decimal(14, 2)
+  deliveredQty Decimal @default(0) @db.Decimal(14, 3)
+
+  order RtmOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  item  Item     @relation(fields: [itemId], references: [id], onDelete: Restrict)
+
+  @@index([orderId])
+  @@map("rtm_order_lines")
+}
+
+/// Goods delivered to an outlet (against an order, or direct). Stock leaves the distributor.
+model RtmDelivery {
+  id             String       @id @default(uuid()) @db.Uuid
+  businessUnitId String       @db.Uuid
+  number         String       @db.VarChar(30)
+  deliveryDate   DateTime     @db.Date
+  orderId        String?      @db.Uuid
+  outletId       String       @db.Uuid
+  distributorId  String       @db.Uuid
+  srId           String?      @db.Uuid
+  isDirect       Boolean      @default(false)
+  status         RtmDocStatus @default(COMPLETED)
+  subtotal       Decimal      @db.Decimal(14, 2)
+  discount       Decimal      @default(0) @db.Decimal(14, 2)
+  total          Decimal      @db.Decimal(14, 2)
+  remarks        String?      @db.VarChar(500)
+  createdBy      String       @db.VarChar(150)
+  createdAt      DateTime     @default(now()) @db.Timestamptz(3)
+
+  businessUnit BusinessUnit      @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  order        RtmOrder?         @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  outlet       RtmOutlet         @relation(fields: [outletId], references: [id], onDelete: Restrict)
+  distributor  Customer          @relation("RtmDeliveryDistributor", fields: [distributorId], references: [id], onDelete: Restrict)
+  sr           Employee?         @relation("RtmDeliverySr", fields: [srId], references: [id], onDelete: SetNull)
+  lines        RtmDeliveryLine[]
+  returns      RtmReturn[]
+
+  @@unique([businessUnitId, number])
+  @@index([businessUnitId, deliveryDate])
+  @@index([outletId])
+  @@map("rtm_deliveries")
+}
+
+model RtmDeliveryLine {
+  id         String  @id @default(uuid()) @db.Uuid
+  deliveryId String  @db.Uuid
+  lineNo     Int
+  itemId     String  @db.Uuid
+  qty        Decimal @db.Decimal(14, 3)
+  rate       Decimal @db.Decimal(14, 2)
+  amount     Decimal @db.Decimal(14, 2)
+
+  delivery RtmDelivery @relation(fields: [deliveryId], references: [id], onDelete: Cascade)
+  item     Item        @relation(fields: [itemId], references: [id], onDelete: Restrict)
+
+  @@index([deliveryId])
+  @@map("rtm_delivery_lines")
+}
+
+/// Money collected from an outlet.
+model RtmCollection {
+  id             String           @id @default(uuid()) @db.Uuid
+  businessUnitId String           @db.Uuid
+  number         String           @db.VarChar(30)
+  collectionDate DateTime         @db.Date
+  outletId       String           @db.Uuid
+  distributorId  String           @db.Uuid
+  srId           String?          @db.Uuid
+  amount         Decimal          @db.Decimal(14, 2)
+  method         RtmPaymentMethod @default(CASH)
+  reference      String?          @db.VarChar(100)
+  remarks        String?          @db.VarChar(500)
+  status         RtmDocStatus     @default(COMPLETED)
+  createdBy      String           @db.VarChar(150)
+  createdAt      DateTime         @default(now()) @db.Timestamptz(3)
+
+  businessUnit BusinessUnit @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  outlet       RtmOutlet    @relation(fields: [outletId], references: [id], onDelete: Restrict)
+  distributor  Customer     @relation("RtmCollectionDistributor", fields: [distributorId], references: [id], onDelete: Restrict)
+  sr           Employee?    @relation("RtmCollectionSr", fields: [srId], references: [id], onDelete: SetNull)
+
+  @@unique([businessUnitId, number])
+  @@index([outletId])
+  @@map("rtm_collections")
+}
+
+/// Goods an outlet returns to the distributor. Stock comes back to the distributor.
+model RtmReturn {
+  id             String       @id @default(uuid()) @db.Uuid
+  businessUnitId String       @db.Uuid
+  number         String       @db.VarChar(30)
+  returnDate     DateTime     @db.Date
+  outletId       String       @db.Uuid
+  distributorId  String       @db.Uuid
+  deliveryId     String?      @db.Uuid
+  reason         String?      @db.VarChar(300)
+  total          Decimal      @db.Decimal(14, 2)
+  status         RtmDocStatus @default(COMPLETED)
+  createdBy      String       @db.VarChar(150)
+  createdAt      DateTime     @default(now()) @db.Timestamptz(3)
+
+  businessUnit BusinessUnit    @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  outlet       RtmOutlet       @relation(fields: [outletId], references: [id], onDelete: Restrict)
+  distributor  Customer        @relation("RtmReturnDistributor", fields: [distributorId], references: [id], onDelete: Restrict)
+  delivery     RtmDelivery?    @relation(fields: [deliveryId], references: [id], onDelete: SetNull)
+  lines        RtmReturnLine[]
+
+  @@unique([businessUnitId, number])
+  @@index([outletId])
+  @@map("rtm_returns")
+}
+
+model RtmReturnLine {
+  id       String  @id @default(uuid()) @db.Uuid
+  returnId String  @db.Uuid
+  lineNo   Int
+  itemId   String  @db.Uuid
+  qty      Decimal @db.Decimal(14, 3)
+  rate     Decimal @db.Decimal(14, 2)
+  amount   Decimal @db.Decimal(14, 2)
+
+  return RtmReturn @relation(fields: [returnId], references: [id], onDelete: Cascade)
+  item   Item      @relation(fields: [itemId], references: [id], onDelete: Restrict)
+
+  @@index([returnId])
+  @@map("rtm_return_lines")
+}
+
+/// Distributor stock ledger: stock = sum(qty) per distributor and item.
+model RtmStockEntry {
+  id             String         @id @default(uuid()) @db.Uuid
+  businessUnitId String         @db.Uuid
+  distributorId  String         @db.Uuid
+  itemId         String         @db.Uuid
+  qty            Decimal        @db.Decimal(14, 3)
+  source         RtmStockSource
+  sourceId       String?        @db.Uuid
+  postingDate    DateTime       @db.Date
+  remarks        String?        @db.VarChar(300)
+  createdBy      String         @db.VarChar(150)
+  createdAt      DateTime       @default(now()) @db.Timestamptz(3)
+
+  businessUnit BusinessUnit @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  distributor  Customer     @relation("RtmStockDistributor", fields: [distributorId], references: [id], onDelete: Restrict)
+  item         Item         @relation(fields: [itemId], references: [id], onDelete: Restrict)
+
+  @@index([distributorId, itemId])
+  @@index([source, sourceId])
+  @@map("rtm_stock_entries")
+}
+
+/// Stock moved between two distributors: requested, approved, then issued.
+model RtmStockTransfer {
+  id                String       @id @default(uuid()) @db.Uuid
+  businessUnitId    String       @db.Uuid
+  number            String       @db.VarChar(30)
+  requestDate       DateTime     @db.Date
+  fromDistributorId String       @db.Uuid
+  toDistributorId   String       @db.Uuid
+  status            RtmDocStatus @default(PENDING)
+  remarks           String?      @db.VarChar(500)
+  requestedBy       String       @db.VarChar(150)
+  approvedBy        String?      @db.VarChar(150)
+  issuedBy          String?      @db.VarChar(150)
+  issuedAt          DateTime?    @db.Timestamptz(3)
+  createdAt         DateTime     @default(now()) @db.Timestamptz(3)
+
+  businessUnit    BusinessUnit           @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  fromDistributor Customer               @relation("RtmTransferFrom", fields: [fromDistributorId], references: [id], onDelete: Restrict)
+  toDistributor   Customer               @relation("RtmTransferTo", fields: [toDistributorId], references: [id], onDelete: Restrict)
+  lines           RtmStockTransferLine[]
+
+  @@unique([businessUnitId, number])
+  @@map("rtm_stock_transfers")
+}
+
+model RtmStockTransferLine {
+  id         String  @id @default(uuid()) @db.Uuid
+  transferId String  @db.Uuid
+  lineNo     Int
+  itemId     String  @db.Uuid
+  qty        Decimal @db.Decimal(14, 3)
+  issuedQty  Decimal @default(0) @db.Decimal(14, 3)
+
+  transfer RtmStockTransfer @relation(fields: [transferId], references: [id], onDelete: Cascade)
+  item     Item             @relation(fields: [itemId], references: [id], onDelete: Restrict)
+
+  @@index([transferId])
+  @@map("rtm_stock_transfer_lines")
+}
+
+/// Correction of distributor stock (count, damage, expiry, opening); posts when approved.
+model RtmStockAdjustment {
+  id             String       @id @default(uuid()) @db.Uuid
+  businessUnitId String       @db.Uuid
+  number         String       @db.VarChar(30)
+  adjustDate     DateTime     @db.Date
+  distributorId  String       @db.Uuid
+  reason         String       @db.VarChar(100)
+  remarks        String?      @db.VarChar(500)
+  status         RtmDocStatus @default(PENDING)
+  createdBy      String       @db.VarChar(150)
+  approvedBy     String?      @db.VarChar(150)
+  createdAt      DateTime     @default(now()) @db.Timestamptz(3)
+
+  businessUnit BusinessUnit             @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  distributor  Customer                 @relation("RtmAdjustmentDistributor", fields: [distributorId], references: [id], onDelete: Restrict)
+  lines        RtmStockAdjustmentLine[]
+
+  @@unique([businessUnitId, number])
+  @@map("rtm_stock_adjustments")
+}
+
+model RtmStockAdjustmentLine {
+  id           String  @id @default(uuid()) @db.Uuid
+  adjustmentId String  @db.Uuid
+  lineNo       Int
+  itemId       String  @db.Uuid
+  /// + found / opening, − lost.
+  qty          Decimal @db.Decimal(14, 3)
+
+  adjustment RtmStockAdjustment @relation(fields: [adjustmentId], references: [id], onDelete: Cascade)
+  item       Item               @relation(fields: [itemId], references: [id], onDelete: Restrict)
+
+  @@index([adjustmentId])
+  @@map("rtm_stock_adjustment_lines")
+}
+
+/// One day of a sales representative's calendar.
+model RtmSrCalendarDay {
+  id             String     @id @default(uuid()) @db.Uuid
+  businessUnitId String     @db.Uuid
+  employeeId     String     @db.Uuid
+  day            DateTime   @db.Date
+  dayType        RtmDayType
+  remarks        String?    @db.VarChar(200)
+
+  businessUnit BusinessUnit @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  employee     Employee     @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@unique([employeeId, day])
+  @@map("rtm_sr_calendar_days")
+}
+
+/// A planned route visit of a sales representative.
+model RtmTourPlan {
+  id             String       @id @default(uuid()) @db.Uuid
+  businessUnitId String       @db.Uuid
+  employeeId     String       @db.Uuid
+  planDate       DateTime     @db.Date
+  routeId        String?      @db.Uuid
+  distributorId  String?      @db.Uuid
+  purpose        String?      @db.VarChar(300)
+  status         RtmDocStatus @default(PENDING)
+  createdBy      String       @db.VarChar(150)
+  approvedBy     String?      @db.VarChar(150)
+  createdAt      DateTime     @default(now()) @db.Timestamptz(3)
+
+  businessUnit BusinessUnit @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  employee     Employee     @relation("RtmTourPlanSr", fields: [employeeId], references: [id], onDelete: Cascade)
+  route        SalesArea?   @relation(fields: [routeId], references: [id], onDelete: SetNull)
+  distributor  Customer?    @relation("RtmTourPlanDistributor", fields: [distributorId], references: [id], onDelete: SetNull)
+
+  @@index([employeeId, planDate])
+  @@map("rtm_tour_plans")
+}
+
+/// A field visit: check-in / check-out of the day, or an outlet visit (with location).
+model RtmVisit {
+  id             String       @id @default(uuid()) @db.Uuid
+  businessUnitId String       @db.Uuid
+  employeeId     String       @db.Uuid
+  outletId       String?      @db.Uuid
+  kind           RtmVisitKind
+  visitedAt      DateTime     @db.Timestamptz(3)
+  latitude       Decimal?     @db.Decimal(10, 7)
+  longitude      Decimal?     @db.Decimal(10, 7)
+  remarks        String?      @db.VarChar(300)
+  createdBy      String       @db.VarChar(150)
+
+  businessUnit BusinessUnit @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  employee     Employee     @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  outlet       RtmOutlet?   @relation(fields: [outletId], references: [id], onDelete: SetNull)
+
+  @@index([employeeId, visitedAt])
+  @@index([outletId])
+  @@map("rtm_visits")
+}
+
+/// Trade offer on retail orders: a discount when the order meets the minimum.
+model RtmOffer {
+  id              String   @id @default(uuid()) @db.Uuid
+  businessUnitId  String   @db.Uuid
+  name            String   @db.VarChar(150)
+  channelId       String?  @db.Uuid
+  itemId          String?  @db.Uuid
+  minQty          Decimal? @db.Decimal(14, 3)
+  minAmount       Decimal? @db.Decimal(14, 2)
+  discountPercent Decimal? @db.Decimal(5, 2)
+  discountAmount  Decimal? @db.Decimal(14, 2)
+  validFrom       DateTime @db.Date
+  validTo         DateTime @db.Date
+  isActive        Boolean  @default(true)
+  createdBy       String   @db.VarChar(150)
+  createdAt       DateTime @default(now()) @db.Timestamptz(3)
+
+  businessUnit BusinessUnit @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  channel      RtmChannel?  @relation(fields: [channelId], references: [id], onDelete: SetNull)
+  item         Item?        @relation(fields: [itemId], references: [id], onDelete: SetNull)
+  orders       RtmOrder[]
+
+  @@map("rtm_offers")
+}
+
+/// Monthly target for a sales representative and / or distributor (optionally one item).
+model RtmTarget {
+  id             String   @id @default(uuid()) @db.Uuid
+  businessUnitId String   @db.Uuid
+  month          String   @db.VarChar(7)
+  employeeId     String?  @db.Uuid
+  distributorId  String?  @db.Uuid
+  itemId         String?  @db.Uuid
+  targetQty      Decimal? @db.Decimal(14, 3)
+  targetValue    Decimal? @db.Decimal(14, 2)
+  createdBy      String   @db.VarChar(150)
+  createdAt      DateTime @default(now()) @db.Timestamptz(3)
+
+  businessUnit BusinessUnit @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  employee     Employee?    @relation("RtmTargetSr", fields: [employeeId], references: [id], onDelete: Cascade)
+  distributor  Customer?    @relation("RtmTargetDistributor", fields: [distributorId], references: [id], onDelete: Cascade)
+  item         Item?        @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@index([businessUnitId, month])
+  @@map("rtm_targets")
+}
+
+/// RTM settings per business unit (Configuration page).
+model RtmSetting {
+  businessUnitId String   @db.Uuid
+  key            String   @db.VarChar(60)
+  value          String   @db.VarChar(300)
+  updatedBy      String?  @db.VarChar(150)
+  updatedAt      DateTime @updatedAt @db.Timestamptz(3)
+
+  businessUnit BusinessUnit @relation(fields: [businessUnitId], references: [id], onDelete: Cascade)
+
+  @@id([businessUnitId, key])
+  @@map("rtm_settings")
 }

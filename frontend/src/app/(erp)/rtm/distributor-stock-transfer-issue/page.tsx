@@ -1,9 +1,10 @@
 import type { Metadata } from "next";
-import { RtmPagePlaceholder } from "@/features/rtm/components/RtmPagePlaceholder";
+import { StockTransferIssueView } from "@/features/rtm/views/stock";
 import { stockTransferIssue } from "@/features/rtm/navigation";
 
+export const instant = false;
 export const metadata: Metadata = { title: stockTransferIssue.label };
 
 export default function StockTransferIssuePage() {
-  return <RtmPagePlaceholder page={stockTransferIssue} />;
+  return <StockTransferIssueView />;
 }

@@ -237,6 +237,23 @@ describe("groups, overrides and effective permissions", () => {
     await expect(deletePermissionGroup(MASTER, g.id)).rejects.toThrow(/assigned to 1 user/);
     await deletePermissionGroup(MASTER, copy.id);
   });
+
+  it("leaves out stored permissions of pages removed from the menus, so saving the access as loaded still works", async () => {
+    const REMOVED = "/connect/retired-page";
+    const g = await group({ [ORDERS]: ["view"] });
+    await testPrisma().permissionGroupEntry.create({ data: { groupId: g.id, activityKey: REMOVED, moduleName: "Old", activityName: "Old", canView: true } });
+    const alice = await user();
+    await updateUserAccess(MASTER, alice.id, { erpAccess: true, status: "ACTIVE", groupIds: [g.id], overrides: [{ featureKey: ORDERS, action: "create", effect: "ALLOW" }] });
+    await testPrisma().userPermissionOverride.create({ data: { userId: alice.id, activityKey: REMOVED, action: "view", effect: "ALLOW" } });
+
+    expect((await getPermissionGroup(MASTER, g.id)).grants).toEqual({ [ORDERS]: ["view"] });
+    const loaded = await getUserAccess(MASTER, alice.id);
+    expect(loaded.overrides).toEqual([{ featureKey: ORDERS, action: "create", effect: "ALLOW" }]);
+
+    // The access panel sends back what it loaded.
+    await updateUserAccess(MASTER, alice.id, { erpAccess: loaded.user.erpAccess, status: loaded.user.status, groupIds: loaded.groupIds, overrides: loaded.overrides });
+    expect(await testPrisma().userPermissionOverride.count({ where: { userId: alice.id, activityKey: REMOVED } })).toBe(0);
+  });
 });
 
 describe("protection against privilege escalation", () => {
