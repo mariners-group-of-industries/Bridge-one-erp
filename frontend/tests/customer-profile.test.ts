@@ -38,6 +38,8 @@ async function expectAppError(promise: Promise<unknown>, status: number) {
 let officeId: string;
 let unitId: string;
 let territoryId: string;
+let territoryLayerId: string;
+let nationalNodeId: string;
 
 beforeAll(async () => {
   await startTestDb();
@@ -51,7 +53,11 @@ beforeEach(async () => {
   await saveCompany(adminActor, companyInput);
   unitId = (await createBusinessUnit(adminActor, businessUnitInput)).id;
   officeId = (await createOffice(adminActor, unitId, officeInput)).id;
-  territoryId = (await testPrisma().salesArea.create({ data: { businessUnitId: unitId, kind: "TERRITORY", name: "Sadar" } })).id;
+  // Sales Setup › Territory: National › (Territory layer). Customers pick Territory-layer nodes.
+  const national = await testPrisma().salesTerritoryLayer.create({ data: { businessUnitId: unitId, level: 1, code: "NAT", name: "National" } });
+  territoryLayerId = (await testPrisma().salesTerritoryLayer.create({ data: { businessUnitId: unitId, level: 2, code: "TER", name: "Territory", isTerritory: true } })).id;
+  nationalNodeId = (await testPrisma().salesTerritoryNode.create({ data: { businessUnitId: unitId, layerId: national.id, code: "BD", name: "Bangladesh" } })).id;
+  territoryId = (await territory("Sadar")).id;
 });
 
 const base = (overrides: Partial<CustomerInput> = {}): CustomerInput => ({
@@ -65,8 +71,14 @@ const base = (overrides: Partial<CustomerInput> = {}): CustomerInput => ({
 
 const rep = (name: string, code: string) =>
   testPrisma().salesPerson.create({ data: { businessUnitId: unitId, name, code } });
-const territory = (name: string) =>
-  testPrisma().salesArea.create({ data: { businessUnitId: unitId, kind: "TERRITORY", name } });
+/** A territory as Sales Setup › Territory makes it: a sales area linked to a Territory-layer node. */
+async function territory(name: string) {
+  const area = await testPrisma().salesArea.create({ data: { businessUnitId: unitId, kind: "TERRITORY", name } });
+  await testPrisma().salesTerritoryNode.create({
+    data: { businessUnitId: unitId, layerId: territoryLayerId, parentId: nationalNodeId, code: `T-${name}`, name, salesAreaId: area.id },
+  });
+  return area;
+}
 
 describe("customer profile", () => {
   it("creates a customer with Sales numbering, billing name and shipping rows", async () => {
@@ -100,12 +112,16 @@ describe("customer profile", () => {
     expect(addresses.map((address) => address.isDefault)).toEqual([true, false]);
   });
 
-  it("requires office, partner name, billing name, mobile and territory, and rejects a single person's marriage date", async () => {
+  it("requires office, partner name, billing name and mobile, and rejects a single person's marriage date", async () => {
     await expect(createCustomer(adminActor, base({ mobile: "" }))).rejects.toThrow();
     await expect(createCustomer(adminActor, base({ name: "" }))).rejects.toThrow();
     await expect(createCustomer(adminActor, base({ billingName: "" }))).rejects.toThrow("Partner billing name is required.");
-    await expect(createCustomer(adminActor, base({ territoryId: "" }))).rejects.toThrow("Select a territory.");
     await expect(createCustomer(adminActor, base({ maritalStatus: "Single", marriageDate: "2020-01-01" }))).rejects.toThrow();
+  });
+
+  it("saves a customer without a territory", async () => {
+    const customer = await createCustomer(adminActor, base({ name: "No Territory", territoryId: "" }));
+    expect(customer.territoryId).toBe("");
   });
 
   it("validates sub groups, duplicate codes and the shipping thana/district pair", async () => {
@@ -191,6 +207,13 @@ describe("customer profile", () => {
     expect((await getCustomer(adminActor, created.id)).billingName).toBe("New Billing");
   });
 
+  it("offers only Sales Setup territories; older ones are listed separately", async () => {
+    await testPrisma().salesArea.create({ data: { businessUnitId: unitId, kind: "TERRITORY", name: "Old Area" } });
+    const options = await getFormOptions(adminActor);
+    expect(options.territories.map((t) => t.name)).toEqual(["Sadar"]);
+    expect(options.otherTerritories.map((t) => t.name)).toEqual(["Old Area"]);
+  });
+
   it("offers sub groups, territories and sections in the form options", async () => {
     const group = await createCustomerGroup(adminActor, { officeId, name: "Retail" });
     await createCustomerGroup(adminActor, { officeId, name: "Pharmacy", parentId: group.id });
@@ -198,7 +221,8 @@ describe("customer profile", () => {
     await createSection(adminActor, { officeId, name: "Bazar Road" });
     const options = await getFormOptions(adminActor);
     expect(options.groups.find((g) => g.name === "Pharmacy")?.parentId).toBe(group.id);
-    expect(options.territories.map((t) => t.name)).toEqual(["North", "Sadar"]);
+    expect(options.territories.map((t) => [t.path, t.name])).toEqual([["Bangladesh", "North"], ["Bangladesh", "Sadar"]]);
+    expect(options.otherTerritories).toEqual([]);
     expect(options.sections.map((s) => s.name)).toEqual(["Bazar Road"]);
   });
 });
@@ -211,7 +235,7 @@ describe("customer bulk upload", () => {
     const sheet = workbook.getWorksheet("Customers")!;
     const header = (sheet.getRow(1).values as string[]).slice(1);
     const row = (values: Record<string, string>) => header.map((name) => values[name] ?? "");
-    sheet.addRow(row({ "Partner Name *": "Imported", "Office *": "head office", "Mobile Number *": "019", "Territory *": "sadar", "Default Sales Representative": "sr-1", "Is Distributor": "yes", Gender: "female" }));
+    sheet.addRow(row({ "Partner Name *": "Imported", "Office *": "head office", "Mobile Number *": "019", Territory: "sadar", "Default Sales Representative": "sr-1", "Is Distributor": "yes", Gender: "female" }));
     sheet.addRow(row({ "Partner Name *": "No Mobile", "Office *": officeInput.name }));
     sheet.addRow(row({ "Partner Name *": "Bad Gender", "Office *": officeInput.name, "Mobile Number *": "018", Gender: "x" }));
 
@@ -221,5 +245,32 @@ describe("customer bulk upload", () => {
     expect(result.errors[1].message).toBe("Gender: use Male, Female, Other.");
     const [customer] = (await listCustomers(adminActor, { page: 1, pageSize: 10 })).rows;
     expect(customer).toMatchObject({ name: "Imported", salesPersonName: "Amin Ali", territoryName: "Sadar" });
+  });
+
+  it("creates missing partner groups and sub groups, and imports rows without a territory", async () => {
+    const existing = await createCustomerGroup(adminActor, { officeId, name: "Sylhet Region" });
+    await createCustomerGroup(adminActor, { officeId, name: "Narshingdi", parentId: existing.id });
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load((await customerImportTemplate()).buffer as ArrayBuffer);
+    const sheet = workbook.getWorksheet("Customers")!;
+    const header = (sheet.getRow(1).values as string[]).slice(1);
+    const row = (values: Record<string, string>) => header.map((name) => values[name] ?? "");
+    const customer = (name: string, mobile: string, group: string, sub: string) =>
+      row({ "Partner Name *": name, "Office *": officeInput.name, "Mobile Number *": mobile, "Partner Group": group, "Sub Group": sub });
+    sheet.addRow(customer("A", "011", "Dhaka Metro", "Mirpur"));
+    sheet.addRow(customer("B", "012", "dhaka metro", "mirpur"));
+    sheet.addRow(customer("C", "013", "Sylhet Region", "Narshingdi"));
+    sheet.addRow(customer("D", "014", "Dhaka Metro", "Narshingdi"));
+    sheet.addRow(customer("E", "015", "Narshingdi", ""));
+
+    const result = await importCustomers(adminActor, new Uint8Array(await workbook.xlsx.writeBuffer()));
+    expect(result.created).toBe(3);
+    expect(result.errors).toEqual([
+      { row: 5, message: 'Sub Group "Narshingdi" belongs to "Sylhet Region", not "Dhaka Metro".' },
+      { row: 6, message: '"Narshingdi" is a Sub Group of "Sylhet Region", not a Partner Group.' },
+    ]);
+    expect(result.notes).toEqual(["Partner Groups created: Dhaka Metro.", "Sub Groups created: Mirpur (Dhaka Metro)."]);
+    const groups = await testPrisma().customerGroup.findMany({ where: { name: { in: ["Dhaka Metro", "Mirpur"] } } });
+    expect(groups).toHaveLength(2);
   });
 });

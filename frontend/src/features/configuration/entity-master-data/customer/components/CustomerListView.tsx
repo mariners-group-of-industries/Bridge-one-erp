@@ -205,7 +205,7 @@ export function CustomerListView() {
                 value={draft.territoryId ?? ""}
                 placeholder="All territories"
                 disabled={!options.data}
-                options={territories.map((territory) => ({ value: territory.id, label: territory.name }))}
+                options={territories.map((territory) => ({ value: territory.id, label: territory.path ? `${territory.path} › ${territory.name}` : territory.name }))}
                 onChange={(e) => changeDraft({ territoryId: e.target.value || undefined })}
               />
             )}

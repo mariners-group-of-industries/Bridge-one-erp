@@ -71,7 +71,7 @@ export function CustomerViewDialog({ customer, options, onClose }: Props) {
               <ReadValue label="Sub Group" value={nameOf(options?.groups, data.subGroupId)} />
               <ReadValue label="Credit Days" value={data.creditDays} />
               <ReadValue label="Credit Limit" value={money(data.creditLimit)} />
-              <ReadValue label="Territory" value={nameOf(options?.territories, data.territoryId)} />
+              <ReadValue label="Territory" value={nameOf([...(options?.territories ?? []), ...(options?.otherTerritories ?? [])], data.territoryId)} />
               <ReadValue label="Default Sales Representative" value={nameOf(options?.salesPersons, data.salesPersonId)} />
               <ReadValue label="Tolerance (%)" value={data.tolerancePercent} />
               <ReadValue label="BIN Number" value={data.binNumber} />

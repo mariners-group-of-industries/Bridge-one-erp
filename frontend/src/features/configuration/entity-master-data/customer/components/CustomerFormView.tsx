@@ -192,6 +192,17 @@ export interface EmbeddedCustomerForm {
 }
 
 /** Add Customer (no id) or edit an existing customer profile. */
+/** Territory choices from Sales Setup › Territory, labelled with their path; an older territory the customer still has stays selectable. */
+export function territoryOptions(
+  territories: { id: string; name: string; path: string }[],
+  others: { id: string; name: string }[],
+  current: string,
+) {
+  const list = territories.map((t) => ({ value: t.id, label: t.path ? `${t.path} › ${t.name}` : t.name }));
+  const old = current && !territories.some((t) => t.id === current) ? others.find((t) => t.id === current) : undefined;
+  return old ? [...list, { value: old.id, label: `${old.name} (not in Sales Setup)` }] : list;
+}
+
 export function CustomerFormView({
   customerId,
   defaultOfficeId,
@@ -523,13 +534,17 @@ function CustomerEditor({ customerId, title, breadcrumbs, initial, attachments, 
                   />
                 )}
               </Field>
-              <Field label="Territory" required error={err("territoryId")} hint={officeMissing}>
+              <Field
+                label="Territory"
+                error={err("territoryId")}
+                hint={officeMissing ?? (unit && ofUnit(options.territories).length === 0 ? "No territories yet: add them in Sales Setup › Territory." : undefined)}
+              >
                 {(id) => (
                   <Select
                     id={id}
                     value={form.territoryId}
                     disabled={!unit}
-                    options={toOptions(ofUnit(options.territories))}
+                    options={territoryOptions(ofUnit(options.territories), options.otherTerritories, form.territoryId)}
                     aria-invalid={invalid("territoryId")}
                     onChange={text("territoryId")}
                   />
