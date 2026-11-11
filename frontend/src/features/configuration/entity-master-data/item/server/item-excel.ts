@@ -13,6 +13,7 @@ import {
   type ItemInput,
 } from "../schemas/item.schema";
 import { createItem, getFormOptions } from "./item.service";
+import { loadWorkbook } from "@/lib/excel/load-workbook";
 
 /**
  * Item bulk upload. One row per item; division and categories are matched by
@@ -166,12 +167,7 @@ export async function itemImportTemplate(): Promise<Uint8Array> {
 }
 
 export async function importItems(actor: Actor, bytes: Uint8Array): Promise<ItemImportResult> {
-  const workbook = new ExcelJS.Workbook();
-  try {
-    await workbook.xlsx.load(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer);
-  } catch {
-    throw new AppError(400, "VALIDATION_ERROR", "The file is not a valid Excel (.xlsx) workbook.");
-  }
+  const workbook = await loadWorkbook(bytes);
   const findItemSheet = () => {
     const named = workbook.getWorksheet("Items");
     if (named) return named;

@@ -5,6 +5,7 @@ import type { Actor } from "@/lib/auth/actor";
 import { db } from "@/lib/prisma/client";
 import type { TerritoryImportResult } from "../schemas/territory.schema";
 import { createNode, ensureLayers, getTree, updateNode } from "./territory.service";
+import { loadWorkbook } from "@/lib/excel/load-workbook";
 
 /** Sales Setup Excel download/upload: the territory tree and territory-wise customers. */
 
@@ -30,12 +31,7 @@ async function book(sheetName: string, headers: string[], rows: string[][]) {
 }
 
 async function readRows(bytes: Uint8Array) {
-  const workbook = new ExcelJS.Workbook();
-  try {
-    await workbook.xlsx.load(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer);
-  } catch {
-    throw new AppError(400, "VALIDATION_ERROR", "The file is not a valid Excel (.xlsx) workbook.");
-  }
+  const workbook = await loadWorkbook(bytes);
   const sheet = workbook.worksheets[0];
   if (!sheet) throw new AppError(400, "VALIDATION_ERROR", "The workbook has no sheets.");
   const headers = new Map<string, number>();

@@ -10,6 +10,7 @@ import {
   type SupplierInput,
 } from "../schemas/supplier.schema";
 import { createSupplier, getFormOptions, supplierWhere } from "./supplier.service";
+import { loadWorkbook } from "@/lib/excel/load-workbook";
 
 /**
  * Excel download and bulk upload for the Supplier Profile. One row per partner;
@@ -158,12 +159,7 @@ export function parseFlag(raw: string, header: string): boolean {
 const key = (value: string) => value.trim().toLowerCase();
 
 export async function importSuppliers(actor: Actor, bytes: Uint8Array): Promise<SupplierImportResult> {
-  const workbook = new ExcelJS.Workbook();
-  try {
-    await workbook.xlsx.load(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer);
-  } catch {
-    throw new AppError(400, "VALIDATION_ERROR", "The file is not a valid Excel (.xlsx) workbook.");
-  }
+  const workbook = await loadWorkbook(bytes);
   const sheet = workbook.getWorksheet("Suppliers") ?? workbook.worksheets[0];
   if (!sheet) throw new AppError(400, "VALIDATION_ERROR", "The workbook has no sheets.");
 
