@@ -3,6 +3,7 @@ import { badRequest, conflict, notFound } from "@/lib/api/errors";
 import type { Actor } from "@/lib/auth/actor";
 import { db } from "@/lib/prisma/client";
 import {
+  moduleOf,
   pipelineInputSchema,
   pipelineListQuerySchema,
   type ApprovalFormOptions,
@@ -30,6 +31,8 @@ function userScope(actor: Actor): Prisma.UserWhereInput {
 const escapeLike = (value: string) => value.replace(/[\\%_]/g, (char) => `\\${char}`);
 const orNull = (value: string) => (value === "" ? null : value);
 const asUserType = (value: string): UserType => (value === "EMPLOYEE" ? "EMPLOYEE" : "USER");
+const amountOut = (value: Prisma.Decimal | null) => (value === null ? "" : value.toFixed(2));
+const amountIn = (value: string) => (value === "" ? null : new Prisma.Decimal(value));
 
 const pipelineInclude = {
   superApproverUser: { select: { name: true } },
@@ -52,17 +55,24 @@ function toDto(record: PipelineRecord): PipelineDto {
   return {
     id: record.id,
     name: record.name,
+    module: record.module || moduleOf(record.feature),
     feature: record.feature,
     userType,
     superApproverId: (userType === "USER" ? record.superApproverUserId : record.superApproverEmployeeId) ?? "",
     superApproverName: (userType === "USER" ? record.superApproverUser?.name : record.superApproverEmployee?.name) ?? null,
     remarks: record.remarks ?? "",
+    isOfficeWise: record.isOfficeWise,
+    isTerritoryWise: record.isTerritoryWise,
+    isItemCategoryWise: record.isItemCategoryWise,
     stages: record.stages.map((stage) => ({
       id: stage.id,
       stageNo: stage.stageNo,
       name: stage.name,
       approvalOrder: stage.approvalOrder,
       requiredCount: stage.requiredCount,
+      allowThreshold: stage.allowThreshold,
+      thresholdMin: amountOut(stage.thresholdMin),
+      thresholdMax: amountOut(stage.thresholdMax),
       approvers: stage.approvers.map((a) => {
         const type = asUserType(a.userType);
         return {
@@ -84,12 +94,12 @@ function toDto(record: PipelineRecord): PipelineDto {
 export async function listPipelines(_actor: Actor, input: PipelineListQuery): Promise<PipelineList> {
   const query = pipelineListQuerySchema.parse(input);
   const search = query.search ? { contains: escapeLike(query.search), mode: "insensitive" as const } : undefined;
-  const where: Prisma.ApprovalPipelineWhereInput = search ? { OR: [{ name: search }, { feature: search }, { superApproverUser: { name: search } }, { superApproverEmployee: { name: search } }] } : {};
+  const where: Prisma.ApprovalPipelineWhereInput = search ? { OR: [{ name: search }, { module: search }, { feature: search }, { superApproverUser: { name: search } }, { superApproverEmployee: { name: search } }] } : {};
   const [total, records] = await Promise.all([
     db().approvalPipeline.count({ where }),
     db().approvalPipeline.findMany({
       where,
-      orderBy: { name: "asc" },
+      orderBy: [{ createdAt: "asc" }, { name: "asc" }],
       skip: (query.page - 1) * query.pageSize,
       take: query.pageSize,
       include: { superApproverUser: { select: { name: true } }, superApproverEmployee: { select: { name: true } }, _count: { select: { stages: true } } },
@@ -99,6 +109,7 @@ export async function listPipelines(_actor: Actor, input: PipelineListQuery): Pr
     rows: records.map((r) => ({
       id: r.id,
       name: r.name,
+      module: r.module || moduleOf(r.feature),
       feature: r.feature,
       superApproverName: (r.userType === "EMPLOYEE" ? r.superApproverEmployee?.name : r.superApproverUser?.name) ?? null,
       stageCount: r._count.stages,
@@ -167,11 +178,15 @@ async function checkPeople(actor: Actor, data: PipelineData) {
 
 const headerData = (data: PipelineData) => ({
   name: data.name,
+  module: data.module,
   feature: data.feature,
   userType: data.userType,
   superApproverUserId: data.userType === "USER" ? data.superApproverId : null,
   superApproverEmployeeId: data.userType === "EMPLOYEE" ? data.superApproverId : null,
   remarks: orNull(data.remarks),
+  isOfficeWise: data.isOfficeWise,
+  isTerritoryWise: data.isTerritoryWise,
+  isItemCategoryWise: data.isItemCategoryWise,
 });
 
 /** Keeps saved stages (matched by id), removes the rest, numbers them 1…n in order. */
@@ -185,7 +200,15 @@ async function writeStages(tx: Tx, pipelineId: string, stages: PipelineData["sta
   await tx.approvalStage.updateMany({ where: { pipelineId }, data: { stageNo: { multiply: -1 } } });
 
   for (const [index, stage] of stages.entries()) {
-    const values = { stageNo: index + 1, name: stage.name, approvalOrder: stage.approvalOrder, requiredCount: stage.requiredCount };
+    const values = {
+      stageNo: index + 1,
+      name: stage.name,
+      approvalOrder: stage.approvalOrder,
+      requiredCount: stage.requiredCount,
+      allowThreshold: stage.allowThreshold,
+      thresholdMin: stage.allowThreshold ? amountIn(stage.thresholdMin) : null,
+      thresholdMax: stage.allowThreshold ? amountIn(stage.thresholdMax) : null,
+    };
     const stageId = stage.id ? (await tx.approvalStage.update({ where: { id: stage.id }, data: values })).id : (await tx.approvalStage.create({ data: { pipelineId, ...values } })).id;
     await tx.approvalStageApprover.deleteMany({ where: { stageId } });
     await tx.approvalStageApprover.createMany({

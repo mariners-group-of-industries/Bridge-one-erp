@@ -3,7 +3,7 @@ import { ApprovalFormView } from "@/features/configuration/security/approval/com
 
 export const instant = false;
 
-export const metadata: Metadata = { title: "Add Approval Setup" };
+export const metadata: Metadata = { title: "Create Approval Setup" };
 
 export default function NewApprovalPage() {
   return <ApprovalFormView />;

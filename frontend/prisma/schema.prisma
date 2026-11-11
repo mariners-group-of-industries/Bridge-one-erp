@@ -147,11 +147,17 @@ model UserWarehouseAccess {
 model ApprovalPipeline {
   id                      String   @id @default(uuid()) @db.Uuid
   name                    String   @unique @db.VarChar(150)
+  /// Module the feature belongs to (Purchase, Sales, Accounts …).
+  module                  String   @default("") @db.VarChar(30)
   feature                 String   @db.VarChar(60)
   userType                String   @default("USER") @db.VarChar(10)
   superApproverUserId     String?  @db.Uuid
   superApproverEmployeeId String?  @db.Uuid
   remarks                 String?  @db.VarChar(500)
+  /// Approvers are resolved per office / territory / item category of the document.
+  isOfficeWise            Boolean  @default(false)
+  isTerritoryWise         Boolean  @default(false)
+  isItemCategoryWise      Boolean  @default(false)
   createdAt               DateTime @default(now()) @db.Timestamptz(3)
   updatedAt               DateTime @updatedAt @db.Timestamptz(3)
 
@@ -172,6 +178,10 @@ model ApprovalStage {
   name          String   @db.VarChar(150)
   approvalOrder String   @db.VarChar(20)
   requiredCount Int      @default(1)
+  /// When set, the stage applies only to documents whose amount is within [thresholdMin, thresholdMax] (max empty = no upper limit).
+  allowThreshold Boolean  @default(false)
+  thresholdMin   Decimal? @db.Decimal(18, 2)
+  thresholdMax   Decimal? @db.Decimal(18, 2)
   createdAt     DateTime @default(now()) @db.Timestamptz(3)
   updatedAt     DateTime @updatedAt @db.Timestamptz(3)
 
