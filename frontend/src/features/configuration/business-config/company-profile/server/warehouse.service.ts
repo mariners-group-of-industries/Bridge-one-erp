@@ -4,6 +4,7 @@ import { db, type Prisma } from "@/lib/prisma/client";
 import type { WarehouseInput } from "../schemas/office.schema";
 import type { WarehouseDto } from "../types";
 import { loadOffice, loadWarehouse, sameName } from "./access";
+import { grantToAllAccessUsers } from "@/features/configuration/entity-master-data/employee/server/org-access-all";
 
 function toDto(warehouse: {
   id: string;
@@ -49,7 +50,9 @@ export async function createWarehouse(
   const warehouse = await db().$transaction(async (tx) => {
     await loadOffice(actor, officeId, tx);
     await assertUniqueName(tx, officeId, input.name);
-    return tx.warehouse.create({ data: { ...input, officeId } });
+    const created = await tx.warehouse.create({ data: { ...input, officeId } });
+    await grantToAllAccessUsers(tx, { warehouseId: created.id });
+    return created;
   });
   return toDto(warehouse);
 }

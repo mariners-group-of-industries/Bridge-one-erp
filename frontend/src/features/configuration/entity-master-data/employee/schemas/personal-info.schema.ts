@@ -139,15 +139,29 @@ export const updateOrgAccessSchema = z.object({
   businessUnitIds: z.array(z.string().regex(UUID_PATTERN, { message: "Invalid UUID" })),
   officeIds:       z.array(z.string().regex(UUID_PATTERN, { message: "Invalid UUID" })),
   warehouseIds:    z.array(z.string().regex(UUID_PATTERN, { message: "Invalid UUID" })),
+  /** "All": every one, now and later (the id list is then ignored). */
+  allBusinessUnits: z.boolean().default(false),
+  allOffices:       z.boolean().default(false),
+  allWarehouses:    z.boolean().default(false),
 });
 
 export type UpdateOrgAccessInput = z.infer<typeof updateOrgAccessSchema>;
 
 export interface OrgAccessDto {
-  businessUnitIds: string[];
-  officeIds:       string[];
-  warehouseIds:    string[];
+  businessUnitIds:  string[];
+  officeIds:        string[];
+  warehouseIds:     string[];
+  allBusinessUnits: boolean;
+  allOffices:       boolean;
+  allWarehouses:    boolean;
 }
+
+/** Org access fields that hold ids, paired with their "All" flag. */
+export const ORG_ACCESS_KINDS = [
+  { ids: "businessUnitIds", all: "allBusinessUnits" },
+  { ids: "officeIds", all: "allOffices" },
+  { ids: "warehouseIds", all: "allWarehouses" },
+] as const;
 
 // ─── Roles ────────────────────────────────────────────────────────────────────
 

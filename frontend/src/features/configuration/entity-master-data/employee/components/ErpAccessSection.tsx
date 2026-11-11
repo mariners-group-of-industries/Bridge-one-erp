@@ -1,7 +1,7 @@
 "use client";
 
-import { Plus, X } from "lucide-react";
-import { useEffect, useId, useState } from "react";
+import { Plus } from "lucide-react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { ErrorState, LoadingState } from "@/components/ui/section";
 import { useToast } from "@/components/ui/toast";
@@ -12,78 +12,13 @@ import { UserAccessPanel } from "@/features/configuration/security/access/compon
 import { errorMessage } from "@/lib/api/client";
 import type {
   CredentialsDto,
-  OrgAccessDto,
-  OrgOptionsDto,
   RoleDto,
   UpdateCredentialsInput,
 } from "../schemas/personal-info.schema";
 import { personalInfoApi } from "../services/personal-info.api";
 import { AddRoleDialog } from "./AddRoleDialog";
-import { CONTROL_CLASS, Field, FormGrid, Input, Panel, Select, StatusBadge } from "./kit";
-
-// ─── Multi-select (chips + add) ───────────────────────────────────────────────
-
-function MultiSelect({
-  label,
-  options,
-  selected,
-  onChange,
-}: {
-  label: string;
-  options: { id: string; name: string }[];
-  selected: string[];
-  onChange: (ids: string[]) => void;
-}) {
-  const id = useId();
-  const add = (value: string) => {
-    if (value && !selected.includes(value)) onChange([...selected, value]);
-  };
-  const remove = (value: string) => onChange(selected.filter((s) => s !== value));
-  const chosen = options.filter((o) => selected.includes(o.id));
-  const available = options.filter((o) => !selected.includes(o.id));
-
-  return (
-    <div className="flex flex-col gap-1">
-      <label htmlFor={id} className="text-xs font-medium text-ink-muted">
-        {label}
-        <span className="ml-1 font-normal text-ink-faint">({chosen.length})</span>
-      </label>
-      <select
-        id={id}
-        value=""
-        disabled={available.length === 0}
-        onChange={(e) => add(e.target.value)}
-        className={CONTROL_CLASS}
-      >
-        <option value="">{available.length ? `Add ${label.toLowerCase()}…` : "All added"}</option>
-        {available.map((o) => (
-          <option key={o.id} value={o.id}>
-            {o.name}
-          </option>
-        ))}
-      </select>
-      <ul className="flex min-h-7 flex-wrap gap-1.5 pt-1">
-        {chosen.length === 0 && <li className="text-xs text-ink-faint">None selected</li>}
-        {chosen.map((item) => (
-          <li
-            key={item.id}
-            className="inline-flex h-6 items-center gap-1 rounded-full border border-accent-line bg-accent-soft pr-1 pl-2.5 text-xs font-medium text-accent-strong dark:text-accent"
-          >
-            {item.name}
-            <button
-              type="button"
-              aria-label={`Remove ${item.name}`}
-              onClick={() => remove(item.id)}
-              className="flex size-4 items-center justify-center rounded-full hover:bg-accent-line hover:text-danger"
-            >
-              <X className="size-3" />
-            </button>
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-}
+import { UserPermissionSection } from "./UserPermissionSection";
+import { Field, FormGrid, Input, Panel, Select, StatusBadge } from "./kit";
 
 // ─── Credentials ──────────────────────────────────────────────────────────────
 
@@ -233,58 +168,8 @@ function CredentialsPanel({
   );
 }
 
-// ─── Organisational access ────────────────────────────────────────────────────
-
-function OrgAccessPanel({
-  employeeId,
-  access,
-  options,
-  onSaved,
-}: {
-  employeeId: string;
-  access: OrgAccessDto;
-  options: OrgOptionsDto;
-  onSaved: () => void;
-}) {
-  const toast = useToast();
-  const [buIds, setBuIds] = useState<string[]>(access.businessUnitIds);
-  const [officeIds, setOfficeIds] = useState<string[]>(access.officeIds);
-  const [warehouseIds, setWarehouseIds] = useState<string[]>(access.warehouseIds);
-  const [saving, setSaving] = useState(false);
-
-  const handleSave = async () => {
-    setSaving(true);
-    try {
-      await personalInfoApi.updateOrgAccess(employeeId, { businessUnitIds: buIds, officeIds, warehouseIds });
-      toast.success("Organisational access saved.");
-      onSaved();
-    } catch (err) {
-      toast.error(errorMessage(err));
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <Panel
-      title="Data Access"
-      description="Business units, offices and warehouses this user may work with."
-      footer={
-        <Button variant="accent" loading={saving} onClick={handleSave}>
-          Save Access
-        </Button>
-      }
-    >
-      <FormGrid cols={3}>
-        <MultiSelect label="Business Units" options={options.businessUnits} selected={buIds} onChange={setBuIds} />
-        <MultiSelect label="Offices" options={options.offices} selected={officeIds} onChange={setOfficeIds} />
-        <MultiSelect label="Warehouses" options={options.warehouses} selected={warehouseIds} onChange={setWarehouseIds} />
-      </FormGrid>
-    </Panel>
-  );
-}
-
 // ─── Section ──────────────────────────────────────────────────────────────────
+
 
 /** Logins, data access and permissions decide who can sign in and what they see: permission administrators only. */
 export function ErpAccessSection({ employeeId }: { employeeId: string }) {
@@ -326,6 +211,9 @@ function ErpAccessEditor({ employeeId }: { employeeId: string }) {
     );
   }
 
+  const orgAccess = access.data;
+  const orgOptions = options.data;
+
   return (
     <>
       <CredentialsPanel
@@ -336,8 +224,15 @@ function ErpAccessEditor({ employeeId }: { employeeId: string }) {
         onSaved={creds.reload}
       />
       {creds.data.userId && <UserAccessPanel userId={creds.data.userId} />}
-      {creds.data.hasAccount && (
-        <OrgAccessPanel employeeId={employeeId} access={access.data} options={options.data} onSaved={access.reload} />
+      {creds.data.userId && (
+        <UserPermissionSection
+          // Restart from the stored values after every save.
+          key={JSON.stringify(orgAccess)}
+          employeeId={employeeId}
+          saved={orgAccess}
+          options={orgOptions}
+          onSaved={access.reload}
+        />
       )}
     </>
   );

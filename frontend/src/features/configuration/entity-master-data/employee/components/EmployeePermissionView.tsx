@@ -18,7 +18,7 @@ import type { OverrideInput, UserAccessDto } from "@/features/configuration/secu
 import { userAccessApi } from "@/features/configuration/security/access/services/access.api";
 import { entityMasterDataBreadcrumbs } from "../../breadcrumbs";
 import { entityMasterDataPaths } from "../../paths";
-import type { OrgAccessDto } from "../schemas/personal-info.schema";
+import { ORG_ACCESS_KINDS, type OrgAccessDto, type OrgOptionsDto } from "../schemas/personal-info.schema";
 import { personalInfoApi } from "../services/personal-info.api";
 import { Avatar, CONTROL_CLASS, Notice, Panel, StatusBadge } from "./kit";
 
@@ -133,11 +133,11 @@ function PermissionEditor({ employeeId, userId }: { employeeId: string; userId: 
   return (
     <PermissionForm
       // A fresh form after every save, so the saved state becomes the new starting point.
-      key={`${JSON.stringify(access.data.overrides)}:${org.data.businessUnitIds.join(",")}`}
+      key={JSON.stringify([access.data.overrides, org.data])}
       employeeId={employeeId}
       access={access.data}
       org={org.data}
-      businessUnits={options.data.businessUnits}
+      orgOptions={options.data}
       onSaved={() => (access.reload(), org.reload())}
     />
   );
@@ -147,13 +147,13 @@ function PermissionForm({
   employeeId,
   access,
   org,
-  businessUnits,
+  orgOptions,
   onSaved,
 }: {
   employeeId: string;
   access: UserAccessDto;
   org: OrgAccessDto;
-  businessUnits: { id: string; name: string }[];
+  orgOptions: OrgOptionsDto;
   onSaved: () => void;
 }) {
   const toast = useToast();
@@ -164,7 +164,9 @@ function PermissionForm({
   const [allowed, setAllowed] = useState<Set<string>>(
     () => new Set(access.overrides.filter((o) => o.effect === "ALLOW" && isMatrixAction(o.action)).map((o) => cellKey(o.featureKey, o.action))),
   );
-  const [businessIds, setBusinessIds] = useState<string[]>(org.businessUnitIds);
+  const [orgValue, setOrgValue] = useState<OrgAccessDto>(org);
+  type OrgKind = (typeof ORG_ACCESS_KINDS)[number];
+  const setOrg = (kind: OrgKind, ids: string[], all: boolean) => (setOrgValue((v) => ({ ...v, [kind.ids]: ids, [kind.all]: all })), setDirty(true));
   // New logins start without ERP access; permissions do nothing until it is on.
   const [erpAccess, setErpAccess] = useState(access.user.erpAccess);
   const [dirty, setDirty] = useState(false);
@@ -221,8 +223,10 @@ function PermissionForm({
         return { featureKey, action, effect: "ALLOW" };
       });
       await userAccessApi.update(access.user.id, { erpAccess, status: access.user.status, groupIds: access.groupIds, overrides: [...kept, ...allows] });
-      const businessChanged = businessIds.length !== org.businessUnitIds.length || businessIds.some((id) => !org.businessUnitIds.includes(id));
-      if (businessChanged) await personalInfoApi.updateOrgAccess(employeeId, { ...org, businessUnitIds: businessIds });
+      const changed = ORG_ACCESS_KINDS.some(
+        ({ ids: f, all }) => orgValue[all] !== org[all] || orgValue[f].length !== org[f].length || orgValue[f].some((id) => !org[f].includes(id)),
+      );
+      if (changed) await personalInfoApi.updateOrgAccess(employeeId, orgValue);
       toast.success("Permissions saved. They apply from the employee's next action.");
       setDirty(false);
       onSaved();
@@ -311,7 +315,9 @@ function PermissionForm({
               </button>
             ))}
           </div>
-          <BusinessSelect units={businessUnits} value={businessIds} disabled={readOnly} onChange={(ids) => (setBusinessIds(ids), setDirty(true))} />
+          <OrgSelect label="Business" plural="businesses" units={orgOptions.businessUnits} value={orgValue.businessUnitIds} all={orgValue.allBusinessUnits} disabled={readOnly} onChange={(ids, all) => setOrg(ORG_ACCESS_KINDS[0], ids, all)} />
+          <OrgSelect label="Office" plural="offices" units={orgOptions.offices} value={orgValue.officeIds} all={orgValue.allOffices} disabled={readOnly} onChange={(ids, all) => setOrg(ORG_ACCESS_KINDS[1], ids, all)} />
+          <OrgSelect label="Warehouse" plural="warehouses" units={orgOptions.warehouses} value={orgValue.warehouseIds} all={orgValue.allWarehouses} disabled={readOnly} onChange={(ids, all) => setOrg(ORG_ACCESS_KINDS[2], ids, all)} />
           <select aria-label="Module" value={moduleFilter} onChange={(e) => setModuleFilter(e.target.value)} className={cn(CONTROL_CLASS, "w-44")}>
             <option value="">Module: All</option>
             {modules.map((m) => (
@@ -435,29 +441,46 @@ function Cell({ label, checked, groups, disabled, onChange }: { label: string; c
   );
 }
 
-/** Business units the employee works in (multi-select dropdown). */
-function BusinessSelect({ units, value, disabled, onChange }: { units: { id: string; name: string }[]; value: string[]; disabled: boolean; onChange: (ids: string[]) => void }) {
-  const summary = value.length === 0 ? "Select business" : value.length === units.length ? "All businesses" : units.filter((u) => value.includes(u.id)).map((u) => u.name).join(", ");
+/** Business units, offices or warehouses the employee works in (multi-select dropdown). */
+function OrgSelect({
+  label,
+  plural,
+  units,
+  value,
+  all,
+  disabled,
+  onChange,
+}: {
+  label: string;
+  plural: string;
+  units: { id: string; name: string }[];
+  value: string[];
+  disabled: boolean;
+  /** "All": every one, including ones created later. */
+  all: boolean;
+  onChange: (ids: string[], all: boolean) => void;
+}) {
+  const summary = all ? `All ${plural}` : value.length === 0 ? `Select ${label.toLowerCase()}` : units.filter((u) => value.includes(u.id)).map((u) => u.name).join(", ");
   return (
     <details className="relative w-full sm:w-60">
       <summary
-        aria-label="Business"
+        aria-label={label}
         className={cn(CONTROL_CLASS, "flex cursor-pointer list-none items-center justify-between gap-2 [&::-webkit-details-marker]:hidden", disabled && "pointer-events-none opacity-60")}
       >
         <span className="truncate">
-          <span className="text-ink-faint">Business: </span>
+          <span className="text-ink-faint">{label}: </span>
           {summary}
         </span>
         <ChevronDown aria-hidden="true" className="size-3.5 shrink-0 text-ink-faint" />
       </summary>
       <div className="absolute z-20 mt-1 flex max-h-64 w-full flex-col gap-1 overflow-auto rounded border border-line bg-surface p-2 shadow-dropdown">
         {units.length === 0 ? (
-          <p className="px-1 py-2 text-xs text-ink-faint">No business units set up.</p>
+          <p className="px-1 py-2 text-xs text-ink-faint">No {plural} set up.</p>
         ) : (
           <>
             <label className="flex cursor-pointer items-center gap-2 rounded px-1 py-1 text-sm font-medium hover:bg-control">
-              <input type="checkbox" className="size-4 accent-(--accent-strong)" checked={value.length === units.length} onChange={(e) => onChange(e.target.checked ? units.map((u) => u.id) : [])} />
-              Select all
+              <input type="checkbox" className="size-4 accent-(--accent-strong)" checked={all} onChange={(e) => onChange(e.target.checked ? units.map((u) => u.id) : [], e.target.checked)} />
+              All {plural} (includes new ones)
             </label>
             {units.map((u) => (
               <label key={u.id} className="flex cursor-pointer items-center gap-2 rounded px-1 py-1 text-sm hover:bg-control">
@@ -465,7 +488,7 @@ function BusinessSelect({ units, value, disabled, onChange }: { units: { id: str
                   type="checkbox"
                   className="size-4 accent-(--accent-strong)"
                   checked={value.includes(u.id)}
-                  onChange={(e) => onChange(e.target.checked ? [...value, u.id] : value.filter((id) => id !== u.id))}
+                  onChange={(e) => onChange(e.target.checked ? [...value, u.id] : value.filter((id) => id !== u.id), false)}
                 />
                 {u.name}
               </label>
