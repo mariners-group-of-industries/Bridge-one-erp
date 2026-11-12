@@ -24,6 +24,7 @@ import { useToday } from "../../lib/use-today";
 import { formatAmount } from "../lib/format";
 import { dashboardQuerySchema, type DashboardQuery } from "../schemas/dashboard.schema";
 import { fetchSalesDashboard } from "../services/dashboard.api";
+import { fetchSalesLookups } from "../../masters/services/masters.api";
 import { OverdueWidget, RankedWidget, StatTile, TargetWidget } from "./DashboardWidgets";
 
 /** Sales Dashboard. Waits for the browser's date (see useToday) before loading. */
@@ -91,14 +92,16 @@ function getPresets(today: string): DatePreset[] {
 
 function Dashboard({ today }: { today: string }) {
   const defaultFrom = `${today.slice(0, 7)}-01`;
-  const [form, setForm] = useState({ from: defaultFrom, to: today });
-  const [query, setQuery] = useState<DashboardQuery>(form);
+  const [form, setForm] = useState({ from: defaultFrom, to: today, officeId: "" });
+  const [query, setQuery] = useState<DashboardQuery>({ from: defaultFrom, to: today });
+  const lookups = useResource("sales-lookups", fetchSalesLookups);
+  const offices = lookups.data?.offices ?? [];
   const [formError, setFormError] = useState<string>();
 
   const presets = useMemo(() => getPresets(today), [today]);
 
   const { data, error, loading, reload } = useResource(
-    `${query.from}|${query.to}`,
+    `${query.from}|${query.to}|${query.officeId ?? ""}`,
     () => fetchSalesDashboard(query),
     {
       refreshOnFocus: true,
@@ -106,16 +109,16 @@ function Dashboard({ today }: { today: string }) {
     },
   );
 
-  function applyDateRange(from: string, to: string) {
-    const next = { from, to };
+  function applyDateRange(from: string, to: string, officeId = form.officeId) {
+    const next = { from, to, ...(officeId ? { officeId } : {}) };
     const parsed = dashboardQuerySchema.safeParse(next);
     if (!parsed.success) {
       setFormError(parsed.error.issues[0]?.message);
       return;
     }
     setFormError(undefined);
-    setForm(next);
-    if (parsed.data.from === query.from && parsed.data.to === query.to) {
+    setForm({ from, to, officeId });
+    if (parsed.data.from === query.from && parsed.data.to === query.to && parsed.data.officeId === query.officeId) {
       reload();
     } else {
       setQuery(parsed.data);
@@ -218,7 +221,27 @@ function Dashboard({ today }: { today: string }) {
           </div>
         </div>
 
-        <form onSubmit={view} className="grid items-end gap-3 sm:grid-cols-[1fr_1fr_auto]">
+        <form onSubmit={view} className="grid items-end gap-3 sm:grid-cols-[1fr_1fr_1fr_auto]">
+          <div className="flex flex-col gap-1">
+            <label htmlFor="dashboard-office" className="text-xs font-medium text-ink-muted">
+              Office
+            </label>
+            <select
+              id="dashboard-office"
+              value={form.officeId}
+              disabled={!lookups.data}
+              onChange={(e) => setForm({ ...form, officeId: e.target.value })}
+              className="h-8 w-full rounded border border-line-strong bg-control px-2.5 text-xs text-ink transition-colors focus:border-accent focus:bg-surface focus:outline-none"
+            >
+              <option value="">All offices</option>
+              {offices.map((office) => (
+                <option key={office.id} value={office.id}>
+                  {office.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
           <div className="flex flex-col gap-1">
             <label htmlFor="dashboard-from" className="text-xs font-medium text-ink-muted">
               From Date
@@ -261,7 +284,7 @@ function Dashboard({ today }: { today: string }) {
           </div>
 
           {formError && (
-            <p role="alert" className="text-xs font-medium text-danger sm:col-span-3">
+            <p role="alert" className="text-xs font-medium text-danger sm:col-span-4">
               {formError}
             </p>
           )}
