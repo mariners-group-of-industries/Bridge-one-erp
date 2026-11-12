@@ -203,6 +203,17 @@ export function territoryOptions(
   return old ? [...list, { value: old.id, label: `${old.name} (not in Sales Setup)` }] : list;
 }
 
+/**
+ * The customer's place in Sales Setup › Territory: one field per layer above the
+ * Territory layer (National, Region …), filled from the chosen territory's parents.
+ */
+export function territoryHierarchy(options: Pick<CustomerFormOptions, "territories" | "territoryLayers">, businessUnitId: string | undefined, territoryId: string) {
+  const territory = territoryId ? options.territories.find((t) => t.id === territoryId) : undefined;
+  return options.territoryLayers
+    .filter((layer) => layer.businessUnitId === businessUnitId)
+    .map((layer) => ({ layerId: layer.id, label: layer.name, value: territory?.levels.find((level) => level.layerId === layer.id)?.name ?? "" }));
+}
+
 export function CustomerFormView({
   customerId,
   defaultOfficeId,
@@ -550,6 +561,11 @@ function CustomerEditor({ customerId, title, breadcrumbs, initial, attachments, 
                   />
                 )}
               </Field>
+              {territoryHierarchy(options, unit, form.territoryId).map((level) => (
+                <Field key={level.layerId} label={level.label} hint="From the selected territory in Sales Setup › Territory.">
+                  {(id) => <Input id={id} value={level.value} readOnly tabIndex={-1} placeholder={form.territoryId ? "—" : "Select a territory"} />}
+                </Field>
+              ))}
               <Field label="Default Sales Representative" error={err("salesPersonId")} hint={officeMissing}>
                 {(id) => (
                   <Select

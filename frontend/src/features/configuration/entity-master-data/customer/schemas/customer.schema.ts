@@ -231,11 +231,19 @@ interface BuOption {
   businessUnitId: string;
 }
 
+/** One node above a territory in the Sales Setup tree (e.g. Region › "Dhaka"). */
+export interface TerritoryLevel {
+  layerId: string;
+  name: string;
+}
+
 export interface CustomerFormOptions {
   offices: BuOption[];
   groups: (BuOption & { parentId: string | null })[];
   /** Territories from Sales Setup › Territory; `path` is the tree above it (e.g. "National › Dhaka"). */
-  territories: (BuOption & { path: string })[];
+  territories: (BuOption & { path: string; levels: TerritoryLevel[] })[];
+  /** Sales Setup layers above the Territory layer (National, Region …), top first: the customer's hierarchy fields. */
+  territoryLayers: { id: string; businessUnitId: string; name: string; level: number }[];
   /** Older sales territories not in the territory setup: shown only for customers that still use one. */
   otherTerritories: BuOption[];
   sections: BuOption[];

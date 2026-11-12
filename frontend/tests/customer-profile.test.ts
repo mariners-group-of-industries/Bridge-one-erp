@@ -222,6 +222,9 @@ describe("customer profile", () => {
     const options = await getFormOptions(adminActor);
     expect(options.groups.find((g) => g.name === "Pharmacy")?.parentId).toBe(group.id);
     expect(options.territories.map((t) => [t.path, t.name])).toEqual([["Bangladesh", "North"], ["Bangladesh", "Sadar"]]);
+    // Hierarchy fields: one per layer above Territory, filled from the territory's parents.
+    expect(options.territoryLayers.map((layer) => layer.name)).toEqual(["National"]);
+    expect(options.territories[0].levels).toEqual([{ layerId: options.territoryLayers[0].id, name: "Bangladesh" }]);
     expect(options.otherTerritories).toEqual([]);
     expect(options.sections.map((s) => s.name)).toEqual(["Bazar Road"]);
   });

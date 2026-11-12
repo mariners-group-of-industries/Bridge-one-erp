@@ -11,6 +11,7 @@ import { ReadValue, StatusBadge } from "../../employee/components/kit";
 import { entityMasterDataPaths } from "../../paths";
 import { CUSTOMER_FLAGS, type CustomerFormOptions } from "../schemas/customer.schema";
 import { customerApi } from "../services/customer.api";
+import { territoryHierarchy } from "./CustomerFormView";
 
 interface Props {
   /** Customer to show; null closes the dialog. */
@@ -71,6 +72,10 @@ export function CustomerViewDialog({ customer, options, onClose }: Props) {
               <ReadValue label="Sub Group" value={nameOf(options?.groups, data.subGroupId)} />
               <ReadValue label="Credit Days" value={data.creditDays} />
               <ReadValue label="Credit Limit" value={money(data.creditLimit)} />
+              {options &&
+                territoryHierarchy(options, options.offices.find((office) => office.id === data.officeId)?.businessUnitId, data.territoryId).map((level) => (
+                  <ReadValue key={level.layerId} label={level.label} value={level.value} />
+                ))}
               <ReadValue label="Territory" value={nameOf([...(options?.territories ?? []), ...(options?.otherTerritories ?? [])], data.territoryId)} />
               <ReadValue label="Default Sales Representative" value={nameOf(options?.salesPersons, data.salesPersonId)} />
               <ReadValue label="Tolerance (%)" value={data.tolerancePercent} />
