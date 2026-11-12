@@ -172,14 +172,14 @@ export async function updateAccountSettings(
 export async function getCredentials(id: string, actor: Actor): Promise<CredentialsDto> {
   const emp = await loadEmployee(id, actor);
   if (!emp.userId) {
-    return { hasAccount: false, userId: null, phone: emp.mobile, roleId: null, roleName: null, userSystemRole: null, isActive: null };
+    return { hasAccount: false, userId: null, phone: emp.mobile, roleId: null, roleName: null, userSystemRole: null, isActive: null, hideStockInSales: false };
   }
   const user = await db().user.findUnique({
     where: { id: emp.userId },
     include: { dynamicRole: { select: { id: true, name: true } } },
   });
   if (!user) {
-    return { hasAccount: false, userId: null, phone: emp.mobile, roleId: null, roleName: null, userSystemRole: null, isActive: null };
+    return { hasAccount: false, userId: null, phone: emp.mobile, roleId: null, roleName: null, userSystemRole: null, isActive: null, hideStockInSales: false };
   }
   return {
     hasAccount: true,
@@ -189,6 +189,7 @@ export async function getCredentials(id: string, actor: Actor): Promise<Credenti
     roleName: user.dynamicRole?.name ?? null,
     userSystemRole: user.role,
     isActive: user.isActive,
+    hideStockInSales: user.hideStockInSales,
   };
 }
 
@@ -219,6 +220,7 @@ export async function updateCredentials(
         phone:        input.phone,
         passwordHash,
         roleId,
+        hideStockInSales: input.hideStockInSales ?? false,
         isActive:     true,
         // Creating a login here is meant to let the employee sign in; page permissions are still granted separately.
         erpAccess:    true,
@@ -231,6 +233,7 @@ export async function updateCredentials(
   } else {
     // Update existing user
     const updateData: Record<string, unknown> = { phone: input.phone, roleId };
+    if (input.hideStockInSales !== undefined) updateData.hideStockInSales = input.hideStockInSales;
     if (input.password) {
       updateData.passwordHash = await argon2.hash(input.password);
       // Invalidate all existing sessions so the user must re-login
@@ -246,18 +249,24 @@ export async function updateCredentials(
 
 export async function getOrgAccess(id: string, actor: Actor): Promise<OrgAccessDto> {
   const emp = await loadEmployee(id, actor);
-  if (!emp.userId) return { businessUnitIds: [], officeIds: [], warehouseIds: [] };
+  if (!emp.userId) {
+    return { businessUnitIds: [], officeIds: [], warehouseIds: [], allBusinessUnits: false, allOffices: false, allWarehouses: false };
+  }
 
-  const [bus, offices, warehouses] = await Promise.all([
+  const [bus, offices, warehouses, flags] = await Promise.all([
     db().userBusinessUnitAccess.findMany({ where: { userId: emp.userId }, select: { businessUnitId: true } }),
     db().userOfficeAccess.findMany({ where: { userId: emp.userId }, select: { officeId: true } }),
     db().userWarehouseAccess.findMany({ where: { userId: emp.userId }, select: { warehouseId: true } }),
+    db().user.findUnique({ where: { id: emp.userId }, select: { allBusinessUnits: true, allOffices: true, allWarehouses: true } }),
   ]);
 
   return {
-    businessUnitIds: bus.map((r) => r.businessUnitId),
-    officeIds:       offices.map((r) => r.officeId),
-    warehouseIds:    warehouses.map((r) => r.warehouseId),
+    businessUnitIds:  bus.map((r) => r.businessUnitId),
+    officeIds:        offices.map((r) => r.officeId),
+    warehouseIds:     warehouses.map((r) => r.warehouseId),
+    allBusinessUnits: flags?.allBusinessUnits ?? false,
+    allOffices:       flags?.allOffices ?? false,
+    allWarehouses:    flags?.allWarehouses ?? false,
   };
 }
 
@@ -272,18 +281,29 @@ export async function updateOrgAccess(
   }
   const userId = emp.userId;
 
+  // "All" stores a row for every current one too, so code reading the rows sees
+  // them; ones created later are added by grantToAllAccessUsers.
+  const all = (input.allBusinessUnits || input.allOffices || input.allWarehouses) ? await getOrgOptions(actor) : null;
+  const businessUnitIds = input.allBusinessUnits && all ? all.businessUnits.map((u) => u.id) : input.businessUnitIds;
+  const officeIds = input.allOffices && all ? all.offices.map((o) => o.id) : input.officeIds;
+  const warehouseIds = input.allWarehouses && all ? all.warehouses.map((w) => w.id) : input.warehouseIds;
+
   await db().$transaction([
+    db().user.update({
+      where: { id: userId },
+      data: { allBusinessUnits: input.allBusinessUnits, allOffices: input.allOffices, allWarehouses: input.allWarehouses },
+    }),
     db().userBusinessUnitAccess.deleteMany({ where: { userId } }),
     db().userOfficeAccess.deleteMany({ where: { userId } }),
     db().userWarehouseAccess.deleteMany({ where: { userId } }),
-    ...(input.businessUnitIds.length
-      ? [db().userBusinessUnitAccess.createMany({ data: input.businessUnitIds.map((businessUnitId) => ({ userId, businessUnitId })) })]
+    ...(businessUnitIds.length
+      ? [db().userBusinessUnitAccess.createMany({ data: businessUnitIds.map((businessUnitId) => ({ userId, businessUnitId })) })]
       : []),
-    ...(input.officeIds.length
-      ? [db().userOfficeAccess.createMany({ data: input.officeIds.map((officeId) => ({ userId, officeId })) })]
+    ...(officeIds.length
+      ? [db().userOfficeAccess.createMany({ data: officeIds.map((officeId) => ({ userId, officeId })) })]
       : []),
-    ...(input.warehouseIds.length
-      ? [db().userWarehouseAccess.createMany({ data: input.warehouseIds.map((warehouseId) => ({ userId, warehouseId })) })]
+    ...(warehouseIds.length
+      ? [db().userWarehouseAccess.createMany({ data: warehouseIds.map((warehouseId) => ({ userId, warehouseId })) })]
       : []),
   ]);
 

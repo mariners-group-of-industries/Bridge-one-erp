@@ -621,7 +621,7 @@ async function loadDelivery(actor: Actor, id: string): Promise<DeliveryRecord> {
 
 export async function getDelivery(actor: Actor, id: string): Promise<DeliveryDetail> {
   const detail = toDetail(await loadDelivery(actor, id));
-  if (detail.warehouseId) {
+  if (detail.warehouseId && !actor.hideStockInSales) {
     const levels = await stockLevels(detail.warehouseId, [...new Set(detail.lines.map((line) => line.itemId))]);
     for (const line of detail.lines) line.stock = levels.get(line.itemId) ?? 0;
   }

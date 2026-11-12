@@ -1,6 +1,6 @@
 "use client";
 
-import { PackagePlus, Pencil, Plus, Search, Upload, Warehouse } from "lucide-react";
+import { Eye, PackagePlus, Pencil, Plus, Search, Upload, Warehouse, X } from "lucide-react";
 import Link from "next/link";
 import { useState, type ReactNode } from "react";
 import { PageContainer, PageHead } from "@/components/layout/page";
@@ -15,9 +15,9 @@ import { errorMessage } from "@/lib/api/client";
 import { cn } from "@/lib/cn";
 import { entityMasterDataBreadcrumbs } from "../../breadcrumbs";
 import { BulkUploadDialog } from "../../components/BulkUploadDialog";
-import { CONTROL_CLASS, EmptyBlock, StatusBadge } from "../../employee/components/kit";
+import { CONTROL_CLASS, EmptyBlock, Field, Select, StatusBadge } from "../../employee/components/kit";
 import { entityMasterDataPaths } from "../../paths";
-import { MAX_ITEM_IMPORT_ROWS, type ItemList, type ItemListRow } from "../schemas/item.schema";
+import { ITEM_TYPES, MAX_ITEM_IMPORT_ROWS, type ItemFilters, type ItemList, type ItemListRow } from "../schemas/item.schema";
 import { itemApi } from "../services/item.api";
 import { CategoryTab } from "./CategoryTab";
 
@@ -77,6 +77,7 @@ export function ItemListView() {
   const debouncedSearch = useDebouncedValue(search.trim(), 300);
   const [uploadOpen, setUploadOpen] = useState(false);
   const [refresh, setRefresh] = useState(0);
+  const [filters, setFilters] = useState<ItemFilters>({});
 
   return (
     <PageContainer full>
@@ -114,7 +115,14 @@ export function ItemListView() {
 
       <section className="rounded border border-line bg-surface shadow-xs">
         <Tabs tabs={TABS} value={tab} onChange={setTab} label="Item Profile sections">
-          {tab === "items" ? <ItemsTab search={debouncedSearch} refresh={refresh} onRefresh={() => setRefresh((v) => v + 1)} /> : <CategoryTab search={debouncedSearch} />}
+          {tab === "items" ? (
+            <>
+              <ItemFilterBar applied={filters} onApply={setFilters} />
+              <ItemsTab search={debouncedSearch} filters={filters} refresh={refresh} onRefresh={() => setRefresh((v) => v + 1)} />
+            </>
+          ) : (
+            <CategoryTab search={debouncedSearch} />
+          )}
         </Tabs>
       </section>
 
@@ -132,16 +140,145 @@ export function ItemListView() {
   );
 }
 
-function ItemsTab({ search, refresh, onRefresh }: { search: string; refresh: number; onRefresh: () => void }) {
+const EMPTY_FILTERS: ItemFilters = {};
+const filterKey = (filters: ItemFilters) => JSON.stringify(Object.entries(filters).filter(([, value]) => value).sort());
+
+/** Item Profile filters: edited here, applied to the list with "View". */
+function ItemFilterBar({ applied, onApply }: { applied: ItemFilters; onApply: (filters: ItemFilters) => void }) {
+  const [draft, setDraft] = useState<ItemFilters>(applied);
+  const form = useResource("item-form-options", itemApi.formOptions);
+  const parties = useResource("item-filter-options", itemApi.filterOptions);
+  const categories = form.data?.categories ?? [];
+  const children = (level: number, parentId?: string) =>
+    categories.filter((category) => category.level === level && (level === 1 || category.parentId === parentId));
+  const subCategories = draft.categoryId ? children(2, draft.categoryId) : [];
+  const minorCategories = draft.subCategoryId ? children(3, draft.subCategoryId) : [];
+  const change = (changes: ItemFilters) => setDraft((current) => ({ ...current, ...changes }));
+  const value = (event: { target: { value: string } }) => event.target.value || undefined;
+  const pending = filterKey(draft) !== filterKey(applied);
+  const any = Object.values(draft).some(Boolean) || Object.values(applied).some(Boolean);
+  const party = (row: { id: string; code: string; name: string }) => ({ value: row.id, label: `${row.name} (${row.code})` });
+
+  return (
+    <form
+      aria-label="Filters"
+      className="grid grid-cols-1 items-end gap-3 border-b border-line px-4 py-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-9"
+      onSubmit={(event) => {
+        event.preventDefault();
+        onApply(draft);
+      }}
+    >
+      <Field label="Select Supplier">
+        {(id) => (
+          <Select id={id} value={draft.supplierId ?? ""} placeholder="All suppliers" disabled={!parties.data} options={(parties.data?.suppliers ?? []).map(party)} onChange={(e) => change({ supplierId: value(e) })} />
+        )}
+      </Field>
+      <Field label="Select Customer">
+        {(id) => (
+          <Select id={id} value={draft.customerId ?? ""} placeholder="All customers" disabled={!parties.data} options={(parties.data?.customers ?? []).map(party)} onChange={(e) => change({ customerId: value(e) })} />
+        )}
+      </Field>
+      <Field label="Item Type">
+        {(id) => (
+          <Select id={id} value={draft.itemType ?? ""} placeholder="All types" options={ITEM_TYPES.map((type) => ({ value: type, label: type }))} onChange={(e) => change({ itemType: value(e) })} />
+        )}
+      </Field>
+      <Field label="Item Division">
+        {(id) => (
+          <Select
+            id={id}
+            value={draft.divisionId ?? ""}
+            placeholder="All divisions"
+            disabled={!form.data}
+            options={(form.data?.divisions ?? []).map((division) => ({ value: division.id, label: division.name }))}
+            onChange={(e) => change({ divisionId: value(e) })}
+          />
+        )}
+      </Field>
+      <Field label="Category">
+        {(id) => (
+          <Select
+            id={id}
+            value={draft.categoryId ?? ""}
+            placeholder="All categories"
+            disabled={!form.data}
+            options={children(1).map((category) => ({ value: category.id, label: category.name }))}
+            onChange={(e) => change({ categoryId: value(e), subCategoryId: undefined, minorCategoryId: undefined })}
+          />
+        )}
+      </Field>
+      <Field label="Sub Category">
+        {(id) => (
+          <Select
+            id={id}
+            value={draft.subCategoryId ?? ""}
+            placeholder={draft.categoryId ? "All sub categories" : "Select a category"}
+            disabled={!draft.categoryId}
+            options={subCategories.map((category) => ({ value: category.id, label: category.name }))}
+            onChange={(e) => change({ subCategoryId: value(e), minorCategoryId: undefined })}
+          />
+        )}
+      </Field>
+      <Field label="Minor Category">
+        {(id) => (
+          <Select
+            id={id}
+            value={draft.minorCategoryId ?? ""}
+            placeholder={draft.subCategoryId ? "All minor categories" : "Select a sub category"}
+            disabled={!draft.subCategoryId}
+            options={minorCategories.map((category) => ({ value: category.id, label: category.name }))}
+            onChange={(e) => change({ minorCategoryId: value(e) })}
+          />
+        )}
+      </Field>
+      <Field label="Active/Inactive">
+        {(id) => (
+          <Select
+            id={id}
+            value={draft.status ?? ""}
+            placeholder="All"
+            options={[
+              { value: "active", label: "Active" },
+              { value: "inactive", label: "Inactive" },
+            ]}
+            onChange={(e) => change({ status: value(e) as ItemFilters["status"] })}
+          />
+        )}
+      </Field>
+      <div className="flex items-center gap-2">
+        <Button type="submit" variant="accent" title="Apply the filters">
+          <Eye /> View
+        </Button>
+        {any && (
+          <button
+            type="button"
+            onClick={() => {
+              setDraft(EMPTY_FILTERS);
+              onApply(EMPTY_FILTERS);
+            }}
+            className="inline-flex h-8 items-center gap-1 rounded px-2 text-xs font-semibold text-accent-strong hover:bg-accent-soft focus-visible:outline-2 dark:text-accent"
+          >
+            <X aria-hidden="true" className="size-3.5" /> Clear
+          </button>
+        )}
+      </div>
+      {pending && <p className="col-span-full text-xs text-ink-faint">Filters changed: press View to apply them.</p>}
+    </form>
+  );
+}
+
+function ItemsTab({ search, filters, refresh, onRefresh }: { search: string; filters: ItemFilters; refresh: number; onRefresh: () => void }) {
   const toast = useToast();
   const [pageSize, setPageSize] = useState<number>(10);
-  const [paging, setPaging] = useState({ page: 1, search });
-  const page = paging.search === search ? paging.page : 1;
-  const list = useResource(`items?${search}&${page}&${pageSize}&r=${refresh}`, () => itemApi.list({ search, page, pageSize }));
+  const key = `${search}|${filterKey(filters)}`;
+  const [paging, setPaging] = useState({ page: 1, key });
+  const page = paging.key === key ? paging.page : 1;
+  const list = useResource(`items?${key}&${page}&${pageSize}&r=${refresh}`, () => itemApi.list({ ...filters, search, page, pageSize }));
   const [shown, setShown] = useState<ItemList>();
   if (list.data && list.data !== shown) setShown(list.data);
   const [busyId, setBusyId] = useState<string | null>(null);
-  const goToPage = (next: number) => setPaging({ page: next, search });
+  const goToPage = (next: number) => setPaging({ page: next, key });
+  const filtered = !!search || Object.values(filters).some(Boolean);
 
   const toggle = async (row: ItemListRow) => {
     setBusyId(row.id);
@@ -161,9 +298,9 @@ function ItemsTab({ search, refresh, onRefresh }: { search: string; refresh: num
   if (shown.total === 0) {
     return (
       <div className="p-5">
-        {search ? (
+        {filtered ? (
           <EmptyBlock icon={<Search />} title="No matching items">
-            Try a different search.
+            Try a different search or other filters.
           </EmptyBlock>
         ) : (
           <EmptyBlock icon={<PackagePlus />} title="No items yet">

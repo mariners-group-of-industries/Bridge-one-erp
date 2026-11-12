@@ -181,5 +181,6 @@ export interface PipelineList {
 export interface ApprovalFormOptions {
   businessUnits: { id: string; name: string }[];
   users: { id: string; name: string; businessUnitIds: string[] }[];
-  employees: { id: string; name: string; code: string; designation: string | null; businessUnitId: string }[];
+  /** `userId`: the employee's ERP login (a super approver acts through it). */
+  employees: { id: string; name: string; code: string; designation: string | null; businessUnitId: string; userId: string | null }[];
 }

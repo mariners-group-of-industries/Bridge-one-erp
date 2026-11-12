@@ -15,6 +15,7 @@ import { useToast } from "@/components/ui/toast";
 import { useResource } from "@/hooks/use-resource";
 import { useSaveShortcut } from "@/hooks/use-save-shortcut";
 import { errorMessage } from "@/lib/api/client";
+import { useSession } from "@/lib/auth/session";
 import { cn } from "@/lib/cn";
 import { formatAmount, formatQty } from "../../dashboard/lib/format";
 import { issuesToErrors, numberText, optionalNumber, requiredNumber } from "../../lib/form";
@@ -1161,7 +1162,9 @@ export function ItemEntry({
     byCustomer ? `${item.printedCode || item.code} — ${item.printedName || item.name}` : `${item.code} — ${item.name}`;
   const item = visible.find((candidate) => label(candidate) === itemText) ?? items.find((candidate) => label(candidate) === itemText);
   const pending = useResource(item ? `pending:${item.id}` : null, () => fetchItemPending(item!.id));
-  const stock = useResource(item && warehouseId ? `stock:${warehouseId}:${item.id}` : null, () => fetchStock(warehouseId!, [item!.id]));
+  // ERP Login "Hide Stock In Sales": no stock is read or shown for this user.
+  const hideStock = useSession().user?.hideStockInSales ?? false;
+  const stock = useResource(item && warehouseId && !hideStock ? `stock:${warehouseId}:${item.id}` : null, () => fetchStock(warehouseId!, [item!.id]));
 
   function pick(text: string) {
     setItemText(text);
@@ -1328,9 +1331,11 @@ export function ItemEntry({
           </Indicator>
         )}
         {/* Always shown, as in Managerium; filled once an item is picked. */}
-        <Indicator color="yellow">
-          Stock : {!item ? formatQty(0) : !warehouseId ? "No warehouse" : stock.data ? formatQty(stock.data[0].qty) : "…"}
-        </Indicator>
+        {!hideStock && (
+          <Indicator color="yellow">
+            Stock : {!item ? formatQty(0) : !warehouseId ? "No warehouse" : stock.data ? formatQty(stock.data[0].qty) : "…"}
+          </Indicator>
+        )}
         <Indicator color="orange">Pending : {!item ? "" : pending.data ? formatQty(pending.data.pendingQty) : "…"}</Indicator>
         {error && (
           <p role="alert" className="text-danger">

@@ -15,6 +15,7 @@ import {
   type GlAccountOption,
   type ItemData,
   type ItemDto,
+  type ItemFilterOptions,
   type ItemFormOptions,
   type ItemInput,
   type ItemList,
@@ -212,6 +213,42 @@ async function stockFigures(itemIds: string[]) {
   );
 }
 
+/** The Item Profile filters as Prisma conditions; a category also matches the categories under it. */
+function itemFilters(query: ItemListQuery): Prisma.ItemWhereInput[] {
+  const filters: Prisma.ItemWhereInput[] = [];
+  if (query.supplierId) filters.push({ purchaseOrderLines: { some: { order: { supplierId: query.supplierId } } } });
+  if (query.customerId) {
+    filters.push({
+      OR: [
+        { orderLines: { some: { order: { customerId: query.customerId } } } },
+        { customerPriceLines: { some: { setup: { customerId: query.customerId } } } },
+      ],
+    });
+  }
+  if (query.itemType) filters.push({ itemType: query.itemType });
+  if (query.divisionId) filters.push({ divisionId: query.divisionId });
+  // The deepest chosen category decides; items may sit on it or below it.
+  const categoryId = query.minorCategoryId || query.subCategoryId || query.categoryId;
+  if (categoryId) {
+    filters.push({
+      OR: [{ categoryId }, { category: { parentId: categoryId } }, { category: { parent: { parentId: categoryId } } }],
+    });
+  }
+  if (query.status) filters.push({ isActive: query.status === "active" });
+  return filters;
+}
+
+/** Suppliers and customers for the Item Profile filters. */
+export async function getFilterOptions(actor: Actor): Promise<ItemFilterOptions> {
+  const unit = { businessUnit: unitScope(actor) };
+  const pick = { id: true, code: true, name: true } as const;
+  const [suppliers, customers] = await Promise.all([
+    db().supplier.findMany({ where: unit, orderBy: { name: "asc" }, select: pick }),
+    db().customer.findMany({ where: unit, orderBy: { name: "asc" }, select: pick }),
+  ]);
+  return { suppliers, customers };
+}
+
 export async function listItems(actor: Actor, query: ItemListQuery): Promise<ItemList> {
   const search = query.search ? { contains: escapeLike(query.search), mode: "insensitive" as const } : undefined;
   const where: Prisma.ItemWhereInput = {
@@ -220,6 +257,7 @@ export async function listItems(actor: Actor, query: ItemListQuery): Promise<Ite
       search
         ? { OR: [{ code: search }, { name: search }, { printedCode: search }, { printedName: search }, { barcode: search }, { brand: search }] }
         : {},
+      ...itemFilters(query),
     ],
   };
   const [total, records] = await Promise.all([

@@ -1,5 +1,5 @@
 import type { Prisma } from "@/generated/prisma/client";
-import { badRequest, notFound } from "@/lib/api/errors";
+import { AppError, badRequest, notFound } from "@/lib/api/errors";
 import { assertCompanyAccess, type Actor } from "@/lib/auth/actor";
 import { db } from "@/lib/prisma/client";
 import { fromDbDate, toDbDate } from "../../lib/dates";
@@ -9,6 +9,11 @@ import { stockAdjustmentSchema, type StockLevel, type StockSummary, type Warehou
 type Tx = Prisma.TransactionClient;
 
 const round3 = (value: number) => Math.round(value * 1000) / 1000;
+
+/** ERP Login "Hide Stock In Sales": this user may not read stock levels in the Sales module. */
+export function assertMaySeeStock(actor: Actor) {
+  if (actor.hideStockInSales) throw new AppError(403, "FORBIDDEN", "Stock is hidden for this user.");
+}
 
 /** Warehouse with its business unit, if the actor may access it. */
 export async function requireWarehouse(actor: Actor, warehouseId: string, client: Tx | ReturnType<typeof db> = db()) {
@@ -43,6 +48,7 @@ export async function stockLevels(warehouseId: string, itemIds: string[], client
 }
 
 export async function getStockLevels(actor: Actor, warehouseId: string, itemIds: string[]): Promise<StockLevel[]> {
+  assertMaySeeStock(actor);
   await requireWarehouse(actor, warehouseId);
   const levels = await stockLevels(warehouseId, itemIds);
   return [...levels].map(([itemId, qty]) => ({ itemId, qty }));
@@ -98,6 +104,7 @@ export async function adjustStock(actor: Actor, raw: unknown): Promise<void> {
 
 /** Stock of one item per warehouse plus its latest movements. */
 export async function getItemStock(actor: Actor, itemId: string): Promise<StockSummary> {
+  assertMaySeeStock(actor);
   const item = await db().item.findUnique({ where: { id: itemId }, select: { businessUnitId: true, businessUnit: { select: { companyId: true } } } });
   if (!item) throw notFound("Item");
   assertCompanyAccess(actor, item.businessUnit.companyId, "Item");

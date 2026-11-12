@@ -87,7 +87,7 @@ export const customerInputSchema = z
       })
       .optional()
       .default(""),
-    territoryId: z.uuid("Select a territory."),
+    territoryId: optionalId,
     salesPersonId: optionalId,
     tolerancePercent: percent,
     binNumber: optionalText(30),
@@ -231,10 +231,21 @@ interface BuOption {
   businessUnitId: string;
 }
 
+/** One node above a territory in the Sales Setup tree (e.g. Region › "Dhaka"). */
+export interface TerritoryLevel {
+  layerId: string;
+  name: string;
+}
+
 export interface CustomerFormOptions {
   offices: BuOption[];
   groups: (BuOption & { parentId: string | null })[];
-  territories: BuOption[];
+  /** Territories from Sales Setup › Territory; `path` is the tree above it (e.g. "National › Dhaka"). */
+  territories: (BuOption & { path: string; levels: TerritoryLevel[] })[];
+  /** Sales Setup layers above the Territory layer (National, Region …), top first: the customer's hierarchy fields. */
+  territoryLayers: { id: string; businessUnitId: string; name: string; level: number }[];
+  /** Older sales territories not in the territory setup: shown only for customers that still use one. */
+  otherTerritories: BuOption[];
   sections: BuOption[];
   salesPersons: (BuOption & { code: string })[];
   priceLists: BuOption[];
@@ -246,6 +257,8 @@ export interface CustomerFormOptions {
 export interface CustomerImportResult {
   created: number;
   errors: { row: number; message: string }[];
+  /** e.g. which partner groups and sub groups the upload created. */
+  notes?: string[];
 }
 
 export const MAX_CUSTOMER_IMPORT_ROWS = 2000;

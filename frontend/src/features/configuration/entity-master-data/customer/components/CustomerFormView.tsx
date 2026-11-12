@@ -192,6 +192,28 @@ export interface EmbeddedCustomerForm {
 }
 
 /** Add Customer (no id) or edit an existing customer profile. */
+/** Territory choices from Sales Setup › Territory, labelled with their path; an older territory the customer still has stays selectable. */
+export function territoryOptions(
+  territories: { id: string; name: string; path: string }[],
+  others: { id: string; name: string }[],
+  current: string,
+) {
+  const list = territories.map((t) => ({ value: t.id, label: t.path ? `${t.path} › ${t.name}` : t.name }));
+  const old = current && !territories.some((t) => t.id === current) ? others.find((t) => t.id === current) : undefined;
+  return old ? [...list, { value: old.id, label: `${old.name} (not in Sales Setup)` }] : list;
+}
+
+/**
+ * The customer's place in Sales Setup › Territory: one field per layer above the
+ * Territory layer (National, Region …), filled from the chosen territory's parents.
+ */
+export function territoryHierarchy(options: Pick<CustomerFormOptions, "territories" | "territoryLayers">, businessUnitId: string | undefined, territoryId: string) {
+  const territory = territoryId ? options.territories.find((t) => t.id === territoryId) : undefined;
+  return options.territoryLayers
+    .filter((layer) => layer.businessUnitId === businessUnitId)
+    .map((layer) => ({ layerId: layer.id, label: layer.name, value: territory?.levels.find((level) => level.layerId === layer.id)?.name ?? "" }));
+}
+
 export function CustomerFormView({
   customerId,
   defaultOfficeId,
@@ -523,18 +545,27 @@ function CustomerEditor({ customerId, title, breadcrumbs, initial, attachments, 
                   />
                 )}
               </Field>
-              <Field label="Territory" required error={err("territoryId")} hint={officeMissing}>
+              <Field
+                label="Territory"
+                error={err("territoryId")}
+                hint={officeMissing ?? (unit && ofUnit(options.territories).length === 0 ? "No territories yet: add them in Sales Setup › Territory." : undefined)}
+              >
                 {(id) => (
                   <Select
                     id={id}
                     value={form.territoryId}
                     disabled={!unit}
-                    options={toOptions(ofUnit(options.territories))}
+                    options={territoryOptions(ofUnit(options.territories), options.otherTerritories, form.territoryId)}
                     aria-invalid={invalid("territoryId")}
                     onChange={text("territoryId")}
                   />
                 )}
               </Field>
+              {territoryHierarchy(options, unit, form.territoryId).map((level) => (
+                <Field key={level.layerId} label={level.label} hint="From the selected territory in Sales Setup › Territory.">
+                  {(id) => <Input id={id} value={level.value} readOnly tabIndex={-1} placeholder={form.territoryId ? "—" : "Select a territory"} />}
+                </Field>
+              ))}
               <Field label="Default Sales Representative" error={err("salesPersonId")} hint={officeMissing}>
                 {(id) => (
                   <Select

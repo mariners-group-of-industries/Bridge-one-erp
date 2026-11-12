@@ -15,6 +15,8 @@ export interface SessionUser {
   isMaster?: boolean;
   /** Effective permission keys from /api/auth/me (["*"] = everything). */
   permissions?: string[];
+  /** ERP Login "Hide Stock In Sales": Sales screens do not show stock levels. */
+  hideStockInSales?: boolean;
 }
 
 interface SessionCtx {

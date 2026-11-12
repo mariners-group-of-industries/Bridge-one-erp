@@ -122,9 +122,28 @@ export const itemListQuerySchema = z.object({
     .int()
     .refine((value) => [10, 25, 50, 100].includes(value), "Invalid page size.")
     .default(10),
+  // Item Profile filters ("View" applies them). Empty values mean "all".
+  /** Items bought from this supplier (on its purchase orders). */
+  supplierId: z.uuid().optional().catch(undefined),
+  /** Items sold to this customer (sales orders) or priced for it (Customer Price Setup). */
+  customerId: z.uuid().optional().catch(undefined),
+  itemType: z.string().trim().max(30).optional(),
+  divisionId: z.uuid().optional().catch(undefined),
+  /** Each category filter includes the categories under it. */
+  categoryId: z.uuid().optional().catch(undefined),
+  subCategoryId: z.uuid().optional().catch(undefined),
+  minorCategoryId: z.uuid().optional().catch(undefined),
+  status: z.enum(["active", "inactive"]).optional().catch(undefined),
 });
 
 export type ItemListQuery = z.output<typeof itemListQuerySchema>;
+/** The Item Profile filters, as the list view keeps them. */
+export type ItemFilters = Partial<Omit<ItemListQuery, "page" | "pageSize">>;
+
+export interface ItemFilterOptions {
+  suppliers: { id: string; code: string; name: string }[];
+  customers: { id: string; code: string; name: string }[];
+}
 
 // ─── Categories, divisions, units ─────────────────────────────────────────────
 

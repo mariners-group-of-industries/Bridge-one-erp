@@ -4,6 +4,7 @@ import type { Prisma } from "@/generated/prisma/client";
 import { AppError, badRequest, notFound } from "@/lib/api/errors";
 import { assertCompanyAccess, type Actor } from "@/lib/auth/actor";
 import { db } from "@/lib/prisma/client";
+import { loadWorkbook } from "@/lib/excel/load-workbook";
 import {
   DISCOUNT_TYPES,
   discountLineSchema,
@@ -420,12 +421,7 @@ export async function discountTemplate(): Promise<Uint8Array> {
 /** Reads a filled discount template into rows for the form (nothing is saved). */
 export async function parseDiscountLines(actor: Actor, businessUnitId: string, bytes: Uint8Array): Promise<ParsedDiscountLines> {
   await loadUnit(actor, businessUnitId);
-  const workbook = new ExcelJS.Workbook();
-  try {
-    await workbook.xlsx.load(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer);
-  } catch {
-    throw new AppError(400, "VALIDATION_ERROR", "The file is not a valid Excel (.xlsx) workbook.");
-  }
+  const workbook = await loadWorkbook(bytes);
   const sheet = workbook.worksheets[0];
   if (!sheet) throw new AppError(400, "VALIDATION_ERROR", "The workbook has no sheets.");
   const index = new Map<string, number>();

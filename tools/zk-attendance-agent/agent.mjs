@@ -1,6 +1,8 @@
 
 import { existsSync } from "node:fs";
 import { createRequire } from "node:module";
+import net from "node:net";
+import os from "node:os";
 import { fileURLToPath } from "node:url";
 
 const require = createRequire(import.meta.url);
@@ -56,8 +58,55 @@ function toPunch(record) {
   return { userId: userId.slice(0, 30), time: isoWithOffset(time), state, at: time.getTime() };
 }
 
-async function readDevice(device) {
-  const zk = new ZKLib(device.ipAddress, device.port, DEVICE_TIMEOUT_MS, 4000);
+/** Hosts on this PC's local /24 networks that accept TCP connections on `port`. */
+async function hostsListening(port) {
+  const prefixes = new Set();
+  for (const addresses of Object.values(os.networkInterfaces())) {
+    for (const a of addresses ?? []) {
+      if (a.family === "IPv4" && !a.internal && /^(10|192\.168|172\.(1[6-9]|2\d|3[01]))\./.test(a.address)) prefixes.add(a.address.split(".").slice(0, 3).join("."));
+    }
+  }
+  const probe = (host) =>
+    new Promise((resolve) => {
+      const socket = net.connect({ host, port, timeout: 1500 });
+      const done = (open) => {
+        socket.destroy();
+        resolve(open ? host : null);
+      };
+      socket.once("connect", () => done(true));
+      socket.once("timeout", () => done(false));
+      socket.once("error", () => done(false));
+    });
+  const found = [];
+  for (const prefix of prefixes) {
+    const hosts = Array.from({ length: 254 }, (_, i) => `${prefix}.${i + 1}`);
+    for (let i = 0; i < hosts.length; i += 64) found.push(...(await Promise.all(hosts.slice(i, i + 64).map(probe))).filter(Boolean));
+  }
+  return found;
+}
+
+const unreachable = (error) => error?.command === "TCP CONNECT" || /ETIMEDOUT|EHOSTUNREACH|ECONNREFUSED/.test(String(error?.err?.message ?? error?.message ?? ""));
+
+/**
+ * Reads the device at its configured address. When that address does not answer
+ * (the device got a new IP from DHCP) and this is the only device, the local
+ * network is searched for it; the address found is logged so it can be fixed in the ERP.
+ */
+async function readDevice(device, { canSearch }) {
+  try {
+    return await readDeviceAt(device.ipAddress, device.port);
+  } catch (error) {
+    if (!canSearch || !unreachable(error)) throw error;
+    const candidates = (await hostsListening(device.port)).filter((host) => host !== device.ipAddress);
+    if (candidates.length !== 1) throw error;
+    const [found] = candidates;
+    log(`${device.name}: no answer at ${device.ipAddress}; found an attendance device at ${found}. Set its IP Address to ${found} in the ERP.`);
+    return readDeviceAt(found, device.port);
+  }
+}
+
+async function readDeviceAt(ipAddress, port) {
+  const zk = new ZKLib(ipAddress, port, DEVICE_TIMEOUT_MS, 4000);
   try {
     await zk.createSocket();
     const result = await zk.getAttendances();
@@ -68,11 +117,11 @@ async function readDevice(device) {
   }
 }
 
-async function syncDevice(device) {
+async function syncDevice(device, canSearch) {
   const path = `/api/configuration/gateways/attendance-devices/${device.id}/punches`;
   try {
     const since = device.lastPunchAt ? Date.parse(device.lastPunchAt) - OVERLAP_MS : 0;
-    const punches = (await readDevice(device)).filter((p) => p.at >= since).map(({ at: _at, ...p }) => p);
+    const punches = (await readDevice(device, { canSearch })).filter((p) => p.at >= since).map(({ at: _at, ...p }) => p);
     let inserted = 0;
     let unmatched = 0;
     // An empty upload still marks the device as synced.
@@ -83,7 +132,10 @@ async function syncDevice(device) {
     }
     log(`${device.name} (${device.ipAddress}:${device.port}): read ${punches.length}, ${inserted} new, ${unmatched} unmatched in total`);
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error?.message ?? error);
+    // node-zklib rejects with { err: Error, ip, command } rather than an Error.
+    const cause = error instanceof Error ? error : (error?.err ?? error);
+    const detail = cause instanceof Error ? cause.message : String(cause?.message ?? cause);
+    const message = error?.command ? `${detail} (during ${error.command})` : detail;
     log(`${device.name} (${device.ipAddress}:${device.port}): FAILED — ${message}`);
     await erp(path, { method: "POST", body: JSON.stringify({ punches: [], error: `Agent: ${message}`.slice(0, 500) }) }).catch((reportError) =>
       log(`  could not report the error to the ERP: ${reportError.message}`),
@@ -100,7 +152,8 @@ async function syncAll() {
     return;
   }
   if (devices.length === 0) log("No active devices. Add one in Configuration › Community & Gateways › Attendance Devices.");
-  for (const device of devices) await syncDevice(device);
+  // Searching the network only makes sense when there is a single device to look for.
+  for (const device of devices) await syncDevice(device, devices.length === 1);
 }
 
 await syncAll();

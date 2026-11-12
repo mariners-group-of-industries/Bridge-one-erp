@@ -36,6 +36,8 @@ export interface Actor {
   via?: "session" | "token";
   /** Effective page permissions (registry keys). Absent for internal/system actors. */
   grants?: AccessGrants;
+  /** ERP Login "Hide Stock In Sales": stock levels are withheld in the Sales module. */
+  hideStockInSales?: boolean;
 }
 
 export const ALL_PERMISSIONS: readonly Permission[] = [
@@ -102,6 +104,7 @@ async function sessionActor(jti: string, userId: string): Promise<Actor | null> 
           isActive: true,
           erpAccess: true,
           status: true,
+          hideStockInSales: true,
           permissionGroups: { select: { group: { select: { name: true, status: true, fullAccess: true, entries: true } } } },
           permissionOverrides: { select: { activityKey: true, action: true, effect: true } },
         },
@@ -122,6 +125,7 @@ async function sessionActor(jti: string, userId: string): Promise<Actor | null> 
     companyScope: "ALL",
     via: "session",
     grants,
+    hideStockInSales: !user.isMaster && user.hideStockInSales,
   };
 }
 

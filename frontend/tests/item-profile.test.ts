@@ -17,6 +17,7 @@ import {
   createOpeningStock,
   createUom,
   deleteCategory,
+  getFilterOptions,
   getFormOptions,
   getItem,
   getOpeningStockOptions,
@@ -122,6 +123,30 @@ describe("items", () => {
     const other = await createCategory(adminActor, { businessUnitId: unitId, name: "Medicine" });
     const otherSub = await createCategory(adminActor, { businessUnitId: unitId, parentId: other.id, name: "Vaccine" });
     await expectAppError(createItem(adminActor, base({ code: "X", categoryId: category.id, subCategoryId: otherSub.id })), 400);
+  });
+
+  it("filters by type, division, category (with the ones under it), status and customer", async () => {
+    const { category, sub, minor } = await tree();
+    const division = await createDivision(adminActor, { businessUnitId: unitId, name: "Feed Division" });
+    await createItem(adminActor, base({ code: "A", divisionId: division.id, categoryId: category.id, subCategoryId: sub.id, minorCategoryId: minor.id }));
+    const plain = await createItem(adminActor, base({ code: "B", itemType: "Raw Material" }));
+    await setItemActive(adminActor, plain.id, false);
+
+    const codes = async (filters: Record<string, string>) =>
+      (await listItems(adminActor, { page: 1, pageSize: 10, ...filters })).rows.map((row) => row.code).sort();
+    expect(await codes({})).toEqual(["A", "B"]);
+    expect(await codes({ itemType: "Raw Material" })).toEqual(["B"]);
+    expect(await codes({ divisionId: division.id })).toEqual(["A"]);
+    expect(await codes({ categoryId: category.id })).toEqual(["A"]);
+    expect(await codes({ categoryId: category.id, subCategoryId: sub.id })).toEqual(["A"]);
+    expect(await codes({ status: "inactive" })).toEqual(["B"]);
+
+    const customer = await testPrisma().customer.create({ data: { businessUnitId: unitId, code: "C-1", name: "Lovely Store" } });
+    expect(await codes({ customerId: customer.id })).toEqual([]);
+    const setup = await testPrisma().customerPriceSetup.create({ data: { businessUnitId: unitId, customerId: customer.id } });
+    await testPrisma().customerPriceLine.create({ data: { setupId: setup.id, sortOrder: 1, itemId: plain.id, dpPrice: 10, tpPrice: 12 } });
+    expect(await codes({ customerId: customer.id })).toEqual(["B"]);
+    expect((await getFilterOptions(adminActor)).customers.map((c) => c.name)).toEqual(["Lovely Store"]);
   });
 
   it("updates an item and toggles it inactive", async () => {

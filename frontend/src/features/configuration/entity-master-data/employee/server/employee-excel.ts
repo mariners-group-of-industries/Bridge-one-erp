@@ -5,6 +5,7 @@ import { db } from "@/lib/prisma/client";
 import { cellText, describe } from "../../supplier/server/supplier-excel";
 import { createEmployeeSchema, type CreateEmployeeInput } from "../schemas/employee.schema";
 import { createEmployee } from "./employee.service";
+import { loadWorkbook } from "@/lib/excel/load-workbook";
 
 /**
  * Bulk upload for Employee Management: one row per employee with the official
@@ -127,12 +128,7 @@ export async function employeeImportTemplate(actor: Actor): Promise<Uint8Array> 
 }
 
 export async function importEmployees(actor: Actor, bytes: Uint8Array): Promise<EmployeeImportResult> {
-  const workbook = new ExcelJS.Workbook();
-  try {
-    await workbook.xlsx.load(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer);
-  } catch {
-    throw new AppError(400, "VALIDATION_ERROR", "The file is not a valid Excel (.xlsx) workbook.");
-  }
+  const workbook = await loadWorkbook(bytes);
   const sheet = workbook.getWorksheet("Employees") ?? workbook.worksheets[0];
   if (!sheet) throw new AppError(400, "VALIDATION_ERROR", "The workbook has no sheets.");
 

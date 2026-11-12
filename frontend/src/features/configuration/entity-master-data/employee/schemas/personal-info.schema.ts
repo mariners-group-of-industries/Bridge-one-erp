@@ -106,6 +106,8 @@ export const updateCredentialsSchema = z.object({
   password: z.string().min(8).max(128).optional().or(z.literal("")),
   confirmPassword: z.string().optional().or(z.literal("")),
   roleId:   z.string().regex(UUID_PATTERN, { message: "Invalid UUID" }).optional().or(z.literal("")),
+  /** Withhold stock levels from this user in the Sales module. */
+  hideStockInSales: z.boolean().optional(),
 }).refine(
   (d) => !d.password || d.password === d.confirmPassword,
   { message: "Passwords do not match.", path: ["confirmPassword"] },
@@ -131,6 +133,7 @@ export interface CredentialsDto {
   roleName: string | null;
   userSystemRole: string | null;
   isActive: boolean | null;
+  hideStockInSales: boolean;
 }
 
 // ─── Org access (GET + PUT) ───────────────────────────────────────────────────
@@ -139,15 +142,29 @@ export const updateOrgAccessSchema = z.object({
   businessUnitIds: z.array(z.string().regex(UUID_PATTERN, { message: "Invalid UUID" })),
   officeIds:       z.array(z.string().regex(UUID_PATTERN, { message: "Invalid UUID" })),
   warehouseIds:    z.array(z.string().regex(UUID_PATTERN, { message: "Invalid UUID" })),
+  /** "All": every one, now and later (the id list is then ignored). */
+  allBusinessUnits: z.boolean().default(false),
+  allOffices:       z.boolean().default(false),
+  allWarehouses:    z.boolean().default(false),
 });
 
 export type UpdateOrgAccessInput = z.infer<typeof updateOrgAccessSchema>;
 
 export interface OrgAccessDto {
-  businessUnitIds: string[];
-  officeIds:       string[];
-  warehouseIds:    string[];
+  businessUnitIds:  string[];
+  officeIds:        string[];
+  warehouseIds:     string[];
+  allBusinessUnits: boolean;
+  allOffices:       boolean;
+  allWarehouses:    boolean;
 }
+
+/** Org access fields that hold ids, paired with their "All" flag. */
+export const ORG_ACCESS_KINDS = [
+  { ids: "businessUnitIds", all: "allBusinessUnits" },
+  { ids: "officeIds", all: "allOffices" },
+  { ids: "warehouseIds", all: "allWarehouses" },
+] as const;
 
 // ─── Roles ────────────────────────────────────────────────────────────────────
 

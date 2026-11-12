@@ -75,6 +75,7 @@ export const API_RULES: Record<string, ApiRule> = {
   "/api/configuration/entity-master-data/items/divisions": { feature: PAGE.item, read: { anyViewIn: MASTER_DATA_READERS } },
   "/api/configuration/entity-master-data/items/uoms": { feature: PAGE.item, read: { anyViewIn: MASTER_DATA_READERS } },
   "/api/configuration/entity-master-data/items/form-options": { feature: PAGE.item, read: { anyViewIn: MASTER_DATA_READERS } },
+  "/api/configuration/entity-master-data/items/filter-options": { feature: PAGE.item },
   "/api/configuration/entity-master-data/customers": { feature: PAGE.customer },
   "/api/configuration/entity-master-data/customers/form-options": { feature: PAGE.customer, read: { anyViewIn: SALES_READERS } },
   "/api/configuration/entity-master-data/customers/groups": { feature: PAGE.customer, read: { anyViewIn: SALES_READERS } },

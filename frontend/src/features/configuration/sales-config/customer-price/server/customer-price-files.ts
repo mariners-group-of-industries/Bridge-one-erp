@@ -6,6 +6,7 @@ import type { Actor } from "@/lib/auth/actor";
 import { db } from "@/lib/prisma/client";
 import type { CustomerPriceInput, GroupPriceInput, PriceImportResult, PriceTab } from "../schemas/customer-price.schema";
 import { customerPriceWhere, groupPriceWhere, saveCustomerPrice, saveGroupPrice, unitScope } from "./customer-price.service";
+import { loadWorkbook } from "@/lib/excel/load-workbook";
 
 /**
  * Excel download, bulk upload and PDF print for Customer Price Setup. Files are
@@ -144,12 +145,7 @@ export async function priceTemplate(tab: PriceTab): Promise<Uint8Array> {
 const normal = (value: string) => value.trim().toLowerCase().replace(/\s*\*$/, "");
 
 async function readSheet(bytes: Uint8Array, tab: PriceTab) {
-  const workbook = new ExcelJS.Workbook();
-  try {
-    await workbook.xlsx.load(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer);
-  } catch {
-    throw new AppError(400, "VALIDATION_ERROR", "The file is not a valid Excel (.xlsx) workbook.");
-  }
+  const workbook = await loadWorkbook(bytes);
   const sheet = workbook.worksheets[0];
   if (!sheet) throw new AppError(400, "VALIDATION_ERROR", "The workbook has no sheets.");
   const columns = columnsFor(tab);

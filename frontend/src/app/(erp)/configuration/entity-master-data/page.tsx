@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import { WorkspaceView } from "@/components/layout/workspace-view";
 import { configurationWorkspace, entityMasterData } from "@/features/configuration/navigation";
 
+export const instant = false;
+
 export const metadata: Metadata = { title: "Entity Master Data" };
 
 export default function EntityMasterDataPage() {

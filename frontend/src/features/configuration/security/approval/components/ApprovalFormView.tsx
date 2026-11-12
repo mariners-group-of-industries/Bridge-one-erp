@@ -178,14 +178,16 @@ function PipelineEditor({
           name: saved.name,
           module: saved.module,
           feature: saved.feature,
-          userType: saved.userType,
-          superApproverId: saved.superApproverId,
+          // The super approver is always an employee; older pipelines saved a user, shown as that user's employee.
+          userType: "EMPLOYEE",
+          superApproverId:
+            saved.userType === "USER" ? (options.employees.find((e) => e.userId === saved.superApproverId)?.id ?? "") : saved.superApproverId,
           remarks: saved.remarks,
           isOfficeWise: saved.isOfficeWise,
           isTerritoryWise: saved.isTerritoryWise,
           isItemCategoryWise: saved.isItemCategoryWise,
         }
-      : { name: "", module: "", feature: "", userType: "", superApproverId: "", remarks: "", isOfficeWise: false, isTerritoryWise: false, isItemCategoryWise: false },
+      : { name: "", module: "", feature: "", userType: "EMPLOYEE", superApproverId: "", remarks: "", isOfficeWise: false, isTerritoryWise: false, isItemCategoryWise: false },
   );
   const [stages, setStages] = useState<StageState[]>(() => (saved && saved.stages.length ? stagesFrom(saved, defaultUnit) : [blankStage(defaultUnit)]));
   const [dirty, setDirty] = useState(false);
@@ -280,6 +282,7 @@ function PipelineEditor({
   const err = (key: string) => errors[key];
   const invalid = (key: string) => !!err(key) || undefined;
   const unitOptions = options.businessUnits.map((u) => ({ value: u.id, label: u.name }));
+  const superApproverWithoutLogin = !!header.superApproverId && !options.employees.find((e) => e.id === header.superApproverId)?.userId;
 
   return (
     <>
@@ -341,26 +344,18 @@ function PipelineEditor({
                   />
                 )}
               </Field>
-              <Field label="User Type" required error={err("userType")}>
-                {(id) => (
-                  <Select
-                    id={id}
-                    value={header.userType}
-                    placeholder="Select User Type"
-                    options={USER_TYPES.map((t) => ({ value: t.value, label: t.label }))}
-                    aria-invalid={invalid("userType")}
-                    onChange={(e) => patchHeader({ userType: e.target.value as UserType | "", superApproverId: "" })}
-                  />
-                )}
-              </Field>
-              <Field label="Super Approver" required error={err("superApproverId")}>
+              <Field
+                label="Super Approver"
+                required
+                error={err("superApproverId")}
+                hint={superApproverWithoutLogin ? "This employee has no ERP login yet, so they cannot approve until one is created." : undefined}
+              >
                 {(id) => (
                   <Select
                     id={id}
                     value={header.superApproverId}
-                    placeholder={header.userType ? "Super Approver" : "Select a user type first"}
-                    disabled={!header.userType}
-                    options={peopleOf(header.userType)}
+                    placeholder="Select Employee"
+                    options={peopleOf("EMPLOYEE")}
                     aria-invalid={invalid("superApproverId")}
                     onChange={(e) => patchHeader({ superApproverId: e.target.value })}
                   />

@@ -23,5 +23,6 @@ export async function GET(request: Request) {
     initials: name.split(" ").map((w) => w[0]).join("").slice(0, 2).toUpperCase(),
     isMaster: actor.isMaster,
     permissions: permissionsOf(actor),
+    hideStockInSales: actor.hideStockInSales ?? false,
   });
 }
