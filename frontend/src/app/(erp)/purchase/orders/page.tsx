@@ -11,7 +11,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { fetchApi } from "@/lib/api";
 import { formatCurrency } from "@/lib/utils";
 import { orderTotals, priceLine } from "@/lib/purchase-store/rules";
-import { PURCHASE_QUERY_KEYS, downloadCsv, localDaysFromToday, localToday } from "@/features/purchase/lib/client";
+import { PURCHASE_QUERY_KEYS, downloadCsv } from "@/features/purchase/lib/client";
 import type { Item, Office, PurchaseOrder, PurchaseRequisition, Supplier, Warehouse } from "@bridgeone/contracts";
 
 type Tab = "LOCAL_PO" | "REQUISITION_SUMMARY" | "PURCHASE_METHOD";
@@ -65,8 +65,6 @@ const METHOD_LABEL: Record<string, string> = {
   CONTRACT: "Contract / Rate Agreement",
 };
 
-const today = localToday;
-const inDays = localDaysFromToday;
 let lineKey = 0;
 const newLine = (partial: Partial<FormLine> = {}): FormLine => ({
   key: ++lineKey,
@@ -87,6 +85,13 @@ const btnPrimary =
   "h-9 px-4 bg-[#2563eb] hover:bg-blue-700 disabled:opacity-60 text-white font-semibold text-xs rounded inline-flex items-center justify-center gap-1.5 shadow-xs transition";
 const btnGhost = "h-9 px-4 border border-slate-300 rounded text-slate-700 hover:bg-slate-50 text-xs font-semibold";
 const iconBtn = "inline-flex items-center justify-center size-7 rounded hover:bg-slate-200 text-slate-700 transition disabled:opacity-30 disabled:hover:bg-transparent";
+
+function formatEta(dateStr?: string) {
+  if (!dateStr) return "—";
+  const dt = new Date(`${dateStr}T00:00:00`);
+  if (Number.isNaN(dt.getTime())) return dateStr;
+  return `00.00h (${dt.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })})`;
+}
 
 function statusLabel(po: Order) {
   if (po.isClosed) return { text: "Closed", cls: "text-slate-600" };
@@ -176,6 +181,8 @@ export default function PurchaseOrdersPage() {
   // Purchase method filters
   const [pmOffice, setPmOffice] = useState("ALL");
   const [pmWarehouse, setPmWarehouse] = useState("ALL");
+  const [pmBuyerName, setPmBuyerName] = useState("");
+  const [pmBuyerOffice, setPmBuyerOffice] = useState("ALL");
   const [pmReqType, setPmReqType] = useState("ALL");
   const [pmFrom, setPmFrom] = useState("");
   const [pmTo, setPmTo] = useState("");
@@ -207,7 +214,7 @@ export default function PurchaseOrdersPage() {
       return fetchApi(`/purchase/orders?${p.toString()}`);
     },
   });
-  const { data: approvedReqs = [] } = useQuery<PurchaseRequisition[]>({
+  const { data: approvedReqs = [], isFetching: approvedReqsLoading } = useQuery<PurchaseRequisition[]>({
     queryKey: ["approvedReqs"],
     queryFn: () => fetchApi("/purchase/requisitions?status=APPROVED"),
   });
@@ -241,21 +248,24 @@ export default function PurchaseOrdersPage() {
 
   const filteredSummary = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return summary.filter((r) => !q || [r.itemCode, r.itemName, r.category].some((v) => v.toLowerCase().includes(q)));
+    return summary.filter((r) => !q || [r.itemCode, r.itemName, r.category, r.subCategory].some((v) => v.toLowerCase().includes(q)));
   }, [summary, search]);
 
   const methodReqs = useMemo(() => {
     const q = search.trim().toLowerCase();
+    const buyerQ = pmBuyerName.trim().toLowerCase();
     return approvedReqs.filter((r) => {
       if (pmOffice !== "ALL" && r.officeId !== pmOffice) return false;
       if (pmWarehouse !== "ALL" && r.warehouseId !== pmWarehouse) return false;
+      if (pmBuyerOffice !== "ALL" && r.officeId !== pmBuyerOffice) return false;
+      if (buyerQ && ![r.requesterName, r.createdBy].some((v) => v.toLowerCase().includes(buyerQ))) return false;
       if (pmReqType !== "ALL" && r.requestType !== pmReqType) return false;
       if (pmFrom && r.requestDate < pmFrom) return false;
       if (pmTo && r.requestDate > pmTo) return false;
-      if (q && ![r.requisitionNumber, r.requesterName, r.department].some((v) => v.toLowerCase().includes(q))) return false;
+      if (q && ![r.requisitionNumber, r.requesterName, r.department, r.remarks ?? ""].some((v) => v.toLowerCase().includes(q))) return false;
       return true;
     });
-  }, [approvedReqs, pmOffice, pmWarehouse, pmReqType, pmFrom, pmTo, search]);
+  }, [approvedReqs, pmOffice, pmWarehouse, pmBuyerName, pmBuyerOffice, pmReqType, pmFrom, pmTo, search]);
 
   const ordersPage = usePaging(filteredOrders);
   const summaryPage = usePaging(filteredSummary);
@@ -407,20 +417,47 @@ export default function PurchaseOrdersPage() {
     if (activeTab === "LOCAL_PO") {
       downloadCsv(
         "purchase_orders.csv",
-        ["SL", "PO Date", "Expected Date", "Reference No", "PO No", "Requisition No", "Office", "Project/Ref", "Supplier", "Created By", "Amount (BDT)", "Status"],
-        filteredOrders.map((o, i) => [i + 1, o.orderDate, o.expectedDeliveryDate, o.referenceNumber ?? "", o.poNumber, o.requisitionNumber ?? "", o.officeName, o.projectCostCenter ?? "", o.supplierName, o.createdBy, o.totalAmount, statusLabel(o).text]),
+        ["SL", "PO Date", "Recr. Date", "Reference No", "PO No", "Office", "Project/Outlet/Ref.", "Supplier", "Created By", "Amount (BDT)", "ETA Estimated Time of Arrival", "Status", "Review Comment"],
+        filteredOrders.map((o, i) => [
+          i + 1,
+          o.orderDate,
+          o.expectedDeliveryDate,
+          o.referenceNumber ?? "N/A",
+          o.poNumber,
+          o.officeName,
+          o.projectCostCenter ?? "",
+          o.supplierName,
+          o.createdBy,
+          o.totalAmount,
+          o.expectedDeliveryDate,
+          statusLabel(o).text,
+          o.approvalHistory?.[o.approvalHistory.length - 1]?.comments ?? "",
+        ]),
       );
     } else if (activeTab === "REQUISITION_SUMMARY") {
       downloadCsv(
         "requisition_summary.csv",
-        ["SL", "Item Code", "Item Name", "Category", "Sub Category", "UoM", "Requested Qty", "Current Stock"],
+        ["SL", "Item Code", "Item Name", "Category", "Sub-Category", "UoM", "Quantity", "Current Stock"],
         filteredSummary.map((r, i) => [i + 1, r.itemCode, r.itemName, r.category, r.subCategory, r.uom, r.quantity, r.currentStock]),
       );
     } else {
       downloadCsv(
         "purchase_method.csv",
-        ["SL", "Requisition", "Date", "Department", "Requested By", "Office", "Warehouse", "Type", "Method", "Budget", "Status"],
-        methodReqs.map((r, i) => [i + 1, r.requisitionNumber, r.requestDate, r.department, r.requesterName, officeName(r.officeId), warehouseName(r.warehouseId), r.requestType, METHOD_LABEL[r.purchaseMethod] ?? r.purchaseMethod, r.totalEstimatedAmount, r.status]),
+        ["SL", "Requisition Code", "Date", "User Type", "User", "Buyer Name", "Buyer Office", "Method", "Budget", "Created By", "Remarks", "Status"],
+        methodReqs.map((r, i) => [
+          i + 1,
+          r.requisitionNumber,
+          r.requestDate,
+          r.department ? "Department" : "Employee",
+          r.department || r.requesterName,
+          r.requesterName || "N/A",
+          officeName(r.officeId) || "N/A",
+          METHOD_LABEL[r.purchaseMethod] ?? r.purchaseMethod,
+          r.totalEstimatedAmount,
+          r.createdBy,
+          r.remarks ?? "",
+          r.status === "APPROVED" ? "Approved" : r.status,
+        ]),
       );
     }
   };
@@ -496,7 +533,7 @@ export default function PurchaseOrdersPage() {
                 </select>
               </label>
               <label className="block">
-                <span className="block text-[11px] font-semibold text-slate-700 mb-1">Status</span>
+                <span className="block text-[11px] font-semibold text-slate-700 mb-1">Filter By</span>
                 <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className={inputCls}>
                   <option value="ALL">All Statuses</option>
                   <option value="PENDING_APPROVAL">Pending Approval</option>
@@ -519,9 +556,9 @@ export default function PurchaseOrdersPage() {
                 </select>
               </label>
               <label className="block">
-                <span className="block text-[11px] font-semibold text-slate-700 mb-1">Supplier</span>
+                <span className="block text-[11px] font-semibold text-slate-700 mb-1">Select Supplier</span>
                 <select value={supplierFilter} onChange={(e) => setSupplierFilter(e.target.value)} className={inputCls}>
-                  <option value="ALL">All Suppliers</option>
+                  <option value="ALL">Select/Search Supplier (All)</option>
                   {suppliers.map((s) => (
                     <option key={s.id} value={s.id}>
                       {s.name}
@@ -571,28 +608,30 @@ export default function PurchaseOrdersPage() {
                     <th className="w-12 text-center">SL</th>
                     <th className="w-[190px] text-center">Actions</th>
                     <th>PO Date</th>
-                    <th>Expected Date</th>
+                    <th>Recr. Date</th>
                     <th>Reference No</th>
                     <th>PO No</th>
-                    <th>Requisition</th>
                     <th>Office</th>
-                    <th>Project/Ref.</th>
+                    <th>Project/Outlet/Ref.</th>
                     <th>Supplier</th>
                     <th>Created By</th>
                     <th className="text-right">Amount (BDT)</th>
+                    <th>ETA Estimated Time of Arrival</th>
                     <th className="text-center">Status</th>
+                    <th>Review Comment</th>
                   </tr>
                 </thead>
                 <tbody>
                   {ordersPage.slice.length === 0 ? (
                     <tr>
-                      <td colSpan={13} className="text-center py-10 text-slate-400">
+                      <td colSpan={14} className="text-center py-10 text-slate-400">
                         {ordersLoading ? "Loading purchase orders…" : "No purchase orders match the filters."}
                       </td>
                     </tr>
                   ) : (
                     ordersPage.slice.map((row, idx) => {
                       const st = statusLabel(row);
+                      const reviewComment = row.approvalHistory?.[row.approvalHistory.length - 1]?.comments;
                       return (
                         <tr key={row.id}>
                           <td className="text-center font-mono text-slate-600">{ordersPage.offset + idx + 1}</td>
@@ -651,19 +690,20 @@ export default function PurchaseOrdersPage() {
                           </td>
                           <td>{row.orderDate}</td>
                           <td>{row.expectedDeliveryDate}</td>
-                          <td className="text-slate-500 font-mono text-[11px]">{row.referenceNumber || "—"}</td>
+                          <td className="text-slate-500 font-mono text-[11px]">{row.referenceNumber || "N/A"}</td>
                           <td>
                             <button type="button" onClick={() => setViewPO(row)} className="font-mono text-sky-700 font-semibold hover:underline">
                               {row.poNumber}
                             </button>
                           </td>
-                          <td className="font-mono text-[11px] text-slate-600">{row.requisitionNumber || "—"}</td>
                           <td>{row.officeName}</td>
                           <td className="text-slate-500">{row.projectCostCenter || "—"}</td>
                           <td className="font-medium text-slate-900">{row.supplierName}</td>
                           <td>{row.createdBy}</td>
                           <td className="text-right font-mono font-bold text-slate-900">{formatCurrency(row.totalAmount)}</td>
+                          <td className="text-slate-600 text-[11px] whitespace-nowrap">{formatEta(row.expectedDeliveryDate)}</td>
                           <td className={`text-center text-[11px] font-semibold ${st.cls}`}>{st.text}</td>
+                          <td className="text-slate-600">{reviewComment || "—"}</td>
                         </tr>
                       );
                     })
@@ -716,17 +756,16 @@ export default function PurchaseOrdersPage() {
                     <th>Item Code</th>
                     <th>Item Name</th>
                     <th>Category</th>
-                    <th>Sub Category</th>
+                    <th>Sub-Category</th>
                     <th className="text-center">UoM</th>
-                    <th className="text-center">Requisitions</th>
-                    <th className="text-right">Requested Qty</th>
+                    <th className="text-right">Quantity</th>
                     <th className="text-right">Current Stock</th>
                   </tr>
                 </thead>
                 <tbody>
                   {summaryPage.slice.length === 0 ? (
                     <tr>
-                      <td colSpan={9} className="text-center py-10 text-slate-400">
+                      <td colSpan={8} className="text-center py-10 text-slate-400">
                         {summaryLoading ? "Loading…" : "No approved requisition items are waiting for an order."}
                       </td>
                     </tr>
@@ -737,9 +776,8 @@ export default function PurchaseOrdersPage() {
                         <td className="font-mono text-blue-700 font-semibold">{row.itemCode}</td>
                         <td className="font-semibold text-slate-800">{row.itemName}</td>
                         <td>{row.category}</td>
-                        <td className="text-slate-500">{row.subCategory}</td>
+                        <td className="text-slate-500">{row.subCategory || "—"}</td>
                         <td className="text-center">{row.uom}</td>
-                        <td className="text-center font-mono">{row.requisitions}</td>
                         <td className="text-right font-mono font-bold text-slate-900">{row.quantity.toLocaleString("en-US", { maximumFractionDigits: 3 })}</td>
                         <td className={`text-right font-mono font-semibold ${row.currentStock < row.quantity ? "text-rose-600" : "text-slate-700"}`}>
                           {row.currentStock.toLocaleString("en-US", { maximumFractionDigits: 3 })}
@@ -759,7 +797,7 @@ export default function PurchaseOrdersPage() {
       {activeTab === "PURCHASE_METHOD" && (
         <div className="space-y-3">
           <div className="bg-white rounded border border-slate-200/90 p-3.5 shadow-2xs">
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-3">
               <label className="block">
                 <span className="block text-[11px] font-semibold text-slate-700 mb-1">Office</span>
                 <select
@@ -792,6 +830,27 @@ export default function PurchaseOrdersPage() {
                 </select>
               </label>
               <label className="block">
+                <span className="block text-[11px] font-semibold text-slate-700 mb-1">Buyer Name</span>
+                <input
+                  type="text"
+                  value={pmBuyerName}
+                  onChange={(e) => setPmBuyerName(e.target.value)}
+                  placeholder="Select/Search Buyer Name (min 3 letters)"
+                  className={inputCls}
+                />
+              </label>
+              <label className="block">
+                <span className="block text-[11px] font-semibold text-slate-700 mb-1">Buyer Office</span>
+                <select value={pmBuyerOffice} onChange={(e) => setPmBuyerOffice(e.target.value)} className={inputCls}>
+                  <option value="ALL">All Buyer Offices</option>
+                  {offices.map((o) => (
+                    <option key={o.id} value={o.id}>
+                      {o.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="block">
                 <span className="block text-[11px] font-semibold text-slate-700 mb-1">Req Type</span>
                 <select value={pmReqType} onChange={(e) => setPmReqType(e.target.value)} className={inputCls}>
                   <option value="ALL">All Types</option>
@@ -810,6 +869,34 @@ export default function PurchaseOrdersPage() {
                 <input type="date" value={pmTo} onChange={(e) => setPmTo(e.target.value)} className={inputCls} />
               </label>
             </div>
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => queryClient.invalidateQueries({ queryKey: ["approvedReqs"] })}
+                disabled={approvedReqsLoading}
+                className={btnPrimary}
+              >
+                {approvedReqsLoading && <Spinner className="size-3.5" />}
+                VIEW
+              </button>
+              {(pmOffice !== "ALL" || pmWarehouse !== "ALL" || pmBuyerName || pmBuyerOffice !== "ALL" || pmReqType !== "ALL" || pmFrom || pmTo) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPmOffice("ALL");
+                    setPmWarehouse("ALL");
+                    setPmBuyerName("");
+                    setPmBuyerOffice("ALL");
+                    setPmReqType("ALL");
+                    setPmFrom("");
+                    setPmTo("");
+                  }}
+                  className="h-9 px-2 text-xs text-slate-500 hover:text-slate-800 underline"
+                >
+                  Clear Filters
+                </button>
+              )}
+            </div>
           </div>
           <div className="bg-white rounded border border-slate-200/90 shadow-2xs overflow-hidden">
             <div className="erp-table-container">
@@ -818,21 +905,23 @@ export default function PurchaseOrdersPage() {
                   <tr>
                     <th className="w-12 text-center">SL</th>
                     <th className="w-24 text-center">Actions</th>
-                    <th>Requisition</th>
+                    <th>Requisition Code</th>
                     <th>Date</th>
-                    <th>Department</th>
-                    <th>Requested By</th>
-                    <th>Office</th>
-                    <th>Warehouse</th>
-                    <th>Type</th>
+                    <th>User Type</th>
+                    <th>User</th>
+                    <th>Buyer Name</th>
+                    <th>Buyer Office</th>
                     <th>Method</th>
                     <th className="text-right">Budget</th>
+                    <th>Created By</th>
+                    <th>Remarks</th>
+                    <th className="text-center">Status</th>
                   </tr>
                 </thead>
                 <tbody>
                   {methodPage.slice.length === 0 ? (
                     <tr>
-                      <td colSpan={11} className="text-center py-10 text-slate-400">
+                      <td colSpan={13} className="text-center py-10 text-slate-400">
                         No approved requisitions are waiting for a purchase order.
                       </td>
                     </tr>
@@ -858,11 +947,10 @@ export default function PurchaseOrdersPage() {
                         </td>
                         <td className="font-mono text-sky-700 font-semibold">{row.requisitionNumber}</td>
                         <td>{row.requestDate}</td>
-                        <td>{row.department}</td>
-                        <td className="font-medium text-slate-800">{row.requesterName}</td>
-                        <td>{officeName(row.officeId)}</td>
-                        <td>{warehouseName(row.warehouseId)}</td>
-                        <td>{row.requestType}</td>
+                        <td className="text-slate-600">{row.department ? "Department" : "Employee"}</td>
+                        <td className="font-medium text-slate-800">{row.department || row.requesterName}</td>
+                        <td>{row.requesterName || "N/A"}</td>
+                        <td>{officeName(row.officeId) || "N/A"}</td>
                         <td>
                           <select
                             value={row.purchaseMethod}
@@ -879,6 +967,9 @@ export default function PurchaseOrdersPage() {
                           </select>
                         </td>
                         <td className="text-right font-mono font-bold text-slate-900">{formatCurrency(row.totalEstimatedAmount)}</td>
+                        <td>{row.createdBy}</td>
+                        <td className="text-slate-600">{row.remarks || "—"}</td>
+                        <td className="text-center text-[11px] font-semibold text-emerald-700">{row.status === "APPROVED" ? "Approved" : row.status}</td>
                       </tr>
                     ))
                   )}
