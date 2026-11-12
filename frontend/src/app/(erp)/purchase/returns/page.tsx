@@ -142,7 +142,7 @@ export default function PurchaseReturnsPage() {
     staleTime: 60000,
   });
 
-  const { data: serverReturns } = useQuery<PurchaseReturn[]>({
+  const { data: serverReturns, isFetching: returnsLoading, refetch: refetchReturns } = useQuery<PurchaseReturn[]>({
     queryKey: ["returnsList"],
     queryFn: () => fetchApi("/purchase/returns"),
     staleTime: 60000,
@@ -163,9 +163,9 @@ export default function PurchaseReturnsPage() {
           sl: i + 1,
           grnId: g.id,
           receiveDate: g.receiptDate,
-          poNo: g.poNumber,
+          poNo: g.poNumber === "DIRECT-PO" ? "Direct" : g.poNumber,
           returnInvoiceNo: g.grnNumber,
-          remarks: g.remarks ?? "",
+          remarks: g.remarks || "N/A",
           supplier: g.supplierName,
           amount: g.totalReceivedAmount,
           office: g.officeName,
@@ -188,9 +188,9 @@ export default function PurchaseReturnsPage() {
         sl: i + 1,
         officeName: r.officeName,
         returnDate: r.returnDate,
-        poNo: r.poNumber,
+        poNo: !r.poNumber || r.poNumber === "DIRECT-PO" ? "Direct" : r.poNumber,
         returnNo: r.returnNumber,
-        remarks: r.items[0]?.reason ?? "",
+        remarks: r.remarks || r.items[0]?.reason || "N/A",
         supplier: r.supplierName,
         amount: r.totalReturnAmount,
         returnType: r.grnNumber === "Direct Return" ? "Direct / Ad-hoc" : "Against GRN",
@@ -376,7 +376,7 @@ export default function PurchaseReturnsPage() {
     if (activeTab === "RECEIVED_LIST") {
       downloadCsv(
         `purchase_receive_for_return_${localToday()}.csv`,
-        ["SL", "Receive Date", "PO No", "GRN No", "Remarks", "Supplier", "Amount (BDT)"],
+        ["SL", "Receive Date", "PO No", "Return Invoice No", "Remarks", "Supplier", "Amount"],
         filteredReceived.map((r, idx) => [idx + 1, r.receiveDate, r.poNo, r.returnInvoiceNo, r.remarks, r.supplier, r.amount]),
       );
     } else {
@@ -661,8 +661,11 @@ export default function PurchaseReturnsPage() {
             <div>
               <button
                 type="button"
-                className="px-6 py-1.5 bg-[#1976d2] hover:bg-[#1565c0] text-white text-xs font-bold rounded shadow-xs transition"
+                onClick={() => refetchReturns()}
+                disabled={returnsLoading}
+                className="px-6 py-1.5 bg-[#1976d2] hover:bg-[#1565c0] disabled:opacity-60 text-white text-xs font-bold rounded shadow-xs transition inline-flex items-center gap-1.5"
               >
+                {returnsLoading && <Spinner className="size-3.5" />}
                 View
               </button>
             </div>
@@ -767,7 +770,7 @@ export default function PurchaseReturnsPage() {
                           </span>
                         </td>
                         <td className="p-2 border border-slate-300 text-center whitespace-nowrap">
-                          <span className="text-emerald-700 font-semibold">
+                          <span className={row.status === "Cancelled" ? "text-rose-600 font-semibold" : "text-emerald-700 font-semibold"}>
                             {row.status}
                           </span>
                         </td>
