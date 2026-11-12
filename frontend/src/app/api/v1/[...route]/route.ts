@@ -93,6 +93,14 @@ async function handleGET(
         meta: { total: list.length },
       });
     }
+    if (path === "purchase/requisitions/summary") {
+      const data = await purchaseStore.getRequisitionSummary({
+        officeId: searchParams.get("officeId") || undefined,
+        fromDate: searchParams.get("fromDate") || undefined,
+        toDate: searchParams.get("toDate") || undefined,
+      });
+      return NextResponse.json({ success: true, data, meta: { total: data.length } });
+    }
     if (path.startsWith("purchase/requisitions/") && route.length === 3) {
       const id = route[2];
       const item = await purchaseStore.getRequisitionById(id);
@@ -333,6 +341,10 @@ async function handlePOST(
           actorName,
           comments || "Requisition reversed to submitted status."
         );
+        return NextResponse.json({ success: true, data: updated });
+      }
+      if (action === "method") {
+        const updated = await purchaseStore.setRequisitionMethod(id, String(body?.purchaseMethod ?? ""), actorName);
         return NextResponse.json({ success: true, data: updated });
       }
     }

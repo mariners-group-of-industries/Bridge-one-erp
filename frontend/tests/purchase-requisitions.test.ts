@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CreateRequisitionSchema, RequisitionItemSchema } from "@bridgeone/contracts";
+import { CreateRequisitionSchema } from "@bridgeone/contracts";
 import { priceLine, orderTotals } from "@/lib/purchase-store/rules";
 
 describe("Purchase Requisition Validation & Business Rules", () => {
@@ -74,3 +74,4 @@ describe("Purchase Requisition Validation & Business Rules", () => {
     expect(totals.totalAmount).toBe(4500);
   });
 });
+

@@ -43,6 +43,8 @@ import {
 } from "./rules";
 
 type Tx = Prisma.TransactionClient;
+/** Either the shared client or the caller's transaction, so helpers can run inside one. */
+type Client = Tx | ReturnType<typeof db>;
 
 interface StockWarehouse {
   id: string;
@@ -63,12 +65,12 @@ async function stockWarehouse(warehouseId: string | null | undefined): Promise<S
 }
 
 /** Office + warehouse of a requisition or order; the warehouse must belong to the office. */
-async function officeAndWarehouse(officeId: string | undefined, warehouseId: string | undefined | null) {
+async function officeAndWarehouse(officeId: string | undefined, warehouseId: string | undefined | null, client: Client = db()) {
   if (!isUuid(officeId)) throw badRequest("Select the office.");
-  const office = await db().office.findUnique({ where: { id: officeId! }, select: { id: true, businessUnitId: true } });
+  const office = await client.office.findUnique({ where: { id: officeId! }, select: { id: true, businessUnitId: true } });
   if (!office) throw badRequest("The selected office does not exist.");
   if (!isUuid(warehouseId)) return { officeId: office.id, businessUnitId: office.businessUnitId, warehouseId: null };
-  const warehouse = await db().warehouse.findUnique({ where: { id: warehouseId! }, select: { id: true, officeId: true } });
+  const warehouse = await client.warehouse.findUnique({ where: { id: warehouseId! }, select: { id: true, officeId: true } });
   if (!warehouse) throw badRequest("The selected warehouse does not exist.");
   if (warehouse.officeId !== office.id) throw badRequest("The warehouse does not belong to the selected office.");
   return { officeId: office.id, businessUnitId: office.businessUnitId, warehouseId: warehouse.id };
@@ -78,10 +80,10 @@ async function officeAndWarehouse(officeId: string | undefined, warehouseId: str
  * Item master data for lines that reference an item. Code, name and UoM come
  * from the master so documents stay consistent with stock and sales.
  */
-async function itemMaster(businessUnitId: string, itemIds: (string | null | undefined)[]) {
+async function itemMaster(businessUnitId: string, itemIds: (string | null | undefined)[], client: Client = db()) {
   const ids = [...new Set(itemIds.filter((id): id is string => isUuid(id)))];
   if (!ids.length) return new Map<string, { code: string; name: string; uom: string }>();
-  const rows = await db().item.findMany({ where: { id: { in: ids } }, select: { id: true, code: true, name: true, uom: true, businessUnitId: true } });
+  const rows = await client.item.findMany({ where: { id: { in: ids } }, select: { id: true, code: true, name: true, uom: true, businessUnitId: true } });
   const foreign = rows.find((r) => r.businessUnitId !== businessUnitId);
   if (foreign) throw badRequest(`${foreign.name} belongs to another business unit.`);
   return new Map(rows.map((r) => [r.id, { code: r.code, name: r.name, uom: r.uom || "PCS" }]));
@@ -245,9 +247,9 @@ interface OrderLineInput {
 }
 
 /** Validated, priced order lines ready to insert. */
-async function buildOrderLines(businessUnitId: string, items: OrderLineInput[]) {
+async function buildOrderLines(businessUnitId: string, items: OrderLineInput[], client: Client = db()) {
   if (!items?.length) throw badRequest("Add at least one item to the order.");
-  const master = await itemMaster(businessUnitId, items.map((i) => i.itemId));
+  const master = await itemMaster(businessUnitId, items.map((i) => i.itemId), client);
   return items.map((it, idx) => {
     const qty = round3(num(it.orderedQuantity));
     const rate = round2(num(it.unitPrice));
@@ -587,6 +589,66 @@ class PurchaseDataStore {
     return this.getRequisitionById(req.id);
   }
 
+  /** Sets how an approved requisition will be bought (direct, quotation, tender, contract). */
+  public async setRequisitionMethod(id: string, method: string, actorName: string) {
+    const allowed = ["DIRECT", "QUOTATION", "TENDER", "CONTRACT"];
+    if (!allowed.includes(method)) throw badRequest("Choose a valid purchase method.");
+    const req = await this.findRequisition(id);
+    if (req.status === "ORDERED" || req.status === "CANCELLED") throw badRequest(`A ${req.status.toLowerCase()} requisition's method cannot change.`);
+    await db().purchaseRequisition.update({
+      where: { id: req.id },
+      data: { purchaseMethod: method, notes: appendNote(req.notes, historyEntry("METHOD_SET", actorName, method)) },
+    });
+    return this.getRequisitionById(req.id);
+  }
+
+  /**
+   * Items still to be bought: lines of approved requisitions without an order,
+   * summed per item, with the current stock (all warehouses of the office, or all).
+   */
+  public async getRequisitionSummary(filters: { officeId?: string; fromDate?: string; toDate?: string }) {
+    const office = filters.officeId && filters.officeId !== "ALL" && isUuid(filters.officeId) ? filters.officeId : undefined;
+    const date: Prisma.DateTimeFilter = {};
+    if (filters.fromDate) date.gte = parseDate(filters.fromDate, "From date");
+    if (filters.toDate) date.lte = parseDate(filters.toDate, "To date");
+    const lines = await db().purchaseRequisitionLine.findMany({
+      where: {
+        requisition: { status: "APPROVED", ...(office ? { officeId: office } : {}), ...(date.gte || date.lte ? { requisitionDate: date } : {}) },
+      },
+      include: { item: { include: { category: { include: { parent: true } } } } },
+    });
+    const byItem = new Map<string, { itemId: string; itemCode: string; itemName: string; category: string; subCategory: string; uom: string; quantity: number; requisitions: number }>();
+    for (const l of lines) {
+      const key = l.itemId ?? `${l.itemCode}|${l.itemName}`;
+      const cat = l.item?.category;
+      const cur = byItem.get(key) ?? {
+        itemId: l.itemId ?? "",
+        itemCode: l.itemCode,
+        itemName: l.itemName,
+        category: cat?.parent?.name ?? cat?.name ?? "Uncategorised",
+        subCategory: cat?.parent ? cat.name : "",
+        uom: l.uom,
+        quantity: 0,
+        requisitions: 0,
+      };
+      cur.quantity = round3(cur.quantity + Number(l.quantity));
+      cur.requisitions += 1;
+      byItem.set(key, cur);
+    }
+    const itemIds = [...byItem.values()].map((r) => r.itemId).filter(Boolean);
+    const stock = itemIds.length
+      ? await db().stockEntry.groupBy({
+          by: ["itemId"],
+          where: { itemId: { in: itemIds }, ...(office ? { warehouse: { officeId: office } } : {}) },
+          _sum: { qty: true },
+        })
+      : [];
+    const stockByItem = new Map(stock.map((s) => [s.itemId, round3(Number(s._sum.qty ?? 0))]));
+    return [...byItem.values()]
+      .map((r) => ({ ...r, currentStock: r.itemId ? (stockByItem.get(r.itemId) ?? 0) : 0 }))
+      .sort((a, b) => a.itemName.localeCompare(b.itemName));
+  }
+
   // -------------------------------------------------------------
   // PURCHASE ORDERS
   // -------------------------------------------------------------
@@ -700,7 +762,7 @@ class PurchaseDataStore {
 
   /** Inserts an order inside the caller's transaction (also used by direct receiving). */
   private async insertPurchaseOrder(tx: Tx, input: CreatePurchaseOrderInput, actorName: string) {
-    const place = await officeAndWarehouse(input.officeId, input.warehouseId);
+    const place = await officeAndWarehouse(input.officeId, input.warehouseId, tx);
     if (!place.warehouseId) throw badRequest("Select the warehouse the goods will be received into.");
     if (!isUuid(input.supplierId)) throw badRequest("Select the supplier.");
     const supplier = await tx.supplier.findUnique({ where: { id: input.supplierId }, select: { id: true, isActive: true, name: true } });
@@ -718,7 +780,7 @@ class PurchaseDataStore {
       requisitionId = req.id;
     }
 
-    const lines = await buildOrderLines(place.businessUnitId, input.items as OrderLineInput[]);
+    const lines = await buildOrderLines(place.businessUnitId, input.items as OrderLineInput[], tx);
     const totals = orderTotals(lines.map((l) => l.priced), num(input.shippingFee));
     const orderDate = parseDate(input.orderDate, "Order date");
     const expectedDeliveryDate = parseDate(input.expectedDeliveryDate || input.orderDate, "Expected delivery date");
