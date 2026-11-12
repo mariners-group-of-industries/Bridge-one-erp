@@ -172,14 +172,14 @@ export async function updateAccountSettings(
 export async function getCredentials(id: string, actor: Actor): Promise<CredentialsDto> {
   const emp = await loadEmployee(id, actor);
   if (!emp.userId) {
-    return { hasAccount: false, userId: null, phone: emp.mobile, roleId: null, roleName: null, userSystemRole: null, isActive: null };
+    return { hasAccount: false, userId: null, phone: emp.mobile, roleId: null, roleName: null, userSystemRole: null, isActive: null, hideStockInSales: false };
   }
   const user = await db().user.findUnique({
     where: { id: emp.userId },
     include: { dynamicRole: { select: { id: true, name: true } } },
   });
   if (!user) {
-    return { hasAccount: false, userId: null, phone: emp.mobile, roleId: null, roleName: null, userSystemRole: null, isActive: null };
+    return { hasAccount: false, userId: null, phone: emp.mobile, roleId: null, roleName: null, userSystemRole: null, isActive: null, hideStockInSales: false };
   }
   return {
     hasAccount: true,
@@ -189,6 +189,7 @@ export async function getCredentials(id: string, actor: Actor): Promise<Credenti
     roleName: user.dynamicRole?.name ?? null,
     userSystemRole: user.role,
     isActive: user.isActive,
+    hideStockInSales: user.hideStockInSales,
   };
 }
 
@@ -219,6 +220,7 @@ export async function updateCredentials(
         phone:        input.phone,
         passwordHash,
         roleId,
+        hideStockInSales: input.hideStockInSales ?? false,
         isActive:     true,
         // Creating a login here is meant to let the employee sign in; page permissions are still granted separately.
         erpAccess:    true,
@@ -231,6 +233,7 @@ export async function updateCredentials(
   } else {
     // Update existing user
     const updateData: Record<string, unknown> = { phone: input.phone, roleId };
+    if (input.hideStockInSales !== undefined) updateData.hideStockInSales = input.hideStockInSales;
     if (input.password) {
       updateData.passwordHash = await argon2.hash(input.password);
       // Invalidate all existing sessions so the user must re-login

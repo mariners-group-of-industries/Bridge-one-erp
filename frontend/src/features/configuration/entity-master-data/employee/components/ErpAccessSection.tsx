@@ -3,6 +3,7 @@
 import { Plus } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { CheckboxField } from "@/components/ui/form-field";
 import { ErrorState, LoadingState } from "@/components/ui/section";
 import { useToast } from "@/components/ui/toast";
 import { useResource } from "@/hooks/use-resource";
@@ -40,6 +41,7 @@ function CredentialsPanel({
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [roleId, setRoleId] = useState(creds.roleId ?? "");
+  const [hideStockInSales, setHideStockInSales] = useState(creds.hideStockInSales);
   const [errors, setErrors] = useState<Partial<Record<keyof UpdateCredentialsInput, string>>>({});
   const [saving, setSaving] = useState(false);
   const [addRoleOpen, setAddRoleOpen] = useState(false);
@@ -57,7 +59,7 @@ function CredentialsPanel({
     setErrors(e);
     return Object.keys(e).length
       ? null
-      : { phone: phone.trim(), password: password || undefined, confirmPassword, roleId: roleId || undefined };
+      : { phone: phone.trim(), password: password || undefined, confirmPassword, roleId: roleId || undefined, hideStockInSales };
   };
 
   const handleSave = async () => {
@@ -154,6 +156,12 @@ function CredentialsPanel({
             />
           )}
         </Field>
+        <CheckboxField
+          label="Hide Stock In Sales"
+          hint="Stock levels are not shown to this user anywhere in the Sales module."
+          checked={hideStockInSales}
+          onChange={(e) => setHideStockInSales(e.target.checked)}
+        />
       </FormGrid>
 
       <AddRoleDialog

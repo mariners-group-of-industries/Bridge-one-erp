@@ -66,6 +66,8 @@ model User {
   allBusinessUnits Boolean @default(false)
   allOffices       Boolean @default(false)
   allWarehouses    Boolean @default(false)
+  /// Sales users with this set do not see stock levels in the Sales module.
+  hideStockInSales Boolean @default(false)
   lastLoginAt  DateTime? @db.Timestamptz(3)
   createdAt    DateTime  @default(now()) @db.Timestamptz(3)
   updatedAt    DateTime  @updatedAt @db.Timestamptz(3)

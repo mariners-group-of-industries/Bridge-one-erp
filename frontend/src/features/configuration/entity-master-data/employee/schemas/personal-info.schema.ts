@@ -106,6 +106,8 @@ export const updateCredentialsSchema = z.object({
   password: z.string().min(8).max(128).optional().or(z.literal("")),
   confirmPassword: z.string().optional().or(z.literal("")),
   roleId:   z.string().regex(UUID_PATTERN, { message: "Invalid UUID" }).optional().or(z.literal("")),
+  /** Withhold stock levels from this user in the Sales module. */
+  hideStockInSales: z.boolean().optional(),
 }).refine(
   (d) => !d.password || d.password === d.confirmPassword,
   { message: "Passwords do not match.", path: ["confirmPassword"] },
@@ -131,6 +133,7 @@ export interface CredentialsDto {
   roleName: string | null;
   userSystemRole: string | null;
   isActive: boolean | null;
+  hideStockInSales: boolean;
 }
 
 // ─── Org access (GET + PUT) ───────────────────────────────────────────────────
