@@ -154,8 +154,11 @@ export function ReturnWorkspaceView() {
 // ─── Delivery List: deliveries that can be returned ─────────────────────────
 
 function DeliveriesTab({ today, search, onQuery }: { today: string; search: string; onQuery: (query: Query | null) => void }) {
-  const [filters, setFilters] = useState({ from: monthStart(today), to: today });
-  const [query, setQuery] = useState<ReturnableDeliveryQuery>(filters);
+  const filterLists = useFilterLookups();
+  const [filters, setFilters] = useState({ officeId: "", from: monthStart(today), to: today });
+  // Empty filters ("All") are left out of the query.
+  const toQuery = (values: typeof filters) => Object.fromEntries(Object.entries(values).filter(([, value]) => value)) as ReturnableDeliveryQuery;
+  const [query, setQuery] = useState<ReturnableDeliveryQuery>(toQuery(filters));
   const [filterError, setFilterError] = useState<string>();
   const effective: ReturnableDeliveryQuery = { ...query, ...(search ? { search } : {}) };
   const list = useResource(`returnable:${JSON.stringify(effective)}`, () => fetchReturnableDeliveries(effective), { refreshOnFocus: true });
@@ -163,11 +166,12 @@ function DeliveriesTab({ today, search, onQuery }: { today: string; search: stri
 
   function view(event: FormEvent) {
     event.preventDefault();
-    const parsed = returnableDeliveryQuerySchema.safeParse(filters);
+    const next = toQuery(filters);
+    const parsed = returnableDeliveryQuerySchema.safeParse(next);
     if (!parsed.success) return setFilterError(parsed.error.issues[0]?.message);
     setFilterError(undefined);
-    if (JSON.stringify(filters) === JSON.stringify(query)) list.reload();
-    else setQuery(filters);
+    if (JSON.stringify(next) === JSON.stringify(query)) list.reload();
+    else setQuery(next);
   }
 
   const rows = list.data;
@@ -224,6 +228,7 @@ function DeliveriesTab({ today, search, onQuery }: { today: string; search: stri
   return (
     <>
       <FilterForm onSubmit={view} error={filterError} loading={list.loading}>
+        <SelectField label="Office" options={filterLists.offices} value={filters.officeId} onChange={(event) => setFilters({ ...filters, officeId: event.target.value })} />
         <TextField label="From Date" type="date" value={filters.from} onChange={(event) => setFilters({ ...filters, from: event.target.value })} />
         <TextField label="To Date" type="date" value={filters.to} onChange={(event) => setFilters({ ...filters, to: event.target.value })} />
       </FilterForm>
@@ -242,11 +247,12 @@ function DeliveriesTab({ today, search, onQuery }: { today: string; search: stri
 
 // ─── Return List / Market Return ─────────────────────────────────────────────
 
-type ListFilters = Record<"customerGroupId" | "territoryId" | "salesPersonId" | "mode" | "status" | "from" | "to", string>;
+type ListFilters = Record<"officeId" | "customerGroupId" | "territoryId" | "salesPersonId" | "mode" | "status" | "from" | "to", string>;
 
 function ReturnsTab({ market, today, search, onQuery }: { market: boolean; today: string; search: string; onQuery: (query: Query | null) => void }) {
   const filterLists = useFilterLookups();
   const initial: ListFilters = {
+    officeId: "",
     customerGroupId: "",
     territoryId: "",
     salesPersonId: "",
@@ -387,6 +393,7 @@ function ReturnsTab({ market, today, search, onQuery }: { market: boolean; today
   return (
     <>
       <FilterForm onSubmit={view} error={filterError} loading={list.loading}>
+        <SelectField label="Office" options={filterLists.offices} {...field("officeId")} />
         {!market && <SelectField label="Customer Group" options={filterLists.groups} {...field("customerGroupId")} />}
         {!market && <SelectField label="Territory" options={filterLists.areaOptions("TERRITORY")} {...field("territoryId")} />}
         {!market && (

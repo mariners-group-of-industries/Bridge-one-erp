@@ -58,6 +58,14 @@ export default function PurchaseReceivePage() {
   const [returnReason, setReturnReason] = useState("");
 
   // Queries
+  const { data: offices } = useQuery<{ id: string; name: string }[]>({
+    queryKey: ["offices"],
+    queryFn: () => fetchApi("/master/offices"),
+  });
+  /** "" = all offices; otherwise the office name the rows are filtered by. */
+  const [officeFilter, setOfficeFilter] = useState("");
+  const [grnOfficeFilter, setGrnOfficeFilter] = useState("");
+
   const { data: warehouses } = useQuery<Warehouse[]>({
     queryKey: ["warehouses"],
     queryFn: () => fetchApi("/master/warehouses"),
@@ -111,6 +119,7 @@ export default function PurchaseReceivePage() {
     }
 
     return list.filter((item) => {
+      if (officeFilter && item.officeName !== officeFilter) return false;
       if (search) {
         const q = search.toLowerCase();
         const m =
@@ -122,7 +131,7 @@ export default function PurchaseReceivePage() {
       }
       return true;
     });
-  }, [apiApprovedPOs, search]);
+  }, [apiApprovedPOs, search, officeFilter]);
 
   // Combine Received GRNs
   const combinedReceivedGRNs = useMemo(() => {
@@ -161,6 +170,7 @@ export default function PurchaseReceivePage() {
     }
 
     return list.filter((item) => {
+      if (grnOfficeFilter && item.officeName !== grnOfficeFilter) return false;
       if (search) {
         const q = search.toLowerCase();
         const m =
@@ -173,7 +183,7 @@ export default function PurchaseReceivePage() {
       }
       return true;
     });
-  }, [apiReceivedGRNs, search]);
+  }, [apiReceivedGRNs, search, grnOfficeFilter]);
 
   // Receiving Form State for Modal
   const [formReceiptDate, setFormReceiptDate] = useState(new Date().toISOString().split("T")[0]);
@@ -409,12 +419,18 @@ export default function PurchaseReceivePage() {
               {/* Office Selector with 'All ×' pill */}
               <div className="w-56">
                 <label className="block text-[11px] font-semibold text-slate-700 mb-1">Office</label>
-                <div className="flex items-center justify-between h-8 border border-slate-300 rounded px-2 bg-white text-xs">
-                  <span className="inline-flex items-center gap-1 bg-slate-100 text-slate-700 px-1.5 py-0.5 rounded text-[11px]">
-                    All <button type="button" className="hover:text-red-500">×</button>
-                  </span>
-                  <span className="text-slate-400 text-xs">▾</span>
-                </div>
+                <select
+                  value={officeFilter}
+                  onChange={(e) => setOfficeFilter(e.target.value)}
+                  className="w-full h-8 border border-slate-300 rounded px-2 text-xs text-slate-700 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                >
+                  <option value="">All offices</option>
+                  {(offices ?? []).map((office) => (
+                    <option key={office.id} value={office.name}>
+                      {office.name}
+                    </option>
+                  ))}
+                </select>
               </div>
 
               {/* Exp. Receive Date */}
@@ -598,12 +614,18 @@ export default function PurchaseReceivePage() {
               {/* Office */}
               <div>
                 <label className="block text-[11px] font-semibold text-slate-700 mb-1">Office</label>
-                <div className="flex items-center justify-between h-8 border border-slate-300 rounded px-2 bg-white text-xs">
-                  <span className="inline-flex items-center gap-1 bg-slate-100 text-slate-700 px-1.5 py-0.5 rounded text-[11px]">
-                    All <button type="button" className="hover:text-red-500">×</button>
-                  </span>
-                  <span className="text-slate-400 text-xs">▾</span>
-                </div>
+                <select
+                  value={grnOfficeFilter}
+                  onChange={(e) => setGrnOfficeFilter(e.target.value)}
+                  className="w-full h-8 border border-slate-300 rounded px-2 text-xs text-slate-700 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                >
+                  <option value="">All offices</option>
+                  {(offices ?? []).map((office) => (
+                    <option key={office.id} value={office.name}>
+                      {office.name}
+                    </option>
+                  ))}
+                </select>
               </div>
 
               {/* GRN Type */}
