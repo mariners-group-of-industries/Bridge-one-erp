@@ -2,31 +2,13 @@
 
 import React, { useMemo, useState } from "react";
 import {
-  AlertCircle,
-  Banknote,
-  CheckCircle2,
-  ChevronLeft,
-  ChevronRight,
-  Clock,
-  DollarSign,
-  Download,
   Eye,
-  FileSpreadsheet,
-  FileText,
-  Filter,
-  Pencil,
   Plus,
-  Printer,
-  RotateCcw,
   Search,
-  ShieldCheck,
-  Trash2,
-  Wallet,
-  X,
 } from "lucide-react";
 import { ModalDialog } from "@/components/purchase/ModalDialog";
 import { useAccountingStore } from "@/features/accounts/store/accounting-store";
-import type { AdvanceRecord, ExpenseRecord, PaymentMethod, ProvisionRecord } from "@/features/accounts/types";
+import type { PaymentMethod } from "@/features/accounts/types";
 
 export default function ExpenseAdvancePage() {
   // Main Tabs: "EXPENSE" | "ADVANCE" | "PROVISION" | "PAID"
@@ -41,11 +23,8 @@ export default function ExpenseAdvancePage() {
   const provisions = useAccountingStore((s) => s.provisions);
   const accounts = useAccountingStore((s) => s.accounts);
   const createExpense = useAccountingStore((s) => s.createExpense);
-  const updateExpenseStatus = useAccountingStore((s) => s.updateExpenseStatus);
   const markExpensePaid = useAccountingStore((s) => s.markExpensePaid);
   const createAdvance = useAccountingStore((s) => s.createAdvance);
-  const disburseAdvance = useAccountingStore((s) => s.disburseAdvance);
-  const settleAdvance = useAccountingStore((s) => s.settleAdvance);
   const createProvision = useAccountingStore((s) => s.createProvision);
 
   // Filters
@@ -65,7 +44,6 @@ export default function ExpenseAdvancePage() {
   const [isCreateExpenseOpen, setIsCreateExpenseOpen] = useState(false);
   const [isCreateAdvanceOpen, setIsCreateAdvanceOpen] = useState(false);
   const [isCreateProvisionOpen, setIsCreateProvisionOpen] = useState(false);
-  const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
   const [viewingRecord, setViewingRecord] = useState<any | null>(null);
 
   // Forms

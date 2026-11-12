@@ -1,6 +1,6 @@
 import { Prisma } from "@/generated/prisma/client";
 import { AppError, badRequest, conflict, notFound } from "@/lib/api/errors";
-import type { Actor } from "@/lib/auth/actor";
+import { canOn, type Actor } from "@/lib/auth/actor";
 import { db } from "@/lib/prisma/client";
 import { assertStockAvailable, lockWarehouse, stockLevels } from "@/features/sales/deliveries/services/stock.service";
 import { fromDbDate, toDbDate } from "@/features/sales/lib/dates";
@@ -271,7 +271,7 @@ export async function getEntry(actor: Actor, id: string): Promise<EntryDetail> {
       rate: num(line.rate),
     })),
     wastages: record.wastages.map(toWastageLine),
-    canCancel: record.status === "POSTED" && actor.permissions.has("production:write"),
+    canCancel: record.status === "POSTED" && canOn(actor, "/production/entries", "edit", "production:write"),
   };
 }
 
@@ -418,7 +418,7 @@ export async function createEntry(actor: Actor, raw: unknown): Promise<EntryDeta
 /** Reverses a posted entry: stock and the order's quantities go back; a closed order reopens. */
 export async function cancelEntry(actor: Actor, id: string, raw: unknown): Promise<EntryDetail> {
   const { version, reason } = entryCancelSchema.parse(raw);
-  if (!actor.permissions.has("production:write")) throw new AppError(403, "FORBIDDEN", "You cannot cancel production entries.");
+  if (!canOn(actor, "/production/entries", "edit", "production:write")) throw new AppError(403, "FORBIDDEN", "You cannot cancel production entries.");
   const unitIds = await scopedBusinessUnitIds(actor);
   const entry = await db().productionEntry.findFirst({
     where: { id, businessUnitId: { in: unitIds } },

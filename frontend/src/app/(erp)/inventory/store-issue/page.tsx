@@ -1,6 +1,9 @@
 "use client";
 
 import React, { useState, useMemo } from "react";
+import { useResource } from "@/hooks/use-resource";
+import { InventoryDocumentDialog, type DocumentFormConfig } from "@/features/inventory/components/InventoryDocumentDialog";
+import { dmy, inventoryApi } from "@/features/inventory/services/inventory.api";
 import {
   Search,
   Plus,
@@ -8,7 +11,6 @@ import {
   Eye,
   ChevronLeft,
   ChevronRight,
-  X,
   FileSpreadsheet,
 } from "lucide-react";
 
@@ -19,6 +21,8 @@ type StoreIssueTab = "APPROVED_REQUISITION" | "ISSUED_ITEM";
 
 interface ApprovedRequisitionRow {
   sl: number;
+  id: string;
+  docDate: string;
   reqCode: string;
   date: string;
   userType: string;
@@ -28,6 +32,8 @@ interface ApprovedRequisitionRow {
 }
 
 interface IssuedItemRow {
+  id: string;
+  docDate: string;
   issueCode: string;
   issueDate: string;
   requisitionCode: string;
@@ -37,247 +43,20 @@ interface IssuedItemRow {
   remarks: string;
 }
 
-// ============================================================================
-// SAMPLE DATA (Directly matched to user's ERP screenshots)
-// ============================================================================
-const MOCK_APPROVED_REQUISITIONS: ApprovedRequisitionRow[] = [
-  {
-    sl: 1,
-    reqCode: "SR-MG261000046",
-    date: "11-10-2026",
-    userType: "N/A",
-    user: "",
-    remarks: ": Item - SFG-00656 - SFGSNCHIKONSEMAI (KG)",
-    status: "Approved",
-  },
-  {
-    sl: 2,
-    reqCode: "SR-MG261000045",
-    date: "11-10-2026",
-    userType: "N/A",
-    user: "",
-    remarks: ": Item - FGSN230207 - Peawal Bar-B-Q Biriyani Chanachur 12gm (24x36) (PCS)",
-    status: "Approved",
-  },
-  {
-    sl: 3,
-    reqCode: "SR-MG260900017",
-    date: "05-09-2026",
-    userType: "N/A",
-    user: "",
-    remarks: ": Item - SFG-00667 - SFGSNPAPRI (KG)",
-    status: "Approved",
-  },
-  {
-    sl: 4,
-    reqCode: "IR-MBBL251100048",
-    date: "10-11-2025",
-    userType: "N/A",
-    user: "",
-    remarks: ": Item - SFG-00662 - SFGSNANCHOR (KG)",
-    status: "Approved",
-  },
-];
+const USER_TYPES = ["Department", "Production", "Employee", "Maintenance", "Other"] as const;
+const USER_TYPE_OPTIONS = [{ value: "", label: "User Type" }, ...USER_TYPES.map((t) => ({ value: t, label: t }))];
 
-const MOCK_ISSUED_ITEMS: IssuedItemRow[] = [
-  {
-    issueCode: "INI-MG261000032",
-    issueDate: "11-10-2026",
-    requisitionCode: "SR-MG261000043",
-    productionEntryCode: "PRE-MG261000032",
-    userType: "N/A",
-    user: "",
-    remarks: "",
-  },
-  {
-    issueCode: "INI-MG261000031",
-    issueDate: "11-10-2026",
-    requisitionCode: "SR-MG261000044",
-    productionEntryCode: "PRE-MG261000031",
-    userType: "N/A",
-    user: "",
-    remarks: "",
-  },
-  {
-    issueCode: "INI-MG261000030",
-    issueDate: "08-10-2026",
-    requisitionCode: "SR-MG261000042",
-    productionEntryCode: "PRE-MG261000030",
-    userType: "N/A",
-    user: "",
-    remarks: "",
-  },
-  {
-    issueCode: "INI-MG261000029",
-    issueDate: "07-10-2026",
-    requisitionCode: "SR-MG261000040",
-    productionEntryCode: "PRE-MG261000029",
-    userType: "N/A",
-    user: "",
-    remarks: "",
-  },
-  {
-    issueCode: "INI-MG261000028",
-    issueDate: "07-10-2026",
-    requisitionCode: "SR-MG261000041",
-    productionEntryCode: "PRE-MG261000028",
-    userType: "N/A",
-    user: "",
-    remarks: "",
-  },
-  {
-    issueCode: "INI-MG261000027",
-    issueDate: "07-10-2026",
-    requisitionCode: "SR-MG261000037",
-    productionEntryCode: "PRE-MG261000027",
-    userType: "N/A",
-    user: "",
-    remarks: "",
-  },
-  {
-    issueCode: "INI-MG261000026",
-    issueDate: "07-10-2026",
-    requisitionCode: "SR-MG261000039",
-    productionEntryCode: "PRE-MG261000026",
-    userType: "N/A",
-    user: "",
-    remarks: "",
-  },
-  {
-    issueCode: "INI-MG261000025",
-    issueDate: "07-10-2026",
-    requisitionCode: "SR-MG261000038",
-    productionEntryCode: "PRE-MG261000025",
-    userType: "N/A",
-    user: "",
-    remarks: "",
-  },
-  {
-    issueCode: "INI-MG261000024",
-    issueDate: "07-10-2026",
-    requisitionCode: "SR-MG261000035",
-    productionEntryCode: "PRE-MG261000024",
-    userType: "N/A",
-    user: "",
-    remarks: "",
-  },
-  {
-    issueCode: "INI-MG261000023",
-    issueDate: "07-10-2026",
-    requisitionCode: "SR-MG261000036",
-    productionEntryCode: "PRE-MG261000023",
-    userType: "N/A",
-    user: "",
-    remarks: "",
-  },
-  {
-    issueCode: "INI-MG261000022",
-    issueDate: "06-10-2026",
-    requisitionCode: "SR-MG261000034",
-    productionEntryCode: "PRE-MG261000022",
-    userType: "N/A",
-    user: "",
-    remarks: "",
-  },
-  {
-    issueCode: "INI-MG261000021",
-    issueDate: "06-10-2026",
-    requisitionCode: "SR-MG261000012",
-    productionEntryCode: "PRE-MG261000021",
-    userType: "N/A",
-    user: "",
-    remarks: "",
-  },
-  {
-    issueCode: "INI-MG261000020",
-    issueDate: "06-10-2026",
-    requisitionCode: "SR-MG261000013",
-    productionEntryCode: "PRE-MG261000020",
-    userType: "N/A",
-    user: "",
-    remarks: "",
-  },
-  {
-    issueCode: "INI-MG261000019",
-    issueDate: "06-10-2026",
-    requisitionCode: "SR-MG261000019",
-    productionEntryCode: "PRE-MG261000019",
-    userType: "N/A",
-    user: "",
-    remarks: "",
-  },
-  {
-    issueCode: "INI-MG261000018",
-    issueDate: "06-10-2026",
-    requisitionCode: "SR-MG261000032",
-    productionEntryCode: "PRE-MG261000018",
-    userType: "N/A",
-    user: "",
-    remarks: "",
-  },
-  {
-    issueCode: "INI-MG261000017",
-    issueDate: "06-10-2026",
-    requisitionCode: "SR-MG261000022",
-    productionEntryCode: "PRE-MG261000016",
-    userType: "N/A",
-    user: "",
-    remarks: "",
-  },
-  {
-    issueCode: "INI-MG261000016",
-    issueDate: "06-10-2026",
-    requisitionCode: "SR-MG261000023",
-    productionEntryCode: "PRE-MG261000017",
-    userType: "N/A",
-    user: "",
-    remarks: "",
-  },
-  {
-    issueCode: "INI-MG261000015",
-    issueDate: "06-10-2026",
-    requisitionCode: "SR-MG261000015",
-    productionEntryCode: "PRE-MG261000013",
-    userType: "N/A",
-    user: "",
-    remarks: "",
-  },
-  {
-    issueCode: "INI-MG261000014",
-    issueDate: "06-10-2026",
-    requisitionCode: "SR-MG261000029",
-    productionEntryCode: "PRE-MG261000015",
-    userType: "N/A",
-    user: "",
-    remarks: "",
-  },
-  {
-    issueCode: "INI-MG261000013",
-    issueDate: "06-10-2026",
-    requisitionCode: "SR-MG261000028",
-    productionEntryCode: "PRE-MG261000014",
-    userType: "N/A",
-    user: "",
-    remarks: "",
-  },
-  {
-    issueCode: "INI-MG261000012",
-    issueDate: "05-10-2026",
-    requisitionCode: "SR-MG261000031",
-    productionEntryCode: "PRE-MG261000012",
-    userType: "N/A",
-    user: "",
-    remarks: "",
-  },
-];
-
-const USER_TYPE_OPTIONS = [
-  { value: "", label: "User Type" },
-  { value: "Admin", label: "Admin" },
-  { value: "Store Keeper", label: "Store Keeper" },
-  { value: "Production Manager", label: "Production Manager" },
-  { value: "Operator", label: "Operator" },
-];
+/** Store issues post the issued quantity out of the store (stock ledger). */
+const ISSUE_FORM: DocumentFormConfig = {
+  slug: "store-issue",
+  title: "Store Issue",
+  warehouses: "one",
+  warehouseLabel: "Issue from store",
+  fulfils: { slug: "store-requisition", label: "Against requisition" },
+  subtype: { label: "User type", options: USER_TYPES },
+  partyLabel: "Issued to (user / department)",
+  referenceLabel: "Production entry no",
+};
 
 export default function StoreIssuePage() {
   const [activeTab, setActiveTab] = useState<StoreIssueTab>("APPROVED_REQUISITION");
@@ -302,17 +81,47 @@ export default function StoreIssuePage() {
   // Issue Action Modal (for issuing against approved requisition)
   const [activeRequisitionForIssue, setActiveRequisitionForIssue] = useState<ApprovedRequisitionRow | null>(null);
 
-  // Direct Issue Form
-  const [directIssueForm, setDirectIssueForm] = useState({
-    issueDate: new Date().toISOString().slice(0, 10),
-    warehouse: "Central RM Warehouse",
-    department: "PD Biscuit Store",
-    remarks: "",
-  });
+  const approvedDocs = useResource("store-requisition-approved", () => inventoryApi.list("store-requisition", { status: "APPROVED" }));
+  const issueDocs = useResource("store-issue-all", () => inventoryApi.list("store-issue"));
+  const reload = () => {
+    approvedDocs.reload();
+    issueDocs.reload();
+  };
+  const approvedRows = useMemo<ApprovedRequisitionRow[]>(
+    () =>
+      (approvedDocs.data ?? []).map((d, i) => ({
+        sl: i + 1,
+        id: d.id,
+        docDate: d.docDate,
+        reqCode: d.number,
+        date: dmy(d.docDate),
+        userType: d.subtype ?? "",
+        user: d.partyName ?? "",
+        remarks: d.remarks ?? "",
+        status: "Approved" as const,
+      })),
+    [approvedDocs.data],
+  );
+  const issuedRows = useMemo<IssuedItemRow[]>(
+    () =>
+      (issueDocs.data ?? []).map((d) => ({
+        id: d.id,
+        docDate: d.docDate,
+        issueCode: d.number,
+        issueDate: dmy(d.docDate),
+        requisitionCode: d.request?.number ?? "Direct",
+        productionEntryCode: d.reference ?? "",
+        userType: d.subtype ?? "",
+        user: d.partyName ?? "",
+        remarks: d.remarks ?? "",
+      })),
+    [issueDocs.data],
+  );
 
   // Filtered Approved Requisitions
   const filteredApproved = useMemo(() => {
-    return MOCK_APPROVED_REQUISITIONS.filter((row) => {
+    return approvedRows.filter((row) => {
+      if ((reqFromDate && row.docDate < reqFromDate) || (reqToDate && row.docDate > reqToDate)) return false;
       if (searchTerm) {
         const s = searchTerm.toLowerCase();
         const match =
@@ -323,7 +132,7 @@ export default function StoreIssuePage() {
       }
       return true;
     });
-  }, [searchTerm]);
+  }, [approvedRows, reqFromDate, reqToDate, searchTerm]);
 
   const totalReqPages = Math.ceil(filteredApproved.length / reqRowsPerPage) || 1;
   const paginatedApproved = useMemo(() => {
@@ -333,8 +142,9 @@ export default function StoreIssuePage() {
 
   // Filtered Issued Items
   const filteredIssued = useMemo(() => {
-    return MOCK_ISSUED_ITEMS.filter((row) => {
+    return issuedRows.filter((row) => {
       if (issueUserType && row.userType !== issueUserType) return false;
+      if ((issueFromDate && row.docDate < issueFromDate) || (issueToDate && row.docDate > issueToDate)) return false;
       if (searchTerm) {
         const s = searchTerm.toLowerCase();
         const match =
@@ -345,7 +155,7 @@ export default function StoreIssuePage() {
       }
       return true;
     });
-  }, [issueUserType, searchTerm]);
+  }, [issuedRows, issueUserType, issueFromDate, issueToDate, searchTerm]);
 
   const totalIssuePages = Math.ceil(filteredIssued.length / issueRowsPerPage) || 1;
   const paginatedIssued = useMemo(() => {
@@ -763,194 +573,16 @@ export default function StoreIssuePage() {
       {/* ─────────────────────────────────────────────────── */}
       {/* 5. MODAL: ISSUE AGAINST REQUISITION                 */}
       {/* ─────────────────────────────────────────────────── */}
-      {activeRequisitionForIssue && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-lg border border-slate-200 overflow-hidden animate-in fade-in zoom-in-95 duration-150">
-            <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 bg-slate-50">
-              <h2 className="text-sm font-bold text-slate-900">
-                Issue Items for Requisition: {activeRequisitionForIssue.reqCode}
-              </h2>
-              <button
-                type="button"
-                onClick={() => setActiveRequisitionForIssue(null)}
-                className="text-slate-400 hover:text-slate-600"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div className="p-4 space-y-3 text-xs">
-              <div className="p-2.5 bg-blue-50/60 rounded border border-blue-100 text-blue-900">
-                <p className="font-semibold">Requisition Details:</p>
-                <p className="text-[11px] text-blue-800 mt-0.5">{activeRequisitionForIssue.remarks}</p>
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-semibold text-slate-700 mb-1">
-                  Issue Date <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="date"
-                  defaultValue={new Date().toISOString().slice(0, 10)}
-                  className="w-full border border-slate-300 rounded px-2.5 py-1.5 focus:ring-1 focus:ring-blue-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-semibold text-slate-700 mb-1">
-                  Issue From Warehouse <span className="text-red-500">*</span>
-                </label>
-                <select className="w-full border border-slate-300 rounded px-2.5 py-1.5 focus:ring-1 focus:ring-blue-500">
-                  <option value="Central RM Warehouse">Central RM Warehouse</option>
-                  <option value="Material WH">Material WH</option>
-                  <option value="PD Biscuit Store">PD Biscuit Store</option>
-                  <option value="PD Snacks Store">PD Snacks Store</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-semibold text-slate-700 mb-1">
-                  Remarks
-                </label>
-                <input
-                  type="text"
-                  placeholder="Optional remarks"
-                  className="w-full border border-slate-300 rounded px-2.5 py-1.5 focus:ring-1 focus:ring-blue-500"
-                />
-              </div>
-            </div>
-
-            <div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-slate-200 bg-slate-50">
-              <button
-                type="button"
-                onClick={() => setActiveRequisitionForIssue(null)}
-                className="px-3.5 py-1.5 text-xs text-slate-600 hover:text-slate-800 font-medium"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  alert(`Issued successfully against ${activeRequisitionForIssue.reqCode}!`);
-                  setActiveRequisitionForIssue(null);
-                }}
-                className="px-4 py-1.5 bg-[#2563eb] hover:bg-blue-700 text-white font-semibold text-xs rounded shadow-xs transition"
-              >
-                Confirm Issue
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ─────────────────────────────────────────────────── */}
-      {/* 6. MODAL: DIRECT STORE ISSUE                        */}
-      {/* ─────────────────────────────────────────────────── */}
-      {isDirectIssueOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-lg border border-slate-200 overflow-hidden animate-in fade-in zoom-in-95 duration-150">
-            <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 bg-slate-50">
-              <h2 className="text-sm font-bold text-slate-900">
-                Direct Store Issue
-              </h2>
-              <button
-                type="button"
-                onClick={() => setIsDirectIssueOpen(false)}
-                className="text-slate-400 hover:text-slate-600"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div className="p-4 space-y-3 text-xs">
-              <div>
-                <label className="block text-[11px] font-semibold text-slate-700 mb-1">
-                  Issue Date <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="date"
-                  value={directIssueForm.issueDate}
-                  onChange={(e) =>
-                    setDirectIssueForm({ ...directIssueForm, issueDate: e.target.value })
-                  }
-                  className="w-full border border-slate-300 rounded px-2.5 py-1.5 focus:ring-1 focus:ring-blue-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-semibold text-slate-700 mb-1">
-                  From Warehouse <span className="text-red-500">*</span>
-                </label>
-                <select
-                  value={directIssueForm.warehouse}
-                  onChange={(e) =>
-                    setDirectIssueForm({ ...directIssueForm, warehouse: e.target.value })
-                  }
-                  className="w-full border border-slate-300 rounded px-2.5 py-1.5 focus:ring-1 focus:ring-blue-500"
-                >
-                  <option value="Central RM Warehouse">Central RM Warehouse</option>
-                  <option value="Material WH">Material WH</option>
-                  <option value="PD Biscuit Store">PD Biscuit Store</option>
-                  <option value="PD Snacks Store">PD Snacks Store</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-semibold text-slate-700 mb-1">
-                  To Department / Section <span className="text-red-500">*</span>
-                </label>
-                <select
-                  value={directIssueForm.department}
-                  onChange={(e) =>
-                    setDirectIssueForm({ ...directIssueForm, department: e.target.value })
-                  }
-                  className="w-full border border-slate-300 rounded px-2.5 py-1.5 focus:ring-1 focus:ring-blue-500"
-                >
-                  <option value="PD Biscuit Store">PD Biscuit Store</option>
-                  <option value="PD Snacks Store">PD Snacks Store</option>
-                  <option value="Finishing Section">Finishing Section</option>
-                  <option value="Maintenance & Engineering">Maintenance & Engineering</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-semibold text-slate-700 mb-1">
-                  Remarks / Justification
-                </label>
-                <textarea
-                  rows={3}
-                  placeholder="Reason for direct store issue..."
-                  value={directIssueForm.remarks}
-                  onChange={(e) =>
-                    setDirectIssueForm({ ...directIssueForm, remarks: e.target.value })
-                  }
-                  className="w-full border border-slate-300 rounded p-2 focus:ring-1 focus:ring-blue-500 placeholder-slate-400"
-                />
-              </div>
-            </div>
-
-            <div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-slate-200 bg-slate-50">
-              <button
-                type="button"
-                onClick={() => setIsDirectIssueOpen(false)}
-                className="px-3.5 py-1.5 text-xs text-slate-600 hover:text-slate-800 font-medium"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  alert("Direct Store Issue created successfully!");
-                  setIsDirectIssueOpen(false);
-                }}
-                className="px-4 py-1.5 bg-[#2563eb] hover:bg-blue-700 text-white font-semibold text-xs rounded shadow-xs transition"
-              >
-                Save Issue
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <InventoryDocumentDialog
+        open={!!activeRequisitionForIssue || isDirectIssueOpen}
+        onClose={() => {
+          setActiveRequisitionForIssue(null);
+          setIsDirectIssueOpen(false);
+        }}
+        onSaved={reload}
+        initialRequestId={activeRequisitionForIssue?.id}
+        config={ISSUE_FORM}
+      />
     </div>
   );
 }

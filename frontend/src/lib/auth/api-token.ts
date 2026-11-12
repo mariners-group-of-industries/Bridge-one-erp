@@ -1,5 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 import { db } from "@/lib/prisma/client";
+import { FULL_ACCESS } from "@/lib/permissions/registry";
 import { ALL_PERMISSIONS, type Actor, type Permission } from "./actor";
 
 /** Tokens look like `b1_<43 url-safe chars>`; only their SHA-256 is stored. */
@@ -37,5 +38,8 @@ export async function resolveTokenActor(authorization: string | null, method = "
     // READ tokens may only read: any other method gets no permissions (403).
     permissions: new Set<Permission>(record.access === "READ_WRITE" ? ALL_PERMISSIONS : ["GET", "HEAD"].includes(method.toUpperCase()) ? ALL_PERMISSIONS.filter((p) => p.endsWith(":read")) : []),
     companyScope: "ALL",
+    via: "token",
+    // Integrations are not tied to a user's pages; READ tokens can only view and export.
+    grants: record.access === "READ_WRITE" ? FULL_ACCESS : { ...FULL_ACCESS, readOnly: true },
   };
 }

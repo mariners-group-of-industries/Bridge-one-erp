@@ -1,6 +1,6 @@
 import { Prisma } from "@/generated/prisma/client";
 import { badRequest, conflict, notFound } from "@/lib/api/errors";
-import type { Actor } from "@/lib/auth/actor";
+import { canOn, type Actor } from "@/lib/auth/actor";
 import { db } from "@/lib/prisma/client";
 import { fromDbDate } from "@/features/sales/lib/dates";
 import { scopedBusinessUnitIds } from "@/features/sales/lib/scope";
@@ -60,7 +60,7 @@ export async function entryWastageForm(actor: Actor, id: string): Promise<EntryW
     lines: lines.map(toWastageLine),
     processes,
     items,
-    canEdit: entry.status === "POSTED" && actor.permissions.has("production:write"),
+    canEdit: entry.status === "POSTED" && canOn(actor, "/production/entries", "edit", "production:write"),
   };
 }
 

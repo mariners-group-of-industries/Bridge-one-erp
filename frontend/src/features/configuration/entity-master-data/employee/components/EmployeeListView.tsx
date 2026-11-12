@@ -8,7 +8,6 @@ import { Button, buttonClasses } from "@/components/ui/button";
 import { Pagination } from "@/components/ui/pagination";
 import { ErrorState, LoadingState } from "@/components/ui/section";
 import { useToast } from "@/components/ui/toast";
-import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { useResource } from "@/hooks/use-resource";
 import { errorMessage } from "@/lib/api/client";
 import { entityMasterDataBreadcrumbs } from "../../breadcrumbs";
@@ -32,7 +31,18 @@ import { EmployeeStatusTabs, EmployeeToolbar, type EmployeeFilters } from "./Emp
 import { EmptyBlock } from "./kit";
 import { BulkUploadDialog } from "../../components/BulkUploadDialog";
 
-const SEARCH_DEBOUNCE_MS = 300;
+interface AppliedQuery {
+  search: string;
+  filters: EmployeeFilters;
+}
+
+/** Order-independent key of a search + filters, "" when nothing is set. */
+function queryKey({ search, filters }: AppliedQuery): string {
+  const params = new URLSearchParams(employeeListSearch({ search, ...filters }));
+  params.sort();
+  return params.toString();
+}
+
 const BREADCRUMBS = entityMasterDataBreadcrumbs(entityMasterDataPaths.employee);
 
 // ─── CSV export ──────────────────────────────────────────────────────────────
@@ -78,20 +88,19 @@ function downloadCsv(rows: EmployeeListRow[]) {
 
 export function EmployeeListView() {
   const toast = useToast();
+  // What is typed/selected (draft) and what the list was last loaded with (applied):
+  // the list is only queried when the user clicks View, not on every change.
   const [search, setSearch] = useState("");
-  const debouncedSearch = useDebouncedValue(search.trim(), SEARCH_DEBOUNCE_MS);
   const [filters, setFilters] = useState<EmployeeFilters>({});
+  const [applied, setApplied] = useState<AppliedQuery>({ search: "", filters: {} });
   const [pageSize, setPageSize] = useState<number>(DEFAULT_EMPLOYEE_PAGE_SIZE);
-  // The requested page belongs to the search it was chosen for, so a new search
-  // starts on page 1 without an extra request.
-  const [paging, setPaging] = useState({ page: 1, search: "" });
-  const page = paging.search === debouncedSearch ? paging.page : 1;
+  const [page, setPage] = useState(1);
   const [openAction, setOpenAction] = useState<OpenEmployeeAction | null>(null);
   const [detailEmployee, setDetailEmployee] = useState<EmployeeListRow | null>(null);
   const [profileTarget, setProfileTarget] = useState<EmployeeActionTarget | null>(null);
   const [exporting, setExporting] = useState(false);
 
-  const params: EmployeeListParams = { page, pageSize, search: debouncedSearch, ...filters };
+  const params: EmployeeListParams = { page, pageSize, search: applied.search, ...applied.filters };
   const list = useResource(`employees?${employeeListSearch(params)}`, () => employeeApi.list(params));
   const [uploadOpen, setUploadOpen] = useState(false);
   const options = useResource("employee-filter-options", employeeApi.filterOptions);
@@ -100,19 +109,23 @@ export function EmployeeListView() {
   const [shown, setShown] = useState<EmployeeList>();
   if (list.data && list.data !== shown) setShown(list.data);
 
-  const goToPage = (next: number) => setPaging({ page: next, search: debouncedSearch });
-  const changeFilters = (next: EmployeeFilters) => {
-    setFilters(next);
-    goToPage(1);
+  const goToPage = setPage;
+  /** Loads the list with the given search and filters (page 1). */
+  const apply = (next: AppliedQuery) => {
+    setApplied(next);
+    setPage(1);
   };
   const changePageSize = (next: number) => {
     setPageSize(next);
-    goToPage(1);
+    setPage(1);
   };
-  const filtered = search.trim() !== "" || Object.values(filters).some((v) => v !== undefined);
+  const draft: AppliedQuery = { search: search.trim(), filters };
+  const pending = queryKey(draft) !== queryKey(applied);
+  const filtered = queryKey(applied) !== "" || queryKey(draft) !== "";
   const clearAll = () => {
     setSearch("");
-    changeFilters({});
+    setFilters({});
+    apply({ search: "", filters: {} });
   };
 
   const openEmployeeAction = (action: EmployeeActionDefinition, employee: EmployeeActionTarget) => {
@@ -126,8 +139,8 @@ export function EmployeeListView() {
       const result = await employeeApi.list({
         page: 1,
         pageSize: EMPLOYEE_EXPORT_PAGE_SIZE,
-        search: debouncedSearch,
-        ...filters,
+        search: applied.search,
+        ...applied.filters,
       });
       downloadCsv(result.rows);
     } catch (error) {
@@ -162,16 +175,24 @@ export function EmployeeListView() {
 
       <section className="rounded border border-line bg-surface shadow-[0_1px_2px_rgb(0_0_0/0.04)]">
         <EmployeeStatusTabs
-          status={filters.status}
-          onChange={(status) => changeFilters({ ...filters, status })}
+          status={applied.filters.status}
+          onChange={(status) => {
+            // A tab is a single deliberate click, so it loads at once (with the other filters as selected).
+            const next = { ...filters, status };
+            setFilters(next);
+            apply({ search: search.trim(), filters: next });
+          }}
           total={list.loading ? undefined : total}
         />
         <EmployeeToolbar
           search={search}
           onSearchChange={setSearch}
           filters={filters}
-          onFiltersChange={changeFilters}
-          userTypes={options.error ? [] : options.data?.employeeTypes}
+          onFiltersChange={setFilters}
+          onApply={() => apply(draft)}
+          pending={pending}
+          loading={list.loading}
+          options={options.error ? undefined : options.data}
           onClear={filtered ? clearAll : undefined}
         />
 

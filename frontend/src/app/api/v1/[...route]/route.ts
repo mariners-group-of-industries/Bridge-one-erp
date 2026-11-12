@@ -1,6 +1,16 @@
 import { NextResponse } from "next/server";
+import { AppError } from "@/lib/api/errors";
 import { apiHandler } from "@/lib/api/handler";
+import type { Actor } from "@/lib/auth/actor";
 import { purchaseStore } from "@/lib/purchase-store/store";
+import {
+  approvePendingSupplierBills,
+  approveSupplierBill,
+  createSupplierBill,
+  listPaymentHistory,
+  listSupplierAdvances,
+  listSupplierBills,
+} from "@/lib/purchase-store/payables";
 import {
   CreateRequisitionSchema,
   CreatePurchaseOrderSchema,
@@ -8,6 +18,20 @@ import {
   CreatePurchaseReturnSchema,
   ReportQuerySchema,
 } from "@bridgeone/contracts";
+
+/** Client-facing error: business-rule messages keep their status; Zod issues are made readable. */
+function errorResponse(err: unknown, fallbackStatus: number) {
+  if (err instanceof AppError) return NextResponse.json({ error: { code: err.code, message: err.message } }, { status: err.status });
+  // Contracts are validated with their own zod copy, so match the error by shape.
+  const issues = (err as { name?: string; issues?: { path?: (string | number)[]; message?: string }[] })?.issues;
+  if ((err as Error)?.name === "ZodError" && Array.isArray(issues)) {
+    const issue = issues[0];
+    const where = issue?.path?.length ? `${issue.path.join(".")}: ` : "";
+    return NextResponse.json({ error: { code: "VALIDATION_ERROR", message: `${where}${issue?.message ?? "Invalid input"}` } }, { status: 400 });
+  }
+  const message = err instanceof Error && err.message ? err.message : "Internal server error";
+  return NextResponse.json({ error: { message } }, { status: fallbackStatus });
+}
 
 async function handleGET(
   request: Request,
@@ -180,6 +204,19 @@ async function handleGET(
       });
     }
 
+    if (path === "purchase/supplier-payments/history") {
+      const data = await listPaymentHistory();
+      return NextResponse.json({ success: true, data, meta: { total: data.length } });
+    }
+    if (path === "purchase/supplier-payments/advances") {
+      const data = await listSupplierAdvances();
+      return NextResponse.json({ success: true, data, meta: { total: data.length } });
+    }
+    if (path === "purchase/supplier-bills") {
+      const data = await listSupplierBills();
+      return NextResponse.json({ success: true, data, meta: { total: data.length } });
+    }
+
     // 8. REPORTS
     if (path === "purchase/reports") {
       const query = ReportQuerySchema.parse({
@@ -227,24 +264,23 @@ async function handleGET(
       { error: { message: `Route not found: ${path}` } },
       { status: 404 }
     );
-  } catch (err: any) {
-    return NextResponse.json(
-      { error: { message: err?.message || "Internal server error" } },
-      { status: 500 }
-    );
+  } catch (err) {
+    return errorResponse(err, 500);
   }
 }
 
 async function handlePOST(
   request: Request,
-  { params }: { params: Promise<{ route: string[] }> }
+  { params }: { params: Promise<{ route: string[] }> },
+  actor: Actor
 ) {
   const { route } = await params;
   const path = route.join("/");
 
   try {
     const body = await request.json().catch(() => ({}));
-    const actorName = "Fuad Hossain";
+    // Recorded as "prepared by" / "received by": the signed-in user.
+    const actorName = actor.name ?? actor.id;
 
     // Create Requisition
     if (path === "purchase/requisitions") {
@@ -363,6 +399,8 @@ async function handlePOST(
           supplierId: body.supplierId,
           officeId: body.officeId,
           warehouseId: body.warehouseId,
+          challanNumber: body.challanNumber,
+          gatePassNumber: body.gatePassNumber,
         },
         actorName
       );
@@ -393,6 +431,35 @@ async function handlePOST(
       return NextResponse.json({ success: true, data: created }, { status: 201 });
     }
 
+    // Supplier bills: book, approve one, approve every pending bill
+    if (path === "purchase/supplier-bills") {
+      const created = await createSupplierBill(body, actorName);
+      return NextResponse.json({ success: true, data: created }, { status: 201 });
+    }
+    if (path === "purchase/supplier-bills/approve-pending") {
+      const result = await approvePendingSupplierBills(actorName);
+      return NextResponse.json({ success: true, data: result });
+    }
+    if (route[0] === "purchase" && route[1] === "supplier-bills" && route.length === 4 && route[3] === "approve") {
+      const updated = await approveSupplierBill(route[2], actorName);
+      return NextResponse.json({ success: true, data: updated });
+    }
+
+    // Cancel a goods receipt, purchase return or supplier payment
+    if (route[0] === "purchase" && route.length === 4 && route[3] === "cancel") {
+      const id = route[2];
+      const comments = body?.comments || "";
+      if (route[1] === "receipts" || route[1] === "receive") {
+        return NextResponse.json({ success: true, data: await purchaseStore.cancelGoodsReceipt(id, actorName, comments) });
+      }
+      if (route[1] === "returns") {
+        return NextResponse.json({ success: true, data: await purchaseStore.cancelPurchaseReturn(id, actorName, comments) });
+      }
+      if (route[1] === "supplier-payments") {
+        return NextResponse.json({ success: true, data: await purchaseStore.cancelSupplierPayment(id, actorName, comments) });
+      }
+    }
+
     // Approve Supplier Bill / Payment
     if (
       route[0] === "purchase" &&
@@ -409,23 +476,22 @@ async function handlePOST(
       { error: { message: `POST route not found: ${path}` } },
       { status: 404 }
     );
-  } catch (err: any) {
-    return NextResponse.json(
-      { error: { message: err?.message || "Internal server error" } },
-      { status: 400 }
-    );
+  } catch (err) {
+    return errorResponse(err, 400);
   }
 }
 
 async function handlePUT(
   request: Request,
-  { params }: { params: Promise<{ route: string[] }> }
+  { params }: { params: Promise<{ route: string[] }> },
+  actor: Actor
 ) {
   const { route } = await params;
 
   try {
     const body = await request.json().catch(() => ({}));
-    const actorName = "Fuad Hossain";
+    // Recorded as "prepared by" / "received by": the signed-in user.
+    const actorName = actor.name ?? actor.id;
 
     // Update Requisition
     if (
@@ -449,11 +515,8 @@ async function handlePUT(
       { error: { message: `PUT route not found: ${route.join("/")}` } },
       { status: 404 }
     );
-  } catch (err: any) {
-    return NextResponse.json(
-      { error: { message: err?.message || "Internal server error" } },
-      { status: 400 }
-    );
+  } catch (err) {
+    return errorResponse(err, 400);
   }
 }
 

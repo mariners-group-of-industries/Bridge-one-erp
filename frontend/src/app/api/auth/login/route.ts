@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import * as argon2 from "argon2";
 import { z } from "zod";
 import { db } from "@/lib/prisma/client";
+import { accountBlock } from "@/lib/auth/actor";
 import { signToken } from "@/lib/auth/jwt";
 import { setAuthCookie } from "@/lib/auth/cookies";
 import { clientOf, recordAudit } from "@/lib/audit/record";
@@ -35,6 +36,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Invalid phone number or password." }, { status: 401 });
     }
 
+    // Checked after the password, so it does not reveal which accounts exist. The master account is never locked out.
+    const blocked = user.isMaster ? null : accountBlock(user);
+    if (blocked) {
+      await audit("LOGIN_FAILED", 403);
+      return NextResponse.json({ error: `${blocked} Contact your administrator.` }, { status: 403 });
+    }
+
     const { token, jti, expiresAt } = await signToken({
       sub: user.id,
       name: user.name,
@@ -61,7 +69,7 @@ export async function POST(req: NextRequest) {
     });
   } catch (err) {
     console.error("[LOGIN ERROR]", err);
-    const message = err instanceof Error ? err.message : "Internal server error";
-    return NextResponse.json({ error: message }, { status: 500 });
+    // Internal details stay in the server log.
+    return NextResponse.json({ error: "Sign-in failed. Please try again." }, { status: 500 });
   }
 }

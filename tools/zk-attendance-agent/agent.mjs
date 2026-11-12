@@ -1,19 +1,3 @@
-// BridgeOne attendance agent.
-//
-// Runs on a PC in the same network as the ZKTeco devices. Every INTERVAL_MINUTES it
-// asks the ERP which devices are active (Configuration › Community & Gateways ›
-// Attendance Devices), reads each device's attendance log over TCP (port 4370) and
-// uploads the punches. Uploading the same punch twice is harmless: the ERP stores
-// each punch once. Failures are reported to the ERP and shown on the device's row.
-//
-// Settings (environment variables):
-//   ERP_URL           e.g. https://bridge-one-erp.vercel.app          (required)
-//   ERP_TOKEN         a "Read & write" API token from API Configuration (required)
-//   INTERVAL_MINUTES  minutes between syncs (default 5)
-//   DEVICE_TIMEOUT_MS TCP timeout per device (default 10000)
-//
-//   node agent.mjs          keep running
-//   node agent.mjs --once   one sync, then exit (for Task Scheduler / cron)
 
 import { existsSync } from "node:fs";
 import { createRequire } from "node:module";

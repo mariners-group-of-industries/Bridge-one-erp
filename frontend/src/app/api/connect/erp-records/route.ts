@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import { getConnectPool } from "@/lib/connect/db";
 import { getConnectAuthUser } from "@/lib/connect/auth";
+import { connectRoute } from "@/lib/connect/route";
 
-export async function GET(req: Request) {
+async function handleGET(req: Request) {
   try {
     const user = await getConnectAuthUser(req);
     if (!user) {
@@ -82,3 +83,5 @@ export async function GET(req: Request) {
     return NextResponse.json({ success: false, error: "Failed to fetch ERP records" }, { status: 500 });
   }
 }
+
+export const GET = connectRoute("employees:read", handleGET);

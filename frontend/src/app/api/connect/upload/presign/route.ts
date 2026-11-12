@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import { getConnectAuthUser } from "@/lib/connect/auth";
 import { R2Storage, r2ConfigFromEnv } from "@/lib/storage/r2";
+import { connectRoute } from "@/lib/connect/route";
 
-export async function POST(req: Request) {
+async function handlePOST(req: Request) {
   try {
     const user = await getConnectAuthUser(req);
     if (!user) {
@@ -45,3 +46,5 @@ export async function POST(req: Request) {
     return NextResponse.json({ success: false, error: "Failed to generate presigned URL" }, { status: 500 });
   }
 }
+
+export const POST = connectRoute("configuration:write", handlePOST);

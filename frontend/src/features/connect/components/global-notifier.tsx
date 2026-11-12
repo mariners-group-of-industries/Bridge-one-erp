@@ -18,7 +18,6 @@ import {
   Loader2,
   Minus,
   Paperclip,
-  ArrowLeftRight,
   ChevronLeft,
   Search,
   CheckCheck,
@@ -100,13 +99,6 @@ export function ConnectGlobalNotifier() {
   // WhatsApp Floating Messenger State
   const [isOpen, setIsOpen] = useState(false);
   const [isMinimized, setIsMinimized] = useState(false);
-  const [dockSide, setDockSide] = useState<"left" | "right">(() => {
-    if (typeof window !== "undefined") {
-      const saved = localStorage.getItem("brg_connect_dock_side");
-      if (saved === "right" || saved === "left") return saved;
-    }
-    return "left"; // Default to left side as in user's screenshot
-  });
 
   const [viewMode, setViewMode] = useState<"chat" | "conversations">("chat");
   const [activeConvId, setActiveConvId] = useState<string | null>(null);
@@ -697,9 +689,7 @@ export function ConnectGlobalNotifier() {
       {/* 3. Floating WhatsApp Launcher (FAB) in the Screen Corner */}
       {(!isOpen || isMinimized) && (
         <div
-          className={`fixed z-[9999] pointer-events-auto transition-all ${
-            dockSide === "left" ? "bottom-5 left-5" : "bottom-5 right-5"
-          }`}
+          className="fixed bottom-5 right-5 z-[9999] pointer-events-auto transition-all"
         >
           <button
             type="button"
@@ -727,12 +717,10 @@ export function ConnectGlobalNotifier() {
         </div>
       )}
 
-      {/* 4. WhatsApp Hover Messenger (Pins on Left or Right of Screen Over Any Page) */}
+      {/* 4. WhatsApp Hover Messenger (Pinned to the Right of the Screen Over Any Page) */}
       {isOpen && !isMinimized && (
         <div
-          className={`fixed top-3 bottom-3 z-[99999] w-[370px] sm:w-[410px] max-w-[calc(100vw-24px)] rounded-2xl shadow-2xl border border-slate-300 dark:border-slate-800 bg-[#efeae2] dark:bg-[#0b141a] flex flex-col overflow-hidden animate-in duration-200 pointer-events-auto ${
-            dockSide === "left" ? "left-3 slide-in-from-left-5" : "right-3 slide-in-from-right-5"
-          }`}
+          className="fixed top-3 bottom-3 right-3 z-[99999] w-[370px] sm:w-[410px] max-w-[calc(100vw-24px)] rounded-2xl shadow-2xl border border-slate-300 dark:border-slate-800 bg-[#efeae2] dark:bg-[#0b141a] flex flex-col overflow-hidden animate-in slide-in-from-right-5 duration-200 pointer-events-auto"
           style={{
             backgroundImage: `radial-gradient(currentColor 0.75px, transparent 0.75px)`,
             backgroundSize: "16px 16px",
@@ -795,22 +783,6 @@ export function ConnectGlobalNotifier() {
                   </button>
                 </>
               )}
-
-              {/* Dock Toggle: Left <-> Right */}
-              <button
-                type="button"
-                onClick={() => {
-                  const nextSide = dockSide === "left" ? "right" : "left";
-                  setDockSide(nextSide);
-                  try {
-                    localStorage.setItem("brg_connect_dock_side", nextSide);
-                  } catch {}
-                }}
-                className="p-1.5 rounded-full hover:bg-slate-200 dark:hover:bg-slate-700 hover:text-slate-900 dark:text-slate-300 transition cursor-pointer"
-                title={`Dock to ${dockSide === "left" ? "Right" : "Left"} side`}
-              >
-                <ArrowLeftRight className="size-3.5" />
-              </button>
 
               {/* Fullscreen into /connect */}
               <button

@@ -1,6 +1,11 @@
 "use client";
 
 import React, { useState, useMemo } from "react";
+import { useToast } from "@/components/ui/toast";
+import { useResource } from "@/hooks/use-resource";
+import { errorMessage } from "@/lib/api/client";
+import { InventoryDocumentDialog } from "@/features/inventory/components/InventoryDocumentDialog";
+import { dmy, inventoryApi, monthAgo, STATUS_LABEL, today } from "@/features/inventory/services/inventory.api";
 import {
   Search,
   Plus,
@@ -17,6 +22,8 @@ import {
 // ============================================================================
 interface StockUpdateRow {
   sl: number;
+  id: string;
+  type: string;
   code: string;
   remarks: string;
   officeName: string;
@@ -27,128 +34,6 @@ interface StockUpdateRow {
   status: "Approved" | "Pending" | "Rejected";
   reviewComment: string;
 }
-
-// ============================================================================
-// SAMPLE DATA (Directly matched to user's ERP screenshot)
-// ============================================================================
-const MOCK_STOCK_UPDATE_LIST: StockUpdateRow[] = [
-  {
-    sl: 1,
-    code: "IA-MG261007024",
-    remarks: "stock adjust",
-    officeName: "MG Sirajganj Factory",
-    warehouse: "PD Biscuit Store",
-    createdDate: "07-10-2026",
-    entryDate: "07-10-2026",
-    actionBy: "MD. Tofajjol Hossin",
-    status: "Approved",
-    reviewComment: "",
-  },
-  {
-    sl: 2,
-    code: "IA-MG261007023",
-    remarks: "stock adjust",
-    officeName: "MG Sirajganj Factory",
-    warehouse: "PD Biscuit Store",
-    createdDate: "07-10-2026",
-    entryDate: "07-10-2026",
-    actionBy: "MD. Tofajjol Hossin",
-    status: "Approved",
-    reviewComment: "",
-  },
-  {
-    sl: 3,
-    code: "IA-MG261007022",
-    remarks: "stock adjust",
-    officeName: "MG Sirajganj Factory",
-    warehouse: "PD Snacks Store",
-    createdDate: "07-10-2026",
-    entryDate: "07-10-2026",
-    actionBy: "MD. Tofajjol Hossin",
-    status: "Approved",
-    reviewComment: "",
-  },
-  {
-    sl: 4,
-    code: "IA-MG260924027",
-    remarks: "Stock Adjustment",
-    officeName: "MG Sirajganj Factory",
-    warehouse: "PD Snacks Store",
-    createdDate: "24-09-2026",
-    entryDate: "24-09-2026",
-    actionBy: "MD. Tofajjol Hossin",
-    status: "Approved",
-    reviewComment: "",
-  },
-  {
-    sl: 5,
-    code: "IA-MG260920026",
-    remarks: "Stock Adjust",
-    officeName: "MG Sirajganj Factory",
-    warehouse: "PD Biscuit Store",
-    createdDate: "20-09-2026",
-    entryDate: "20-09-2026",
-    actionBy: "MD. Tofajjol Hossin",
-    status: "Approved",
-    reviewComment: "",
-  },
-  {
-    sl: 6,
-    code: "IA-MG260919025",
-    remarks: "stock adjust",
-    officeName: "MG Sirajganj Factory",
-    warehouse: "PD Snacks Store",
-    createdDate: "19-09-2026",
-    entryDate: "19-09-2026",
-    actionBy: "MD. Tofajjol Hossin",
-    status: "Approved",
-    reviewComment: "",
-  },
-  {
-    sl: 7,
-    code: "IA-MG260919024",
-    remarks: "stock adjustment",
-    officeName: "MG Sirajganj Factory",
-    warehouse: "PD Biscuit Store",
-    createdDate: "19-09-2026",
-    entryDate: "19-09-2026",
-    actionBy: "MD. Tofajjol Hossin",
-    status: "Approved",
-    reviewComment: "",
-  },
-  {
-    sl: 8,
-    code: "IA-MG260919023",
-    remarks: "Adjust",
-    officeName: "MG Sirajganj Factory",
-    warehouse: "PD Snacks Store",
-    createdDate: "19-09-2026",
-    entryDate: "19-09-2026",
-    actionBy: "MD. Tofajjol Hossin",
-    status: "Approved",
-    reviewComment: "",
-  },
-  {
-    sl: 9,
-    code: "IA-MG260913022",
-    remarks: "Stock Adjustment",
-    officeName: "MG Sirajganj Factory",
-    warehouse: "PD Snacks Store",
-    createdDate: "13-09-2026",
-    entryDate: "13-09-2026",
-    actionBy: "MD. Tofajjol Hossin",
-    status: "Approved",
-    reviewComment: "",
-  },
-];
-
-const OFFICE_OPTIONS = [
-  { value: "All", label: "All" },
-  { value: "MG Sirajganj Factory", label: "MG Sirajganj Factory" },
-  { value: "Dhaka Head Office", label: "Dhaka Head Office" },
-  { value: "Marinozz", label: "Marinozz" },
-  { value: "MOHS Eco", label: "MOHS Eco" },
-];
 
 const TYPE_OPTIONS = [
   { value: "All", label: "All" },
@@ -166,14 +51,56 @@ const STATUS_OPTIONS = [
 ];
 
 export default function StockUpdatePage() {
+  const toast = useToast();
   const [searchTerm, setSearchTerm] = useState("");
 
   // Filters matching screenshot
   const [office, setOffice] = useState("All");
   const [type, setType] = useState("All");
   const [status, setStatus] = useState("All");
-  const [fromDate, setFromDate] = useState("2026-09-13");
-  const [toDate, setToDate] = useState("2026-10-14");
+  const [fromDate, setFromDate] = useState(monthAgo());
+  const [toDate, setToDate] = useState(today());
+  // The period the list was loaded for (View applies the dates).
+  const [period, setPeriod] = useState({ from: fromDate, to: toDate });
+  const docs = useResource(`stock-adjustment-${period.from}-${period.to}`, () => inventoryApi.list("stock-adjustment", period));
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const rowsAll = useMemo<StockUpdateRow[]>(
+    () =>
+      (docs.data ?? []).map((d, i) => ({
+        sl: i + 1,
+        id: d.id,
+        type: d.subtype ?? "",
+        code: d.number,
+        remarks: d.remarks ?? "",
+        officeName: d.warehouse?.officeName ?? "",
+        warehouse: d.warehouse?.name ?? "",
+        createdDate: dmy(d.createdAt.slice(0, 10)),
+        entryDate: dmy(d.docDate),
+        actionBy: d.approvedBy ?? d.createdBy,
+        status: d.status === "COMPLETED" ? "Approved" : (STATUS_LABEL[d.status] as StockUpdateRow["status"]),
+        reviewComment: d.reviewComment ?? "",
+      })),
+    [docs.data],
+  );
+  const OFFICE_OPTIONS = useMemo(
+    () => [{ value: "All", label: "All" }, ...[...new Set(rowsAll.map((r) => r.officeName))].sort().map((o) => ({ value: o, label: o }))],
+    [rowsAll],
+  );
+  /** Approve posts the update to the stock ledger; reject leaves stock as it is. */
+  const review = async (row: StockUpdateRow, decision: "approve" | "reject") => {
+    const comment = window.prompt(decision === "approve" ? "Approval comment (optional)" : "Why is it rejected?") ?? undefined;
+    if (decision === "reject" && comment === undefined) return;
+    setBusyId(row.id);
+    try {
+      await inventoryApi.review("stock-adjustment", row.id, decision, comment || undefined);
+      toast.success(`${row.code} ${decision === "approve" ? "approved and posted to stock" : "rejected"}.`);
+      docs.reload();
+    } catch (error) {
+      toast.error(errorMessage(error));
+    } finally {
+      setBusyId(null);
+    }
+  };
 
   // Pagination
   const [rowsPerPage, setRowsPerPage] = useState(50);
@@ -181,18 +108,12 @@ export default function StockUpdatePage() {
 
   // + Create Modal State
   const [isCreateOpen, setIsCreateOpen] = useState(false);
-  const [createForm, setCreateForm] = useState({
-    office: "MG Sirajganj Factory",
-    warehouse: "PD Biscuit Store",
-    type: "Audit Reconciliation",
-    entryDate: new Date().toISOString().slice(0, 10),
-    remarks: "",
-  });
 
   // Filtered rows
   const filteredRows = useMemo(() => {
-    return MOCK_STOCK_UPDATE_LIST.filter((row) => {
+    return rowsAll.filter((row) => {
       if (office !== "All" && row.officeName !== office) return false;
+      if (type !== "All" && row.type !== type) return false;
       if (status !== "All" && row.status !== status) return false;
       if (searchTerm) {
         const s = searchTerm.toLowerCase();
@@ -205,7 +126,7 @@ export default function StockUpdatePage() {
       }
       return true;
     });
-  }, [office, status, searchTerm]);
+  }, [rowsAll, office, type, status, searchTerm]);
 
   const totalPages = Math.ceil(filteredRows.length / rowsPerPage) || 1;
   const paginatedRows = useMemo(() => {
@@ -406,9 +327,13 @@ export default function StockUpdatePage() {
           <div>
             <button
               type="button"
+              onClick={() => {
+                setPeriod({ from: fromDate, to: toDate });
+                setPage(1);
+              }}
               className="px-6 py-1.5 bg-[#2563eb] hover:bg-blue-700 text-white font-bold text-xs rounded shadow-xs transition"
             >
-              View
+              {docs.loading ? "Loading…" : "View"}
             </button>
           </div>
         </div>
@@ -459,7 +384,7 @@ export default function StockUpdatePage() {
               </tr>
             ) : (
               paginatedRows.map((row) => (
-                <tr key={row.sl} className="hover:bg-slate-50/80 transition-colors">
+                <tr key={row.id} className="hover:bg-slate-50/80 transition-colors">
                   <td className="p-2 border border-slate-300 text-center font-mono text-slate-600">
                     {row.sl}
                   </td>
@@ -485,7 +410,15 @@ export default function StockUpdatePage() {
                     {row.actionBy}
                   </td>
                   <td className="p-2 border border-slate-300 text-center">
-                    <span className="text-emerald-600 font-semibold text-[11px]">
+                    <span
+                      className={
+                        row.status === "Approved"
+                          ? "text-emerald-600 font-semibold text-[11px]"
+                          : row.status === "Rejected"
+                            ? "text-red-600 font-semibold text-[11px]"
+                            : "text-amber-600 font-semibold text-[11px]"
+                      }
+                    >
                       {row.status}
                     </span>
                   </td>
@@ -494,6 +427,28 @@ export default function StockUpdatePage() {
                   </td>
                   <td className="p-2 border border-slate-300 text-center">
                     <div className="flex items-center justify-center gap-1.5 text-slate-600">
+                      {row.status === "Pending" && (
+                        <>
+                          <button
+                            type="button"
+                            disabled={busyId === row.id}
+                            onClick={() => review(row, "approve")}
+                            className="px-1.5 py-0.5 rounded bg-emerald-600 text-white text-[10px] font-semibold disabled:opacity-50"
+                            title="Approve and post to stock"
+                          >
+                            Approve
+                          </button>
+                          <button
+                            type="button"
+                            disabled={busyId === row.id}
+                            onClick={() => review(row, "reject")}
+                            className="px-1.5 py-0.5 rounded border border-red-300 text-red-600 text-[10px] font-semibold disabled:opacity-50"
+                            title="Reject"
+                          >
+                            Reject
+                          </button>
+                        </>
+                      )}
                       <button
                         type="button"
                         className="p-1 hover:text-blue-600"
@@ -566,131 +521,18 @@ export default function StockUpdatePage() {
       {/* ─────────────────────────────────────────────────── */}
       {/* 6. + CREATE MODAL                                   */}
       {/* ─────────────────────────────────────────────────── */}
-      {isCreateOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-lg border border-slate-200 overflow-hidden animate-in fade-in zoom-in-95 duration-150">
-            <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 bg-slate-50">
-              <h2 className="text-sm font-bold text-slate-900">
-                New Stock Update
-              </h2>
-              <button
-                type="button"
-                onClick={() => setIsCreateOpen(false)}
-                className="text-slate-400 hover:text-slate-600"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div className="p-4 space-y-3 text-xs">
-              <div>
-                <label className="block text-[11px] font-semibold text-slate-700 mb-1">
-                  Office / Factory <span className="text-red-500">*</span>
-                </label>
-                <select
-                  value={createForm.office}
-                  onChange={(e) =>
-                    setCreateForm({ ...createForm, office: e.target.value })
-                  }
-                  className="w-full border border-slate-300 rounded px-2.5 py-1.5 focus:ring-1 focus:ring-blue-500"
-                >
-                  {OFFICE_OPTIONS.filter((o) => o.value !== "All").map((o) => (
-                    <option key={o.value} value={o.value}>
-                      {o.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-semibold text-slate-700 mb-1">
-                  Warehouse <span className="text-red-500">*</span>
-                </label>
-                <select
-                  value={createForm.warehouse}
-                  onChange={(e) =>
-                    setCreateForm({ ...createForm, warehouse: e.target.value })
-                  }
-                  className="w-full border border-slate-300 rounded px-2.5 py-1.5 focus:ring-1 focus:ring-blue-500"
-                >
-                  <option value="PD Biscuit Store">PD Biscuit Store</option>
-                  <option value="PD Snacks Store">PD Snacks Store</option>
-                  <option value="Material WH">Material WH</option>
-                  <option value="Central RM Warehouse">Central RM Warehouse</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-semibold text-slate-700 mb-1">
-                  Adjustment Type <span className="text-red-500">*</span>
-                </label>
-                <select
-                  value={createForm.type}
-                  onChange={(e) =>
-                    setCreateForm({ ...createForm, type: e.target.value })
-                  }
-                  className="w-full border border-slate-300 rounded px-2.5 py-1.5 focus:ring-1 focus:ring-blue-500"
-                >
-                  {TYPE_OPTIONS.filter((o) => o.value !== "All").map((o) => (
-                    <option key={o.value} value={o.value}>
-                      {o.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-semibold text-slate-700 mb-1">
-                  Entry Date <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="date"
-                  value={createForm.entryDate}
-                  onChange={(e) =>
-                    setCreateForm({ ...createForm, entryDate: e.target.value })
-                  }
-                  className="w-full border border-slate-300 rounded px-2.5 py-1.5 focus:ring-1 focus:ring-blue-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-semibold text-slate-700 mb-1">
-                  Remarks / Reason
-                </label>
-                <textarea
-                  rows={3}
-                  placeholder="e.g. Stock adjustment against audit variance..."
-                  value={createForm.remarks}
-                  onChange={(e) =>
-                    setCreateForm({ ...createForm, remarks: e.target.value })
-                  }
-                  className="w-full border border-slate-300 rounded p-2 focus:ring-1 focus:ring-blue-500 placeholder-slate-400"
-                />
-              </div>
-            </div>
-
-            <div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-slate-200 bg-slate-50">
-              <button
-                type="button"
-                onClick={() => setIsCreateOpen(false)}
-                className="px-3.5 py-1.5 text-xs text-slate-600 hover:text-slate-800 font-medium"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  alert("Stock Update record created successfully!");
-                  setIsCreateOpen(false);
-                }}
-                className="px-4 py-1.5 bg-[#2563eb] hover:bg-blue-700 text-white font-semibold text-xs rounded shadow-xs transition"
-              >
-                Save
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <InventoryDocumentDialog
+        open={isCreateOpen}
+        onClose={() => setIsCreateOpen(false)}
+        onSaved={() => docs.reload()}
+        config={{
+          slug: "stock-adjustment",
+          title: "New Stock Update",
+          warehouses: "one",
+          signed: true,
+          subtype: { label: "Adjustment Type", options: TYPE_OPTIONS.filter((o) => o.value !== "All").map((o) => o.value) },
+        }}
+      />
     </div>
   );
 }

@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
+import { connectRoute } from "@/lib/connect/route";
 import { getConnectPool } from "@/lib/connect/db";
 import { getConnectAuthUser } from "@/lib/connect/auth";
 
-export async function GET(req: Request) {
+async function handleGET(req: Request) {
   try {
     const user = await getConnectAuthUser(req);
     if (!user) {
@@ -61,3 +62,5 @@ export async function GET(req: Request) {
   }
 }
 
+
+export const GET = connectRoute("employees:read", handleGET);

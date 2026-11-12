@@ -2,15 +2,11 @@ import { Prisma } from "@/generated/prisma/client";
 import { badRequest, conflict, notFound } from "@/lib/api/errors";
 import type { Actor } from "@/lib/auth/actor";
 import { db } from "@/lib/prisma/client";
-import { permissionActivities } from "../activities";
 import {
   groupListQuerySchema,
-  permissionGroupInputSchema,
   userGroupInputSchema,
   type GroupList,
   type GroupListQuery,
-  type PermissionGroupDto,
-  type PermissionGroupInput,
   type UserGroupDto,
   type UserGroupInput,
   type UserOption,
@@ -96,61 +92,4 @@ export async function saveUserGroup(actor: Actor, input: UserGroupInput, id?: st
 export async function deleteUserGroup(_actor: Actor, id: string): Promise<void> {
   const { count } = await db().userGroup.deleteMany({ where: { id } });
   if (count === 0) throw notFound("User group");
-}
-
-// ─── Permission groups ────────────────────────────────────────────────────────
-
-export async function listPermissionGroups(_actor: Actor, input: GroupListQuery): Promise<GroupList> {
-  const query = groupListQuerySchema.parse(input);
-  const where = searchWhere(query.search);
-  const [total, groups] = await Promise.all([
-    db().permissionGroup.count({ where }),
-    db().permissionGroup.findMany({ where, orderBy: { name: "asc" }, skip: (query.page - 1) * query.pageSize, take: query.pageSize, include: { _count: { select: { entries: true } } } }),
-  ]);
-  return {
-    rows: groups.map((g) => ({ id: g.id, name: g.name, count: g._count.entries, lastActionBy: g.updatedByName, lastActionAt: g.updatedAt.toISOString() })),
-    total,
-    page: query.page,
-    pageSize: query.pageSize,
-  };
-}
-
-export async function getPermissionGroup(_actor: Actor, id: string): Promise<PermissionGroupDto> {
-  const group = await db().permissionGroup.findUnique({ where: { id }, include: { entries: true } });
-  if (!group) throw notFound("Permission group");
-  return {
-    id: group.id,
-    name: group.name,
-    entries: group.entries.map(({ activityKey, canCreate, canEdit, canView, canDelete, canApprove }) => ({ activityKey, canCreate, canEdit, canView, canDelete, canApprove })),
-  };
-}
-
-/** Stores the granted rows of the matrix (rows with nothing ticked are dropped). */
-export async function savePermissionGroup(actor: Actor, input: PermissionGroupInput, id?: string): Promise<PermissionGroupDto> {
-  const data = permissionGroupInputSchema.parse(input);
-  if (id && !(await db().permissionGroup.findUnique({ where: { id }, select: { id: true } }))) throw notFound("Permission group");
-  const catalog = new Map(permissionActivities().map((a) => [a.key, a]));
-  const entries = data.entries
-    .filter((e) => e.canCreate || e.canEdit || e.canView || e.canDelete || e.canApprove)
-    .map((e) => {
-      const activity = catalog.get(e.activityKey);
-      if (!activity) throw badRequest(`Unknown activity "${e.activityKey}". Reload the page.`);
-      return { ...e, moduleName: activity.moduleName, activityName: activity.activityName };
-    });
-  const by = await lastAction(actor);
-  try {
-    const saved = await db().$transaction(async (tx) => {
-      if (!id) return tx.permissionGroup.create({ data: { name: data.name, ...by, entries: { create: entries } } });
-      await tx.permissionGroupEntry.deleteMany({ where: { groupId: id } });
-      return tx.permissionGroup.update({ where: { id }, data: { name: data.name, ...by, entries: { create: entries } } });
-    });
-    return getPermissionGroup(actor, saved.id);
-  } catch (error) {
-    throw duplicateName(error, data.name);
-  }
-}
-
-export async function deletePermissionGroup(_actor: Actor, id: string): Promise<void> {
-  const { count } = await db().permissionGroup.deleteMany({ where: { id } });
-  if (count === 0) throw notFound("Permission group");
 }

@@ -2,10 +2,11 @@ import { NextResponse } from "next/server";
 import { getConnectPool } from "@/lib/connect/db";
 import { getPusherServer } from "@/lib/connect/pusher-server";
 import { getConnectAuthUser } from "@/lib/connect/auth";
+import { connectRoute } from "@/lib/connect/route";
 
 const FIFTEEN_MINUTES_MS = 15 * 60 * 1000;
 
-export async function PATCH(
+async function handlePATCH(
   req: Request,
   { params }: { params: Promise<{ messageId: string }> }
 ) {
@@ -94,7 +95,7 @@ export async function PATCH(
   }
 }
 
-export async function DELETE(
+async function handleDELETE(
   req: Request,
   { params }: { params: Promise<{ messageId: string }> }
 ) {
@@ -195,3 +196,6 @@ export async function DELETE(
     return NextResponse.json({ success: false, error: "Failed to delete message" }, { status: 500 });
   }
 }
+
+export const PATCH = connectRoute("configuration:write", handlePATCH);
+export const DELETE = connectRoute("configuration:write", handleDELETE);

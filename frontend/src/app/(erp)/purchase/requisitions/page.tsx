@@ -1,21 +1,19 @@
 "use client";
 
+import Image from "next/image";
 import React, { useState } from "react";
+import { useRouter } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Plus,
   Eye,
-  Check,
   X,
   Trash2,
-  FileText,
-  Clock,
   History,
   Pencil,
   Printer,
   RotateCcw,
   PlusCircle,
-  PrinterIcon,
   Search,
 } from "lucide-react";
 import { DataTable } from "@/components/purchase/DataTable";
@@ -33,6 +31,7 @@ import {
 } from "@bridgeone/contracts";
 
 export default function PurchaseRequisitionsPage() {
+  const router = useRouter();
   const queryClient = useQueryClient();
 
   // Tab state (supporting direct URL / tab param)
@@ -768,7 +767,7 @@ export default function PurchaseRequisitionsPage() {
 
           <button
             type="button"
-            onClick={() => setIsCreateOpen(true)}
+            onClick={() => router.push("/purchase/requisitions/create")}
             className="h-9 px-4 bg-[#2563eb] hover:bg-blue-700 text-white font-semibold text-xs rounded flex items-center gap-1.5 shadow-xs transition"
           >
             <Plus className="w-4 h-4" />
@@ -1882,8 +1881,10 @@ export default function PurchaseRequisitionsPage() {
               {/* Organization Header */}
               <div className="flex justify-between items-start border-b border-slate-200 pb-3">
                 <div className="flex items-center gap-3.5">
-                  <img
+                  <Image
                     src="/logo.png"
+                    width={8452}
+                    height={1738}
                     alt="BridgeOne Logo"
                     className="h-10 w-auto object-contain"
                   />

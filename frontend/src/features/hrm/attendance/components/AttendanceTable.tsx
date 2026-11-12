@@ -1,14 +1,10 @@
 "use client";
 
-import { useState } from "react";
 import {
   Pencil,
   Eye,
   ChevronLeft,
   ChevronRight,
-  Clock,
-  MapPin,
-  Check,
 } from "lucide-react";
 import type { AttendanceRecord } from "../types";
 

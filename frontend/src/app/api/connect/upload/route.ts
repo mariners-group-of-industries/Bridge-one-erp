@@ -3,11 +3,12 @@ import { getConnectAuthUser } from "@/lib/connect/auth";
 import { R2Storage, r2ConfigFromEnv } from "@/lib/storage/r2";
 import fs from "fs/promises";
 import path from "path";
+import { connectRoute } from "@/lib/connect/route";
 
 // 25 MB max file size limit for enterprise security & performance
 const MAX_FILE_SIZE_BYTES = 25 * 1024 * 1024;
 
-export async function POST(req: Request) {
+async function handlePOST(req: Request) {
   try {
     const user = await getConnectAuthUser(req);
     if (!user) {
@@ -112,3 +113,5 @@ export async function POST(req: Request) {
     return NextResponse.json({ success: false, error: msg }, { status: 500 });
   }
 }
+
+export const POST = connectRoute("configuration:write", handlePOST);

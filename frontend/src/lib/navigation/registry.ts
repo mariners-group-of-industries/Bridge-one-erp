@@ -7,7 +7,8 @@ import { productionWorkspace } from "@/features/production/navigation";
 import { purchaseWorkspace } from "@/features/purchase/navigation";
 import { salesWorkspace } from "@/features/sales/navigation";
 import { connectWorkspace } from "@/features/connect/navigation";
-import { crmWorkspace, rtmWorkspace } from "./planned";
+import { rtmWorkspace } from "@/features/rtm/navigation";
+import { crmWorkspace } from "./planned";
 import type { Breadcrumb, NavLink, NavRoute, Workspace } from "./types";
 
 /**
