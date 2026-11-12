@@ -8,6 +8,7 @@ import { Dialog } from "@/components/ui/dialog";
 import { Pagination } from "@/components/ui/pagination";
 import { ErrorState, LoadingState } from "@/components/ui/section";
 import { useResource } from "@/hooks/use-resource";
+import { deviceName } from "@/lib/audit/device";
 import { cn } from "@/lib/cn";
 import { entityMasterDataBreadcrumbs } from "@/features/configuration/entity-master-data/breadcrumbs";
 import { EmptyBlock, Field, FormGrid, Input, Notice, Select } from "@/features/configuration/entity-master-data/employee/components/kit";
@@ -17,11 +18,13 @@ import { auditLogApi } from "../services/audit-log.api";
 
 const PAGE_SIZES = [10, 25, 50, 100] as const;
 const BREADCRUMBS = entityMasterDataBreadcrumbs(systemLogsPaths.auditLogs);
-const HEADERS = ["SL", "Action", "Feature Name", "User", "Action Type", "Action Date"];
+const HEADERS = ["SL", "Action", "Feature Name", "User", "Action Type", "IP Address", "Device", "Action Date"];
 const EMPTY = { feature: "", userId: "", actionType: "", from: "", to: "" };
 type Filters = typeof EMPTY;
 
 const dateTime = (iso: string) => new Date(iso).toLocaleString("en-GB", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: true });
+/** IPv4 addresses can arrive IPv6-mapped ("::ffff:10.0.0.5"). */
+const ip = (address: string | null) => address?.replace(/^::ffff:/i, "") ?? null;
 const label = (action: string) => ACTION_LABELS[action as keyof typeof ACTION_LABELS] ?? action;
 
 const TONE: Record<string, string> = {
@@ -167,6 +170,10 @@ export function AuditLogView() {
                       <td className="px-2.5 py-2">
                         <ActionBadge action={row.actionType} />
                       </td>
+                      <td className="px-2.5 py-2 font-mono text-xs whitespace-nowrap">{ip(row.ipAddress) ?? <span className="text-ink-faint">—</span>}</td>
+                      <td className="max-w-72 truncate px-2.5 py-2 whitespace-nowrap" title={row.userAgent ?? undefined}>
+                        {deviceName(row.userAgent) ?? <span className="text-ink-faint">—</span>}
+                      </td>
                       <td className="px-2.5 py-2 whitespace-nowrap tabular-nums">{dateTime(row.createdAt)}</td>
                     </tr>
                   ))}
@@ -209,9 +216,10 @@ export function AuditLogView() {
             </Detail>
             <Detail label="Result">HTTP {viewing.status}</Detail>
             <Detail label="Record ID">{viewing.entityId ? <span className="font-mono text-xs">{viewing.entityId}</span> : "—"}</Detail>
-            <Detail label="IP Address">{viewing.ipAddress ?? "—"}</Detail>
+            <Detail label="IP Address">{ip(viewing.ipAddress) ? <span className="font-mono text-xs">{ip(viewing.ipAddress)}</span> : "—"}</Detail>
+            <Detail label="Device">{deviceName(viewing.userAgent) ?? "—"}</Detail>
             <div className="sm:col-span-2">
-              <Detail label="Device / Browser">{viewing.userAgent ?? "—"}</Detail>
+              <Detail label="User Agent">{viewing.userAgent ? <span className="font-mono text-xs text-ink-muted">{viewing.userAgent}</span> : "—"}</Detail>
             </div>
           </dl>
         )}
