@@ -2849,6 +2849,8 @@ model PurchaseOrder {
   expectedDeliveryDate DateTime?           @db.Date
   referenceNumber      String?             @db.VarChar(100)
   projectCostCenter    String?             @db.VarChar(100)
+  paymentTerms         String?             @db.VarChar(100)
+  deliveryTerms        String?             @db.VarChar(100)
   status               PurchaseOrderStatus @default(PENDING)
   subtotal             Decimal             @default(0) @db.Decimal(14, 2)
   totalDiscount        Decimal             @default(0) @db.Decimal(14, 2)
@@ -2918,6 +2920,8 @@ model GoodsReceipt {
   challanDate      DateTime?          @db.Date
   receiveDate      DateTime           @db.Date
   gatePassNumber   String?            @db.VarChar(100)
+  supplierInvoiceNumber String?       @db.VarChar(100)
+  vatChallanNumber String?            @db.VarChar(100)
   status           GoodsReceiptStatus @default(RECEIVED)
   totalReceivedQty Decimal            @default(0) @db.Decimal(14, 3)
   totalAcceptedQty Decimal            @default(0) @db.Decimal(14, 3)
@@ -2988,6 +2992,7 @@ model PurchaseReturn {
   status         PurchaseReturnStatus @default(SUBMITTED)
   totalQty       Decimal              @default(0) @db.Decimal(14, 3)
   totalAmount    Decimal              @default(0) @db.Decimal(14, 2)
+  createdBy      String?              @db.VarChar(150)
   createdAt      DateTime             @default(now()) @db.Timestamptz(3)
   updatedAt      DateTime             @updatedAt @db.Timestamptz(3)
 

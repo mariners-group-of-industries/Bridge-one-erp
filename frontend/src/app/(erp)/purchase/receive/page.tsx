@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import { useRouter } from "next/navigation";
 import React, { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Ban, Download, Eye, PackageCheck, Plus, Printer, RotateCcw, Search, Trash2, Truck, X } from "lucide-react";
@@ -10,10 +11,11 @@ import { Spinner } from "@/components/ui/spinner";
 import { fetchApi } from "@/lib/api";
 import { formatCurrency } from "@/lib/utils";
 import { effectiveUnitCost } from "@/lib/purchase-store/rules";
+import { PURCHASE_QUERY_KEYS, downloadCsv, localToday } from "@/features/purchase/lib/client";
 import type { GoodsReceipt, Item, PurchaseOrder, Supplier, Warehouse } from "@bridgeone/contracts";
 
 type Tab = "APPROVED_PO" | "RECEIVED_PO";
-type Receipt = GoodsReceipt & { challanNumber?: string; gatePassNumber?: string; remarks?: string };
+type Receipt = GoodsReceipt & { challanNumber?: string; gatePassNumber?: string; remarks?: string; vatChallanNumber?: string; supplierInvoiceNumber?: string };
 
 interface ReceiveLine {
   poItemId: string;
@@ -57,7 +59,7 @@ interface ReturnLine {
   unitPrice: number;
 }
 
-const today = () => new Date().toISOString().slice(0, 10);
+const today = localToday;
 let lineKey = 0;
 
 const inputCls =
@@ -82,18 +84,8 @@ function receiptStatus(g: Receipt) {
   }
 }
 
-function downloadCsv(name: string, header: string[], rows: (string | number)[][]) {
-  const esc = (v: string | number) => `"${String(v ?? "").replace(/"/g, '""')}"`;
-  const csv = [header.map(esc).join(","), ...rows.map((r) => r.map(esc).join(","))].join("\r\n");
-  const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = name;
-  a.click();
-  URL.revokeObjectURL(url);
-}
-
 export default function PurchaseReceivePage() {
+  const router = useRouter();
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<Tab>("APPROVED_PO");
   const [search, setSearch] = useState("");
@@ -161,9 +153,7 @@ export default function PurchaseReceivePage() {
   }, [receipts, search, warehouseFilter, supplierFilter, statusFilter, fromDate, toDate]);
 
   const invalidate = () => {
-    for (const key of ["approvedPOs", "receivedGRNs", "purchaseOrders", "eligibleGRNs", "returnsList", "suppliers", "dashboard"]) {
-      queryClient.invalidateQueries({ queryKey: [key] });
-    }
+    for (const key of PURCHASE_QUERY_KEYS) queryClient.invalidateQueries({ queryKey: [key] });
   };
 
   // ---------------------------------------------------------------
@@ -431,7 +421,7 @@ export default function PurchaseReceivePage() {
           <button type="button" onClick={handleExport} className={btnPrimary} title="Download Excel (CSV)">
             <Download className="w-3.5 h-3.5" /> Excel
           </button>
-          <button type="button" onClick={openDirect} className={btnPrimary}>
+          <button type="button" onClick={() => router.push("/purchase/receive/create")} className={btnPrimary}>
             <Plus className="w-4 h-4" /> Direct Receive
           </button>
         </div>
@@ -894,6 +884,8 @@ export default function PurchaseReceivePage() {
                 <p className="text-slate-700">PO: <span className="font-mono">{viewGRN.poNumber}</span></p>
                 <p className="text-slate-700">Challan: {viewGRN.challanNumber || "—"}</p>
                 <p className="text-slate-700">Gate pass: {viewGRN.gatePassNumber || "—"}</p>
+                <p className="text-slate-700">Supplier invoice: {viewGRN.supplierInvoiceNumber || "—"}</p>
+                <p className="text-slate-700">VAT challan: {viewGRN.vatChallanNumber || "—"}</p>
               </div>
               <div>
                 <span className="text-[10px] text-slate-500 font-bold uppercase block">Received Into</span>
@@ -975,6 +967,9 @@ export default function PurchaseReceivePage() {
                   <span className="font-bold text-slate-700 block mb-1 uppercase text-[10px]">Supplier</span>
                   <div className="font-bold text-slate-900 text-sm">{printGRN.supplierName}</div>
                   <div className="text-slate-500 text-[11px]">PO: {printGRN.poNumber} · Challan: {printGRN.challanNumber || "—"}</div>
+                  <div className="text-slate-500 text-[11px]">
+                    Invoice: {printGRN.supplierInvoiceNumber || "—"} · VAT challan: {printGRN.vatChallanNumber || "—"}
+                  </div>
                 </div>
                 <div className="bg-slate-50 p-2.5 rounded border border-slate-100">
                   <span className="font-bold text-slate-700 block mb-1 uppercase text-[10px]">Received Into</span>

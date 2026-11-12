@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import { useRouter } from "next/navigation";
 import React, { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, Download, Eye, Pencil, Plus, Printer, RotateCcw, Search, Trash2, X } from "lucide-react";
@@ -10,6 +11,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { fetchApi } from "@/lib/api";
 import { formatCurrency } from "@/lib/utils";
 import { orderTotals, priceLine } from "@/lib/purchase-store/rules";
+import { PURCHASE_QUERY_KEYS, downloadCsv, localDaysFromToday, localToday } from "@/features/purchase/lib/client";
 import type { Item, Office, PurchaseOrder, PurchaseRequisition, Supplier, Warehouse } from "@bridgeone/contracts";
 
 type Tab = "LOCAL_PO" | "REQUISITION_SUMMARY" | "PURCHASE_METHOD";
@@ -63,8 +65,8 @@ const METHOD_LABEL: Record<string, string> = {
   CONTRACT: "Contract / Rate Agreement",
 };
 
-const today = () => new Date().toISOString().slice(0, 10);
-const inDays = (days: number) => new Date(Date.now() + days * 86_400_000).toISOString().slice(0, 10);
+const today = localToday;
+const inDays = localDaysFromToday;
 let lineKey = 0;
 const newLine = (partial: Partial<FormLine> = {}): FormLine => ({
   key: ++lineKey,
@@ -108,17 +110,6 @@ const anyReceived = (po: Order) => po.items.some((i) => i.receivedQuantity > 0);
 const canEdit = (po: Order) => !po.isClosed && (po.status === "APPROVED" || po.status === "PENDING_APPROVAL" || po.status === "DRAFT") && !anyReceived(po);
 const canCloseOrCancel = (po: Order) => !po.isClosed && (po.status === "APPROVED" || po.status === "PARTIALLY_RECEIVED" || po.status === "PENDING_APPROVAL" || po.status === "DRAFT");
 const canReverse = (po: Order) => Boolean(po.isClosed) || (po.status === "APPROVED" && !anyReceived(po));
-
-function downloadCsv(name: string, header: string[], rows: (string | number)[][]) {
-  const esc = (v: string | number) => `"${String(v ?? "").replace(/"/g, '""')}"`;
-  const csv = [header.map(esc).join(","), ...rows.map((r) => r.map(esc).join(","))].join("\r\n");
-  const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = name;
-  a.click();
-  URL.revokeObjectURL(url);
-}
 
 function Pager({ total, page, size, onPage, onSize }: { total: number; page: number; size: number; onPage: (p: number) => void; onSize: (s: number) => void }) {
   const pages = Math.max(1, Math.ceil(total / size));
@@ -164,6 +155,7 @@ function usePaging<T>(rows: T[]) {
 }
 
 export default function PurchaseOrdersPage() {
+  const router = useRouter();
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<Tab>("LOCAL_PO");
   const [search, setSearch] = useState("");
@@ -273,12 +265,7 @@ export default function PurchaseOrdersPage() {
   // Mutations
   // ---------------------------------------------------------------
   const invalidate = () => {
-    queryClient.invalidateQueries({ queryKey: ["purchaseOrders"] });
-    queryClient.invalidateQueries({ queryKey: ["approvedReqs"] });
-    queryClient.invalidateQueries({ queryKey: ["requisitionSummary"] });
-    queryClient.invalidateQueries({ queryKey: ["requisitions"] });
-    queryClient.invalidateQueries({ queryKey: ["approvedPOs"] });
-    queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+    for (const key of PURCHASE_QUERY_KEYS) queryClient.invalidateQueries({ queryKey: [key] });
   };
 
   const saveMutation = useMutation({
@@ -349,25 +336,7 @@ export default function PurchaseOrdersPage() {
   // Form helpers
   // ---------------------------------------------------------------
   const openCreate = (req?: PurchaseRequisition) => {
-    const officeId = req?.officeId ?? offices[0]?.id ?? "";
-    setForm({
-      editId: null,
-      requisitionId: req?.id ?? "",
-      supplierId: "",
-      officeId,
-      warehouseId: req?.warehouseId ?? warehouses.find((w) => w.officeId === officeId)?.id ?? "",
-      orderDate: today(),
-      expectedDeliveryDate: req?.requiredDeliveryDate && req.requiredDeliveryDate >= today() ? req.requiredDeliveryDate : inDays(7),
-      referenceNumber: "",
-      projectCostCenter: "",
-      paymentTerms: "Net 30 Days",
-      deliveryTerms: "FOB Warehouse",
-      shippingFee: 0,
-      notes: "",
-      lines: req
-        ? req.items.map((i) => newLine({ itemId: i.itemId, itemCode: i.itemCode, itemName: i.itemName, uom: i.uom, orderedQuantity: i.quantity, unitPrice: i.estimatedUnitPrice }))
-        : [newLine()],
-    });
+    router.push(req ? `/purchase/orders/create?requisitionId=${req.id}` : "/purchase/orders/create");
   };
 
   const openEdit = (po: Order) =>
@@ -1125,6 +1094,7 @@ export default function PurchaseOrdersPage() {
                 <span className="text-[10px] text-slate-500 font-bold uppercase block">Supplier</span>
                 <p className="font-bold text-slate-900 text-sm">{viewPO.supplierName}</p>
                 <p className="text-slate-600">Reference: {viewPO.referenceNumber || "—"}</p>
+                <p className="text-slate-600">Terms: {viewPO.paymentTerms || "—"} · {viewPO.deliveryTerms || "—"}</p>
               </div>
               <div>
                 <span className="text-[10px] text-slate-500 font-bold uppercase block">Deliver To</span>
@@ -1245,6 +1215,19 @@ export default function PurchaseOrdersPage() {
                   <div className="text-slate-500 text-[11px]">Expected delivery: {printPO.expectedDeliveryDate}</div>
                   <div className="text-slate-500 text-[11px]">Project / Ref: {printPO.projectCostCenter || "—"}</div>
                 </div>
+              </div>
+              <div className="flex flex-wrap gap-x-6 gap-y-1 text-[11px] text-slate-600">
+                <span>
+                  <span className="font-semibold text-slate-700">Payment terms:</span> {printPO.paymentTerms || "—"}
+                </span>
+                <span>
+                  <span className="font-semibold text-slate-700">Delivery terms:</span> {printPO.deliveryTerms || "—"}
+                </span>
+                {printPO.requisitionNumber && (
+                  <span>
+                    <span className="font-semibold text-slate-700">Requisition:</span> {printPO.requisitionNumber}
+                  </span>
+                )}
               </div>
               <table className="w-full text-left border border-slate-200">
                 <thead className="bg-slate-100 text-slate-700 font-semibold">

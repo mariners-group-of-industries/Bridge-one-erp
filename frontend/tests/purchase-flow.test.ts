@@ -288,4 +288,58 @@ describe("purchase flow: requisition → order → receipt → return", () => {
     const grns = await purchaseStore.generateReport({ reportType: "GOODS_RECEIPT_REPORT", isSummary: false });
     expect(grns.totalRecords).toBe(2);
   });
+
+  it("supports direct receive VAT, PO-linked advance payments, quick master creation, and form options", async () => {
+    const newSup = await purchaseStore.quickCreateSupplier({ name: "Quick Steel Traders", phone: "01711223344" });
+    expect(newSup.name).toBe("Quick Steel Traders");
+
+    const newItem = await purchaseStore.quickCreateItem({ name: "MS Rod 10mm", uom: "KG", purchasePrice: 100, vatPercent: 15 });
+    expect(newItem.vatPercent).toBe(15);
+
+    const vatGrn = await purchaseStore.createGoodsReceipt(
+      {
+        purchaseOrderId: "DIRECT",
+        receiptDate: "2026-11-09",
+        challanDate: "2026-11-09",
+        paymentTerms: "Net 15 Days",
+        supplierId: newSup.id,
+        warehouseId,
+        items: [
+          {
+            itemId: newItem.id,
+            itemCode: newItem.code,
+            itemName: newItem.name,
+            uom: newItem.uom,
+            currentReceivedQuantity: 10,
+            rejectedDamagedQuantity: 0,
+            unitPrice: 100,
+            taxPercentage: 15,
+          },
+        ],
+      },
+      ACTOR,
+    );
+    expect(vatGrn.totalReceivedAmount).toBe(1150);
+    expect(await stockOf(newItem.id)).toBe(10);
+
+    const adv = await purchaseStore.createSupplierPayment(
+      {
+        supplierId: newSup.id,
+        orderId: vatGrn.purchaseOrderId,
+        amount: 400,
+        method: "CASH",
+        paymentDate: "2026-11-10",
+        isAdvance: true,
+        referenceNumber: "LC-9001",
+      },
+      ACTOR,
+    );
+    expect(adv.isAdvance).toBe(true);
+    expect(adv.orderId).toBe(vatGrn.purchaseOrderId);
+
+    const options = await purchaseStore.getPurchaseFormOptions();
+    expect(Array.isArray(options.categories)).toBe(true);
+    expect(Array.isArray(options.accounts)).toBe(true);
+    expect(options.stockByWarehouse.some((s) => s.itemId === newItem.id && s.qty === 10)).toBe(true);
+  });
 });

@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useMemo, useRef } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
@@ -17,7 +17,8 @@ import {
 import { fetchApi } from "@/lib/api";
 import { toast } from "@/components/purchase/Toast";
 import { Spinner } from "@/components/ui/spinner";
-import type { Office, Warehouse, Item, Supplier } from "@bridgeone/contracts";
+import type { PurchaseFormOptions } from "@/features/purchase/components/PurchaseFormShared";
+import type { Office, Warehouse, Item, Supplier, PurchaseRequisition } from "@bridgeone/contracts";
 
 interface DirectoryEmployee {
   id: string;
@@ -44,12 +45,37 @@ interface AddedItem {
 }
 
 export function CreateRequisitionView() {
+  const searchParams = useSearchParams();
+  const fromId = searchParams.get("fromId") || "";
+
+  const { data: templateReq, isLoading: isTemplateLoading } = useQuery<PurchaseRequisition | null>({
+    queryKey: ["requisition-template", fromId],
+    enabled: Boolean(fromId),
+    queryFn: async () => {
+      const list = await fetchApi<PurchaseRequisition[]>("/purchase/requisitions");
+      return list.find((r) => r.id === fromId || r.requisitionNumber === fromId) ?? null;
+    },
+  });
+
+  if (fromId && isTemplateLoading) {
+    return (
+      <div className="flex h-64 items-center justify-center">
+        <Spinner className="h-6 w-6 text-blue-600" />
+      </div>
+    );
+  }
+
+  return <CreateRequisitionForm key={templateReq?.id ?? "new"} templateReq={templateReq ?? null} />;
+}
+
+function CreateRequisitionForm({ templateReq }: { templateReq: PurchaseRequisition | null }) {
   const router = useRouter();
   const queryClient = useQueryClient();
 
   // 1. Target Selector State
   const [targetType, setTargetType] = useState<"Employee" | "Department" | "Project">("Employee");
   const [createFromSalesOrder, setCreateFromSalesOrder] = useState(false);
+  const [selectedSalesOrderId, setSelectedSalesOrderId] = useState("");
 
   // 2. Primary Form Fields (Row 1)
   const todayStr = useMemo(() => new Date().toISOString().split("T")[0], []);
@@ -60,21 +86,21 @@ export function CreateRequisitionView() {
   }, []);
 
   const [createDate, setCreateDate] = useState(todayStr);
-  const [expectedDate, setExpectedDate] = useState(defaultDeliveryStr);
-  const [pickedOfficeId, setSelectedOfficeId] = useState<string>("");
-  const [pickedWarehouseId, setSelectedWarehouseId] = useState<string>("");
-  const [inventoryType, setInventoryType] = useState("Inventory Item");
+  const [expectedDate, setExpectedDate] = useState(templateReq?.requiredDeliveryDate || defaultDeliveryStr);
+  const [pickedOfficeId, setSelectedOfficeId] = useState<string>(templateReq?.officeId || "");
+  const [pickedWarehouseId, setSelectedWarehouseId] = useState<string>(templateReq?.warehouseId || "");
+  const [inventoryType, setInventoryType] = useState(templateReq?.requestType === "URGENT" ? "Asset" : "Inventory Item");
 
   // Dynamic target values
-  const [employeeQuery, setEmployeeQuery] = useState("");
+  const [employeeQuery, setEmployeeQuery] = useState(templateReq?.requesterName || "");
   const [isEmployeeDropdownOpen, setIsEmployeeDropdownOpen] = useState(false);
-  const [selectedDepartment, setSelectedDepartment] = useState("Operations");
+  const [selectedDepartment, setSelectedDepartment] = useState(templateReq?.department || "Operations");
   const [selectedProject, setSelectedProject] = useState("");
 
   // 3. Secondary Fields (Row 2)
   const [buyerName, setBuyerName] = useState("");
   const [buyerOfficeId, setBuyerOfficeId] = useState("");
-  const [remarks, setRemarks] = useState("");
+  const [remarks, setRemarks] = useState(templateReq ? `Cloned from ${templateReq.requisitionNumber}` : "");
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -96,7 +122,24 @@ export function CreateRequisitionView() {
   const [itemCheckbox, setItemCheckbox] = useState(false);
 
   // 6. Added Items List
-  const [addedItems, setAddedItems] = useState<AddedItem[]>([]);
+  const [addedItems, setAddedItems] = useState<AddedItem[]>(() =>
+    templateReq
+      ? templateReq.items.map((it, idx) => ({
+          id: `tpl_${idx}_${it.itemId}`,
+          itemId: it.itemId,
+          itemCode: it.itemCode,
+          itemName: it.itemName,
+          category: "General",
+          uom: it.uom || "PCS",
+          quantity: it.quantity,
+          expectedDate: templateReq.requiredDeliveryDate || defaultDeliveryStr,
+          lastCost: it.estimatedUnitPrice,
+          averageCost: it.estimatedUnitPrice,
+          lineTotal: it.lineTotal,
+          remarks: it.remarks || "",
+        }))
+      : []
+  );
 
   // CSV file import ref
   const csvInputRef = useRef<HTMLInputElement>(null);
@@ -127,7 +170,22 @@ export function CreateRequisitionView() {
     queryFn: () => fetchApi("/connect/directory"),
   });
 
-  const employees = useMemo(() => directoryData?.employees ?? [], [directoryData]);
+  const { data: formOptions } = useQuery<PurchaseFormOptions>({
+    queryKey: ["purchase-form-options"],
+    queryFn: () => fetchApi("/master/purchase-form-options"),
+  });
+
+  const employees = useMemo(() => {
+    const dir = directoryData?.employees ?? [];
+    if (dir.length > 0) return dir;
+    return (formOptions?.employees ?? []).map((e) => ({
+      id: e.id,
+      name: e.name,
+      employeeCode: e.employeeCode,
+      department: e.department,
+      designation: e.designation,
+    }));
+  }, [directoryData, formOptions]);
 
   // The first office is used until the user picks one.
   const selectedOfficeId = pickedOfficeId || offices[0]?.id || "";
@@ -142,30 +200,60 @@ export function CreateRequisitionView() {
   // The picked warehouse while it belongs to the office, otherwise the office first warehouse.
   const selectedWarehouseId = availableWarehouses.some((w) => w.id === pickedWarehouseId) ? pickedWarehouseId : (availableWarehouses[0]?.id ?? "");
 
-  // Extract unique categories from items catalog
-  const categories = useMemo(() => {
+  // 3-Level Category Cascade from DB ItemCategory + item fallbacks
+  const level1Categories = useMemo(() => {
+    const cats = (formOptions?.categories ?? []).filter((c) => c.level === 1);
+    if (cats.length > 0) return cats.map((c) => c.name);
     const set = new Set<string>();
     itemsCatalog.forEach((it) => {
       if (it.category) set.add(it.category);
     });
     return Array.from(set).sort();
-  }, [itemsCatalog]);
+  }, [formOptions, itemsCatalog]);
 
-  // Filtered items based on Category & Search
+  const level2SubCategories = useMemo(() => {
+    const allCats = formOptions?.categories ?? [];
+    const parent = allCats.find((c) => c.level === 1 && c.name === categoryFilter);
+    const list = allCats.filter((c) => c.level === 2 && (!parent || c.parentId === parent.id));
+    if (list.length > 0) return list.map((c) => c.name);
+    const set = new Set<string>();
+    itemsCatalog.forEach((it) => {
+      if ((categoryFilter === "All" || it.category === categoryFilter) && it.subCategory) set.add(it.subCategory);
+    });
+    return Array.from(set).sort();
+  }, [formOptions, itemsCatalog, categoryFilter]);
+
+  const level3MinorCategories = useMemo(() => {
+    const allCats = formOptions?.categories ?? [];
+    const sub = allCats.find((c) => c.level === 2 && c.name === subCategoryFilter);
+    const list = allCats.filter((c) => c.level === 3 && (!sub || c.parentId === sub.id));
+    if (list.length > 0) return list.map((c) => c.name);
+    const set = new Set<string>();
+    itemsCatalog.forEach((it) => {
+      if ((subCategoryFilter === "All" || it.subCategory === subCategoryFilter) && it.minorCategory) set.add(it.minorCategory);
+    });
+    return Array.from(set).sort();
+  }, [formOptions, itemsCatalog, subCategoryFilter]);
+
+  // Filtered items based on Item Type, Category cascade & Search
   const filteredItems = useMemo(() => {
     return itemsCatalog.filter((it) => {
+      if (itemTypeFilter !== "All" && it.itemType && it.itemType !== itemTypeFilter) return false;
       if (categoryFilter !== "All" && it.category !== categoryFilter) return false;
+      if (subCategoryFilter !== "All" && it.subCategory !== subCategoryFilter) return false;
+      if (minorCategoryFilter !== "All" && it.minorCategory !== minorCategoryFilter) return false;
       if (itemSearchQuery.trim()) {
         const q = itemSearchQuery.toLowerCase();
         return (
           it.name.toLowerCase().includes(q) ||
           it.code.toLowerCase().includes(q) ||
+          (it.barcode && it.barcode.toLowerCase().includes(q)) ||
           (it.category && it.category.toLowerCase().includes(q))
         );
       }
       return true;
     });
-  }, [itemsCatalog, categoryFilter, itemSearchQuery]);
+  }, [itemsCatalog, itemTypeFilter, categoryFilter, subCategoryFilter, minorCategoryFilter, itemSearchQuery]);
 
   // Filtered employees for Combobox
   const filteredEmployees = useMemo(() => {
@@ -481,11 +569,54 @@ export function CreateRequisitionView() {
             <input
               type="checkbox"
               checked={createFromSalesOrder}
-              onChange={(e) => setCreateFromSalesOrder(e.target.checked)}
+              onChange={(e) => {
+                setCreateFromSalesOrder(e.target.checked);
+                if (!e.target.checked) setSelectedSalesOrderId("");
+              }}
               className="w-4 h-4 text-blue-600 rounded border-slate-300 focus:ring-blue-500"
             />
             <span>Create From Sales Order</span>
           </label>
+
+          {createFromSalesOrder && (
+            <select
+              value={selectedSalesOrderId}
+              onChange={(e) => {
+                const soId = e.target.value;
+                setSelectedSalesOrderId(soId);
+                const so = formOptions?.salesOrders.find((s) => s.id === soId);
+                if (so) {
+                  if (so.officeId) setSelectedOfficeId(so.officeId);
+                  setRemarks(`Against Sales Order ${so.number} (${so.customerName})`);
+                  setAddedItems(
+                    so.lines.map((l, i) => ({
+                      id: `so_${so.id}_${i}`,
+                      itemId: l.itemId,
+                      itemCode: l.itemCode,
+                      itemName: l.itemName,
+                      category: "Sales Order",
+                      uom: l.uom || "PCS",
+                      quantity: l.qty,
+                      expectedDate: so.expectedDeliveryDate || expectedDate,
+                      lastCost: l.unitPrice,
+                      averageCost: l.unitPrice,
+                      lineTotal: Number((l.qty * l.unitPrice).toFixed(2)),
+                      remarks: `SO ${so.number}`,
+                    }))
+                  );
+                  toast.success(`Loaded ${so.lines.length} item(s) from Sales Order ${so.number}.`);
+                }
+              }}
+              className="h-7 rounded border border-blue-300 bg-blue-50/50 px-2.5 text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            >
+              <option value="">Select Sales Order...</option>
+              {(formOptions?.salesOrders ?? []).map((so) => (
+                <option key={so.id} value={so.id}>
+                  {so.number} — {so.customerName} ({so.orderDate})
+                </option>
+              ))}
+            </select>
+          )}
         </div>
 
         {/* ── ROW 1: PRIMARY DETAILS (6 COLS GRID) ── */}
@@ -593,10 +724,12 @@ export function CreateRequisitionView() {
                 onChange={(e) => setSelectedProject(e.target.value)}
                 className="w-full h-8 text-xs border border-slate-300 dark:border-slate-700 rounded px-2.5 py-1 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-hidden focus:ring-1 focus:ring-blue-500"
               >
-                <option value="Factory Expansion 2026">Factory Expansion 2026</option>
-                <option value="Warehouse Modernization">Warehouse Modernization</option>
-                <option value="Solar Power Plant Setup">Solar Power Plant Setup</option>
-                <option value="General Operations">General Operations</option>
+                <option value="">Select Project / Cost Center</option>
+                {(formOptions?.projects ?? []).map((proj) => (
+                  <option key={proj.id} value={`${proj.code} - ${proj.name}`}>
+                    {proj.code} — {proj.name}
+                  </option>
+                ))}
               </select>
             )}
           </div>
@@ -776,11 +909,15 @@ export function CreateRequisitionView() {
           <div>
             <select
               value={categoryFilter}
-              onChange={(e) => setCategoryFilter(e.target.value)}
+              onChange={(e) => {
+                setCategoryFilter(e.target.value);
+                setSubCategoryFilter("All");
+                setMinorCategoryFilter("All");
+              }}
               className="w-full h-8 text-xs border border-slate-300 dark:border-slate-700 rounded px-2.5 py-1 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 focus:outline-hidden focus:ring-1 focus:ring-blue-500"
             >
               <option value="All">Category</option>
-              {categories.map((cat) => (
+              {level1Categories.map((cat) => (
                 <option key={cat} value={cat}>
                   {cat}
                 </option>
@@ -792,13 +929,18 @@ export function CreateRequisitionView() {
           <div>
             <select
               value={subCategoryFilter}
-              onChange={(e) => setSubCategoryFilter(e.target.value)}
+              onChange={(e) => {
+                setSubCategoryFilter(e.target.value);
+                setMinorCategoryFilter("All");
+              }}
               className="w-full h-8 text-xs border border-slate-300 dark:border-slate-700 rounded px-2.5 py-1 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 focus:outline-hidden focus:ring-1 focus:ring-blue-500"
             >
               <option value="All">Sub Category</option>
-              <option value="General">General</option>
-              <option value="Standard">Standard</option>
-              <option value="Custom">Custom</option>
+              {level2SubCategories.map((sub) => (
+                <option key={sub} value={sub}>
+                  {sub}
+                </option>
+              ))}
             </select>
           </div>
 
@@ -810,8 +952,11 @@ export function CreateRequisitionView() {
               className="w-full h-8 text-xs border border-slate-300 dark:border-slate-700 rounded px-2.5 py-1 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 focus:outline-hidden focus:ring-1 focus:ring-blue-500"
             >
               <option value="All">Minor Category</option>
-              <option value="Grade A">Grade A</option>
-              <option value="Grade B">Grade B</option>
+              {level3MinorCategories.map((m) => (
+                <option key={m} value={m}>
+                  {m}
+                </option>
+              ))}
             </select>
           </div>
 

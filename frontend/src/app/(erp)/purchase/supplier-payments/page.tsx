@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useMemo } from "react";
+import { useRouter } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Eye,
@@ -17,10 +18,12 @@ import {
   Ban,
 } from "lucide-react";
 import { ModalDialog } from "@/components/purchase/ModalDialog";
+import { AdvancePaymentModal } from "@/features/purchase/components/AdvancePaymentModal";
 import { toast } from "@/components/purchase/Toast";
 import { Spinner } from "@/components/ui/spinner";
 import { fetchApi } from "@/lib/api";
 import { formatCurrency } from "@/lib/utils";
+import { PURCHASE_QUERY_KEYS, downloadCsv, localToday } from "@/features/purchase/lib/client";
 import {
   SupplierPaymentRecord,
   SupplierInvoiceItem,
@@ -135,6 +138,7 @@ interface LedgerReconRow {
 
 
 export default function SupplierPaymentsPage() {
+  const router = useRouter();
   const queryClient = useQueryClient();
 
   // 6 Tabs state
@@ -201,8 +205,9 @@ export default function SupplierPaymentsPage() {
   // Advance Payment Modal inputs
   const [advSupplier, setAdvSupplier] = useState("");
   const [advAmount, setAdvAmount] = useState(0);
-  const [advDate, setAdvDate] = useState(new Date().toISOString().split("T")[0]);
-  const [advMode] = useState("BANK_TRANSFER");
+  const [advDate, setAdvDate] = useState(localToday);
+  const [advMode, setAdvMode] = useState<"CASH" | "BANK_TRANSFER" | "CHEQUE">("BANK_TRANSFER");
+  const [advRef, setAdvRef] = useState("");
   const [advRemarks, setAdvRemarks] = useState("");
 
   // Create Bill Modal inputs
@@ -210,12 +215,12 @@ export default function SupplierPaymentsPage() {
   const [billReceiptId, setBillReceiptId] = useState("");
   const [billInvoiceNo, setBillInvoiceNo] = useState("");
   const [billAmount, setBillAmount] = useState(0);
-  const [billDate, setBillDate] = useState(new Date().toISOString().split("T")[0]);
-  const [billDueDate, setBillDueDate] = useState(new Date().toISOString().split("T")[0]);
+  const [billDate, setBillDate] = useState(localToday);
+  const [billDueDate, setBillDueDate] = useState(localToday);
 
   // Payment By GRN inputs
   const [grnPaySupplier, setGrnPaySupplier] = useState("");
-  const [grnPayDate, setGrnPayDate] = useState(new Date().toISOString().split("T")[0]);
+  const [grnPayDate, setGrnPayDate] = useState(localToday);
   const [grnPaySelected, setGrnPaySelected] = useState<string[]>([]);
 
   // Dynamic Data Lists
@@ -305,7 +310,8 @@ export default function SupplierPaymentsPage() {
         receDate: inv.invoiceDate,
         invoice: inv.invoiceNumber,
         supplierName: inv.supplierName,
-        creditDays: 0,
+        // Days the supplier gives: bill due date less the invoice / receipt date.
+        creditDays: Math.max(0, Math.round((new Date(`${inv.dueDate}T00:00:00Z`).getTime() - new Date(`${inv.invoiceDate}T00:00:00Z`).getTime()) / 86_400_000)),
         exPaymentDate: inv.dueDate,
         totalAmount: inv.totalAmount,
         netAmount: inv.totalAmount,
@@ -351,9 +357,7 @@ export default function SupplierPaymentsPage() {
     [serverPayables],
   );
   const refreshPayables = () => {
-    for (const key of ["supplierPayables", "supplierInvoices", "supplierBills", "supplierPaymentHistory", "supplierAdvances", "suppliers"]) {
-      queryClient.invalidateQueries({ queryKey: [key] });
-    }
+    for (const key of PURCHASE_QUERY_KEYS) queryClient.invalidateQueries({ queryKey: [key] });
   };
   const [cancelPayment, setCancelPayment] = useState<PaidRow | null>(null);
   const [cancelPaymentReason, setCancelPaymentReason] = useState("");
@@ -515,7 +519,7 @@ export default function SupplierPaymentsPage() {
       supplierId: quickPayTarget.supplierId,
       amount: quickPayAmount,
       method: quickPayMode === "CASH" ? "CASH" : quickPayMode === "CHEQUE" ? "CHEQUE" : "BANK",
-      paymentDate: new Date().toISOString().split("T")[0],
+      paymentDate: localToday(),
       receiptId: quickPayTarget.receiptId,
       billId: quickPayTarget.billId,
       referenceNumber: quickPayRef,
@@ -530,6 +534,7 @@ export default function SupplierPaymentsPage() {
       isAdvance: true,
       method: advMode === "CASH" ? "CASH" : advMode === "CHEQUE" ? "CHEQUE" : "BANK",
       paymentDate: advDate,
+      referenceNumber: advRef || undefined,
       narration: advRemarks,
     });
   };
@@ -574,25 +579,11 @@ export default function SupplierPaymentsPage() {
   const billableReceipts = (serverInvoices ?? []).filter((inv) => inv.supplierId === billSupplier && inv.receiptId && !inv.billId);
 
   const handleExportCSV = () => {
-    const headers = ["SL", "Supplier Code", "Supplier Name", "Mobile No", "Total Amount", "Return Amount", "Payment Amount", "Due Amount"];
-    const rows = filteredDueList.map((r) => [
-      r.sl,
-      r.supplierCode,
-      `"${r.supplierName}"`,
-      r.mobileNumber,
-      r.totalAmount,
-      r.returnAmount,
-      r.paymentAmount,
-      r.dueAmount,
-    ]);
-    const csvContent = "data:text/csv;charset=utf-8," + [headers.join(","), ...rows.map((e) => e.join(","))].join("\n");
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
-    link.setAttribute("download", `supplier_payment_report_${new Date().toISOString().slice(0, 10)}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    downloadCsv(
+      `supplier_payment_report_${localToday()}.csv`,
+      ["SL", "Supplier Code", "Supplier Name", "Mobile No", "Total Amount", "Return Amount", "Payment Amount", "Due Amount"],
+      filteredDueList.map((r) => [r.sl, r.supplierCode, r.supplierName, r.mobileNumber, r.totalAmount, r.returnAmount, r.paymentAmount, r.dueAmount]),
+    );
   };
 
   return (
@@ -621,7 +612,7 @@ export default function SupplierPaymentsPage() {
           {/* + Payment By GRN */}
           <button
             type="button"
-            onClick={() => setIsPaymentByGRNOpen(true)}
+            onClick={() => router.push("/purchase/supplier-payments/payment-by-grn")}
             className="h-9 px-3.5 bg-[#2563eb] hover:bg-blue-700 text-white font-semibold text-xs rounded flex items-center gap-1.5 shadow-xs transition"
           >
             <Plus className="w-4 h-4" />
@@ -933,9 +924,10 @@ export default function SupplierPaymentsPage() {
                   }
                   approveMutation.mutate(null);
                 }}
-                className="flex items-center gap-1.5 px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-xs font-semibold shadow-xs transition"
+                disabled={approveMutation.isPending}
+                className="flex items-center gap-1.5 px-3 py-1 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white rounded text-xs font-semibold shadow-xs transition"
               >
-                <CheckCircle2 className="w-3.5 h-3.5" />
+                {approveMutation.isPending ? <Spinner className="size-3.5" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
                 <span>Batch Approve All</span>
               </button>
             </div>
@@ -1023,7 +1015,8 @@ export default function SupplierPaymentsPage() {
                               <button
                                 type="button"
                                 onClick={() => handleApproveBill(bill.billNo)}
-                                className="px-2 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-[11px] font-semibold transition"
+                                disabled={approveMutation.isPending}
+                                className="px-2 py-1 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white rounded text-[11px] font-semibold transition"
                                 title="Approve Bill"
                               >
                                 Approve
@@ -1032,8 +1025,9 @@ export default function SupplierPaymentsPage() {
                             <button
                               type="button"
                               onClick={() => handlePayPendingBill(bill)}
-                              className="px-2 py-1 bg-[#1976d2] hover:bg-[#1565c0] text-white rounded text-[11px] font-semibold transition"
-                              title="Pay Bill"
+                              disabled={bill.status !== "Approved"}
+                              className="px-2 py-1 bg-[#1976d2] hover:bg-[#1565c0] disabled:opacity-40 disabled:hover:bg-[#1976d2] text-white rounded text-[11px] font-semibold transition"
+                              title={bill.status === "Approved" ? "Pay Bill" : "Approve the bill before paying it"}
                             >
                               Pay Now
                             </button>
@@ -1711,8 +1705,10 @@ export default function SupplierPaymentsPage() {
               </button>
               <button
                 type="submit"
-                className="px-5 py-1.5 bg-[#1976d2] hover:bg-[#1565c0] text-white font-bold rounded shadow-xs transition"
+                disabled={paymentMutation.isPending}
+                className="px-5 py-1.5 bg-[#1976d2] hover:bg-[#1565c0] disabled:opacity-60 text-white font-bold rounded shadow-xs transition inline-flex items-center gap-1.5"
               >
+                {paymentMutation.isPending && <Spinner className="size-3.5" />}
                 Disburse & Generate Money Receipt
               </button>
             </div>
@@ -1812,8 +1808,9 @@ export default function SupplierPaymentsPage() {
               type="button"
               disabled={paymentMutation.isPending}
               onClick={handleConfirmGrnPayment}
-              className="px-5 py-1.5 bg-[#1976d2] hover:bg-[#1565c0] text-white font-bold rounded shadow-xs"
+              className="px-5 py-1.5 bg-[#1976d2] hover:bg-[#1565c0] disabled:opacity-60 text-white font-bold rounded shadow-xs inline-flex items-center gap-1.5"
             >
+              {paymentMutation.isPending && <Spinner className="size-3.5" />}
               Confirm Settlement
             </button>
           </div>
@@ -1823,85 +1820,10 @@ export default function SupplierPaymentsPage() {
       {/* ============================================================= */}
       {/* 5. MODAL: + ADVANCE PAYMENT */}
       {/* ============================================================= */}
-      <ModalDialog
+      <AdvancePaymentModal
         isOpen={isAdvancePaymentOpen}
         onClose={() => setIsAdvancePaymentOpen(false)}
-        title="Advance Supplier Payment"
-        subtitle="Post vendor advance deposit before purchase receipt / order confirmation"
-        maxWidth="lg"
-      >
-        <form onSubmit={handleCreateAdvancePayment} className="space-y-4 text-xs">
-          <div className="space-y-3">
-            <div>
-              <label className="block text-slate-700 font-semibold mb-1">Supplier / Vendor *</label>
-              <select
-                value={advSupplier}
-                onChange={(e) => setAdvSupplier(e.target.value)}
-                className="w-full border border-slate-300 rounded p-1.5 text-xs bg-white"
-                required
-              >
-                <option value="">Select supplier</option>
-                {(serverPayables ?? []).map((p) => (
-                  <option key={p.supplierId} value={p.supplierId}>
-                    {p.supplierName}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-slate-700 font-semibold mb-1">Advance Amount (BDT) *</label>
-                <input
-                  type="number"
-                  min="1"
-                  value={advAmount}
-                  onChange={(e) => setAdvAmount(Number(e.target.value))}
-                  className="w-full border border-slate-300 rounded p-1.5 text-xs bg-white font-mono font-bold"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="block text-slate-700 font-semibold mb-1">Date *</label>
-                <input
-                  type="date"
-                  value={advDate}
-                  onChange={(e) => setAdvDate(e.target.value)}
-                  className="w-full border border-slate-300 rounded p-1.5 text-xs bg-white"
-                  required
-                />
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-slate-700 font-semibold mb-1">Advance Purpose / Contract Note</label>
-              <textarea
-                value={advRemarks}
-                onChange={(e) => setAdvRemarks(e.target.value)}
-                rows={2}
-                className="w-full border border-slate-300 rounded p-1.5 text-xs bg-white"
-              />
-            </div>
-          </div>
-
-          <div className="flex justify-end gap-2 pt-2 border-t">
-            <button
-              type="button"
-              onClick={() => setIsAdvancePaymentOpen(false)}
-              className="px-4 py-1.5 border border-slate-200 rounded text-slate-600 font-medium"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              className="px-5 py-1.5 bg-[#1976d2] hover:bg-[#1565c0] text-white font-bold rounded shadow-xs"
-            >
-              Post Advance Voucher
-            </button>
-          </div>
-        </form>
-      </ModalDialog>
+      />
 
       {/* ============================================================= */}
       {/* 6. MODAL: + CREATE BILL */}
@@ -2004,8 +1926,9 @@ export default function SupplierPaymentsPage() {
               type="button"
               disabled={billMutation.isPending}
               onClick={handleCreateBill}
-              className="px-5 py-1.5 bg-[#1976d2] hover:bg-[#1565c0] text-white font-bold rounded shadow-xs"
+              className="px-5 py-1.5 bg-[#1976d2] hover:bg-[#1565c0] disabled:opacity-60 text-white font-bold rounded shadow-xs inline-flex items-center gap-1.5"
             >
+              {billMutation.isPending && <Spinner className="size-3.5" />}
               Save Vendor Bill
             </button>
           </div>

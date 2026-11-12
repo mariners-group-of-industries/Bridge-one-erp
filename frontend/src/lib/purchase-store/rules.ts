@@ -173,8 +173,19 @@ function label(status: OrderDbStatus) {
   return status.toLowerCase().replace("_", " ");
 }
 
-/** Appends an audit note ("[Approved by X] comment") to existing notes, within the column limit. */
+/**
+ * Appends an audit note ("[<time> APPROVED by X] comment") to existing notes,
+ * within the column limit. When the column is full the oldest audit lines are
+ * dropped first, so the free-text part (justification, notes) is kept.
+ */
 export function appendNote(existing: string | null | undefined, entry: string, limit = 1000): string {
-  const next = existing ? `${existing}\n${entry}` : entry;
+  const lines = [...(existing ? existing.split("\n") : []), entry];
+  const length = () => lines.reduce((n, l) => n + l.length, 0) + lines.length - 1;
+  while (length() > limit) {
+    const oldestAudit = lines.findIndex((l, i) => i < lines.length - 1 && l.startsWith("["));
+    if (oldestAudit < 0) break;
+    lines.splice(oldestAudit, 1);
+  }
+  const next = lines.join("\n");
   return next.length > limit ? next.slice(next.length - limit) : next;
 }

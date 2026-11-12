@@ -131,6 +131,41 @@
   }
 }
 
+/*
+ * Printing while a dialog (data-print-modal) is open prints only the dialog's
+ * content: the page behind it, the overlay and the dialog chrome are left out,
+ * and the scroll box is released so long documents print on every page.
+ */
+@media print {
+  body:has([data-print-modal]) * {
+    visibility: hidden;
+  }
+  body:has([data-print-modal]) [data-print-modal],
+  body:has([data-print-modal]) [data-print-modal] * {
+    visibility: visible;
+  }
+  body:has([data-print-modal]) [data-print-modal] {
+    position: absolute;
+    inset: 0 auto auto 0;
+    width: 100%;
+    display: block;
+    padding: 0;
+    background: #fff;
+    backdrop-filter: none;
+  }
+  body:has([data-print-modal]) [data-print-sheet] {
+    max-width: none;
+    max-height: none;
+    overflow: visible;
+    border: 0;
+    box-shadow: none;
+  }
+  body:has([data-print-modal]) [data-print-body] {
+    overflow: visible;
+    padding: 0;
+  }
+}
+
 /* Dense ERP table scroll and sticky headers with full grid lines (All Borders) */
 .erp-table-container {
   overflow-x: auto;

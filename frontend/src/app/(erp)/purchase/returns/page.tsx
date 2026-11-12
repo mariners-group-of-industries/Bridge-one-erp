@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useMemo } from "react";
+import { useRouter } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Truck,
@@ -19,6 +20,7 @@ import { toast } from "@/components/purchase/Toast";
 import { Spinner } from "@/components/ui/spinner";
 import { fetchApi } from "@/lib/api";
 import { formatCurrency } from "@/lib/utils";
+import { PURCHASE_QUERY_KEYS, downloadCsv, localToday } from "@/features/purchase/lib/client";
 import {
   PurchaseReturn,
   GoodsReceipt,
@@ -78,6 +80,7 @@ interface ReturnRow {
 
 
 export default function PurchaseReturnsPage() {
+  const router = useRouter();
   const queryClient = useQueryClient();
 
   // Active Tab: RECEIVED_LIST or RETURN_LIST
@@ -126,7 +129,7 @@ export default function PurchaseReturnsPage() {
   // Return Without Ref Form State
   const [noRefSupplierId, setNoRefSupplierId] = useState("");
   const [noRefWarehouseId, setNoRefWarehouseId] = useState("");
-  const [noRefDate, setNoRefDate] = useState(new Date().toISOString().split("T")[0]);
+  const [noRefDate, setNoRefDate] = useState(localToday);
   const [noRefItemId, setNoRefItemId] = useState("");
   const [noRefUnitPrice, setNoRefUnitPrice] = useState(0);
   const [noRefRemarks, setNoRefRemarks] = useState("");
@@ -153,8 +156,9 @@ export default function PurchaseReturnsPage() {
   // Lists come from the server: receipts that can be returned, and posted returns.
   const receivedList = useMemo<ReceivedRow[]>(
     () =>
+      // The server only lists receipts with something left to return (partly returned ones included).
       (serverEligible ?? [])
-        .filter((g) => g.status === "RECEIVED")
+        .filter((g) => g.status === "RECEIVED" || g.status === "PARTIALLY_RETURNED")
         .map((g, i) => ({
           sl: i + 1,
           grnId: g.id,
@@ -208,9 +212,7 @@ export default function PurchaseReturnsPage() {
   const returnMutation = useMutation({
     mutationFn: (payload: Record<string, unknown>) => fetchApi<PurchaseReturn>("/purchase/returns", { method: "POST", body: JSON.stringify(payload) }),
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ["returnsList"] });
-      queryClient.invalidateQueries({ queryKey: ["eligibleGRNs"] });
-      queryClient.invalidateQueries({ queryKey: ["suppliers"] });
+      for (const key of PURCHASE_QUERY_KEYS) queryClient.invalidateQueries({ queryKey: [key] });
       setFullReturnTarget(null);
       setPartialReturnTarget(null);
       setIsReturnWithoutRefOpen(false);
@@ -224,10 +226,7 @@ export default function PurchaseReturnsPage() {
     mutationFn: ({ id, comments }: { id: string; comments: string }) =>
       fetchApi<PurchaseReturn>(`/purchase/returns/${id}/cancel`, { method: "POST", body: JSON.stringify({ comments }) }),
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ["returnsList"] });
-      queryClient.invalidateQueries({ queryKey: ["eligibleGRNs"] });
-      queryClient.invalidateQueries({ queryKey: ["receivedGRNs"] });
-      queryClient.invalidateQueries({ queryKey: ["suppliers"] });
+      for (const key of PURCHASE_QUERY_KEYS) queryClient.invalidateQueries({ queryKey: [key] });
       setCancelReturnTarget(null);
       toast.success(`Return ${data.returnNumber} cancelled. Stock and supplier balance restored.`, { title: "Return Cancelled" });
     },
@@ -264,7 +263,7 @@ export default function PurchaseReturnsPage() {
       })),
     });
   };
-  const today = () => new Date().toISOString().split("T")[0];
+  const today = localToday;
 
   // Handle Full Return Click
   const handleOpenFullReturn = (row: ReceivedRow) => {
@@ -375,46 +374,17 @@ export default function PurchaseReturnsPage() {
   // Export to CSV
   const handleExportCSV = () => {
     if (activeTab === "RECEIVED_LIST") {
-      const headers = ["SL", "Receive Date", "PO No", "Return Invoice No", "Remarks", "Supplier", "Amount (BDT)"];
-      const rows = filteredReceived.map((r, idx) => [
-        idx + 1,
-        r.receiveDate,
-        r.poNo,
-        r.returnInvoiceNo,
-        `"${r.remarks}"`,
-        `"${r.supplier}"`,
-        r.amount,
-      ]);
-      const csvContent = "data:text/csv;charset=utf-8," + [headers.join(","), ...rows.map((e) => e.join(","))].join("\n");
-      const encodedUri = encodeURI(csvContent);
-      const link = document.createElement("a");
-      link.setAttribute("href", encodedUri);
-      link.setAttribute("download", `purchase_receive_for_return_${new Date().toISOString().slice(0, 10)}.csv`);
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
+      downloadCsv(
+        `purchase_receive_for_return_${localToday()}.csv`,
+        ["SL", "Receive Date", "PO No", "GRN No", "Remarks", "Supplier", "Amount (BDT)"],
+        filteredReceived.map((r, idx) => [idx + 1, r.receiveDate, r.poNo, r.returnInvoiceNo, r.remarks, r.supplier, r.amount]),
+      );
     } else {
-      const headers = ["SL", "Office Name", "Return Date", "PO No", "Return No", "Remarks", "Supplier", "Amount", "Return Type", "Status"];
-      const rows = filteredReturns.map((r, idx) => [
-        idx + 1,
-        `"${r.officeName}"`,
-        r.returnDate,
-        r.poNo,
-        r.returnNo,
-        `"${r.remarks}"`,
-        `"${r.supplier}"`,
-        r.amount,
-        r.returnType,
-        r.status,
-      ]);
-      const csvContent = "data:text/csv;charset=utf-8," + [headers.join(","), ...rows.map((e) => e.join(","))].join("\n");
-      const encodedUri = encodeURI(csvContent);
-      const link = document.createElement("a");
-      link.setAttribute("href", encodedUri);
-      link.setAttribute("download", `purchase_returns_list_${new Date().toISOString().slice(0, 10)}.csv`);
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
+      downloadCsv(
+        `purchase_returns_list_${localToday()}.csv`,
+        ["SL", "Office Name", "Return Date", "PO No", "Return No", "Remarks", "Supplier", "Amount", "Return Type", "Status"],
+        filteredReturns.map((r, idx) => [idx + 1, r.officeName, r.returnDate, r.poNo, r.returnNo, r.remarks, r.supplier, r.amount, r.returnType, r.status]),
+      );
     }
   };
 
@@ -455,7 +425,7 @@ export default function PurchaseReturnsPage() {
           {/* + Return Without Ref. Blue Button */}
           <button
             type="button"
-            onClick={() => setIsReturnWithoutRefOpen(true)}
+            onClick={() => router.push("/purchase/returns/create")}
             className="h-9 px-4 bg-[#2563eb] hover:bg-blue-700 text-white font-semibold text-xs rounded flex items-center gap-1.5 shadow-xs transition"
           >
             <Plus className="w-4 h-4" />

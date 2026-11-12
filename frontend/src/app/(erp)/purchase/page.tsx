@@ -23,24 +23,13 @@ import {
   YAxis,
 } from "recharts";
 import { fetchApi } from "@/lib/api";
+import { formatCurrency } from "@/lib/utils";
 import { DashboardAnalytics } from "@bridgeone/contracts";
 
 const PALETTE = ["#ff3b5c", "#10b981", "#f59e0b", "#06b6d4", "#0088ff", "#8b5cf6"];
 
-const EMPTY_MONTHS_12M = [
-  { month: "Nov 25", expenditure: 0 },
-  { month: "Dec 25", expenditure: 0 },
-  { month: "Jan 26", expenditure: 0 },
-  { month: "Feb 26", expenditure: 0 },
-  { month: "Mar 26", expenditure: 0 },
-  { month: "Apr 26", expenditure: 0 },
-  { month: "May 26", expenditure: 0 },
-  { month: "Jun 26", expenditure: 0 },
-  { month: "Jul 26", expenditure: 0 },
-  { month: "Aug 26", expenditure: 0 },
-  { month: "Sep 26", expenditure: 0 },
-  { month: "Oct 26", expenditure: 0 },
-];
+const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const days = (v: number | null | undefined) => (v === null || v === undefined ? "—" : `${v} Days`);
 
 interface PieLabelProps {
   cx?: number;
@@ -85,8 +74,8 @@ export default function PurchaseDashboardPage() {
   const [typeMode, setTypeMode] = useState<"freq" | "val">("freq");
   const [supplierMode, setSupplierMode] = useState<"freq" | "val">("freq");
   const [itemMode, setItemMode] = useState<"freq" | "val">("freq");
-  const [periodUnit, setPeriodUnit] = useState("Month");
-  const [periodYear, setPeriodYear] = useState("2026");
+  const [periodUnit, setPeriodUnit] = useState<"Month" | "Quarter">("Month");
+  const [periodYear, setPeriodYear] = useState(String(new Date().getFullYear()));
 
   const { data, refetch } = useQuery<DashboardAnalytics>({
     queryKey: ["purchaseDashboard", fromDate, toDate],
@@ -117,15 +106,26 @@ export default function PurchaseDashboardPage() {
     }));
   }, [data]);
 
-  const monthlyExpenditureData = useMemo(() => {
-    if (data?.monthlyExpenditure && data.monthlyExpenditure.length > 0) {
-      return data.monthlyExpenditure.map((m) => ({
-        month: m.month,
-        expenditure: m.expenditure,
-      }));
-    }
-    return EMPTY_MONTHS_12M;
+  // Years that have spend, plus the current one.
+  const expenditureYears = useMemo(() => {
+    const years = new Set((data?.monthlyExpenditure ?? []).map((m) => m.month.slice(0, 4)));
+    years.add(String(new Date().getFullYear()));
+    return [...years].sort().reverse();
   }, [data]);
+
+  // Spend of the chosen year, per month or per quarter (months without orders show 0).
+  const monthlyExpenditureData = useMemo(() => {
+    const byMonth = new Map((data?.monthlyExpenditure ?? []).map((m) => [m.month, m.expenditure]));
+    const months = MONTH_NAMES.map((name, i) => ({
+      month: `${name} ${periodYear.slice(2)}`,
+      expenditure: byMonth.get(`${periodYear}-${String(i + 1).padStart(2, "0")}`) ?? 0,
+    }));
+    if (periodUnit === "Month") return months;
+    return [0, 1, 2, 3].map((q) => ({
+      month: `Q${q + 1} ${periodYear.slice(2)}`,
+      expenditure: months.slice(q * 3, q * 3 + 3).reduce((s, m) => s + m.expenditure, 0),
+    }));
+  }, [data, periodUnit, periodYear]);
 
   const supplierClassification = useMemo(() => {
     const suppliers = data?.topSuppliers ?? [];
@@ -206,11 +206,12 @@ export default function PurchaseDashboardPage() {
     const raw = data?.topPurchasedItems ?? [];
     return raw.slice(0, 10).map((it) => ({
       name: it.item,
-      freq: it.quantity,
+      freq: it.orders ?? 0,
       val: it.amount,
     }));
   }, [data]);
 
+  // Requisitions waiting for approval.
   const pendingOrdersCount = data?.kpis?.pendingApprovals ?? 0;
   const pendingOrdersAmount = useMemo(() => {
     return (data?.pendingApprovalItems ?? []).reduce(
@@ -219,28 +220,28 @@ export default function PurchaseDashboardPage() {
     );
   }, [data]);
 
-  const pendingReceiveCount = data?.kpis?.openPurchaseOrders ?? 0;
-  const pendingReceiveAmount = data?.kpis?.totalOutstandingAmount ?? 0;
+  // Open orders and the value of the goods still to arrive.
+  const insights = data?.insights;
+  const pendingReceiveCount = insights?.pendingReceipt.orders ?? 0;
+  const pendingReceiveAmount = insights?.pendingReceipt.amount ?? 0;
+  const overdueReceiveCount = insights?.pendingReceipt.overdueOrders ?? 0;
 
-  const completedOrders = data?.kpis?.completedOrders ?? 0;
-  const delayedInvoices = data?.kpis?.pendingSupplierInvoices ?? 0;
-  const totalInvoices = completedOrders + delayedInvoices;
-  const onTimePaymentRate =
-    totalInvoices > 0
-      ? `${((completedOrders / totalInvoices) * 100).toFixed(2)}%`
-      : "0.00%";
+  // Invoices paid or not yet due, of all invoices of the period.
+  const invoiceCount = insights?.payments.invoices ?? 0;
+  const overdueInvoices = insights?.payments.overdue ?? 0;
+  const onTimePaymentRate = insights?.payments.onTimeRate == null ? "—" : `${insights.payments.onTimeRate.toFixed(1)}%`;
 
+  // Average days between the stages, measured from the documents.
   const cycleSteps = useMemo(() => {
-    const totalDays = data?.procurementCycleTimeDays ?? 0;
-    const stepDays = totalDays > 0 ? `${(totalDays / 4).toFixed(1)} Days` : "0 Days";
+    const c = insights?.cycle;
     return [
-      { label: "Order Placement", daysAfter: stepDays },
-      { label: "Confirmation", daysAfter: stepDays },
-      { label: "Delivery", daysAfter: stepDays },
-      { label: "Invoice", daysAfter: stepDays },
+      { label: "Requisition", daysAfter: days(c?.approvalDays) },
+      { label: "Approval", daysAfter: days(c?.orderDays) },
+      { label: "Purchase Order", daysAfter: days(c?.deliveryDays) },
+      { label: "Goods Received", daysAfter: days(c?.paymentDays) },
       { label: "Payment", daysAfter: null },
     ];
-  }, [data]);
+  }, [insights]);
 
   return (
     <div className="min-h-screen bg-[#f8fafc] dark:bg-slate-950 p-3 sm:p-5 space-y-4 text-slate-800 dark:text-slate-100">
@@ -444,7 +445,7 @@ export default function PurchaseDashboardPage() {
             <ul className="space-y-3 text-[11px] text-slate-700 dark:text-slate-300 pl-3 list-disc">
               <li>
                 <div className="font-semibold text-slate-800 dark:text-slate-100">
-                  Pending Order
+                  Requisitions Awaiting Approval
                 </div>
                 <div className="text-[10.5px] text-slate-500 dark:text-slate-400 pl-2">
                   Total Number :{" "}
@@ -455,24 +456,38 @@ export default function PurchaseDashboardPage() {
                 <div className="text-[10.5px] text-slate-500 dark:text-slate-400 pl-2">
                   Total Amount :{" "}
                   <span className="font-semibold text-slate-700 dark:text-slate-200">
-                    {pendingOrdersAmount.toFixed(2)} BDT
+                    {formatCurrency(pendingOrdersAmount)}
                   </span>
                 </div>
               </li>
               <li>
                 <div className="font-semibold text-slate-800 dark:text-slate-100">
-                  Receive MRR (Unbilled)
+                  Goods Pending Receipt
                 </div>
                 <div className="text-[10.5px] text-slate-500 dark:text-slate-400 pl-2">
-                  Total Order :{" "}
+                  Open Orders :{" "}
                   <span className="font-semibold text-slate-700 dark:text-slate-200">
                     {pendingReceiveCount}
                   </span>
+                  {overdueReceiveCount > 0 && (
+                    <span className="ml-1 font-semibold text-rose-600 dark:text-rose-400">({overdueReceiveCount} overdue)</span>
+                  )}
                 </div>
                 <div className="text-[10.5px] text-slate-500 dark:text-slate-400 pl-2">
-                  Total Amount :{" "}
+                  Value To Arrive :{" "}
                   <span className="font-semibold text-slate-700 dark:text-slate-200">
-                    {pendingReceiveAmount.toFixed(2)}
+                    {formatCurrency(pendingReceiveAmount)}
+                  </span>
+                </div>
+              </li>
+              <li>
+                <div className="font-semibold text-slate-800 dark:text-slate-100">
+                  Supplier Dues
+                </div>
+                <div className="text-[10.5px] text-slate-500 dark:text-slate-400 pl-2">
+                  Outstanding :{" "}
+                  <span className="font-semibold text-slate-700 dark:text-slate-200">
+                    {formatCurrency(data?.kpis?.totalOutstandingAmount ?? 0)}
                   </span>
                 </div>
               </li>
@@ -497,15 +512,16 @@ export default function PurchaseDashboardPage() {
             </div>
             <ul className="space-y-1 text-[11px] text-slate-600 dark:text-slate-400 mt-3 pl-3 list-disc">
               <li>
-                On-time payment is :{" "}
+                Paid or not yet due :{" "}
                 <span className="font-semibold text-slate-800 dark:text-slate-200">
-                  {completedOrders}
+                  {invoiceCount - overdueInvoices} of {invoiceCount}
                 </span>
               </li>
               <li>
-                Delayed Invoice :{" "}
+                Overdue invoices :{" "}
                 <span className="font-semibold text-slate-800 dark:text-slate-200">
-                  {delayedInvoices}
+                  {overdueInvoices}
+                  {overdueInvoices > 0 && ` (${formatCurrency(insights?.payments.overdueAmount ?? 0)})`}
                 </span>
               </li>
             </ul>
@@ -563,14 +579,17 @@ export default function PurchaseDashboardPage() {
               <h3 className="text-xs font-bold text-slate-800 dark:text-slate-100">
                 Purchase Expenditure
               </h3>
-              <span className="text-[10px] text-slate-400">Last 12 Months</span>
+              <span className="text-[10px] text-slate-400">
+                {periodYear}, per {periodUnit.toLowerCase()} (purchase order value)
+              </span>
             </div>
 
             <div className="flex items-center gap-2">
               <div className="relative flex items-center border-b border-slate-300 dark:border-slate-700 pb-0.5">
                 <select
                   value={periodUnit}
-                  onChange={(e) => setPeriodUnit(e.target.value)}
+                  onChange={(e) => setPeriodUnit(e.target.value as "Month" | "Quarter")}
+                  aria-label="Group by"
                   className="appearance-none bg-transparent pr-4 text-[11px] text-slate-600 dark:text-slate-300 focus:outline-none cursor-pointer"
                 >
                   <option value="Month">Month</option>
@@ -583,10 +602,14 @@ export default function PurchaseDashboardPage() {
                 <select
                   value={periodYear}
                   onChange={(e) => setPeriodYear(e.target.value)}
+                  aria-label="Year"
                   className="appearance-none bg-transparent pr-4 text-[11px] text-slate-600 dark:text-slate-300 focus:outline-none cursor-pointer"
                 >
-                  <option value="2026">2026</option>
-                  <option value="2025">2025</option>
+                  {expenditureYears.map((y) => (
+                    <option key={y} value={y}>
+                      {y}
+                    </option>
+                  ))}
                 </select>
                 <ChevronDown className="pointer-events-none absolute right-0 size-3 text-slate-400" />
               </div>
@@ -607,8 +630,8 @@ export default function PurchaseDashboardPage() {
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                 <XAxis dataKey="month" tick={{ fontSize: 10, fill: "#64748b" }} />
-                <YAxis tick={{ fontSize: 10, fill: "#64748b" }} />
-                <Tooltip />
+                <YAxis tick={{ fontSize: 10, fill: "#64748b" }} tickFormatter={(v) => (v >= 1000 ? `${Math.round(v / 1000)}k` : String(v))} />
+                <Tooltip formatter={(v) => [formatCurrency(Number(v) || 0), "Spend"]} />
                 <Area
                   type="monotone"
                   dataKey="expenditure"
@@ -628,7 +651,9 @@ export default function PurchaseDashboardPage() {
             <h3 className="text-xs font-bold text-slate-800 dark:text-slate-100">
               Avg. Procurement Cost: Smaller Classification
             </h3>
-            <span className="text-[10px] text-slate-400">No. of Suppliers</span>
+            <span className="text-[10px] text-slate-400">
+              Top suppliers by spend — Short: under ৳1 lakh · Medium: ৳1–5 lakh · Long: over ৳5 lakh
+            </span>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-12 items-center gap-4 my-auto py-2">
@@ -678,7 +703,7 @@ export default function PurchaseDashboardPage() {
       </div>
 
       {/* 5. Row 4: Top 10 Suppliers | Top 10 Items */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* Top 10 Suppliers */}
         <div className="rounded border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 shadow-2xs min-h-[120px]">
           <div className="flex items-center justify-between mb-3">
@@ -780,7 +805,7 @@ export default function PurchaseDashboardPage() {
                   </span>
                   <span className="font-mono text-[10.5px] font-semibold text-slate-500 dark:text-slate-400 shrink-0">
                     {itemMode === "freq"
-                      ? `${item.freq} Times`
+                      ? `${item.freq} Orders`
                       : `৳${item.val.toLocaleString("en-US")}`}
                   </span>
                 </li>

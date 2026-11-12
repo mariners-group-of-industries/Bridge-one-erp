@@ -112,7 +112,12 @@ async function loadPayables() {
 }
 
 export async function listSupplierPayables(): Promise<SupplierPaymentRecord[]> {
-  const { suppliers, receipts, returns, bills, payments, allocation } = await loadPayables();
+  const { suppliers, receipts, returns, bills, payments, documents, allocation } = await loadPayables();
+  // Documents with something still to pay, per supplier.
+  const openBySupplier = new Map<string, number>();
+  for (const d of documents) {
+    if (d.amount - (allocation.paidByDocument.get(d.key) ?? 0) > 0.005) openBySupplier.set(d.supplierId, (openBySupplier.get(d.supplierId) ?? 0) + 1);
+  }
   const sumBy = <T extends { supplierId: string }>(rows: T[], supplierId: string, value: (row: T) => number) =>
     rows.filter((r) => r.supplierId === supplierId).reduce((total, r) => total + value(r), 0);
 
@@ -136,7 +141,7 @@ export async function listSupplierPayables(): Promise<SupplierPaymentRecord[]> {
       dueAmount,
       lastPaymentDate: last ? dateStr(last) : undefined,
       paymentStatus: paymentStatus(totalPurchasedAmount - returnedAmount, paidAmount),
-      openInvoicesCount: receipts.filter((g) => g.supplierId === s.id).length + bills.filter((b) => b.supplierId === s.id).length,
+      openInvoicesCount: openBySupplier.get(s.id) ?? 0,
       currency: "BDT",
       ledgerBalance: round2(num(s.balance)),
       advanceBalance: allocation.unappliedBySupplier.get(s.id) ?? 0,
@@ -220,8 +225,9 @@ export async function createSupplierBill(input: Record<string, unknown>, actorNa
     amount = num(receipt.totalAmount);
   }
   if (!(amount > 0)) throw badRequest("Enter a bill amount greater than 0.");
-  const billDate = new Date(String(input.billDate || dateStr(new Date())));
-  const dueDate = new Date(String(input.dueDate || input.billDate || dateStr(new Date())));
+  const billDate = new Date(`${String(input.billDate || dateStr(new Date())).slice(0, 10)}T00:00:00.000Z`);
+  const dueDate = new Date(`${String(input.dueDate || input.billDate || dateStr(new Date())).slice(0, 10)}T00:00:00.000Z`);
+  if (Number.isNaN(billDate.getTime()) || Number.isNaN(dueDate.getTime())) throw badRequest("Enter valid bill and due dates.");
   if (dueDate < billDate) throw badRequest("The due date is before the bill date.");
 
   return prisma.$transaction(async (tx) => {
@@ -296,5 +302,7 @@ export async function validatePaymentLink(supplierId: string, receiptId: string 
   const invoices = await listSupplierInvoices();
   const target = invoices.find((inv) => (receiptId ? inv.receiptId === receiptId : inv.billId === billId));
   if (!target || target.supplierId !== supplierId) throw badRequest("The invoice does not belong to this supplier.");
+  // A booked bill is released for payment by approving it.
+  if (target.billStatus === "PENDING") throw badRequest(`Bill ${target.billNumber ?? target.invoiceNumber} is not approved yet; approve it before paying.`);
   if (amount > target.dueAmount + 0.005) throw badRequest(`Only ${target.dueAmount.toFixed(2)} is due on ${target.invoiceNumber}.`);
 }

@@ -35,7 +35,8 @@ function errorResponse(err: unknown, fallbackStatus: number) {
 
 async function handleGET(
   request: Request,
-  { params }: { params: Promise<{ route: string[] }> }
+  { params }: { params: Promise<{ route: string[] }> },
+  actor: Actor
 ) {
   const { route } = await params;
   const path = route.join("/");
@@ -60,8 +61,12 @@ async function handleGET(
       const data = await purchaseStore.getItems();
       return NextResponse.json({ success: true, data });
     }
+    if (path === "master/purchase-form-options") {
+      const data = await purchaseStore.getPurchaseFormOptions();
+      return NextResponse.json({ success: true, data });
+    }
     if (path === "master/context") {
-      const data = await purchaseStore.getContext();
+      const data = await purchaseStore.getContext(actor);
       return NextResponse.json({ success: true, data });
     }
 
@@ -290,6 +295,16 @@ async function handlePOST(
     // Recorded as "prepared by" / "received by": the signed-in user.
     const actorName = actor.name ?? actor.id;
 
+    // Quick-create Master Data (Supplier & Item) from Purchase forms
+    if (path === "master/suppliers") {
+      const created = await purchaseStore.quickCreateSupplier(body);
+      return NextResponse.json({ success: true, data: created }, { status: 201 });
+    }
+    if (path === "master/items") {
+      const created = await purchaseStore.quickCreateItem(body);
+      return NextResponse.json({ success: true, data: created }, { status: 201 });
+    }
+
     // Create Requisition
     if (path === "purchase/requisitions") {
       const validated = CreateRequisitionSchema.parse(body);
@@ -412,7 +427,11 @@ async function handlePOST(
           officeId: body.officeId,
           warehouseId: body.warehouseId,
           challanNumber: body.challanNumber,
+          challanDate: body.challanDate,
           gatePassNumber: body.gatePassNumber,
+          paymentTerms: body.paymentTerms,
+          deliveryTerms: body.deliveryTerms,
+          shippingFee: body.shippingFee,
         },
         actorName
       );

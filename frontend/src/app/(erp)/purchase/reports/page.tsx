@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { PageHeader } from "@/components/purchase/PageHeader";
 import { toast } from "@/components/purchase/Toast";
+import { Spinner } from "@/components/ui/spinner";
 import { fetchApi } from "@/lib/api";
 import { formatCurrency } from "@/lib/utils";
 import { ReportResult, Office, Supplier } from "@bridgeone/contracts";
@@ -58,6 +59,36 @@ const REPORT_CATEGORIES = [
 
 const ALL_REPORTS = REPORT_CATEGORIES.flatMap((c) => c.reports);
 
+/** Report columns holding money (formatted as currency, right-aligned, totalled). */
+const MONEY_COLUMNS = new Set([
+  "Amount",
+  "Estimated Amount",
+  "Total Amount",
+  "Subtotal",
+  "Discount",
+  "VAT",
+  "Purchased",
+  "Returned",
+  "Paid",
+  "Due",
+  "Ordered",
+  "Received",
+  "Net Purchase",
+]);
+/** Report columns holding counts or quantities (right-aligned, totalled). */
+const QTY_COLUMNS = new Set(["Items", "Orders", "Documents", "Open Invoices", "Ordered Qty", "Received Qty", "Rejected Qty"]);
+/** Summary figures that are money. */
+const isMoneySummary = (key: string) => /amount|estimated|due|paid|purchase|ordered|spend/i.test(key);
+
+/** Status badge tone; partial / unpaid states are checked before the plain ones they contain. */
+function statusTone(value: string): "ok" | "wait" | "bad" | "plain" {
+  const s = value.toUpperCase();
+  if (s.includes("CANCELLED") || s.includes("REJECTED") || s === "UNPAID" || s.includes("OVERDUE")) return "bad";
+  if (s.includes("PARTIAL") || s.includes("PENDING") || s.includes("SUBMITTED") || s === "DRAFT") return "wait";
+  if (s.includes("APPROVED") || s.includes("COMPLETED") || s.includes("RECEIVED") || s === "PAID" || s.includes("CONVERTED") || s.includes("RETURNED")) return "ok";
+  return "plain";
+}
+
 export default function PurchaseReportsPage() {
   const [reportType, setReportType] = useState("REQUISITION_REPORT");
   const [selectedOffice, setSelectedOffice] = useState("ALL");
@@ -76,7 +107,9 @@ export default function PurchaseReportsPage() {
     queryFn: () => fetchApi("/master/suppliers"),
   });
 
-  const { data: reportData, isLoading, refetch } = useQuery<ReportResult>({
+  const { data: context } = useQuery<{ company: { name: string } }>({ queryKey: ["context"], queryFn: () => fetchApi("/master/context") });
+
+  const { data: reportData, isLoading, isFetching, refetch } = useQuery<ReportResult>({
     queryKey: ["report", reportType, selectedOffice, selectedSupplier, fromDate, toDate, isSummary],
     queryFn: () => {
       const p = new URLSearchParams();
@@ -125,8 +158,8 @@ export default function PurchaseReportsPage() {
 
   // Status Badge Helper
   const renderStatusBadge = (val: string) => {
-    const s = String(val).toUpperCase();
-    if (s.includes("APPROVED") || s.includes("COMPLETED") || s.includes("RECEIVED") || s.includes("PAID")) {
+    const tone = statusTone(String(val));
+    if (tone === "ok") {
       return (
         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
           <CheckCircle2 className="w-3 h-3 text-emerald-600" />
@@ -134,7 +167,7 @@ export default function PurchaseReportsPage() {
         </span>
       );
     }
-    if (s.includes("PENDING") || s.includes("SUBMITTED") || s.includes("PARTIAL")) {
+    if (tone === "wait") {
       return (
         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200">
           <Clock className="w-3 h-3 text-amber-600" />
@@ -142,7 +175,7 @@ export default function PurchaseReportsPage() {
         </span>
       );
     }
-    if (s.includes("REJECTED") || s.includes("CANCELLED") || s.includes("DUE") || s.includes("OVERDUE")) {
+    if (tone === "bad") {
       return (
         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-rose-50 text-rose-700 border border-rose-200">
           <AlertCircle className="w-3 h-3 text-rose-600" />
@@ -160,12 +193,9 @@ export default function PurchaseReportsPage() {
   // Primary Financial Total Computation
   const primaryFinancialTotal = useMemo(() => {
     if (!reportData?.summary) return null;
-    const entries = Object.entries(reportData.summary);
-    const found = entries.find(([k]) => k.toLowerCase().includes("bdt") || k.toLowerCase().includes("value") || k.toLowerCase().includes("spend") || k.toLowerCase().includes("commitment") || k.toLowerCase().includes("due"));
-    if (found) {
-      return { label: found[0], value: found[1] };
-    }
-    return entries[0] ? { label: entries[0][0], value: entries[0][1] } : null;
+    // The first money figure of the summary; reports without one show none.
+    const found = Object.entries(reportData.summary).find(([k, v]) => typeof v === "number" && isMoneySummary(k));
+    return found ? { label: found[0], value: found[1] } : null;
   }, [reportData]);
 
   const columnCount = (reportData as any)?.columns?.length || 8;
@@ -176,14 +206,17 @@ export default function PurchaseReportsPage() {
       <div className="hidden print:block border-b-2 border-slate-900 pb-3 mb-4">
         <div className="flex justify-between items-start">
           <div>
-            <h1 className="text-xl font-black text-slate-900 tracking-tight">BRIDGEONE TECHNOLOGIES LTD.</h1>
-            <p className="text-xs text-slate-600">Enterprise Procurement & Supply Chain Ledger</p>
-            <p className="text-[11px] text-slate-500">Corporate Headquarters, Tejgaon C/A, Dhaka-1208, Bangladesh</p>
+            <h1 className="text-xl font-black text-slate-900 tracking-tight uppercase">{context?.company?.name ?? ""}</h1>
+            <p className="text-xs text-slate-600">Purchase Reports</p>
           </div>
           <div className="text-right text-xs">
             <p className="font-bold text-slate-800">{currentReportMeta.label}</p>
             <p className="text-slate-500">Generated: {new Date().toLocaleString("en-GB")}</p>
-            <p className="text-slate-500">Status: Official Audit Record</p>
+            {(fromDate || toDate) && (
+              <p className="text-slate-500">
+                Period: {fromDate || "…"} to {toDate || "…"}
+              </p>
+            )}
           </div>
         </div>
       </div>
@@ -236,7 +269,7 @@ export default function PurchaseReportsPage() {
             <span className="text-base font-extrabold text-slate-800 font-mono">
               {isLoading ? "..." : reportData?.totalRecords ?? 0}
             </span>
-            <span className="text-[10px] text-emerald-600 font-medium block">Audited & Verified</span>
+            <span className="text-[10px] text-slate-400 font-medium block">{isSummary ? "Summary rows" : "Matching documents"}</span>
           </div>
           <div className="w-9 h-9 rounded bg-emerald-50 border border-emerald-100 flex items-center justify-center text-emerald-600">
             <Layers className="w-4 h-4" />
@@ -268,7 +301,9 @@ export default function PurchaseReportsPage() {
             <span className="text-xs font-semibold text-slate-800">
               {reportData?.generatedAt ? new Date(reportData.generatedAt).toLocaleDateString("en-GB") : new Date().toLocaleDateString("en-GB")}
             </span>
-            <span className="text-[10px] text-slate-400 block font-mono">BridgeOne ERP v2.4</span>
+            <span className="text-[10px] text-slate-400 block font-mono">
+              {reportData?.generatedAt ? new Date(reportData.generatedAt).toLocaleTimeString("en-GB") : ""}
+            </span>
           </div>
           <div className="w-9 h-9 rounded bg-indigo-50 border border-indigo-100 flex items-center justify-center text-indigo-600">
             <ShieldCheck className="w-4 h-4" />
@@ -378,9 +413,10 @@ export default function PurchaseReportsPage() {
             <button
               type="button"
               onClick={() => refetch()}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-[#1976d2] hover:bg-[#1565c0] text-white rounded text-xs font-semibold shadow-2xs transition"
+              disabled={isFetching}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-[#1976d2] hover:bg-[#1565c0] disabled:opacity-70 text-white rounded text-xs font-semibold shadow-2xs transition"
             >
-              <Filter className="w-3.5 h-3.5" />
+              {isFetching ? <Spinner className="size-3.5" /> : <Filter className="w-3.5 h-3.5" />}
               <span>Generate Ledger</span>
             </button>
 
@@ -436,9 +472,7 @@ export default function PurchaseReportsPage() {
               <div key={k} className="flex items-center gap-2">
                 <span className="text-slate-400 text-[11px]">{k}:</span>
                 <span className="font-bold font-mono text-white text-xs">
-                  {typeof v === "number" && (k.toLowerCase().includes("bdt") || k.toLowerCase().includes("value") || k.toLowerCase().includes("spend") || k.toLowerCase().includes("amount") || k.toLowerCase().includes("balance") || k.toLowerCase().includes("disbursement"))
-                    ? formatCurrency(v)
-                    : String(v)}
+                  {typeof v === "number" && isMoneySummary(k) ? formatCurrency(v) : String(v)}
                 </span>
               </div>
             ))}
@@ -456,15 +490,7 @@ export default function PurchaseReportsPage() {
                   <th
                     key={idx}
                     className={`p-2 border border-slate-300 whitespace-nowrap text-[11px] uppercase tracking-wider ${
-                      col.toLowerCase().includes("amount") ||
-                      col.toLowerCase().includes("spend") ||
-                      col.toLowerCase().includes("value") ||
-                      col.toLowerCase().includes("dues") ||
-                      col.toLowerCase().includes("price") ||
-                      col.toLowerCase().includes("balance") ||
-                      col.toLowerCase().includes("receipts") ||
-                      col.toLowerCase().includes("disbursements") ||
-                      col.toLowerCase().includes("committed")
+                      MONEY_COLUMNS.has(col) || QTY_COLUMNS.has(col)
                         ? "text-right"
                         : col.toLowerCase() === "sl"
                         ? "text-center w-12"
@@ -501,16 +527,7 @@ export default function PurchaseReportsPage() {
                     {reportData.columns.map((col, cIdx) => {
                       const val = row[col];
                       const colLower = col.toLowerCase();
-                      const isMoney =
-                        colLower.includes("amount") ||
-                        colLower.includes("spend") ||
-                        colLower.includes("value") ||
-                        colLower.includes("dues") ||
-                        colLower.includes("price") ||
-                        colLower.includes("balance") ||
-                        colLower.includes("receipts") ||
-                        colLower.includes("disbursements") ||
-                        colLower.includes("committed");
+                      const isMoney = MONEY_COLUMNS.has(col);
 
                       return (
                         <td
@@ -518,6 +535,8 @@ export default function PurchaseReportsPage() {
                           className={`p-2 border border-slate-200 whitespace-nowrap text-slate-700 ${
                             isMoney
                               ? "text-right font-mono font-medium text-slate-900"
+                              : QTY_COLUMNS.has(col)
+                              ? "text-right font-mono"
                               : colLower === "sl"
                               ? "text-center font-mono text-slate-500"
                               : "text-left"
@@ -547,17 +566,8 @@ export default function PurchaseReportsPage() {
               <tfoot>
                 <tr className="bg-slate-100/90 font-bold border-t-2 border-slate-300 text-slate-900">
                   {reportData.columns.map((col, cIdx) => {
-                    const colLower = col.toLowerCase();
-                    const isMoney =
-                      colLower.includes("amount") ||
-                      colLower.includes("spend") ||
-                      colLower.includes("value") ||
-                      colLower.includes("dues") ||
-                      colLower.includes("price") ||
-                      colLower.includes("balance") ||
-                      colLower.includes("receipts") ||
-                      colLower.includes("disbursements") ||
-                      colLower.includes("committed");
+                    const isMoney = MONEY_COLUMNS.has(col);
+                    const sum = () => reportData.rows.reduce((s, r) => s + (typeof r[col] === "number" ? (r[col] as number) : 0), 0);
 
                     if (cIdx === 0) {
                       return (
@@ -568,13 +578,16 @@ export default function PurchaseReportsPage() {
                     }
 
                     if (isMoney) {
-                      const totalVal = reportData.rows.reduce((sum, r) => {
-                        const v = r[col];
-                        return sum + (typeof v === "number" ? v : 0);
-                      }, 0);
                       return (
                         <td key={cIdx} className="p-2 border border-slate-300 text-right font-mono font-extrabold text-sky-900 text-xs">
-                          {formatCurrency(totalVal)}
+                          {formatCurrency(sum())}
+                        </td>
+                      );
+                    }
+                    if (QTY_COLUMNS.has(col)) {
+                      return (
+                        <td key={cIdx} className="p-2 border border-slate-300 text-right font-mono font-bold text-xs">
+                          {sum().toLocaleString("en-US", { maximumFractionDigits: 3 })}
                         </td>
                       );
                     }
@@ -597,7 +610,7 @@ export default function PurchaseReportsPage() {
             Displaying <strong className="text-slate-800">{reportData?.rows?.length ?? 0}</strong> record(s) in this ledger view.
           </span>
           <span className="text-[11px] text-slate-400 font-mono">
-            BridgeOne ERP Ledger &bull; Confirmed &bull; Confidential
+            {isSummary ? "Grouped summary (cancelled documents excluded)" : ""}
           </span>
         </div>
       </div>

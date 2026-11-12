@@ -342,35 +342,332 @@ class PurchaseDataStore {
   }
 
   public async getItems(): Promise<Item[]> {
-    const rows = await db().item.findMany({
-      where: { isActive: true },
-      include: { category: true },
-      orderBy: { name: "asc" },
+    const prisma = db();
+    const [rows, stockAgg] = await Promise.all([
+      prisma.item.findMany({
+        where: { isActive: true },
+        include: { category: { include: { parent: { include: { parent: true } } } } },
+        orderBy: { name: "asc" },
+      }),
+      prisma.stockEntry.groupBy({
+        by: ["itemId"],
+        _sum: { qty: true },
+      }),
+    ]);
+
+    const stockMap = new Map<string, number>();
+    for (const s of stockAgg) {
+      stockMap.set(s.itemId, round3(Number(s._sum.qty ?? 0)));
+    }
+
+    return rows.map((i) => {
+      let categoryName = "General";
+      let categoryId: string | undefined;
+      let subCategoryName: string | undefined;
+      let subCategoryId: string | undefined;
+      let minorCategoryName: string | undefined;
+      let minorCategoryId: string | undefined;
+
+      const cat = i.category;
+      if (cat) {
+        if (cat.level === 3) {
+          minorCategoryName = cat.name;
+          minorCategoryId = cat.id;
+          subCategoryName = cat.parent?.name;
+          subCategoryId = cat.parent?.id;
+          categoryName = cat.parent?.parent?.name || cat.parent?.name || cat.name;
+          categoryId = cat.parent?.parent?.id;
+        } else if (cat.level === 2) {
+          subCategoryName = cat.name;
+          subCategoryId = cat.id;
+          categoryName = cat.parent?.name || cat.name;
+          categoryId = cat.parent?.id;
+        } else {
+          categoryName = cat.name;
+          categoryId = cat.id;
+        }
+      }
+
+      const baseCost = Number(i.purchasePrice ?? i.salesRate ?? 0);
+      return {
+        id: i.id,
+        code: i.code,
+        name: i.name,
+        category: categoryName,
+        categoryId,
+        subCategory: subCategoryName,
+        subCategoryId,
+        minorCategory: minorCategoryName,
+        minorCategoryId,
+        itemType: i.itemType || "Inventory Item",
+        brand: i.brand || undefined,
+        barcode: i.barcode || undefined,
+        uom: i.uom || "PCS",
+        standardPrice: baseCost,
+        vatPercent: Number(i.vatPercent ?? 0),
+        lastCost: baseCost,
+        averageCost: baseCost,
+        totalStock: stockMap.get(i.id) ?? 0,
+        description: i.name,
+      };
     });
-    return rows.map((i) => ({
-      id: i.id,
-      code: i.code,
-      name: i.name,
-      category: i.category?.name || "General",
-      uom: i.uom || "PCS",
-      standardPrice: Number(i.purchasePrice ?? i.salesRate ?? 0),
-      description: i.name,
-    }));
   }
 
-  public async getContext() {
+  public async getPurchaseFormOptions() {
+    const prisma = db();
+    const ctx = await this.getContextData();
+    const buWhere = ctx.businessUnitId ? { businessUnitId: ctx.businessUnitId } : {};
+
+    const [categories, salesOrders, projects, accounts, bankAccounts, terms, employees, stockAgg] = await Promise.all([
+      prisma.itemCategory.findMany({
+        where: buWhere,
+        orderBy: [{ level: "asc" }, { name: "asc" }],
+      }),
+      prisma.salesOrder.findMany({
+        where: { ...buWhere, status: { not: "CANCELLED" } },
+        include: {
+          customer: { select: { id: true, name: true, code: true } },
+          lines: {
+            include: { item: { select: { id: true, code: true, name: true, uom: true, purchasePrice: true, vatPercent: true } } },
+            orderBy: { lineNo: "asc" },
+          },
+        },
+        orderBy: { orderDate: "desc" },
+        take: 60,
+      }),
+      prisma.costCenter.findMany({
+        where: { status: "ACTIVE" },
+        orderBy: { code: "asc" },
+      }),
+      prisma.account.findMany({
+        where: { status: "ACTIVE", isGroup: false },
+        orderBy: { code: "asc" },
+      }),
+      prisma.bankAccount.findMany({
+        where: { isActive: true },
+        orderBy: { bankName: "asc" },
+      }),
+      prisma.termsCondition.findMany({
+        where: { ...buWhere, domain: "PURCHASE" },
+        orderBy: [{ isDefault: "desc" }, { sortOrder: "asc" }],
+      }),
+      prisma.employee.findMany({
+        where: { isActive: true },
+        orderBy: { name: "asc" },
+        take: 250,
+      }),
+      prisma.stockEntry.groupBy({
+        by: ["warehouseId", "itemId"],
+        where: buWhere,
+        _sum: { qty: true },
+      }),
+    ]);
+
+    return {
+      categories: categories.map((c) => ({
+        id: c.id,
+        name: c.name,
+        level: c.level,
+        parentId: c.parentId,
+      })),
+      salesOrders: salesOrders.map((so) => ({
+        id: so.id,
+        number: so.number,
+        orderDate: toDateStr(so.orderDate),
+        expectedDeliveryDate: toDateStr(so.expectedDeliveryDate),
+        officeId: so.officeId,
+        customerName: so.customer?.name || "Customer",
+        shippingAddress: so.shippingAddress || "",
+        projectRef: so.refProjectOutlet || "",
+        lines: so.lines.map((l) => ({
+          id: l.id,
+          itemId: l.itemId,
+          itemCode: l.item?.code || "",
+          itemName: l.item?.name || "",
+          uom: l.uom || l.item?.uom || "Pcs",
+          qty: Number(l.qty),
+          unitPrice: Number(l.item?.purchasePrice ?? l.unitPrice ?? 0),
+          vatPercent: Number(l.vatPercent ?? l.item?.vatPercent ?? 0),
+        })),
+      })),
+      projects: projects.map((p) => ({
+        id: p.id,
+        code: p.code,
+        name: p.name,
+        department: p.officeName || p.type || "",
+      })),
+      accounts: accounts.map((a) => ({
+        id: a.id,
+        code: a.code,
+        name: a.name,
+        accountType: a.accountType,
+        accountSubtype: a.accountSubtype,
+        currentBalance: Number(a.currentBalance ?? 0),
+      })),
+      bankAccounts: bankAccounts.map((b) => ({
+        id: b.id,
+        bankName: b.bankName,
+        accountNumber: b.accountNumber,
+        branchName: b.branchName,
+        accountHolder: b.accountHolder,
+        glAccountId: b.glAccountId,
+        glAccountName: b.glAccountName,
+        currentBalance: Number(b.currentBalance ?? 0),
+      })),
+      terms: terms.map((t) => ({
+        id: t.id,
+        title: t.content.slice(0, 60) + (t.content.length > 60 ? "..." : ""),
+        body: t.content,
+        isDefault: t.isDefault,
+      })),
+      employees: employees.map((e) => ({
+        id: e.id,
+        employeeCode: e.employeeCode,
+        name: e.name,
+        officeId: e.officeId,
+        department: e.department || "",
+        designation: e.designation || "",
+      })),
+      stockByWarehouse: stockAgg.map((s) => ({
+        warehouseId: s.warehouseId,
+        itemId: s.itemId,
+        qty: round3(Number(s._sum.qty ?? 0)),
+      })),
+    };
+  }
+
+  public async quickCreateSupplier(input: {
+    name?: string;
+    phone?: string;
+    email?: string;
+    address?: string;
+    contactPerson?: string;
+    type?: string;
+    taxNumber?: string;
+    creditDays?: number;
+  }): Promise<Supplier> {
+    const prisma = db();
+    const name = text(input.name, 150);
+    if (!name) throw badRequest("Supplier name is required.");
+    const ctx = await this.getContextData();
+    if (!ctx.businessUnitId) throw badRequest("Business unit is not configured.");
+
+    const code = `SUP-${Date.now().toString(36).toUpperCase().slice(-6)}`;
+    const created = await prisma.supplier.create({
+      data: {
+        businessUnitId: ctx.businessUnitId,
+        code,
+        name,
+        contactPerson: text(input.contactPerson, 150) ?? name,
+        phone: text(input.phone, 30),
+        email: text(input.email, 254),
+        address: text(input.address, 500),
+        taxNumber: text(input.taxNumber, 50),
+        creditDays: typeof input.creditDays === "number" && input.creditDays >= 0 ? Math.floor(input.creditDays) : null,
+        type: input.type === "FOREIGN" ? "FOREIGN" : "LOCAL",
+        status: "ACTIVE",
+        isActive: true,
+      },
+    });
+
+    return {
+      id: created.id,
+      code: created.code,
+      name: created.name,
+      contactPerson: created.contactPerson || created.name,
+      email: created.email || undefined,
+      phone: created.phone || "N/A",
+      address: created.address || "",
+      taxNumber: created.taxNumber || undefined,
+      type: created.type === "FOREIGN" ? "FOREIGN" : "LOCAL",
+      status: "ACTIVE",
+      balance: 0,
+    };
+  }
+
+  public async quickCreateItem(input: {
+    name?: string;
+    code?: string;
+    uom?: string;
+    purchasePrice?: number;
+    vatPercent?: number;
+    categoryId?: string;
+    itemType?: string;
+    brand?: string;
+    barcode?: string;
+  }): Promise<Item> {
+    const prisma = db();
+    const name = text(input.name, 200);
+    if (!name) throw badRequest("Item name is required.");
+    const ctx = await this.getContextData();
+    if (!ctx.businessUnitId) throw badRequest("Business unit is not configured.");
+
+    const rawCode = text(input.code, 30);
+    const code = rawCode || `ITM-${Date.now().toString(36).toUpperCase().slice(-6)}`;
+    const dup = await prisma.item.findFirst({ where: { businessUnitId: ctx.businessUnitId, code }, select: { id: true } });
+    if (dup) throw badRequest(`Item code "${code}" already exists.`);
+
+    const categoryId = isUuid(input.categoryId) ? input.categoryId : null;
+    const price = Math.max(0, round2(num(input.purchasePrice)));
+    const vat = Math.min(100, Math.max(0, round2(num(input.vatPercent))));
+
+    const created = await prisma.item.create({
+      data: {
+        businessUnitId: ctx.businessUnitId,
+        code,
+        name,
+        uom: (text(input.uom, 20) || "Pcs").slice(0, 20),
+        salesRate: price,
+        purchasePrice: price,
+        vatPercent: vat,
+        categoryId,
+        itemType: text(input.itemType, 30) || "Inventory Item",
+        brand: text(input.brand, 100),
+        barcode: text(input.barcode, 60),
+        canBePurchased: true,
+        isActive: true,
+      },
+      include: { category: { include: { parent: { include: { parent: true } } } } },
+    });
+
+    const cat = created.category;
+    return {
+      id: created.id,
+      code: created.code,
+      name: created.name,
+      category: cat?.parent?.parent?.name || cat?.parent?.name || cat?.name || "General",
+      categoryId: cat?.level === 1 ? cat.id : cat?.level === 2 ? cat.parent?.id : cat?.parent?.parent?.id,
+      subCategory: cat?.level === 2 ? cat.name : cat?.level === 3 ? cat.parent?.name : undefined,
+      subCategoryId: cat?.level === 2 ? cat.id : cat?.level === 3 ? cat.parent?.id : undefined,
+      minorCategory: cat?.level === 3 ? cat.name : undefined,
+      minorCategoryId: cat?.level === 3 ? cat.id : undefined,
+      itemType: created.itemType || "Inventory Item",
+      brand: created.brand || undefined,
+      barcode: created.barcode || undefined,
+      uom: created.uom || "Pcs",
+      standardPrice: price,
+      vatPercent: vat,
+      lastCost: price,
+      averageCost: price,
+      totalStock: 0,
+      description: created.name,
+    };
+  }
+
+  /** Company shown on printed documents, and the signed-in user. */
+  public async getContext(user?: { id: string; name?: string; role: string }) {
     const { companyId, companyName } = await this.getContextData();
     return {
       company: {
         id: companyId,
-        code: "BRG-TECH",
+        code: companyName.replace(/[^A-Za-z0-9]/g, "").slice(0, 8).toUpperCase() || "COMPANY",
         name: companyName,
         currency: "BDT",
       },
       user: {
-        id: "usr-bridgeone-procurement-mgr",
-        name: "Procurement Manager",
-        role: "PURCHASE_MANAGER",
+        id: user?.id ?? "",
+        name: user?.name ?? user?.id ?? "",
+        role: user?.role ?? "",
       },
     };
   }
@@ -389,7 +686,12 @@ class PurchaseDataStore {
     section?: string;
   }): Promise<PurchaseRequisition[]> {
     const rows = await db().purchaseRequisition.findMany({
-      include: { lines: { orderBy: { lineNo: "asc" } }, office: true, warehouse: true },
+      include: {
+        lines: { orderBy: { lineNo: "asc" } },
+        office: true,
+        warehouse: true,
+        purchaseOrders: { where: { status: { not: "CANCELLED" } }, select: { number: true }, orderBy: { createdAt: "asc" } },
+      },
       orderBy: { createdAt: "desc" },
     });
 
@@ -416,6 +718,8 @@ class PurchaseDataStore {
           officeId: r.officeId,
           warehouseId: r.warehouseId || "",
           requisitionNumber: r.number,
+          // The purchase order(s) issued for the requisition.
+          referenceDocument: r.purchaseOrders.map((po) => po.number).join(", ") || undefined,
           requestDate: toDateStr(r.requisitionDate),
           requiredDeliveryDate: toDateStr(r.requiredDate),
           requestType: (r.requestType as PurchaseRequisition["requestType"]) || "LOCAL",
@@ -720,8 +1024,8 @@ class PurchaseDataStore {
           orderDate: toDateStr(po.orderDate),
           expectedDeliveryDate: toDateStr(po.expectedDeliveryDate || po.orderDate),
           referenceNumber: po.referenceNumber || undefined,
-          paymentTerms: "Net 30 Days",
-          deliveryTerms: "FOB Warehouse",
+          paymentTerms: po.paymentTerms || "Net 30 Days",
+          deliveryTerms: po.deliveryTerms || "FOB Warehouse",
           notes: body || undefined,
           shippingFee: Number(po.shippingFee),
           subtotal: Number(po.subtotal),
@@ -801,6 +1105,8 @@ class PurchaseDataStore {
         expectedDeliveryDate,
         referenceNumber: text(input.referenceNumber, 100),
         projectCostCenter: text(input.projectCostCenter, 100),
+        paymentTerms: text(input.paymentTerms, 100),
+        deliveryTerms: text(input.deliveryTerms, 100),
         // Issued orders are authorised by the buyer who issues them.
         status: "APPROVED",
         ...totals,
@@ -867,6 +1173,8 @@ class PurchaseDataStore {
           expectedDeliveryDate,
           referenceNumber: input.referenceNumber !== undefined ? text(input.referenceNumber, 100) : undefined,
           projectCostCenter: input.projectCostCenter !== undefined ? text(input.projectCostCenter, 100) : undefined,
+          paymentTerms: input.paymentTerms !== undefined ? text(input.paymentTerms, 100) : undefined,
+          deliveryTerms: input.deliveryTerms !== undefined ? text(input.deliveryTerms, 100) : undefined,
           shippingFee: shipping,
           ...totals,
           notes: appendNote(po.notes, historyEntry("EDITED", actorName)),
@@ -963,7 +1271,8 @@ class PurchaseDataStore {
           warehouseName: g.warehouse?.name || "Warehouse",
           challanNumber: g.challanNumber || "",
           shipmentDocumentNumber: g.challanNumber || undefined,
-          supplierInvoiceNumber: g.challanNumber || undefined,
+          supplierInvoiceNumber: g.supplierInvoiceNumber || undefined,
+          vatChallanNumber: g.vatChallanNumber || undefined,
           gatePassNumber: g.gatePassNumber || undefined,
           remarks: g.remarks || undefined,
           totalReceivedAmount: Number(g.totalAmount),
@@ -1005,7 +1314,7 @@ class PurchaseDataStore {
 
     const warehouse = await stockWarehouse(existing?.warehouseId || input.warehouseId);
     const receivedAt = parseDate(input.receiptDate, "Receipt date");
-    const challan = text(input.challanNumber ?? input.shipmentDocumentNumber ?? input.supplierInvoiceNumber, 100);
+    const challan = text(input.challanNumber ?? input.shipmentDocumentNumber, 100);
 
     const created = await prisma.$transaction(async (tx) => {
       await lockWarehouse(tx, warehouse.id);
@@ -1018,13 +1327,14 @@ class PurchaseDataStore {
               officeId: warehouse.officeId,
               warehouseId: warehouse.id,
               supplierId: input.supplierId || "",
+              requisitionId: isUuid(input.requisitionId) ? input.requisitionId : undefined,
               orderDate: toDateStr(receivedAt),
               expectedDeliveryDate: toDateStr(receivedAt),
               referenceNumber: challan ?? undefined,
-              paymentTerms: "Net 30 Days",
-              deliveryTerms: "FOB Destination",
-              shippingFee: 0,
-              notes: "Direct receive without a purchase order",
+              paymentTerms: text(input.paymentTerms, 100) ?? "Net 30 Days",
+              deliveryTerms: text(input.deliveryTerms, 100) ?? "FOB Destination",
+              shippingFee: num(input.shippingFee),
+              notes: text(input.remarks, 500) ?? "Direct receive without a purchase order",
               items: inputLines.map((it) => ({
                 itemId: it.itemId,
                 itemCode: it.itemCode,
@@ -1035,11 +1345,12 @@ class PurchaseDataStore {
                 receivedQuantity: 0,
                 returnedQuantity: 0,
                 outstandingQuantity: 0,
-                discountPercentage: 0,
+                discountPercentage: num(it.discountPercentage),
                 discountAmount: 0,
-                taxPercentage: 0,
+                taxPercentage: num(it.taxPercentage),
                 taxAmount: 0,
                 lineTotal: 0,
+                remarks: text(it.remarks, 500) ?? undefined,
               })),
             },
             actorName,
@@ -1097,9 +1408,12 @@ class PurchaseDataStore {
           orderId: order.id,
           supplierId: order.supplierId,
           number,
+          challanDate: input.challanDate ? parseDate(input.challanDate, "Challan date") : null,
           receiveDate: receivedAt,
           challanNumber: challan,
           gatePassNumber: text(input.gatePassNumber ?? input.deliveryNoteNumber, 100),
+          supplierInvoiceNumber: text(input.supplierInvoiceNumber, 100),
+          vatChallanNumber: text(input.vatChallanNumber, 100),
           status: "RECEIVED",
           totalReceivedQty: round3(linesData.reduce((s, l) => s + l.receivedQty, 0)),
           totalAcceptedQty: round3(linesData.reduce((s, l) => s + l.acceptedQty, 0)),
@@ -1237,7 +1551,7 @@ class PurchaseDataStore {
           returnType: "REFUND_CREDIT" as const,
           remarks: pr.reason || undefined,
           status: pr.status === "CANCELLED" ? ("CANCELLED" as const) : ("COMPLETED" as const),
-          createdBy: "Store Officer",
+          createdBy: pr.createdBy || "—",
           createdAt: pr.createdAt.toISOString(),
           inventoryReversalStatus: "SYNCED" as const,
           financeCreditNoteStatus: "SYNCED" as const,
@@ -1383,6 +1697,7 @@ class PurchaseDataStore {
           status: "COMPLETED",
           totalQty: round3(linesData.reduce((s, l) => s + l.qty, 0)),
           totalAmount,
+          createdBy: actorName.slice(0, 150),
           lines: { create: linesData },
         },
       });
@@ -1467,6 +1782,7 @@ class PurchaseDataStore {
     if (!(amount > 0)) throw badRequest("Enter a payment amount greater than 0.");
     const receiptId = isUuid(input.receiptId) ? String(input.receiptId) : null;
     const billId = isUuid(input.billId) ? String(input.billId) : null;
+    const orderId = isUuid(input.orderId) ? String(input.orderId) : null;
     const isAdvance = input.isAdvance === true;
     if (isAdvance && (receiptId || billId)) throw badRequest("An advance is paid before a receipt or bill, so it cannot settle one.");
     const method = ["CASH", "BANK", "CHEQUE", "ONLINE"].includes(input.method) ? input.method : "BANK";
@@ -1485,6 +1801,7 @@ class PurchaseDataStore {
         data: {
           businessUnitId: supplier.businessUnitId,
           supplierId,
+          orderId,
           receiptId,
           billId,
           isAdvance,
@@ -1532,14 +1849,25 @@ class PurchaseDataStore {
   // DASHBOARD & ANALYTICS METRICS
   // -------------------------------------------------------------
   public async getDashboardAnalytics(filters?: { fromDate?: string; toDate?: string; officeId?: string }): Promise<DashboardAnalytics> {
-    const [allPos, reqs, payments, invoices, itemsCatalog, receipts] = await Promise.all([
-      this.getPurchaseOrders(filters || {}),
+    const officeId = filters?.officeId && filters.officeId !== "ALL" ? filters.officeId : undefined;
+    const inRange = (date: string) => (!filters?.fromDate || date >= filters.fromDate) && (!filters?.toDate || date <= filters.toDate);
+    const [officeOrders, reqs, payments, invoices, itemsCatalog, receipts, returnsRows, linkedPayments] = await Promise.all([
+      this.getPurchaseOrders({ officeId }),
       this.getRequisitions(filters || {}),
       this.getSupplierPayments({}),
       this.getSupplierInvoices({}),
       this.getItems(),
-      db().goodsReceipt.findMany({ where: { status: { not: "CANCELLED" } }, select: { orderId: true, receiveDate: true } }),
+      db().goodsReceipt.findMany({
+        where: { status: { not: "CANCELLED" } },
+        select: { id: true, orderId: true, officeId: true, receiveDate: true, totalReceivedQty: true, totalAcceptedQty: true, totalRejectedQty: true, totalAmount: true },
+      }),
+      db().purchaseReturn.findMany({ where: { status: { not: "CANCELLED" } }, select: { officeId: true, returnDate: true, totalAmount: true } }),
+      db().supplierPayment.findMany({
+        where: { status: "PAID", OR: [{ receiptId: { not: null } }, { bill: { receiptId: { not: null } } }] },
+        select: { paymentDate: true, receiptId: true, bill: { select: { receiptId: true } } },
+      }),
     ]);
+    const allPos = officeOrders.filter((p) => inRange(p.orderDate));
     // Cancelled orders are not spend.
     const pos = allPos.filter((p) => p.status !== "CANCELLED");
 
@@ -1584,7 +1912,8 @@ class PurchaseDataStore {
     }
     const monthlyExpenditure = Object.entries(monthMap)
       .sort(([a], [b]) => a.localeCompare(b))
-      .map(([month, expenditure]) => ({ month, expenditure: round2(expenditure), budget: Math.round(expenditure * 1.1) }));
+      // No purchase budget is kept yet; 0 means "not set".
+      .map(([month, expenditure]) => ({ month, expenditure: round2(expenditure), budget: 0 }));
 
     const statusMap: Record<string, number> = {};
     for (const po of allPos) statusMap[po.status] = (statusMap[po.status] || 0) + 1;
@@ -1601,16 +1930,17 @@ class PurchaseDataStore {
       .sort((a, b) => b.totalSpend - a.totalSpend)
       .slice(0, 10);
 
-    const itmMap: Record<string, { quantity: number; amount: number }> = {};
+    const itmMap: Record<string, { quantity: number; amount: number; orders: Set<string> }> = {};
     for (const po of pos) {
       for (const it of po.items) {
-        if (!itmMap[it.itemName]) itmMap[it.itemName] = { quantity: 0, amount: 0 };
+        if (!itmMap[it.itemName]) itmMap[it.itemName] = { quantity: 0, amount: 0, orders: new Set() };
         itmMap[it.itemName].quantity += it.orderedQuantity;
         itmMap[it.itemName].amount += it.lineTotal;
+        itmMap[it.itemName].orders.add(po.id);
       }
     }
     const topPurchasedItems = Object.entries(itmMap)
-      .map(([item, v]) => ({ item, quantity: round3(v.quantity), amount: round2(v.amount) }))
+      .map(([item, v]) => ({ item, quantity: round3(v.quantity), amount: round2(v.amount), orders: v.orders.size }))
       .sort((a, b) => b.amount - a.amount)
       .slice(0, 10);
 
@@ -1624,6 +1954,140 @@ class PurchaseDataStore {
       .filter((p) => firstReceipt.has(p.id))
       .map((p) => Math.max(0, (firstReceipt.get(p.id)! - new Date(`${p.orderDate}T00:00:00Z`).getTime()) / 86_400_000));
     const procurementCycleTimeDays = cycles.length ? Math.round((cycles.reduce((a, b) => a + b, 0) / cycles.length) * 10) / 10 : 0;
+
+    const DAY = 86_400_000;
+    const avg = (values: number[], digits = 1) => (values.length ? Math.round((values.reduce((a, b) => a + b, 0) / values.length) * 10 ** digits) / 10 ** digits : null);
+    const today = toDateStr(new Date());
+
+    // Requisition submitted → approved (from the audit trail).
+    const approvedAt = new Map<string, number>();
+    const approvalHours: number[] = [];
+    for (const r of reqs) {
+      const submitted = r.approvalHistory.find((h) => h.action === "SUBMITTED" || h.action === "RESUBMITTED")?.timestamp ?? r.createdAt;
+      const approved = [...r.approvalHistory].reverse().find((h) => h.action === "APPROVED")?.timestamp;
+      if (!approved) continue;
+      const t = new Date(approved).getTime();
+      approvedAt.set(r.id, t);
+      approvalHours.push(Math.max(0, (t - new Date(submitted).getTime()) / 3_600_000));
+    }
+    // Approved requisition → purchase order issued.
+    const orderDays = pos
+      .filter((p) => p.requisitionId && approvedAt.has(p.requisitionId))
+      .map((p) => Math.max(0, (new Date(p.createdAt).getTime() - approvedAt.get(p.requisitionId!)!) / DAY));
+    // Goods received → first payment against that receipt.
+    const firstPayment = new Map<string, number>();
+    for (const p of linkedPayments) {
+      const receiptId = p.receiptId ?? p.bill?.receiptId;
+      if (!receiptId) continue;
+      const t = p.paymentDate.getTime();
+      if (!firstPayment.has(receiptId) || t < firstPayment.get(receiptId)!) firstPayment.set(receiptId, t);
+    }
+    const periodReceipts = receipts.filter((r) => inRange(toDateStr(r.receiveDate)) && (!officeId || r.officeId === officeId));
+    const paymentDays = periodReceipts.filter((r) => firstPayment.has(r.id)).map((r) => Math.max(0, (firstPayment.get(r.id)! - r.receiveDate.getTime()) / DAY));
+
+    // Quality: accepted share of what arrived, and returned share of its value.
+    const receivedQty = round3(periodReceipts.reduce((s, r) => s + Number(r.totalReceivedQty), 0));
+    const acceptedQty = round3(periodReceipts.reduce((s, r) => s + Number(r.totalAcceptedQty), 0));
+    const rejectedQty = round3(periodReceipts.reduce((s, r) => s + Number(r.totalRejectedQty), 0));
+    const receivedAmount = round2(periodReceipts.reduce((s, r) => s + Number(r.totalAmount), 0));
+    const returnedAmount = round2(
+      returnsRows.filter((r) => inRange(toDateStr(r.returnDate)) && (!officeId || r.officeId === officeId)).reduce((s, r) => s + Number(r.totalAmount), 0),
+    );
+
+    // Goods still to arrive on open orders, valued at the order price.
+    const openOrders = pos.filter((p) => p.status === "APPROVED" || p.status === "PARTIALLY_RECEIVED");
+    const outstandingValue = (p: PurchaseOrder) => p.items.reduce((s, it) => s + (it.orderedQuantity > 0 ? (it.outstandingQuantity * it.lineTotal) / it.orderedQuantity : 0), 0);
+    const pendingReceipt = {
+      orders: openOrders.filter((p) => p.items.some((i) => i.outstandingQuantity > 0)).length,
+      amount: round2(openOrders.reduce((s, p) => s + outstandingValue(p), 0)),
+      overdueOrders: openOrders.filter((p) => p.expectedDeliveryDate < today && p.items.some((i) => i.outstandingQuantity > 0)).length,
+    };
+
+    // Invoices (receipts and bills) of the period: paid or not yet due counts as on time.
+    const periodInvoices = invoices.filter((i) => inRange(i.invoiceDate));
+    const overdueInvoices = periodInvoices.filter((i) => i.dueAmount > 0.005 && i.dueDate < today);
+
+    // Spend of the equally long period just before the selected one.
+    let previousPeriodSpend: number | null = null;
+    if (filters?.fromDate && filters?.toDate) {
+      const from = new Date(`${filters.fromDate}T00:00:00Z`).getTime();
+      const to = new Date(`${filters.toDate}T00:00:00Z`).getTime();
+      if (to >= from) {
+        const prevTo = toDateStr(new Date(from - DAY));
+        const prevFrom = toDateStr(new Date(from - (to - from) - DAY));
+        previousPeriodSpend = round2(
+          officeOrders.filter((p) => p.status !== "CANCELLED" && p.orderDate >= prevFrom && p.orderDate <= prevTo).reduce((s, p) => s + p.totalAmount, 0),
+        );
+      }
+    }
+
+    // Order register: largest orders of the period with delivery and payment progress.
+    const invoicesByPo = new Map<string, { total: number; paid: number }>();
+    for (const inv of invoices) {
+      if (!inv.poNumber) continue;
+      const cur = invoicesByPo.get(inv.poNumber) ?? { total: 0, paid: 0 };
+      cur.total += inv.totalAmount;
+      cur.paid += inv.paidAmount;
+      invoicesByPo.set(inv.poNumber, cur);
+    }
+    const register = [...pos]
+      .sort((a, b) => b.totalAmount - a.totalAmount)
+      .slice(0, 50)
+      .map((p) => {
+        const main = [...p.items].sort((a, b) => b.lineTotal - a.lineTotal)[0];
+        const ordered = p.items.reduce((s, i) => s + i.orderedQuantity, 0);
+        const received = p.items.reduce((s, i) => s + i.receivedQuantity, 0);
+        const billed = invoicesByPo.get(p.poNumber);
+        const paymentStatus: "PAID" | "PARTIALLY_PAID" | "UNPAID" | "NOT_RECEIVED" = !billed || billed.total <= 0
+          ? "NOT_RECEIVED"
+          : billed.total - billed.paid <= 0.005
+            ? "PAID"
+            : billed.paid > 0
+              ? "PARTIALLY_PAID"
+              : "UNPAID";
+        return {
+          id: p.id,
+          poNumber: p.poNumber,
+          orderDate: p.orderDate,
+          supplierName: p.supplierName,
+          officeName: p.officeName,
+          warehouseName: p.warehouseName,
+          category: (main && itemMap.get(main.itemId)?.category) || "Uncategorised",
+          amount: p.totalAmount,
+          status: p.isClosed ? "CLOSED" : p.status,
+          receivedPercent: ordered > 0 ? Math.min(100, Math.round((received / ordered) * 100)) : 0,
+          paymentStatus,
+        };
+      });
+
+    const insights = {
+      pendingReceipt,
+      qc: {
+        receivedQty,
+        acceptedQty,
+        rejectedQty,
+        acceptanceRate: receivedQty > 0 ? Math.round((acceptedQty / receivedQty) * 1000) / 10 : null,
+        receivedAmount,
+        returnedAmount,
+        returnRate: receivedAmount > 0 ? Math.round((returnedAmount / receivedAmount) * 1000) / 10 : null,
+      },
+      payments: {
+        invoices: periodInvoices.length,
+        overdue: overdueInvoices.length,
+        overdueAmount: round2(overdueInvoices.reduce((s, i) => s + i.dueAmount, 0)),
+        onTimeRate: periodInvoices.length ? Math.round(((periodInvoices.length - overdueInvoices.length) / periodInvoices.length) * 1000) / 10 : null,
+      },
+      cycle: {
+        approvalDays: avg(approvalHours.map((h) => h / 24)),
+        orderDays: avg(orderDays),
+        deliveryDays: cycles.length ? procurementCycleTimeDays : null,
+        paymentDays: avg(paymentDays),
+      },
+      approvalTurnaroundHours: avg(approvalHours),
+      previousPeriodSpend,
+      categories: [...new Set(typeWisePurchase.map((t) => t.name))].sort(),
+      register,
+    };
 
     const pendingApprovalItems = reqs
       .filter((r) => r.status === "PENDING_APPROVAL" || r.status === "SUBMITTED")
@@ -1658,6 +2122,7 @@ class PurchaseDataStore {
       procurementCycleTimeDays,
       pendingApprovalItems,
       isSampleData: false,
+      insights,
     };
   }
 
@@ -1835,6 +2300,25 @@ class PurchaseDataStore {
         }));
         summary = { "Total Orders": list.length, "Total Amount": round2(list.filter((p) => p.status !== "CANCELLED").reduce((s, p) => s + p.totalAmount, 0)) };
       }
+    }
+
+    // Summary mode: document reports grouped by department / supplier (cancelled documents left out).
+    const SUMMARY_BY: Partial<Record<string, { key: string; amount: string }>> = {
+      REQUISITION_REPORT: { key: "Department", amount: "Estimated Amount" },
+      PURCHASE_ORDER_REPORT: { key: "Supplier", amount: "Total Amount" },
+      GOODS_RECEIPT_REPORT: { key: "Supplier", amount: "Amount" },
+      PURCHASE_RETURN_REPORT: { key: "Supplier", amount: "Amount" },
+    };
+    const grouping = query.isSummary ? SUMMARY_BY[query.reportType] : undefined;
+    if (grouping) {
+      const live = rows.filter((r) => r.Status !== "CANCELLED");
+      columns = ["SL", grouping.key, "Documents", grouping.amount];
+      rows = groupSum(live, (r) => String(r[grouping.key] ?? ""), (r) => Number(r[grouping.amount] ?? 0)).map(([key, v], i) => ({
+        SL: i + 1,
+        [grouping.key]: key,
+        Documents: v.count,
+        [grouping.amount]: round2(v.amount),
+      }));
     }
 
     return {
