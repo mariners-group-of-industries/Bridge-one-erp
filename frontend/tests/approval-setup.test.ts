@@ -115,7 +115,7 @@ describe("approval setup", () => {
   it("offers only names (no contact details) and respects company scope", async () => {
     const options = await getApprovalFormOptions(adminActor);
     expect(options.users.find((u) => u.id === helalId)).toEqual({ id: helalId, name: "MD. Helal Uddin", businessUnitIds: [unitId] });
-    expect(Object.keys(options.employees[0]).sort()).toEqual(["businessUnitId", "code", "designation", "id", "name"]);
+    expect(Object.keys(options.employees[0]).sort()).toEqual(["businessUnitId", "code", "designation", "id", "name", "userId"]);
     const outsider = scopedActor([]);
     expect((await getApprovalFormOptions(outsider)).employees).toEqual([]);
     await expect(createPipeline(outsider, input({ name: "Y" }))).rejects.toBeInstanceOf(AppError);
