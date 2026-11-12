@@ -76,7 +76,8 @@ interface HeaderState {
 let counter = 0;
 const nextKey = () => `k${++counter}`;
 const blankDraft = (): StageState["draft"] => ({ approverId: "", authorizationType: "" });
-const blankStage = (businessUnitId: string): StageState => ({
+/** New stages list every employee: user type Employee, all business units. */
+const blankStage = (): StageState => ({
   key: nextKey(),
   id: "",
   name: "",
@@ -85,13 +86,13 @@ const blankStage = (businessUnitId: string): StageState => ({
   allowThreshold: false,
   thresholdMin: "",
   thresholdMax: "",
-  userType: "",
-  businessUnitId,
+  userType: "EMPLOYEE",
+  businessUnitId: "",
   approvers: [],
   draft: blankDraft(),
 });
 
-function stagesFrom(pipeline: PipelineDto, defaultUnit: string): StageState[] {
+function stagesFrom(pipeline: PipelineDto): StageState[] {
   return pipeline.stages.map((stage) => {
     const last = stage.approvers.at(-1);
     return {
@@ -103,8 +104,8 @@ function stagesFrom(pipeline: PipelineDto, defaultUnit: string): StageState[] {
       allowThreshold: stage.allowThreshold,
       thresholdMin: stage.thresholdMin,
       thresholdMax: stage.thresholdMax,
-      userType: last?.userType ?? "",
-      businessUnitId: last ? last.businessUnitId : defaultUnit,
+      userType: last?.userType ?? "EMPLOYEE",
+      businessUnitId: last ? last.businessUnitId : "",
       approvers: stage.approvers.map((a) => ({
         key: nextKey(),
         userType: a.userType,
@@ -171,7 +172,6 @@ function PipelineEditor({
   const router = useRouter();
   const toast = useToast();
   const formId = useId();
-  const defaultUnit = options.businessUnits[0]?.id ?? "";
   const [header, setHeader] = useState<HeaderState>(() =>
     saved
       ? {
@@ -189,7 +189,7 @@ function PipelineEditor({
         }
       : { name: "", module: "", feature: "", userType: "EMPLOYEE", superApproverId: "", remarks: "", isOfficeWise: false, isTerritoryWise: false, isItemCategoryWise: false },
   );
-  const [stages, setStages] = useState<StageState[]>(() => (saved && saved.stages.length ? stagesFrom(saved, defaultUnit) : [blankStage(defaultUnit)]));
+  const [stages, setStages] = useState<StageState[]>(() => (saved && saved.stages.length ? stagesFrom(saved) : [blankStage()]));
   const [dirty, setDirty] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState<string | null>(null);
@@ -379,7 +379,7 @@ function PipelineEditor({
             variant="accent"
             disabled={stages.length >= MAX_STAGES}
             onClick={() => {
-              setStages((current) => [...current, blankStage(defaultUnit)]);
+              setStages((current) => [...current, blankStage()]);
               setDirty(true);
               clearErrors("stages");
             }}
