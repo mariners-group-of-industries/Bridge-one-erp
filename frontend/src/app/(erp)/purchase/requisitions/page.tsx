@@ -2,6 +2,8 @@
 
 import Image from "next/image";
 import React, { useState } from "react";
+import { useRouter } from "next/navigation";
+import { Spinner } from "@/components/ui/spinner";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Plus,
@@ -30,6 +32,7 @@ import {
 } from "@bridgeone/contracts";
 
 export default function PurchaseRequisitionsPage() {
+  const router = useRouter();
   const queryClient = useQueryClient();
 
   // Tab state (supporting direct URL / tab param)
@@ -199,7 +202,8 @@ export default function PurchaseRequisitionsPage() {
       setApprovalModal(null);
       setApprovalComment("");
       if (viewReq) setViewReq(null);
-      toast.success(`Requisition ${variables.action.toLowerCase()}d successfully!`, {
+      const done: Record<string, string> = { APPROVE: "approved", REJECT: "rejected" };
+      toast.success(`Requisition ${done[variables.action] ?? "updated"} successfully.`, {
         title: "Status Updated",
       });
     },
@@ -765,7 +769,7 @@ export default function PurchaseRequisitionsPage() {
 
           <button
             type="button"
-            onClick={() => setIsCreateOpen(true)}
+            onClick={() => router.push("/purchase/requisitions/create")}
             className="h-9 px-4 bg-[#2563eb] hover:bg-blue-700 text-white font-semibold text-xs rounded flex items-center gap-1.5 shadow-xs transition"
           >
             <Plus className="w-4 h-4" />
@@ -1595,18 +1599,23 @@ export default function PurchaseRequisitionsPage() {
               disabled={approvalMutation.isPending}
               onClick={() => {
                 if (!approvalModal) return;
+                if (approvalModal.action === "REJECT" && !approvalComment.trim()) {
+                  toast.error("Give a reason for rejecting the requisition.", { title: "Reason Required" });
+                  return;
+                }
                 approvalMutation.mutate({
                   id: approvalModal.req.id,
                   action: approvalModal.action,
                   comments: approvalComment,
                 });
               }}
-              className={`px-4 py-1.5 rounded text-white font-semibold ${
+              className={`px-4 py-1.5 rounded text-white font-semibold inline-flex items-center gap-1.5 disabled:opacity-60 ${
                 approvalModal?.action === "APPROVE"
                   ? "bg-emerald-600 hover:bg-emerald-700"
                   : "bg-rose-600 hover:bg-rose-700"
               }`}
             >
+              {approvalMutation.isPending && <Spinner className="size-3.5" />}
               Confirm {approvalModal?.action}
             </button>
           </div>
