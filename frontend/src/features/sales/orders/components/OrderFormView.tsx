@@ -41,7 +41,8 @@ import { fetchPricing } from "../../pricing/services/pricing.api";
 import type { QuotationDetail } from "../../quotations/schemas/quotation.schema";
 import { fetchStock, fetchWarehouses } from "../../deliveries/services/delivery.api";
 import { fetchQuotation, fetchQuotations } from "../../quotations/services/quotation.api";
-import { CustomerDialog } from "../../setup/components/CustomerDialog";
+import { entityMasterDataPaths } from "@/features/configuration/entity-master-data/paths";
+import { ManagedInConfigurationDialog } from "../../components/ManagedInConfigurationDialog";
 import { SearchPick } from "../../components/SearchPick";
 import { altQty, orderTotals } from "../lib/order-totals";
 import {
@@ -321,7 +322,6 @@ function OrderEditor({ today, lookups, order, quotation }: EditorProps) {
   const [busy, setBusy] = useState(false);
   const [customerDialog, setCustomerDialog] = useState<CustomerOption | "new" | null>(null);
   /** Whether a customer added in the dialog is the order's customer or who referred it. */
-  const [dialogFor, setDialogFor] = useState<"customer" | "referrer">("customer");
   const [fromQuotation, setFromQuotation] = useState(Boolean(quotation));
   const initialJson = useMemo(() => JSON.stringify(initial, (name, value) => (name === "key" ? undefined : value)), [initial]);
   const dirty = !order || JSON.stringify(values, (name, value) => (name === "key" ? undefined : value)) !== initialJson;
@@ -707,7 +707,6 @@ function OrderEditor({ today, lookups, order, quotation }: EditorProps) {
                   title="Add customer"
                   disabled={!setup}
                   onClick={() => {
-                    setDialogFor("customer");
                     setCustomerDialog("new");
                   }}
                 >
@@ -733,7 +732,6 @@ function OrderEditor({ today, lookups, order, quotation }: EditorProps) {
                   title="Add a customer as referrer"
                   disabled={!setup}
                   onClick={() => {
-                    setDialogFor("referrer");
                     setCustomerDialog("new");
                   }}
                 >
@@ -767,7 +765,6 @@ function OrderEditor({ today, lookups, order, quotation }: EditorProps) {
                   aria-label="Edit customer addresses"
                   title="Edit customer / addresses"
                   onClick={() => {
-                    setDialogFor("customer");
                     setCustomerDialog(customer);
                   }}
                 >
@@ -1044,28 +1041,16 @@ function OrderEditor({ today, lookups, order, quotation }: EditorProps) {
         </div>
       </div>
 
-      {customerDialog && businessUnitId && setup && (
-        <CustomerDialog
-          key={customerDialog === "new" ? "new" : customerDialog.id}
+      {customerDialog && (
+        <ManagedInConfigurationDialog
           open
-          businessUnitId={businessUnitId}
-          lookups={setup}
-          customer={customerDialog === "new" ? null : customerDialog}
-          onClose={() => setCustomerDialog(null)}
-          onSaved={(saved) => {
+          title={customerDialog === "new" ? "Add Customer" : `Edit ${customerDialog.name}`}
+          what="Customers and their shipping addresses"
+          where="Configuration › Entity Master Data › Customer Profile"
+          href={customerDialog === "new" ? entityMasterDataPaths.customerCreate : entityMasterDataPaths.customerEdit(customerDialog.id)}
+          onClose={() => {
             setCustomerDialog(null);
-            masters.mutate((data) =>
-              data
-                ? {
-                    ...data,
-                    customers: [...data.customers.filter((candidate) => candidate.id !== saved.id), saved].sort((a, b) =>
-                      a.name.localeCompare(b.name),
-                    ),
-                  }
-                : data!,
-            );
-            if (dialogFor === "referrer") set("referredBy", saved.name);
-            else selectCustomer(saved);
+            masters.reload();
           }}
         />
       )}

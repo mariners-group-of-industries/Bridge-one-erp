@@ -350,6 +350,8 @@ export async function clearSalesDemo(): Promise<Record<string, number>> {
     await run("returns", `DELETE FROM sales_returns WHERE "createdBy" = $1`);
     await run("deliveries", `DELETE FROM sales_deliveries WHERE "createdBy" = $1`);
     await run("stock entries", `DELETE FROM stock_entries WHERE "createdBy" = $1`);
+    // Production orders made "for" a demo sales order keep existing, just without the link.
+    await run("production order links", `UPDATE production_orders SET "salesOrderId" = NULL WHERE "salesOrderId" IN (SELECT id FROM sales_orders WHERE "createdBy" = $1)`);
     await run("orders", `DELETE FROM sales_orders WHERE "createdBy" = $1`);
     await run("quotations", `DELETE FROM sales_quotations WHERE "createdBy" = $1`);
     await run("vehicles", `DELETE FROM vehicles WHERE "createdBy" = $1`);
