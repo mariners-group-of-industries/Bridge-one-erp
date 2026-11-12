@@ -282,7 +282,9 @@ function PipelineEditor({
   const err = (key: string) => errors[key];
   const invalid = (key: string) => !!err(key) || undefined;
   const unitOptions = options.businessUnits.map((u) => ({ value: u.id, label: u.name }));
-  const superApproverWithoutLogin = !!header.superApproverId && !options.employees.find((e) => e.id === header.superApproverId)?.userId;
+  /** Employees without an ERP login cannot act on an approval: the approval flow resolves approvers through their login. */
+  const employeeWithoutLogin = (employeeId: string) => !!employeeId && !options.employees.find((e) => e.id === employeeId)?.userId;
+  const superApproverWithoutLogin = employeeWithoutLogin(header.superApproverId);
 
   return (
     <>
@@ -392,6 +394,7 @@ function PipelineEditor({
           const se = (key: string) => err(`stages.${index}.${key}`);
           const countOptions = Array.from({ length: Math.max(1, stage.approvers.length) }, (_, i) => String(i + 1));
           const pickable = peopleOf(stage.userType, stage.businessUnitId).filter((p) => !stage.approvers.some((a) => a.userType === stage.userType && a.approverId === p.value));
+          const draftWithoutLogin = stage.userType === "EMPLOYEE" && employeeWithoutLogin(stage.draft.approverId);
           return (
             <Panel
               key={stage.key}
@@ -451,7 +454,7 @@ function PipelineEditor({
                       />
                     )}
                   </Field>
-                  <Field label="Business Unit" required>
+                  <Field label="Business Unit">
                     {(id) => (
                       <Select
                         id={id}
@@ -475,7 +478,11 @@ function PipelineEditor({
                     </>
                   )}
 
-                  <Field label="Approver Name" required>
+                  <Field
+                    label="Approver Name"
+                    required
+                    hint={draftWithoutLogin ? "This employee has no ERP login yet, so they cannot approve until one is created." : undefined}
+                  >
                     {(id) => (
                       <Select
                         id={id}
@@ -538,7 +545,14 @@ function PipelineEditor({
                             <td className={`${TABLE.td} w-12 text-right tabular-nums`}>{ai + 1}</td>
                             <td className={TABLE.td}>{labelOf(USER_TYPES, a.userType)}</td>
                             <td className={TABLE.td}>{options.businessUnits.find((u) => u.id === a.businessUnitId)?.name ?? "All"}</td>
-                            <td className={`${TABLE.td} font-medium`}>{a.approverName}</td>
+                            <td className={`${TABLE.td} font-medium`}>
+                              {a.approverName}
+                              {a.userType === "EMPLOYEE" && employeeWithoutLogin(a.approverId) && (
+                                <span className="ml-2 text-xs font-normal text-warning" title="Cannot approve until an ERP login is created for this employee.">
+                                  No login
+                                </span>
+                              )}
+                            </td>
                             <td className={TABLE.td}>{labelOf(AUTHORIZATION_TYPES, a.authorizationType)}</td>
                             <td className={`${TABLE.td} w-20 text-center`}>
                               <Button
