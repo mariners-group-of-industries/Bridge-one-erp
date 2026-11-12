@@ -72,22 +72,49 @@ function paymentStatus(amount: number, paid: number): SupplierInvoiceItem["statu
   return paid > 0 ? "PARTIALLY_PAID" : "UNPAID";
 }
 
+export interface PayablesDateFilter {
+  fromDate?: string;
+  toDate?: string;
+}
+
+function dateRangeWhere(fromDate?: string, toDate?: string) {
+  const f: { gte?: Date; lte?: Date } = {};
+  if (fromDate) {
+    const d = new Date(`${fromDate.slice(0, 10)}T00:00:00.000Z`);
+    if (!Number.isNaN(d.getTime())) f.gte = d;
+  }
+  if (toDate) {
+    const d = new Date(`${toDate.slice(0, 10)}T00:00:00.000Z`);
+    if (!Number.isNaN(d.getTime())) f.lte = d;
+  }
+  return Object.keys(f).length ? f : undefined;
+}
+
 /** Everything payables reports read, with the allocation applied. */
-async function loadPayables() {
+async function loadPayables(filters?: PayablesDateFilter) {
   const prisma = db();
+  const range = dateRangeWhere(filters?.fromDate, filters?.toDate);
   const [suppliers, receipts, returns, bills, payments] = await Promise.all([
     prisma.supplier.findMany({ where: { isActive: true }, orderBy: { name: "asc" } }),
     prisma.goodsReceipt.findMany({
-      where: { status: { not: "CANCELLED" } },
+      where: { status: { not: "CANCELLED" }, ...(range ? { receiveDate: range } : {}) },
       select: {
         id: true, supplierId: true, number: true, receiveDate: true, totalAmount: true, challanNumber: true,
         order: { select: { number: true } },
         bill: { select: { id: true, number: true, status: true, dueDate: true } },
       },
     }),
-    prisma.purchaseReturn.findMany({ where: { status: { not: "CANCELLED" } }, select: { supplierId: true, receiptId: true, totalAmount: true } }),
-    prisma.supplierBill.findMany({ where: { receiptId: null, status: { not: "CANCELLED" } } }),
-    prisma.supplierPayment.findMany({ where: { status: "PAID" }, select: { supplierId: true, amount: true, receiptId: true, billId: true, isAdvance: true, paymentDate: true } }),
+    prisma.purchaseReturn.findMany({
+      where: { status: { not: "CANCELLED" }, ...(range ? { returnDate: range } : {}) },
+      select: { supplierId: true, receiptId: true, totalAmount: true },
+    }),
+    prisma.supplierBill.findMany({
+      where: { receiptId: null, status: { not: "CANCELLED" }, ...(range ? { billDate: range } : {}) },
+    }),
+    prisma.supplierPayment.findMany({
+      where: { status: "PAID", ...(range ? { paymentDate: range } : {}) },
+      select: { supplierId: true, amount: true, receiptId: true, billId: true, isAdvance: true, paymentDate: true },
+    }),
   ]);
 
   const returnedByReceipt = new Map<string, number>();
@@ -111,8 +138,8 @@ async function loadPayables() {
   return { suppliers, receipts, returns, bills, payments, documents, allocation };
 }
 
-export async function listSupplierPayables(): Promise<SupplierPaymentRecord[]> {
-  const { suppliers, receipts, returns, bills, payments, documents, allocation } = await loadPayables();
+export async function listSupplierPayables(filters?: PayablesDateFilter): Promise<SupplierPaymentRecord[]> {
+  const { suppliers, receipts, returns, bills, payments, documents, allocation } = await loadPayables(filters);
   // Documents with something still to pay, per supplier.
   const openBySupplier = new Map<string, number>();
   for (const d of documents) {
@@ -285,8 +312,8 @@ export async function listPaymentHistory() {
 }
 
 /** Advances per supplier: paid as advance, and what is still unused. */
-export async function listSupplierAdvances() {
-  const { suppliers, payments, allocation } = await loadPayables();
+export async function listSupplierAdvances(filters?: PayablesDateFilter) {
+  const { suppliers, payments, allocation } = await loadPayables(filters);
   return suppliers
     .map((s) => {
       const advanceAmount = round2(payments.filter((p) => p.supplierId === s.id && p.isAdvance).reduce((t, p) => t + num(p.amount), 0));
@@ -294,6 +321,29 @@ export async function listSupplierAdvances() {
       return { supplierId: s.id, supplierCode: s.code, supplierName: s.name, advanceAmount, adjustAmount: round2(advanceAmount - remainingAdvance), remainingAdvance };
     })
     .filter((a) => a.advanceAmount > 0);
+}
+
+/** Individual advance payment vouchers, newest first, for Tab 5 Details view. */
+export async function listSupplierAdvanceDetails(filters?: PayablesDateFilter) {
+  const range = dateRangeWhere(filters?.fromDate, filters?.toDate);
+  const rows = await db().supplierPayment.findMany({
+    where: { status: "PAID", isAdvance: true, ...(range ? { paymentDate: range } : {}) },
+    include: { supplier: { select: { name: true, code: true } }, order: { select: { number: true } } },
+    orderBy: [{ paymentDate: "desc" }, { createdAt: "desc" }],
+  });
+  return rows.map((p) => ({
+    id: p.id,
+    number: p.number,
+    paymentDate: dateStr(p.paymentDate),
+    supplierId: p.supplierId,
+    supplierCode: p.supplier.code,
+    supplierName: p.supplier.name,
+    orderNumber: p.order?.number ?? "",
+    method: p.method,
+    referenceNumber: p.referenceNumber ?? "",
+    remarks: p.remarks ?? "",
+    amount: num(p.amount),
+  }));
 }
 
 /** Checks a payment's link and amount before it is posted. */

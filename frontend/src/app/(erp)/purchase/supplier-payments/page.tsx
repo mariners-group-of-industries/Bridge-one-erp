@@ -105,6 +105,19 @@ interface AdvanceApiRow {
   remainingAdvance: number;
 }
 
+interface AdvanceDetailApiRow {
+  id: string;
+  number: string;
+  paymentDate: string;
+  supplierCode: string;
+  supplierName: string;
+  orderNumber: string;
+  method: string;
+  referenceNumber: string;
+  remarks: string;
+  amount: number;
+}
+
 interface DueInvoiceRow {
   sl: number;
   receDate: string;
@@ -220,13 +233,33 @@ export default function SupplierPaymentsPage() {
     queryKey: ["supplierPayables"],
     queryFn: () => fetchApi("/purchase/supplier-payments"),
   });
+  const { data: tab1Payables } = useQuery<SupplierPaymentRecord[]>({
+    queryKey: ["supplierPayables", "tab1", tab1FromDate, tab1ToDate],
+    queryFn: () => {
+      const params = new URLSearchParams();
+      if (tab1FromDate) params.set("fromDate", tab1FromDate);
+      if (tab1ToDate) params.set("toDate", tab1ToDate);
+      const q = params.toString();
+      return fetchApi(`/purchase/supplier-payments${q ? `?${q}` : ""}`);
+    },
+  });
+  const { data: tab6Payables } = useQuery<SupplierPaymentRecord[]>({
+    queryKey: ["supplierPayables", "tab6", tab6FromDate, tab6ToDate],
+    queryFn: () => {
+      const params = new URLSearchParams();
+      if (tab6FromDate) params.set("fromDate", tab6FromDate);
+      if (tab6ToDate) params.set("toDate", tab6ToDate);
+      const q = params.toString();
+      return fetchApi(`/purchase/supplier-payments${q ? `?${q}` : ""}`);
+    },
+  });
   const { data: serverInvoices } = useQuery<SupplierInvoiceItem[]>({
     queryKey: ["supplierInvoices"],
     queryFn: () => fetchApi("/purchase/supplier-payments/invoices"),
   });
   const dueList = useMemo<DueListRow[]>(
     () =>
-      (serverPayables ?? [])
+      (tab1Payables ?? serverPayables ?? [])
         .filter((p) => p.totalPurchasedAmount > 0 || p.paidAmount > 0)
         .map((p, i) => ({
           sl: i + 1,
@@ -239,7 +272,7 @@ export default function SupplierPaymentsPage() {
           paymentAmount: p.paidAmount,
           dueAmount: p.dueAmount,
         })),
-    [serverPayables],
+    [tab1Payables, serverPayables],
   );
   const { data: serverBills } = useQuery<SupplierInvoiceItem[]>({
     queryKey: ["supplierBills"],
@@ -250,8 +283,24 @@ export default function SupplierPaymentsPage() {
     queryFn: () => fetchApi("/purchase/supplier-payments/history"),
   });
   const { data: serverAdvances } = useQuery<AdvanceApiRow[]>({
-    queryKey: ["supplierAdvances"],
-    queryFn: () => fetchApi("/purchase/supplier-payments/advances"),
+    queryKey: ["supplierAdvances", tab5FromDate, tab5ToDate],
+    queryFn: () => {
+      const params = new URLSearchParams();
+      if (tab5FromDate) params.set("fromDate", tab5FromDate);
+      if (tab5ToDate) params.set("toDate", tab5ToDate);
+      const q = params.toString();
+      return fetchApi(`/purchase/supplier-payments/advances${q ? `?${q}` : ""}`);
+    },
+  });
+  const { data: serverAdvanceDetails } = useQuery<AdvanceDetailApiRow[]>({
+    queryKey: ["supplierAdvances", "details", tab5FromDate, tab5ToDate],
+    enabled: tab5DetailsCheck,
+    queryFn: () => {
+      const params = new URLSearchParams({ details: "true" });
+      if (tab5FromDate) params.set("fromDate", tab5FromDate);
+      if (tab5ToDate) params.set("toDate", tab5ToDate);
+      return fetchApi(`/purchase/supplier-payments/advances?${params.toString()}`);
+    },
   });
   // Booked bills that still have something to pay.
   const pendingBills = useMemo<PendingBillRow[]>(
@@ -330,7 +379,7 @@ export default function SupplierPaymentsPage() {
   // Payable worked out from documents vs the supplier balance stored on each movement.
   const ledgerReconList = useMemo<LedgerReconRow[]>(
     () =>
-      (serverPayables ?? [])
+      (tab6Payables ?? serverPayables ?? [])
         .filter((p) => p.totalPurchasedAmount > 0 || p.paidAmount > 0 || (p.ledgerBalance ?? 0) !== 0)
         .map((p, i) => {
           const due = Math.round((p.totalPurchasedAmount - p.returnedAmount - p.paidAmount) * 100) / 100;
@@ -345,7 +394,7 @@ export default function SupplierPaymentsPage() {
             difference: Math.round((ledger - due) * 100) / 100,
           };
         }),
-    [serverPayables],
+    [tab6Payables, serverPayables],
   );
   const refreshPayables = () => {
     for (const key of PURCHASE_QUERY_KEYS) queryClient.invalidateQueries({ queryKey: [key] });
@@ -477,6 +526,16 @@ export default function SupplierPaymentsPage() {
       return true;
     });
   }, [advanceList, tab5Supplier, searchTerm]);
+
+  const filteredAdvanceDetails = useMemo(() => {
+    const supQ = tab5Supplier.trim().toLowerCase();
+    const s = searchTerm.trim().toLowerCase();
+    return (serverAdvanceDetails ?? []).filter((row) => {
+      if (supQ && !row.supplierName.toLowerCase().includes(supQ) && !row.supplierCode.toLowerCase().includes(supQ)) return false;
+      if (s && !row.supplierName.toLowerCase().includes(s) && !row.number.toLowerCase().includes(s) && !row.referenceNumber.toLowerCase().includes(s)) return false;
+      return true;
+    });
+  }, [serverAdvanceDetails, tab5Supplier, searchTerm]);
 
   // Filtering Tab 6
   const filteredLedgerReconList = useMemo(() => {
@@ -1436,6 +1495,52 @@ export default function SupplierPaymentsPage() {
 
           {/* Table Container */}
           <div className="border border-slate-300 bg-white rounded shadow-2xs overflow-x-auto">
+            {tab5DetailsCheck ? (
+              <table className="erp-table w-full text-left text-xs border-collapse">
+                <thead className="bg-[#e6f2fb] text-slate-800 font-semibold text-[11px] border-b border-slate-300 select-none">
+                  <tr>
+                    <th className="p-2 border border-slate-300 w-12 text-center">SL</th>
+                    <th className="p-2 border border-slate-300 w-32">Voucher No</th>
+                    <th className="p-2 border border-slate-300 w-24">Date</th>
+                    <th className="p-2 border border-slate-300">Supplier</th>
+                    <th className="p-2 border border-slate-300 w-28">PO No</th>
+                    <th className="p-2 border border-slate-300 w-24">Method</th>
+                    <th className="p-2 border border-slate-300 w-28">Ref / LC No</th>
+                    <th className="p-2 border border-slate-300">Narration</th>
+                    <th className="p-2 border border-slate-300 w-36 text-right">Amount</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200 text-[11px] text-slate-800">
+                  {filteredAdvanceDetails.length === 0 ? (
+                    <tr>
+                      <td colSpan={9} className="p-6 text-center text-slate-500">No advance payment vouchers found.</td>
+                    </tr>
+                  ) : (
+                    filteredAdvanceDetails.map((row, idx) => (
+                      <tr key={row.id} className="hover:bg-slate-50/80 transition-colors">
+                        <td className="p-2 border border-slate-300 text-center font-mono text-slate-600">{idx + 1}</td>
+                        <td className="p-2 border border-slate-300 font-mono text-sky-700 font-semibold">{row.number}</td>
+                        <td className="p-2 border border-slate-300 font-mono text-slate-600">{row.paymentDate}</td>
+                        <td className="p-2 border border-slate-300 text-slate-900 font-medium">{row.supplierName}</td>
+                        <td className="p-2 border border-slate-300 font-mono text-slate-600">{row.orderNumber || "—"}</td>
+                        <td className="p-2 border border-slate-300">{row.method}</td>
+                        <td className="p-2 border border-slate-300 font-mono text-slate-600">{row.referenceNumber || "—"}</td>
+                        <td className="p-2 border border-slate-300 text-slate-600 max-w-xs truncate">{row.remarks || "—"}</td>
+                        <td className="p-2 border border-slate-300 text-right font-mono font-semibold text-slate-900">{formatCurrency(row.amount)}</td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+                <tfoot>
+                  <tr className="bg-slate-50 font-bold text-xs border-t-2 border-slate-300 text-slate-900">
+                    <td colSpan={8} className="p-2 border border-slate-300 text-right font-bold">Total</td>
+                    <td className="p-2 border border-slate-300 text-right font-mono text-xs font-bold">
+                      {formatCurrency(filteredAdvanceDetails.reduce((t, r) => t + r.amount, 0))}
+                    </td>
+                  </tr>
+                </tfoot>
+              </table>
+            ) : (
             <table className="erp-table w-full text-left text-xs border-collapse">
               <thead className="bg-[#e6f2fb] text-slate-800 font-semibold text-[11px] border-b border-slate-300 select-none">
                 <tr>
@@ -1484,6 +1589,7 @@ export default function SupplierPaymentsPage() {
                 </tr>
               </tfoot>
             </table>
+            )}
           </div>
         </div>
       )}

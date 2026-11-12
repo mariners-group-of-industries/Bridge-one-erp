@@ -50,6 +50,7 @@ describe("automatic GL posting rules", () => {
     expect(byKey(billLines(120))).toEqual({ PURCHASE_EXPENSE: 120, PAYABLE: -120 });
     expect(byKey(supplierPaymentLines(500, "CHEQUE"))).toEqual({ PAYABLE: 500, BANK: -500 });
     expect(byKey(supplierPaymentLines(50, "CASH"))).toEqual({ PAYABLE: 50, CASH: -50 });
+    expect(byKey(supplierPaymentLines(250, "BANK", "acc-dutch-bangla"))).toEqual({ PAYABLE: 250, "acc-dutch-bangla": -250 });
   });
 
   it("posts stock gains and losses at cost", () => {

@@ -8,6 +8,7 @@ import {
   approveSupplierBill,
   createSupplierBill,
   listPaymentHistory,
+  listSupplierAdvanceDetails,
   listSupplierAdvances,
   listSupplierBills,
 } from "@/lib/purchase-store/payables";
@@ -197,6 +198,8 @@ async function handleGET(
         search: searchParams.get("search") || undefined,
         status: searchParams.get("status") || undefined,
         category: searchParams.get("category") || undefined,
+        fromDate: searchParams.get("fromDate") || undefined,
+        toDate: searchParams.get("toDate") || undefined,
       });
       return NextResponse.json({
         success: true,
@@ -222,7 +225,12 @@ async function handleGET(
       return NextResponse.json({ success: true, data, meta: { total: data.length } });
     }
     if (path === "purchase/supplier-payments/advances") {
-      const data = await listSupplierAdvances();
+      const fromDate = searchParams.get("fromDate") || undefined;
+      const toDate = searchParams.get("toDate") || undefined;
+      const details = searchParams.get("details") === "true";
+      const data = details
+        ? await listSupplierAdvanceDetails({ fromDate, toDate })
+        : await listSupplierAdvances({ fromDate, toDate });
       return NextResponse.json({ success: true, data, meta: { total: data.length } });
     }
     if (path === "purchase/supplier-bills") {
@@ -327,7 +335,8 @@ async function handlePOST(
           id,
           "APPROVE",
           actorName,
-          comments
+          comments,
+          { id: actor.id, name: actorName, isMaster: actor.isMaster }
         );
         return NextResponse.json({ success: true, data: updated });
       }
@@ -381,7 +390,8 @@ async function handlePOST(
           id,
           "APPROVE",
           actorName,
-          comments
+          comments,
+          { id: actor.id, name: actorName, isMaster: actor.isMaster }
         );
         return NextResponse.json({ success: true, data: updated });
       }

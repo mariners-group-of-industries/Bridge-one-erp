@@ -14,6 +14,22 @@ import { effectiveUnitCost } from "@/lib/purchase-store/rules";
 import { PURCHASE_QUERY_KEYS, downloadCsv, localToday } from "@/features/purchase/lib/client";
 import type { GoodsReceipt, Item, Office, PurchaseOrder, SupplierInvoiceItem } from "@bridgeone/contracts";
 
+const parsePoTag = (notes: string | undefined, prefix: string): string => {
+  if (!notes) return "";
+  for (const part of notes.split("|")) {
+    const t = part.trim();
+    if (t.startsWith(prefix)) return t.slice(prefix.length).trim();
+  }
+  return "";
+};
+
+const poDocFields = (po: PurchaseOrder) => ({
+  shipmentDocumentNumber: parsePoTag(po.notes, "Shipment Doc:") || "",
+  supplierInvoiceNumber: parsePoTag(po.notes, "Sales Inv:") || "",
+  vatChallanNumber: parsePoTag(po.notes, "VAT Challan:") || "",
+  deliveryNumber: parsePoTag(po.notes, "Delivery No:") || po.referenceNumber || "",
+});
+
 type Tab = "APPROVED_PO" | "RECEIVED_PO";
 type Receipt = GoodsReceipt & {
   challanNumber?: string;
@@ -179,14 +195,15 @@ export default function PurchaseReceivePage() {
   // ---------------------------------------------------------------
   // Receive against PO
   // ---------------------------------------------------------------
-  const openReceive = (po: PurchaseOrder) =>
+  const openReceive = (po: PurchaseOrder) => {
+    const docs = poDocFields(po);
     setReceiveForm({
       po,
       receiptDate: today(),
-      challanNumber: "",
-      gatePassNumber: "",
-      vatChallanNumber: "",
-      supplierInvoiceNumber: "",
+      challanNumber: docs.shipmentDocumentNumber,
+      gatePassNumber: docs.deliveryNumber,
+      vatChallanNumber: docs.vatChallanNumber,
+      supplierInvoiceNumber: docs.supplierInvoiceNumber,
       remarks: "",
       lines: po.items
         .filter((it) => it.outstandingQuantity > 0)
@@ -204,6 +221,7 @@ export default function PurchaseReceivePage() {
           rate: effectiveUnitCost(it.lineTotal, it.orderedQuantity),
         })),
     });
+  };
 
   const patchReceiveLine = (idx: number, patch: Partial<ReceiveLine>) =>
     setReceiveForm((f) => (f ? { ...f, lines: f.lines.map((l, i) => (i === idx ? { ...l, ...patch } : l)) } : f));
@@ -346,23 +364,26 @@ export default function PurchaseReceivePage() {
       downloadCsv(
         "pending_receipts.csv",
         ["SL", "PO Date", "Received Date", "Requisition No", "PO Number", "Supplier", "Office", "Shipment No", "Shipment Document No.", "VAT Challan No", "Sales Invoice No", "Delivery No", "Prepared By", "ETA", "Status"],
-        pendingPOs.map((o, i) => [
-          i + 1,
-          o.orderDate,
-          o.expectedDeliveryDate,
-          o.requisitionNumber ?? "N/A",
-          o.poNumber,
-          o.supplierName,
-          o.officeName,
-          "N/A",
-          "N/A",
-          "N/A",
-          "N/A",
-          "N/A",
-          o.createdBy,
-          formatEta(o.expectedDeliveryDate),
-          o.status === "PARTIALLY_RECEIVED" ? "Partially Received" : "Approved",
-        ]),
+        pendingPOs.map((o, i) => {
+          const docs = poDocFields(o);
+          return [
+            i + 1,
+            o.orderDate,
+            o.expectedDeliveryDate,
+            o.requisitionNumber ?? "N/A",
+            o.poNumber,
+            o.supplierName,
+            o.officeName,
+            docs.shipmentDocumentNumber || "N/A",
+            docs.shipmentDocumentNumber || "N/A",
+            docs.vatChallanNumber || "N/A",
+            docs.supplierInvoiceNumber || "N/A",
+            docs.deliveryNumber || "N/A",
+            o.createdBy,
+            formatEta(o.expectedDeliveryDate),
+            o.status === "PARTIALLY_RECEIVED" ? "Partially Received" : "Approved",
+          ];
+        }),
       );
     } else {
       downloadCsv(
@@ -512,6 +533,7 @@ export default function PurchaseReceivePage() {
                   ) : (
                     pendingPOs.map((po, idx) => {
                       const overdue = po.expectedDeliveryDate < today();
+                      const docs = poDocFields(po);
                       return (
                         <tr key={po.id}>
                           <td className="text-center font-mono text-slate-600">{idx + 1}</td>
@@ -556,11 +578,11 @@ export default function PurchaseReceivePage() {
                           </td>
                           <td className="font-medium text-slate-900">{po.supplierName}</td>
                           <td>{po.officeName}</td>
-                          <td className="text-slate-500 font-mono text-[11px]">N/A</td>
-                          <td className="text-slate-500 font-mono text-[11px]">N/A</td>
-                          <td className="text-slate-500 font-mono text-[11px]">N/A</td>
-                          <td className="text-slate-500 font-mono text-[11px]">N/A</td>
-                          <td className="text-slate-500 font-mono text-[11px]">N/A</td>
+                          <td className="text-slate-500 font-mono text-[11px]">{docs.shipmentDocumentNumber || "N/A"}</td>
+                          <td className="text-slate-500 font-mono text-[11px]">{docs.shipmentDocumentNumber || "N/A"}</td>
+                          <td className="text-slate-500 font-mono text-[11px]">{docs.vatChallanNumber || "N/A"}</td>
+                          <td className="text-slate-500 font-mono text-[11px]">{docs.supplierInvoiceNumber || "N/A"}</td>
+                          <td className="text-slate-500 font-mono text-[11px]">{docs.deliveryNumber || "N/A"}</td>
                           <td>{po.createdBy}</td>
                           <td className="text-slate-600 text-[11px] whitespace-nowrap">{formatEta(po.expectedDeliveryDate)}</td>
                           <td className={`text-center text-[11px] font-semibold ${po.status === "PARTIALLY_RECEIVED" ? "text-purple-700" : "text-sky-700"}`}>

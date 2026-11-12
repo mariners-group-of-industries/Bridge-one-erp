@@ -595,6 +595,7 @@ model Office {
   purchaseOrders       PurchaseOrder[]
   goodsReceipts        GoodsReceipt[]
   purchaseReturns      PurchaseReturn[]
+  supplierPayments     SupplierPayment[]
   suppliers            Supplier[]
   customers            Customer[]
   openingStockReceipts OpeningStockReceipt[]
@@ -3057,6 +3058,10 @@ model SupplierPayment {
   /// The goods receipt or supplier bill this payment settles; neither = on account.
   receiptId       String?               @db.Uuid
   billId          String?               @db.Uuid
+  /// Office, Bank Account & GL cash/bank account chosen on the payment voucher.
+  officeId        String?               @db.Uuid
+  bankAccountId   String?               @db.Uuid
+  cashAccountId   String?               @db.Uuid
   /// Paid before goods or a bill; shown under Payment Advance until used up.
   isAdvance       Boolean               @default(false)
   createdBy       String?               @db.VarChar(150)
@@ -3068,6 +3073,9 @@ model SupplierPayment {
   order           PurchaseOrder?        @relation(fields: [orderId], references: [id], onDelete: SetNull)
   receipt         GoodsReceipt?         @relation(fields: [receiptId], references: [id], onDelete: SetNull)
   bill            SupplierBill?         @relation(fields: [billId], references: [id], onDelete: SetNull)
+  office          Office?               @relation(fields: [officeId], references: [id], onDelete: SetNull)
+  bankAccount     BankAccount?          @relation(fields: [bankAccountId], references: [id], onDelete: SetNull)
+  cashAccount     Account?              @relation("SupplierPaymentCashAccount", fields: [cashAccountId], references: [id], onDelete: SetNull)
 
   @@unique([businessUnitId, number])
   @@index([businessUnitId, paymentDate])
@@ -3137,6 +3145,7 @@ model Account {
   collectionCashAccounts   SalesCollection[]          @relation("CollectionCashAccount")
   collectionAdjustAccounts SalesCollection[]          @relation("CollectionAdjustAccount")
   collectionDeductions     SalesCollectionDeduction[]
+  supplierPaymentCash      SupplierPayment[]          @relation("SupplierPaymentCashAccount")
 
   postingRoles             PostingAccount[]
   @@map("accounts")
@@ -3396,7 +3405,8 @@ model BankAccount {
   createdAt            DateTime @default(now()) @db.Timestamptz(3)
   updatedAt            DateTime @updatedAt @db.Timestamptz(3)
 
-  salesWallets SalesWallet[]
+  salesWallets     SalesWallet[]
+  supplierPayments SupplierPayment[]
 
   @@map("bank_accounts")
 }

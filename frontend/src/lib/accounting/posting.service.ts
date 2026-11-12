@@ -164,6 +164,8 @@ const SOURCES: SourceDef[] = [
         id: r.id,
         journal: { date: r.returnDate, number: r.number, narration: `Purchase return ${r.number}`, officeId: r.officeId, lines: reverse(receiptLines(num(r.totalAmount))) },
       })),
+    cancelled: async (posted) =>
+      posted.length ? (await db().purchaseReturn.findMany({ where: { id: { in: posted }, status: "CANCELLED" }, select: { id: true } })).map((r) => r.id) : [],
   },
   {
     type: "SUPPLIER_BILL",
@@ -186,12 +188,18 @@ const SOURCES: SourceDef[] = [
       (
         await db().supplierPayment.findMany({
           where: { status: "PAID", ...notIn(posted) },
-          select: { id: true, number: true, paymentDate: true, amount: true, method: true },
+          select: { id: true, number: true, paymentDate: true, officeId: true, amount: true, method: true, cashAccountId: true, bankAccount: { select: { glAccountId: true } } },
           take: BATCH,
         })
       ).map((p) => ({
         id: p.id,
-        journal: { date: p.paymentDate, number: p.number, narration: `Supplier payment ${p.number}`, lines: supplierPaymentLines(num(p.amount), p.method) },
+        journal: {
+          date: p.paymentDate,
+          number: p.number,
+          narration: `Supplier payment ${p.number}`,
+          officeId: p.officeId,
+          lines: supplierPaymentLines(num(p.amount), p.method, p.cashAccountId ?? p.bankAccount?.glAccountId),
+        },
       })),
     cancelled: async (posted) =>
       posted.length ? (await db().supplierPayment.findMany({ where: { id: { in: posted }, status: "CANCELLED" }, select: { id: true } })).map((d) => d.id) : [],

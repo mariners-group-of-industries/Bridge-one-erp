@@ -2,6 +2,8 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { PrismaClient } from "@/generated/prisma/client";
 import { createItem } from "@/features/sales/masters/services/masters.service";
 import { purchaseStore } from "@/lib/purchase-store/store";
+import { listSupplierAdvanceDetails, listSupplierPayables } from "@/lib/purchase-store/payables";
+import { postPendingDocuments } from "@/lib/accounting/posting.service";
 import {
   orderTransition,
   priceLine,
@@ -341,5 +343,79 @@ describe("purchase flow: requisition → order → receipt → return", () => {
     expect(Array.isArray(options.categories)).toBe(true);
     expect(Array.isArray(options.accounts)).toBe(true);
     expect(options.stockByWarehouse.some((s) => s.itemId === newItem.id && s.qty === 10)).toBe(true);
+
+    // Date filtering on payables and advance details
+    const periodPayables = await listSupplierPayables({ fromDate: "2026-11-09", toDate: "2026-11-10" });
+    const supRow = periodPayables.find((r) => r.supplierId === newSup.id)!;
+    expect(supRow.totalPurchasedAmount).toBe(1150);
+    expect(supRow.paidAmount).toBe(400);
+    const outOfRange = await listSupplierPayables({ fromDate: "2026-12-01", toDate: "2026-12-31" });
+    expect(outOfRange.find((r) => r.supplierId === newSup.id)?.totalPurchasedAmount).toBe(0);
+    const advDetails = await listSupplierAdvanceDetails({ fromDate: "2026-11-01", toDate: "2026-11-30" });
+    expect(advDetails.some((d) => d.id === adv.id && d.referenceNumber === "LC-9001")).toBe(true);
+  });
+
+  it("updates linked bank balance on supplier payment/cancel and reverses GL on cancelled return", async () => {
+    const invAcc = await prisma.account.create({
+      data: { code: "1300", name: "Inventory Asset", accountType: "ASSET", accountSubtype: "Current Asset", normalBalance: "DEBIT" },
+    });
+    const payAcc = await prisma.account.create({
+      data: { code: "2100", name: "Accounts Payable", accountType: "LIABILITY", accountSubtype: "Current Liability", normalBalance: "CREDIT" },
+    });
+    const bankGl = await prisma.account.create({
+      data: { code: "1120", name: "City Bank GL", accountType: "ASSET", accountSubtype: "Bank", normalBalance: "DEBIT", currentBalance: 5000 },
+    });
+    const cashAcc = await prisma.account.create({
+      data: { code: "1110", name: "Petty Cash", accountType: "ASSET", accountSubtype: "Cash", normalBalance: "DEBIT" },
+    });
+    const expAcc = await prisma.account.create({
+      data: { code: "5100", name: "Purchase Expense", accountType: "EXPENSE", accountSubtype: "Direct Expense", normalBalance: "DEBIT" },
+    });
+    await prisma.postingAccount.createMany({
+      data: [
+        { key: "INVENTORY", accountId: invAcc.id },
+        { key: "PAYABLE", accountId: payAcc.id },
+        { key: "BANK", accountId: bankGl.id },
+        { key: "CASH", accountId: cashAcc.id },
+        { key: "PURCHASE_EXPENSE", accountId: expAcc.id },
+      ],
+    });
+    const bank = await prisma.bankAccount.create({
+      data: {
+        accountNumber: "CB-9901",
+        bankName: "City Bank",
+        branchName: "Gulshan",
+        accountHolder: "BridgeOne Ltd",
+        glAccountId: bankGl.id,
+        glAccountName: bankGl.name,
+        openingBalance: 5000,
+        currentBalance: 5000,
+      },
+    });
+
+    const pay = await purchaseStore.createSupplierPayment(
+      { supplierId, officeId, bankAccountId: bank.id, amount: 300, method: "BANK", paymentDate: "2026-11-10" },
+      ACTOR,
+    );
+    expect(Number((await prisma.bankAccount.findUniqueOrThrow({ where: { id: bank.id } })).currentBalance)).toBe(4700);
+
+    await postPendingDocuments(ACTOR);
+    const vouchers = await prisma.journalVoucher.findMany({ where: { sourceType: "SUPPLIER_PAYMENT", sourceId: pay.id }, include: { lines: true } });
+    expect(vouchers).toHaveLength(1);
+    expect(vouchers[0].lines.some((l) => l.accountId === bankGl.id && Number(l.credit) === 300)).toBe(true);
+
+    await purchaseStore.cancelSupplierPayment(pay.id, ACTOR, "reissued");
+    expect(Number((await prisma.bankAccount.findUniqueOrThrow({ where: { id: bank.id } })).currentBalance)).toBe(5000);
+
+    const ret = await purchaseStore.createPurchaseReturn(
+      { goodsReceiptId: "WITHOUT_REF", supplierId, officeId, warehouseId, returnDate: "2026-11-11", items: [{ itemId: sugarId, returnQuantity: 2, unitPrice: 110, reason: "Damaged" }] },
+      ACTOR,
+    );
+    await postPendingDocuments(ACTOR);
+    expect(await prisma.journalVoucher.count({ where: { sourceType: "PURCHASE_RETURN", sourceId: ret.id } })).toBe(1);
+
+    await purchaseStore.cancelPurchaseReturn(ret.id, ACTOR, "reversed");
+    await postPendingDocuments(ACTOR);
+    expect(await prisma.journalVoucher.count({ where: { sourceType: "PURCHASE_RETURN_CANCEL", sourceId: ret.id } })).toBe(1);
   });
 });

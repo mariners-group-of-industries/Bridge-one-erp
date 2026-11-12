@@ -187,6 +187,9 @@ export function PaymentByGrnView() {
           body: JSON.stringify({
             supplierId: line.supplierId,
             receiptId: line.receiptId,
+            officeId: selectedOfficeId,
+            cashAccountId: paymentMode === "CASH" && cashAccountId ? cashAccountId : undefined,
+            bankAccountId: paymentMode === "BANK" && bankAccountId ? bankAccountId : undefined,
             amount: line.amount,
             paymentDate,
             method: paymentMode,

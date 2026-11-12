@@ -170,13 +170,13 @@ export default function PurchaseRequisitionsPage() {
   // "New PR from this one" form state (filled from the source requisition when the dialog opens)
   const [formOfficeId, setFormOfficeId] = useState("");
   const [formWarehouseId, setFormWarehouseId] = useState("");
-  const [formRequestType, setFormRequestType] = useState<"LOCAL" | "IMPORT" | "INTER_BRANCH" | "URGENT">("LOCAL");
+  const [formRequestType] = useState<"LOCAL" | "IMPORT" | "INTER_BRANCH" | "URGENT">("LOCAL");
   const [formDepartment, setFormDepartment] = useState("");
   const [formRequester, setFormRequester] = useState("");
   const [formPurchaseMethod, setFormPurchaseMethod] = useState<"DIRECT" | "QUOTATION" | "TENDER" | "CONTRACT">("DIRECT");
   const [formDeliveryDate, setFormDeliveryDate] = useState(localToday);
   const [formJustification, setFormJustification] = useState("");
-  const [formRemarks, setFormRemarks] = useState("");
+  const [formRemarks] = useState("");
   const [formLineItems, setFormLineItems] = useState<
     { itemId: string; itemCode: string; itemName: string; uom: string; quantity: number; estimatedUnitPrice: number; lineTotal: number; remarks: string }[]
   >([]);

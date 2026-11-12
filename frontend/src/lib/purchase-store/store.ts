@@ -16,7 +16,7 @@ import {
   ReportResult,
 } from "@bridgeone/contracts";
 import type { Prisma, StockSource } from "@/generated/prisma/client";
-import { badRequest, notFound } from "@/lib/api/errors";
+import { AppError, badRequest, notFound } from "@/lib/api/errors";
 import { db } from "@/lib/prisma/client";
 import { assertStockAvailable, lockWarehouse } from "@/features/sales/deliveries/services/stock.service";
 import { formatNumber, nextNumber } from "@/features/sales/lib/sequence";
@@ -205,6 +205,55 @@ function splitNotes(notes: string | null) {
 function historyEntry(action: string, actorName: string, comments?: string) {
   const clean = (comments ?? "").replace(/\s+/g, " ").trim();
   return `[${new Date().toISOString()} ${action} by ${actorName.replace(/[\]\n]/g, " ").slice(0, 80)}]${clean ? ` ${clean.slice(0, 300)}` : ""}`;
+}
+
+export interface PurchaseActor {
+  id?: string;
+  name?: string;
+  isMaster?: boolean;
+}
+
+/** Enforces active Configuration › Approval Setup pipeline when configured for a Purchase feature. */
+async function assertApprovalPipeline(
+  tx: Tx,
+  features: string[],
+  businessUnitId: string,
+  amount: number,
+  actor?: PurchaseActor,
+) {
+  if (!actor?.id || actor.isMaster) return;
+  const pipeline = await tx.approvalPipeline.findFirst({
+    where: { feature: { in: features } },
+    orderBy: { updatedAt: "desc" },
+    include: {
+      superApproverEmployee: { select: { userId: true } },
+      stages: {
+        orderBy: { stageNo: "asc" },
+        include: { approvers: { include: { employee: { select: { userId: true } } } } },
+      },
+    },
+  });
+  if (!pipeline || pipeline.stages.length === 0) return;
+  const superId = pipeline.superApproverUserId ?? pipeline.superApproverEmployee?.userId ?? null;
+  if (superId && superId === actor.id) return;
+
+  const matchingStages = pipeline.stages.filter(
+    (s) =>
+      !s.allowThreshold ||
+      ((s.thresholdMin === null || amount >= Number(s.thresholdMin)) &&
+        (s.thresholdMax === null || amount <= Number(s.thresholdMax))),
+  );
+  const eligibleUserIds = new Set(
+    matchingStages.flatMap((s) =>
+      s.approvers
+        .filter((a) => !a.businessUnitId || a.businessUnitId === businessUnitId)
+        .map((a) => (a.userType === "EMPLOYEE" ? a.employee?.userId : a.userId))
+        .filter((uid): uid is string => Boolean(uid)),
+    ),
+  );
+  if (eligibleUserIds.size > 0 && !eligibleUserIds.has(actor.id)) {
+    throw new AppError(403, "FORBIDDEN", "You are not an authorized approver in the active approval pipeline for this document.");
+  }
 }
 
 const REQUISITION_STATUS: Record<RequisitionDbStatus, PurchaseRequisition["status"]> = {
@@ -835,15 +884,20 @@ class PurchaseDataStore {
     return (await this.getRequisitionById(created.id))!;
   }
 
-  public async updateRequisitionStatus(id: string, action: string, actorName: string, comments?: string) {
+  public async updateRequisitionStatus(id: string, action: string, actorName: string, comments?: string, actor?: PurchaseActor) {
     const req = await this.findRequisition(id);
     const result = requisitionTransition(req.status as RequisitionDbStatus, action as RequisitionAction);
     if ("error" in result) throw badRequest(result.error);
     if (action === "REJECT" && !comments?.trim()) throw badRequest("Give a reason for rejecting the requisition.");
 
-    await db().purchaseRequisition.update({
-      where: { id: req.id },
-      data: { status: result.to, notes: appendNote(req.notes, historyEntry(REQUISITION_PAST[action as RequisitionAction] ?? action, actorName, comments)) },
+    await db().$transaction(async (tx) => {
+      if (action === "APPROVE") {
+        await assertApprovalPipeline(tx, ["Purchase Requisition"], req.businessUnitId, Number(req.totalEstimated), actor);
+      }
+      await tx.purchaseRequisition.update({
+        where: { id: req.id },
+        data: { status: result.to, notes: appendNote(req.notes, historyEntry(REQUISITION_PAST[action as RequisitionAction] ?? action, actorName, comments)) },
+      });
     });
     return this.getRequisitionById(req.id);
   }
@@ -1185,7 +1239,7 @@ class PurchaseDataStore {
     return this.getPurchaseOrderById(po.id);
   }
 
-  public async updatePurchaseOrderStatus(id: string, action: string, actorName: string, comments?: string) {
+  public async updatePurchaseOrderStatus(id: string, action: string, actorName: string, comments?: string, actor?: PurchaseActor) {
     const po = await this.findOrder(id);
     const progress = po.lines.map((l) => ({ ordered: Number(l.quantity), received: Number(l.receivedQuantity) }));
     const result = orderTransition(po.status as OrderDbStatus, action as OrderAction, progress);
@@ -1193,6 +1247,9 @@ class PurchaseDataStore {
 
     const pastTense: Record<string, string> = { APPROVE: "APPROVED", CLOSE: "CLOSED", CANCEL: "CANCELLED", REVERSE: "REVERSED" };
     await db().$transaction(async (tx) => {
+      if (action === "APPROVE") {
+        await assertApprovalPipeline(tx, ["Purchase Order", "Purchase Order Local"], po.businessUnitId, Number(po.totalAmount), actor);
+      }
       await tx.purchaseOrder.update({
         where: { id: po.id },
         data: { status: result.to, notes: appendNote(po.notes, historyEntry(pastTense[action] ?? action, actorName, comments)) },
@@ -1747,8 +1804,8 @@ class PurchaseDataStore {
   // -------------------------------------------------------------
   // SUPPLIER PAYMENTS & PAYABLES
   // -------------------------------------------------------------
-  public async getSupplierPayments(filters: { search?: string; status?: string; category?: string }): Promise<SupplierPaymentRecord[]> {
-    const rows = await listSupplierPayables();
+  public async getSupplierPayments(filters: { search?: string; status?: string; category?: string; fromDate?: string; toDate?: string }): Promise<SupplierPaymentRecord[]> {
+    const rows = await listSupplierPayables({ fromDate: filters.fromDate, toDate: filters.toDate });
     return rows.filter((sp) => {
       if (filters.status && filters.status !== "ALL" && sp.paymentStatus !== filters.status) return false;
       if (filters.category && filters.category !== "ALL" && sp.category !== filters.category) return false;
@@ -1783,13 +1840,24 @@ class PurchaseDataStore {
     const receiptId = isUuid(input.receiptId) ? String(input.receiptId) : null;
     const billId = isUuid(input.billId) ? String(input.billId) : null;
     const orderId = isUuid(input.orderId) ? String(input.orderId) : null;
+    const officeId = isUuid(input.officeId) ? String(input.officeId) : null;
+    const bankAccountId = isUuid(input.bankAccountId) ? String(input.bankAccountId) : null;
+    let cashAccountId = isUuid(input.cashAccountId) ? String(input.cashAccountId) : null;
     const isAdvance = input.isAdvance === true;
     if (isAdvance && (receiptId || billId)) throw badRequest("An advance is paid before a receipt or bill, so it cannot settle one.");
     const method = ["CASH", "BANK", "CHEQUE", "ONLINE"].includes(input.method) ? input.method : "BANK";
     if (method === "CHEQUE" && !input.referenceNumber) throw badRequest("Enter the cheque number.");
 
-    const supplier = await prisma.supplier.findUnique({ where: { id: supplierId }, select: { businessUnitId: true } });
+    const [supplier, bankAccount, explicitCashAccount] = await Promise.all([
+      prisma.supplier.findUnique({ where: { id: supplierId }, select: { businessUnitId: true } }),
+      bankAccountId ? prisma.bankAccount.findUnique({ where: { id: bankAccountId }, select: { id: true, glAccountId: true } }) : null,
+      cashAccountId ? prisma.account.findUnique({ where: { id: cashAccountId }, select: { id: true } }) : null,
+    ]);
     if (!supplier) throw badRequest("Supplier not found.");
+    if (bankAccountId && !bankAccount) throw badRequest("Selected bank account was not found.");
+    if (cashAccountId && !explicitCashAccount) throw badRequest("Selected cash/GL account was not found.");
+    if (!cashAccountId && bankAccount?.glAccountId) cashAccountId = bankAccount.glAccountId;
+
     await validatePaymentLink(supplierId, receiptId, billId, amount);
     const paymentDate = parseDate(input.paymentDate, "Payment date");
 
@@ -1804,6 +1872,9 @@ class PurchaseDataStore {
           orderId,
           receiptId,
           billId,
+          officeId,
+          bankAccountId,
+          cashAccountId,
           isAdvance,
           number,
           paymentDate,
@@ -1816,6 +1887,9 @@ class PurchaseDataStore {
         },
       });
       await tx.supplier.update({ where: { id: supplierId }, data: { balance: { decrement: amount } } });
+      if (bankAccountId) {
+        await tx.bankAccount.update({ where: { id: bankAccountId }, data: { currentBalance: { decrement: amount } } });
+      }
       return payment;
     });
   }
@@ -1840,6 +1914,9 @@ class PurchaseDataStore {
       });
       if (payment.status === "PAID") {
         await tx.supplier.update({ where: { id: payment.supplierId }, data: { balance: { increment: Number(payment.amount) } } });
+        if (payment.bankAccountId) {
+          await tx.bankAccount.update({ where: { id: payment.bankAccountId }, data: { currentBalance: { increment: Number(payment.amount) } } });
+        }
       }
       return updated;
     });

@@ -178,6 +178,9 @@ export function AdvancePaymentModal({
           body: JSON.stringify({
             supplierId: row.supplierId,
             orderId: row.orderId || undefined,
+            officeId: selectedOfficeId,
+            cashAccountId: voucherType === "Cash Payment" && cashOrBankAccountId ? cashOrBankAccountId : undefined,
+            bankAccountId: voucherType === "Bank Payment" && cashOrBankAccountId ? cashOrBankAccountId : undefined,
             amount: round2(Number(row.amount)),
             paymentDate,
             method: voucherType === "Cash Payment" ? "CASH" : "BANK",

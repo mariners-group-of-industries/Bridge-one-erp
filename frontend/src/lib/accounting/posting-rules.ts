@@ -92,8 +92,12 @@ export function collectionLines(input: {
 export const receiptLines = (amount: number) => clean([dr("INVENTORY", amount), cr("PAYABLE", amount)]);
 /** A bill without goods (services, utilities): expense against payable. */
 export const billLines = (amount: number) => clean([dr("PURCHASE_EXPENSE", amount), cr("PAYABLE", amount)]);
-/** Paying a supplier: payable against cash or bank. */
-export const supplierPaymentLines = (amount: number, method: string) => clean([dr("PAYABLE", amount), cr(method === "CASH" ? "CASH" : "BANK", amount)]);
+/** Paying a supplier: payable against the chosen cash/bank GL account (or default cash/bank role). */
+export const supplierPaymentLines = (amount: number, method: string, cashAccountId?: string | null) =>
+  clean([
+    dr("PAYABLE", amount),
+    cashAccountId ? { accountId: cashAccountId, debit: 0, credit: r2(amount) } : cr(method === "CASH" ? "CASH" : "BANK", amount),
+  ]);
 /** Stock found (+) or lost / used (−), at cost. */
 export const stockValueLines = (value: number) =>
   clean(value >= 0 ? [dr("INVENTORY", value), cr("STOCK_ADJUSTMENT", value)] : [dr("STOCK_ADJUSTMENT", -value), cr("INVENTORY", -value)]);
