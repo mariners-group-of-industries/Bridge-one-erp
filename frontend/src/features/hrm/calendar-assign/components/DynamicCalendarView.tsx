@@ -295,12 +295,18 @@ export function DynamicCalendarView({
     setGridData((prev) => {
       const row = { ...(prev[employeeId] || {}) };
       targetDates.forEach((d) => {
-        row[d.dateStr] = shiftCode;
+        // "" clears the day.
+        if (shiftCode) row[d.dateStr] = shiftCode;
+        else delete row[d.dateStr];
       });
       return { ...prev, [employeeId]: row };
     });
     setUnsavedChanges((c) => c + 1);
-    toast.success(`Assigned shift [${shiftCode}] to ${emp.name} for ${targetDates.length} day(s).`);
+    toast.success(
+      shiftCode
+        ? `Assigned shift [${shiftCode}] to ${emp.name} for ${targetDates.length} day(s).`
+        : `Cleared ${emp.name}'s shifts for ${targetDates.length} day(s).`,
+    );
   };
 
   // Set Weekly Offs (e.g. Fridays)
