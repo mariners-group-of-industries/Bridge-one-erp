@@ -167,13 +167,13 @@ export default function SupplierPaymentsPage() {
   const [tab3ToDate, setTab3ToDate] = useState("");
 
   // Tab 4 filters
-  const [tab4FromDate, setTab4FromDate] = useState("09/10/2026");
-  const [tab4ToDate, setTab4ToDate] = useState("10/11/2026");
+  const [tab4FromDate, setTab4FromDate] = useState("");
+  const [tab4ToDate, setTab4ToDate] = useState("");
 
   // Tab 5 filters
   const [tab5Supplier, setTab5Supplier] = useState("");
-  const [tab5FromDate, setTab5FromDate] = useState("09/10/2026");
-  const [tab5ToDate, setTab5ToDate] = useState("10/11/2026");
+  const [tab5FromDate, setTab5FromDate] = useState("");
+  const [tab5ToDate, setTab5ToDate] = useState("");
   const [tab5DetailsCheck, setTab5DetailsCheck] = useState(false);
 
   // Pagination states
@@ -201,14 +201,6 @@ export default function SupplierPaymentsPage() {
   // View / Print Voucher from Tab 3
   const [viewPaidVoucher, setViewPaidVoucher] = useState<PaidRow | null>(null);
   const [printPaidVoucher, setPrintPaidVoucher] = useState<PaidRow | null>(null);
-
-  // Advance Payment Modal inputs
-  const [advSupplier, setAdvSupplier] = useState("");
-  const [advAmount, setAdvAmount] = useState(0);
-  const [advDate, setAdvDate] = useState(localToday);
-  const [advMode, setAdvMode] = useState<"CASH" | "BANK_TRANSFER" | "CHEQUE">("BANK_TRANSFER");
-  const [advRef, setAdvRef] = useState("");
-  const [advRemarks, setAdvRemarks] = useState("");
 
   // Create Bill Modal inputs
   const [billSupplier, setBillSupplier] = useState("");
@@ -465,6 +457,8 @@ export default function SupplierPaymentsPage() {
   // Filtering Tab 4
   const filteredDueInvoices = useMemo(() => {
     return dueInvoices.filter((row) => {
+      if (tab4FromDate && row.receDate < tab4FromDate) return false;
+      if (tab4ToDate && row.receDate > tab4ToDate) return false;
       if (!searchTerm) return true;
       const s = searchTerm.toLowerCase();
       return (
@@ -472,7 +466,18 @@ export default function SupplierPaymentsPage() {
         row.supplierName.toLowerCase().includes(s)
       );
     });
-  }, [dueInvoices, searchTerm]);
+  }, [dueInvoices, tab4FromDate, tab4ToDate, searchTerm]);
+
+  // Filtering Tab 5
+  const filteredAdvanceList = useMemo(() => {
+    const supQ = tab5Supplier.trim().toLowerCase();
+    const s = searchTerm.trim().toLowerCase();
+    return advanceList.filter((row) => {
+      if (supQ && !row.supplierName.toLowerCase().includes(supQ)) return false;
+      if (s && !row.supplierName.toLowerCase().includes(s)) return false;
+      return true;
+    });
+  }, [advanceList, tab5Supplier, searchTerm]);
 
   // Filtering Tab 6
   const filteredLedgerReconList = useMemo(() => {
@@ -526,19 +531,6 @@ export default function SupplierPaymentsPage() {
     });
   };
 
-  const handleCreateAdvancePayment = (e: React.FormEvent) => {
-    e.preventDefault();
-    paymentMutation.mutate({
-      supplierId: advSupplier,
-      amount: advAmount,
-      isAdvance: true,
-      method: advMode === "CASH" ? "CASH" : advMode === "CHEQUE" ? "CHEQUE" : "BANK",
-      paymentDate: advDate,
-      referenceNumber: advRef || undefined,
-      narration: advRemarks,
-    });
-  };
-
   // Pays each ticked invoice in full (one payment per invoice).
   const grnPayInvoices = (serverInvoices ?? []).filter((inv) => inv.supplierId === grnPaySupplier && inv.dueAmount > 0);
   const handleConfirmGrnPayment = async () => {
@@ -579,11 +571,31 @@ export default function SupplierPaymentsPage() {
   const billableReceipts = (serverInvoices ?? []).filter((inv) => inv.supplierId === billSupplier && inv.receiptId && !inv.billId);
 
   const handleExportCSV = () => {
-    downloadCsv(
-      `supplier_payment_report_${localToday()}.csv`,
-      ["SL", "Supplier Code", "Supplier Name", "Mobile No", "Total Amount", "Return Amount", "Payment Amount", "Due Amount"],
-      filteredDueList.map((r) => [r.sl, r.supplierCode, r.supplierName, r.mobileNumber, r.totalAmount, r.returnAmount, r.paymentAmount, r.dueAmount]),
-    );
+    if (activeTab === "PAID_GRN_BILL") {
+      downloadCsv(
+        `paid_grn_bill_${localToday()}.csv`,
+        ["SL", "Paid Date", "Invoice No", "Supplier", "Money receipt No", "Bank Amount", "Cash Amount", "Paid Amount"],
+        filteredPaidList.map((r) => [r.sl, r.paidDate, r.invoiceNo, r.supplier, r.moneyReceiptNo, r.bankAmount, r.cashAmount, r.paidAmount]),
+      );
+    } else if (activeTab === "DUE_INVOICES") {
+      downloadCsv(
+        `due_invoices_${localToday()}.csv`,
+        ["SL", "Rece. Date", "Invoice", "Supplier Name", "Credit Days", "Ex. Payment Date", "Total Amount", "Net Amount", "Due Amount"],
+        filteredDueInvoices.map((r) => [r.sl, r.receDate, r.invoice, r.supplierName, r.creditDays, r.exPaymentDate, r.totalAmount, r.netAmount, r.dueAmount]),
+      );
+    } else if (activeTab === "PAYMENT_ADVANCE") {
+      downloadCsv(
+        `payment_advance_${localToday()}.csv`,
+        ["SL", "Supplier Name", "Advance Amount", "Adjust Amount", "Remaining Advance"],
+        filteredAdvanceList.map((r) => [r.sl, r.supplierName, r.advanceAmount, r.adjustAmount, r.remainingAdvance]),
+      );
+    } else {
+      downloadCsv(
+        `supplier_payment_report_${localToday()}.csv`,
+        ["SL", "Supplier Code", "Supplier Name", "Mobile No.", "Total Amount", "Return Amount", "Payment Amount", "Due Amount"],
+        filteredDueList.map((r) => [r.sl, r.supplierCode, r.supplierName, r.mobileNumber, r.totalAmount, r.returnAmount, r.paymentAmount, r.dueAmount]),
+      );
+    }
   };
 
   return (
@@ -728,8 +740,7 @@ export default function SupplierPaymentsPage() {
             <div>
               <label className="block text-[11px] text-slate-500 mb-1">From Date</label>
               <input
-                type="text"
-                placeholder="mm/dd/yyyy"
+                type="date"
                 value={tab1FromDate}
                 onChange={(e) => setTab1FromDate(e.target.value)}
                 className="w-36 border border-slate-300 rounded px-2 py-1 bg-white text-xs"
@@ -738,8 +749,7 @@ export default function SupplierPaymentsPage() {
             <div>
               <label className="block text-[11px] text-slate-500 mb-1">To Date</label>
               <input
-                type="text"
-                placeholder="mm/dd/yyyy"
+                type="date"
                 value={tab1ToDate}
                 onChange={(e) => setTab1ToDate(e.target.value)}
                 className="w-36 border border-slate-300 rounded px-2 py-1 bg-white text-xs"
@@ -747,6 +757,7 @@ export default function SupplierPaymentsPage() {
             </div>
             <button
               type="button"
+              onClick={refreshPayables}
               className="px-4 py-1.5 bg-[#1976d2] hover:bg-[#1565c0] text-white font-bold rounded text-xs transition"
             >
               View
@@ -883,16 +894,16 @@ export default function SupplierPaymentsPage() {
           <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-50/50 p-2.5 rounded border border-slate-200 text-xs">
             <div className="flex items-center gap-3">
               <div>
-                <label className="block text-[11px] font-semibold text-slate-600 mb-0.5">Filter Status</label>
+                <label className="block text-[11px] font-semibold text-slate-600 mb-0.5">Filter By</label>
                 <select
                   value={pendingBillFilter}
                   onChange={(e) => setPendingBillFilter(e.target.value)}
                   className="border border-blue-500 rounded px-2.5 py-1 text-xs bg-white text-blue-700 font-bold focus:outline-none"
                 >
-                  <option value="Pending">Pending Approval ({pendingBills.filter((b) => b.status === "Pending").length})</option>
-                  <option value="Approved">Approved for Payment ({pendingBills.filter((b) => b.status === "Approved").length})</option>
-                  <option value="In_Review">In Review ({pendingBills.filter((b) => b.status === "In_Review").length})</option>
-                  <option value="In_Progress">In Progress ({pendingBills.filter((b) => b.status === "In_Progress").length})</option>
+                  <option value="Pending">Pending ({pendingBills.filter((b) => b.status === "Pending").length})</option>
+                  <option value="Approved">Approved ({pendingBills.filter((b) => b.status === "Approved").length})</option>
+                  <option value="In_Review">In_Review ({pendingBills.filter((b) => b.status === "In_Review").length})</option>
+                  <option value="In_Progress">In_Progress ({pendingBills.filter((b) => b.status === "In_Progress").length})</option>
                   <option value="ALL">All Bills ({pendingBills.length})</option>
                 </select>
               </div>
@@ -1101,6 +1112,7 @@ export default function SupplierPaymentsPage() {
             </div>
             <button
               type="button"
+              onClick={refreshPayables}
               className="px-4 py-1.5 bg-[#1976d2] hover:bg-[#1565c0] text-white font-bold rounded text-xs transition"
             >
               View
@@ -1262,23 +1274,24 @@ export default function SupplierPaymentsPage() {
             <div>
               <label className="block text-[11px] text-slate-500 mb-1">Rece. From Date</label>
               <input
-                type="text"
+                type="date"
                 value={tab4FromDate}
                 onChange={(e) => setTab4FromDate(e.target.value)}
-                className="w-32 border border-slate-300 rounded px-2 py-1 bg-white text-xs"
+                className="w-36 border border-slate-300 rounded px-2 py-1 bg-white text-xs"
               />
             </div>
             <div>
               <label className="block text-[11px] text-slate-500 mb-1">Rece. To Date</label>
               <input
-                type="text"
+                type="date"
                 value={tab4ToDate}
                 onChange={(e) => setTab4ToDate(e.target.value)}
-                className="w-32 border border-slate-300 rounded px-2 py-1 bg-white text-xs"
+                className="w-36 border border-slate-300 rounded px-2 py-1 bg-white text-xs"
               />
             </div>
             <button
               type="button"
+              onClick={refreshPayables}
               className="px-6 py-1.5 bg-[#1976d2] hover:bg-[#1565c0] text-white font-bold rounded text-xs transition"
             >
               View
@@ -1388,19 +1401,19 @@ export default function SupplierPaymentsPage() {
             <div>
               <label className="block text-[11px] text-slate-500 mb-1">From</label>
               <input
-                type="text"
+                type="date"
                 value={tab5FromDate}
                 onChange={(e) => setTab5FromDate(e.target.value)}
-                className="w-32 border border-slate-300 rounded px-2 py-1 bg-white text-xs"
+                className="w-36 border border-slate-300 rounded px-2 py-1 bg-white text-xs"
               />
             </div>
             <div>
               <label className="block text-[11px] text-slate-500 mb-1">To</label>
               <input
-                type="text"
+                type="date"
                 value={tab5ToDate}
                 onChange={(e) => setTab5ToDate(e.target.value)}
-                className="w-32 border border-slate-300 rounded px-2 py-1 bg-white text-xs"
+                className="w-36 border border-slate-300 rounded px-2 py-1 bg-white text-xs"
               />
             </div>
             <div className="flex items-center gap-1.5 pb-1">
@@ -1415,6 +1428,7 @@ export default function SupplierPaymentsPage() {
             </div>
             <button
               type="button"
+              onClick={refreshPayables}
               className="px-6 py-1.5 bg-[#1976d2] hover:bg-[#1565c0] text-white font-bold rounded text-xs transition"
             >
               View
@@ -1434,7 +1448,7 @@ export default function SupplierPaymentsPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200 text-[11px] text-slate-800">
-                {advanceList.map((row) => (
+                {filteredAdvanceList.map((row) => (
                   <tr key={row.sl} className="hover:bg-slate-50/80 transition-colors">
                     <td className="p-2 border border-slate-300 text-center font-mono text-slate-600">
                       {row.sl}
@@ -1460,13 +1474,13 @@ export default function SupplierPaymentsPage() {
                     Total
                   </td>
                   <td className="p-2 border border-slate-300 text-right font-mono text-xs">
-                    {formatCurrency(advanceList.reduce((t, r) => t + r.advanceAmount, 0))}
+                    {formatCurrency(filteredAdvanceList.reduce((t, r) => t + r.advanceAmount, 0))}
                   </td>
                   <td className="p-2 border border-slate-300 text-right font-mono text-xs">
-                    {formatCurrency(advanceList.reduce((t, r) => t + r.adjustAmount, 0))}
+                    {formatCurrency(filteredAdvanceList.reduce((t, r) => t + r.adjustAmount, 0))}
                   </td>
                   <td className="p-2 border border-slate-300 text-right font-mono text-xs font-bold text-rose-700">
-                    {formatCurrency(advanceList.reduce((t, r) => t + r.remainingAdvance, 0))}
+                    {formatCurrency(filteredAdvanceList.reduce((t, r) => t + r.remainingAdvance, 0))}
                   </td>
                 </tr>
               </tfoot>
