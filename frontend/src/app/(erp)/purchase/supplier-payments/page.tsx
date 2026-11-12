@@ -14,7 +14,6 @@ import {
   ChevronRight,
   Truck,
   CheckCircle2,
-  Calendar,
   Ban,
 } from "lucide-react";
 import { ModalDialog } from "@/components/purchase/ModalDialog";
@@ -183,8 +182,8 @@ export default function SupplierPaymentsPage() {
   const [rowsPerPage6, setRowsPerPage6] = useState(50);
 
   // Tab 6 filters
-  const [tab6FromDate, setTab6FromDate] = useState("09/10/2026");
-  const [tab6ToDate, setTab6ToDate] = useState("10/11/2026");
+  const [tab6FromDate, setTab6FromDate] = useState("");
+  const [tab6ToDate, setTab6ToDate] = useState("");
 
   // Modals state
   const [isPaymentByGRNOpen, setIsPaymentByGRNOpen] = useState(false);
@@ -1498,30 +1497,25 @@ export default function SupplierPaymentsPage() {
           <div className="flex flex-wrap items-end gap-3 text-xs p-2">
             <div>
               <label className="block text-[11px] text-slate-500 mb-1">From</label>
-              <div className="relative">
-                <input
-                  type="text"
-                  value={tab6FromDate}
-                  onChange={(e) => setTab6FromDate(e.target.value)}
-                  className="w-36 border border-slate-300 rounded px-2 py-1 bg-white text-xs pr-7"
-                />
-                <Calendar className="w-3.5 h-3.5 text-slate-400 absolute right-2 top-2 pointer-events-none" />
-              </div>
+              <input
+                type="date"
+                value={tab6FromDate}
+                onChange={(e) => setTab6FromDate(e.target.value)}
+                className="w-36 border border-slate-300 rounded px-2 py-1 bg-white text-xs"
+              />
             </div>
             <div>
               <label className="block text-[11px] text-slate-500 mb-1">To</label>
-              <div className="relative">
-                <input
-                  type="text"
-                  value={tab6ToDate}
-                  onChange={(e) => setTab6ToDate(e.target.value)}
-                  className="w-36 border border-slate-300 rounded px-2 py-1 bg-white text-xs pr-7"
-                />
-                <Calendar className="w-3.5 h-3.5 text-slate-400 absolute right-2 top-2 pointer-events-none" />
-              </div>
+              <input
+                type="date"
+                value={tab6ToDate}
+                onChange={(e) => setTab6ToDate(e.target.value)}
+                className="w-36 border border-slate-300 rounded px-2 py-1 bg-white text-xs"
+              />
             </div>
             <button
               type="button"
+              onClick={refreshPayables}
               className="px-6 py-1.5 bg-[#1976d2] hover:bg-[#1565c0] text-white font-bold rounded text-xs transition shadow-xs"
             >
               View
