@@ -6,7 +6,7 @@ import {
   Truck,
   Eye,
   Printer,
-  Edit,
+  Ban,
   Plus,
   Search,
   Download,
@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { ModalDialog } from "@/components/purchase/ModalDialog";
 import { toast } from "@/components/purchase/Toast";
+import { Spinner } from "@/components/ui/spinner";
 import { fetchApi } from "@/lib/api";
 import { formatCurrency } from "@/lib/utils";
 import {
@@ -24,6 +25,7 @@ import {
   Supplier,
   Warehouse,
   Item,
+  Office,
 } from "@bridgeone/contracts";
 
 // ============================================================================
@@ -52,6 +54,7 @@ interface ReceivedRow {
 }
 
 interface ReturnRow {
+  id: string;
   sl: number;
   officeName: string;
   returnDate: string;
@@ -61,7 +64,7 @@ interface ReturnRow {
   supplier: string;
   amount: number;
   returnType: string;
-  status: "Approved" | "Pending" | "Draft" | "Rejected";
+  status: "Approved" | "Cancelled";
   items?: Array<{
     itemCode: string;
     itemName: string;
@@ -85,9 +88,9 @@ export default function PurchaseReturnsPage() {
 
   // Tab 2 Filters
   const [filterOffice, setFilterOffice] = useState("All");
-  const [filterStatus, setFilterStatus] = useState("Status");
-  const [filterFromDate, setFilterFromDate] = useState("09/10/2026");
-  const [filterToDate, setFilterToDate] = useState("10/11/2026");
+  const [filterStatus, setFilterStatus] = useState("All");
+  const [filterFromDate, setFilterFromDate] = useState("");
+  const [filterToDate, setFilterToDate] = useState("");
 
   // Pagination states
   const [receivedRowsPerPage, setReceivedRowsPerPage] = useState(50);
@@ -101,7 +104,8 @@ export default function PurchaseReturnsPage() {
   const [isReturnWithoutRefOpen, setIsReturnWithoutRefOpen] = useState(false);
   const [viewReturnTarget, setViewReturnTarget] = useState<ReturnRow | null>(null);
   const [printReturnTarget, setPrintReturnTarget] = useState<ReturnRow | null>(null);
-  const [editReturnTarget, setEditReturnTarget] = useState<ReturnRow | null>(null);
+  const [cancelReturnTarget, setCancelReturnTarget] = useState<ReturnRow | null>(null);
+  const [cancelReason, setCancelReason] = useState("");
 
   // Return Form States
   const [fullReturnReason, setFullReturnReason] = useState("Excess / Transit Damaged consignment rejected during QC inspection.");
@@ -141,6 +145,7 @@ export default function PurchaseReturnsPage() {
     staleTime: 60000,
   });
 
+  const { data: offices } = useQuery<Office[]>({ queryKey: ["offices"], queryFn: () => fetchApi("/master/offices") });
   const { data: suppliers } = useQuery<Supplier[]>({ queryKey: ["suppliers"], queryFn: () => fetchApi("/master/suppliers") });
   const { data: warehouses } = useQuery<Warehouse[]>({ queryKey: ["warehouses"], queryFn: () => fetchApi("/master/warehouses") });
   const { data: itemsCatalog } = useQuery<Item[]>({ queryKey: ["items"], queryFn: () => fetchApi("/master/items") });
@@ -175,6 +180,7 @@ export default function PurchaseReturnsPage() {
   const returnList = useMemo<ReturnRow[]>(
     () =>
       (serverReturns ?? []).map((r, i) => ({
+        id: r.id,
         sl: i + 1,
         officeName: r.officeName,
         returnDate: r.returnDate,
@@ -184,7 +190,7 @@ export default function PurchaseReturnsPage() {
         supplier: r.supplierName,
         amount: r.totalReturnAmount,
         returnType: r.grnNumber === "Direct Return" ? "Direct / Ad-hoc" : "Against GRN",
-        status: r.status === "CANCELLED" ? "Rejected" : "Approved",
+        status: r.status === "CANCELLED" ? "Cancelled" : "Approved",
         items: r.items.map((it) => ({
           itemCode: it.itemCode,
           itemName: it.itemName,
@@ -212,6 +218,20 @@ export default function PurchaseReturnsPage() {
       toast.success(`Return ${data.returnNumber} posted. Stock and supplier balance updated.`, { title: "Purchase Return Posted" });
     },
     onError: (err: Error) => toast.error(err.message, { title: "Return Failed" }),
+  });
+
+  const cancelMutation = useMutation({
+    mutationFn: ({ id, comments }: { id: string; comments: string }) =>
+      fetchApi<PurchaseReturn>(`/purchase/returns/${id}/cancel`, { method: "POST", body: JSON.stringify({ comments }) }),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["returnsList"] });
+      queryClient.invalidateQueries({ queryKey: ["eligibleGRNs"] });
+      queryClient.invalidateQueries({ queryKey: ["receivedGRNs"] });
+      queryClient.invalidateQueries({ queryKey: ["suppliers"] });
+      setCancelReturnTarget(null);
+      toast.success(`Return ${data.returnNumber} cancelled. Stock and supplier balance restored.`, { title: "Return Cancelled" });
+    },
+    onError: (err: Error) => toast.error(err.message, { title: "Cancel Failed" }),
   });
 
   type ReturnLine = { itemId: string; itemCode: string; itemName: string; uom: string; receivedQty: number; returnQty: number; unitPrice: number; reason: string; condition?: string };
@@ -328,7 +348,9 @@ export default function PurchaseReturnsPage() {
   const filteredReturns = useMemo(() => {
     return returnList.filter((row) => {
       if (filterOffice !== "All" && row.officeName !== filterOffice) return false;
-      if (filterStatus !== "Status" && filterStatus !== "All" && row.status !== filterStatus) return false;
+      if (filterStatus !== "All" && row.status !== filterStatus) return false;
+      if (filterFromDate && row.returnDate < filterFromDate) return false;
+      if (filterToDate && row.returnDate > filterToDate) return false;
       if (searchTerm) {
         const s = searchTerm.toLowerCase();
         const match =
@@ -341,7 +363,7 @@ export default function PurchaseReturnsPage() {
       }
       return true;
     });
-  }, [returnList, filterOffice, filterStatus, searchTerm]);
+  }, [returnList, filterOffice, filterStatus, filterFromDate, filterToDate, searchTerm]);
 
   // Paginated Return List
   const totalReturnPages = Math.ceil(filteredReturns.length / returnRowsPerPage) || 1;
@@ -621,10 +643,11 @@ export default function PurchaseReturnsPage() {
                 className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white text-xs focus:ring-1 focus:ring-blue-500"
               >
                 <option value="All">All</option>
-                <option value="Marinozz">Marinozz</option>
-                <option value="Dhaka Head Office">Dhaka Head Office</option>
-                <option value="MOHS Eco">MOHS Eco</option>
-                <option value="MG Sirajganj Factory">MG Sirajganj Factory</option>
+                {offices?.map((o) => (
+                  <option key={o.id} value={o.name}>
+                    {o.name}
+                  </option>
+                ))}
               </select>
             </div>
 
@@ -636,11 +659,9 @@ export default function PurchaseReturnsPage() {
                 onChange={(e) => setFilterStatus(e.target.value)}
                 className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white text-xs focus:ring-1 focus:ring-blue-500"
               >
-                <option value="Status">Status</option>
                 <option value="All">All</option>
                 <option value="Approved">Approved</option>
-                <option value="Pending">Pending</option>
-                <option value="Draft">Draft</option>
+                <option value="Cancelled">Cancelled</option>
               </select>
             </div>
 
@@ -648,10 +669,9 @@ export default function PurchaseReturnsPage() {
             <div>
               <label className="block text-[11px] text-slate-600 mb-1 font-medium">From Date</label>
               <input
-                type="text"
+                type="date"
                 value={filterFromDate}
                 onChange={(e) => setFilterFromDate(e.target.value)}
-                placeholder="09/10/2026"
                 className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white text-xs focus:ring-1 focus:ring-blue-500"
               />
             </div>
@@ -660,10 +680,9 @@ export default function PurchaseReturnsPage() {
             <div>
               <label className="block text-[11px] text-slate-600 mb-1 font-medium">To Date</label>
               <input
-                type="text"
+                type="date"
                 value={filterToDate}
                 onChange={(e) => setFilterToDate(e.target.value)}
-                placeholder="10/11/2026"
                 className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white text-xs focus:ring-1 focus:ring-blue-500"
               />
             </div>
@@ -734,11 +753,16 @@ export default function PurchaseReturnsPage() {
                             </button>
                             <button
                               type="button"
-                              onClick={() => setEditReturnTarget(row)}
-                              className="p-1 hover:text-blue-600 transition"
-                              title="Edit Return Information"
+                              onClick={() => {
+                                setCancelReturnTarget(row);
+                                setCancelReason("");
+                              }}
+                              disabled={row.status === "Cancelled"}
+                              className="p-1 hover:text-rose-600 transition disabled:opacity-30"
+                              title="Cancel return (goods come back into stock)"
+                              aria-label={`Cancel return ${row.returnNo}`}
                             >
-                              <Edit className="w-3.5 h-3.5" />
+                              <Ban className="w-3.5 h-3.5" />
                             </button>
                           </div>
                         </td>
@@ -897,8 +921,10 @@ export default function PurchaseReturnsPage() {
               <button
                 type="button"
                 onClick={handleConfirmFullReturn}
-                className="px-4 py-1.5 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded shadow-xs transition"
+                disabled={returnMutation.isPending}
+                className="px-4 py-1.5 bg-rose-600 hover:bg-rose-700 disabled:opacity-60 text-white font-bold rounded shadow-xs transition inline-flex items-center gap-1.5"
               >
+                {returnMutation.isPending && <Spinner className="size-3.5" />}
                 Confirm Full Return & Issue Debit Note
               </button>
             </div>
@@ -1024,8 +1050,10 @@ export default function PurchaseReturnsPage() {
               <button
                 type="button"
                 onClick={handleConfirmPartialReturn}
-                className="px-4 py-1.5 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded shadow-xs transition"
+                disabled={returnMutation.isPending}
+                className="px-4 py-1.5 bg-rose-600 hover:bg-rose-700 disabled:opacity-60 text-white font-bold rounded shadow-xs transition inline-flex items-center gap-1.5"
               >
+                {returnMutation.isPending && <Spinner className="size-3.5" />}
                 Confirm Partial Return & Post
               </button>
             </div>
@@ -1158,8 +1186,10 @@ export default function PurchaseReturnsPage() {
             </button>
             <button
               type="submit"
-              className="px-5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded font-bold shadow-xs transition"
+              disabled={returnMutation.isPending}
+              className="px-5 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white rounded font-bold shadow-xs transition inline-flex items-center gap-1.5"
             >
+              {returnMutation.isPending && <Spinner className="size-3.5" />}
               Save Direct Return
             </button>
           </div>
@@ -1381,59 +1411,56 @@ export default function PurchaseReturnsPage() {
       </ModalDialog>
 
       {/* ============================================================= */}
-      {/* 8. EDIT RETURN MODAL */}
+      {/* 8. CANCEL RETURN MODAL */}
       {/* ============================================================= */}
       <ModalDialog
-        isOpen={Boolean(editReturnTarget)}
-        onClose={() => setEditReturnTarget(null)}
-        title="Edit Purchase Return"
-        subtitle={`Voucher: ${editReturnTarget?.returnNo || ""}`}
+        isOpen={Boolean(cancelReturnTarget)}
+        onClose={() => !cancelMutation.isPending && setCancelReturnTarget(null)}
+        title="Cancel Purchase Return"
+        subtitle={`Voucher: ${cancelReturnTarget?.returnNo || ""}`}
         maxWidth="md"
       >
-        {editReturnTarget && (
-          <div className="space-y-3 text-xs">
+        {cancelReturnTarget && (
+          <form
+            className="space-y-3 text-xs"
+            onSubmit={(e) => {
+              e.preventDefault();
+              cancelMutation.mutate({ id: cancelReturnTarget.id, comments: cancelReason });
+            }}
+          >
+            <p className="text-slate-600">
+              The returned goods come back into stock and {formatCurrency(cancelReturnTarget.amount)} is owed to {cancelReturnTarget.supplier} again.
+            </p>
             <div>
-              <label className="block text-slate-700 font-semibold mb-1">Remarks</label>
-              <input
-                type="text"
-                value={editReturnTarget.remarks}
-                onChange={(e) => setEditReturnTarget({ ...editReturnTarget, remarks: e.target.value })}
-                className="w-full border border-slate-300 rounded p-1.5 text-xs bg-white"
+              <label htmlFor="cancel-return-reason" className="block text-slate-700 font-semibold mb-1">Reason *</label>
+              <textarea
+                id="cancel-return-reason"
+                required
+                maxLength={300}
+                value={cancelReason}
+                onChange={(e) => setCancelReason(e.target.value)}
+                className="w-full border border-slate-300 rounded p-2 text-xs h-20"
               />
-            </div>
-            <div>
-              <label className="block text-slate-700 font-semibold mb-1">Status</label>
-              <select
-                value={editReturnTarget.status}
-                onChange={(e) => setEditReturnTarget({ ...editReturnTarget, status: e.target.value as any })}
-                className="w-full border border-slate-300 rounded p-1.5 text-xs bg-white"
-              >
-                <option value="Approved">Approved</option>
-                <option value="Pending">Pending</option>
-                <option value="Draft">Draft</option>
-              </select>
             </div>
             <div className="flex justify-end gap-2 pt-2">
               <button
                 type="button"
-                onClick={() => setEditReturnTarget(null)}
-                className="px-3 py-1.5 border border-slate-200 rounded text-slate-600"
+                onClick={() => setCancelReturnTarget(null)}
+                disabled={cancelMutation.isPending}
+                className="h-9 px-4 border border-slate-200 rounded text-slate-600"
               >
-                Cancel
+                Back
               </button>
               <button
-                type="button"
-                onClick={() => {
-                  // There is no update endpoint: a posted return has already moved stock.
-                  setEditReturnTarget(null);
-                  toast.error(`Return ${editReturnTarget.returnNo} is posted and has moved stock, so it cannot be edited.`);
-                }}
-                className="px-4 py-1.5 bg-blue-600 text-white rounded font-bold hover:bg-blue-700"
+                type="submit"
+                disabled={cancelMutation.isPending}
+                className="h-9 px-4 bg-rose-600 text-white rounded font-bold hover:bg-rose-700 disabled:opacity-60 inline-flex items-center gap-1.5"
               >
-                Save Changes
+                {cancelMutation.isPending && <Spinner className="size-3.5" />}
+                Cancel Return
               </button>
             </div>
-          </div>
+          </form>
         )}
       </ModalDialog>
     </div>

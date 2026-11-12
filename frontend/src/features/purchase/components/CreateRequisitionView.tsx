@@ -1,27 +1,22 @@
 "use client";
 
-import React, { useState, useEffect, useMemo, useRef } from "react";
+import React, { useState, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
-  Calendar,
   ChevronDown,
   Paperclip,
   Info,
-  Plus,
   Trash2,
   Download,
   Upload,
   X,
-  Search,
-  Check,
   FileSpreadsheet,
-  AlertCircle,
 } from "lucide-react";
 import { fetchApi } from "@/lib/api";
 import { toast } from "@/components/purchase/Toast";
-import { formatCurrency } from "@/lib/utils";
+import { Spinner } from "@/components/ui/spinner";
 import type { Office, Warehouse, Item, Supplier } from "@bridgeone/contracts";
 
 interface DirectoryEmployee {
@@ -66,15 +61,15 @@ export function CreateRequisitionView() {
 
   const [createDate, setCreateDate] = useState(todayStr);
   const [expectedDate, setExpectedDate] = useState(defaultDeliveryStr);
-  const [selectedOfficeId, setSelectedOfficeId] = useState<string>("");
-  const [selectedWarehouseId, setSelectedWarehouseId] = useState<string>("");
+  const [pickedOfficeId, setSelectedOfficeId] = useState<string>("");
+  const [pickedWarehouseId, setSelectedWarehouseId] = useState<string>("");
   const [inventoryType, setInventoryType] = useState("Inventory Item");
 
   // Dynamic target values
-  const [employeeQuery, setEmployeeQuery] = useState("Md. Usuf Ali");
+  const [employeeQuery, setEmployeeQuery] = useState("");
   const [isEmployeeDropdownOpen, setIsEmployeeDropdownOpen] = useState(false);
   const [selectedDepartment, setSelectedDepartment] = useState("Operations");
-  const [selectedProject, setSelectedProject] = useState("Factory Expansion 2026");
+  const [selectedProject, setSelectedProject] = useState("");
 
   // 3. Secondary Fields (Row 2)
   const [buyerName, setBuyerName] = useState("");
@@ -132,30 +127,20 @@ export function CreateRequisitionView() {
     queryFn: () => fetchApi("/connect/directory"),
   });
 
-  const employees = directoryData?.employees || [];
+  const employees = useMemo(() => directoryData?.employees ?? [], [directoryData]);
+
+  // The first office is used until the user picks one.
+  const selectedOfficeId = pickedOfficeId || offices[0]?.id || "";
 
   // Filter warehouses based on selected office
   const availableWarehouses = useMemo(() => {
     if (!selectedOfficeId) return allWarehouses;
-    const filtered = allWarehouses.filter((w) => w.officeId === selectedOfficeId);
-    return filtered.length > 0 ? filtered : allWarehouses;
+    // Only the office own warehouses: the server rejects a warehouse of another office.
+    return allWarehouses.filter((w) => w.officeId === selectedOfficeId);
   }, [allWarehouses, selectedOfficeId]);
 
-  // Set default office & warehouse once data loads
-  useEffect(() => {
-    if (offices.length > 0 && !selectedOfficeId) {
-      setSelectedOfficeId(offices[0].id);
-    }
-  }, [offices, selectedOfficeId]);
-
-  useEffect(() => {
-    if (availableWarehouses.length > 0) {
-      const match = availableWarehouses.find((w) => w.id === selectedWarehouseId);
-      if (!match) {
-        setSelectedWarehouseId(availableWarehouses[0].id);
-      }
-    }
-  }, [availableWarehouses, selectedWarehouseId]);
+  // The picked warehouse while it belongs to the office, otherwise the office first warehouse.
+  const selectedWarehouseId = availableWarehouses.some((w) => w.id === pickedWarehouseId) ? pickedWarehouseId : (availableWarehouses[0]?.id ?? "");
 
   // Extract unique categories from items catalog
   const categories = useMemo(() => {
@@ -285,7 +270,7 @@ export function CreateRequisitionView() {
     a.href = url;
     a.download = "requisition_items_template.csv";
     a.click();
-    URL.revokeObjectURL(a);
+    URL.revokeObjectURL(url);
     toast.info("Downloaded sample CSV template.", { title: "Template Download" });
   };
 
@@ -351,12 +336,10 @@ export function CreateRequisitionView() {
       if (!selectedWarehouseId) throw new Error("Warehouse is required");
       if (addedItems.length === 0) throw new Error("Please add at least one item to the requisition table.");
 
-      const requesterName =
-        targetType === "Employee"
-          ? employeeQuery || "Md. Usuf Ali"
-          : targetType === "Department"
-          ? selectedDepartment
-          : selectedProject;
+      const requesterName = (
+        targetType === "Employee" ? employeeQuery : targetType === "Department" ? selectedDepartment : selectedProject
+      ).trim();
+      if (!requesterName) throw new Error(`Select the ${String(targetType).toLowerCase()} the requisition is for.`);
 
       const payload = {
         companyId: "comp-bridgeone-01",
@@ -442,7 +425,8 @@ export function CreateRequisitionView() {
             disabled={createMutation.isPending}
             className="h-8 px-3.5 border border-[#2563eb] text-[#2563eb] hover:bg-blue-50 dark:hover:bg-blue-950 font-medium text-xs rounded transition flex items-center gap-1.5 disabled:opacity-50"
           >
-            {createMutation.isPending ? "Saving..." : "Save & New"}
+            {createMutation.isPending && <Spinner className="size-3.5" />}
+            Save & New
           </button>
           <button
             type="button"
@@ -450,7 +434,8 @@ export function CreateRequisitionView() {
             disabled={createMutation.isPending}
             className="h-8 px-4 bg-[#2563eb] hover:bg-blue-700 text-white font-medium text-xs rounded transition flex items-center gap-1.5 shadow-2xs disabled:opacity-50"
           >
-            {createMutation.isPending ? "Saving..." : "Save"}
+            {createMutation.isPending && <Spinner className="size-3.5" />}
+            Save
           </button>
         </div>
       </div>
@@ -1135,3 +1120,4 @@ export function CreateRequisitionView() {
     </div>
   );
 }
+

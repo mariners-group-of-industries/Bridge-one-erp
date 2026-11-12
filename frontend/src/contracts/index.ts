@@ -218,6 +218,8 @@ export const PurchaseOrderSchema = CreatePurchaseOrderSchema.extend({
   officeName: z.string(),
   warehouseName: z.string(),
   requisitionNumber: z.string().optional(),
+  /** True once the order was closed short (no more receiving). */
+  isClosed: z.boolean().optional(),
   subtotal: z.number(),
   totalDiscount: z.number(),
   totalTax: z.number(),
@@ -279,6 +281,8 @@ export const GoodsReceiptSchema = CreateGoodsReceiptSchema.extend({
   poNumber: z.string(),
   poDate: z.string(),
   requisitionNumber: z.string().optional(),
+  /** Supplier challan / delivery document number recorded on the receipt. */
+  challanNumber: z.string().optional(),
   supplierId: z.string(),
   supplierName: z.string(),
   officeId: z.string(),
