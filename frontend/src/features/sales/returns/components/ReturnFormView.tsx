@@ -6,7 +6,6 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useId, useMemo, useState, type ReactNode } from "react";
 import { PageContainer, PageHead } from "@/components/layout/page";
 import { Button, buttonClasses } from "@/components/ui/button";
-import { Dialog } from "@/components/ui/dialog";
 import { CONTROL, CheckboxField, SelectField, TextField } from "@/components/ui/form-field";
 import { Card, ErrorState, LoadingState, Section } from "@/components/ui/section";
 import { EmptyState } from "@/features/sales/components/EmptyState";
@@ -27,7 +26,8 @@ import { SearchPick } from "../../components/SearchPick";
 import { returnRateFor } from "../../pricing/schemas/pricing.schema";
 import { fetchReturnRates } from "../../pricing/services/pricing.api";
 import { round2 } from "../../quotations/lib/totals";
-import { SimpleMastersPanel } from "../../setup/components/SimpleMastersPanel";
+import { salesConfigPaths } from "@/features/configuration/sales-config/paths";
+import { ManagedInConfigurationDialog } from "../../components/ManagedInConfigurationDialog";
 import { discountShare, returnLineAmounts } from "../lib/return-totals";
 import {
   RETURN_KINDS,
@@ -225,7 +225,7 @@ function ReasonSelect({
     <div className={cn("flex items-end gap-1.5", className)}>
       <SelectField label={label} className="min-w-0 flex-1" value={value} options={options} onChange={(event) => onChange(event.target.value)} />
       {onManage && (
-        <Button size="icon" aria-label="Manage return reasons" title="Add or edit return reasons" onClick={onManage}>
+        <Button size="icon" aria-label="Manage return reasons" title="Return reasons are set up in Configuration" onClick={onManage}>
           <Settings2 />
         </Button>
       )}
@@ -233,12 +233,17 @@ function ReasonSelect({
   );
 }
 
-function ReasonsDialog({ open, businessUnitId, onClose }: { open: boolean; businessUnitId: string; onClose: () => void }) {
-  const setup = useResource(open ? `setup:${businessUnitId}:return-reasons` : null, () => fetchSetupLookups(businessUnitId));
+/** Return reasons are maintained in Configuration › Sales Setup; this points there. */
+function ReasonsDialog({ open, onClose }: { open: boolean; businessUnitId?: string; onClose: () => void }) {
   return (
-    <Dialog open={open} size="lg" title="Return Reasons" onClose={onClose}>
-      {setup.data ? <SimpleMastersPanel kind="return-reasons" businessUnitId={businessUnitId} lookups={setup.data} onChanged={setup.reload} /> : <LoadingState />}
-    </Dialog>
+    <ManagedInConfigurationDialog
+      open={open}
+      title="Return Reasons"
+      what="Return reasons"
+      where="Configuration › Sales Config › Sales Setup › Return Reasons"
+      href={salesConfigPaths.salesSetupTab("return-reasons")}
+      onClose={onClose}
+    />
   );
 }
 
@@ -381,7 +386,11 @@ function ReferencedEditor({
 
       {(nothingLeft || fullBlocked) && (
         <p role="alert" className="mb-3 rounded-lg bg-control px-3 py-2 text-sm text-ink">
-          {nothingLeft ? "Everything on this delivery is already returned (pending or approved)." : "Part of this delivery is already returned. "}
+          {delivery.lines.length === 0
+            ? "This delivery has no item lines, so there is nothing to return."
+            : nothingLeft
+              ? "Everything on this delivery is already returned (pending or approved)."
+              : "Part of this delivery is already returned. "}
           {fullBlocked && !nothingLeft && (
             <Link href={paths.returnDelivery(delivery.id, "partial")} className="underline underline-offset-2">
               Make a partial return instead.

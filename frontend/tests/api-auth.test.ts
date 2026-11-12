@@ -46,3 +46,4 @@ describe("API authentication", () => {
     expect(open).toEqual([]);
   }, 180_000);
 });
+

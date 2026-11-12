@@ -54,8 +54,12 @@ const all = { value: "", label: "All" };
 // Empty cells stay blank, as in Managerium.
 const text = (value: string | null) => value ?? "";
 
-/** Lists open from the 1st of the current month ("YYYY-MM-01"). */
-const monthStart = (today: string) => `${today.slice(0, 7)}-01`;
+/** Lists open on the last month, as in Managerium: the same day one month back (clamped to that month's last day). */
+function monthAgo(today: string): string {
+  const [year, month, day] = today.split("-").map(Number);
+  const lastDay = new Date(Date.UTC(year, month - 1, 0)).getUTCDate();
+  return new Date(Date.UTC(year, month - 2, Math.min(day, lastDay))).toISOString().slice(0, 10);
+}
 
 /** Compact, vertically centred rows like Managerium. */
 const compact = <T,>(columns: Column<T>[]) => columns.map((column) => ({ ...column, className: cn("py-1.5! align-middle!", column.className) }));
@@ -258,7 +262,7 @@ function ReturnsTab({ market, today, search, onQuery }: { market: boolean; today
     salesPersonId: "",
     mode: "",
     status: "",
-    from: monthStart(today),
+    from: monthAgo(today),
     to: today,
   };
   const [filters, setFilters] = useState(initial);

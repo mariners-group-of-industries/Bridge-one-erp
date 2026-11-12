@@ -1,359 +1,490 @@
 "use client";
 
 import Image from "next/image";
-import React, { useState, useMemo } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import {
-  Plus,
-  Eye,
-  Printer,
-  Pencil,
-  X,
-  RotateCcw,
-  Search,
-  Download,
-  Check,
-} from "lucide-react";
+import React, { useMemo, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Check, Download, Eye, Pencil, Plus, Printer, RotateCcw, Search, Trash2, X } from "lucide-react";
 import { ModalDialog } from "@/components/purchase/ModalDialog";
 import { toast } from "@/components/purchase/Toast";
+import { Spinner } from "@/components/ui/spinner";
 import { fetchApi } from "@/lib/api";
 import { formatCurrency } from "@/lib/utils";
-import {
-  PurchaseOrder,
-  Office,
-  Warehouse,
-  Supplier,
-  PurchaseRequisition,
-  CreatePurchaseOrderInput,
-} from "@bridgeone/contracts";
+import { orderTotals, priceLine } from "@/lib/purchase-store/rules";
+import type { Item, Office, PurchaseOrder, PurchaseRequisition, Supplier, Warehouse } from "@bridgeone/contracts";
 
-/** Current time in ms; called from event handlers only. */
-const now = () => Date.now();
+type Tab = "LOCAL_PO" | "REQUISITION_SUMMARY" | "PURCHASE_METHOD";
+type Order = PurchaseOrder & { isClosed?: boolean; notes?: string };
 
-// -------------------------------------------------------------
-// Fallback datasets (empty - real data loaded via API)
-const seedLocalPOs: any[] = [];
-const seedRequisitionSummaryItems: any[] = [];
-const seedPurchaseMethodReqs: any[] = [];
+interface SummaryRow {
+  itemId: string;
+  itemCode: string;
+  itemName: string;
+  category: string;
+  subCategory: string;
+  uom: string;
+  quantity: number;
+  requisitions: number;
+  currentStock: number;
+}
+
+interface FormLine {
+  key: number;
+  itemId: string;
+  itemCode: string;
+  itemName: string;
+  uom: string;
+  orderedQuantity: number;
+  unitPrice: number;
+  discountPercentage: number;
+  taxPercentage: number;
+}
+
+interface OrderForm {
+  editId: string | null;
+  requisitionId: string;
+  supplierId: string;
+  officeId: string;
+  warehouseId: string;
+  orderDate: string;
+  expectedDeliveryDate: string;
+  referenceNumber: string;
+  projectCostCenter: string;
+  paymentTerms: string;
+  deliveryTerms: string;
+  shippingFee: number;
+  notes: string;
+  lines: FormLine[];
+}
+
+const METHOD_LABEL: Record<string, string> = {
+  DIRECT: "Purchase Order Method",
+  QUOTATION: "Quotation Method",
+  TENDER: "Tender Method",
+  CONTRACT: "Contract / Rate Agreement",
+};
+
+const today = () => new Date().toISOString().slice(0, 10);
+const inDays = (days: number) => new Date(Date.now() + days * 86_400_000).toISOString().slice(0, 10);
+let lineKey = 0;
+const newLine = (partial: Partial<FormLine> = {}): FormLine => ({
+  key: ++lineKey,
+  itemId: "",
+  itemCode: "",
+  itemName: "",
+  uom: "",
+  orderedQuantity: 1,
+  unitPrice: 0,
+  discountPercentage: 0,
+  taxPercentage: 0,
+  ...partial,
+});
+
+const inputCls =
+  "w-full h-8 border border-slate-300 rounded px-2 text-xs text-slate-700 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500";
+const btnPrimary =
+  "h-9 px-4 bg-[#2563eb] hover:bg-blue-700 disabled:opacity-60 text-white font-semibold text-xs rounded inline-flex items-center justify-center gap-1.5 shadow-xs transition";
+const btnGhost = "h-9 px-4 border border-slate-300 rounded text-slate-700 hover:bg-slate-50 text-xs font-semibold";
+const iconBtn = "inline-flex items-center justify-center size-7 rounded hover:bg-slate-200 text-slate-700 transition disabled:opacity-30 disabled:hover:bg-transparent";
+
+function statusLabel(po: Order) {
+  if (po.isClosed) return { text: "Closed", cls: "text-slate-600" };
+  switch (po.status) {
+    case "PENDING_APPROVAL":
+      return { text: "Pending Approval", cls: "text-amber-600" };
+    case "APPROVED":
+      return { text: "Approved", cls: "text-sky-700" };
+    case "PARTIALLY_RECEIVED":
+      return { text: "Partially Received", cls: "text-purple-700" };
+    case "COMPLETED":
+      return { text: "Received", cls: "text-emerald-700" };
+    case "CANCELLED":
+      return { text: "Cancelled", cls: "text-rose-600" };
+    default:
+      return { text: po.status, cls: "text-slate-600" };
+  }
+}
+
+const anyReceived = (po: Order) => po.items.some((i) => i.receivedQuantity > 0);
+const canEdit = (po: Order) => !po.isClosed && (po.status === "APPROVED" || po.status === "PENDING_APPROVAL" || po.status === "DRAFT") && !anyReceived(po);
+const canCloseOrCancel = (po: Order) => !po.isClosed && (po.status === "APPROVED" || po.status === "PARTIALLY_RECEIVED" || po.status === "PENDING_APPROVAL" || po.status === "DRAFT");
+const canReverse = (po: Order) => Boolean(po.isClosed) || (po.status === "APPROVED" && !anyReceived(po));
+
+function downloadCsv(name: string, header: string[], rows: (string | number)[][]) {
+  const esc = (v: string | number) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+  const csv = [header.map(esc).join(","), ...rows.map((r) => r.map(esc).join(","))].join("\r\n");
+  const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = name;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function Pager({ total, page, size, onPage, onSize }: { total: number; page: number; size: number; onPage: (p: number) => void; onSize: (s: number) => void }) {
+  const pages = Math.max(1, Math.ceil(total / size));
+  const from = total ? (page - 1) * size + 1 : 0;
+  const to = Math.min(total, page * size);
+  return (
+    <div className="px-3 py-2 border-t border-slate-200 bg-slate-50 flex items-center justify-end gap-6 text-xs text-slate-600">
+      <label className="flex items-center gap-1.5">
+        <span>Rows per page:</span>
+        <select value={size} onChange={(e) => onSize(Number(e.target.value))} className="border border-slate-300 rounded px-1.5 py-0.5 text-xs bg-white">
+          {[25, 50, 100].map((n) => (
+            <option key={n} value={n}>
+              {n}
+            </option>
+          ))}
+        </select>
+      </label>
+      <span>
+        {from}-{to} of {total}
+      </span>
+      <div className="flex items-center gap-1">
+        <button type="button" aria-label="Previous page" disabled={page <= 1} onClick={() => onPage(page - 1)} className={iconBtn}>
+          &lt;
+        </button>
+        <button type="button" aria-label="Next page" disabled={page >= pages} onClick={() => onPage(page + 1)} className={iconBtn}>
+          &gt;
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function usePaging<T>(rows: T[]) {
+  const [page, setPage] = useState(1);
+  const [size, setSize] = useState(50);
+  const pages = Math.max(1, Math.ceil(rows.length / size));
+  const current = Math.min(page, pages);
+  return {
+    slice: rows.slice((current - 1) * size, current * size),
+    offset: (current - 1) * size,
+    pager: <Pager total={rows.length} page={current} size={size} onPage={setPage} onSize={(s) => { setSize(s); setPage(1); }} />,
+  };
+}
 
 export default function PurchaseOrdersPage() {
   const queryClient = useQueryClient();
-
-  // Active Tab: LOCAL_PO | REQUISITION_SUMMARY | PURCHASE_METHOD
-  const [activeTab, setActiveTab] = useState<"LOCAL_PO" | "REQUISITION_SUMMARY" | "PURCHASE_METHOD">("LOCAL_PO");
-
-  // Top header search
+  const [activeTab, setActiveTab] = useState<Tab>("LOCAL_PO");
   const [search, setSearch] = useState("");
 
-  // Filters for Tab 1: LOCAL PO
-  const [selectedOffice, setSelectedOffice] = useState("ALL");
-  const [selectedFilterBy, setSelectedFilterBy] = useState("ALL");
-  const [selectedCreatedBy, setSelectedCreatedBy] = useState("ALL");
-  const [selectedSupplier, setSelectedSupplier] = useState("ALL");
-  const [fromDate, setFromDate] = useState("2026-09-10");
-  const [toDate, setToDate] = useState("2026-11-10");
+  // Local PO filters
+  const [officeFilter, setOfficeFilter] = useState("ALL");
+  const [supplierFilter, setSupplierFilter] = useState("ALL");
+  const [statusFilter, setStatusFilter] = useState("ALL");
+  const [createdByFilter, setCreatedByFilter] = useState("ALL");
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
 
-  // Filters for Tab 2: REQUISITION SUMMARY
+  // Requisition summary filters
   const [sumOffice, setSumOffice] = useState("ALL");
-  const [sumFromDate, setSumFromDate] = useState("2026-09-10");
-  const [sumToDate, setSumToDate] = useState("2026-11-10");
+  const [sumFrom, setSumFrom] = useState("");
+  const [sumTo, setSumTo] = useState("");
 
-  // Filters for Tab 3: PURCHASE METHOD
+  // Purchase method filters
   const [pmOffice, setPmOffice] = useState("ALL");
   const [pmWarehouse, setPmWarehouse] = useState("ALL");
-  const [pmBuyerName, setPmBuyerName] = useState("");
-  const [pmBuyerOffice, setPmBuyerOffice] = useState("ALL");
   const [pmReqType, setPmReqType] = useState("ALL");
-  const [pmFromDate, setPmFromDate] = useState("2026-09-10");
-  const [pmToDate, setPmToDate] = useState("2026-11-10");
+  const [pmFrom, setPmFrom] = useState("");
+  const [pmTo, setPmTo] = useState("");
 
-  // Modals state
-  const [isCreateOpen, setIsCreateOpen] = useState(false);
-  const [viewPO, setViewPO] = useState<PurchaseOrder | null>(null);
-  const [printPO, setPrintPO] = useState<PurchaseOrder | null>(null);
-  const [, setEditPO] = useState<PurchaseOrder | null>(null);
-  const [closePO, setClosePO] = useState<PurchaseOrder | null>(null);
-  const [closeComment, setCloseComment] = useState("");
-  const [reversePO, setReversePO] = useState<PurchaseOrder | null>(null);
-  const [reverseComment, setReverseComment] = useState("");
+  // Dialogs
+  const [form, setForm] = useState<OrderForm | null>(null);
+  const [viewPO, setViewPO] = useState<Order | null>(null);
+  const [printPO, setPrintPO] = useState<Order | null>(null);
+  const [actionPO, setActionPO] = useState<{ po: Order; action: "close" | "cancel" | "reverse" | "approve" } | null>(null);
+  const [actionComment, setActionComment] = useState("");
+  const [viewReq, setViewReq] = useState<PurchaseRequisition | null>(null);
 
-  // Tab 3 Modals
-  const [viewReqModal, setViewReqModal] = useState<any | null>(null);
+  // Master data
+  const { data: offices = [] } = useQuery<Office[]>({ queryKey: ["offices"], queryFn: () => fetchApi("/master/offices") });
+  const { data: warehouses = [] } = useQuery<Warehouse[]>({ queryKey: ["warehouses", "ALL"], queryFn: () => fetchApi("/master/warehouses") });
+  const { data: suppliers = [] } = useQuery<Supplier[]>({ queryKey: ["suppliers"], queryFn: () => fetchApi("/master/suppliers") });
+  const { data: items = [] } = useQuery<Item[]>({ queryKey: ["items"], queryFn: () => fetchApi("/master/items") });
+  const { data: context } = useQuery<{ company: { name: string } }>({ queryKey: ["context"], queryFn: () => fetchApi("/master/context") });
 
-  // Method select map for Tab 3 interactive rows
-  const [rowMethods, setRowMethods] = useState<Record<string, string>>({
-    "PR-MG261000010": "Purchase Order Method",
-    "PR-MG261000007": "Purchase Order Method",
-    "PR-MG261000006": "Purchase Order Method",
-    "PR-MG261000005": "Purchase Order Method",
-    "PR-MG261000004": "Purchase Order Method",
-    "PR-MG261000003": "Purchase Order Method",
-    "PR-MG260900019": "Purchase Order Method",
-    "PR-MG260900004": "Purchase Order Method",
-    "PR-MG260900003": "Purchase Order Method",
-    "PR-MG260900002": "Purchase Order Method",
-    "PR-MG260900001": "Purchase Order Method",
-  });
-
-  // Queries
-  const { data: offices } = useQuery<Office[]>({
-    queryKey: ["offices"],
-    queryFn: () => fetchApi("/master/offices"),
-  });
-  const { data: warehouses } = useQuery<Warehouse[]>({
-    queryKey: ["warehouses", selectedOffice],
+  const { data: orders = [], isFetching: ordersLoading, refetch } = useQuery<Order[]>({
+    queryKey: ["purchaseOrders", officeFilter, supplierFilter, statusFilter, fromDate, toDate],
     queryFn: () => {
-      const p = selectedOffice !== "ALL" ? `?officeId=${selectedOffice}` : "";
-      return fetchApi(`/master/warehouses${p}`);
+      const p = new URLSearchParams();
+      if (officeFilter !== "ALL") p.set("officeId", officeFilter);
+      if (supplierFilter !== "ALL") p.set("supplierId", supplierFilter);
+      if (statusFilter !== "ALL") p.set("status", statusFilter);
+      if (fromDate) p.set("fromDate", fromDate);
+      if (toDate) p.set("toDate", toDate);
+      return fetchApi(`/purchase/orders?${p.toString()}`);
     },
   });
-  const { data: suppliers } = useQuery<Supplier[]>({
-    queryKey: ["suppliers"],
-    queryFn: () => fetchApi("/master/suppliers"),
-  });
-  const { data: approvedReqs } = useQuery<PurchaseRequisition[]>({
+  const { data: approvedReqs = [] } = useQuery<PurchaseRequisition[]>({
     queryKey: ["approvedReqs"],
     queryFn: () => fetchApi("/purchase/requisitions?status=APPROVED"),
   });
-
-  const { data: apiOrders, refetch } = useQuery<PurchaseOrder[]>({
-    queryKey: ["purchaseOrders", selectedOffice, selectedSupplier, search, fromDate, toDate],
+  const { data: summary = [], isFetching: summaryLoading } = useQuery<SummaryRow[]>({
+    queryKey: ["requisitionSummary", sumOffice, sumFrom, sumTo],
+    enabled: activeTab === "REQUISITION_SUMMARY",
     queryFn: () => {
-      const params = new URLSearchParams();
-      if (selectedOffice !== "ALL") params.append("officeId", selectedOffice);
-      if (selectedSupplier !== "ALL") params.append("supplierId", selectedSupplier);
-      if (search) params.append("search", search);
-      return fetchApi(`/purchase/orders?${params.toString()}`);
+      const p = new URLSearchParams();
+      if (sumOffice !== "ALL") p.set("officeId", sumOffice);
+      if (sumFrom) p.set("fromDate", sumFrom);
+      if (sumTo) p.set("toDate", sumTo);
+      return fetchApi(`/purchase/requisitions/summary?${p.toString()}`);
     },
   });
 
-  // Combine API orders with seed records from screenshots
-  const combinedOrders = useMemo(() => {
-    const list = [...(seedLocalPOs as any[])];
-    if (apiOrders && apiOrders.length > 0) {
-      apiOrders.forEach((o) => {
-        if (!list.some((existing) => existing.poNumber === o.poNumber)) {
-          list.unshift(o);
-        }
-      });
-    }
+  const officeName = (id: string) => offices.find((o) => o.id === id)?.name ?? "";
+  const warehouseName = (id: string) => warehouses.find((w) => w.id === id)?.name ?? "";
 
-    return list.filter((item) => {
-      if (search) {
-        const q = search.toLowerCase();
-        const m =
-          item.poNumber?.toLowerCase().includes(q) ||
-          item.supplierName?.toLowerCase().includes(q) ||
-          item.officeName?.toLowerCase().includes(q) ||
-          item.createdBy?.toLowerCase().includes(q);
-        if (!m) return false;
-      }
-      if (selectedOffice !== "ALL") {
-        if (item.officeId !== selectedOffice && !item.officeName?.includes(selectedOffice)) return false;
-      }
-      if (selectedSupplier !== "ALL") {
-        if (item.supplierId !== selectedSupplier && !item.supplierName?.toLowerCase().includes(selectedSupplier.toLowerCase())) return false;
-      }
+  // ---------------------------------------------------------------
+  // Derived lists
+  // ---------------------------------------------------------------
+  const creators = useMemo(() => [...new Set(orders.map((o) => o.createdBy))].sort(), [orders]);
+  const filteredOrders = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return orders.filter((o) => {
+      if (createdByFilter !== "ALL" && o.createdBy !== createdByFilter) return false;
+      if (!q) return true;
+      return [o.poNumber, o.supplierName, o.officeName, o.createdBy, o.referenceNumber ?? "", o.requisitionNumber ?? ""].some((v) => v.toLowerCase().includes(q));
+    });
+  }, [orders, search, createdByFilter]);
+
+  const filteredSummary = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return summary.filter((r) => !q || [r.itemCode, r.itemName, r.category].some((v) => v.toLowerCase().includes(q)));
+  }, [summary, search]);
+
+  const methodReqs = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return approvedReqs.filter((r) => {
+      if (pmOffice !== "ALL" && r.officeId !== pmOffice) return false;
+      if (pmWarehouse !== "ALL" && r.warehouseId !== pmWarehouse) return false;
+      if (pmReqType !== "ALL" && r.requestType !== pmReqType) return false;
+      if (pmFrom && r.requestDate < pmFrom) return false;
+      if (pmTo && r.requestDate > pmTo) return false;
+      if (q && ![r.requisitionNumber, r.requesterName, r.department].some((v) => v.toLowerCase().includes(q))) return false;
       return true;
     });
-  }, [apiOrders, search, selectedOffice, selectedSupplier]);
+  }, [approvedReqs, pmOffice, pmWarehouse, pmReqType, pmFrom, pmTo, search]);
 
-  // Filtered Requisition Summary Items
-  const filteredSummaryItems = useMemo(() => {
-    return seedRequisitionSummaryItems.filter((it) => {
-      if (!search) return true;
-      const q = search.toLowerCase();
-      return (
-        it.itemCode.toLowerCase().includes(q) ||
-        it.itemName.toLowerCase().includes(q) ||
-        it.category.toLowerCase().includes(q)
-      );
-    });
-  }, [search]);
+  const ordersPage = usePaging(filteredOrders);
+  const summaryPage = usePaging(filteredSummary);
+  const methodPage = usePaging(methodReqs);
 
-  // Filtered Purchase Method Requisitions
-  const filteredPurchaseMethodReqs = useMemo(() => {
-    return seedPurchaseMethodReqs.filter((req) => {
-      if (search) {
-        const q = search.toLowerCase();
-        const m =
-          req.requisitionCode.toLowerCase().includes(q) ||
-          req.user.toLowerCase().includes(q) ||
-          req.createdBy.toLowerCase().includes(q) ||
-          req.remarks.toLowerCase().includes(q);
-        if (!m) return false;
-      }
-      if (pmBuyerOffice !== "ALL" && !req.buyerOffice.toLowerCase().includes(pmBuyerOffice.toLowerCase())) {
-        return false;
-      }
-      return true;
-    });
-  }, [search, pmBuyerOffice]);
+  // ---------------------------------------------------------------
+  // Mutations
+  // ---------------------------------------------------------------
+  const invalidate = () => {
+    queryClient.invalidateQueries({ queryKey: ["purchaseOrders"] });
+    queryClient.invalidateQueries({ queryKey: ["approvedReqs"] });
+    queryClient.invalidateQueries({ queryKey: ["requisitionSummary"] });
+    queryClient.invalidateQueries({ queryKey: ["requisitions"] });
+    queryClient.invalidateQueries({ queryKey: ["approvedPOs"] });
+    queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+  };
 
-  // Create Form State
-  const [formSupplierId, setFormSupplierId] = useState("sup-01");
-  const [formOfficeId, setFormOfficeId] = useState("off-01");
-  const [formWarehouseId, setFormWarehouseId] = useState("wh-01");
-  const [formReqId, setFormReqId] = useState("");
-  const [formExpectedDate, setFormExpectedDate] = useState("2026-10-25");
-  const [formPaymentTerms, setFormPaymentTerms] = useState("Net 30 Days");
-  const [formDeliveryTerms, setFormDeliveryTerms] = useState("FOB Warehouse");
-  const [formShippingFee] = useState(0);
-  const [formProject, setFormProject] = useState("OPS-FACTORY-2026");
-  const [formLineItems, setFormLineItems] = useState([
-    {
-      itemId: "itm-01",
-      itemCode: "PM-00067",
-      itemName: "Peanut Bar-B-Q Chanachur 140gm (Foil)",
-      uom: "KG",
-      orderedQuantity: 1000,
-      unitPrice: 259,
-      discountPercentage: 0,
-      taxPercentage: 0,
-      lineTotal: 259000,
+  const saveMutation = useMutation({
+    mutationFn: (f: OrderForm) => {
+      const payload = {
+        companyId: "comp-bridgeone-01",
+        requisitionId: f.requisitionId || undefined,
+        supplierId: f.supplierId,
+        officeId: f.officeId,
+        warehouseId: f.warehouseId,
+        orderDate: f.orderDate,
+        expectedDeliveryDate: f.expectedDeliveryDate,
+        referenceNumber: f.referenceNumber || undefined,
+        projectCostCenter: f.projectCostCenter || undefined,
+        paymentTerms: f.paymentTerms,
+        deliveryTerms: f.deliveryTerms,
+        shippingFee: Number(f.shippingFee) || 0,
+        notes: f.notes || undefined,
+        items: f.lines.map((l) => ({
+          itemId: l.itemId,
+          itemCode: l.itemCode,
+          itemName: l.itemName,
+          uom: l.uom,
+          orderedQuantity: Number(l.orderedQuantity),
+          unitPrice: Number(l.unitPrice),
+          discountPercentage: Number(l.discountPercentage) || 0,
+          taxPercentage: Number(l.taxPercentage) || 0,
+          lineTotal: priceLine(Number(l.orderedQuantity), Number(l.unitPrice), Number(l.discountPercentage), Number(l.taxPercentage)).lineTotal,
+        })),
+      };
+      return f.editId
+        ? fetchApi<Order>(`/purchase/orders/${f.editId}`, { method: "PUT", body: JSON.stringify(payload) })
+        : fetchApi<Order>("/purchase/orders", { method: "POST", body: JSON.stringify(payload) });
     },
-  ]);
+    onSuccess: (po, f) => {
+      invalidate();
+      setForm(null);
+      toast.success(f.editId ? `Purchase order ${po.poNumber} updated.` : `Purchase order ${po.poNumber} issued to ${po.supplierName}.`, {
+        title: f.editId ? "Order Updated" : "Order Created",
+      });
+    },
+    onError: (err: Error) => toast.error(err.message, { title: "Purchase Order" }),
+  });
 
-  const handleSelectRequisition = (reqId: string) => {
-    setFormReqId(reqId);
-    if (!reqId) return;
-    const req = approvedReqs?.find((r) => r.id === reqId);
-    if (req) {
-      setFormOfficeId(req.officeId);
-      setFormWarehouseId(req.warehouseId);
-      setFormLineItems(
-        req.items.map((i) => ({
+  const actionMutation = useMutation({
+    mutationFn: ({ id, action, comments }: { id: string; action: string; comments: string }) =>
+      fetchApi<Order>(`/purchase/orders/${id}/${action}`, { method: "POST", body: JSON.stringify({ comments }) }),
+    onSuccess: (po, vars) => {
+      invalidate();
+      setActionPO(null);
+      const verb = { close: "closed", cancel: "cancelled", reverse: "reversed", approve: "approved" }[vars.action] ?? "updated";
+      toast.success(`Purchase order ${po.poNumber} ${verb}.`, { title: "Order Updated" });
+    },
+    onError: (err: Error) => toast.error(err.message, { title: "Order Action Failed" }),
+  });
+
+  const methodMutation = useMutation({
+    mutationFn: ({ id, method }: { id: string; method: string }) =>
+      fetchApi<PurchaseRequisition>(`/purchase/requisitions/${id}/method`, { method: "POST", body: JSON.stringify({ purchaseMethod: method }) }),
+    onSuccess: (req) => {
+      queryClient.invalidateQueries({ queryKey: ["approvedReqs"] });
+      toast.success(`${req.requisitionNumber}: ${METHOD_LABEL[req.purchaseMethod] ?? req.purchaseMethod}.`, { title: "Purchase Method Saved" });
+    },
+    onError: (err: Error) => toast.error(err.message, { title: "Purchase Method" }),
+  });
+
+  // ---------------------------------------------------------------
+  // Form helpers
+  // ---------------------------------------------------------------
+  const openCreate = (req?: PurchaseRequisition) => {
+    const officeId = req?.officeId ?? offices[0]?.id ?? "";
+    setForm({
+      editId: null,
+      requisitionId: req?.id ?? "",
+      supplierId: "",
+      officeId,
+      warehouseId: req?.warehouseId ?? warehouses.find((w) => w.officeId === officeId)?.id ?? "",
+      orderDate: today(),
+      expectedDeliveryDate: req?.requiredDeliveryDate && req.requiredDeliveryDate >= today() ? req.requiredDeliveryDate : inDays(7),
+      referenceNumber: "",
+      projectCostCenter: "",
+      paymentTerms: "Net 30 Days",
+      deliveryTerms: "FOB Warehouse",
+      shippingFee: 0,
+      notes: "",
+      lines: req
+        ? req.items.map((i) => newLine({ itemId: i.itemId, itemCode: i.itemCode, itemName: i.itemName, uom: i.uom, orderedQuantity: i.quantity, unitPrice: i.estimatedUnitPrice }))
+        : [newLine()],
+    });
+  };
+
+  const openEdit = (po: Order) =>
+    setForm({
+      editId: po.id,
+      requisitionId: po.requisitionId ?? "",
+      supplierId: po.supplierId,
+      officeId: po.officeId,
+      warehouseId: po.warehouseId,
+      orderDate: po.orderDate,
+      expectedDeliveryDate: po.expectedDeliveryDate,
+      referenceNumber: po.referenceNumber ?? "",
+      projectCostCenter: po.projectCostCenter ?? "",
+      paymentTerms: po.paymentTerms,
+      deliveryTerms: po.deliveryTerms,
+      shippingFee: po.shippingFee,
+      notes: po.notes ?? "",
+      lines: po.items.map((i) =>
+        newLine({
           itemId: i.itemId,
           itemCode: i.itemCode,
           itemName: i.itemName,
           uom: i.uom,
-          orderedQuantity: i.quantity,
-          unitPrice: i.estimatedUnitPrice,
-          discountPercentage: 0,
-          taxPercentage: 0,
-          lineTotal: i.quantity * i.estimatedUnitPrice,
-        }))
+          orderedQuantity: i.orderedQuantity,
+          unitPrice: i.unitPrice,
+          discountPercentage: i.discountPercentage,
+          taxPercentage: i.taxPercentage,
+        }),
+      ),
+    });
+
+  const patchForm = (patch: Partial<OrderForm>) => setForm((f) => (f ? { ...f, ...patch } : f));
+  const patchLine = (key: number, patch: Partial<FormLine>) =>
+    setForm((f) => (f ? { ...f, lines: f.lines.map((l) => (l.key === key ? { ...l, ...patch } : l)) } : f));
+
+  const selectRequisition = (reqId: string) => {
+    const req = approvedReqs.find((r) => r.id === reqId);
+    if (!req) {
+      patchForm({ requisitionId: "" });
+      return;
+    }
+    patchForm({
+      requisitionId: req.id,
+      officeId: req.officeId,
+      warehouseId: req.warehouseId,
+      lines: req.items.map((i) => newLine({ itemId: i.itemId, itemCode: i.itemCode, itemName: i.itemName, uom: i.uom, orderedQuantity: i.quantity, unitPrice: i.estimatedUnitPrice })),
+    });
+  };
+
+  const pricedLines = form?.lines.map((l) => priceLine(Number(l.orderedQuantity) || 0, Number(l.unitPrice) || 0, Number(l.discountPercentage) || 0, Number(l.taxPercentage) || 0)) ?? [];
+  const totals = orderTotals(pricedLines, Number(form?.shippingFee) || 0);
+  const formWarehouses = warehouses.filter((w) => !form?.officeId || w.officeId === form.officeId);
+
+  const submitForm = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!form) return;
+    if (!form.supplierId) return toast.error("Select the supplier.", { title: "Purchase Order" });
+    if (!form.warehouseId) return toast.error("Select the receiving warehouse.", { title: "Purchase Order" });
+    const bad = form.lines.findIndex((l) => !l.itemId || !(Number(l.orderedQuantity) > 0));
+    if (bad >= 0) return toast.error(`Line ${bad + 1}: select an item and enter a quantity.`, { title: "Purchase Order" });
+    saveMutation.mutate(form);
+  };
+
+  // ---------------------------------------------------------------
+  // Export
+  // ---------------------------------------------------------------
+  const handleExport = () => {
+    if (activeTab === "LOCAL_PO") {
+      downloadCsv(
+        "purchase_orders.csv",
+        ["SL", "PO Date", "Expected Date", "Reference No", "PO No", "Requisition No", "Office", "Project/Ref", "Supplier", "Created By", "Amount (BDT)", "Status"],
+        filteredOrders.map((o, i) => [i + 1, o.orderDate, o.expectedDeliveryDate, o.referenceNumber ?? "", o.poNumber, o.requisitionNumber ?? "", o.officeName, o.projectCostCenter ?? "", o.supplierName, o.createdBy, o.totalAmount, statusLabel(o).text]),
+      );
+    } else if (activeTab === "REQUISITION_SUMMARY") {
+      downloadCsv(
+        "requisition_summary.csv",
+        ["SL", "Item Code", "Item Name", "Category", "Sub Category", "UoM", "Requested Qty", "Current Stock"],
+        filteredSummary.map((r, i) => [i + 1, r.itemCode, r.itemName, r.category, r.subCategory, r.uom, r.quantity, r.currentStock]),
+      );
+    } else {
+      downloadCsv(
+        "purchase_method.csv",
+        ["SL", "Requisition", "Date", "Department", "Requested By", "Office", "Warehouse", "Type", "Method", "Budget", "Status"],
+        methodReqs.map((r, i) => [i + 1, r.requisitionNumber, r.requestDate, r.department, r.requesterName, officeName(r.officeId), warehouseName(r.warehouseId), r.requestType, METHOD_LABEL[r.purchaseMethod] ?? r.purchaseMethod, r.totalEstimatedAmount, r.status]),
       );
     }
   };
 
-  const createMutation = useMutation({
-    mutationFn: (payload: CreatePurchaseOrderInput) =>
-      fetchApi("/purchase/orders", {
-        method: "POST",
-        body: JSON.stringify(payload),
-      }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["purchaseOrders"] });
-      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
-      setIsCreateOpen(false);
-      toast.success("Local Purchase Order created successfully!", {
-        title: "Purchase Order Created",
-      });
-    },
-    onError: (err: any) => {
-      toast.error(`Error creating PO: ${err.message}`, {
-        title: "Creation Failed",
-      });
-    },
-  });
-
-  const handleCreateSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    createMutation.mutate({
-      companyId: "comp-bridgeone-01",
-      supplierId: formSupplierId,
-      officeId: formOfficeId,
-      warehouseId: formWarehouseId,
-      requisitionId: formReqId || undefined,
-      orderDate: new Date().toISOString().split("T")[0],
-      expectedDeliveryDate: formExpectedDate,
-      paymentTerms: formPaymentTerms,
-      deliveryTerms: formDeliveryTerms,
-      shippingFee: formShippingFee,
-      projectCostCenter: formProject,
-      items: formLineItems as any,
-    });
-  };
-
-  // CSV/Excel Export Handler
-  const handleExport = () => {
-    let csvContent = "data:text/csv;charset=utf-8,";
-    if (activeTab === "LOCAL_PO") {
-      csvContent += "SL,PO Date,Rece. Date,Reference No,PO No,Office,Project/Outlet/Ref,Supplier,Created By,Amount (BDT),ETA,Status,Review Comment\n";
-      combinedOrders.forEach((row, i) => {
-        csvContent += `"${i + 1}","${row.orderDate}","${row.expectedDeliveryDate}","${row.referenceNumber || "N/A"}","${row.poNumber}","${row.officeName}","${row.projectCostCenter || "-"}","${row.supplierName}","${row.createdBy}","${row.totalAmount}","${row.eta || "-"}","${row.status}","${row.reviewComment || ""}"\n`;
-      });
-    } else if (activeTab === "REQUISITION_SUMMARY") {
-      csvContent += "SL,Item Code,Item Name,Category,Sub Category,UoM,Quantity,Current Stock\n";
-      filteredSummaryItems.forEach((row, i) => {
-        csvContent += `"${i + 1}","${row.itemCode}","${row.itemName}","${row.category}","${row.subCategory}","${row.uom}","${row.quantity}","${row.currentStock}"\n`;
-      });
-    } else {
-      csvContent += "SL,Requisition Code,Date,User Type,User,Buyer Name,Buyer Office,Method,Budget,Created By,Remarks,Status\n";
-      filteredPurchaseMethodReqs.forEach((row, i) => {
-        csvContent += `"${i + 1}","${row.requisitionCode}","${row.date}","${row.userType}","${row.user}","${row.buyerName}","${row.buyerOffice}","${rowMethods[row.requisitionCode] || row.method}","${row.budget}","${row.createdBy}","${row.remarks}","${row.status}"\n`;
-      });
-    }
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
-    link.setAttribute("download", `BridgeOne_${activeTab}_Report.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
-
-  // Convert Requisition from Tab 3 to PO
-  const handleConvertToPO = (req: any) => {
-    setFormProject(req.remarks || "FACTORY-PROD");
-    setFormExpectedDate(new Date(now() + 7 * 86400000).toISOString().split("T")[0]);
-    setIsCreateOpen(true);
-  };
+  const tabs: { id: Tab; label: string }[] = [
+    { id: "LOCAL_PO", label: "LOCAL PO" },
+    { id: "REQUISITION_SUMMARY", label: "REQUISITION SUMMARY" },
+    { id: "PURCHASE_METHOD", label: "PURCHASE METHOD" },
+  ];
 
   return (
     <div className="space-y-3 font-sans pb-12">
-      {/* ------------------------------------------------------------- */}
-      {/* 1. TOP HEADER (Exact Managerium Layout) */}
-      {/* ------------------------------------------------------------- */}
+      {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-3 rounded border border-slate-200/90 shadow-2xs">
-        <div>
-          <h1 className="text-xl font-bold text-slate-900 tracking-tight">Purchase Order</h1>
-        </div>
-
-        <div className="flex items-center gap-2">
-          {/* Quick search input with search icon on right */}
+        <h1 className="text-xl font-bold text-slate-900 tracking-tight">Purchase Order</h1>
+        <div className="flex flex-wrap items-center gap-2">
           <div className="relative">
             <input
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search...."
-              className="w-56 sm:w-64 h-9 pl-3 pr-8 text-xs border border-slate-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 bg-white placeholder-slate-400"
+              aria-label="Search"
+              className="w-56 sm:w-64 h-9 pl-3 pr-8 text-xs border border-slate-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white placeholder-slate-400"
             />
             <Search className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
           </div>
-
-          {/* Excel Export Button */}
-          {(activeTab === "LOCAL_PO" || activeTab === "REQUISITION_SUMMARY") && (
-            <button
-              type="button"
-              onClick={handleExport}
-              className="h-9 px-3.5 bg-[#2563eb] hover:bg-blue-700 text-white font-semibold text-xs rounded flex items-center gap-1.5 shadow-xs transition"
-              title="Download Excel Report"
-            >
-              <Download className="w-3.5 h-3.5" />
-              <span>Excel</span>
-            </button>
-          )}
-
-          {/* Create Local Order Button (on LOCAL PO tab) */}
+          <button type="button" onClick={handleExport} className={btnPrimary} title="Download Excel (CSV)">
+            <Download className="w-3.5 h-3.5" />
+            <span>Excel</span>
+          </button>
           {activeTab === "LOCAL_PO" && (
-            <button
-              type="button"
-              onClick={() => setIsCreateOpen(true)}
-              className="h-9 px-4 bg-[#2563eb] hover:bg-blue-700 text-white font-semibold text-xs rounded flex items-center gap-1.5 shadow-xs transition"
-            >
+            <button type="button" onClick={() => openCreate()} className={btnPrimary}>
               <Plus className="w-4 h-4" />
               <span>Create Local Order</span>
             </button>
@@ -361,174 +492,101 @@ export default function PurchaseOrdersPage() {
         </div>
       </div>
 
-      {/* ------------------------------------------------------------- */}
-      {/* 2. NAVIGATION TABS (LOCAL PO | REQUISITION SUMMARY | PURCHASE METHOD) */}
-      {/* ------------------------------------------------------------- */}
-      <div className="flex items-center gap-8 border-b border-slate-200 mb-3 bg-white px-3 pt-1">
-        <button
-          type="button"
-          onClick={() => setActiveTab("LOCAL_PO")}
-          className={`pb-2.5 text-xs font-bold tracking-wide transition-colors relative flex items-center gap-2 uppercase ${
-            activeTab === "LOCAL_PO"
-              ? "text-blue-600 border-b-2 border-blue-600 -mb-[1px]"
-              : "text-slate-500 hover:text-slate-800"
-          }`}
-        >
-          <span>LOCAL PO</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setActiveTab("REQUISITION_SUMMARY")}
-          className={`pb-2.5 text-xs font-bold tracking-wide transition-colors relative flex items-center gap-2 uppercase ${
-            activeTab === "REQUISITION_SUMMARY"
-              ? "text-blue-600 border-b-2 border-blue-600 -mb-[1px]"
-              : "text-slate-500 hover:text-slate-800"
-          }`}
-        >
-          <span>REQUISITION SUMMARY</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setActiveTab("PURCHASE_METHOD")}
-          className={`pb-2.5 text-xs font-bold tracking-wide transition-colors relative flex items-center gap-2 uppercase ${
-            activeTab === "PURCHASE_METHOD"
-              ? "text-blue-600 border-b-2 border-blue-600 -mb-[1px]"
-              : "text-slate-500 hover:text-slate-800"
-          }`}
-        >
-          <span>PURCHASE METHOD</span>
-        </button>
+      {/* Tabs */}
+      <div role="tablist" className="flex items-center gap-8 border-b border-slate-200 bg-white px-3 pt-1 overflow-x-auto">
+        {tabs.map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            role="tab"
+            aria-selected={activeTab === t.id}
+            onClick={() => setActiveTab(t.id)}
+            className={`pb-2.5 pt-2 text-xs font-bold tracking-wide border-b-2 whitespace-nowrap transition ${
+              activeTab === t.id ? "border-[#2563eb] text-[#2563eb]" : "border-transparent text-slate-500 hover:text-slate-800"
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
       </div>
 
-      {/* ------------------------------------------------------------- */}
-      {/* 3. TAB 1: LOCAL PO (Screenshot 1) */}
-      {/* ------------------------------------------------------------- */}
+      {/* TAB 1: LOCAL PO */}
       {activeTab === "LOCAL_PO" && (
         <div className="space-y-3">
-          {/* Filter Card */}
           <div className="bg-white rounded border border-slate-200/90 p-3.5 shadow-2xs">
-            {/* Row 1: 6 Inputs */}
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-3">
-              {/* Office */}
-              <div>
-                <label className="block text-[11px] font-semibold text-slate-700 mb-1">Office</label>
-                <select
-                  value={selectedOffice}
-                  onChange={(e) => setSelectedOffice(e.target.value)}
-                  className="w-full h-8 border border-slate-300 rounded px-2 text-xs text-slate-700 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
-                >
-                  <option value="ALL">Select Office</option>
-                  <option value="MG Sirajganj Factory">MG Sirajganj Factory</option>
-                  {offices?.map((o) => (
+              <label className="block">
+                <span className="block text-[11px] font-semibold text-slate-700 mb-1">Office</span>
+                <select value={officeFilter} onChange={(e) => setOfficeFilter(e.target.value)} className={inputCls}>
+                  <option value="ALL">All Offices</option>
+                  {offices.map((o) => (
                     <option key={o.id} value={o.id}>
                       {o.name}
                     </option>
                   ))}
                 </select>
-              </div>
-
-              {/* Filter By */}
-              <div>
-                <label className="block text-[11px] font-semibold text-slate-700 mb-1">Filter By</label>
-                <select
-                  value={selectedFilterBy}
-                  onChange={(e) => setSelectedFilterBy(e.target.value)}
-                  className="w-full h-8 border border-slate-300 rounded px-2 text-xs text-slate-700 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
-                >
-                  <option value="ALL">Filter By</option>
-                  <option value="PO_DATE">PO Date</option>
-                  <option value="RECEIVE_DATE">Rece. Date</option>
-                  <option value="SUPPLIER">Supplier</option>
-                  <option value="STATUS">Status</option>
+              </label>
+              <label className="block">
+                <span className="block text-[11px] font-semibold text-slate-700 mb-1">Status</span>
+                <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className={inputCls}>
+                  <option value="ALL">All Statuses</option>
+                  <option value="PENDING_APPROVAL">Pending Approval</option>
+                  <option value="APPROVED">Approved</option>
+                  <option value="PARTIALLY_RECEIVED">Partially Received</option>
+                  <option value="COMPLETED">Received / Closed</option>
+                  <option value="CLOSED">Closed</option>
+                  <option value="CANCELLED">Cancelled</option>
                 </select>
-              </div>
-
-              {/* Created By */}
-              <div>
-                <label className="block text-[11px] font-semibold text-slate-700 mb-1">Created By</label>
-                <select
-                  value={selectedCreatedBy}
-                  onChange={(e) => setSelectedCreatedBy(e.target.value)}
-                  className="w-full h-8 border border-slate-300 rounded px-2 text-xs text-slate-700 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
-                >
-                  <option value="ALL">Created By</option>
-                  <option value="MD. Mizanur Rahman Ratan">MD. Mizanur Rahman Ratan</option>
-                  <option value="Mahfuz Rahman">Mahfuz Rahman</option>
+              </label>
+              <label className="block">
+                <span className="block text-[11px] font-semibold text-slate-700 mb-1">Created By</span>
+                <select value={createdByFilter} onChange={(e) => setCreatedByFilter(e.target.value)} className={inputCls}>
+                  <option value="ALL">Anyone</option>
+                  {creators.map((c) => (
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
+                  ))}
                 </select>
-              </div>
-
-              {/* Select Supplier */}
-              <div>
-                <label className="block text-[11px] font-semibold text-slate-700 mb-1">Select Supplier</label>
-                <select
-                  value={selectedSupplier}
-                  onChange={(e) => setSelectedSupplier(e.target.value)}
-                  className="w-full h-8 border border-slate-300 rounded px-2 text-xs text-slate-700 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
-                >
-                  <option value="ALL">Select/Search Supplier (min 3 letters)</option>
-                  <option value="M/S SP Paul Mills">M/S SP Paul Mills</option>
-                  <option value="ROYAL PRINT PACK">ROYAL PRINT PACK</option>
-                  <option value="Perfect Masala Store">Perfect Masala Store</option>
-                  <option value="ACES Inc">ACES Inc</option>
-                  <option value="M/S Vali Traders">M/S Vali Traders</option>
-                  <option value="Burhan Perfumery House">Burhan Perfumery House</option>
-                  <option value="PACKFIRM LIMITED">PACKFIRM LIMITED</option>
-                  <option value="AJ Overseas Company Ltd">AJ Overseas Company Ltd</option>
-                  <option value="M/S Sarkar Traders">M/S Sarkar Traders</option>
-                  <option value="Anhar Traders">Anhar Traders</option>
-                  {suppliers?.map((s) => (
-                    <option key={s.id} value={s.name}>
+              </label>
+              <label className="block">
+                <span className="block text-[11px] font-semibold text-slate-700 mb-1">Supplier</span>
+                <select value={supplierFilter} onChange={(e) => setSupplierFilter(e.target.value)} className={inputCls}>
+                  <option value="ALL">All Suppliers</option>
+                  {suppliers.map((s) => (
+                    <option key={s.id} value={s.id}>
                       {s.name}
                     </option>
                   ))}
                 </select>
-              </div>
-
-              {/* From Date */}
-              <div>
-                <label className="block text-[11px] font-semibold text-slate-700 mb-1">From Date</label>
-                <input
-                  type="date"
-                  value={fromDate}
-                  onChange={(e) => setFromDate(e.target.value)}
-                  className="w-full h-8 border border-slate-300 rounded px-2 text-xs text-slate-700 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
-                />
-              </div>
-
-              {/* To Date */}
-              <div>
-                <label className="block text-[11px] font-semibold text-slate-700 mb-1">To Date</label>
-                <input
-                  type="date"
-                  value={toDate}
-                  onChange={(e) => setToDate(e.target.value)}
-                  className="w-full h-8 border border-slate-300 rounded px-2 text-xs text-slate-700 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
-                />
-              </div>
+              </label>
+              <label className="block">
+                <span className="block text-[11px] font-semibold text-slate-700 mb-1">From Date</span>
+                <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} className={inputCls} />
+              </label>
+              <label className="block">
+                <span className="block text-[11px] font-semibold text-slate-700 mb-1">To Date</span>
+                <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} className={inputCls} />
+              </label>
             </div>
-
-            {/* Row 2: View Button */}
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => refetch()}
-                className="h-8 px-6 bg-[#2563eb] hover:bg-blue-700 text-white font-bold text-xs uppercase rounded shadow-xs transition"
-              >
-                View
+            <div className="flex items-center gap-3">
+              <button type="button" onClick={() => refetch()} disabled={ordersLoading} className={btnPrimary}>
+                {ordersLoading && <Spinner className="size-3.5" />}
+                VIEW
               </button>
-              {(selectedOffice !== "ALL" || selectedSupplier !== "ALL" || search !== "") && (
+              {(officeFilter !== "ALL" || supplierFilter !== "ALL" || statusFilter !== "ALL" || createdByFilter !== "ALL" || fromDate || toDate || search) && (
                 <button
                   type="button"
                   onClick={() => {
-                    setSelectedOffice("ALL");
-                    setSelectedFilterBy("ALL");
-                    setSelectedCreatedBy("ALL");
-                    setSelectedSupplier("ALL");
+                    setOfficeFilter("ALL");
+                    setSupplierFilter("ALL");
+                    setStatusFilter("ALL");
+                    setCreatedByFilter("ALL");
+                    setFromDate("");
+                    setToDate("");
                     setSearch("");
                   }}
-                  className="text-xs text-slate-500 hover:text-slate-800 underline ml-2"
+                  className="h-9 px-2 text-xs text-slate-500 hover:text-slate-800 underline"
                 >
                   Clear Filters
                 </button>
@@ -536,256 +594,150 @@ export default function PurchaseOrdersPage() {
             </div>
           </div>
 
-          {/* Table Container with All Borders */}
           <div className="bg-white rounded border border-slate-200/90 shadow-2xs overflow-hidden">
             <div className="erp-table-container">
               <table className="erp-table">
                 <thead>
                   <tr>
                     <th className="w-12 text-center">SL</th>
-                    <th className="w-[150px] text-center">Actions</th>
+                    <th className="w-[190px] text-center">Actions</th>
                     <th>PO Date</th>
-                    <th>Rece. Date</th>
+                    <th>Expected Date</th>
                     <th>Reference No</th>
                     <th>PO No</th>
+                    <th>Requisition</th>
                     <th>Office</th>
-                    <th>Project/Outlet/Ref.</th>
+                    <th>Project/Ref.</th>
                     <th>Supplier</th>
                     <th>Created By</th>
                     <th className="text-right">Amount (BDT)</th>
-                    <th>ETA Estimated Time of Arrival</th>
                     <th className="text-center">Status</th>
-                    <th>Review Comment</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {combinedOrders.length === 0 ? (
+                  {ordersPage.slice.length === 0 ? (
                     <tr>
-                      <td colSpan={14} className="text-center py-10 text-slate-400">
-                        No purchase orders matching the filter criteria.
+                      <td colSpan={13} className="text-center py-10 text-slate-400">
+                        {ordersLoading ? "Loading purchase orders…" : "No purchase orders match the filters."}
                       </td>
                     </tr>
                   ) : (
-                    combinedOrders.map((row, idx) => (
-                      <tr key={row.id || idx}>
-                        {/* 1. SL */}
-                        <td className="text-center font-mono text-slate-600">{idx + 1}</td>
-
-                        {/* 2. Actions: Edit, Print, View, Close, Reverse */}
-                        <td className="text-center">
-                          <div className="flex items-center justify-center gap-1.5 text-slate-700">
-                            {/* 1. Edit */}
-                            <button
-                              type="button"
-                              onClick={() => setEditPO(row)}
-                              className="p-1 rounded hover:bg-slate-200 text-slate-700 transition"
-                              title="Edit Purchase Order"
-                            >
-                              <Pencil className="w-3.5 h-3.5" />
+                    ordersPage.slice.map((row, idx) => {
+                      const st = statusLabel(row);
+                      return (
+                        <tr key={row.id}>
+                          <td className="text-center font-mono text-slate-600">{ordersPage.offset + idx + 1}</td>
+                          <td className="text-center">
+                            <div className="flex items-center justify-center gap-0.5">
+                              <button type="button" disabled={!canEdit(row)} onClick={() => openEdit(row)} className={iconBtn} title="Edit" aria-label="Edit purchase order">
+                                <Pencil className="w-3.5 h-3.5" />
+                              </button>
+                              <button type="button" onClick={() => setPrintPO(row)} className={iconBtn} title="Print" aria-label="Print purchase order">
+                                <Printer className="w-3.5 h-3.5" />
+                              </button>
+                              <button type="button" onClick={() => setViewPO(row)} className={iconBtn} title="View" aria-label="View purchase order">
+                                <Eye className="w-3.5 h-3.5" />
+                              </button>
+                              {row.status === "PENDING_APPROVAL" && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setActionPO({ po: row, action: "approve" });
+                                    setActionComment("");
+                                  }}
+                                  className={`${iconBtn} hover:bg-emerald-100 hover:text-emerald-700`}
+                                  title="Approve"
+                                  aria-label="Approve purchase order"
+                                >
+                                  <Check className="w-3.5 h-3.5" />
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                disabled={!canCloseOrCancel(row)}
+                                onClick={() => {
+                                  setActionPO({ po: row, action: anyReceived(row) ? "close" : "cancel" });
+                                  setActionComment("");
+                                }}
+                                className={`${iconBtn} hover:bg-rose-100 hover:text-rose-700`}
+                                title={anyReceived(row) ? "Close (stop receiving)" : "Cancel order"}
+                                aria-label="Close or cancel purchase order"
+                              >
+                                <X className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                disabled={!canReverse(row)}
+                                onClick={() => {
+                                  setActionPO({ po: row, action: "reverse" });
+                                  setActionComment("");
+                                }}
+                                className={`${iconBtn} hover:bg-amber-100 hover:text-amber-800`}
+                                title="Reverse status"
+                                aria-label="Reverse purchase order status"
+                              >
+                                <RotateCcw className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </td>
+                          <td>{row.orderDate}</td>
+                          <td>{row.expectedDeliveryDate}</td>
+                          <td className="text-slate-500 font-mono text-[11px]">{row.referenceNumber || "—"}</td>
+                          <td>
+                            <button type="button" onClick={() => setViewPO(row)} className="font-mono text-sky-700 font-semibold hover:underline">
+                              {row.poNumber}
                             </button>
-
-                            {/* 2. Print */}
-                            <button
-                              type="button"
-                              onClick={() => setPrintPO(row)}
-                              className="p-1 rounded hover:bg-slate-200 text-slate-700 transition"
-                              title="Print Purchase Order"
-                            >
-                              <Printer className="w-3.5 h-3.5" />
-                            </button>
-
-                            {/* 3. View */}
-                            <button
-                              type="button"
-                              onClick={() => setViewPO(row)}
-                              className="p-1 rounded hover:bg-slate-200 text-slate-700 transition"
-                              title="View PO Details"
-                            >
-                              <Eye className="w-3.5 h-3.5" />
-                            </button>
-
-                            {/* 4. Close */}
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setClosePO(row);
-                                setCloseComment("");
-                              }}
-                              className="p-1 rounded hover:bg-rose-100 hover:text-rose-700 text-slate-700 transition"
-                              title="Close / Cancel Order"
-                            >
-                              <X className="w-3.5 h-3.5" />
-                            </button>
-
-                            {/* 5. Reverse */}
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setReversePO(row);
-                                setReverseComment("");
-                              }}
-                              className="p-1 rounded hover:bg-amber-100 hover:text-amber-800 text-slate-700 transition"
-                              title="Reverse Order Status"
-                            >
-                              <RotateCcw className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                        </td>
-
-                        {/* 3. PO Date */}
-                        <td>{row.orderDate}</td>
-
-                        {/* 4. Rece. Date */}
-                        <td>{row.expectedDeliveryDate}</td>
-
-                        {/* 5. Reference No */}
-                        <td className="text-slate-500 font-mono text-[11px]">{row.referenceNumber || "N/A"}</td>
-
-                        {/* 6. PO No */}
-                        <td>
-                          <button
-                            type="button"
-                            onClick={() => setViewPO(row)}
-                            className="font-mono text-sky-700 font-semibold hover:underline"
-                          >
-                            {row.poNumber}
-                          </button>
-                        </td>
-
-                        {/* 7. Office */}
-                        <td>{row.officeName}</td>
-
-                        {/* 8. Project/Outlet/Ref. */}
-                        <td className="text-slate-500">{row.projectCostCenter || "-"}</td>
-
-                        {/* 9. Supplier */}
-                        <td className="font-medium text-slate-900">{row.supplierName}</td>
-
-                        {/* 10. Created By */}
-                        <td>{row.createdBy}</td>
-
-                        {/* 11. Amount (BDT) */}
-                        <td className="text-right font-mono font-bold text-slate-900">
-                          {Number(row.totalAmount).toLocaleString("en-US", {
-                            minimumFractionDigits: 2,
-                            maximumFractionDigits: 2,
-                          })}
-                        </td>
-
-                        {/* 12. ETA */}
-                        <td className="font-mono text-[11px] text-slate-600">{row.eta || "-"}</td>
-
-                        {/* 13. Status */}
-                        <td className="text-center">
-                          {row.status === "PENDING" ? (
-                            <span className="inline-block text-[11px] font-semibold text-amber-600">Pending</span>
-                          ) : row.status === "IN_PROGRESS" ? (
-                            <span className="inline-block text-[11px] font-semibold text-sky-700">In Progress</span>
-                          ) : row.status === "COMPLETED" ? (
-                            <span className="inline-block text-[11px] font-semibold text-emerald-700">Completed</span>
-                          ) : row.status === "PARTIALLY_RECEIVED" ? (
-                            <span className="inline-block text-[11px] font-semibold text-purple-700">Partially Received</span>
-                          ) : (
-                            <span className="inline-block text-[11px] font-semibold text-slate-600">{row.status}</span>
-                          )}
-                        </td>
-
-                        {/* 14. Review Comment */}
-                        <td className="text-xs text-slate-500 max-w-[150px] truncate">{row.reviewComment || ""}</td>
-                      </tr>
-                    ))
+                          </td>
+                          <td className="font-mono text-[11px] text-slate-600">{row.requisitionNumber || "—"}</td>
+                          <td>{row.officeName}</td>
+                          <td className="text-slate-500">{row.projectCostCenter || "—"}</td>
+                          <td className="font-medium text-slate-900">{row.supplierName}</td>
+                          <td>{row.createdBy}</td>
+                          <td className="text-right font-mono font-bold text-slate-900">{formatCurrency(row.totalAmount)}</td>
+                          <td className={`text-center text-[11px] font-semibold ${st.cls}`}>{st.text}</td>
+                        </tr>
+                      );
+                    })
                   )}
                 </tbody>
               </table>
             </div>
-
-            {/* Pagination */}
-            <div className="px-3 py-2 border-t border-slate-200 bg-slate-50 flex items-center justify-end gap-6 text-xs text-slate-600">
-              <div className="flex items-center gap-1.5">
-                <span>Rows per page:</span>
-                <select className="border border-slate-300 rounded px-1.5 py-0.5 text-xs bg-white">
-                  <option value="50">50</option>
-                  <option value="25">25</option>
-                  <option value="100">100</option>
-                </select>
-              </div>
-              <div>
-                1-{combinedOrders.length} of {combinedOrders.length}
-              </div>
-              <div className="flex items-center gap-1 text-slate-400">
-                <button type="button" disabled className="px-1.5 py-0.5 hover:text-slate-800 disabled:opacity-40">
-                  &lt;
-                </button>
-                <button type="button" disabled className="px-1.5 py-0.5 hover:text-slate-800 disabled:opacity-40">
-                  &gt;
-                </button>
-              </div>
-            </div>
+            {ordersPage.pager}
           </div>
         </div>
       )}
 
-      {/* ------------------------------------------------------------- */}
-      {/* 4. TAB 2: REQUISITION SUMMARY (Screenshot 2) */}
-      {/* ------------------------------------------------------------- */}
+      {/* TAB 2: REQUISITION SUMMARY */}
       {activeTab === "REQUISITION_SUMMARY" && (
         <div className="space-y-3">
-          {/* Filter Toolbar */}
           <div className="bg-white rounded border border-slate-200/90 p-3.5 shadow-2xs">
+            <p className="text-[11px] text-slate-500 mb-2">Items on approved requisitions that are not ordered yet, with the current stock.</p>
             <div className="flex flex-wrap items-end gap-3.5">
-              {/* Office */}
-              <div className="w-48">
-                <label className="block text-[11px] font-semibold text-slate-700 mb-1">Office</label>
-                <select
-                  value={sumOffice}
-                  onChange={(e) => setSumOffice(e.target.value)}
-                  className="w-full h-8 border border-slate-300 rounded px-2 text-xs text-slate-700 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
-                >
-                  <option value="ALL">Select Office</option>
-                  <option value="MG Sirajganj Factory">MG Sirajganj Factory</option>
-                  {offices?.map((o) => (
+              <label className="block w-48">
+                <span className="block text-[11px] font-semibold text-slate-700 mb-1">Office</span>
+                <select value={sumOffice} onChange={(e) => setSumOffice(e.target.value)} className={inputCls}>
+                  <option value="ALL">All Offices</option>
+                  {offices.map((o) => (
                     <option key={o.id} value={o.id}>
                       {o.name}
                     </option>
                   ))}
                 </select>
-              </div>
-
-              {/* From Date */}
-              <div className="w-44">
-                <label className="block text-[11px] font-semibold text-slate-700 mb-1">From Date</label>
-                <input
-                  type="date"
-                  value={sumFromDate}
-                  onChange={(e) => setSumFromDate(e.target.value)}
-                  className="w-full h-8 border border-slate-300 rounded px-2 text-xs text-slate-700 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
-                />
-              </div>
-
-              {/* To Date */}
-              <div className="w-44">
-                <label className="block text-[11px] font-semibold text-slate-700 mb-1">To Date</label>
-                <input
-                  type="date"
-                  value={sumToDate}
-                  onChange={(e) => setSumToDate(e.target.value)}
-                  className="w-full h-8 border border-slate-300 rounded px-2 text-xs text-slate-700 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
-                />
-              </div>
-
-              {/* View Button */}
-              <div>
-                <button
-                  type="button"
-                  className="h-8 px-6 bg-[#2563eb] hover:bg-blue-700 text-white font-bold text-xs uppercase rounded shadow-xs transition"
-                >
-                  View
-                </button>
-              </div>
+              </label>
+              <label className="block w-44">
+                <span className="block text-[11px] font-semibold text-slate-700 mb-1">From Date</span>
+                <input type="date" value={sumFrom} onChange={(e) => setSumFrom(e.target.value)} className={inputCls} />
+              </label>
+              <label className="block w-44">
+                <span className="block text-[11px] font-semibold text-slate-700 mb-1">To Date</span>
+                <input type="date" value={sumTo} onChange={(e) => setSumTo(e.target.value)} className={inputCls} />
+              </label>
+              <button type="button" onClick={() => queryClient.invalidateQueries({ queryKey: ["requisitionSummary"] })} disabled={summaryLoading} className={btnPrimary}>
+                {summaryLoading && <Spinner className="size-3.5" />}
+                VIEW
+              </button>
             </div>
           </div>
-
-          {/* Table Container with All Borders */}
           <div className="bg-white rounded border border-slate-200/90 shadow-2xs overflow-hidden">
             <div className="erp-table-container">
               <table className="erp-table">
@@ -797,600 +749,454 @@ export default function PurchaseOrdersPage() {
                     <th>Category</th>
                     <th>Sub Category</th>
                     <th className="text-center">UoM</th>
-                    <th className="text-right">Quantity</th>
+                    <th className="text-center">Requisitions</th>
+                    <th className="text-right">Requested Qty</th>
                     <th className="text-right">Current Stock</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredSummaryItems.map((row, idx) => (
-                    <tr key={idx}>
-                      <td className="text-center font-mono text-slate-600">{idx + 1}</td>
-                      <td className="font-mono text-blue-700 font-semibold">{row.itemCode}</td>
-                      <td className="font-semibold text-slate-800">{row.itemName}</td>
-                      <td>{row.category}</td>
-                      <td className="text-slate-400">{row.subCategory || ""}</td>
-                      <td className="text-center font-medium text-slate-700">{row.uom}</td>
-                      <td className="text-right font-mono font-bold text-slate-900">
-                        {row.quantity.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                      </td>
-                      <td className="text-right font-mono font-semibold text-slate-700">
-                        {row.currentStock.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  {summaryPage.slice.length === 0 ? (
+                    <tr>
+                      <td colSpan={9} className="text-center py-10 text-slate-400">
+                        {summaryLoading ? "Loading…" : "No approved requisition items are waiting for an order."}
                       </td>
                     </tr>
-                  ))}
+                  ) : (
+                    summaryPage.slice.map((row, idx) => (
+                      <tr key={`${row.itemId}-${row.itemCode}`}>
+                        <td className="text-center font-mono text-slate-600">{summaryPage.offset + idx + 1}</td>
+                        <td className="font-mono text-blue-700 font-semibold">{row.itemCode}</td>
+                        <td className="font-semibold text-slate-800">{row.itemName}</td>
+                        <td>{row.category}</td>
+                        <td className="text-slate-500">{row.subCategory}</td>
+                        <td className="text-center">{row.uom}</td>
+                        <td className="text-center font-mono">{row.requisitions}</td>
+                        <td className="text-right font-mono font-bold text-slate-900">{row.quantity.toLocaleString("en-US", { maximumFractionDigits: 3 })}</td>
+                        <td className={`text-right font-mono font-semibold ${row.currentStock < row.quantity ? "text-rose-600" : "text-slate-700"}`}>
+                          {row.currentStock.toLocaleString("en-US", { maximumFractionDigits: 3 })}
+                        </td>
+                      </tr>
+                    ))
+                  )}
                 </tbody>
               </table>
             </div>
-
-            {/* Pagination */}
-            <div className="px-3 py-2 border-t border-slate-200 bg-slate-50 flex items-center justify-end gap-6 text-xs text-slate-600">
-              <div className="flex items-center gap-1.5">
-                <span>Rows per page:</span>
-                <select className="border border-slate-300 rounded px-1.5 py-0.5 text-xs bg-white">
-                  <option value="50">50</option>
-                  <option value="25">25</option>
-                  <option value="100">100</option>
-                </select>
-              </div>
-              <div>
-                1-{filteredSummaryItems.length} of {filteredSummaryItems.length}
-              </div>
-              <div className="flex items-center gap-1 text-slate-400">
-                <button type="button" disabled className="px-1.5 py-0.5 hover:text-slate-800 disabled:opacity-40">
-                  &lt;
-                </button>
-                <button type="button" disabled className="px-1.5 py-0.5 hover:text-slate-800 disabled:opacity-40">
-                  &gt;
-                </button>
-              </div>
-            </div>
+            {summaryPage.pager}
           </div>
         </div>
       )}
 
-      {/* ------------------------------------------------------------- */}
-      {/* 5. TAB 3: PURCHASE METHOD (Screenshot 3) */}
-      {/* ------------------------------------------------------------- */}
+      {/* TAB 3: PURCHASE METHOD */}
       {activeTab === "PURCHASE_METHOD" && (
         <div className="space-y-3">
-          {/* Filter Toolbar */}
           <div className="bg-white rounded border border-slate-200/90 p-3.5 shadow-2xs">
-            {/* Row 1 */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-3">
-              <div>
-                <label className="block text-[11px] font-semibold text-slate-700 mb-1">Office</label>
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
+              <label className="block">
+                <span className="block text-[11px] font-semibold text-slate-700 mb-1">Office</span>
                 <select
                   value={pmOffice}
-                  onChange={(e) => setPmOffice(e.target.value)}
-                  className="w-full h-8 border border-slate-300 rounded px-2 text-xs text-slate-700 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  onChange={(e) => {
+                    setPmOffice(e.target.value);
+                    setPmWarehouse("ALL");
+                  }}
+                  className={inputCls}
                 >
-                  <option value="ALL">Select Office</option>
-                  <option value="MG Sirajganj Factory">MG Sirajganj Factory</option>
-                  {offices?.map((o) => (
+                  <option value="ALL">All Offices</option>
+                  {offices.map((o) => (
                     <option key={o.id} value={o.id}>
                       {o.name}
                     </option>
                   ))}
                 </select>
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-semibold text-slate-700 mb-1">Warehouse</label>
-                <select
-                  value={pmWarehouse}
-                  onChange={(e) => setPmWarehouse(e.target.value)}
-                  className="w-full h-8 border border-slate-300 rounded px-2 text-xs text-slate-700 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
-                >
-                  <option value="ALL">Warehouse</option>
-                  <option value="Sirajganj Depot">Sirajganj Depot</option>
-                  {warehouses?.map((w) => (
-                    <option key={w.id} value={w.id}>
-                      {w.name}
-                    </option>
-                  ))}
+              </label>
+              <label className="block">
+                <span className="block text-[11px] font-semibold text-slate-700 mb-1">Warehouse</span>
+                <select value={pmWarehouse} onChange={(e) => setPmWarehouse(e.target.value)} className={inputCls}>
+                  <option value="ALL">All Warehouses</option>
+                  {warehouses
+                    .filter((w) => pmOffice === "ALL" || w.officeId === pmOffice)
+                    .map((w) => (
+                      <option key={w.id} value={w.id}>
+                        {w.name}
+                      </option>
+                    ))}
                 </select>
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-semibold text-slate-700 mb-1">Buyer Name</label>
-                <input
-                  type="text"
-                  value={pmBuyerName}
-                  onChange={(e) => setPmBuyerName(e.target.value)}
-                  placeholder="Select/Search Buyer Name (min 3 letters)"
-                  className="w-full h-8 border border-slate-300 rounded px-2 text-xs text-slate-700 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 placeholder-slate-400"
-                />
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-semibold text-slate-700 mb-1">Buyer Office</label>
-                <select
-                  value={pmBuyerOffice}
-                  onChange={(e) => setPmBuyerOffice(e.target.value)}
-                  className="w-full h-8 border border-slate-300 rounded px-2 text-xs text-slate-700 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
-                >
-                  <option value="ALL">Select Buyer Office</option>
-                  <option value="MG Sirajganj Factory">MG Sirajganj Factory</option>
-                  <option value="Corporate Head Office">Corporate Head Office</option>
+              </label>
+              <label className="block">
+                <span className="block text-[11px] font-semibold text-slate-700 mb-1">Req Type</span>
+                <select value={pmReqType} onChange={(e) => setPmReqType(e.target.value)} className={inputCls}>
+                  <option value="ALL">All Types</option>
+                  <option value="LOCAL">Local</option>
+                  <option value="IMPORT">Import</option>
+                  <option value="INTER_BRANCH">Inter Branch</option>
+                  <option value="URGENT">Urgent</option>
                 </select>
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-semibold text-slate-700 mb-1">Req Type</label>
-                <select
-                  value={pmReqType}
-                  onChange={(e) => setPmReqType(e.target.value)}
-                  className="w-full h-8 border border-slate-300 rounded px-2 text-xs text-slate-700 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
-                >
-                  <option value="ALL">Req Type</option>
-                  <option value="LOCAL">LOCAL</option>
-                  <option value="IMPORT">IMPORT</option>
-                  <option value="URGENT">URGENT</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-semibold text-slate-700 mb-1">From Date</label>
-                <input
-                  type="date"
-                  value={pmFromDate}
-                  onChange={(e) => setPmFromDate(e.target.value)}
-                  className="w-full h-8 border border-slate-300 rounded px-2 text-xs text-slate-700 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
-                />
-              </div>
-            </div>
-
-            {/* Row 2 */}
-            <div className="flex items-center gap-3">
-              <div className="w-48">
-                <label className="block text-[11px] font-semibold text-slate-700 mb-1">To Date</label>
-                <input
-                  type="date"
-                  value={pmToDate}
-                  onChange={(e) => setPmToDate(e.target.value)}
-                  className="w-full h-8 border border-slate-300 rounded px-2 text-xs text-slate-700 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
-                />
-              </div>
-              <div className="pt-5">
-                <button
-                  type="button"
-                  className="h-8 px-6 bg-[#2563eb] hover:bg-blue-700 text-white font-bold text-xs uppercase rounded shadow-xs transition"
-                >
-                  View
-                </button>
-              </div>
+              </label>
+              <label className="block">
+                <span className="block text-[11px] font-semibold text-slate-700 mb-1">From Date</span>
+                <input type="date" value={pmFrom} onChange={(e) => setPmFrom(e.target.value)} className={inputCls} />
+              </label>
+              <label className="block">
+                <span className="block text-[11px] font-semibold text-slate-700 mb-1">To Date</span>
+                <input type="date" value={pmTo} onChange={(e) => setPmTo(e.target.value)} className={inputCls} />
+              </label>
             </div>
           </div>
-
-          {/* Table Container with All Borders */}
           <div className="bg-white rounded border border-slate-200/90 shadow-2xs overflow-hidden">
             <div className="erp-table-container">
               <table className="erp-table">
                 <thead>
                   <tr>
                     <th className="w-12 text-center">SL</th>
-                    <th className="w-20 text-center">Actions</th>
-                    <th>Requisition Code</th>
+                    <th className="w-24 text-center">Actions</th>
+                    <th>Requisition</th>
                     <th>Date</th>
-                    <th>User Type</th>
-                    <th>User</th>
-                    <th>Buyer Name</th>
-                    <th>Buyer Office</th>
+                    <th>Department</th>
+                    <th>Requested By</th>
+                    <th>Office</th>
+                    <th>Warehouse</th>
+                    <th>Type</th>
                     <th>Method</th>
                     <th className="text-right">Budget</th>
-                    <th>Created By</th>
-                    <th>Remarks</th>
-                    <th className="text-center">Status</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredPurchaseMethodReqs.map((row, idx) => (
-                    <tr key={row.id || idx}>
-                      <td className="text-center font-mono text-slate-600">{idx + 1}</td>
-                      <td className="text-center">
-                        <div className="flex items-center justify-center gap-1.5 text-slate-700">
-                          {/* 1. View Requisition */}
-                          <button
-                            type="button"
-                            onClick={() => setViewReqModal(row)}
-                            className="p-1 rounded hover:bg-slate-200 text-slate-700 transition"
-                            title="View Requisition"
-                          >
-                            <Eye className="w-3.5 h-3.5" />
-                          </button>
-
-                          {/* 2. Convert to PO */}
-                          <button
-                            type="button"
-                            onClick={() => handleConvertToPO(row)}
-                            className="p-1 rounded hover:bg-emerald-100 hover:text-emerald-700 text-slate-700 transition"
-                            title="Convert to Purchase Order"
-                          >
-                            <Check className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
+                  {methodPage.slice.length === 0 ? (
+                    <tr>
+                      <td colSpan={11} className="text-center py-10 text-slate-400">
+                        No approved requisitions are waiting for a purchase order.
                       </td>
-                      <td className="font-mono text-sky-700 font-semibold">{row.requisitionCode}</td>
-                      <td>{row.date}</td>
-                      <td className="capitalize text-slate-600">{row.userType}</td>
-                      <td className="font-medium text-slate-800">{row.user}</td>
-                      <td className="text-slate-500">{row.buyerName}</td>
-                      <td className="text-slate-500">{row.buyerOffice}</td>
-                      <td>
-                        <select
-                          value={rowMethods[row.requisitionCode] || row.method}
-                          onChange={(e) =>
-                            setRowMethods({
-                              ...rowMethods,
-                              [row.requisitionCode]: e.target.value,
-                            })
-                          }
-                          className="h-7 border border-slate-300 rounded px-2 text-xs bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                        >
-                          <option value="Purchase Order Method">Purchase Order Method</option>
-                          <option value="Quotation Method">Quotation Method</option>
-                          <option value="Spot Purchase">Spot Purchase</option>
-                          <option value="Direct Cash">Direct Cash</option>
-                        </select>
-                      </td>
-                      <td className="text-right font-mono font-bold text-slate-900">
-                        {row.budget.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                      </td>
-                      <td>{row.createdBy}</td>
-                      <td className="text-slate-600 max-w-[160px] truncate">{row.remarks}</td>
-                      <td className="text-center font-semibold text-emerald-700">{row.status}</td>
                     </tr>
-                  ))}
+                  ) : (
+                    methodPage.slice.map((row, idx) => (
+                      <tr key={row.id}>
+                        <td className="text-center font-mono text-slate-600">{methodPage.offset + idx + 1}</td>
+                        <td className="text-center">
+                          <div className="flex items-center justify-center gap-0.5">
+                            <button type="button" onClick={() => setViewReq(row)} className={iconBtn} title="View requisition" aria-label="View requisition">
+                              <Eye className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => openCreate(row)}
+                              className={`${iconBtn} hover:bg-emerald-100 hover:text-emerald-700`}
+                              title="Create purchase order"
+                              aria-label="Create purchase order from requisition"
+                            >
+                              <Check className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </td>
+                        <td className="font-mono text-sky-700 font-semibold">{row.requisitionNumber}</td>
+                        <td>{row.requestDate}</td>
+                        <td>{row.department}</td>
+                        <td className="font-medium text-slate-800">{row.requesterName}</td>
+                        <td>{officeName(row.officeId)}</td>
+                        <td>{warehouseName(row.warehouseId)}</td>
+                        <td>{row.requestType}</td>
+                        <td>
+                          <select
+                            value={row.purchaseMethod}
+                            disabled={methodMutation.isPending}
+                            onChange={(e) => methodMutation.mutate({ id: row.id, method: e.target.value })}
+                            aria-label={`Purchase method for ${row.requisitionNumber}`}
+                            className="h-7 border border-slate-300 rounded px-2 text-xs bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                          >
+                            {Object.entries(METHOD_LABEL).map(([v, label]) => (
+                              <option key={v} value={v}>
+                                {label}
+                              </option>
+                            ))}
+                          </select>
+                        </td>
+                        <td className="text-right font-mono font-bold text-slate-900">{formatCurrency(row.totalEstimatedAmount)}</td>
+                      </tr>
+                    ))
+                  )}
                 </tbody>
               </table>
             </div>
-
-            {/* Pagination */}
-            <div className="px-3 py-2 border-t border-slate-200 bg-slate-50 flex items-center justify-end gap-6 text-xs text-slate-600">
-              <div className="flex items-center gap-1.5">
-                <span>Rows per page:</span>
-                <select className="border border-slate-300 rounded px-1.5 py-0.5 text-xs bg-white">
-                  <option value="50">50</option>
-                  <option value="25">25</option>
-                  <option value="100">100</option>
-                </select>
-              </div>
-              <div>
-                1-{filteredPurchaseMethodReqs.length} of {filteredPurchaseMethodReqs.length}
-              </div>
-              <div className="flex items-center gap-1 text-slate-400">
-                <button type="button" disabled className="px-1.5 py-0.5 hover:text-slate-800 disabled:opacity-40">
-                  &lt;
-                </button>
-                <button type="button" disabled className="px-1.5 py-0.5 hover:text-slate-800 disabled:opacity-40">
-                  &gt;
-                </button>
-              </div>
-            </div>
+            {methodPage.pager}
           </div>
         </div>
       )}
 
-      {/* ------------------------------------------------------------- */}
-      {/* 6. CREATE LOCAL PURCHASE ORDER MODAL */}
-      {/* ------------------------------------------------------------- */}
+      {/* CREATE / EDIT ORDER */}
       <ModalDialog
-        isOpen={isCreateOpen}
-        onClose={() => setIsCreateOpen(false)}
-        title="Create Local Purchase Order"
-        subtitle="Issue a legal commercial purchase order to an approved local vendor"
+        isOpen={Boolean(form)}
+        onClose={() => !saveMutation.isPending && setForm(null)}
+        title={form?.editId ? "Edit Purchase Order" : "Create Local Purchase Order"}
+        subtitle={form?.editId ? "Changes are allowed until goods are received" : "Issue a purchase order to an approved supplier"}
         maxWidth="4xl"
       >
-        <form onSubmit={handleCreateSubmit} className="space-y-4 text-xs">
-          {/* Link Requisition Header (Optional) */}
-          <div className="p-2.5 bg-sky-50/70 border border-sky-200 rounded flex items-center justify-between">
-            <span className="font-semibold text-sky-900 text-xs">Link from Approved Requisition:</span>
-            <select
-              value={formReqId}
-              onChange={(e) => handleSelectRequisition(e.target.value)}
-              className="border border-sky-300 rounded px-2 py-1 bg-white text-xs max-w-xs"
-            >
-              <option value="">-- Direct Local PO (No Requisition) --</option>
-              {approvedReqs?.map((r) => (
-                <option key={r.id} value={r.id}>
-                  {r.requisitionNumber} - {r.department} ({formatCurrency(r.totalEstimatedAmount)})
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            <div>
-              <label className="block text-slate-600 font-medium mb-1">Supplier / Vendor *</label>
-              <select
-                value={formSupplierId}
-                onChange={(e) => setFormSupplierId(e.target.value)}
-                className="w-full border border-slate-200 rounded p-1.5 text-xs bg-white"
-                required
-              >
-                <option value="sup-m01">M/S SP Paul Mills</option>
-                <option value="sup-m02">ROYAL PRINT PACK</option>
-                <option value="sup-m03">Perfect Masala Store</option>
-                <option value="sup-m04">ACES Inc</option>
-                <option value="sup-m05">M/S Vali Traders</option>
-                <option value="sup-m06">Burhan Perfumery House</option>
-                <option value="sup-m07">PACKFIRM LIMITED</option>
-                <option value="sup-m08">AJ Overseas Company Ltd</option>
-                <option value="sup-m09">M/S Sarkar Traders</option>
-                <option value="sup-m10">Anhar Traders</option>
-                {suppliers?.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name} ({s.code})
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-slate-600 font-medium mb-1">Issuing Office *</label>
-              <select
-                value={formOfficeId}
-                onChange={(e) => setFormOfficeId(e.target.value)}
-                className="w-full border border-slate-200 rounded p-1.5 text-xs bg-white"
-                required
-              >
-                <option value="off-04">MG Sirajganj Factory</option>
-                {offices?.map((o) => (
-                  <option key={o.id} value={o.id}>
-                    {o.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-slate-600 font-medium mb-1">Receiving Warehouse *</label>
-              <select
-                value={formWarehouseId}
-                onChange={(e) => setFormWarehouseId(e.target.value)}
-                className="w-full border border-slate-200 rounded p-1.5 text-xs bg-white"
-                required
-              >
-                <option value="wh-04">Sirajganj Factory Depot</option>
-                {warehouses?.map((w) => (
-                  <option key={w.id} value={w.id}>
-                    {w.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-            <div>
-              <label className="block text-slate-600 font-medium mb-1">Expected Delivery Date *</label>
-              <input
-                type="date"
-                value={formExpectedDate}
-                onChange={(e) => setFormExpectedDate(e.target.value)}
-                className="w-full border border-slate-200 rounded p-1.5 text-xs"
-                required
-              />
-            </div>
-            <div>
-              <label className="block text-slate-600 font-medium mb-1">Payment Terms</label>
-              <input
-                type="text"
-                value={formPaymentTerms}
-                onChange={(e) => setFormPaymentTerms(e.target.value)}
-                className="w-full border border-slate-200 rounded p-1.5 text-xs"
-              />
-            </div>
-            <div>
-              <label className="block text-slate-600 font-medium mb-1">Delivery Terms</label>
-              <input
-                type="text"
-                value={formDeliveryTerms}
-                onChange={(e) => setFormDeliveryTerms(e.target.value)}
-                className="w-full border border-slate-200 rounded p-1.5 text-xs"
-              />
-            </div>
-            <div>
-              <label className="block text-slate-600 font-medium mb-1">Project / Cost Center</label>
-              <input
-                type="text"
-                value={formProject}
-                onChange={(e) => setFormProject(e.target.value)}
-                className="w-full border border-slate-200 rounded p-1.5 text-xs"
-              />
-            </div>
-          </div>
-
-          {/* Line Items Table */}
-          <div>
-            <div className="flex items-center justify-between mb-1.5">
-              <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wide">Purchase Order Line Items</h4>
-            </div>
-
-            <div className="border border-slate-200 rounded overflow-hidden">
-              <table className="w-full text-left text-xs">
-                <thead className="bg-slate-100 text-slate-600 font-semibold text-[11px]">
-                  <tr>
-                    <th className="p-2">Item</th>
-                    <th className="p-2 w-16">UOM</th>
-                    <th className="p-2 w-20">Qty</th>
-                    <th className="p-2 w-24">Unit Price</th>
-                    <th className="p-2 w-16">Disc %</th>
-                    <th className="p-2 w-16">Tax %</th>
-                    <th className="p-2 w-28 text-right">Line Total</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {formLineItems.map((item, idx) => (
-                    <tr key={idx} className="hover:bg-slate-50">
-                      <td className="p-2">
-                        <input
-                          type="text"
-                          value={item.itemName}
-                          onChange={(e) => {
-                            const u = [...formLineItems];
-                            u[idx].itemName = e.target.value;
-                            setFormLineItems(u);
-                          }}
-                          className="w-full border border-slate-200 rounded p-1 text-xs"
-                        />
-                      </td>
-                      <td className="p-2 text-slate-600 font-mono">{item.uom}</td>
-                      <td className="p-2">
-                        <input
-                          type="number"
-                          min="1"
-                          value={item.orderedQuantity}
-                          onChange={(e) => {
-                            const qty = Number(e.target.value);
-                            const u = [...formLineItems];
-                            u[idx].orderedQuantity = qty;
-                            u[idx].lineTotal = qty * u[idx].unitPrice;
-                            setFormLineItems(u);
-                          }}
-                          className="w-full border border-slate-200 rounded p-1 text-xs font-mono"
-                        />
-                      </td>
-                      <td className="p-2">
-                        <input
-                          type="number"
-                          min="0"
-                          value={item.unitPrice}
-                          onChange={(e) => {
-                            const price = Number(e.target.value);
-                            const u = [...formLineItems];
-                            u[idx].unitPrice = price;
-                            u[idx].lineTotal = u[idx].orderedQuantity * price;
-                            setFormLineItems(u);
-                          }}
-                          className="w-full border border-slate-200 rounded p-1 text-xs font-mono"
-                        />
-                      </td>
-                      <td className="p-2">
-                        <input
-                          type="number"
-                          min="0"
-                          max="100"
-                          value={item.discountPercentage}
-                          onChange={(e) => {
-                            const u = [...formLineItems];
-                            u[idx].discountPercentage = Number(e.target.value);
-                            setFormLineItems(u);
-                          }}
-                          className="w-full border border-slate-200 rounded p-1 text-xs font-mono"
-                        />
-                      </td>
-                      <td className="p-2">
-                        <input
-                          type="number"
-                          min="0"
-                          max="100"
-                          value={item.taxPercentage}
-                          onChange={(e) => {
-                            const u = [...formLineItems];
-                            u[idx].taxPercentage = Number(e.target.value);
-                            setFormLineItems(u);
-                          }}
-                          className="w-full border border-slate-200 rounded p-1 text-xs font-mono"
-                        />
-                      </td>
-                      <td className="p-2 text-right font-mono font-bold text-slate-800">
-                        {formatCurrency(item.lineTotal)}
-                      </td>
-                    </tr>
+        {form && (
+          <form onSubmit={submitForm} className="space-y-4 text-xs">
+            {!form.editId && (
+              <label className="p-2.5 bg-sky-50/70 border border-sky-200 rounded flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <span className="font-semibold text-sky-900">Link an approved requisition (optional)</span>
+                <select value={form.requisitionId} onChange={(e) => selectRequisition(e.target.value)} className="h-8 border border-sky-300 rounded px-2 bg-white text-xs sm:max-w-xs w-full">
+                  <option value="">— Direct PO (no requisition) —</option>
+                  {approvedReqs.map((r) => (
+                    <option key={r.id} value={r.id}>
+                      {r.requisitionNumber} · {r.department} ({formatCurrency(r.totalEstimatedAmount)})
+                    </option>
                   ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
+                </select>
+              </label>
+            )}
 
-          <div className="flex justify-end gap-2 pt-2 border-t">
-            <button
-              type="button"
-              onClick={() => setIsCreateOpen(false)}
-              className="px-4 py-2 border border-slate-200 rounded hover:bg-slate-50 font-medium text-slate-600"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={createMutation.isPending}
-              className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded font-bold shadow-xs transition"
-            >
-              {createMutation.isPending ? "Issuing PO..." : "Issue & Authorize Local PO"}
-            </button>
-          </div>
-        </form>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <label className="block">
+                <span className="block text-slate-600 font-medium mb-1">Supplier *</span>
+                <select value={form.supplierId} onChange={(e) => patchForm({ supplierId: e.target.value })} className={inputCls} required>
+                  <option value="">Select supplier</option>
+                  {suppliers.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name} ({s.code})
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="block">
+                <span className="block text-slate-600 font-medium mb-1">Office *</span>
+                <select
+                  value={form.officeId}
+                  onChange={(e) => patchForm({ officeId: e.target.value, warehouseId: warehouses.find((w) => w.officeId === e.target.value)?.id ?? "" })}
+                  className={inputCls}
+                  required
+                  disabled={Boolean(form.requisitionId)}
+                >
+                  <option value="">Select office</option>
+                  {offices.map((o) => (
+                    <option key={o.id} value={o.id}>
+                      {o.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="block">
+                <span className="block text-slate-600 font-medium mb-1">Receiving Warehouse *</span>
+                <select value={form.warehouseId} onChange={(e) => patchForm({ warehouseId: e.target.value })} className={inputCls} required>
+                  <option value="">Select warehouse</option>
+                  {formWarehouses.map((w) => (
+                    <option key={w.id} value={w.id}>
+                      {w.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="block">
+                <span className="block text-slate-600 font-medium mb-1">Order Date *</span>
+                <input type="date" value={form.orderDate} onChange={(e) => patchForm({ orderDate: e.target.value })} className={inputCls} required />
+              </label>
+              <label className="block">
+                <span className="block text-slate-600 font-medium mb-1">Expected Delivery *</span>
+                <input type="date" min={form.orderDate} value={form.expectedDeliveryDate} onChange={(e) => patchForm({ expectedDeliveryDate: e.target.value })} className={inputCls} required />
+              </label>
+              <label className="block">
+                <span className="block text-slate-600 font-medium mb-1">Supplier Ref / Quotation No</span>
+                <input type="text" maxLength={100} value={form.referenceNumber} onChange={(e) => patchForm({ referenceNumber: e.target.value })} className={inputCls} />
+              </label>
+              <label className="block">
+                <span className="block text-slate-600 font-medium mb-1">Project / Cost Center</span>
+                <input type="text" maxLength={100} value={form.projectCostCenter} onChange={(e) => patchForm({ projectCostCenter: e.target.value })} className={inputCls} />
+              </label>
+              <label className="block">
+                <span className="block text-slate-600 font-medium mb-1">Payment Terms</span>
+                <input type="text" value={form.paymentTerms} onChange={(e) => patchForm({ paymentTerms: e.target.value })} className={inputCls} />
+              </label>
+              <label className="block">
+                <span className="block text-slate-600 font-medium mb-1">Delivery Terms</span>
+                <input type="text" value={form.deliveryTerms} onChange={(e) => patchForm({ deliveryTerms: e.target.value })} className={inputCls} />
+              </label>
+            </div>
+
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wide">Line Items</h4>
+                <button type="button" onClick={() => patchForm({ lines: [...form.lines, newLine()] })} className="h-8 px-3 border border-blue-300 text-blue-700 rounded hover:bg-blue-50 font-semibold inline-flex items-center gap-1">
+                  <Plus className="w-3.5 h-3.5" /> Add Item
+                </button>
+              </div>
+              <div className="border border-slate-200 rounded overflow-x-auto">
+                <table className="w-full min-w-[760px] text-left text-xs">
+                  <thead className="bg-slate-100 text-slate-600 font-semibold text-[11px]">
+                    <tr>
+                      <th className="p-2">Item *</th>
+                      <th className="p-2 w-14">UoM</th>
+                      <th className="p-2 w-20">Qty *</th>
+                      <th className="p-2 w-24">Unit Price</th>
+                      <th className="p-2 w-16">Disc %</th>
+                      <th className="p-2 w-16">VAT %</th>
+                      <th className="p-2 w-28 text-right">Line Total</th>
+                      <th className="p-2 w-10" />
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {form.lines.map((line, idx) => (
+                      <tr key={line.key}>
+                        <td className="p-2">
+                          <select
+                            value={line.itemId}
+                            aria-label={`Item for line ${idx + 1}`}
+                            onChange={(e) => {
+                              const it = items.find((i) => i.id === e.target.value);
+                              patchLine(line.key, it ? { itemId: it.id, itemCode: it.code, itemName: it.name, uom: it.uom, unitPrice: line.unitPrice || it.standardPrice } : { itemId: "" });
+                            }}
+                            className={inputCls}
+                          >
+                            <option value="">Select item</option>
+                            {items.map((i) => (
+                              <option key={i.id} value={i.id}>
+                                {i.code} — {i.name}
+                              </option>
+                            ))}
+                          </select>
+                        </td>
+                        <td className="p-2 text-slate-600 font-mono">{line.uom || "—"}</td>
+                        <td className="p-2">
+                          <input type="number" min="0.001" step="any" aria-label={`Quantity for line ${idx + 1}`} value={line.orderedQuantity} onChange={(e) => patchLine(line.key, { orderedQuantity: Number(e.target.value) })} className={`${inputCls} font-mono`} />
+                        </td>
+                        <td className="p-2">
+                          <input type="number" min="0" step="any" aria-label={`Unit price for line ${idx + 1}`} value={line.unitPrice} onChange={(e) => patchLine(line.key, { unitPrice: Number(e.target.value) })} className={`${inputCls} font-mono`} />
+                        </td>
+                        <td className="p-2">
+                          <input type="number" min="0" max="100" step="any" aria-label={`Discount for line ${idx + 1}`} value={line.discountPercentage} onChange={(e) => patchLine(line.key, { discountPercentage: Number(e.target.value) })} className={`${inputCls} font-mono`} />
+                        </td>
+                        <td className="p-2">
+                          <input type="number" min="0" max="100" step="any" aria-label={`VAT for line ${idx + 1}`} value={line.taxPercentage} onChange={(e) => patchLine(line.key, { taxPercentage: Number(e.target.value) })} className={`${inputCls} font-mono`} />
+                        </td>
+                        <td className="p-2 text-right font-mono font-bold text-slate-800">{formatCurrency(pricedLines[idx]?.lineTotal ?? 0)}</td>
+                        <td className="p-2 text-center">
+                          <button
+                            type="button"
+                            disabled={form.lines.length === 1}
+                            onClick={() => patchForm({ lines: form.lines.filter((l) => l.key !== line.key) })}
+                            className={`${iconBtn} hover:bg-rose-100 hover:text-rose-700`}
+                            aria-label={`Remove line ${idx + 1}`}
+                            title="Remove line"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="flex flex-col md:flex-row gap-3 justify-between">
+              <label className="block flex-1">
+                <span className="block text-slate-600 font-medium mb-1">Notes to Supplier</span>
+                <textarea value={form.notes} maxLength={600} onChange={(e) => patchForm({ notes: e.target.value })} className="w-full border border-slate-300 rounded p-2 text-xs h-20" />
+              </label>
+              <div className="md:w-72 space-y-1.5 bg-slate-50 p-3 rounded border border-slate-200">
+                <div className="flex justify-between"><span className="text-slate-600">Subtotal</span><span className="font-mono">{formatCurrency(totals.subtotal)}</span></div>
+                <div className="flex justify-between"><span className="text-slate-600">Discount</span><span className="font-mono text-rose-600">− {formatCurrency(totals.totalDiscount)}</span></div>
+                <div className="flex justify-between"><span className="text-slate-600">VAT</span><span className="font-mono">{formatCurrency(totals.totalTax)}</span></div>
+                <label className="flex justify-between items-center gap-2">
+                  <span className="text-slate-600">Shipping</span>
+                  <input type="number" min="0" step="any" value={form.shippingFee} onChange={(e) => patchForm({ shippingFee: Number(e.target.value) })} className="w-28 h-7 border border-slate-300 rounded px-2 text-right font-mono text-xs bg-white" />
+                </label>
+                <div className="flex justify-between pt-1.5 border-t border-slate-300 font-bold text-slate-900 text-sm"><span>Total</span><span className="font-mono text-sky-800">{formatCurrency(totals.totalAmount)}</span></div>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2 border-t">
+              <button type="button" onClick={() => setForm(null)} disabled={saveMutation.isPending} className={btnGhost}>
+                Cancel
+              </button>
+              <button type="submit" disabled={saveMutation.isPending} className={btnPrimary}>
+                {saveMutation.isPending && <Spinner className="size-3.5" />}
+                {form.editId ? "Save Changes" : "Issue Purchase Order"}
+              </button>
+            </div>
+          </form>
+        )}
       </ModalDialog>
 
-      {/* ------------------------------------------------------------- */}
-      {/* 7. VIEW PURCHASE ORDER DETAILS MODAL */}
-      {/* ------------------------------------------------------------- */}
-      <ModalDialog
-        isOpen={Boolean(viewPO)}
-        onClose={() => setViewPO(null)}
-        title={`Purchase Order: ${viewPO?.poNumber || ""}`}
-        subtitle={`Issued to ${viewPO?.supplierName || ""} on ${viewPO?.orderDate || ""}`}
-        maxWidth="2xl"
-      >
+      {/* VIEW ORDER */}
+      <ModalDialog isOpen={Boolean(viewPO)} onClose={() => setViewPO(null)} title={`Purchase Order ${viewPO?.poNumber ?? ""}`} subtitle={`${viewPO?.supplierName ?? ""} · ${viewPO?.orderDate ?? ""}`} maxWidth="4xl">
         {viewPO && (
           <div className="space-y-4 text-xs">
-            <div className="grid grid-cols-2 gap-4 bg-slate-50 p-3 rounded border border-slate-200">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-slate-50 p-3 rounded border border-slate-200">
               <div>
-                <span className="text-[10px] text-slate-500 font-bold uppercase block">Supplier Information</span>
+                <span className="text-[10px] text-slate-500 font-bold uppercase block">Supplier</span>
                 <p className="font-bold text-slate-900 text-sm">{viewPO.supplierName}</p>
-                <p className="text-slate-600">Payment Terms: {viewPO.paymentTerms || "Net 30 Days"}</p>
-                <p className="text-slate-600">Delivery Terms: {viewPO.deliveryTerms || "FOB Factory"}</p>
+                <p className="text-slate-600">Reference: {viewPO.referenceNumber || "—"}</p>
               </div>
               <div>
-                <span className="text-[10px] text-slate-500 font-bold uppercase block">Order Context</span>
-                <p className="font-bold text-slate-900 text-sm">{viewPO.officeName}</p>
-                <p className="text-slate-600">Receiving: {viewPO.expectedDeliveryDate}</p>
-                <p className="text-slate-600">Status: <span className="font-semibold text-blue-700">{viewPO.status}</span></p>
+                <span className="text-[10px] text-slate-500 font-bold uppercase block">Deliver To</span>
+                <p className="font-bold text-slate-900 text-sm">{viewPO.warehouseName}</p>
+                <p className="text-slate-600">{viewPO.officeName} · by {viewPO.expectedDeliveryDate}</p>
+              </div>
+              <div>
+                <span className="text-[10px] text-slate-500 font-bold uppercase block">Status</span>
+                <p className={`font-bold text-sm ${statusLabel(viewPO).cls}`}>{statusLabel(viewPO).text}</p>
+                <p className="text-slate-600">Requisition: {viewPO.requisitionNumber || "—"}</p>
               </div>
             </div>
-
-            <div className="border border-slate-200 rounded overflow-hidden">
-              <table className="w-full text-left text-xs">
+            <div className="border border-slate-200 rounded overflow-x-auto">
+              <table className="w-full min-w-[640px] text-left text-xs">
                 <thead className="bg-slate-100 text-slate-700 font-semibold">
                   <tr>
-                    <th className="p-2">Item Description</th>
-                    <th className="p-2 text-center">Qty</th>
-                    <th className="p-2 text-center">UoM</th>
+                    <th className="p-2">Item</th>
+                    <th className="p-2 text-right">Ordered</th>
+                    <th className="p-2 text-right">Received</th>
+                    <th className="p-2 text-right">Outstanding</th>
+                    <th className="p-2 text-right">Returned</th>
                     <th className="p-2 text-right">Unit Price</th>
+                    <th className="p-2 text-right">Disc / VAT</th>
                     <th className="p-2 text-right">Line Total</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {viewPO.items?.map((it: any, i: number) => (
-                    <tr key={i}>
+                  {viewPO.items.map((it) => (
+                    <tr key={it.id}>
                       <td className="p-2">
-                        <div className="font-bold text-slate-900">{it.itemName}</div>
-                        <div className="text-[10px] text-slate-400 font-mono">{it.itemCode}</div>
+                        <div className="font-semibold text-slate-900">{it.itemName}</div>
+                        <div className="text-[10px] text-slate-400 font-mono">{it.itemCode} · {it.uom}</div>
                       </td>
-                      <td className="p-2 text-center font-mono">{it.orderedQuantity}</td>
-                      <td className="p-2 text-center">{it.uom}</td>
+                      <td className="p-2 text-right font-mono">{it.orderedQuantity}</td>
+                      <td className="p-2 text-right font-mono text-emerald-700">{it.receivedQuantity}</td>
+                      <td className="p-2 text-right font-mono text-amber-700">{it.outstandingQuantity}</td>
+                      <td className="p-2 text-right font-mono text-rose-600">{it.returnedQuantity}</td>
                       <td className="p-2 text-right font-mono">{formatCurrency(it.unitPrice)}</td>
-                      <td className="p-2 text-right font-mono font-bold text-slate-900">{formatCurrency(it.lineTotal)}</td>
+                      <td className="p-2 text-right font-mono text-slate-500">{it.discountPercentage}% / {it.taxPercentage}%</td>
+                      <td className="p-2 text-right font-mono font-bold">{formatCurrency(it.lineTotal)}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
-
-            <div className="flex justify-between items-center bg-slate-50 p-3 rounded border border-slate-200">
-              <span className="text-xs font-semibold text-slate-700">Total Purchase Amount:</span>
-              <span className="text-base font-bold font-mono text-sky-800">
-                {formatCurrency(viewPO.totalAmount)}
-              </span>
+            <div className="flex flex-col sm:flex-row justify-between gap-3">
+              <div className="flex-1 bg-white border border-slate-200 rounded p-3">
+                <span className="text-[10px] text-slate-500 font-bold uppercase block mb-1">History</span>
+                {viewPO.approvalHistory.length === 0 ? (
+                  <p className="text-slate-400">No history recorded.</p>
+                ) : (
+                  <ul className="space-y-1">
+                    {viewPO.approvalHistory.map((h) => (
+                      <li key={h.id}>
+                        <span className="font-semibold text-slate-800">{h.action.replace(/_/g, " ")}</span> by {h.actorName}
+                        <span className="text-slate-400"> · {new Date(h.timestamp).toLocaleString()}</span>
+                        {h.comments && <span className="text-slate-600"> — {h.comments}</span>}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+              <div className="sm:w-64 space-y-1 bg-slate-50 p-3 rounded border border-slate-200">
+                <div className="flex justify-between"><span>Subtotal</span><span className="font-mono">{formatCurrency(viewPO.subtotal)}</span></div>
+                <div className="flex justify-between"><span>Discount</span><span className="font-mono">− {formatCurrency(viewPO.totalDiscount)}</span></div>
+                <div className="flex justify-between"><span>VAT</span><span className="font-mono">{formatCurrency(viewPO.totalTax)}</span></div>
+                <div className="flex justify-between"><span>Shipping</span><span className="font-mono">{formatCurrency(viewPO.shippingFee)}</span></div>
+                <div className="flex justify-between pt-1 border-t border-slate-300 font-bold text-sm"><span>Total</span><span className="font-mono text-sky-800">{formatCurrency(viewPO.totalAmount)}</span></div>
+              </div>
             </div>
-
-            <div className="flex justify-end gap-2 pt-2">
-              <button
-                type="button"
-                onClick={() => setViewPO(null)}
-                className="px-4 py-2 border border-slate-200 rounded hover:bg-slate-50 text-slate-700 font-semibold"
-              >
+            <div className="flex justify-end gap-2">
+              <button type="button" onClick={() => setViewPO(null)} className={btnGhost}>
                 Close
               </button>
               <button
@@ -1399,279 +1205,213 @@ export default function PurchaseOrdersPage() {
                   setPrintPO(viewPO);
                   setViewPO(null);
                 }}
-                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded font-bold flex items-center gap-1.5"
+                className={btnPrimary}
               >
-                <Printer className="w-3.5 h-3.5" />
-                <span>Print PO Document</span>
+                <Printer className="w-3.5 h-3.5" /> Print
               </button>
             </div>
           </div>
         )}
       </ModalDialog>
 
-      {/* ------------------------------------------------------------- */}
-      {/* 8. PRINT PURCHASE ORDER VOUCHER MODAL */}
-      {/* ------------------------------------------------------------- */}
-      <ModalDialog
-        isOpen={Boolean(printPO)}
-        onClose={() => setPrintPO(null)}
-        title="Purchase Order Voucher - Print Preview"
-        subtitle="Official ERP Document for Supplier Issuance & Receiving Verification"
-        maxWidth="4xl"
-      >
+      {/* PRINT ORDER */}
+      <ModalDialog isOpen={Boolean(printPO)} onClose={() => setPrintPO(null)} title="Purchase Order — Print Preview" maxWidth="4xl">
         {printPO && (
           <div className="space-y-4 text-xs">
-            <div className="bg-white p-6 border border-slate-200 rounded shadow-sm text-slate-800 space-y-4 print:p-0 print:border-none">
-              {/* Organization Header */}
-              <div className="flex justify-between items-start border-b border-slate-200 pb-3 mb-3">
+            <div className="bg-white p-6 border border-slate-200 rounded text-slate-800 space-y-4 print:p-0 print:border-none">
+              <div className="flex justify-between items-start border-b border-slate-200 pb-3">
                 <div className="flex items-center gap-3.5">
-                  <Image src="/logo.png" width={8452} height={1738} alt="BridgeOne Logo" className="h-10 w-auto object-contain" />
+                  <Image src="/logo.png" width={8452} height={1738} alt="Company logo" className="h-10 w-auto object-contain" />
                   <div>
-                    <h2 className="text-base font-bold text-slate-900 uppercase tracking-wide">
-                      BridgeOne Technologies Ltd.
-                    </h2>
-                    <p className="text-slate-500 text-[11px]">Corporate Procurement & Supply Chain Division</p>
+                    <h2 className="text-base font-bold text-slate-900 uppercase tracking-wide">{context?.company?.name ?? ""}</h2>
                     <p className="text-slate-500 text-[11px]">{printPO.officeName}</p>
                   </div>
                 </div>
                 <div className="text-right">
-                  <div className="inline-block px-2.5 py-1 bg-slate-100 rounded text-[11px] font-bold text-slate-700 border border-slate-300">
-                    PURCHASE ORDER
-                  </div>
+                  <div className="inline-block px-2.5 py-1 bg-slate-100 rounded text-[11px] font-bold text-slate-700 border border-slate-300">PURCHASE ORDER</div>
                   <div className="text-sm font-bold text-sky-800 font-mono mt-1">{printPO.poNumber}</div>
                   <div className="text-[11px] text-slate-500">Date: {printPO.orderDate}</div>
                 </div>
               </div>
-
-              {/* Vendor & Ship To Meta */}
-              <div className="grid grid-cols-2 gap-4 text-xs mb-3">
+              <div className="grid grid-cols-2 gap-4">
                 <div className="bg-slate-50 p-2.5 rounded border border-slate-100">
-                  <span className="font-bold text-slate-700 block mb-1 uppercase text-[10px]">Vendor Details:</span>
+                  <span className="font-bold text-slate-700 block mb-1 uppercase text-[10px]">Supplier</span>
                   <div className="font-bold text-slate-900 text-sm">{printPO.supplierName}</div>
-                  <div className="text-slate-500 text-[11px]">Payment Terms: {printPO.paymentTerms || "Net 30 Days"}</div>
-                  <div className="text-slate-500 text-[11px]">Delivery Terms: {printPO.deliveryTerms || "FOB Factory Depot"}</div>
+                  <div className="text-slate-500 text-[11px]">Reference: {printPO.referenceNumber || "—"}</div>
                 </div>
                 <div className="bg-slate-50 p-2.5 rounded border border-slate-100">
-                  <span className="font-bold text-slate-700 block mb-1 uppercase text-[10px]">Destination & Delivery:</span>
-                  <div className="font-bold text-slate-900 text-sm">{printPO.officeName}</div>
-                  <div className="text-slate-500 text-[11px]">Expected Delivery: {printPO.expectedDeliveryDate}</div>
-                  <div className="text-slate-500 text-[11px]">Reference / Project: {printPO.projectCostCenter || "N/A"}</div>
+                  <span className="font-bold text-slate-700 block mb-1 uppercase text-[10px]">Deliver To</span>
+                  <div className="font-bold text-slate-900 text-sm">{printPO.warehouseName}, {printPO.officeName}</div>
+                  <div className="text-slate-500 text-[11px]">Expected delivery: {printPO.expectedDeliveryDate}</div>
+                  <div className="text-slate-500 text-[11px]">Project / Ref: {printPO.projectCostCenter || "—"}</div>
                 </div>
               </div>
-
-              {/* Items Table */}
-              <table className="w-full text-left border border-slate-200 text-xs mb-3">
+              <table className="w-full text-left border border-slate-200">
                 <thead className="bg-slate-100 text-slate-700 font-semibold">
                   <tr>
-                    <th className="p-2">Item Description</th>
-                    <th className="p-2 text-center">Ordered Qty</th>
+                    <th className="p-2">SL</th>
+                    <th className="p-2">Item</th>
+                    <th className="p-2 text-right">Qty</th>
                     <th className="p-2 text-center">UoM</th>
-                    <th className="p-2 text-right">Unit Price (BDT)</th>
-                    <th className="p-2 text-right">Total Amount (BDT)</th>
+                    <th className="p-2 text-right">Unit Price</th>
+                    <th className="p-2 text-right">Disc / VAT</th>
+                    <th className="p-2 text-right">Amount (BDT)</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {printPO.items?.map((it: any, i: number) => (
-                    <tr key={i}>
+                  {printPO.items.map((it, i) => (
+                    <tr key={it.id}>
+                      <td className="p-2">{i + 1}</td>
                       <td className="p-2">
-                        <div className="font-bold text-slate-900">{it.itemName}</div>
+                        <div className="font-semibold">{it.itemName}</div>
                         <div className="text-[10px] text-slate-400 font-mono">{it.itemCode}</div>
                       </td>
-                      <td className="p-2 text-center font-mono">{it.orderedQuantity}</td>
+                      <td className="p-2 text-right font-mono">{it.orderedQuantity}</td>
                       <td className="p-2 text-center">{it.uom}</td>
                       <td className="p-2 text-right font-mono">{formatCurrency(it.unitPrice)}</td>
-                      <td className="p-2 text-right font-mono font-bold text-slate-900">{formatCurrency(it.lineTotal)}</td>
+                      <td className="p-2 text-right font-mono">{it.discountPercentage}% / {it.taxPercentage}%</td>
+                      <td className="p-2 text-right font-mono font-bold">{formatCurrency(it.lineTotal)}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
-
-              {/* Total Summary */}
-              <div className="flex justify-end text-xs">
+              <div className="flex justify-end">
                 <div className="w-64 space-y-1 bg-slate-50 p-2.5 rounded border border-slate-100">
-                  <div className="flex justify-between font-bold text-slate-900 text-sm pt-1 border-t border-slate-300">
-                    <span>Total Order Value:</span>
-                    <span className="font-mono text-sky-800">{formatCurrency(printPO.totalAmount)}</span>
-                  </div>
+                  <div className="flex justify-between"><span>Subtotal</span><span className="font-mono">{formatCurrency(printPO.subtotal)}</span></div>
+                  <div className="flex justify-between"><span>Discount</span><span className="font-mono">− {formatCurrency(printPO.totalDiscount)}</span></div>
+                  <div className="flex justify-between"><span>VAT</span><span className="font-mono">{formatCurrency(printPO.totalTax)}</span></div>
+                  <div className="flex justify-between"><span>Shipping</span><span className="font-mono">{formatCurrency(printPO.shippingFee)}</span></div>
+                  <div className="flex justify-between font-bold text-sm pt-1 border-t border-slate-300"><span>Total</span><span className="font-mono text-sky-800">{formatCurrency(printPO.totalAmount)}</span></div>
                 </div>
               </div>
-
-              {/* Signatures */}
-              <div className="grid grid-cols-3 gap-6 pt-12 text-center text-xs text-slate-600">
-                <div className="border-t border-slate-300 pt-1.5 font-medium">Prepared By</div>
+              <div className="grid grid-cols-3 gap-6 pt-12 text-center text-slate-600">
+                <div className="border-t border-slate-300 pt-1.5 font-medium">Prepared By ({printPO.createdBy})</div>
                 <div className="border-t border-slate-300 pt-1.5 font-medium">Verified By</div>
                 <div className="border-t border-slate-300 pt-1.5 font-medium">Authorized Signature</div>
               </div>
             </div>
-
-            <div className="flex justify-end gap-2 pt-2">
-              <button
-                type="button"
-                onClick={() => setPrintPO(null)}
-                className="px-4 py-2 border border-slate-200 rounded text-slate-700 font-semibold"
-              >
+            <div className="flex justify-end gap-2 print:hidden">
+              <button type="button" onClick={() => setPrintPO(null)} className={btnGhost}>
                 Close
               </button>
-              <button
-                type="button"
-                onClick={() => window.print()}
-                className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded font-bold flex items-center gap-1.5 shadow-xs"
-              >
-                <Printer className="w-3.5 h-3.5" />
-                <span>Print Document</span>
+              <button type="button" onClick={() => window.print()} className={btnPrimary}>
+                <Printer className="w-3.5 h-3.5" /> Print
               </button>
             </div>
           </div>
         )}
       </ModalDialog>
 
-      {/* ------------------------------------------------------------- */}
-      {/* 9. CLOSE / CANCEL ORDER MODAL */}
-      {/* ------------------------------------------------------------- */}
+      {/* ORDER ACTION (approve / close / cancel / reverse) */}
       <ModalDialog
-        isOpen={Boolean(closePO)}
-        onClose={() => setClosePO(null)}
-        title="Close / Cancel Purchase Order"
-        subtitle={`PO Number: ${closePO?.poNumber || ""}`}
+        isOpen={Boolean(actionPO)}
+        onClose={() => !actionMutation.isPending && setActionPO(null)}
+        title={
+          actionPO?.action === "approve"
+            ? "Approve Purchase Order"
+            : actionPO?.action === "close"
+              ? "Close Purchase Order"
+              : actionPO?.action === "cancel"
+                ? "Cancel Purchase Order"
+                : "Reverse Purchase Order"
+        }
+        subtitle={actionPO?.po.poNumber}
         maxWidth="md"
       >
-        {closePO && (
-          <div className="space-y-3 text-xs">
+        {actionPO && (
+          <form
+            className="space-y-3 text-xs"
+            onSubmit={(e) => {
+              e.preventDefault();
+              actionMutation.mutate({ id: actionPO.po.id, action: actionPO.action, comments: actionComment });
+            }}
+          >
             <p className="text-slate-600">
-              Are you sure you want to close/cancel order <span className="font-bold text-slate-900 font-mono">{closePO.poNumber}</span> from vendor <span className="font-semibold text-slate-900">{closePO.supplierName}</span>?
+              {actionPO.action === "approve" && "The order becomes available for goods receiving."}
+              {actionPO.action === "close" && "Goods have already been received. Closing stops further receiving; the outstanding quantity is dropped."}
+              {actionPO.action === "cancel" && "Nothing has been received yet. Cancelling voids the order and frees its requisition for a new order."}
+              {actionPO.action === "reverse" && (actionPO.po.isClosed ? "Re-opens the closed order for receiving." : "Moves the order back to pending approval.")}
             </p>
-            <div>
-              <label className="block text-slate-700 font-semibold mb-1">Cancellation / Closure Reason *</label>
+            <label className="block">
+              <span className="block text-slate-700 font-semibold mb-1">Comment {actionPO.action !== "approve" && "*"}</span>
               <textarea
-                value={closeComment}
-                onChange={(e) => setCloseComment(e.target.value)}
-                placeholder="Reason for cancellation..."
+                value={actionComment}
+                onChange={(e) => setActionComment(e.target.value)}
+                required={actionPO.action !== "approve"}
+                maxLength={300}
                 className="w-full border border-slate-300 rounded p-2 text-xs h-20"
-                required
               />
-            </div>
+            </label>
             <div className="flex justify-end gap-2 pt-2">
-              <button
-                type="button"
-                onClick={() => setClosePO(null)}
-                className="px-3 py-1.5 border border-slate-200 rounded text-slate-600"
-              >
-                Cancel
+              <button type="button" onClick={() => setActionPO(null)} disabled={actionMutation.isPending} className={btnGhost}>
+                Back
               </button>
               <button
-                type="button"
-                onClick={() => {
-                  toast.success(`PO ${closePO.poNumber} has been closed.`, {
-                    title: "Order Closed",
-                  });
-                  setClosePO(null);
-                }}
-                className="px-4 py-1.5 bg-rose-600 text-white rounded font-bold hover:bg-rose-700"
+                type="submit"
+                disabled={actionMutation.isPending}
+                className={`h-9 px-4 rounded text-white font-semibold inline-flex items-center gap-1.5 disabled:opacity-60 ${
+                  actionPO.action === "approve" ? "bg-emerald-600 hover:bg-emerald-700" : actionPO.action === "reverse" ? "bg-amber-600 hover:bg-amber-700" : "bg-rose-600 hover:bg-rose-700"
+                }`}
               >
-                Confirm Closure
+                {actionMutation.isPending && <Spinner className="size-3.5" />}
+                Confirm
               </button>
             </div>
-          </div>
+          </form>
         )}
       </ModalDialog>
 
-      {/* ------------------------------------------------------------- */}
-      {/* 10. REVERSE STATUS MODAL */}
-      {/* ------------------------------------------------------------- */}
-      <ModalDialog
-        isOpen={Boolean(reversePO)}
-        onClose={() => setReversePO(null)}
-        title="Reverse Purchase Order Status"
-        subtitle={`PO Number: ${reversePO?.poNumber || ""}`}
-        maxWidth="md"
-      >
-        {reversePO && (
-          <div className="space-y-3 text-xs">
-            <p className="text-slate-600">
-              Reversing order <span className="font-bold text-slate-900 font-mono">{reversePO.poNumber}</span> back to previous processing state.
-            </p>
-            <div>
-              <label className="block text-slate-700 font-semibold mb-1">Audit Justification *</label>
-              <textarea
-                value={reverseComment}
-                onChange={(e) => setReverseComment(e.target.value)}
-                placeholder="Enter audit note for reversing this order..."
-                className="w-full border border-slate-300 rounded p-2 text-xs h-20"
-                required
-              />
-            </div>
-            <div className="flex justify-end gap-2 pt-2">
-              <button
-                type="button"
-                onClick={() => setReversePO(null)}
-                className="px-3 py-1.5 border border-slate-200 rounded text-slate-600"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  toast.success(`PO ${reversePO.poNumber} reversed successfully.`, {
-                    title: "Status Reversed",
-                  });
-                  setReversePO(null);
-                }}
-                className="px-4 py-1.5 bg-amber-600 text-white rounded font-bold hover:bg-amber-700"
-              >
-                Confirm Reversal
-              </button>
-            </div>
-          </div>
-        )}
-      </ModalDialog>
-
-      {/* ------------------------------------------------------------- */}
-      {/* 11. VIEW REQUISITION MODAL (from Tab 3) */}
-      {/* ------------------------------------------------------------- */}
-      <ModalDialog
-        isOpen={Boolean(viewReqModal)}
-        onClose={() => setViewReqModal(null)}
-        title={`Requisition Details: ${viewReqModal?.requisitionCode || ""}`}
-        subtitle="Department Procurement Requirement"
-        maxWidth="lg"
-      >
-        {viewReqModal && (
+      {/* VIEW REQUISITION */}
+      <ModalDialog isOpen={Boolean(viewReq)} onClose={() => setViewReq(null)} title={`Requisition ${viewReq?.requisitionNumber ?? ""}`} subtitle={viewReq?.department} maxWidth="2xl">
+        {viewReq && (
           <div className="space-y-3 text-xs">
             <div className="grid grid-cols-2 gap-3 bg-slate-50 p-3 rounded border border-slate-200">
               <div>
-                <span className="text-[10px] text-slate-400 font-bold block uppercase">Department / User</span>
-                <p className="font-bold text-slate-900 text-sm">{viewReqModal.user}</p>
-                <p className="text-slate-600">User Type: {viewReqModal.userType}</p>
+                <span className="text-[10px] text-slate-400 font-bold block uppercase">Requested By</span>
+                <p className="font-bold text-slate-900 text-sm">{viewReq.requesterName}</p>
+                <p className="text-slate-600">{officeName(viewReq.officeId)} · {warehouseName(viewReq.warehouseId)}</p>
               </div>
               <div>
-                <span className="text-[10px] text-slate-400 font-bold block uppercase">Date & Budget</span>
-                <p className="font-bold text-slate-900 text-sm">{viewReqModal.date}</p>
-                <p className="font-bold font-mono text-emerald-700">Budget: {formatCurrency(viewReqModal.budget)}</p>
+                <span className="text-[10px] text-slate-400 font-bold block uppercase">Dates & Budget</span>
+                <p className="text-slate-700">{viewReq.requestDate} → needed by {viewReq.requiredDeliveryDate}</p>
+                <p className="font-bold font-mono text-emerald-700">{formatCurrency(viewReq.totalEstimatedAmount)}</p>
               </div>
             </div>
-            <div className="bg-white p-3 border rounded">
-              <span className="text-[10px] text-slate-400 font-bold block uppercase mb-1">Designated Method & Remarks</span>
-              <p className="font-semibold text-blue-700">{rowMethods[viewReqModal.requisitionCode] || viewReqModal.method}</p>
-              <p className="text-slate-600 mt-1">Remarks: {viewReqModal.remarks}</p>
-            </div>
+            <table className="w-full text-left border border-slate-200">
+              <thead className="bg-slate-100 font-semibold">
+                <tr>
+                  <th className="p-2">Item</th>
+                  <th className="p-2 text-right">Qty</th>
+                  <th className="p-2 text-right">Est. Price</th>
+                  <th className="p-2 text-right">Total</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {viewReq.items.map((i) => (
+                  <tr key={i.id}>
+                    <td className="p-2">{i.itemCode} — {i.itemName}</td>
+                    <td className="p-2 text-right font-mono">{i.quantity} {i.uom}</td>
+                    <td className="p-2 text-right font-mono">{formatCurrency(i.estimatedUnitPrice)}</td>
+                    <td className="p-2 text-right font-mono">{formatCurrency(i.lineTotal)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <p className="text-slate-600">Justification: {viewReq.businessJustification}</p>
             <div className="flex justify-end gap-2 pt-2">
-              <button
-                type="button"
-                onClick={() => setViewReqModal(null)}
-                className="px-4 py-1.5 border border-slate-200 rounded text-slate-600"
-              >
+              <button type="button" onClick={() => setViewReq(null)} className={btnGhost}>
                 Close
               </button>
               <button
                 type="button"
                 onClick={() => {
-                  const req = viewReqModal;
-                  setViewReqModal(null);
-                  handleConvertToPO(req);
+                  const req = viewReq;
+                  setViewReq(null);
+                  openCreate(req);
                 }}
-                className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded font-bold"
+                className={btnPrimary}
               >
-                Convert to Purchase Order
+                Create Purchase Order
               </button>
             </div>
           </div>

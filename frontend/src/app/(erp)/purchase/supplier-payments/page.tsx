@@ -14,9 +14,11 @@ import {
   Truck,
   CheckCircle2,
   Calendar,
+  Ban,
 } from "lucide-react";
 import { ModalDialog } from "@/components/purchase/ModalDialog";
 import { toast } from "@/components/purchase/Toast";
+import { Spinner } from "@/components/ui/spinner";
 import { fetchApi } from "@/lib/api";
 import { formatCurrency } from "@/lib/utils";
 import {
@@ -72,6 +74,7 @@ export interface PendingBillRow {
 }
 
 interface PaidRow {
+  id: string;
   sl: number;
   paidDate: string;
   invoiceNo: string;
@@ -283,6 +286,7 @@ export default function SupplierPaymentsPage() {
   const paidList = useMemo<PaidRow[]>(
     () =>
       (serverHistory ?? []).map((p, i) => ({
+        id: p.id,
         sl: i + 1,
         paidDate: p.paymentDate,
         invoiceNo: p.settles,
@@ -351,6 +355,18 @@ export default function SupplierPaymentsPage() {
       queryClient.invalidateQueries({ queryKey: [key] });
     }
   };
+  const [cancelPayment, setCancelPayment] = useState<PaidRow | null>(null);
+  const [cancelPaymentReason, setCancelPaymentReason] = useState("");
+  const cancelPaymentMutation = useMutation({
+    mutationFn: ({ id, comments }: { id: string; comments: string }) =>
+      fetchApi<{ number: string }>(`/purchase/supplier-payments/${id}/cancel`, { method: "POST", body: JSON.stringify({ comments }) }),
+    onSuccess: (data) => {
+      refreshPayables();
+      setCancelPayment(null);
+      toast.success(`Payment ${data.number} cancelled; the amount is due to the supplier again.`, { title: "Payment Cancelled" });
+    },
+    onError: (err: Error) => toast.error(err.message, { title: "Cancel Failed" }),
+  });
   const billMutation = useMutation({
     mutationFn: (payload: Record<string, unknown>) =>
       fetchApi<{ number: string }>("/purchase/supplier-bills", { method: "POST", body: JSON.stringify(payload) }),
@@ -430,6 +446,8 @@ export default function SupplierPaymentsPage() {
   const filteredPaidList = useMemo(() => {
     return paidList.filter((row) => {
       if (tab3Supplier && !row.supplier.toLowerCase().includes(tab3Supplier.toLowerCase())) return false;
+      if (tab3FromDate && row.paidDate < tab3FromDate) return false;
+      if (tab3ToDate && row.paidDate > tab3ToDate) return false;
       if (!searchTerm) return true;
       const s = searchTerm.toLowerCase();
       return (
@@ -438,7 +456,7 @@ export default function SupplierPaymentsPage() {
         row.paidDate.toLowerCase().includes(s)
       );
     });
-  }, [paidList, tab3Supplier, searchTerm]);
+  }, [paidList, tab3Supplier, tab3FromDate, tab3ToDate, searchTerm]);
 
   // Filtering Tab 4
   const filteredDueInvoices = useMemo(() => {
@@ -821,16 +839,16 @@ export default function SupplierPaymentsPage() {
                     Total :
                   </td>
                   <td className="p-2 border border-slate-300 text-right font-mono text-xs">
-                    {formatCurrency(27586993.68)}
+                    {formatCurrency(filteredDueList.reduce((t, r) => t + r.totalAmount, 0))}
                   </td>
                   <td className="p-2 border border-slate-300 text-right font-mono text-xs">
-                    0.00
+                    {formatCurrency(filteredDueList.reduce((t, r) => t + r.returnAmount, 0))}
                   </td>
                   <td className="p-2 border border-slate-300 text-right font-mono text-xs">
-                    {formatCurrency(9431111.07)}
+                    {formatCurrency(filteredDueList.reduce((t, r) => t + r.paymentAmount, 0))}
                   </td>
                   <td className="p-2 border border-slate-300 text-right font-mono text-xs font-bold text-sky-900">
-                    {formatCurrency(18155882.6)}
+                    {formatCurrency(filteredDueList.reduce((t, r) => t + r.dueAmount, 0))}
                   </td>
                 </tr>
               </tfoot>
@@ -851,7 +869,7 @@ export default function SupplierPaymentsPage() {
               </select>
             </div>
             <div className="flex items-center gap-4">
-              <span>1-{filteredDueList.length} of 42</span>
+              <span>1-{filteredDueList.length} of {filteredDueList.length}</span>
               <div className="flex items-center gap-1">
                 <button type="button" disabled className="p-1 border border-slate-200 rounded text-slate-300">
                   <ChevronLeft className="w-4 h-4" />
@@ -1070,8 +1088,8 @@ export default function SupplierPaymentsPage() {
             <div>
               <label className="block text-[11px] text-slate-500 mb-1">From</label>
               <input
-                type="text"
-                placeholder="mm/dd/yyyy"
+                type="date"
+                aria-label="Paid from date"
                 value={tab3FromDate}
                 onChange={(e) => setTab3FromDate(e.target.value)}
                 className="w-32 border border-slate-300 rounded px-2 py-1 bg-white text-xs"
@@ -1080,8 +1098,8 @@ export default function SupplierPaymentsPage() {
             <div>
               <label className="block text-[11px] text-slate-500 mb-1">To</label>
               <input
-                type="text"
-                placeholder="mm/dd/yyyy"
+                type="date"
+                aria-label="Paid to date"
                 value={tab3ToDate}
                 onChange={(e) => setTab3ToDate(e.target.value)}
                 className="w-32 border border-slate-300 rounded px-2 py-1 bg-white text-xs"
@@ -1154,6 +1172,18 @@ export default function SupplierPaymentsPage() {
                         >
                           <Printer className="w-3.5 h-3.5" />
                         </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setCancelPayment(row);
+                            setCancelPaymentReason("");
+                          }}
+                          className="p-0.5 hover:text-rose-600 transition"
+                          title="Cancel payment"
+                          aria-label={`Cancel payment ${row.moneyReceiptNo}`}
+                        >
+                          <Ban className="w-3.5 h-3.5" />
+                        </button>
                       </div>
                     </td>
 
@@ -1187,13 +1217,13 @@ export default function SupplierPaymentsPage() {
                     Total :
                   </td>
                   <td className="p-2 border border-slate-300 text-right font-mono text-xs">
-                    {formatCurrency(1100000.0)}
+                    {formatCurrency(filteredPaidList.reduce((t, r) => t + r.bankAmount, 0))}
                   </td>
                   <td className="p-2 border border-slate-300 text-right font-mono text-xs">
-                    {formatCurrency(5058166.35)}
+                    {formatCurrency(filteredPaidList.reduce((t, r) => t + r.cashAmount, 0))}
                   </td>
                   <td className="p-2 border border-slate-300 text-right font-mono text-xs font-bold text-sky-900">
-                    {formatCurrency(6158166.35)}
+                    {formatCurrency(filteredPaidList.reduce((t, r) => t + r.paidAmount, 0))}
                   </td>
                 </tr>
               </tfoot>
@@ -1214,7 +1244,7 @@ export default function SupplierPaymentsPage() {
               </select>
             </div>
             <div className="flex items-center gap-4">
-              <span>1-{filteredPaidList.length} of 435</span>
+              <span>1-{filteredPaidList.length} of {filteredPaidList.length}</span>
               <div className="flex items-center gap-1">
                 <button type="button" disabled className="p-1 border border-slate-200 rounded text-slate-300">
                   <ChevronLeft className="w-4 h-4" />
@@ -1330,7 +1360,7 @@ export default function SupplierPaymentsPage() {
               </select>
             </div>
             <div className="flex items-center gap-4">
-              <span>1-{filteredDueInvoices.length} of 47</span>
+              <span>1-{filteredDueInvoices.length} of {filteredDueInvoices.length}</span>
               <div className="flex items-center gap-1">
                 <button type="button" disabled className="p-1 border border-slate-200 rounded text-slate-300">
                   <ChevronLeft className="w-4 h-4" />
@@ -1436,13 +1466,13 @@ export default function SupplierPaymentsPage() {
                     Total
                   </td>
                   <td className="p-2 border border-slate-300 text-right font-mono text-xs">
-                    0.00
+                    {formatCurrency(advanceList.reduce((t, r) => t + r.advanceAmount, 0))}
                   </td>
                   <td className="p-2 border border-slate-300 text-right font-mono text-xs">
-                    {formatCurrency(24500.0)}
+                    {formatCurrency(advanceList.reduce((t, r) => t + r.adjustAmount, 0))}
                   </td>
                   <td className="p-2 border border-slate-300 text-right font-mono text-xs font-bold text-rose-700">
-                    -{formatCurrency(24500.0)}
+                    {formatCurrency(advanceList.reduce((t, r) => t + r.remainingAdvance, 0))}
                   </td>
                 </tr>
               </tfoot>
@@ -2130,6 +2160,47 @@ export default function SupplierPaymentsPage() {
               </button>
             </div>
           </div>
+        )}
+      </ModalDialog>
+      <ModalDialog
+        isOpen={Boolean(cancelPayment)}
+        onClose={() => !cancelPaymentMutation.isPending && setCancelPayment(null)}
+        title="Cancel Supplier Payment"
+        subtitle={cancelPayment ? `${cancelPayment.moneyReceiptNo} · ${cancelPayment.supplier}` : ""}
+        maxWidth="md"
+      >
+        {cancelPayment && (
+          <form
+            className="space-y-3 text-xs"
+            onSubmit={(e) => {
+              e.preventDefault();
+              cancelPaymentMutation.mutate({ id: cancelPayment.id, comments: cancelPaymentReason });
+            }}
+          >
+            <p className="text-slate-600">
+              {formatCurrency(cancelPayment.paidAmount)} paid on {cancelPayment.paidDate} is reversed and becomes due to {cancelPayment.supplier} again. The ledger posts a reversing voucher.
+            </p>
+            <div>
+              <label htmlFor="cancel-payment-reason" className="block text-slate-700 font-semibold mb-1">Reason *</label>
+              <textarea
+                id="cancel-payment-reason"
+                required
+                maxLength={300}
+                value={cancelPaymentReason}
+                onChange={(e) => setCancelPaymentReason(e.target.value)}
+                className="w-full border border-slate-300 rounded p-2 text-xs h-20"
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              <button type="button" onClick={() => setCancelPayment(null)} disabled={cancelPaymentMutation.isPending} className="h-9 px-4 border border-slate-200 rounded text-slate-600">
+                Back
+              </button>
+              <button type="submit" disabled={cancelPaymentMutation.isPending} className="h-9 px-4 bg-rose-600 hover:bg-rose-700 disabled:opacity-60 text-white rounded font-bold inline-flex items-center gap-1.5">
+                {cancelPaymentMutation.isPending && <Spinner className="size-3.5" />}
+                Cancel Payment
+              </button>
+            </div>
+          </form>
         )}
       </ModalDialog>
     </div>

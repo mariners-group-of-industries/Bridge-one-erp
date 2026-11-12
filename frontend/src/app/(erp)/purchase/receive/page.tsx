@@ -1,60 +1,125 @@
 "use client";
 
 import Image from "next/image";
-import React, { useState, useMemo } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import {
-  PackageCheck,
-  Eye,
-  Printer,
-  X,
-  RotateCcw,
-  Search,
-  Download,
-  Plus,
-  Truck,
-} from "lucide-react";
+import React, { useMemo, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Ban, Download, Eye, PackageCheck, Plus, Printer, RotateCcw, Search, Trash2, Truck, X } from "lucide-react";
 import { ModalDialog } from "@/components/purchase/ModalDialog";
 import { toast } from "@/components/purchase/Toast";
+import { Spinner } from "@/components/ui/spinner";
 import { fetchApi } from "@/lib/api";
 import { formatCurrency } from "@/lib/utils";
-import {
-  GoodsReceipt,
-  PurchaseOrder,
-  CreateGoodsReceiptInput,
-  Warehouse,
-  Supplier,
-  Item,
-} from "@bridgeone/contracts";
+import { effectiveUnitCost } from "@/lib/purchase-store/rules";
+import type { GoodsReceipt, Item, PurchaseOrder, Supplier, Warehouse } from "@bridgeone/contracts";
 
-// -------------------------------------------------------------
-// Fallback datasets (empty - real data loaded via API)
-const seedApprovedPOs: any[] = [];
-const seedReceivedGRNs: any[] = [];
+type Tab = "APPROVED_PO" | "RECEIVED_PO";
+type Receipt = GoodsReceipt & { challanNumber?: string; gatePassNumber?: string; remarks?: string };
+
+interface ReceiveLine {
+  poItemId: string;
+  itemId: string;
+  itemCode: string;
+  itemName: string;
+  uom: string;
+  orderedQuantity: number;
+  previouslyReceivedQuantity: number;
+  outstanding: number;
+  received: number;
+  rejected: number;
+  rate: number;
+}
+
+interface ReceiveForm {
+  po: PurchaseOrder;
+  receiptDate: string;
+  challanNumber: string;
+  gatePassNumber: string;
+  vatChallanNumber: string;
+  supplierInvoiceNumber: string;
+  remarks: string;
+  lines: ReceiveLine[];
+}
+
+interface DirectLine {
+  key: number;
+  itemId: string;
+  qty: number;
+  unitPrice: number;
+}
+
+interface ReturnLine {
+  itemId: string;
+  itemCode: string;
+  itemName: string;
+  uom: string;
+  available: number;
+  qty: number;
+  unitPrice: number;
+}
+
+const today = () => new Date().toISOString().slice(0, 10);
+let lineKey = 0;
+
+const inputCls =
+  "w-full h-8 border border-slate-300 rounded px-2 text-xs text-slate-700 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500";
+const btnPrimary =
+  "h-9 px-4 bg-[#2563eb] hover:bg-blue-700 disabled:opacity-60 text-white font-semibold text-xs rounded inline-flex items-center justify-center gap-1.5 shadow-xs transition";
+const btnGhost = "h-9 px-4 border border-slate-300 rounded text-slate-700 hover:bg-slate-50 text-xs font-semibold";
+const iconBtn = "inline-flex items-center justify-center size-7 rounded hover:bg-slate-200 text-slate-700 transition disabled:opacity-30 disabled:hover:bg-transparent";
+
+const qtyFmt = (n: number) => n.toLocaleString("en-US", { maximumFractionDigits: 3 });
+
+function receiptStatus(g: Receipt) {
+  switch (g.status) {
+    case "CANCELLED":
+      return { text: "Cancelled", cls: "text-rose-600" };
+    case "PARTIALLY_RETURNED":
+      return { text: "Partly Returned", cls: "text-amber-700" };
+    case "FULLY_RETURNED":
+      return { text: "Returned", cls: "text-slate-600" };
+    default:
+      return { text: "Received", cls: "text-emerald-700" };
+  }
+}
+
+function downloadCsv(name: string, header: string[], rows: (string | number)[][]) {
+  const esc = (v: string | number) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+  const csv = [header.map(esc).join(","), ...rows.map((r) => r.map(esc).join(","))].join("\r\n");
+  const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = name;
+  a.click();
+  URL.revokeObjectURL(url);
+}
 
 export default function PurchaseReceivePage() {
   const queryClient = useQueryClient();
-  const [activeTab, setActiveTab] = useState<"APPROVED_PO" | "RECEIVED_PO">("APPROVED_PO");
+  const [activeTab, setActiveTab] = useState<Tab>("APPROVED_PO");
   const [search, setSearch] = useState("");
 
-  // Filters for Tab 1: APPROVED PO
-  const [expReceiveDate, setExpReceiveDate] = useState("");
+  // Received tab filters
+  const [warehouseFilter, setWarehouseFilter] = useState("ALL");
+  const [supplierFilter, setSupplierFilter] = useState("ALL");
+  const [statusFilter, setStatusFilter] = useState("ALL");
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
 
-  // Filters for Tab 2: RECEIVED PO
-  const [grnType, setGrnType] = useState("ALL");
-  const [lcNo, setLcNo] = useState("ALL");
-  const [itemType, setItemType] = useState("ALL");
-  const [fromDate, setFromDate] = useState("2026-09-10");
-  const [toDate, setToDate] = useState("2026-11-10");
-
-  // Modals state
-  const [receiveModalPO, setReceiveModalPO] = useState<any | null>(null);
-  const [viewGRN, setViewGRN] = useState<any | null>(null);
-  const [printGRN, setPrintGRN] = useState<any | null>(null);
-  const [isDirectReceiveOpen, setIsDirectReceiveOpen] = useState(false);
-  const [closeModalPO, setCloseModalPO] = useState<any | null>(null);
-  const [closeComment, setCloseComment] = useState("");
-  const [returnModalGRN, setReturnModalGRN] = useState<any | null>(null);
+  // Dialogs
+  const [receiveForm, setReceiveForm] = useState<ReceiveForm | null>(null);
+  const [directOpen, setDirectOpen] = useState(false);
+  const [dirSupplierId, setDirSupplierId] = useState("");
+  const [dirWarehouseId, setDirWarehouseId] = useState("");
+  const [dirChallan, setDirChallan] = useState("");
+  const [dirDate, setDirDate] = useState(today());
+  const [dirLines, setDirLines] = useState<DirectLine[]>([]);
+  const [viewGRN, setViewGRN] = useState<Receipt | null>(null);
+  const [printGRN, setPrintGRN] = useState<Receipt | null>(null);
+  const [closePO, setClosePO] = useState<PurchaseOrder | null>(null);
+  const [cancelGRN, setCancelGRN] = useState<Receipt | null>(null);
+  const [comment, setComment] = useState("");
+  const [returnGRN, setReturnGRN] = useState<Receipt | null>(null);
+  const [returnLines, setReturnLines] = useState<ReturnLine[]>([]);
   const [returnReason, setReturnReason] = useState("");
 
   // Queries
@@ -83,8 +148,7 @@ export default function PurchaseReceivePage() {
     queryKey: ["approvedPOs"],
     queryFn: () => fetchApi("/purchase/receipts/approved-orders"),
   });
-
-  const { data: apiReceivedGRNs, refetch: refetchGRNs } = useQuery<GoodsReceipt[]>({
+  const { data: receipts = [], isFetching: grnLoading, refetch: refetchGRNs } = useQuery<Receipt[]>({
     queryKey: ["receivedGRNs"],
     queryFn: () => fetchApi("/purchase/receipts"),
   });
@@ -133,41 +197,11 @@ export default function PurchaseReceivePage() {
     });
   }, [apiApprovedPOs, search, officeFilter]);
 
-  // Combine Received GRNs
-  const combinedReceivedGRNs = useMemo(() => {
-    const list = [...seedReceivedGRNs];
-    if (apiReceivedGRNs && apiReceivedGRNs.length > 0) {
-      apiReceivedGRNs.forEach((g) => {
-        if (!list.some((existing) => existing.invoiceGrn === g.grnNumber)) {
-          list.unshift({
-            id: g.id,
-            receiveDate: g.receiptDate,
-            officeName: g.officeName || "MG Sirajganj Factory",
-            poNumber: g.poNumber || "Direct",
-            invoiceGrn: g.grnNumber,
-            challanNo: g.shipmentDocumentNumber || "N/A",
-            shipmentDocNo: "N/A",
-            vatChallanNo: g.vatChallanNumber || "N/A",
-            salesInvoiceNo: g.supplierInvoiceNumber || "N/A",
-            deliveryNo: g.deliveryNoteNumber || "N/A",
-            warehouseName: g.warehouseName || "Material WH",
-            supplierName: g.supplierName,
-            totalQty: g.items?.reduce((s, it) => s + it.currentReceivedQuantity, 0) || 100,
-            totalBdt: g.totalReceivedAmount || 50000,
-            pendingBdt: 0,
-            preparedBy: g.preparedBy || "MD. MOSHIUR RAHMAN",
-            items: g.items?.map((it) => ({
-              itemCode: it.itemCode,
-              itemName: it.itemName,
-              uom: it.uom,
-              quantity: it.currentReceivedQuantity,
-              unitPrice: it.unitPrice,
-              lineTotal: it.lineTotal,
-            })) || [],
-          });
-        }
-      });
+  const invalidate = () => {
+    for (const key of ["approvedPOs", "receivedGRNs", "purchaseOrders", "eligibleGRNs", "returnsList", "suppliers", "dashboard"]) {
+      queryClient.invalidateQueries({ queryKey: [key] });
     }
+  };
 
     return list.filter((item) => {
       if (grnOfficeFilter && item.officeName !== grnOfficeFilter) return false;
@@ -185,232 +219,270 @@ export default function PurchaseReceivePage() {
     });
   }, [apiReceivedGRNs, search, grnOfficeFilter]);
 
-  // Receiving Form State for Modal
-  const [formReceiptDate, setFormReceiptDate] = useState(new Date().toISOString().split("T")[0]);
-  const [formChallanNo, setFormChallanNo] = useState("CHAL-9921");
-  const [formVatChallan, setFormVatChallan] = useState("MUSHAK-6.3-441");
-  const [formInvoiceNo, setFormInvoiceNo] = useState("INV-2026-881");
-  const [formDeliveryNote] = useState("DN-3321");
-  const [formRemarks, setFormRemarks] = useState("");
-  const [formReceiveItems, setFormReceiveItems] = useState<any[]>([]);
+  const patchReceiveLine = (idx: number, patch: Partial<ReceiveLine>) =>
+    setReceiveForm((f) => (f ? { ...f, lines: f.lines.map((l, i) => (i === idx ? { ...l, ...patch } : l)) } : f));
 
-  // Direct Receive Form State
-  const emptyDirItem = { itemId: "", itemCode: "", itemName: "", uom: "", receivedQuantity: 1, unitPrice: 0, lineTotal: 0 };
-  const [dirSupplierId, setDirSupplierId] = useState("");
-  const [dirWarehouseId, setDirWarehouseId] = useState("");
-  const [dirChallanNo, setDirChallanNo] = useState("");
-  const [dirItems, setDirItems] = useState([emptyDirItem]);
-
-  // Open Receive Workflow Modal
-  const handleOpenReceive = (po: any) => {
-    setReceiveModalPO(po);
-    setFormReceiveItems(
-      (po.items || []).map((it: any) => ({
-        poItemId: it.id || "poi-temp",
-        itemId: it.itemId || "it-temp",
-        itemCode: it.itemCode,
-        itemName: it.itemName,
-        uom: it.uom,
-        orderedQuantity: it.orderedQuantity,
-        previouslyReceivedQuantity: it.receivedQuantity || 0,
-        outstandingQuantity: it.outstandingQuantity || it.orderedQuantity,
-        currentReceivedQuantity: it.outstandingQuantity || it.orderedQuantity,
-        rejectedDamagedQuantity: 0,
-        unitPrice: it.unitPrice,
-        lineTotal: (it.outstandingQuantity || it.orderedQuantity) * it.unitPrice,
-      }))
-    );
-  };
-
-  // Mutation to submit GRN
   const receiveMutation = useMutation({
-    mutationFn: (payload: CreateGoodsReceiptInput) =>
-      fetchApi("/purchase/receipts", {
-        method: "POST",
-        body: JSON.stringify(payload),
-      }),
-    onSuccess: (data: any) => {
-      queryClient.invalidateQueries({ queryKey: ["approvedPOs"] });
-      queryClient.invalidateQueries({ queryKey: ["receivedGRNs"] });
-      queryClient.invalidateQueries({ queryKey: ["purchaseOrders"] });
-      setReceiveModalPO(null);
-      setIsDirectReceiveOpen(false);
-      toast.success(`Goods Receipt ${data.grnNumber || "GRN-2026"} generated successfully! Warehouse Stock Synchronized.`, {
-        title: "Goods Receipt Posted",
-      });
+    mutationFn: (payload: Record<string, unknown>) => fetchApi<Receipt>("/purchase/receipts", { method: "POST", body: JSON.stringify(payload) }),
+    onSuccess: (grn) => {
+      invalidate();
+      setReceiveForm(null);
+      setDirectOpen(false);
+      toast.success(`${grn.grnNumber} posted: ${formatCurrency(grn.totalReceivedAmount)} received into ${grn.warehouseName}.`, { title: "Goods Received" });
     },
-    onError: (err: any) => {
-      toast.error(`Error during receiving: ${err.message}`, {
-        title: "Receipt Failed",
-      });
-    },
+    onError: (err: Error) => toast.error(err.message, { title: "Receipt Failed" }),
   });
 
-  const handleSubmitReceive = (e: React.FormEvent) => {
+  const lineError = (l: ReceiveLine) => {
+    if (l.received < 0 || l.rejected < 0) return "Quantities cannot be negative.";
+    if (l.rejected > l.received) return "Rejected is more than received.";
+    if (l.received - l.rejected > l.outstanding + 1e-9) return `Only ${qtyFmt(l.outstanding)} is due.`;
+    return null;
+  };
+
+  const submitReceive = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!receiveModalPO) return;
+    if (!receiveForm) return;
+    const lines = receiveForm.lines.filter((l) => l.received > 0);
+    if (!lines.length) return toast.error("Enter a received quantity for at least one item.", { title: "Goods Receipt" });
+    const bad = lines.find((l) => lineError(l));
+    if (bad) return toast.error(`${bad.itemName}: ${lineError(bad)}`, { title: "Goods Receipt" });
     receiveMutation.mutate({
       companyId: "comp-bridgeone-01",
-      purchaseOrderId: receiveModalPO.id || "po-temp",
-      receiptDate: formReceiptDate,
-      shipmentNumber: "SHP-" + formChallanNo,
-      shipmentDocumentNumber: formChallanNo,
-      vatChallanNumber: formVatChallan,
-      supplierInvoiceNumber: formInvoiceNo,
-      deliveryNoteNumber: formDeliveryNote,
-      remarks: formRemarks,
-      items: formReceiveItems.map((it) => ({
-        poItemId: it.poItemId,
-        itemId: it.itemId,
-        itemCode: it.itemCode,
-        itemName: it.itemName,
-        uom: it.uom,
-        orderedQuantity: it.orderedQuantity,
-        previouslyReceivedQuantity: it.previouslyReceivedQuantity,
-        currentReceivedQuantity: it.currentReceivedQuantity,
-        rejectedDamagedQuantity: it.rejectedDamagedQuantity,
-        unitPrice: it.unitPrice,
-        lineTotal: it.currentReceivedQuantity * it.unitPrice,
+      purchaseOrderId: receiveForm.po.id,
+      receiptDate: receiveForm.receiptDate,
+      shipmentDocumentNumber: receiveForm.challanNumber || undefined,
+      challanNumber: receiveForm.challanNumber || undefined,
+      gatePassNumber: receiveForm.gatePassNumber || undefined,
+      vatChallanNumber: receiveForm.vatChallanNumber || undefined,
+      supplierInvoiceNumber: receiveForm.supplierInvoiceNumber || undefined,
+      remarks: receiveForm.remarks || undefined,
+      items: lines.map((l) => ({
+        poItemId: l.poItemId,
+        itemId: l.itemId,
+        itemCode: l.itemCode,
+        itemName: l.itemName,
+        uom: l.uom,
+        orderedQuantity: l.orderedQuantity,
+        previouslyReceivedQuantity: l.previouslyReceivedQuantity,
+        currentReceivedQuantity: l.received,
+        rejectedDamagedQuantity: l.rejected,
+        unitPrice: l.rate,
+        lineTotal: (l.received - l.rejected) * l.rate,
       })),
     });
   };
 
-  // Direct Receive Submit
-  const handleDirectReceiveSubmit = (e: React.FormEvent) => {
+  // ---------------------------------------------------------------
+  // Direct receive (no PO)
+  // ---------------------------------------------------------------
+  const openDirect = () => {
+    setDirSupplierId("");
+    setDirWarehouseId(warehouses[0]?.id ?? "");
+    setDirChallan("");
+    setDirDate(today());
+    setDirLines([{ key: ++lineKey, itemId: "", qty: 1, unitPrice: 0 }]);
+    setDirectOpen(true);
+  };
+
+  const submitDirect = (e: React.FormEvent) => {
     e.preventDefault();
-    const lines = dirItems.filter((it) => it.itemId && it.receivedQuantity > 0);
-    if (!lines.length) {
-      toast.error("Select at least one item with a quantity.", { title: "Direct GRN" });
-      return;
-    }
-    // No purchase order: the server creates one for the receipt, then posts the stock.
+    if (!dirSupplierId) return toast.error("Select the supplier.", { title: "Direct Receive" });
+    if (!dirWarehouseId) return toast.error("Select the warehouse.", { title: "Direct Receive" });
+    const lines = dirLines.filter((l) => l.itemId && l.qty > 0);
+    if (!lines.length) return toast.error("Select at least one item with a quantity.", { title: "Direct Receive" });
     receiveMutation.mutate({
       companyId: "comp-bridgeone-01",
       purchaseOrderId: "DIRECT",
-      receiptDate: new Date().toISOString().split("T")[0],
-      shipmentDocumentNumber: dirChallanNo,
+      receiptDate: dirDate,
+      shipmentDocumentNumber: dirChallan || undefined,
+      challanNumber: dirChallan || undefined,
       supplierId: dirSupplierId,
       warehouseId: dirWarehouseId,
-      officeId: warehouses?.find((w) => w.id === dirWarehouseId)?.officeId,
-      items: lines.map((it) => ({
-        poItemId: "",
+      officeId: warehouses.find((w) => w.id === dirWarehouseId)?.officeId,
+      items: lines.map((l) => {
+        const it = items.find((i) => i.id === l.itemId)!;
+        return {
+          poItemId: "",
+          itemId: it.id,
+          itemCode: it.code,
+          itemName: it.name,
+          uom: it.uom,
+          orderedQuantity: l.qty,
+          previouslyReceivedQuantity: 0,
+          currentReceivedQuantity: l.qty,
+          rejectedDamagedQuantity: 0,
+          unitPrice: l.unitPrice,
+          lineTotal: l.qty * l.unitPrice,
+        };
+      }),
+    });
+  };
+
+  // ---------------------------------------------------------------
+  // Close PO balance / cancel GRN / return
+  // ---------------------------------------------------------------
+  const closeMutation = useMutation({
+    mutationFn: ({ id, comments }: { id: string; comments: string }) => fetchApi<PurchaseOrder>(`/purchase/orders/${id}/close`, { method: "POST", body: JSON.stringify({ comments }) }),
+    onSuccess: (po) => {
+      invalidate();
+      setClosePO(null);
+      toast.success(`${po.poNumber} closed; no more goods will be received against it.`, { title: "Order Closed" });
+    },
+    onError: (err: Error) => toast.error(err.message, { title: "Close Failed" }),
+  });
+
+  const cancelMutation = useMutation({
+    mutationFn: ({ id, comments }: { id: string; comments: string }) => fetchApi<Receipt>(`/purchase/receipts/${id}/cancel`, { method: "POST", body: JSON.stringify({ comments }) }),
+    onSuccess: (grn) => {
+      invalidate();
+      setCancelGRN(null);
+      toast.success(`${grn.grnNumber} cancelled. Stock and the supplier balance were reversed.`, { title: "Receipt Cancelled" });
+    },
+    onError: (err: Error) => toast.error(err.message, { title: "Cancel Failed" }),
+  });
+
+  const openReturn = (g: Receipt) => {
+    const source = eligible.find((e) => e.id === g.id);
+    if (!source) return toast.error("Everything on this receipt has already been returned.", { title: "Purchase Return" });
+    setReturnGRN(g);
+    setReturnReason("");
+    setReturnDate(today());
+    setReturnLines(
+      source.items.map((it) => ({
         itemId: it.itemId,
         itemCode: it.itemCode,
         itemName: it.itemName,
         uom: it.uom,
-        orderedQuantity: it.receivedQuantity,
-        previouslyReceivedQuantity: 0,
-        currentReceivedQuantity: it.receivedQuantity,
-        rejectedDamagedQuantity: 0,
+        available: it.currentReceivedQuantity,
+        qty: 0,
         unitPrice: it.unitPrice,
-        lineTotal: it.lineTotal,
       })),
-    } as CreateGoodsReceiptInput);
+    );
   };
 
-  // Export CSV
-  const handleExport = () => {
-    let csvContent = "data:text/csv;charset=utf-8,";
-    if (activeTab === "APPROVED_PO") {
-      csvContent += "SL,PO Date,Received Date,Requisition No,PO Number,Supplier,Office,Prepared By,Status\n";
-      combinedApprovedPOs.forEach((row, i) => {
-        csvContent += `"${i + 1}","${row.poDate}","${row.receivedDate}","${row.requisitionNo}","${row.poNumber}","${row.supplierName}","${row.officeName}","${row.preparedBy}","${row.status}"\n`;
-      });
-    } else {
-      csvContent += "SL,Receive Date,Office,PO No,Invoice/GRN,Challan No,Warehouse,Supplier,Total Qty,Total (BDT),Pending (BDT),Prepared By\n";
-      combinedReceivedGRNs.forEach((row, i) => {
-        csvContent += `"${i + 1}","${row.receiveDate}","${row.officeName}","${row.poNumber}","${row.invoiceGrn}","${row.challanNo}","${row.warehouseName}","${row.supplierName}","${row.totalQty}","${row.totalBdt}","${row.pendingBdt}","${row.preparedBy}"\n`;
-      });
-    }
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
-    link.setAttribute("download", `BridgeOne_${activeTab}_Report.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+  const returnMutation = useMutation({
+    mutationFn: (payload: Record<string, unknown>) => fetchApi<{ returnNumber: string; totalReturnAmount: number }>("/purchase/returns", { method: "POST", body: JSON.stringify(payload) }),
+    onSuccess: (ret) => {
+      invalidate();
+      setReturnGRN(null);
+      toast.success(`${ret.returnNumber} posted (${formatCurrency(ret.totalReturnAmount)}). Stock and supplier balance updated.`, { title: "Purchase Return" });
+    },
+    onError: (err: Error) => toast.error(err.message, { title: "Return Failed" }),
+  });
+
+  const submitReturn = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!returnGRN) return;
+    const lines = returnLines.filter((l) => l.qty > 0);
+    if (!lines.length) return toast.error("Enter a return quantity for at least one item.", { title: "Purchase Return" });
+    const over = lines.find((l) => l.qty > l.available + 1e-9);
+    if (over) return toast.error(`${over.itemName}: only ${qtyFmt(over.available)} can be returned.`, { title: "Purchase Return" });
+    returnMutation.mutate({
+      companyId: "comp-bridgeone-01",
+      goodsReceiptId: returnGRN.id,
+      returnDate,
+      returnType: "REFUND_CREDIT",
+      remarks: returnReason,
+      items: lines.map((l) => ({
+        grnItemId: "",
+        itemId: l.itemId,
+        itemCode: l.itemCode,
+        itemName: l.itemName,
+        uom: l.uom,
+        receivedQuantity: l.available,
+        previouslyReturnedQuantity: 0,
+        eligibleReturnQuantity: l.available,
+        returnQuantity: l.qty,
+        unitPrice: l.unitPrice,
+        lineTotal: l.qty * l.unitPrice,
+        reason: returnReason || "Returned to supplier",
+        condition: "DAMAGED",
+      })),
+    });
   };
+
+  const handleExport = () => {
+    if (activeTab === "APPROVED_PO") {
+      downloadCsv(
+        "pending_receipts.csv",
+        ["SL", "PO Date", "Expected Date", "Requisition No", "PO No", "Supplier", "Office", "Warehouse", "Outstanding Qty", "Status"],
+        pendingPOs.map((o, i) => [i + 1, o.orderDate, o.expectedDeliveryDate, o.requisitionNumber ?? "", o.poNumber, o.supplierName, o.officeName, o.warehouseName, o.items.reduce((s, it) => s + it.outstandingQuantity, 0), o.status]),
+      );
+    } else {
+      downloadCsv(
+        "goods_receipts.csv",
+        ["SL", "Receive Date", "GRN No", "PO No", "Challan No", "Warehouse", "Supplier", "Received Qty", "Rejected Qty", "Amount (BDT)", "Prepared By", "Status"],
+        filteredGRNs.map((g, i) => [
+          i + 1,
+          g.receiptDate,
+          g.grnNumber,
+          g.poNumber,
+          g.challanNumber ?? "",
+          g.warehouseName,
+          g.supplierName,
+          g.items.reduce((s, it) => s + it.currentReceivedQuantity, 0),
+          g.items.reduce((s, it) => s + it.rejectedDamagedQuantity, 0),
+          g.totalReceivedAmount,
+          g.preparedBy,
+          receiptStatus(g).text,
+        ]),
+      );
+    }
+  };
+
+  const receiveTotal = receiveForm?.lines.reduce((s, l) => s + Math.max(0, l.received - l.rejected) * l.rate, 0) ?? 0;
+  const directTotal = dirLines.reduce((s, l) => s + (l.itemId ? l.qty * l.unitPrice : 0), 0);
+  const returnTotal = returnLines.reduce((s, l) => s + l.qty * l.unitPrice, 0);
 
   return (
     <div className="space-y-3 font-sans pb-12">
-      {/* ------------------------------------------------------------- */}
-      {/* 1. TOP HEADER (Exact Managerium Layout) */}
-      {/* ------------------------------------------------------------- */}
+      {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-3 rounded border border-slate-200/90 shadow-2xs">
-        <div>
-          <h1 className="text-xl font-bold text-slate-900 tracking-tight">Purchase Receive</h1>
-        </div>
-
-        <div className="flex items-center gap-2">
-          {/* Quick search input with magnifying glass on right */}
+        <h1 className="text-xl font-bold text-slate-900 tracking-tight">Purchase Receive</h1>
+        <div className="flex flex-wrap items-center gap-2">
           <div className="relative">
             <input
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search...."
-              className="w-56 sm:w-64 h-9 pl-3 pr-8 text-xs border border-slate-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 bg-white placeholder-slate-400"
+              aria-label="Search"
+              className="w-56 sm:w-64 h-9 pl-3 pr-8 text-xs border border-slate-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white placeholder-slate-400"
             />
             <Search className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
           </div>
-
-          {/* Excel Export Button (on RECEIVED PO tab) */}
-          {activeTab === "RECEIVED_PO" && (
-            <button
-              type="button"
-              onClick={handleExport}
-              className="h-9 px-3.5 bg-[#2563eb] hover:bg-blue-700 text-white font-semibold text-xs rounded flex items-center gap-1.5 shadow-xs transition"
-              title="Download Excel Report"
-            >
-              <Download className="w-3.5 h-3.5" />
-              <span>Excel</span>
-            </button>
-          )}
-
-          {/* Primary Action Button: + Direct Receive */}
-          <button
-            type="button"
-            onClick={() => setIsDirectReceiveOpen(true)}
-            className="h-9 px-4 bg-[#2563eb] hover:bg-blue-700 text-white font-semibold text-xs rounded flex items-center gap-1.5 shadow-xs transition"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Direct Receive</span>
+          <button type="button" onClick={handleExport} className={btnPrimary} title="Download Excel (CSV)">
+            <Download className="w-3.5 h-3.5" /> Excel
+          </button>
+          <button type="button" onClick={openDirect} className={btnPrimary}>
+            <Plus className="w-4 h-4" /> Direct Receive
           </button>
         </div>
       </div>
 
-      {/* ------------------------------------------------------------- */}
-      {/* 2. NAVIGATION TABS (APPROVED PO | RECEIVED PO) */}
-      {/* ------------------------------------------------------------- */}
-      <div className="flex items-center gap-8 border-b border-slate-200 mb-3 bg-white px-3 pt-1">
-        <button
-          type="button"
-          onClick={() => setActiveTab("APPROVED_PO")}
-          className={`pb-2.5 text-xs font-bold tracking-wide transition-colors relative flex items-center gap-2 uppercase ${
-            activeTab === "APPROVED_PO"
-              ? "text-blue-600 border-b-2 border-blue-600 -mb-[1px]"
-              : "text-slate-500 hover:text-slate-800"
-          }`}
-        >
-          <span>APPROVED PO</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setActiveTab("RECEIVED_PO")}
-          className={`pb-2.5 text-xs font-bold tracking-wide transition-colors relative flex items-center gap-2 uppercase ${
-            activeTab === "RECEIVED_PO"
-              ? "text-blue-600 border-b-2 border-blue-600 -mb-[1px]"
-              : "text-slate-500 hover:text-slate-800"
-          }`}
-        >
-          <span>RECEIVED PO</span>
-        </button>
+      {/* Tabs */}
+      <div role="tablist" className="flex items-center gap-8 border-b border-slate-200 bg-white px-3 pt-1">
+        {(
+          [
+            ["APPROVED_PO", `APPROVED PO (${approvedPOs.length})`],
+            ["RECEIVED_PO", "RECEIVED PO"],
+          ] as const
+        ).map(([id, label]) => (
+          <button
+            key={id}
+            type="button"
+            role="tab"
+            aria-selected={activeTab === id}
+            onClick={() => setActiveTab(id)}
+            className={`pb-2.5 pt-2 text-xs font-bold tracking-wide border-b-2 transition ${activeTab === id ? "border-[#2563eb] text-[#2563eb]" : "border-transparent text-slate-500 hover:text-slate-800"}`}
+          >
+            {label}
+          </button>
+        ))}
       </div>
 
-      {/* ------------------------------------------------------------- */}
-      {/* 3. TAB 1: APPROVED PO (Screenshot 1) */}
-      {/* ------------------------------------------------------------- */}
+      {/* TAB 1: Approved POs waiting for goods */}
       {activeTab === "APPROVED_PO" && (
         <div className="space-y-3">
           {/* Filter Toolbar */}
@@ -462,152 +534,64 @@ export default function PurchaseReceivePage() {
               <table className="erp-table">
                 <thead>
                   <tr>
-                    <th className="w-12 text-center">SL</th>
-                    <th className="w-20 text-center">Actions</th>
-                    <th>PO Date</th>
-                    <th>Received Date</th>
-                    <th>Requisition No</th>
-                    <th>PO Number</th>
-                    <th>Supplier</th>
-                    <th>Office</th>
-                    <th>Shipment No</th>
-                    <th>Shipment Document No.</th>
-                    <th>VAT Challan No</th>
-                    <th>Sales Invoice No</th>
-                    <th>Delivery No</th>
-                    <th>Prepared By</th>
-                    <th>Estimated Time of Arrival</th>
-                    <th className="text-center">Status</th>
+                    <td colSpan={13} className="text-center py-10 text-slate-400">
+                      {posLoading ? "Loading…" : "No approved purchase orders are waiting for goods."}
+                    </td>
                   </tr>
-                </thead>
-                <tbody>
-                  {combinedApprovedPOs.map((row, idx) => (
-                    <tr key={row.id || idx}>
-                      {/* 1. SL */}
-                      <td className="text-center font-mono text-slate-600">{idx + 1}</td>
-
-                      {/* 2. Actions: Receive (PackagePlus), Close (X) */}
-                      <td className="text-center">
-                        <div className="flex items-center justify-center gap-1.5 text-slate-700">
-                          {/* Receive / Process GRN */}
-                          <button
-                            type="button"
-                            onClick={() => handleOpenReceive(row)}
-                            className="p-1 rounded hover:bg-emerald-100 hover:text-emerald-700 text-slate-700 transition"
-                            title="Receive Goods (Generate GRN)"
-                          >
-                            <PackageCheck className="w-3.5 h-3.5 text-emerald-600" />
-                          </button>
-
-                          {/* Close remaining PO balance */}
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setCloseModalPO(row);
-                              setCloseComment("");
-                            }}
-                            className="p-1 rounded hover:bg-rose-100 hover:text-rose-700 text-slate-600 transition"
-                            title="Close Remaining Balance"
-                          >
-                            <X className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      </td>
-
-                      {/* 3. PO Date */}
-                      <td>{row.poDate}</td>
-
-                      {/* 4. Received Date */}
-                      <td>{row.receivedDate}</td>
-
-                      {/* 5. Requisition No */}
-                      <td className="font-mono text-slate-500 text-[11px]">{row.requisitionNo}</td>
-
-                      {/* 6. PO Number with green truck icon */}
-                      <td>
-                        <button
-                          type="button"
-                          onClick={() => handleOpenReceive(row)}
-                          className="flex items-center gap-1.5 font-mono text-emerald-700 font-semibold hover:underline"
-                        >
-                          <Truck className="w-3 h-3 text-emerald-600" />
-                          <span>{row.poNumber}</span>
-                        </button>
-                      </td>
-
-                      {/* 7. Supplier */}
-                      <td className="font-medium text-slate-900">{row.supplierName}</td>
-
-                      {/* 8. Office */}
-                      <td>{row.officeName}</td>
-
-                      {/* 9. Shipment No */}
-                      <td className="text-slate-400 text-center">{row.shipmentNo}</td>
-
-                      {/* 10. Shipment Document No. */}
-                      <td className="text-slate-400 text-center">{row.shipmentDocNo}</td>
-
-                      {/* 11. VAT Challan No */}
-                      <td className="text-slate-400 text-center">{row.vatChallanNo}</td>
-
-                      {/* 12. Sales Invoice No */}
-                      <td className="text-slate-400 text-center">{row.salesInvoiceNo}</td>
-
-                      {/* 13. Delivery No */}
-                      <td className="text-slate-400 text-center">{row.deliveryNo}</td>
-
-                      {/* 14. Prepared By */}
-                      <td>{row.preparedBy}</td>
-
-                      {/* 15. ETA */}
-                      <td className="text-slate-400 font-mono text-[11px]">{row.eta || ""}</td>
-
-                      {/* 16. Status */}
-                      <td className="text-center">
-                        {row.status === "Approved" ? (
-                          <span className="font-semibold text-emerald-600">Approved</span>
-                        ) : (
-                          <span className="font-semibold text-purple-600">Partially Received</span>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-
-            {/* Pagination */}
-            <div className="px-3 py-2 border-t border-slate-200 bg-slate-50 flex items-center justify-end gap-6 text-xs text-slate-600">
-              <div className="flex items-center gap-1.5">
-                <span>Rows per page:</span>
-                <select className="border border-slate-300 rounded px-1.5 py-0.5 text-xs bg-white">
-                  <option value="50">50</option>
-                  <option value="25">25</option>
-                  <option value="100">100</option>
-                </select>
-              </div>
-              <div>
-                1-50 of 134
-              </div>
-              <div className="flex items-center gap-1 text-slate-400">
-                <button type="button" disabled className="px-1.5 py-0.5 hover:text-slate-800 disabled:opacity-40">
-                  &lt;
-                </button>
-                <button type="button" className="px-1.5 py-0.5 hover:text-slate-800">
-                  &gt;
-                </button>
-              </div>
-            </div>
+                ) : (
+                  pendingPOs.map((po, idx) => {
+                    const ordered = po.items.reduce((s, it) => s + it.orderedQuantity, 0);
+                    const outstanding = po.items.reduce((s, it) => s + it.outstandingQuantity, 0);
+                    const overdue = po.expectedDeliveryDate < today();
+                    return (
+                      <tr key={po.id}>
+                        <td className="text-center font-mono text-slate-600">{idx + 1}</td>
+                        <td className="text-center">
+                          <div className="flex items-center justify-center gap-0.5">
+                            <button type="button" onClick={() => openReceive(po)} className={`${iconBtn} hover:bg-emerald-100 hover:text-emerald-700`} title="Receive goods" aria-label={`Receive goods for ${po.poNumber}`}>
+                              <PackageCheck className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              disabled={po.status !== "PARTIALLY_RECEIVED"}
+                              onClick={() => {
+                                setClosePO(po);
+                                setComment("");
+                              }}
+                              className={`${iconBtn} hover:bg-rose-100 hover:text-rose-700`}
+                              title={po.status === "PARTIALLY_RECEIVED" ? "Close remaining balance" : "Only partly received orders can be closed here; cancel unreceived orders from Purchase Order"}
+                              aria-label={`Close remaining balance of ${po.poNumber}`}
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </td>
+                        <td>{po.orderDate}</td>
+                        <td className={overdue ? "text-rose-600 font-semibold" : ""}>{po.expectedDeliveryDate}</td>
+                        <td className="font-mono text-[11px]">{po.requisitionNumber || "—"}</td>
+                        <td className="font-mono text-sky-700 font-semibold">{po.poNumber}</td>
+                        <td className="font-medium text-slate-900">{po.supplierName}</td>
+                        <td>{po.officeName}</td>
+                        <td>{po.warehouseName}</td>
+                        <td className="text-right font-mono">{qtyFmt(ordered)}</td>
+                        <td className="text-right font-mono font-bold text-amber-700">{qtyFmt(outstanding)}</td>
+                        <td>{po.createdBy}</td>
+                        <td className={`text-center text-[11px] font-semibold ${po.status === "PARTIALLY_RECEIVED" ? "text-purple-700" : "text-sky-700"}`}>
+                          {po.status === "PARTIALLY_RECEIVED" ? "Partially Received" : "Approved"}
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
           </div>
         </div>
       )}
 
-      {/* ------------------------------------------------------------- */}
-      {/* 4. TAB 2: RECEIVED PO (Screenshot 2) */}
-      {/* ------------------------------------------------------------- */}
+      {/* TAB 2: Goods receipts */}
       {activeTab === "RECEIVED_PO" && (
         <div className="space-y-3">
-          {/* Filter Toolbar */}
           <div className="bg-white rounded border border-slate-200/90 p-3.5 shadow-2xs">
             {/* Row 1 */}
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-3">
@@ -641,608 +625,387 @@ export default function PurchaseReceivePage() {
                   <option value="DIRECT_GRN">Direct GRN</option>
                   <option value="IMPORT_GRN">Import GRN</option>
                 </select>
-              </div>
-
-              {/* LC NO */}
-              <div>
-                <label className="block text-[11px] font-semibold text-slate-700 mb-1">LC NO</label>
-                <select
-                  value={lcNo}
-                  onChange={(e) => setLcNo(e.target.value)}
-                  className="w-full h-8 border border-slate-300 rounded px-2 text-xs text-slate-700 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
-                >
-                  <option value="ALL">LC NO</option>
-                  <option value="LC-2026-001">LC-2026-001</option>
-                  <option value="LC-2026-002">LC-2026-002</option>
+              </label>
+              <label className="block">
+                <span className="block text-[11px] font-semibold text-slate-700 mb-1">Supplier</span>
+                <select value={supplierFilter} onChange={(e) => setSupplierFilter(e.target.value)} className={inputCls}>
+                  <option value="ALL">All Suppliers</option>
+                  {suppliers.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name}
+                    </option>
+                  ))}
                 </select>
-              </div>
-
-              {/* Item Type */}
-              <div>
-                <label className="block text-[11px] font-semibold text-slate-700 mb-1">Item Type</label>
-                <select
-                  value={itemType}
-                  onChange={(e) => setItemType(e.target.value)}
-                  className="w-full h-8 border border-slate-300 rounded px-2 text-xs text-slate-700 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
-                >
-                  <option value="ALL">Select Item Type</option>
-                  <option value="RAW_MATERIAL">Raw Material</option>
-                  <option value="PACKAGING">Packaging</option>
-                  <option value="FINISHED_GOODS">Finished Goods</option>
-                  <option value="SPARES">Spares & Maintenance</option>
+              </label>
+              <label className="block">
+                <span className="block text-[11px] font-semibold text-slate-700 mb-1">Status</span>
+                <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className={inputCls}>
+                  <option value="ALL">All</option>
+                  <option value="RECEIVED">Received</option>
+                  <option value="PARTIALLY_RETURNED">Partly Returned</option>
+                  <option value="FULLY_RETURNED">Returned</option>
+                  <option value="CANCELLED">Cancelled</option>
                 </select>
+              </label>
+              <label className="block">
+                <span className="block text-[11px] font-semibold text-slate-700 mb-1">From Date</span>
+                <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} className={inputCls} />
+              </label>
+              <label className="block">
+                <span className="block text-[11px] font-semibold text-slate-700 mb-1">To Date</span>
+                <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} className={inputCls} />
+              </label>
+              <div className="flex items-end">
+                <button type="button" onClick={() => refetchGRNs()} disabled={grnLoading} className={btnPrimary}>
+                  {grnLoading && <Spinner className="size-3.5" />} VIEW
+                </button>
               </div>
-
-              {/* From Date */}
-              <div>
-                <label className="block text-[11px] font-semibold text-slate-700 mb-1">From Date</label>
-                <input
-                  type="date"
-                  value={fromDate}
-                  onChange={(e) => setFromDate(e.target.value)}
-                  className="w-full h-8 border border-slate-300 rounded px-2 text-xs text-slate-700 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
-                />
-              </div>
-
-              {/* To Date */}
-              <div>
-                <label className="block text-[11px] font-semibold text-slate-700 mb-1">To Date</label>
-                <input
-                  type="date"
-                  value={toDate}
-                  onChange={(e) => setToDate(e.target.value)}
-                  className="w-full h-8 border border-slate-300 rounded px-2 text-xs text-slate-700 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
-                />
-              </div>
-            </div>
-
-            {/* Row 2: View Button */}
-            <div>
-              <button
-                type="button"
-                onClick={() => refetchGRNs()}
-                className="h-8 px-6 bg-[#2563eb] hover:bg-blue-700 text-white font-bold text-xs uppercase rounded shadow-xs transition"
-              >
-                View
-              </button>
             </div>
           </div>
-
-          {/* Table Container with All Borders */}
           <div className="bg-white rounded border border-slate-200/90 shadow-2xs overflow-hidden">
             <div className="erp-table-container">
               <table className="erp-table">
                 <thead>
                   <tr>
                     <th className="w-12 text-center">SL</th>
-                    <th className="w-24 text-center">Actions</th>
+                    <th className="w-[130px] text-center">Actions</th>
                     <th>Receive Date</th>
-                    <th>Office</th>
+                    <th>GRN No</th>
                     <th>PO No</th>
-                    <th>Invoice/GRN</th>
                     <th>Challan No</th>
-                    <th>Shipment Document No.</th>
-                    <th>VAT Challan No</th>
-                    <th>Sales Invoice No</th>
-                    <th>Delivery No</th>
                     <th>Warehouse</th>
                     <th>Supplier</th>
-                    <th className="text-right">Total Qty</th>
-                    <th className="text-right">Total (BDT)</th>
-                    <th className="text-right">Pending (BDT)</th>
+                    <th className="text-right">Received</th>
+                    <th className="text-right">Rejected</th>
+                    <th className="text-right">Amount (BDT)</th>
                     <th>Prepared By</th>
+                    <th className="text-center">Status</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {combinedReceivedGRNs.map((row, idx) => (
-                    <tr key={row.id || idx}>
-                      {/* 1. SL */}
-                      <td className="text-center font-mono text-slate-600">{idx + 1}</td>
-
-                      {/* 2. Actions: View, Print, Return */}
-                      <td className="text-center">
-                        <div className="flex items-center justify-center gap-1.5 text-slate-700">
-                          {/* 1. View */}
-                          <button
-                            type="button"
-                            onClick={() => setViewGRN(row)}
-                            className="p-1 rounded hover:bg-slate-200 text-slate-700 transition"
-                            title="View GRN Details"
-                          >
-                            <Eye className="w-3.5 h-3.5" />
-                          </button>
-
-                          {/* 2. Print */}
-                          <button
-                            type="button"
-                            onClick={() => setPrintGRN(row)}
-                            className="p-1 rounded hover:bg-slate-200 text-slate-700 transition"
-                            title="Print GRN Voucher"
-                          >
-                            <Printer className="w-3.5 h-3.5" />
-                          </button>
-
-                          {/* 3. Return */}
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setReturnModalGRN(row);
-                              setReturnReason("");
-                            }}
-                            className="p-1 rounded hover:bg-amber-100 hover:text-amber-800 text-slate-700 transition"
-                            title="Initiate Purchase Return"
-                          >
-                            <RotateCcw className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
+                  {filteredGRNs.length === 0 ? (
+                    <tr>
+                      <td colSpan={13} className="text-center py-10 text-slate-400">
+                        {grnLoading ? "Loading…" : "No goods receipts match the filters."}
                       </td>
-
-                      {/* 3. Receive Date */}
-                      <td>{row.receiveDate}</td>
-
-                      {/* 4. Office */}
-                      <td>{row.officeName}</td>
-
-                      {/* 5. PO No */}
-                      <td className="font-mono text-slate-600">{row.poNumber}</td>
-
-                      {/* 6. Invoice/GRN with green truck icon */}
-                      <td>
-                        <button
-                          type="button"
-                          onClick={() => setViewGRN(row)}
-                          className="flex items-center gap-1.5 font-mono text-emerald-700 font-semibold hover:underline"
-                        >
-                          <Truck className="w-3 h-3 text-emerald-600" />
-                          <span>{row.invoiceGrn}</span>
-                        </button>
-                      </td>
-
-                      {/* 7. Challan No */}
-                      <td className="font-mono text-slate-700">{row.challanNo}</td>
-
-                      {/* 8. Shipment Doc No */}
-                      <td className="text-slate-400 text-center">{row.shipmentDocNo}</td>
-
-                      {/* 9. VAT Challan No */}
-                      <td className="text-slate-400 text-center">{row.vatChallanNo}</td>
-
-                      {/* 10. Sales Invoice No */}
-                      <td className="font-mono text-slate-600 text-center">{row.salesInvoiceNo}</td>
-
-                      {/* 11. Delivery No */}
-                      <td className="text-slate-400 text-center">{row.deliveryNo}</td>
-
-                      {/* 12. Warehouse */}
-                      <td className="text-slate-700">{row.warehouseName}</td>
-
-                      {/* 13. Supplier */}
-                      <td className="font-medium text-slate-900 max-w-[200px] truncate" title={row.supplierName}>
-                        {row.supplierName}
-                      </td>
-
-                      {/* 14. Total Qty */}
-                      <td className="text-right font-mono font-bold text-slate-800">
-                        {row.totalQty.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                      </td>
-
-                      {/* 15. Total (BDT) */}
-                      <td className="text-right font-mono font-bold text-slate-900">
-                        {row.totalBdt.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                      </td>
-
-                      {/* 16. Pending (BDT) */}
-                      <td className="text-right font-mono text-slate-600">
-                        {row.pendingBdt.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                      </td>
-
-                      {/* 17. Prepared By */}
-                      <td>{row.preparedBy}</td>
                     </tr>
-                  ))}
+                  ) : (
+                    filteredGRNs.map((g, idx) => {
+                      const st = receiptStatus(g);
+                      return (
+                        <tr key={g.id}>
+                          <td className="text-center font-mono text-slate-600">{idx + 1}</td>
+                          <td className="text-center">
+                            <div className="flex items-center justify-center gap-0.5">
+                              <button type="button" onClick={() => setViewGRN(g)} className={iconBtn} title="View" aria-label={`View ${g.grnNumber}`}>
+                                <Eye className="w-3.5 h-3.5" />
+                              </button>
+                              <button type="button" onClick={() => setPrintGRN(g)} className={iconBtn} title="Print" aria-label={`Print ${g.grnNumber}`}>
+                                <Printer className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                disabled={!eligibleIds.has(g.id)}
+                                onClick={() => openReturn(g)}
+                                className={`${iconBtn} hover:bg-amber-100 hover:text-amber-800`}
+                                title="Return goods to supplier"
+                                aria-label={`Return goods from ${g.grnNumber}`}
+                              >
+                                <RotateCcw className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                disabled={g.status !== "RECEIVED"}
+                                onClick={() => {
+                                  setCancelGRN(g);
+                                  setComment("");
+                                }}
+                                className={`${iconBtn} hover:bg-rose-100 hover:text-rose-700`}
+                                title="Cancel receipt"
+                                aria-label={`Cancel ${g.grnNumber}`}
+                              >
+                                <Ban className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </td>
+                          <td>{g.receiptDate}</td>
+                          <td>
+                            <button type="button" onClick={() => setViewGRN(g)} className="font-mono text-sky-700 font-semibold hover:underline">
+                              {g.grnNumber}
+                            </button>
+                          </td>
+                          <td className="font-mono text-[11px]">{g.poNumber}</td>
+                          <td className="font-mono text-[11px]">{g.challanNumber || "—"}</td>
+                          <td>{g.warehouseName}</td>
+                          <td className="font-medium text-slate-900">{g.supplierName}</td>
+                          <td className="text-right font-mono">{qtyFmt(g.items.reduce((s, it) => s + it.currentReceivedQuantity, 0))}</td>
+                          <td className="text-right font-mono text-rose-600">{qtyFmt(g.items.reduce((s, it) => s + it.rejectedDamagedQuantity, 0))}</td>
+                          <td className="text-right font-mono font-bold">{formatCurrency(g.totalReceivedAmount)}</td>
+                          <td>{g.preparedBy}</td>
+                          <td className={`text-center text-[11px] font-semibold ${st.cls}`}>{st.text}</td>
+                        </tr>
+                      );
+                    })
+                  )}
                 </tbody>
               </table>
-            </div>
-
-            {/* Pagination */}
-            <div className="px-3 py-2 border-t border-slate-200 bg-slate-50 flex items-center justify-end gap-6 text-xs text-slate-600">
-              <div className="flex items-center gap-1.5">
-                <span>Rows per page:</span>
-                <select className="border border-slate-300 rounded px-1.5 py-0.5 text-xs bg-white">
-                  <option value="50">50</option>
-                  <option value="25">25</option>
-                  <option value="100">100</option>
-                </select>
-              </div>
-              <div>
-                1-50 of 60
-              </div>
-              <div className="flex items-center gap-1 text-slate-400">
-                <button type="button" disabled className="px-1.5 py-0.5 hover:text-slate-800 disabled:opacity-40">
-                  &lt;
-                </button>
-                <button type="button" className="px-1.5 py-0.5 hover:text-slate-800">
-                  &gt;
-                </button>
-              </div>
             </div>
           </div>
         </div>
       )}
 
-      {/* ------------------------------------------------------------- */}
-      {/* 5. RECEIVE GOODS AGAINST PO MODAL (GRN Generation) */}
-      {/* ------------------------------------------------------------- */}
+      {/* RECEIVE AGAINST PO */}
       <ModalDialog
-        isOpen={Boolean(receiveModalPO)}
-        onClose={() => setReceiveModalPO(null)}
-        title={`Receive Goods against PO: ${receiveModalPO?.poNumber || ""}`}
-        subtitle={`Vendor: ${receiveModalPO?.supplierName || ""} • Destination: ${receiveModalPO?.warehouseName || "Material WH"}`}
+        isOpen={Boolean(receiveForm)}
+        onClose={() => !receiveMutation.isPending && setReceiveForm(null)}
+        title={`Receive Goods — ${receiveForm?.po.poNumber ?? ""}`}
+        subtitle={`${receiveForm?.po.supplierName ?? ""} → ${receiveForm?.po.warehouseName ?? ""}`}
         maxWidth="4xl"
       >
-        <form onSubmit={handleSubmitReceive} className="space-y-4 text-xs">
-          {/* Challan & Shipment Headers */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 bg-slate-50 p-3 rounded border border-slate-200">
-            <div>
-              <label className="block text-slate-600 font-semibold mb-1">Delivery Challan No *</label>
-              <input
-                type="text"
-                value={formChallanNo}
-                onChange={(e) => setFormChallanNo(e.target.value)}
-                className="w-full border border-slate-300 rounded p-1.5 text-xs bg-white"
-                required
-              />
+        {receiveForm && (
+          <form onSubmit={submitReceive} className="space-y-4 text-xs">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <label className="block">
+                <span className="block text-slate-600 font-medium mb-1">Receive Date *</span>
+                <input type="date" required min={receiveForm.po.orderDate} value={receiveForm.receiptDate} onChange={(e) => setReceiveForm({ ...receiveForm, receiptDate: e.target.value })} className={inputCls} />
+              </label>
+              <label className="block">
+                <span className="block text-slate-600 font-medium mb-1">Supplier Challan No</span>
+                <input type="text" maxLength={100} value={receiveForm.challanNumber} onChange={(e) => setReceiveForm({ ...receiveForm, challanNumber: e.target.value })} className={inputCls} />
+              </label>
+              <label className="block">
+                <span className="block text-slate-600 font-medium mb-1">Gate Pass / Delivery Note</span>
+                <input type="text" maxLength={100} value={receiveForm.gatePassNumber} onChange={(e) => setReceiveForm({ ...receiveForm, gatePassNumber: e.target.value })} className={inputCls} />
+              </label>
+              <label className="block">
+                <span className="block text-slate-600 font-medium mb-1">VAT Challan (Mushak) No</span>
+                <input type="text" maxLength={100} value={receiveForm.vatChallanNumber} onChange={(e) => setReceiveForm({ ...receiveForm, vatChallanNumber: e.target.value })} className={inputCls} />
+              </label>
+              <label className="block">
+                <span className="block text-slate-600 font-medium mb-1">Supplier Invoice No</span>
+                <input type="text" maxLength={100} value={receiveForm.supplierInvoiceNumber} onChange={(e) => setReceiveForm({ ...receiveForm, supplierInvoiceNumber: e.target.value })} className={inputCls} />
+              </label>
+              <label className="block">
+                <span className="block text-slate-600 font-medium mb-1">Remarks</span>
+                <input type="text" maxLength={500} value={receiveForm.remarks} onChange={(e) => setReceiveForm({ ...receiveForm, remarks: e.target.value })} className={inputCls} />
+              </label>
             </div>
-            <div>
-              <label className="block text-slate-600 font-semibold mb-1">VAT Challan (Mushak 6.3)</label>
-              <input
-                type="text"
-                value={formVatChallan}
-                onChange={(e) => setFormVatChallan(e.target.value)}
-                className="w-full border border-slate-300 rounded p-1.5 text-xs bg-white"
-              />
-            </div>
-            <div>
-              <label className="block text-slate-600 font-semibold mb-1">Supplier Commercial Invoice</label>
-              <input
-                type="text"
-                value={formInvoiceNo}
-                onChange={(e) => setFormInvoiceNo(e.target.value)}
-                className="w-full border border-slate-300 rounded p-1.5 text-xs bg-white"
-              />
-            </div>
-            <div>
-              <label className="block text-slate-600 font-semibold mb-1">Receipt Date *</label>
-              <input
-                type="date"
-                value={formReceiptDate}
-                onChange={(e) => setFormReceiptDate(e.target.value)}
-                className="w-full border border-slate-300 rounded p-1.5 text-xs bg-white"
-                required
-              />
-            </div>
-          </div>
-
-          {/* Line Items Receiving Table */}
-          <div className="border border-slate-200 rounded overflow-hidden">
-            <table className="w-full text-left text-xs">
-              <thead className="bg-slate-100 text-slate-700 font-semibold text-[11px]">
-                <tr>
-                  <th className="p-2">Item Description</th>
-                  <th className="p-2 w-16 text-center">UoM</th>
-                  <th className="p-2 w-20 text-center">Ordered</th>
-                  <th className="p-2 w-20 text-center">Prev. Recv</th>
-                  <th className="p-2 w-24 text-center">Outstanding</th>
-                  <th className="p-2 w-28">Recv Qty *</th>
-                  <th className="p-2 w-24">Reject / QC</th>
-                  <th className="p-2 w-28 text-right">Line Total</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {formReceiveItems.map((item, idx) => (
-                  <tr key={idx} className="hover:bg-slate-50">
-                    <td className="p-2">
-                      <div className="font-semibold text-slate-900">{item.itemName}</div>
-                      <div className="font-mono text-[10px] text-slate-400">{item.itemCode}</div>
-                    </td>
-                    <td className="p-2 text-center text-slate-600 font-mono">{item.uom}</td>
-                    <td className="p-2 text-center font-mono">{item.orderedQuantity}</td>
-                    <td className="p-2 text-center font-mono text-slate-500">{item.previouslyReceivedQuantity}</td>
-                    <td className="p-2 text-center font-mono font-bold text-amber-700">{item.outstandingQuantity}</td>
-                    <td className="p-2">
-                      <input
-                        type="number"
-                        min="0"
-                        max={item.outstandingQuantity}
-                        value={item.currentReceivedQuantity}
-                        onChange={(e) => {
-                          const val = Number(e.target.value);
-                          const u = [...formReceiveItems];
-                          u[idx].currentReceivedQuantity = val;
-                          u[idx].lineTotal = val * u[idx].unitPrice;
-                          setFormReceiveItems(u);
-                        }}
-                        className="w-full border border-blue-300 rounded p-1 text-xs font-mono font-bold bg-white focus:ring-1 focus:ring-blue-500"
-                        required
-                      />
-                    </td>
-                    <td className="p-2">
-                      <input
-                        type="number"
-                        min="0"
-                        value={item.rejectedDamagedQuantity}
-                        onChange={(e) => {
-                          const u = [...formReceiveItems];
-                          u[idx].rejectedDamagedQuantity = Number(e.target.value);
-                          setFormReceiveItems(u);
-                        }}
-                        className="w-full border border-rose-300 rounded p-1 text-xs font-mono bg-white text-rose-700"
-                      />
-                    </td>
-                    <td className="p-2 text-right font-mono font-bold text-slate-900">
-                      {formatCurrency(item.lineTotal)}
-                    </td>
+            <div className="border border-slate-200 rounded overflow-x-auto">
+              <table className="w-full min-w-[760px] text-left text-xs">
+                <thead className="bg-slate-100 text-slate-600 font-semibold text-[11px]">
+                  <tr>
+                    <th className="p-2">Item</th>
+                    <th className="p-2 text-right">Ordered</th>
+                    <th className="p-2 text-right">Received Before</th>
+                    <th className="p-2 text-right">Due</th>
+                    <th className="p-2 w-24">Receive Now</th>
+                    <th className="p-2 w-24">Rejected</th>
+                    <th className="p-2 text-right">Rate</th>
+                    <th className="p-2 text-right">Accepted Value</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          <div>
-            <label className="block text-slate-600 font-medium mb-1">Inspection / Quality Check Remarks</label>
-            <input
-              type="text"
-              value={formRemarks}
-              onChange={(e) => setFormRemarks(e.target.value)}
-              placeholder="e.g. Consignment verified without transit damages."
-              className="w-full border border-slate-300 rounded p-1.5 text-xs bg-white"
-            />
-          </div>
-
-          <div className="flex justify-end gap-2 pt-2 border-t">
-            <button
-              type="button"
-              onClick={() => setReceiveModalPO(null)}
-              className="px-4 py-2 border border-slate-200 rounded font-medium text-slate-600 hover:bg-slate-50"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={receiveMutation.isPending}
-              className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded font-bold shadow-xs transition"
-            >
-              {receiveMutation.isPending ? "Generating GRN..." : "Confirm Receipt & Update Inventory"}
-            </button>
-          </div>
-        </form>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {receiveForm.lines.map((l, idx) => {
+                    const err = lineError(l);
+                    return (
+                      <tr key={l.poItemId || idx} className={err ? "bg-rose-50" : ""}>
+                        <td className="p-2">
+                          <div className="font-semibold text-slate-900">{l.itemName}</div>
+                          <div className="text-[10px] text-slate-400 font-mono">{l.itemCode} · {l.uom}</div>
+                          {err && <div className="text-[10px] text-rose-600 font-semibold">{err}</div>}
+                        </td>
+                        <td className="p-2 text-right font-mono">{qtyFmt(l.orderedQuantity)}</td>
+                        <td className="p-2 text-right font-mono text-slate-500">{qtyFmt(l.previouslyReceivedQuantity)}</td>
+                        <td className="p-2 text-right font-mono font-bold text-amber-700">{qtyFmt(l.outstanding)}</td>
+                        <td className="p-2">
+                          <input type="number" min="0" step="any" aria-label={`Receive quantity for ${l.itemName}`} value={l.received} onChange={(e) => patchReceiveLine(idx, { received: Number(e.target.value) })} className={`${inputCls} font-mono`} />
+                        </td>
+                        <td className="p-2">
+                          <input type="number" min="0" step="any" aria-label={`Rejected quantity for ${l.itemName}`} value={l.rejected} onChange={(e) => patchReceiveLine(idx, { rejected: Number(e.target.value) })} className={`${inputCls} font-mono`} />
+                        </td>
+                        <td className="p-2 text-right font-mono">{formatCurrency(l.rate)}</td>
+                        <td className="p-2 text-right font-mono font-bold">{formatCurrency(Math.max(0, l.received - l.rejected) * l.rate)}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            <p className="text-[11px] text-slate-500">Only accepted quantity (received − rejected) goes into stock and is owed to the supplier.</p>
+            <div className="flex flex-col sm:flex-row justify-between items-center gap-3 pt-2 border-t">
+              <span className="font-semibold text-slate-700">
+                Accepted value: <span className="font-mono text-sky-800 text-sm">{formatCurrency(receiveTotal)}</span>
+              </span>
+              <div className="flex gap-2">
+                <button type="button" onClick={() => setReceiveForm(null)} disabled={receiveMutation.isPending} className={btnGhost}>
+                  Cancel
+                </button>
+                <button type="submit" disabled={receiveMutation.isPending} className={btnPrimary}>
+                  {receiveMutation.isPending ? <Spinner className="size-3.5" /> : <Truck className="w-3.5 h-3.5" />} Post Goods Receipt
+                </button>
+              </div>
+            </div>
+          </form>
+        )}
       </ModalDialog>
 
-      {/* ------------------------------------------------------------- */}
-      {/* 6. DIRECT RECEIVE MODAL */}
-      {/* ------------------------------------------------------------- */}
-      <ModalDialog
-        isOpen={isDirectReceiveOpen}
-        onClose={() => setIsDirectReceiveOpen(false)}
-        title="Direct Goods Receive (Non-PO)"
-        subtitle="Record ad-hoc or direct spot invoice goods receipts into warehouse"
-        maxWidth="4xl"
-      >
-        <form onSubmit={handleDirectReceiveSubmit} className="space-y-4 text-xs">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            <div>
-              <label className="block text-slate-700 font-semibold mb-1">Supplier / Vendor *</label>
-              <select
-                value={dirSupplierId}
-                onChange={(e) => setDirSupplierId(e.target.value)}
-                className="w-full border border-slate-300 rounded p-1.5 text-xs bg-white"
-                required
-              >
+      {/* DIRECT RECEIVE */}
+      <ModalDialog isOpen={directOpen} onClose={() => !receiveMutation.isPending && setDirectOpen(false)} title="Direct Goods Receive (without PO)" subtitle="A purchase order is created for the receipt automatically" maxWidth="4xl">
+        <form onSubmit={submitDirect} className="space-y-4 text-xs">
+          <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+            <label className="block">
+              <span className="block text-slate-600 font-medium mb-1">Supplier *</span>
+              <select value={dirSupplierId} onChange={(e) => setDirSupplierId(e.target.value)} className={inputCls} required>
                 <option value="">Select supplier</option>
-                {suppliers?.map((s) => (
+                {suppliers.map((s) => (
                   <option key={s.id} value={s.id}>
                     {s.name}
                   </option>
                 ))}
               </select>
-            </div>
-            <div>
-              <label className="block text-slate-700 font-semibold mb-1">Receiving Warehouse *</label>
-              <select
-                value={dirWarehouseId}
-                onChange={(e) => setDirWarehouseId(e.target.value)}
-                className="w-full border border-slate-300 rounded p-1.5 text-xs bg-white"
-                required
-              >
+            </label>
+            <label className="block">
+              <span className="block text-slate-600 font-medium mb-1">Warehouse *</span>
+              <select value={dirWarehouseId} onChange={(e) => setDirWarehouseId(e.target.value)} className={inputCls} required>
                 <option value="">Select warehouse</option>
-                {warehouses?.map((w) => (
+                {warehouses.map((w) => (
                   <option key={w.id} value={w.id}>
                     {w.name}
                   </option>
                 ))}
               </select>
-            </div>
-            <div>
-              <label className="block text-slate-700 font-semibold mb-1">Challan No *</label>
-              <input
-                type="text"
-                value={dirChallanNo}
-                onChange={(e) => setDirChallanNo(e.target.value)}
-                className="w-full border border-slate-300 rounded p-1.5 text-xs bg-white"
-                required
-              />
-            </div>
+            </label>
+            <label className="block">
+              <span className="block text-slate-600 font-medium mb-1">Receive Date *</span>
+              <input type="date" required value={dirDate} onChange={(e) => setDirDate(e.target.value)} className={inputCls} />
+            </label>
+            <label className="block">
+              <span className="block text-slate-600 font-medium mb-1">Challan No</span>
+              <input type="text" maxLength={100} value={dirChallan} onChange={(e) => setDirChallan(e.target.value)} className={inputCls} />
+            </label>
           </div>
-
-          <div className="border border-slate-200 rounded overflow-hidden">
-            <table className="w-full text-left text-xs">
-              <thead className="bg-slate-100 text-slate-700 font-semibold text-[11px]">
+          <div className="flex justify-end">
+            <button type="button" onClick={() => setDirLines([...dirLines, { key: ++lineKey, itemId: "", qty: 1, unitPrice: 0 }])} className="h-8 px-3 border border-blue-300 text-blue-700 rounded hover:bg-blue-50 font-semibold inline-flex items-center gap-1">
+              <Plus className="w-3.5 h-3.5" /> Add Item
+            </button>
+          </div>
+          <div className="border border-slate-200 rounded overflow-x-auto">
+            <table className="w-full min-w-[600px] text-left text-xs">
+              <thead className="bg-slate-100 text-slate-600 font-semibold text-[11px]">
                 <tr>
-                  <th className="p-2">Item Description</th>
-                  <th className="p-2 w-20 text-center">UoM</th>
-                  <th className="p-2 w-28">Receive Qty</th>
+                  <th className="p-2">Item *</th>
+                  <th className="p-2 w-16">UoM</th>
+                  <th className="p-2 w-24">Qty *</th>
                   <th className="p-2 w-28">Unit Price</th>
-                  <th className="p-2 w-32 text-right">Line Total</th>
+                  <th className="p-2 w-28 text-right">Amount</th>
+                  <th className="p-2 w-10" />
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {dirItems.map((it, idx) => (
-                  <tr key={idx}>
+                {dirLines.map((l, idx) => (
+                  <tr key={l.key}>
                     <td className="p-2">
                       <select
-                        value={it.itemId}
-                        required
+                        value={l.itemId}
+                        aria-label={`Item for line ${idx + 1}`}
                         onChange={(e) => {
-                          const picked = itemsCatalog?.find((i) => i.id === e.target.value);
-                          const u = [...dirItems];
-                          u[idx] = picked
-                            ? { ...u[idx], itemId: picked.id, itemCode: picked.code, itemName: picked.name, uom: picked.uom, unitPrice: picked.standardPrice, lineTotal: u[idx].receivedQuantity * picked.standardPrice }
-                            : { ...emptyDirItem };
-                          setDirItems(u);
+                          const it = items.find((i) => i.id === e.target.value);
+                          setDirLines(dirLines.map((x) => (x.key === l.key ? { ...x, itemId: e.target.value, unitPrice: x.unitPrice || it?.standardPrice || 0 } : x)));
                         }}
-                        className="w-full border border-slate-300 rounded p-1 text-xs bg-white"
+                        className={inputCls}
                       >
                         <option value="">Select item</option>
-                        {itemsCatalog?.map((i) => (
+                        {items.map((i) => (
                           <option key={i.id} value={i.id}>
-                            {i.code} · {i.name}
+                            {i.code} — {i.name}
                           </option>
                         ))}
                       </select>
                     </td>
-                    <td className="p-2 text-center text-slate-600 font-mono">{it.uom}</td>
+                    <td className="p-2 font-mono text-slate-600">{items.find((i) => i.id === l.itemId)?.uom ?? "—"}</td>
                     <td className="p-2">
-                      <input
-                        type="number"
-                        min="1"
-                        value={it.receivedQuantity}
-                        onChange={(e) => {
-                          const q = Number(e.target.value);
-                          const u = [...dirItems];
-                          u[idx].receivedQuantity = q;
-                          u[idx].lineTotal = q * u[idx].unitPrice;
-                          setDirItems(u);
-                        }}
-                        className="w-full border border-slate-300 rounded p-1 text-xs font-mono font-bold"
-                      />
+                      <input type="number" min="0.001" step="any" aria-label={`Quantity for line ${idx + 1}`} value={l.qty} onChange={(e) => setDirLines(dirLines.map((x) => (x.key === l.key ? { ...x, qty: Number(e.target.value) } : x)))} className={`${inputCls} font-mono`} />
                     </td>
                     <td className="p-2">
-                      <input
-                        type="number"
-                        min="0"
-                        value={it.unitPrice}
-                        onChange={(e) => {
-                          const p = Number(e.target.value);
-                          const u = [...dirItems];
-                          u[idx].unitPrice = p;
-                          u[idx].lineTotal = u[idx].receivedQuantity * p;
-                          setDirItems(u);
-                        }}
-                        className="w-full border border-slate-300 rounded p-1 text-xs font-mono"
-                      />
+                      <input type="number" min="0" step="any" aria-label={`Unit price for line ${idx + 1}`} value={l.unitPrice} onChange={(e) => setDirLines(dirLines.map((x) => (x.key === l.key ? { ...x, unitPrice: Number(e.target.value) } : x)))} className={`${inputCls} font-mono`} />
                     </td>
-                    <td className="p-2 text-right font-mono font-bold text-slate-900">
-                      {formatCurrency(it.lineTotal)}
+                    <td className="p-2 text-right font-mono font-bold">{formatCurrency(l.qty * l.unitPrice)}</td>
+                    <td className="p-2 text-center">
+                      <button type="button" disabled={dirLines.length === 1} onClick={() => setDirLines(dirLines.filter((x) => x.key !== l.key))} className={`${iconBtn} hover:bg-rose-100 hover:text-rose-700`} aria-label={`Remove line ${idx + 1}`}>
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-
-          <button
-            type="button"
-            onClick={() => setDirItems([...dirItems, { ...emptyDirItem }])}
-            className="px-3 py-1 border border-slate-300 rounded font-medium text-slate-700"
-          >
-            + Add item
-          </button>
-
-          <div className="flex justify-end gap-2 pt-2 border-t">
-            <button
-              type="button"
-              onClick={() => setIsDirectReceiveOpen(false)}
-              className="px-4 py-1.5 border border-slate-200 rounded font-medium text-slate-600"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={receiveMutation.isPending}
-              className="px-5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded font-bold shadow-xs transition disabled:opacity-60"
-            >
-              {receiveMutation.isPending ? "Saving…" : "Generate Direct GRN"}
-            </button>
+          <div className="flex flex-col sm:flex-row justify-between items-center gap-3 pt-2 border-t">
+            <span className="font-semibold text-slate-700">
+              Total: <span className="font-mono text-sky-800 text-sm">{formatCurrency(directTotal)}</span>
+            </span>
+            <div className="flex gap-2">
+              <button type="button" onClick={() => setDirectOpen(false)} disabled={receiveMutation.isPending} className={btnGhost}>
+                Cancel
+              </button>
+              <button type="submit" disabled={receiveMutation.isPending} className={btnPrimary}>
+                {receiveMutation.isPending ? <Spinner className="size-3.5" /> : <Truck className="w-3.5 h-3.5" />} Post Direct Receipt
+              </button>
+            </div>
           </div>
         </form>
       </ModalDialog>
 
-      {/* ------------------------------------------------------------- */}
-      {/* 7. VIEW GRN DETAILS MODAL */}
-      {/* ------------------------------------------------------------- */}
-      <ModalDialog
-        isOpen={Boolean(viewGRN)}
-        onClose={() => setViewGRN(null)}
-        title={`Goods Receipt Note: ${viewGRN?.invoiceGrn || ""}`}
-        subtitle={`Vendor: ${viewGRN?.supplierName || ""} • Received on ${viewGRN?.receiveDate || ""}`}
-        maxWidth="2xl"
-      >
+      {/* VIEW GRN */}
+      <ModalDialog isOpen={Boolean(viewGRN)} onClose={() => setViewGRN(null)} title={`Goods Receipt ${viewGRN?.grnNumber ?? ""}`} subtitle={`${viewGRN?.supplierName ?? ""} · ${viewGRN?.receiptDate ?? ""}`} maxWidth="2xl">
         {viewGRN && (
           <div className="space-y-4 text-xs">
-            <div className="grid grid-cols-2 gap-4 bg-slate-50 p-3 rounded border border-slate-200">
+            <div className="grid grid-cols-2 gap-3 bg-slate-50 p-3 rounded border border-slate-200">
               <div>
-                <span className="text-[10px] text-slate-400 font-bold uppercase block">Receipt Info</span>
-                <p className="font-bold text-slate-900 text-sm">{viewGRN.invoiceGrn}</p>
-                <p className="text-slate-600">PO Number: {viewGRN.poNumber}</p>
-                <p className="text-slate-600">Challan No: {viewGRN.challanNo}</p>
+                <span className="text-[10px] text-slate-500 font-bold uppercase block">Documents</span>
+                <p className="text-slate-700">PO: <span className="font-mono">{viewGRN.poNumber}</span></p>
+                <p className="text-slate-700">Challan: {viewGRN.challanNumber || "—"}</p>
+                <p className="text-slate-700">Gate pass: {viewGRN.gatePassNumber || "—"}</p>
               </div>
               <div>
-                <span className="text-[10px] text-slate-400 font-bold uppercase block">Warehouse Destination</span>
-                <p className="font-bold text-slate-900 text-sm">{viewGRN.warehouseName}</p>
-                <p className="text-slate-600">Office: {viewGRN.officeName}</p>
-                <p className="text-slate-600">Prepared By: {viewGRN.preparedBy}</p>
+                <span className="text-[10px] text-slate-500 font-bold uppercase block">Received Into</span>
+                <p className="font-bold text-slate-900">{viewGRN.warehouseName}</p>
+                <p className="text-slate-600">{viewGRN.officeName} · by {viewGRN.preparedBy}</p>
+                <p className={`font-semibold ${receiptStatus(viewGRN).cls}`}>{receiptStatus(viewGRN).text}</p>
               </div>
             </div>
-
-            <div className="border border-slate-200 rounded overflow-hidden">
-              <table className="w-full text-left text-xs">
-                <thead className="bg-slate-100 text-slate-700 font-semibold">
-                  <tr>
-                    <th className="p-2">Item Description</th>
-                    <th className="p-2 text-center">UoM</th>
-                    <th className="p-2 text-center">Received Qty</th>
-                    <th className="p-2 text-right">Unit Price</th>
-                    <th className="p-2 text-right">Line Total</th>
+            <table className="w-full text-left border border-slate-200">
+              <thead className="bg-slate-100 font-semibold">
+                <tr>
+                  <th className="p-2">Item</th>
+                  <th className="p-2 text-right">Received</th>
+                  <th className="p-2 text-right">Rejected</th>
+                  <th className="p-2 text-right">Rate</th>
+                  <th className="p-2 text-right">Amount</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {viewGRN.items.map((it) => (
+                  <tr key={it.id}>
+                    <td className="p-2">
+                      <div className="font-semibold">{it.itemName}</div>
+                      <div className="text-[10px] text-slate-400 font-mono">{it.itemCode} · {it.uom}</div>
+                    </td>
+                    <td className="p-2 text-right font-mono">{qtyFmt(it.currentReceivedQuantity)}</td>
+                    <td className="p-2 text-right font-mono text-rose-600">{qtyFmt(it.rejectedDamagedQuantity)}</td>
+                    <td className="p-2 text-right font-mono">{formatCurrency(it.unitPrice)}</td>
+                    <td className="p-2 text-right font-mono font-bold">{formatCurrency(it.lineTotal)}</td>
                   </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {viewGRN.items?.map((it: any, i: number) => (
-                    <tr key={i}>
-                      <td className="p-2">
-                        <div className="font-bold text-slate-900">{it.itemName}</div>
-                        <div className="font-mono text-[10px] text-slate-400">{it.itemCode}</div>
-                      </td>
-                      <td className="p-2 text-center">{it.uom}</td>
-                      <td className="p-2 text-center font-mono font-bold text-slate-800">{it.quantity}</td>
-                      <td className="p-2 text-right font-mono">{formatCurrency(it.unitPrice)}</td>
-                      <td className="p-2 text-right font-mono font-bold text-slate-900">{formatCurrency(it.lineTotal)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-
+                ))}
+              </tbody>
+            </table>
+            {viewGRN.remarks && <p className="text-slate-600 whitespace-pre-line">Remarks: {viewGRN.remarks}</p>}
             <div className="flex justify-between items-center bg-slate-50 p-3 rounded border border-slate-200">
-              <span className="text-xs font-semibold text-slate-700">Total Received Value:</span>
-              <span className="text-base font-bold font-mono text-sky-800">{formatCurrency(viewGRN.totalBdt)}</span>
+              <span className="font-semibold text-slate-700">Total accepted value</span>
+              <span className="text-base font-bold font-mono text-sky-800">{formatCurrency(viewGRN.totalReceivedAmount)}</span>
             </div>
-
-            <div className="flex justify-end gap-2 pt-2">
-              <button
-                type="button"
-                onClick={() => setViewGRN(null)}
-                className="px-4 py-2 border border-slate-200 rounded text-slate-700 font-semibold"
-              >
+            <div className="flex justify-end gap-2">
+              <button type="button" onClick={() => setViewGRN(null)} className={btnGhost}>
                 Close
               </button>
               <button
@@ -1251,229 +1014,215 @@ export default function PurchaseReceivePage() {
                   setPrintGRN(viewGRN);
                   setViewGRN(null);
                 }}
-                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded font-bold flex items-center gap-1.5"
+                className={btnPrimary}
               >
-                <Printer className="w-3.5 h-3.5" />
-                <span>Print GRN Voucher</span>
+                <Printer className="w-3.5 h-3.5" /> Print
               </button>
             </div>
           </div>
         )}
       </ModalDialog>
 
-      {/* ------------------------------------------------------------- */}
-      {/* 8. PRINT GRN VOUCHER PREVIEW MODAL */}
-      {/* ------------------------------------------------------------- */}
-      <ModalDialog
-        isOpen={Boolean(printGRN)}
-        onClose={() => setPrintGRN(null)}
-        title="Goods Receipt Note (GRN) - Print Preview"
-        subtitle="Official Store Receipt Document with Inventory Verification"
-        maxWidth="4xl"
-      >
+      {/* PRINT GRN */}
+      <ModalDialog isOpen={Boolean(printGRN)} onClose={() => setPrintGRN(null)} title="Goods Receipt Note — Print Preview" maxWidth="4xl">
         {printGRN && (
           <div className="space-y-4 text-xs">
-            <div className="bg-white p-6 border border-slate-200 rounded shadow-sm text-slate-800 space-y-4 print:p-0 print:border-none">
-              {/* Organization Header */}
-              <div className="flex justify-between items-start border-b border-slate-200 pb-3 mb-3">
+            <div className="bg-white p-6 border border-slate-200 rounded text-slate-800 space-y-4 print:p-0 print:border-none">
+              <div className="flex justify-between items-start border-b border-slate-200 pb-3">
                 <div className="flex items-center gap-3.5">
-                  <Image src="/logo.png" width={8452} height={1738} alt="BridgeOne Logo" className="h-10 w-auto object-contain" />
+                  <Image src="/logo.png" width={8452} height={1738} alt="Company logo" className="h-10 w-auto object-contain" />
                   <div>
-                    <h2 className="text-base font-bold text-slate-900 uppercase tracking-wide">
-                      BridgeOne Technologies Ltd.
-                    </h2>
-                    <p className="text-slate-500 text-[11px]">Store Operations & Materials Management Division</p>
+                    <h2 className="text-base font-bold text-slate-900 uppercase tracking-wide">{context?.company?.name ?? ""}</h2>
                     <p className="text-slate-500 text-[11px]">{printGRN.officeName}</p>
                   </div>
                 </div>
                 <div className="text-right">
-                  <div className="inline-block px-2.5 py-1 bg-slate-100 rounded text-[11px] font-bold text-slate-700 border border-slate-300">
-                    GOODS RECEIPT NOTE
-                  </div>
-                  <div className="text-sm font-bold text-sky-800 font-mono mt-1">{printGRN.invoiceGrn}</div>
-                  <div className="text-[11px] text-slate-500">Date: {printGRN.receiveDate}</div>
+                  <div className="inline-block px-2.5 py-1 bg-slate-100 rounded text-[11px] font-bold text-slate-700 border border-slate-300">GOODS RECEIPT NOTE</div>
+                  <div className="text-sm font-bold text-sky-800 font-mono mt-1">{printGRN.grnNumber}</div>
+                  <div className="text-[11px] text-slate-500">Date: {printGRN.receiptDate}</div>
                 </div>
               </div>
-
-              {/* Vendor & Delivery Meta */}
-              <div className="grid grid-cols-2 gap-4 text-xs mb-3">
+              <div className="grid grid-cols-2 gap-4">
                 <div className="bg-slate-50 p-2.5 rounded border border-slate-100">
-                  <span className="font-bold text-slate-700 block mb-1 uppercase text-[10px]">Supplier & Order:</span>
+                  <span className="font-bold text-slate-700 block mb-1 uppercase text-[10px]">Supplier</span>
                   <div className="font-bold text-slate-900 text-sm">{printGRN.supplierName}</div>
-                  <div className="text-slate-500 text-[11px]">Purchase Order: {printGRN.poNumber}</div>
-                  <div className="text-slate-500 text-[11px]">Challan Number: {printGRN.challanNo}</div>
+                  <div className="text-slate-500 text-[11px]">PO: {printGRN.poNumber} · Challan: {printGRN.challanNumber || "—"}</div>
                 </div>
                 <div className="bg-slate-50 p-2.5 rounded border border-slate-100">
-                  <span className="font-bold text-slate-700 block mb-1 uppercase text-[10px]">Warehouse Details:</span>
+                  <span className="font-bold text-slate-700 block mb-1 uppercase text-[10px]">Received Into</span>
                   <div className="font-bold text-slate-900 text-sm">{printGRN.warehouseName}</div>
-                  <div className="text-slate-500 text-[11px]">Location: {printGRN.officeName}</div>
-                  <div className="text-slate-500 text-[11px]">Inspected & Received By: {printGRN.preparedBy}</div>
+                  <div className="text-slate-500 text-[11px]">Received by: {printGRN.preparedBy}</div>
                 </div>
               </div>
-
-              {/* Items Table */}
-              <table className="w-full text-left border border-slate-200 text-xs mb-3">
-                <thead className="bg-slate-100 text-slate-700 font-semibold">
+              <table className="w-full text-left border border-slate-200">
+                <thead className="bg-slate-100 font-semibold">
                   <tr>
-                    <th className="p-2">Item Description</th>
-                    <th className="p-2 text-center">UoM</th>
-                    <th className="p-2 text-center">Received Qty</th>
-                    <th className="p-2 text-right">Unit Price (BDT)</th>
-                    <th className="p-2 text-right">Line Total (BDT)</th>
+                    <th className="p-2">SL</th>
+                    <th className="p-2">Item</th>
+                    <th className="p-2 text-right">Ordered</th>
+                    <th className="p-2 text-right">Received</th>
+                    <th className="p-2 text-right">Rejected</th>
+                    <th className="p-2 text-right">Rate</th>
+                    <th className="p-2 text-right">Amount</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {printGRN.items?.map((it: any, i: number) => (
-                    <tr key={i}>
-                      <td className="p-2">
-                        <div className="font-bold text-slate-900">{it.itemName}</div>
-                        <div className="text-[10px] text-slate-400 font-mono">{it.itemCode}</div>
-                      </td>
-                      <td className="p-2 text-center">{it.uom}</td>
-                      <td className="p-2 text-center font-mono font-bold">{it.quantity}</td>
+                  {printGRN.items.map((it, i) => (
+                    <tr key={it.id}>
+                      <td className="p-2">{i + 1}</td>
+                      <td className="p-2">{it.itemCode} — {it.itemName} ({it.uom})</td>
+                      <td className="p-2 text-right font-mono">{qtyFmt(it.orderedQuantity)}</td>
+                      <td className="p-2 text-right font-mono">{qtyFmt(it.currentReceivedQuantity)}</td>
+                      <td className="p-2 text-right font-mono">{qtyFmt(it.rejectedDamagedQuantity)}</td>
                       <td className="p-2 text-right font-mono">{formatCurrency(it.unitPrice)}</td>
-                      <td className="p-2 text-right font-mono font-bold text-slate-900">{formatCurrency(it.lineTotal)}</td>
+                      <td className="p-2 text-right font-mono font-bold">{formatCurrency(it.lineTotal)}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
-
-              {/* Total Value */}
-              <div className="flex justify-end text-xs">
-                <div className="w-64 space-y-1 bg-slate-50 p-2.5 rounded border border-slate-100">
-                  <div className="flex justify-between font-bold text-slate-900 text-sm pt-1 border-t border-slate-300">
-                    <span>Total Received:</span>
-                    <span className="font-mono text-sky-800">{formatCurrency(printGRN.totalBdt)}</span>
-                  </div>
-                </div>
+              <div className="flex justify-end font-bold text-sm">
+                Total: <span className="font-mono text-sky-800 ml-2">{formatCurrency(printGRN.totalReceivedAmount)}</span>
               </div>
-
-              {/* Signature Blocks */}
-              <div className="grid grid-cols-3 gap-6 pt-12 text-center text-xs text-slate-600">
-                <div className="border-t border-slate-300 pt-1.5 font-medium">Store Officer</div>
-                <div className="border-t border-slate-300 pt-1.5 font-medium">Quality Assurance (QC)</div>
-                <div className="border-t border-slate-300 pt-1.5 font-medium">Plant / Warehouse Incharge</div>
+              <div className="grid grid-cols-3 gap-6 pt-12 text-center text-slate-600">
+                <div className="border-t border-slate-300 pt-1.5 font-medium">Received By</div>
+                <div className="border-t border-slate-300 pt-1.5 font-medium">Quality Checked By</div>
+                <div className="border-t border-slate-300 pt-1.5 font-medium">Store In-charge</div>
               </div>
             </div>
-
-            <div className="flex justify-end gap-2 pt-2">
-              <button
-                type="button"
-                onClick={() => setPrintGRN(null)}
-                className="px-4 py-2 border border-slate-200 rounded text-slate-700 font-semibold"
-              >
+            <div className="flex justify-end gap-2 print:hidden">
+              <button type="button" onClick={() => setPrintGRN(null)} className={btnGhost}>
                 Close
               </button>
-              <button
-                type="button"
-                onClick={() => window.print()}
-                className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded font-bold flex items-center gap-1.5 shadow-xs"
-              >
-                <Printer className="w-3.5 h-3.5" />
-                <span>Print Document</span>
+              <button type="button" onClick={() => window.print()} className={btnPrimary}>
+                <Printer className="w-3.5 h-3.5" /> Print
               </button>
             </div>
           </div>
         )}
       </ModalDialog>
 
-      {/* ------------------------------------------------------------- */}
-      {/* 9. CLOSE REMAINING PO BALANCE MODAL */}
-      {/* ------------------------------------------------------------- */}
-      <ModalDialog
-        isOpen={Boolean(closeModalPO)}
-        onClose={() => setCloseModalPO(null)}
-        title="Close Remaining PO Balance"
-        subtitle={`PO Number: ${closeModalPO?.poNumber || ""}`}
-        maxWidth="md"
-      >
-        {closeModalPO && (
-          <div className="space-y-3 text-xs">
+      {/* CLOSE PO BALANCE */}
+      <ModalDialog isOpen={Boolean(closePO)} onClose={() => !closeMutation.isPending && setClosePO(null)} title="Close Remaining PO Balance" subtitle={closePO?.poNumber} maxWidth="md">
+        {closePO && (
+          <form
+            className="space-y-3 text-xs"
+            onSubmit={(e) => {
+              e.preventDefault();
+              closeMutation.mutate({ id: closePO.id, comments: comment });
+            }}
+          >
             <p className="text-slate-600">
-              Close and stop further receiving against PO <span className="font-bold text-slate-900 font-mono">{closeModalPO.poNumber}</span> from <span className="font-semibold text-slate-900">{closeModalPO.supplierName}</span>?
+              Stop receiving against <span className="font-mono font-bold">{closePO.poNumber}</span>. The outstanding{" "}
+              {qtyFmt(closePO.items.reduce((s, it) => s + it.outstandingQuantity, 0))} units will not be received.
             </p>
-            <div>
-              <label className="block text-slate-700 font-semibold mb-1">Audit Reason for Closure *</label>
-              <textarea
-                value={closeComment}
-                onChange={(e) => setCloseComment(e.target.value)}
-                placeholder="Reason for closing remaining unreceived quantity..."
-                className="w-full border border-slate-300 rounded p-2 text-xs h-20"
-                required
-              />
-            </div>
-            <div className="flex justify-end gap-2 pt-2">
-              <button
-                type="button"
-                onClick={() => setCloseModalPO(null)}
-                className="px-3 py-1.5 border border-slate-200 rounded text-slate-600"
-              >
-                Cancel
+            <label className="block">
+              <span className="block text-slate-700 font-semibold mb-1">Reason *</span>
+              <textarea required maxLength={300} value={comment} onChange={(e) => setComment(e.target.value)} className="w-full border border-slate-300 rounded p-2 text-xs h-20" />
+            </label>
+            <div className="flex justify-end gap-2">
+              <button type="button" onClick={() => setClosePO(null)} disabled={closeMutation.isPending} className={btnGhost}>
+                Back
               </button>
-              <button
-                type="button"
-                onClick={() => {
-                  toast.success(`PO ${closeModalPO.poNumber} receiving balance closed.`, {
-                    title: "Receiving Balance Closed",
-                  });
-                  setCloseModalPO(null);
-                }}
-                className="px-4 py-1.5 bg-rose-600 text-white rounded font-bold hover:bg-rose-700"
-              >
-                Confirm Closure
+              <button type="submit" disabled={closeMutation.isPending} className="h-9 px-4 bg-rose-600 hover:bg-rose-700 disabled:opacity-60 text-white rounded font-semibold inline-flex items-center gap-1.5">
+                {closeMutation.isPending && <Spinner className="size-3.5" />} Close Balance
               </button>
             </div>
-          </div>
+          </form>
         )}
       </ModalDialog>
 
-      {/* ------------------------------------------------------------- */}
-      {/* 10. INITIATE PURCHASE RETURN MODAL */}
-      {/* ------------------------------------------------------------- */}
-      <ModalDialog
-        isOpen={Boolean(returnModalGRN)}
-        onClose={() => setReturnModalGRN(null)}
-        title="Initiate Purchase Return (Debit Note)"
-        subtitle={`Against GRN: ${returnModalGRN?.invoiceGrn || ""} • Vendor: ${returnModalGRN?.supplierName || ""}`}
-        maxWidth="md"
-      >
-        {returnModalGRN && (
-          <div className="space-y-3 text-xs">
+      {/* CANCEL GRN */}
+      <ModalDialog isOpen={Boolean(cancelGRN)} onClose={() => !cancelMutation.isPending && setCancelGRN(null)} title="Cancel Goods Receipt" subtitle={cancelGRN?.grnNumber} maxWidth="md">
+        {cancelGRN && (
+          <form
+            className="space-y-3 text-xs"
+            onSubmit={(e) => {
+              e.preventDefault();
+              cancelMutation.mutate({ id: cancelGRN.id, comments: comment });
+            }}
+          >
             <p className="text-slate-600">
-              Return items from GRN <span className="font-bold text-slate-900 font-mono">{returnModalGRN.invoiceGrn}</span> back to vendor for credit / replacement.
+              The received goods leave {cancelGRN.warehouseName} again, the order is re-opened for receiving and {formatCurrency(cancelGRN.totalReceivedAmount)} is taken off the supplier balance. Not allowed if
+              the stock was already used, or a return, bill or payment exists for this receipt.
             </p>
-            <div>
-              <label className="block text-slate-700 font-semibold mb-1">Return Reason / Damage Report *</label>
-              <textarea
-                value={returnReason}
-                onChange={(e) => setReturnReason(e.target.value)}
-                placeholder="Specify damage defect, specifications mismatch, or expiry..."
-                className="w-full border border-slate-300 rounded p-2 text-xs h-20"
-                required
-              />
-            </div>
-            <div className="flex justify-end gap-2 pt-2">
-              <button
-                type="button"
-                onClick={() => setReturnModalGRN(null)}
-                className="px-3 py-1.5 border border-slate-200 rounded text-slate-600"
-              >
-                Cancel
+            <label className="block">
+              <span className="block text-slate-700 font-semibold mb-1">Reason *</span>
+              <textarea required maxLength={300} value={comment} onChange={(e) => setComment(e.target.value)} className="w-full border border-slate-300 rounded p-2 text-xs h-20" />
+            </label>
+            <div className="flex justify-end gap-2">
+              <button type="button" onClick={() => setCancelGRN(null)} disabled={cancelMutation.isPending} className={btnGhost}>
+                Back
               </button>
-              <button
-                type="button"
-                onClick={() => {
-                  toast.info(`Purchase Return draft initiated against ${returnModalGRN.invoiceGrn}. Check Returns tab.`, {
-                    title: "Return Draft Created",
-                  });
-                  setReturnModalGRN(null);
-                }}
-                className="px-4 py-1.5 bg-amber-600 text-white rounded font-bold hover:bg-amber-700"
-              >
-                Proceed to Return
+              <button type="submit" disabled={cancelMutation.isPending} className="h-9 px-4 bg-rose-600 hover:bg-rose-700 disabled:opacity-60 text-white rounded font-semibold inline-flex items-center gap-1.5">
+                {cancelMutation.isPending && <Spinner className="size-3.5" />} Cancel Receipt
               </button>
             </div>
-          </div>
+          </form>
+        )}
+      </ModalDialog>
+
+      {/* RETURN FROM GRN */}
+      <ModalDialog isOpen={Boolean(returnGRN)} onClose={() => !returnMutation.isPending && setReturnGRN(null)} title="Return Goods to Supplier" subtitle={`${returnGRN?.grnNumber ?? ""} · ${returnGRN?.supplierName ?? ""}`} maxWidth="2xl">
+        {returnGRN && (
+          <form onSubmit={submitReturn} className="space-y-3 text-xs">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <label className="block">
+                <span className="block text-slate-600 font-medium mb-1">Return Date *</span>
+                <input type="date" required min={returnGRN.receiptDate} value={returnDate} onChange={(e) => setReturnDate(e.target.value)} className={inputCls} />
+              </label>
+              <label className="block">
+                <span className="block text-slate-600 font-medium mb-1">Reason *</span>
+                <input type="text" required maxLength={300} value={returnReason} onChange={(e) => setReturnReason(e.target.value)} placeholder="Damaged, wrong specification, expired…" className={inputCls} />
+              </label>
+            </div>
+            <table className="w-full text-left border border-slate-200">
+              <thead className="bg-slate-100 font-semibold">
+                <tr>
+                  <th className="p-2">Item</th>
+                  <th className="p-2 text-right">Returnable</th>
+                  <th className="p-2 w-28">Return Qty</th>
+                  <th className="p-2 text-right">Amount</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {returnLines.map((l, idx) => (
+                  <tr key={`${l.itemId}-${idx}`} className={l.qty > l.available + 1e-9 ? "bg-rose-50" : ""}>
+                    <td className="p-2">{l.itemCode} — {l.itemName}</td>
+                    <td className="p-2 text-right font-mono">{qtyFmt(l.available)} {l.uom}</td>
+                    <td className="p-2">
+                      <input
+                        type="number"
+                        min="0"
+                        max={l.available}
+                        step="any"
+                        aria-label={`Return quantity for ${l.itemName}`}
+                        value={l.qty}
+                        onChange={(e) => setReturnLines(returnLines.map((x, i) => (i === idx ? { ...x, qty: Number(e.target.value) } : x)))}
+                        className={`${inputCls} font-mono`}
+                      />
+                    </td>
+                    <td className="p-2 text-right font-mono">{formatCurrency(l.qty * l.unitPrice)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <div className="flex flex-col sm:flex-row justify-between items-center gap-3 pt-2 border-t">
+              <span className="font-semibold">
+                Credit: <span className="font-mono text-sky-800">{formatCurrency(returnTotal)}</span>
+              </span>
+              <div className="flex gap-2">
+                <button type="button" onClick={() => setReturnLines(returnLines.map((l) => ({ ...l, qty: l.available })))} className={btnGhost}>
+                  Return All
+                </button>
+                <button type="button" onClick={() => setReturnGRN(null)} disabled={returnMutation.isPending} className={btnGhost}>
+                  Cancel
+                </button>
+                <button type="submit" disabled={returnMutation.isPending} className={btnPrimary}>
+                  {returnMutation.isPending && <Spinner className="size-3.5" />} Post Return
+                </button>
+              </div>
+            </div>
+          </form>
         )}
       </ModalDialog>
     </div>

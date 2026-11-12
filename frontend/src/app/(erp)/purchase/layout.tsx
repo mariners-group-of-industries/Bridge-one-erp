@@ -2,6 +2,8 @@ import { Suspense, type ReactNode } from "react";
 import { QueryProvider } from "@/components/providers/QueryProvider";
 import { ToastContainer } from "@/components/purchase/Toast";
 
+export const instant = false;
+
 export default function PurchaseLayout({ children }: { children: ReactNode }) {
   return (
     <QueryProvider>

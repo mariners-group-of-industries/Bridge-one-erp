@@ -19,13 +19,14 @@ import { errorMessage } from "@/lib/api/client";
 import { cn } from "@/lib/cn";
 import { formatAmount } from "../../dashboard/lib/format";
 import { formatDay, useToday } from "../../lib/use-today";
-import type { AreaKind, CustomerOption, SetupLookups } from "../../masters/schemas/masters.schema";
+import type { AreaKind, CustomerOption } from "../../masters/schemas/masters.schema";
 import { fetchCustomers, fetchSalesLookups, fetchSetupLookups } from "../../masters/services/masters.api";
 import { SearchPick } from "../../components/SearchPick";
 import { ORDER_TYPE_LABELS, PAYMENT_METHODS, PAYMENT_METHOD_LABELS } from "../../orders/schemas/order.schema";
 import { changeOrderStatus } from "../../orders/services/order.api";
 import { paths } from "../../paths";
-import { SimpleMastersPanel } from "../../setup/components/SimpleMastersPanel";
+import { salesConfigPaths } from "@/features/configuration/sales-config/paths";
+import { ManagedInConfigurationDialog } from "../../components/ManagedInConfigurationDialog";
 import {
   APPROVED_ORDER_STATUSES,
   APPROVED_ORDER_STATUS_LABELS,
@@ -65,7 +66,7 @@ const monthStart = (today: string) => `${today.slice(0, 7)}-01`;
 const text = (value: string | null) => value ?? "";
 
 /** Compact, vertically centred rows like Managerium. */
-const compact = <T,>(columns: Column<T>[]) => columns.map((column) => ({ ...column, className: cn("py-1.5! align-middle!", column.className) }));
+const compact = <T,>(columns: Column<T>[]) => columns.map((column) => ({ ...column, className: cn("py-1! align-middle!", column.className) }));
 type Query = Record<string, unknown>;
 
 /** `value` once it has stopped changing for 400 ms. */
@@ -234,7 +235,6 @@ function ApprovedOrdersTab({ today, search, onQuery }: { today: string; search: 
   // Customer search: customers of the chosen office's business unit (else the first one).
   const customerUnit = filterLists.lookups.data?.offices.find((office) => office.id === filters.officeId)?.businessUnitId ?? firstUnit;
   const customers = useResource(customerUnit ? `customers:${customerUnit}` : null, () => fetchCustomers(customerUnit!));
-  const reasonSetup = useResource(reasonsOpen && firstUnit ? `setup:${firstUnit}:reasons` : null, () => fetchSetupLookups(firstUnit));
 
   const field = (key: keyof ApprovedFilters) => ({
     value: filters[key],
@@ -283,7 +283,7 @@ function ApprovedOrdersTab({ today, search, onQuery }: { today: string; search: 
   const rows = list.data;
 
   const columns: Column<ApprovedOrderRow>[] = [
-    { id: "sl", header: "SL", cell: (_row, index) => <span className="text-ink-faint tabular-nums">{index + 1}</span>, className: "w-10" },
+    { id: "sl", header: "SL", cell: (_row, index) => <span className="tabular-nums">{index + 1}</span>, className: "w-10 text-center" },
     {
       id: "actions",
       header: "Action",
@@ -418,6 +418,7 @@ function ApprovedOrdersTab({ today, search, onQuery }: { today: string; search: 
           columns={compact(columns)}
           getRowId={(row) => row.id}
           getRowLabel={(row) => row.number}
+          sheet
           pages={DELIVERY_PAGE_SIZES}
           emptyState={<EmptyState title="No approved orders waiting for delivery" />}
         />
@@ -456,13 +457,17 @@ function ApprovedOrdersTab({ today, search, onQuery }: { today: string; search: 
         <TextAreaField label="Reason" required rows={3} value={remarks} onChange={(event) => setRemarks(event.target.value)} />
       </Dialog>
 
-      <Dialog open={reasonsOpen} size="lg" title="Delivery Pending Reasons" onClose={() => { setReasonsOpen(false); filterLists.setup.reload(); }}>
-        {reasonSetup.data && firstUnit ? (
-          <SimpleMastersPanel kind="delivery-reasons" businessUnitId={firstUnit} lookups={reasonSetup.data as SetupLookups} onChanged={reasonSetup.reload} />
-        ) : (
-          <LoadingState />
-        )}
-      </Dialog>
+      <ManagedInConfigurationDialog
+        open={reasonsOpen}
+        title="Delivery Pending Reasons"
+        what="Delivery pending reasons"
+        where="Configuration › Sales Config › Sales Setup › Delivery Pending Reasons"
+        href={salesConfigPaths.salesSetupTab("delivery-reasons")}
+        onClose={() => {
+          setReasonsOpen(false);
+          filterLists.setup.reload();
+        }}
+      />
     </>
   );
 }
@@ -719,6 +724,7 @@ function DeliveriesTab({ tab, today, search, onQuery }: { tab: Exclude<Tab, "app
             getRowId={(row) => row.id}
             getRowLabel={(row) => row.number}
             rowHref={viewHref}
+            sheet
             footer={(rows) =>
               tab === "exchanges"
                 ? {
