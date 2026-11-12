@@ -22,6 +22,8 @@ interface DynamicCalendarGridProps {
   gridData: RosterGridData;
   onCellChange: (employeeId: string, dateStr: string, newShiftCode: string) => void;
   onColumnBulkAssign: (dateStr: string, shiftCode: string) => void;
+  /** Row-wise assign: one shift on every date of one employee (optionally skipping weekends). */
+  onRowBulkAssign: (employeeId: string, shiftCode: string, skipWeekends: boolean) => void;
   selectedEmployeeIds: Set<string>;
   onToggleSelectAll: () => void;
   onToggleSelectEmployee: (id: string) => void;
@@ -37,6 +39,7 @@ export function DynamicCalendarGrid({
   gridData,
   onCellChange,
   onColumnBulkAssign,
+  onRowBulkAssign,
   selectedEmployeeIds,
   onToggleSelectAll,
   onToggleSelectEmployee,
@@ -55,6 +58,10 @@ export function DynamicCalendarGrid({
   // Column header popover state
   const [activeColMenu, setActiveColMenu] = useState<string | null>(null);
 
+  // Row (employee) bulk-assign popover state
+  const [activeRowMenu, setActiveRowMenu] = useState<string | null>(null);
+  const [rowSkipWeekends, setRowSkipWeekends] = useState(true);
+
   const popoverRef = useRef<HTMLDivElement>(null);
 
   // Close popover on outside click
@@ -63,6 +70,7 @@ export function DynamicCalendarGrid({
       if (popoverRef.current && !popoverRef.current.contains(e.target as Node)) {
         setActiveCell(null);
         setActiveColMenu(null);
+        setActiveRowMenu(null);
       }
     }
     document.addEventListener("mousedown", handleClickOutside);
@@ -284,13 +292,76 @@ export function DynamicCalendarGrid({
                     </td>
 
                     {/* Employee Name */}
-                    <td className="sticky left-[198px] z-20 bg-surface px-3 py-2 border-r border-grid-line whitespace-nowrap">
-                      <div className="font-semibold text-ink truncate max-w-[170px]" title={emp.name}>
-                        {emp.name}
+                    <td
+                      className={`sticky left-[198px] bg-surface px-3 py-2 border-r border-grid-line whitespace-nowrap ${
+                        activeRowMenu === emp.id ? "z-40" : "z-20"
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-1">
+                        <div className="min-w-0">
+                          <div className="font-semibold text-ink truncate max-w-[150px]" title={emp.name}>
+                            {emp.name}
+                          </div>
+                          <div className="text-[10px] text-ink-faint truncate max-w-[150px]">
+                            {emp.department}
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setActiveCell(null);
+                            setActiveColMenu(null);
+                            setActiveRowMenu(activeRowMenu === emp.id ? null : emp.id);
+                          }}
+                          className="mt-0.5 shrink-0 rounded p-0.5 text-ink-faint hover:bg-hover hover:text-primary"
+                          title={`Assign one shift to all dates for ${emp.name}`}
+                          aria-label={`Assign one shift to all dates for ${emp.name}`}
+                          aria-expanded={activeRowMenu === emp.id}
+                        >
+                          <ChevronDown className="size-3" />
+                        </button>
                       </div>
-                      <div className="text-[10px] text-ink-faint truncate max-w-[170px]">
-                        {emp.department}
-                      </div>
+
+                      {/* Row Bulk Assign Menu */}
+                      {activeRowMenu === emp.id && (
+                        <div
+                          ref={popoverRef}
+                          className="absolute left-full top-0 ml-1 z-50 w-56 rounded-md border border-line bg-surface p-1.5 shadow-xl text-left whitespace-normal"
+                        >
+                          <div className="px-2 py-1 text-[10px] font-bold text-ink-muted border-b border-line mb-1">
+                            Assign all dates for {emp.name}:
+                          </div>
+                          <label className="flex items-center gap-1.5 px-2 py-1 text-[11px] text-ink cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={rowSkipWeekends}
+                              onChange={(e) => setRowSkipWeekends(e.target.checked)}
+                              className="size-3 accent-primary"
+                            />
+                            Skip Fridays
+                          </label>
+                          <div className="max-h-48 overflow-y-auto space-y-0.5">
+                            {CALENDAR_DEFINITIONS.map((c) => (
+                              <button
+                                key={c.shortCode}
+                                type="button"
+                                onClick={() => {
+                                  onRowBulkAssign(emp.id, c.shortCode, rowSkipWeekends);
+                                  setActiveRowMenu(null);
+                                }}
+                                className="flex w-full items-center gap-2 rounded px-2 py-1 text-xs text-ink hover:bg-hover"
+                              >
+                                <span
+                                  className={`size-4 rounded text-[9px] font-bold flex items-center justify-center border ${c.badgeBg} ${c.badgeText} ${c.badgeBorder}`}
+                                >
+                                  {c.shortCode}
+                                </span>
+                                <span className="truncate">{c.calendarName}</span>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </td>
 
                     {/* Office & Designation */}
@@ -322,13 +393,14 @@ export function DynamicCalendarGrid({
                         >
                           <button
                             type="button"
-                            onClick={() =>
+                            onClick={() => {
+                              setActiveRowMenu(null);
                               setActiveCell(
                                 isCellActive
                                   ? null
                                   : { employeeId: emp.id, dateStr: date.dateStr },
-                              )
-                            }
+                              );
+                            }}
                             className="w-full h-9 flex items-center justify-center font-bold text-xs transition-all hover:bg-hover/80 hover:z-10 focus:z-10 focus:outline-none"
                             title={
                               code

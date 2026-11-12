@@ -287,6 +287,22 @@ export function DynamicCalendarView({
     toast.success(`Assigned shift [${shiftCode}] for ${dateStr} across ${filteredEmployees.length} employees.`);
   };
 
+  // Row Bulk Assign (one employee, every date in the range)
+  const handleRowBulkAssign = (employeeId: string, shiftCode: string, skipWeekends: boolean) => {
+    const emp = filteredEmployees.find((e) => e.id === employeeId);
+    const targetDates = dates.filter((d) => !(skipWeekends && d.isWeekend));
+    if (!emp || targetDates.length === 0) return;
+    setGridData((prev) => {
+      const row = { ...(prev[employeeId] || {}) };
+      targetDates.forEach((d) => {
+        row[d.dateStr] = shiftCode;
+      });
+      return { ...prev, [employeeId]: row };
+    });
+    setUnsavedChanges((c) => c + 1);
+    toast.success(`Assigned shift [${shiftCode}] to ${emp.name} for ${targetDates.length} day(s).`);
+  };
+
   // Set Weekly Offs (e.g. Fridays)
   const handleSetWeeklyOffs = (dayOfWeek: number) => {
     setGridData((prev) => {
@@ -571,6 +587,7 @@ export function DynamicCalendarView({
             gridData={gridData}
             onCellChange={handleCellChange}
             onColumnBulkAssign={handleColumnBulkAssign}
+            onRowBulkAssign={handleRowBulkAssign}
             selectedEmployeeIds={selectedEmployeeIds}
             onToggleSelectAll={handleToggleSelectAll}
             onToggleSelectEmployee={handleToggleSelectEmployee}
