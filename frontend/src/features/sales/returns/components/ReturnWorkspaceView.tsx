@@ -54,8 +54,12 @@ const all = { value: "", label: "All" };
 // Empty cells stay blank, as in Managerium.
 const text = (value: string | null) => value ?? "";
 
-/** Lists open from the 1st of the current month ("YYYY-MM-01"). */
-const monthStart = (today: string) => `${today.slice(0, 7)}-01`;
+/** Lists open on the last month, as in Managerium: the same day one month back (clamped to that month's last day). */
+function monthAgo(today: string): string {
+  const [year, month, day] = today.split("-").map(Number);
+  const lastDay = new Date(Date.UTC(year, month - 1, 0)).getUTCDate();
+  return new Date(Date.UTC(year, month - 2, Math.min(day, lastDay))).toISOString().slice(0, 10);
+}
 
 /** Compact, vertically centred rows like Managerium. */
 const compact = <T,>(columns: Column<T>[]) => columns.map((column) => ({ ...column, className: cn("py-1.5! align-middle!", column.className) }));
@@ -154,8 +158,11 @@ export function ReturnWorkspaceView() {
 // ─── Delivery List: deliveries that can be returned ─────────────────────────
 
 function DeliveriesTab({ today, search, onQuery }: { today: string; search: string; onQuery: (query: Query | null) => void }) {
-  const [filters, setFilters] = useState({ from: monthStart(today), to: today });
-  const [query, setQuery] = useState<ReturnableDeliveryQuery>(filters);
+  const filterLists = useFilterLookups();
+  const [filters, setFilters] = useState({ officeId: "", from: monthAgo(today), to: today });
+  // "All" offices: leave the office out of the query.
+  const toQuery = ({ officeId, ...range }: typeof filters): ReturnableDeliveryQuery => ({ ...range, ...(officeId ? { officeId } : {}) });
+  const [query, setQuery] = useState<ReturnableDeliveryQuery>(() => toQuery(filters));
   const [filterError, setFilterError] = useState<string>();
   const effective: ReturnableDeliveryQuery = { ...query, ...(search ? { search } : {}) };
   const list = useResource(`returnable:${JSON.stringify(effective)}`, () => fetchReturnableDeliveries(effective), { refreshOnFocus: true });
@@ -163,11 +170,12 @@ function DeliveriesTab({ today, search, onQuery }: { today: string; search: stri
 
   function view(event: FormEvent) {
     event.preventDefault();
-    const parsed = returnableDeliveryQuerySchema.safeParse(filters);
+    const next = toQuery(filters);
+    const parsed = returnableDeliveryQuerySchema.safeParse(next);
     if (!parsed.success) return setFilterError(parsed.error.issues[0]?.message);
     setFilterError(undefined);
-    if (JSON.stringify(filters) === JSON.stringify(query)) list.reload();
-    else setQuery(filters);
+    if (JSON.stringify(next) === JSON.stringify(query)) list.reload();
+    else setQuery(next);
   }
 
   const rows = list.data;
@@ -224,6 +232,7 @@ function DeliveriesTab({ today, search, onQuery }: { today: string; search: stri
   return (
     <>
       <FilterForm onSubmit={view} error={filterError} loading={list.loading}>
+        <SelectField label="Office" options={filterLists.offices} value={filters.officeId} onChange={(event) => setFilters({ ...filters, officeId: event.target.value })} />
         <TextField label="From Date" type="date" value={filters.from} onChange={(event) => setFilters({ ...filters, from: event.target.value })} />
         <TextField label="To Date" type="date" value={filters.to} onChange={(event) => setFilters({ ...filters, to: event.target.value })} />
       </FilterForm>
@@ -252,7 +261,7 @@ function ReturnsTab({ market, today, search, onQuery }: { market: boolean; today
     salesPersonId: "",
     mode: "",
     status: "",
-    from: monthStart(today),
+    from: monthAgo(today),
     to: today,
   };
   const [filters, setFilters] = useState(initial);
