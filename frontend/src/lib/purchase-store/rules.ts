@@ -189,3 +189,44 @@ export function appendNote(existing: string | null | undefined, entry: string, l
   const next = lines.join("\n");
   return next.length > limit ? next.slice(next.length - limit) : next;
 }
+
+export interface ApprovalStageRule {
+  allowThreshold: boolean;
+  thresholdMin: number | null;
+  thresholdMax: number | null;
+  /** Business units configured on stage approvers (null = any BU). */
+  approverBuIds: (string | null)[];
+  /** Business units for which the current actor is an approver in this stage (null = any BU). */
+  actorBuIds: (string | null)[];
+}
+
+export interface ApprovalRightsSummary {
+  unrestricted: boolean;
+  stages: ApprovalStageRule[];
+}
+
+const matchesThreshold = (stage: ApprovalStageRule, amount: number) =>
+  !stage.allowThreshold ||
+  ((stage.thresholdMin === null || amount >= stage.thresholdMin) &&
+    (stage.thresholdMax === null || amount <= stage.thresholdMax));
+
+const matchesBu = (buList: (string | null)[], businessUnitId?: string | null) =>
+  buList.some((bu) => !bu || !businessUnitId || bu === businessUnitId);
+
+/**
+ * Pure check matching backend assertApprovalPipeline:
+ * Returns true when unrestricted OR no matching stage designates approvers for the BU OR actor is in one.
+ */
+export function canApproveWithSummary(
+  summary: ApprovalRightsSummary | undefined,
+  businessUnitId: string | null | undefined,
+  amount: number,
+): boolean {
+  if (!summary || summary.unrestricted) return true;
+  if (summary.stages.length === 0) return true;
+  const matching = summary.stages.filter((s) => matchesThreshold(s, amount));
+  if (matching.length === 0) return false;
+  const hasAnyApproverForBu = matching.some((s) => matchesBu(s.approverBuIds, businessUnitId));
+  if (!hasAnyApproverForBu) return true;
+  return matching.some((s) => matchesBu(s.actorBuIds, businessUnitId));
+}

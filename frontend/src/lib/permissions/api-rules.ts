@@ -151,24 +151,41 @@ export const API_RULES: Record<string, ApiRule> = {
 
   // ── Accounts (every accounts page loads the shared store; all-data filters by page itself) ──
   "/api/accounts/all-data": { read: { anyViewIn: ["account"] } },
+  "/api/accounts/dashboard": { feature: "/accounts", read: { anyViewIn: ["account"] } },
   "/api/accounts/seed": { masterOnly: true },
   "/api/accounts/chart-of-accounts": { feature: "/accounts/chart-of-accounts", read: { anyViewIn: ["account"] } },
+  "/api/accounts/coa-permissions": { feature: "/accounts/chart-of-accounts", read: { anyViewIn: ["account"] } },
   "/api/accounts/cost-centers": { feature: "/accounts/center-setup", read: { anyViewIn: ["account"] } },
   "/api/accounts/banking": { feature: "/accounts/banking", read: { anyViewIn: ["account"] } },
 
   // ── Purchase (/api/v1) ──
   "/api/v1/master": { read: { anyViewIn: ["purchase", "inventory"] } },
+  "/api/v1/master/suppliers": { feature: PAGE.supplier, read: { anyViewIn: ["purchase", "inventory"] } },
+  "/api/v1/master/items": { feature: PAGE.item, read: { anyViewIn: ["purchase", "inventory"] } },
   "/api/v1/purchase/dashboard": { read: { anyViewIn: ["purchase"] } },
   "/api/v1/purchase/reports": { feature: "/purchase/reports" },
+  "/api/v1/purchase/reports/export-csv": { feature: "/purchase/reports", action: "export" },
   "/api/v1/purchase/requisitions": { feature: "/purchase/requisitions" },
+  "/api/v1/purchase/requisitions/*/cancel": { feature: "/purchase/requisitions", action: "delete" },
+  "/api/v1/purchase/requisitions/*/reverse": { feature: "/purchase/requisitions", action: "edit" },
+  "/api/v1/purchase/requisitions/*/method": { feature: "/purchase/requisitions", action: "edit" },
   "/api/v1/purchase/orders": { feature: "/purchase/orders" },
+  "/api/v1/purchase/orders/*/cancel": { feature: "/purchase/orders", action: "delete" },
+  "/api/v1/purchase/orders/*/close": { feature: "/purchase/orders", action: "edit" },
+  "/api/v1/purchase/orders/*/reverse": { feature: "/purchase/orders", action: "edit" },
   "/api/v1/purchase/receive": { feature: "/purchase/receive" },
+  "/api/v1/purchase/receive/*/cancel": { feature: "/purchase/receive", action: "delete" },
   "/api/v1/purchase/receipts": { feature: "/purchase/receive" },
+  "/api/v1/purchase/receipts/*/cancel": { feature: "/purchase/receive", action: "delete" },
   "/api/v1/purchase/analytics": { feature: "/purchase/analytics" },
   "/api/v1/purchase/returns": { feature: "/purchase/returns" },
+  "/api/v1/purchase/returns/*/cancel": { feature: "/purchase/returns", action: "delete" },
   "/api/v1/purchase/supplier-payments": { feature: "/purchase/supplier-payments" },
+  "/api/v1/purchase/supplier-payments/payables-pdf": { feature: "/purchase/supplier-payments", action: "export" },
+  "/api/v1/purchase/supplier-payments/*/cancel": { feature: "/purchase/supplier-payments", action: "delete" },
   "/api/v1/purchase/supplier-bills": { feature: "/purchase/supplier-payments" },
   // Approving bills releases them for payment.
+  "/api/v1/purchase/supplier-bills/*/approve": { feature: "/purchase/supplier-payments", action: "approve" },
   "/api/v1/purchase/supplier-bills/approve-pending": { feature: "/purchase/supplier-payments", action: "approve" },
 
   // ── RTM (/api/rtm/<page>/… maps to its page automatically) ──

@@ -9,6 +9,7 @@ import { toast } from "@/components/purchase/Toast";
 import { fetchApi } from "@/lib/api";
 import { formatCurrency } from "@/lib/utils";
 import { round2 } from "@/lib/purchase-store/rules";
+import { usePurchasePermissions } from "@/features/purchase/lib/usePurchasePermissions";
 import {
   computeVatLine,
   INVENTORY_TYPE_OPTIONS,
@@ -37,6 +38,7 @@ interface DirectDraftLine {
 export function DirectReceiveView() {
   const router = useRouter();
   const queryClient = useQueryClient();
+  const perms = usePurchasePermissions();
   const todayStr = useMemo(() => new Date().toISOString().split("T")[0], []);
 
   const { data: offices = [] } = useQuery<Office[]>({
@@ -441,7 +443,7 @@ export function DirectReceiveView() {
         <div className="flex items-center gap-2">
           <button
             type="button"
-            disabled={saveMutation.isPending}
+            disabled={saveMutation.isPending || !perms.receive.create}
             onClick={() => saveMutation.mutate(true)}
             className="h-8 rounded border border-blue-500 bg-white px-3.5 text-xs font-medium text-blue-600 transition hover:bg-blue-50 disabled:opacity-50"
           >
@@ -449,7 +451,7 @@ export function DirectReceiveView() {
           </button>
           <button
             type="button"
-            disabled={saveMutation.isPending}
+            disabled={saveMutation.isPending || !perms.receive.create}
             onClick={() => saveMutation.mutate(false)}
             className="flex h-8 items-center gap-1.5 rounded bg-blue-600 px-4 text-xs font-semibold text-white transition hover:bg-blue-700 disabled:opacity-50"
           >
@@ -588,13 +590,15 @@ export function DirectReceiveView() {
                 <label className="text-[11px] font-semibold text-slate-700">
                   Select Supplier<span className="text-red-500">*</span>
                 </label>
-                <button
-                  type="button"
-                  onClick={() => setIsAddSupplierOpen(true)}
-                  className="inline-flex items-center gap-0.5 text-[11px] font-semibold text-blue-600 hover:text-blue-700"
-                >
-                  <Plus className="h-3 w-3" /> ADD NEW
-                </button>
+                {perms.quickSupplierCreate && (
+                  <button
+                    type="button"
+                    onClick={() => setIsAddSupplierOpen(true)}
+                    className="inline-flex items-center gap-0.5 text-[11px] font-semibold text-blue-600 hover:text-blue-700"
+                  >
+                    <Plus className="h-3 w-3" /> ADD NEW
+                  </button>
+                )}
               </div>
               <SearchableCombobox
                 value={supplierId}
@@ -835,13 +839,15 @@ export function DirectReceiveView() {
                 <label className="text-[11px] font-semibold text-slate-700">
                   Item<span className="text-red-500">*</span>
                 </label>
-                <button
-                  type="button"
-                  onClick={() => setIsAddItemOpen(true)}
-                  className="inline-flex items-center gap-0.5 text-[11px] font-semibold text-blue-600 hover:text-blue-700"
-                >
-                  <Plus className="h-3 w-3" /> ADD NEW
-                </button>
+                {perms.quickItemCreate && (
+                  <button
+                    type="button"
+                    onClick={() => setIsAddItemOpen(true)}
+                    className="inline-flex items-center gap-0.5 text-[11px] font-semibold text-blue-600 hover:text-blue-700"
+                  >
+                    <Plus className="h-3 w-3" /> ADD NEW
+                  </button>
+                )}
               </div>
               <SearchableCombobox
                 value={selectedItemId}

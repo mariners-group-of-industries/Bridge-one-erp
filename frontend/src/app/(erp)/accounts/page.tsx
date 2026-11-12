@@ -1,429 +1,499 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
-import Link from "next/link";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  Banknote,
-  BookOpen,
-  CheckCircle2,
-  ChevronRight,
-  Clock,
-  DollarSign,
-  FileText,
-  PieChart as PieChartIcon,
-  Plus,
+  ArrowLeftRight,
+  BarChart2,
+  CircleDollarSign,
+  Landmark,
   Scale,
-  ShieldCheck,
-  TrendingDown,
-  TrendingUp,
   Wallet,
 } from "lucide-react";
 import {
-  Area,
-  AreaChart,
   Bar,
   BarChart,
   CartesianGrid,
-  Legend,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
 } from "recharts";
-import { SummaryCard } from "@/components/purchase/SummaryCard";
-import { FilterToolbar } from "@/components/purchase/FilterToolbar";
+import type { DashboardResponseData } from "@/lib/accounting/accounts-service";
 import { useAccountingStore } from "@/features/accounts/store/accounting-store";
 
-const MONTHLY_CASH_FLOW = [
-  { month: "May 2026", income: 1450000, expense: 980000, netFlow: 470000 },
-  { month: "Jun 2026", income: 1680000, expense: 1120000, netFlow: 560000 },
-  { month: "Jul 2026", income: 1520000, expense: 1040000, netFlow: 480000 },
-  { month: "Aug 2026", income: 1890000, expense: 1250000, netFlow: 640000 },
-  { month: "Sep 2026", income: 1740000, expense: 1180000, netFlow: 560000 },
-  { month: "Oct 2026", income: 1980000, expense: 1320000, netFlow: 660000 },
-];
+function fmtMoney(n: number | undefined | null): string {
+  const num = Number(n || 0);
+  return num.toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
 
-export default function AccountDashboardPage() {
-  const [fromDate, setFromDate] = useState("2026-07-01");
-  const [toDate, setToDate] = useState("2027-06-30");
-  const [selectedOffice, setSelectedOffice] = useState("ALL");
+function fmtDmy(iso: string): string {
+  if (!iso || !iso.includes("-")) return iso;
+  const [y, m, d] = iso.split("-");
+  return `${d}-${m}-${y}`;
+}
 
-  const getDashboardKPIs = useAccountingStore((s) => s.getDashboardKPIs);
-  const vouchers = useAccountingStore((s) => s.vouchers);
+export default function AccountsDashboardPage() {
+  const officesFromStore = useAccountingStore((s) => s.offices);
 
-  const kpis = useMemo(() => getDashboardKPIs(), [getDashboardKPIs]);
+  const today = useMemo(() => new Date(), []);
+  const defaultFrom = useMemo(() => {
+    const y = today.getFullYear();
+    const m = String(today.getMonth() + 1).padStart(2, "0");
+    return `${y}-${m}-01`;
+  }, [today]);
+  const defaultTo = useMemo(() => {
+    const y = today.getFullYear();
+    const m = String(today.getMonth() + 1).padStart(2, "0");
+    const d = String(today.getDate()).padStart(2, "0");
+    return `${y}-${m}-${d}`;
+  }, [today]);
 
-  // Derived financial ratios
-  const currentAssets = kpis.cashInHand + kpis.cashAtBank + kpis.accountsReceivable;
-  const currentLiabilities = Math.max(1, kpis.accountsPayable);
-  const currentRatio = (currentAssets / currentLiabilities).toFixed(2);
-  const quickRatio = ((kpis.cashInHand + kpis.cashAtBank + kpis.accountsReceivable * 0.9) / currentLiabilities).toFixed(2);
-  const profitMargin = kpis.totalIncome > 0 ? ((kpis.currentPeriodProfitLoss / kpis.totalIncome) * 100).toFixed(1) : "0.0";
+  const [officeId, setOfficeId] = useState("ALL");
+  const [fromDate, setFromDate] = useState(defaultFrom);
+  const [toDate, setToDate] = useState(defaultTo);
+  const [chartYear, setChartYear] = useState<number>(today.getFullYear());
 
-  const recentVouchers = useMemo(() => vouchers.slice(0, 6), [vouchers]);
+  const [loading, setLoading] = useState(true);
+  const [data, setData] = useState<DashboardResponseData | null>(null);
 
+  const fetchDashboardData = useCallback(
+    async (opts: { office: string; from: string; to: string; year: number }) => {
+      const params = new URLSearchParams({
+        officeId: opts.office,
+        fromDate: opts.from,
+        toDate: opts.to,
+        year: String(opts.year),
+      });
+      const res = await fetch(`/api/accounts/dashboard?${params.toString()}`, {
+        cache: "no-store",
+      });
+      if (!res.ok) return null;
+      const json = await res.json();
+      return json.success && json.data ? (json.data as DashboardResponseData) : null;
+    },
+    []
+  );
+
+  const loadDashboard = useCallback(
+    async (opts?: { office?: string; from?: string; to?: string; year?: number }) => {
+      setLoading(true);
+      try {
+        const result = await fetchDashboardData({
+          office: opts?.office ?? officeId,
+          from: opts?.from ?? fromDate,
+          to: opts?.to ?? toDate,
+          year: opts?.year ?? chartYear,
+        });
+        if (result) setData(result);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [fetchDashboardData, officeId, fromDate, toDate, chartYear]
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetchDashboardData({
+      office: "ALL",
+      from: defaultFrom,
+      to: defaultTo,
+      year: today.getFullYear(),
+    }).then((result) => {
+      if (cancelled) return;
+      if (result) setData(result);
+      setLoading(false);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [fetchDashboardData, defaultFrom, defaultTo, today]);
+
+  const offices = useMemo(() => {
+    if (data?.filters?.offices && data.filters.offices.length > 0) {
+      return data.filters.offices;
+    }
+    return officesFromStore;
+  }, [data, officesFromStore]);
+
+  const yearOptions = useMemo(() => {
+    const curr = today.getFullYear();
+    return [curr + 1, curr, curr - 1, curr - 2, curr - 3];
+  }, [today]);
+
+  const handleViewClick = (e: React.FormEvent) => {
+    e.preventDefault();
+    void loadDashboard({ office: officeId, from: fromDate, to: toDate, year: chartYear });
+  };
+
+  const chartData = data?.monthlyStatistics ?? [];
 
   return (
-    <div className="space-y-3 font-sans pb-12">
-      {/* ------------------------------------------------------------- */}
-      {/* 1. TOP HEADER (Exact Managerium / Purchase Layout) */}
-      {/* ------------------------------------------------------------- */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-3 rounded border border-slate-200/90 shadow-2xs">
-        <div>
-          <nav className="flex items-center gap-1.5 text-[11px] text-slate-400 mb-0.5">
-            <Link href="/accounts" className="hover:text-slate-600 transition">
-              Account
-            </Link>
-            <ChevronRight className="w-3 h-3 text-slate-300" />
-            <span className="text-slate-600 font-medium">Dashboard</span>
-          </nav>
-          <h1 className="text-xl font-bold text-slate-900 tracking-tight">Account Dashboard</h1>
-          <p className="text-xs text-slate-500 mt-0.5">
-            Executive financial status, double-entry ledger KPIs, liquidity analysis, and pending workflows
-          </p>
-        </div>
-
-        <div className="flex items-center gap-2 flex-wrap">
-          <Link
-            href="/accounts/journal"
-            className="h-9 px-4 bg-[#2563eb] hover:bg-blue-700 text-white font-semibold text-xs rounded flex items-center gap-1.5 shadow-xs transition"
-          >
-            <Plus className="w-4 h-4" />
-            <span>New Journal Voucher</span>
-          </Link>
-          <Link
-            href="/accounts/financial-reports"
-            className="h-9 px-3.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs rounded flex items-center gap-1.5 transition"
-          >
-            <FileText className="w-3.5 h-3.5" />
-            <span>Financial Statements</span>
-          </Link>
-        </div>
-      </div>
-
-      {/* ------------------------------------------------------------- */}
-      {/* 2. FILTER TOOLBAR (Managerium Filter Design) */}
-      {/* ------------------------------------------------------------- */}
-      <FilterToolbar
-        onApply={() => {}}
-        onReset={() => {
-          setFromDate("2026-07-01");
-          setToDate("2027-06-30");
-          setSelectedOffice("ALL");
-        }}
-        showExport={false}
+    <div className="min-h-screen bg-[#f4f7fb] p-4 space-y-4">
+      {/* Top Filter Row */}
+      <form
+        onSubmit={handleViewClick}
+        className="flex flex-wrap items-end gap-3"
       >
-        <div className="flex items-center gap-1.5 text-xs text-slate-600">
-          <span className="font-medium text-[11px] text-slate-500">From:</span>
+        <div className="w-56">
+          <label className="block text-[11px] text-slate-500 font-medium mb-1">
+            Office
+          </label>
+          <select
+            value={officeId}
+            onChange={(e) => setOfficeId(e.target.value)}
+            className="w-full h-9 px-3 rounded border border-slate-300 bg-white text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500"
+          >
+            <option value="ALL">All</option>
+            {offices.map((o) => (
+              <option key={o.id} value={o.id}>
+                {o.name}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="w-44">
+          <label className="block text-[11px] text-slate-500 font-medium mb-1">
+            From Date
+          </label>
           <input
             type="date"
             value={fromDate}
             onChange={(e) => setFromDate(e.target.value)}
-            className="border border-slate-200 rounded px-2 py-1 text-xs bg-slate-50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+            className="w-full h-9 px-3 rounded border border-slate-300 bg-white text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500"
           />
         </div>
-        <div className="flex items-center gap-1.5 text-xs text-slate-600">
-          <span className="font-medium text-[11px] text-slate-500">To:</span>
+
+        <div className="w-44">
+          <label className="block text-[11px] text-slate-500 font-medium mb-1">
+            To Date
+          </label>
           <input
             type="date"
             value={toDate}
             onChange={(e) => setToDate(e.target.value)}
-            className="border border-slate-200 rounded px-2 py-1 text-xs bg-slate-50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+            className="w-full h-9 px-3 rounded border border-slate-300 bg-white text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500"
           />
         </div>
-        <div className="flex items-center gap-1.5 text-xs text-slate-600">
-          <span className="font-medium text-[11px] text-slate-500">Office / Unit:</span>
-          <select
-            value={selectedOffice}
-            onChange={(e) => setSelectedOffice(e.target.value)}
-            className="border border-slate-200 rounded px-2 py-1 text-xs bg-slate-50 focus:bg-white max-w-[200px] focus:outline-none focus:ring-1 focus:ring-blue-500"
-          >
-            <option value="ALL">All Branches & Plants</option>
-            <option value="office-main">Corporate Head Office (Dhaka)</option>
-            <option value="office-ctg">Chittagong Heavy Plant</option>
-          </select>
-        </div>
-      </FilterToolbar>
 
-      {/* ------------------------------------------------------------- */}
-      {/* 3. PRIMARY FINANCIAL KPI CARDS ROW (Exact SummaryCard Design) */}
-      {/* ------------------------------------------------------------- */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-        <SummaryCard
-          title="Cash in Hand"
-          value={`৳${kpis.cashInHand.toLocaleString()}`}
-          subtitle="Vault & petty cash"
-          icon={Wallet}
-          variant="info"
-        />
-        <SummaryCard
-          title="Cash at Bank"
-          value={`৳${kpis.cashAtBank.toLocaleString()}`}
-          subtitle="Reconciled balances"
-          icon={Banknote}
-          variant="info"
-        />
-        <SummaryCard
-          title="Accounts Receivable"
-          value={`৳${kpis.accountsReceivable.toLocaleString()}`}
-          subtitle="Outstanding customer dues"
-          icon={TrendingUp}
-          variant="success"
-        />
-        <SummaryCard
-          title="Accounts Payable"
-          value={`৳${kpis.accountsPayable.toLocaleString()}`}
-          subtitle="Outstanding supplier dues"
-          icon={TrendingDown}
-          variant="danger"
-        />
-        <SummaryCard
-          title="Total Income"
-          value={`৳${kpis.totalIncome.toLocaleString()}`}
-          subtitle="Gross sales & revenue"
-          icon={DollarSign}
-          variant="success"
-        />
-        <SummaryCard
-          title="Total Expenses"
-          value={`৳${kpis.totalExpenses.toLocaleString()}`}
-          subtitle="OpEx & admin charges"
-          icon={Clock}
-          variant="warning"
-        />
-      </div>
+        <button
+          type="submit"
+          disabled={loading}
+          className="h-9 px-5 bg-[#2563eb] hover:bg-blue-700 disabled:opacity-60 text-white text-xs font-medium rounded shadow-xs transition cursor-pointer"
+        >
+          {loading ? "Loading..." : "View"}
+        </button>
+      </form>
 
-      {/* ------------------------------------------------------------- */}
-      {/* 4. SECONDARY LIQUIDITY & WORKFLOW KPIS */}
-      {/* ------------------------------------------------------------- */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-        <SummaryCard
-          title="Opening Cash & Bank"
-          value={`৳${kpis.openingCashAndBank.toLocaleString()}`}
-          subtitle="Start of fiscal period"
-          icon={Scale}
-          variant="default"
-        />
-        <SummaryCard
-          title="Closing Cash & Bank"
-          value={`৳${kpis.closingCashAndBank.toLocaleString()}`}
-          subtitle="Net available liquidity"
-          icon={ShieldCheck}
-          variant="info"
-        />
-        <SummaryCard
-          title="Net Profit / (Loss)"
-          value={`৳${kpis.currentPeriodProfitLoss.toLocaleString()}`}
-          subtitle={kpis.currentPeriodProfitLoss >= 0 ? "Operating surplus" : "Net deficit"}
-          icon={CheckCircle2}
-          variant={kpis.currentPeriodProfitLoss >= 0 ? "success" : "danger"}
-        />
-        <SummaryCard
-          title="Pending Vouchers"
-          value={kpis.pendingJournalVouchers}
-          subtitle="Awaiting posting"
-          icon={BookOpen}
-          variant="warning"
-        />
-        <SummaryCard
-          title="Pending Expenses"
-          value={kpis.pendingExpenseApprovals}
-          subtitle="Awaiting approval"
-          icon={Clock}
-          variant="warning"
-        />
-        <SummaryCard
-          title="Budget Utilization"
-          value={`${kpis.budgetUtilization.toFixed(1)}%`}
-          subtitle="CapEx & OpEx pace"
-          icon={PieChartIcon}
-          variant="info"
-        />
-      </div>
-
-      {/* ------------------------------------------------------------- */}
-      {/* 5. VISUAL CHARTS ROW (Income vs Expense & Monthly Cash Flow) */}
-      {/* ------------------------------------------------------------- */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-        {/* Cash Flow Area Chart */}
-        <div className="bg-white rounded border border-slate-200/90 p-4 shadow-2xs">
-          <div className="flex items-center justify-between mb-3">
-            <div>
-              <h3 className="text-sm font-bold text-slate-900 tracking-tight">Monthly Income vs. Expense Trend</h3>
-              <p className="text-[11px] text-slate-500">Historical inflows and operational disbursements</p>
+      {/* Row 1: Account Balance + Income & Expense */}
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+        {/* Account Balance Card */}
+        <div className="bg-white rounded-md border border-slate-200 border-t-[3px] border-t-[#3b82f6] p-4 shadow-2xs">
+          <div className="flex items-center gap-3 mb-4">
+            <div className="w-9 h-9 rounded-md bg-blue-100 text-blue-600 flex items-center justify-center shrink-0">
+              <Wallet className="w-4 h-4" />
             </div>
-            <span className="text-[11px] font-semibold text-blue-600 bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
-              FY 2026-27
-            </span>
+            <div>
+              <h2 className="text-sm font-semibold text-slate-900 leading-tight">
+                Account Balance
+              </h2>
+              <p className="text-[11px] text-slate-400">As on Till Date</p>
+            </div>
           </div>
-          <div className="h-64 w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={MONTHLY_CASH_FLOW} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
-                <defs>
-                  <linearGradient id="incomeGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#10b981" stopOpacity={0.4} />
-                    <stop offset="95%" stopColor="#10b981" stopOpacity={0.0} />
-                  </linearGradient>
-                  <linearGradient id="expenseGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#ef4444" stopOpacity={0.4} />
-                    <stop offset="95%" stopColor="#ef4444" stopOpacity={0.0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
-                <XAxis dataKey="month" tick={{ fontSize: 11, fill: "#64748b" }} axisLine={{ stroke: "#e2e8f0" }} />
-                <YAxis
-                  tick={{ fontSize: 11, fill: "#64748b" }}
-                  axisLine={{ stroke: "#e2e8f0" }}
-                  tickFormatter={(v) => `৳${(v / 100000).toFixed(0)}L`}
-                />
-                <Tooltip
-                  formatter={(val: any) => [`৳${Number(val).toLocaleString()}`, ""]}
-                  contentStyle={{ backgroundColor: "#ffffff", borderColor: "#cbd5e1", borderRadius: "6px", fontSize: "12px" }}
-                />
-                <Legend iconType="circle" wrapperStyle={{ fontSize: "12px", paddingTop: "8px" }} />
-                <Area type="monotone" dataKey="income" name="Income (৳)" stroke="#10b981" fill="url(#incomeGrad)" strokeWidth={2} />
-                <Area type="monotone" dataKey="expense" name="Expense (৳)" stroke="#ef4444" fill="url(#expenseGrad)" strokeWidth={2} />
-              </AreaChart>
-            </ResponsiveContainer>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="bg-[#f8fafc] rounded-md px-4 py-3.5">
+              <div className="text-sm font-bold text-slate-900 tabular-nums">
+                {fmtMoney(data?.accountBalance.accountsPayable)}
+              </div>
+              <div className="text-[11px] text-slate-400 mt-1">
+                Accounts Payable
+              </div>
+            </div>
+            <div className="bg-[#f8fafc] rounded-md px-4 py-3.5">
+              <div className="text-sm font-bold text-slate-900 tabular-nums">
+                {fmtMoney(data?.accountBalance.accountsReceivable)}
+              </div>
+              <div className="text-[11px] text-slate-400 mt-1">
+                Accounts Receivable
+              </div>
+            </div>
           </div>
         </div>
 
-        {/* Net Cash Flow Bar Chart */}
-        <div className="bg-white rounded border border-slate-200/90 p-4 shadow-2xs">
-          <div className="flex items-center justify-between mb-3">
-            <div>
-              <h3 className="text-sm font-bold text-slate-900 tracking-tight">Net Cash Flow Trajectory</h3>
-              <p className="text-[11px] text-slate-500">Period net operating surplus / deficit</p>
+        {/* Income & Expense Card */}
+        <div className="bg-white rounded-md border border-slate-200 border-t-[3px] border-t-[#10b981] p-4 shadow-2xs">
+          <div className="flex items-center gap-3 mb-4">
+            <div className="w-9 h-9 rounded-md bg-emerald-100 text-emerald-600 flex items-center justify-center shrink-0">
+              <CircleDollarSign className="w-4 h-4" />
             </div>
-            <span className="text-[11px] font-semibold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
-              Liquidity
-            </span>
+            <div>
+              <h2 className="text-sm font-semibold text-slate-900 leading-tight">
+                Income &amp; Expense
+              </h2>
+              <p className="text-[11px] text-slate-400">
+                {data?.filters.fromDate || fromDate} to {data?.filters.toDate || toDate}
+              </p>
+            </div>
           </div>
-          <div className="h-64 w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={MONTHLY_CASH_FLOW} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
-                <XAxis dataKey="month" tick={{ fontSize: 11, fill: "#64748b" }} axisLine={{ stroke: "#e2e8f0" }} />
-                <YAxis
+
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div className="bg-[#f8fafc] rounded-md px-3.5 py-3.5">
+              <div className="text-sm font-bold text-slate-900 tabular-nums">
+                {fmtMoney(data?.incomeAndExpense.cashInHand)}
+              </div>
+              <div className="text-[11px] text-slate-400 mt-1">Cash In Hand</div>
+            </div>
+            <div className="bg-[#f8fafc] rounded-md px-3.5 py-3.5">
+              <div className="text-sm font-bold text-slate-900 tabular-nums">
+                {fmtMoney(data?.incomeAndExpense.income)}
+              </div>
+              <div className="text-[11px] text-slate-400 mt-1">Income</div>
+            </div>
+            <div className="bg-[#f8fafc] rounded-md px-3.5 py-3.5">
+              <div className="text-sm font-bold text-slate-900 tabular-nums">
+                {fmtMoney(data?.incomeAndExpense.cashAtBank)}
+              </div>
+              <div className="text-[11px] text-slate-400 mt-1">Cash At Bank</div>
+            </div>
+            <div className="bg-[#f8fafc] rounded-md px-3.5 py-3.5">
+              <div className="text-sm font-bold text-slate-900 tabular-nums">
+                {fmtMoney(data?.incomeAndExpense.totalExpense)}
+              </div>
+              <div className="text-[11px] text-slate-400 mt-1">Total Expense</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Row 2: Cash & Equivalent + Cashflow */}
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+        {/* Cash & Equivalent Card */}
+        <div className="bg-white rounded-md border border-slate-200 border-t-[3px] border-t-[#f59e0b] p-4 shadow-2xs">
+          <div className="flex items-center gap-3 mb-4">
+            <div className="w-9 h-9 rounded-md bg-amber-100 text-amber-600 flex items-center justify-center shrink-0">
+              <Landmark className="w-4 h-4" />
+            </div>
+            <div>
+              <h2 className="text-sm font-semibold text-slate-900 leading-tight">
+                Cash &amp; Equivalent
+              </h2>
+              <p className="text-[11px] text-slate-400">As on Till Date</p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="bg-[#f8fafc] rounded-md px-4 py-3.5">
+              <div className="text-sm font-bold text-slate-900 tabular-nums">
+                {fmtMoney(data?.cashAndEquivalent.cashInHand)}
+              </div>
+              <div className="text-[11px] text-slate-400 mt-1">Cash In Hand</div>
+            </div>
+            <div className="bg-[#f8fafc] rounded-md px-4 py-3.5">
+              <div className="text-sm font-bold text-slate-900 tabular-nums">
+                {fmtMoney(data?.cashAndEquivalent.cashAtBank)}
+              </div>
+              <div className="text-[11px] text-slate-400 mt-1">Cash At Bank</div>
+            </div>
+          </div>
+        </div>
+
+        {/* Cashflow Card */}
+        <div className="bg-white rounded-md border border-slate-200 border-t-[3px] border-t-[#3b82f6] p-4 shadow-2xs">
+          <div className="flex items-center gap-3 mb-4">
+            <div className="w-9 h-9 rounded-md bg-blue-100 text-blue-600 flex items-center justify-center shrink-0">
+              <ArrowLeftRight className="w-4 h-4" />
+            </div>
+            <div>
+              <h2 className="text-sm font-semibold text-slate-900 leading-tight">
+                Cashflow
+              </h2>
+              <p className="text-[11px] text-slate-400">
+                {data?.filters.fromDate || fromDate} to {data?.filters.toDate || toDate}
+              </p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div className="bg-[#f8fafc] rounded-md px-3.5 py-3.5">
+              <div className="text-sm font-bold text-slate-900 tabular-nums">
+                {fmtMoney(data?.cashflow.opening)}
+              </div>
+              <div className="text-[11px] text-slate-400 mt-1">Opening</div>
+            </div>
+            <div className="bg-[#f8fafc] rounded-md px-3.5 py-3.5">
+              <div className="text-sm font-bold text-slate-900 tabular-nums">
+                {fmtMoney(data?.cashflow.closing)}
+              </div>
+              <div className="text-[11px] text-slate-400 mt-1">Closing</div>
+            </div>
+            <div className="bg-[#f8fafc] rounded-md px-3.5 py-3.5">
+              <div className="text-sm font-bold text-slate-900 tabular-nums">
+                {fmtMoney(data?.cashflow.receive)}
+              </div>
+              <div className="text-[11px] text-slate-400 mt-1">Receive</div>
+            </div>
+            <div className="bg-[#f8fafc] rounded-md px-3.5 py-3.5">
+              <div className="text-sm font-bold text-slate-900 tabular-nums">
+                {fmtMoney(data?.cashflow.payments)}
+              </div>
+              <div className="text-[11px] text-slate-400 mt-1">Payments</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Row 3: Financial Ratio Analysis + Monthly Statistics */}
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+        {/* Financial Ratio Analysis */}
+        <div className="bg-white rounded-md border border-slate-200 border-t-[3px] border-t-[#f59e0b] p-4 shadow-2xs">
+          <div className="flex items-center gap-3 mb-3">
+            <div className="w-9 h-9 rounded-md bg-amber-100 text-amber-600 flex items-center justify-center shrink-0">
+              <Scale className="w-4 h-4" />
+            </div>
+            <div>
+              <h2 className="text-sm font-semibold text-slate-900 leading-tight">
+                Financial Ratio Analysis
+              </h2>
+              <p className="text-[11px] text-slate-400">{fmtDmy(toDate)}</p>
+            </div>
+          </div>
+
+          <div className="border border-slate-200 rounded overflow-hidden">
+            <div className="max-h-[340px] overflow-y-auto">
+              <table className="w-full text-left border-collapse text-xs">
+                <thead className="sticky top-0 bg-[#d8ebfc] text-slate-800 text-[11px] font-bold border-b border-slate-200">
+                  <tr>
+                    <th className="px-2.5 py-2 w-14 border-r border-slate-200/80">SL</th>
+                    <th className="px-2.5 py-2 border-r border-slate-200/80">Ratio Name</th>
+                    <th className="px-2.5 py-2 w-24 border-r border-slate-200/80">Std Ratio</th>
+                    <th className="px-2.5 py-2 w-24 border-r border-slate-200/80">Act Ratio</th>
+                    <th className="px-2.5 py-2 w-20">Matric</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {(data?.ratios ?? []).map((row) => (
+                    <tr
+                      key={row.sl}
+                      className={
+                        row.isSectionHeader
+                          ? "bg-slate-50/70 font-medium text-slate-800"
+                          : "hover:bg-slate-50 text-slate-700"
+                      }
+                    >
+                      <td className="px-2.5 py-1.5 border-r border-slate-100 tabular-nums">
+                        {row.sl}
+                      </td>
+                      <td className="px-2.5 py-1.5 border-r border-slate-100">
+                        {row.ratioName}
+                      </td>
+                      <td className="px-2.5 py-1.5 border-r border-slate-100 tabular-nums">
+                        {row.stdRatio}
+                      </td>
+                      <td className="px-2.5 py-1.5 border-r border-slate-100 tabular-nums">
+                        {row.actRatio}
+                      </td>
+                      <td className="px-2.5 py-1.5">{row.metric}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        {/* Monthly Statistics */}
+        <div className="bg-white rounded-md border border-slate-200 p-4 shadow-2xs flex flex-col">
+          <div className="flex items-center justify-between gap-3 mb-3">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-md bg-blue-100 text-blue-600 flex items-center justify-center shrink-0">
+                <BarChart2 className="w-4 h-4" />
+              </div>
+              <h2 className="text-sm font-semibold text-slate-900">
+                Monthly Statistics
+              </h2>
+            </div>
+
+            <select
+              value={chartYear}
+              onChange={(e) => {
+                const y = Number(e.target.value);
+                setChartYear(y);
+                void loadDashboard({ office: officeId, from: fromDate, to: toDate, year: y });
+              }}
+              className="h-8 w-24 px-2 rounded border border-slate-300 bg-white text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            >
+              {yearOptions.map((y) => (
+                <option key={y} value={y}>
+                  {y}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="flex-1 min-h-[300px] w-full">
+            <ResponsiveContainer width="100%" height={300}>
+              <BarChart
+                data={chartData}
+                stackOffset="sign"
+                margin={{ top: 10, right: 12, left: 10, bottom: 5 }}
+              >
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                <XAxis
+                  dataKey="month"
                   tick={{ fontSize: 11, fill: "#64748b" }}
-                  axisLine={{ stroke: "#e2e8f0" }}
-                  tickFormatter={(v) => `৳${(v / 100000).toFixed(0)}L`}
+                  axisLine={{ stroke: "#cbd5e1" }}
+                  tickLine={false}
                 />
+                <YAxis
+                  tick={{ fontSize: 10, fill: "#64748b" }}
+                  axisLine={false}
+                  tickLine={false}
+                  width={78}
+                  tickFormatter={(v) => Number(v).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                />
+                <ReferenceLine y={0} stroke="#cbd5e1" />
                 <Tooltip
-                  formatter={(val: any) => [`৳${Number(val).toLocaleString()}`, "Net Flow"]}
-                  contentStyle={{ backgroundColor: "#ffffff", borderColor: "#cbd5e1", borderRadius: "6px", fontSize: "12px" }}
+                  formatter={(value: unknown, name: unknown) => {
+                    const num = Math.abs(Number(value || 0));
+                    const label = name === "income" ? "Income" : "Expense";
+                    return [fmtMoney(num), label];
+                  }}
                 />
-                <Bar dataKey="netFlow" name="Net Cash Flow (৳)" fill="#2563eb" radius={[4, 4, 0, 0]} />
+                <Bar
+                  dataKey="income"
+                  name="income"
+                  stackId="stack"
+                  fill="#f48fb1"
+                  barSize={16}
+                  radius={[2, 2, 0, 0]}
+                />
+                <Bar
+                  dataKey="negativeExpense"
+                  name="expense"
+                  stackId="stack"
+                  fill="#3b82f6"
+                  barSize={16}
+                  radius={[0, 0, 2, 2]}
+                />
               </BarChart>
             </ResponsiveContainer>
           </div>
-        </div>
-      </div>
 
-      {/* ------------------------------------------------------------- */}
-      {/* 6. FINANCIAL RATIOS & RECENT TRANSACTIONS */}
-      {/* ------------------------------------------------------------- */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
-        {/* Financial Health Ratios Card */}
-        <div className="bg-white rounded border border-slate-200/90 p-4 shadow-2xs space-y-3">
-          <h3 className="text-sm font-bold text-slate-900 tracking-tight">Financial Health & Ratios</h3>
-          <div className="space-y-2.5 text-xs">
-            <div className="p-3 bg-slate-50 rounded border border-slate-200 flex items-center justify-between">
-              <div>
-                <span className="font-semibold text-slate-800 block">Current Ratio</span>
-                <span className="text-[11px] text-slate-500">Current Assets / Current Liabilities</span>
-              </div>
-              <span className="text-base font-extrabold text-blue-600 font-mono">{currentRatio}x</span>
+          <div className="flex items-center justify-center gap-6 pt-2 text-[11px] text-slate-500">
+            <div className="flex items-center gap-1.5">
+              <span className="w-3 h-2.5 rounded-2xs inline-block bg-[#f48fb1]" />
+              <span>Income</span>
             </div>
-
-            <div className="p-3 bg-slate-50 rounded border border-slate-200 flex items-center justify-between">
-              <div>
-                <span className="font-semibold text-slate-800 block">Quick / Acid-Test Ratio</span>
-                <span className="text-[11px] text-slate-500">Liquid Assets / Current Liabilities</span>
-              </div>
-              <span className="text-base font-extrabold text-emerald-600 font-mono">{quickRatio}x</span>
+            <div className="flex items-center gap-1.5">
+              <span className="w-3 h-2.5 rounded-2xs inline-block bg-[#3b82f6]" />
+              <span>Expense</span>
             </div>
-
-            <div className="p-3 bg-slate-50 rounded border border-slate-200 flex items-center justify-between">
-              <div>
-                <span className="font-semibold text-slate-800 block">Net Profit Margin</span>
-                <span className="text-[11px] text-slate-500">Net Profit as % of Revenue</span>
-              </div>
-              <span className="text-base font-extrabold text-slate-800 font-mono">{profitMargin}%</span>
-            </div>
-          </div>
-        </div>
-
-        {/* Recent Journal Vouchers Table */}
-        <div className="bg-white rounded border border-slate-200/90 shadow-2xs overflow-hidden lg:col-span-2">
-          <div className="px-4 py-3 border-b border-slate-200 flex items-center justify-between bg-slate-50/50">
-            <div>
-              <h3 className="text-sm font-bold text-slate-900 tracking-tight">Recent General Ledger Vouchers</h3>
-              <p className="text-[11px] text-slate-500">Audited double-entry transactions</p>
-            </div>
-            <Link
-              href="/accounts/journal"
-              className="text-xs font-semibold text-blue-600 hover:text-blue-800 transition"
-            >
-              View Journal Register →
-            </Link>
-          </div>
-
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
-              <thead className="bg-slate-50 border-b border-slate-200 text-[11px] font-bold text-slate-700 uppercase tracking-wider">
-                <tr>
-                  <th className="px-3.5 py-2">Voucher #</th>
-                  <th className="px-3.5 py-2">Date</th>
-                  <th className="px-3.5 py-2">Type</th>
-                  <th className="px-3.5 py-2">Office</th>
-                  <th className="px-3.5 py-2 text-right">Debit (৳)</th>
-                  <th className="px-3.5 py-2 text-right">Credit (৳)</th>
-                  <th className="px-3.5 py-2 text-center">Status</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {recentVouchers.length === 0 ? (
-                  <tr>
-                    <td colSpan={7} className="py-6 text-center text-slate-400">
-                      No journal vouchers recorded yet.
-                    </td>
-                  </tr>
-                ) : (
-                  recentVouchers.map((v) => (
-                    <tr key={v.id} className="hover:bg-slate-50/80 transition-colors">
-                      <td className="px-3.5 py-2 font-mono font-bold text-blue-600">{v.voucherNumber}</td>
-                      <td className="px-3.5 py-2 text-slate-600">{v.transactionDate}</td>
-                      <td className="px-3.5 py-2">
-                        <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-slate-100 text-slate-700">
-                          {v.journalType}
-                        </span>
-                      </td>
-                      <td className="px-3.5 py-2 text-slate-600">{v.officeName}</td>
-                      <td className="px-3.5 py-2 text-right font-mono font-semibold text-slate-800">
-                        ৳{v.totalDebit.toLocaleString()}
-                      </td>
-                      <td className="px-3.5 py-2 text-right font-mono font-semibold text-slate-800">
-                        ৳{v.totalCredit.toLocaleString()}
-                      </td>
-                      <td className="px-3.5 py-2 text-center">
-                        <span
-                          className={`px-2 py-0.5 rounded-full text-[10px] font-semibold border ${
-                            v.status === "POSTED"
-                              ? "bg-emerald-50 text-emerald-700 border-emerald-200"
-                              : v.status === "REVERSED"
-                              ? "bg-rose-50 text-rose-700 border-rose-200"
-                              : "bg-amber-50 text-amber-700 border-amber-200"
-                          }`}
-                        >
-                          {v.status}
-                        </span>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
           </div>
         </div>
       </div>

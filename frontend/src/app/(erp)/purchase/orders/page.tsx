@@ -1,17 +1,24 @@
 "use client";
 
-import Image from "next/image";
 import { useRouter } from "next/navigation";
 import React, { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, Download, Eye, Pencil, Plus, Printer, RotateCcw, Search, Trash2, X } from "lucide-react";
 import { ModalDialog } from "@/components/purchase/ModalDialog";
+import {
+  PrintablePurchaseDoc,
+  PurchasePrintToolbar,
+  fmtPrintDate,
+  fmtPrintNum,
+  type PrintHeaderContext,
+} from "@/components/purchase/PrintablePurchaseDoc";
 import { toast } from "@/components/purchase/Toast";
 import { Spinner } from "@/components/ui/spinner";
 import { fetchApi } from "@/lib/api";
 import { formatCurrency } from "@/lib/utils";
 import { orderTotals, priceLine } from "@/lib/purchase-store/rules";
 import { PURCHASE_QUERY_KEYS, downloadCsv } from "@/features/purchase/lib/client";
+import { usePurchasePermissions } from "@/features/purchase/lib/usePurchasePermissions";
 import type { Item, Office, PurchaseOrder, PurchaseRequisition, Supplier, Warehouse } from "@bridgeone/contracts";
 
 type Tab = "LOCAL_PO" | "REQUISITION_SUMMARY" | "PURCHASE_METHOD";
@@ -195,12 +202,13 @@ export default function PurchaseOrdersPage() {
   const [actionComment, setActionComment] = useState("");
   const [viewReq, setViewReq] = useState<PurchaseRequisition | null>(null);
 
-  // Master data
+  // Master data & permissions
+  const perms = usePurchasePermissions();
   const { data: offices = [] } = useQuery<Office[]>({ queryKey: ["offices"], queryFn: () => fetchApi("/master/offices") });
   const { data: warehouses = [] } = useQuery<Warehouse[]>({ queryKey: ["warehouses", "ALL"], queryFn: () => fetchApi("/master/warehouses") });
   const { data: suppliers = [] } = useQuery<Supplier[]>({ queryKey: ["suppliers"], queryFn: () => fetchApi("/master/suppliers") });
   const { data: items = [] } = useQuery<Item[]>({ queryKey: ["items"], queryFn: () => fetchApi("/master/items") });
-  const { data: context } = useQuery<{ company: { name: string } }>({ queryKey: ["context"], queryFn: () => fetchApi("/master/context") });
+  const { data: context } = useQuery<PrintHeaderContext>({ queryKey: ["context"], queryFn: () => fetchApi("/master/context") });
 
   const { data: orders = [], isFetching: ordersLoading, refetch } = useQuery<Order[]>({
     queryKey: ["purchaseOrders", officeFilter, supplierFilter, statusFilter, fromDate, toDate],
@@ -485,11 +493,13 @@ export default function PurchaseOrdersPage() {
             />
             <Search className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
           </div>
-          <button type="button" onClick={handleExport} className={btnPrimary} title="Download Excel (CSV)">
-            <Download className="w-3.5 h-3.5" />
-            <span>Excel</span>
-          </button>
-          {activeTab === "LOCAL_PO" && (
+          {perms.orders.export && (
+            <button type="button" onClick={handleExport} className={btnPrimary} title="Download Excel (CSV)">
+              <Download className="w-3.5 h-3.5" />
+              <span>Excel</span>
+            </button>
+          )}
+          {activeTab === "LOCAL_PO" && perms.orders.create && (
             <button type="button" onClick={() => openCreate()} className={btnPrimary}>
               <Plus className="w-4 h-4" />
               <span>Create Local Order</span>
@@ -637,7 +647,14 @@ export default function PurchaseOrdersPage() {
                           <td className="text-center font-mono text-slate-600">{ordersPage.offset + idx + 1}</td>
                           <td className="text-center">
                             <div className="flex items-center justify-center gap-0.5">
-                              <button type="button" disabled={!canEdit(row)} onClick={() => openEdit(row)} className={iconBtn} title="Edit" aria-label="Edit purchase order">
+                              <button
+                                type="button"
+                                disabled={!canEdit(row) || !perms.orders.edit}
+                                onClick={() => openEdit(row)}
+                                className={iconBtn}
+                                title={!perms.orders.edit ? "Requires Edit permission in Configuration" : "Edit"}
+                                aria-label="Edit purchase order"
+                              >
                                 <Pencil className="w-3.5 h-3.5" />
                               </button>
                               <button type="button" onClick={() => setPrintPO(row)} className={iconBtn} title="Print" aria-label="Print purchase order">
@@ -649,12 +666,17 @@ export default function PurchaseOrdersPage() {
                               {row.status === "PENDING_APPROVAL" && (
                                 <button
                                   type="button"
+                                  disabled={!perms.canApproveOrder(row.officeId, row.totalAmount)}
                                   onClick={() => {
                                     setActionPO({ po: row, action: "approve" });
                                     setActionComment("");
                                   }}
                                   className={`${iconBtn} hover:bg-emerald-100 hover:text-emerald-700`}
-                                  title="Approve"
+                                  title={
+                                    !perms.canApproveOrder(row.officeId, row.totalAmount)
+                                      ? "Requires Approve permission & Approval Setup eligibility in Configuration"
+                                      : "Approve"
+                                  }
                                   aria-label="Approve purchase order"
                                 >
                                   <Check className="w-3.5 h-3.5" />
@@ -662,26 +684,34 @@ export default function PurchaseOrdersPage() {
                               )}
                               <button
                                 type="button"
-                                disabled={!canCloseOrCancel(row)}
+                                disabled={!canCloseOrCancel(row) || (anyReceived(row) ? !perms.orders.edit : !perms.orders.delete)}
                                 onClick={() => {
                                   setActionPO({ po: row, action: anyReceived(row) ? "close" : "cancel" });
                                   setActionComment("");
                                 }}
                                 className={`${iconBtn} hover:bg-rose-100 hover:text-rose-700`}
-                                title={anyReceived(row) ? "Close (stop receiving)" : "Cancel order"}
+                                title={
+                                  anyReceived(row)
+                                    ? !perms.orders.edit
+                                      ? "Requires Edit permission in Configuration to close order"
+                                      : "Close (stop receiving)"
+                                    : !perms.orders.delete
+                                      ? "Requires Delete permission in Configuration to cancel order"
+                                      : "Cancel order"
+                                }
                                 aria-label="Close or cancel purchase order"
                               >
                                 <X className="w-3.5 h-3.5" />
                               </button>
                               <button
                                 type="button"
-                                disabled={!canReverse(row)}
+                                disabled={!canReverse(row) || !perms.orders.edit}
                                 onClick={() => {
                                   setActionPO({ po: row, action: "reverse" });
                                   setActionComment("");
                                 }}
                                 className={`${iconBtn} hover:bg-amber-100 hover:text-amber-800`}
-                                title="Reverse status"
+                                title={!perms.orders.edit ? "Requires Edit permission in Configuration" : "Reverse status"}
                                 aria-label="Reverse purchase order status"
                               >
                                 <RotateCcw className="w-3.5 h-3.5" />
@@ -936,9 +966,10 @@ export default function PurchaseOrdersPage() {
                             </button>
                             <button
                               type="button"
+                              disabled={!perms.orders.create}
                               onClick={() => openCreate(row)}
                               className={`${iconBtn} hover:bg-emerald-100 hover:text-emerald-700`}
-                              title="Create purchase order"
+                              title={!perms.orders.create ? "Requires Create permission in Configuration" : "Create purchase order"}
                               aria-label="Create purchase order from requisition"
                             >
                               <Check className="w-3.5 h-3.5" />
@@ -954,10 +985,11 @@ export default function PurchaseOrdersPage() {
                         <td>
                           <select
                             value={row.purchaseMethod}
-                            disabled={methodMutation.isPending}
+                            disabled={methodMutation.isPending || !perms.requisitions.edit}
                             onChange={(e) => methodMutation.mutate({ id: row.id, method: e.target.value })}
                             aria-label={`Purchase method for ${row.requisitionNumber}`}
-                            className="h-7 border border-slate-300 rounded px-2 text-xs bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                            title={!perms.requisitions.edit ? "Requires Requisition Edit permission in Configuration" : undefined}
+                            className="h-7 border border-slate-300 rounded px-2 text-xs bg-white text-slate-700 disabled:opacity-50 focus:outline-none focus:ring-1 focus:ring-blue-500"
                           >
                             {Object.entries(METHOD_LABEL).map(([v, label]) => (
                               <option key={v} value={v}>
@@ -1277,103 +1309,65 @@ export default function PurchaseOrdersPage() {
 
       {/* PRINT ORDER */}
       <ModalDialog isOpen={Boolean(printPO)} onClose={() => setPrintPO(null)} title="Purchase Order — Print Preview" maxWidth="4xl">
-        {printPO && (
-          <div className="space-y-4 text-xs">
-            <div className="bg-white p-6 border border-slate-200 rounded text-slate-800 space-y-4 print:p-0 print:border-none">
-              <div className="flex justify-between items-start border-b border-slate-200 pb-3">
-                <div className="flex items-center gap-3.5">
-                  <Image src="/logo.png" width={8452} height={1738} alt="Company logo" className="h-10 w-auto object-contain" />
-                  <div>
-                    <h2 className="text-base font-bold text-slate-900 uppercase tracking-wide">{context?.company?.name ?? ""}</h2>
-                    <p className="text-slate-500 text-[11px]">{printPO.officeName}</p>
-                  </div>
-                </div>
-                <div className="text-right">
-                  <div className="inline-block px-2.5 py-1 bg-slate-100 rounded text-[11px] font-bold text-slate-700 border border-slate-300">PURCHASE ORDER</div>
-                  <div className="text-sm font-bold text-sky-800 font-mono mt-1">{printPO.poNumber}</div>
-                  <div className="text-[11px] text-slate-500">Date: {printPO.orderDate}</div>
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="bg-slate-50 p-2.5 rounded border border-slate-100">
-                  <span className="font-bold text-slate-700 block mb-1 uppercase text-[10px]">Supplier</span>
-                  <div className="font-bold text-slate-900 text-sm">{printPO.supplierName}</div>
-                  <div className="text-slate-500 text-[11px]">Reference: {printPO.referenceNumber || "—"}</div>
-                </div>
-                <div className="bg-slate-50 p-2.5 rounded border border-slate-100">
-                  <span className="font-bold text-slate-700 block mb-1 uppercase text-[10px]">Deliver To</span>
-                  <div className="font-bold text-slate-900 text-sm">{printPO.warehouseName}, {printPO.officeName}</div>
-                  <div className="text-slate-500 text-[11px]">Expected delivery: {printPO.expectedDeliveryDate}</div>
-                  <div className="text-slate-500 text-[11px]">Project / Ref: {printPO.projectCostCenter || "—"}</div>
-                </div>
-              </div>
-              <div className="flex flex-wrap gap-x-6 gap-y-1 text-[11px] text-slate-600">
-                <span>
-                  <span className="font-semibold text-slate-700">Payment terms:</span> {printPO.paymentTerms || "—"}
-                </span>
-                <span>
-                  <span className="font-semibold text-slate-700">Delivery terms:</span> {printPO.deliveryTerms || "—"}
-                </span>
-                {printPO.requisitionNumber && (
-                  <span>
-                    <span className="font-semibold text-slate-700">Requisition:</span> {printPO.requisitionNumber}
-                  </span>
-                )}
-              </div>
-              <table className="w-full text-left border border-slate-200">
-                <thead className="bg-slate-100 text-slate-700 font-semibold">
-                  <tr>
-                    <th className="p-2">SL</th>
-                    <th className="p-2">Item</th>
-                    <th className="p-2 text-right">Qty</th>
-                    <th className="p-2 text-center">UoM</th>
-                    <th className="p-2 text-right">Unit Price</th>
-                    <th className="p-2 text-right">Disc / VAT</th>
-                    <th className="p-2 text-right">Amount (BDT)</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {printPO.items.map((it, i) => (
-                    <tr key={it.id}>
-                      <td className="p-2">{i + 1}</td>
-                      <td className="p-2">
-                        <div className="font-semibold">{it.itemName}</div>
-                        <div className="text-[10px] text-slate-400 font-mono">{it.itemCode}</div>
-                      </td>
-                      <td className="p-2 text-right font-mono">{it.orderedQuantity}</td>
-                      <td className="p-2 text-center">{it.uom}</td>
-                      <td className="p-2 text-right font-mono">{formatCurrency(it.unitPrice)}</td>
-                      <td className="p-2 text-right font-mono">{it.discountPercentage}% / {it.taxPercentage}%</td>
-                      <td className="p-2 text-right font-mono font-bold">{formatCurrency(it.lineTotal)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              <div className="flex justify-end">
-                <div className="w-64 space-y-1 bg-slate-50 p-2.5 rounded border border-slate-100">
-                  <div className="flex justify-between"><span>Subtotal</span><span className="font-mono">{formatCurrency(printPO.subtotal)}</span></div>
-                  <div className="flex justify-between"><span>Discount</span><span className="font-mono">− {formatCurrency(printPO.totalDiscount)}</span></div>
-                  <div className="flex justify-between"><span>VAT</span><span className="font-mono">{formatCurrency(printPO.totalTax)}</span></div>
-                  <div className="flex justify-between"><span>Shipping</span><span className="font-mono">{formatCurrency(printPO.shippingFee)}</span></div>
-                  <div className="flex justify-between font-bold text-sm pt-1 border-t border-slate-300"><span>Total</span><span className="font-mono text-sky-800">{formatCurrency(printPO.totalAmount)}</span></div>
-                </div>
-              </div>
-              <div className="grid grid-cols-3 gap-6 pt-12 text-center text-slate-600">
-                <div className="border-t border-slate-300 pt-1.5 font-medium">Prepared By ({printPO.createdBy})</div>
-                <div className="border-t border-slate-300 pt-1.5 font-medium">Verified By</div>
-                <div className="border-t border-slate-300 pt-1.5 font-medium">Authorized Signature</div>
-              </div>
+        {printPO && (() => {
+          const approvedEntry = [...(printPO.approvalHistory || [])].reverse().find((h) => /approv/i.test(h.action));
+          const totalQty = printPO.items.reduce((s, it) => s + Number(it.orderedQuantity || 0), 0);
+          return (
+            <div className="space-y-4 text-xs">
+              <PrintablePurchaseDoc
+                context={context}
+                officeId={printPO.officeId}
+                officeName={printPO.officeName}
+                title="Purchase Order"
+                metaLeft={[
+                  ["PO No", printPO.poNumber],
+                  ["Supplier Name", printPO.supplierName],
+                  ["Office Name", printPO.officeName],
+                  ["Warehouse Name", printPO.warehouseName],
+                  ["Remarks / Terms", printPO.notes || printPO.paymentTerms || ""],
+                ]}
+                metaRight={[
+                  ["PO Date", fmtPrintDate(printPO.orderDate)],
+                  ["Expected Date", fmtPrintDate(printPO.expectedDeliveryDate)],
+                  ["Requisition No", printPO.requisitionNumber || "Direct"],
+                  ["Reference No", printPO.referenceNumber || "-"],
+                  ["Status", printPO.status],
+                ]}
+                columns={[
+                  { header: "SL", align: "center", widthClass: "w-10" },
+                  { header: "Item Code/Model", align: "left", widthClass: "w-28" },
+                  { header: "Item Name", align: "left" },
+                  { header: "UOM", align: "center", widthClass: "w-14" },
+                  { header: "Order Qty", align: "right", widthClass: "w-20" },
+                  { header: "Unit Rate", align: "right", widthClass: "w-24" },
+                  { header: "VAT %", align: "right", widthClass: "w-16" },
+                  { header: "Amount (BDT)", align: "right", widthClass: "w-28" },
+                ]}
+                rows={printPO.items.map((it, i) => [
+                  i + 1,
+                  it.itemCode,
+                  it.itemName,
+                  it.uom || "PCS",
+                  fmtPrintNum(it.orderedQuantity),
+                  fmtPrintNum(it.unitPrice),
+                  fmtPrintNum(it.taxPercentage ?? 0),
+                  fmtPrintNum(it.lineTotal),
+                ])}
+                totalRows={[["", "", "", "Total", fmtPrintNum(totalQty), "", "", fmtPrintNum(printPO.totalAmount)]]}
+                signatures={[
+                  { roleLabel: "Prepared By", name: printPO.createdBy },
+                  { roleLabel: "Approved By", name: approvedEntry?.actorName },
+                  { roleLabel: "Supplier / Receiver", name: printPO.supplierName, designation: "Supplier" },
+                ]}
+              />
+              <PurchasePrintToolbar
+                pdfUrl={`/api/v1/purchase/orders/${encodeURIComponent(printPO.id)}/pdf`}
+                onClose={() => setPrintPO(null)}
+                canExportPdf={perms.orders.export}
+              />
             </div>
-            <div className="flex justify-end gap-2 print:hidden">
-              <button type="button" onClick={() => setPrintPO(null)} className={btnGhost}>
-                Close
-              </button>
-              <button type="button" onClick={() => window.print()} className={btnPrimary}>
-                <Printer className="w-3.5 h-3.5" /> Print
-              </button>
-            </div>
-          </div>
-        )}
+          );
+        })()}
       </ModalDialog>
 
       {/* ORDER ACTION (approve / close / cancel / reverse) */}

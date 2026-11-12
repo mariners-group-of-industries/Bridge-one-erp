@@ -9,6 +9,7 @@ import { toast } from "@/components/purchase/Toast";
 import { fetchApi } from "@/lib/api";
 import { formatCurrency } from "@/lib/utils";
 import { round2 } from "@/lib/purchase-store/rules";
+import { usePurchasePermissions } from "@/features/purchase/lib/usePurchasePermissions";
 import { SearchableCombobox, type PurchaseFormOptions } from "@/features/purchase/components/PurchaseFormShared";
 import type { Item, Office, PurchaseReturn, Supplier, Warehouse } from "@bridgeone/contracts";
 
@@ -27,6 +28,7 @@ interface ReturnDraftLine {
 export function CreateReturnWithoutRefView() {
   const router = useRouter();
   const queryClient = useQueryClient();
+  const perms = usePurchasePermissions();
   const todayStr = useMemo(() => new Date().toISOString().split("T")[0], []);
 
   const { data: offices = [] } = useQuery<Office[]>({
@@ -203,7 +205,8 @@ export function CreateReturnWithoutRefView() {
         </div>
         <button
           type="button"
-          disabled={saveMutation.isPending}
+          disabled={saveMutation.isPending || !perms.returns.create}
+          title={!perms.returns.create ? "Requires Create permission in Configuration" : undefined}
           onClick={() => saveMutation.mutate()}
           className="flex h-8 items-center gap-1.5 rounded bg-blue-600 px-5 text-xs font-semibold text-white transition hover:bg-blue-700 disabled:opacity-50"
         >

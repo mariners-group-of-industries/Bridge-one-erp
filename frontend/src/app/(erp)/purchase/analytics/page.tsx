@@ -8,6 +8,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { fetchApi } from "@/lib/api";
 import { formatCurrency } from "@/lib/utils";
 import { downloadCsv, localDate, localToday } from "@/features/purchase/lib/client";
+import { usePurchasePermissions } from "@/features/purchase/lib/usePurchasePermissions";
 import type { DashboardAnalytics, Office } from "@bridgeone/contracts";
 
 const COLORS = ["#0284c7", "#0ea5e9", "#38bdf8", "#0369a1", "#075985", "#3b82f6", "#6366f1"];
@@ -58,6 +59,7 @@ function KpiCard({ label, value, sub, icon, tone = "text-slate-900" }: { label: 
 }
 
 export default function PurchaseAnalyticsPage() {
+  const perms = usePurchasePermissions();
   const ranges = useMemo(() => quickRanges(), []);
   const [fromDate, setFromDate] = useState(ranges[2].from);
   const [toDate, setToDate] = useState(ranges[2].to);
@@ -133,15 +135,17 @@ export default function PurchaseAnalyticsPage() {
           </p>
         </div>
         <div className="flex items-center gap-2 print:hidden">
-          <button
-            type="button"
-            onClick={handleExport}
-            disabled={!register.length}
-            className="h-9 px-3.5 bg-[#2563eb] hover:bg-blue-700 disabled:opacity-50 text-white font-semibold text-xs rounded flex items-center gap-1.5 shadow-xs transition"
-          >
-            <Download className="w-3.5 h-3.5" />
-            <span>Excel</span>
-          </button>
+          {perms.analytics.export && (
+            <button
+              type="button"
+              onClick={handleExport}
+              disabled={!register.length}
+              className="h-9 px-3.5 bg-[#2563eb] hover:bg-blue-700 disabled:opacity-50 text-white font-semibold text-xs rounded flex items-center gap-1.5 shadow-xs transition"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>Excel</span>
+            </button>
+          )}
           <button
             type="button"
             onClick={() => window.print()}

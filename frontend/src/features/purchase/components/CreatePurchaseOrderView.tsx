@@ -9,6 +9,7 @@ import { toast } from "@/components/purchase/Toast";
 import { fetchApi } from "@/lib/api";
 import { formatCurrency } from "@/lib/utils";
 import { round2 } from "@/lib/purchase-store/rules";
+import { usePurchasePermissions } from "@/features/purchase/lib/usePurchasePermissions";
 import {
   computeVatLine,
   INVENTORY_TYPE_OPTIONS,
@@ -80,6 +81,8 @@ function CreatePurchaseOrderForm({
 }) {
   const router = useRouter();
   const queryClient = useQueryClient();
+  const perms = usePurchasePermissions();
+  const canSaveOrder = editOrder ? perms.orders.edit : perms.orders.create;
   const todayStr = useMemo(() => new Date().toISOString().split("T")[0], []);
   const defaultExpectedStr = useMemo(() => {
     const d = new Date();
@@ -545,7 +548,8 @@ function CreatePurchaseOrderForm({
           {!editOrder && (
             <button
               type="button"
-              disabled={saveMutation.isPending}
+              disabled={saveMutation.isPending || !canSaveOrder}
+              title={!canSaveOrder ? "Requires Create permission in Configuration" : undefined}
               onClick={() => saveMutation.mutate(true)}
               className="h-8 rounded border border-blue-500 bg-white px-3.5 text-xs font-medium text-blue-600 transition hover:bg-blue-50 disabled:opacity-50"
             >
@@ -554,7 +558,8 @@ function CreatePurchaseOrderForm({
           )}
           <button
             type="button"
-            disabled={saveMutation.isPending}
+            disabled={saveMutation.isPending || !canSaveOrder}
+            title={!canSaveOrder ? "Requires Create/Edit permission in Configuration" : undefined}
             onClick={() => saveMutation.mutate(false)}
             className="flex h-8 items-center gap-1.5 rounded bg-blue-600 px-4 text-xs font-semibold text-white transition hover:bg-blue-700 disabled:opacity-50"
           >
@@ -710,13 +715,15 @@ function CreatePurchaseOrderForm({
                 <label className="text-[11px] font-semibold text-slate-700">
                   Select Supplier<span className="text-red-500">*</span>
                 </label>
-                <button
-                  type="button"
-                  onClick={() => setIsAddSupplierOpen(true)}
-                  className="inline-flex items-center gap-0.5 text-[11px] font-semibold text-blue-600 hover:text-blue-700"
-                >
-                  <Plus className="h-3 w-3" /> ADD NEW
-                </button>
+                {perms.quickSupplierCreate && (
+                  <button
+                    type="button"
+                    onClick={() => setIsAddSupplierOpen(true)}
+                    className="inline-flex items-center gap-0.5 text-[11px] font-semibold text-blue-600 hover:text-blue-700"
+                  >
+                    <Plus className="h-3 w-3" /> ADD NEW
+                  </button>
+                )}
               </div>
               <SearchableCombobox
                 value={supplierId}

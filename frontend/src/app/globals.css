@@ -137,32 +137,71 @@
  * and the scroll box is released so long documents print on every page.
  */
 @media print {
-  body:has([data-print-modal]) * {
-    visibility: hidden;
+  @page {
+    size: A4;
+    margin: 10mm;
   }
-  body:has([data-print-modal]) [data-print-modal],
-  body:has([data-print-modal]) [data-print-modal] * {
-    visibility: visible;
+  * {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  /* Collapse background ERP chrome & tables completely so short print modals never spill onto a blank 2nd page. */
+  html:has([data-print-modal]),
+  body:has([data-print-modal]) {
+    background: #ffffff !important;
+    height: auto !important;
+    min-height: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: visible !important;
+  }
+  body:has([data-print-modal]) :not([data-print-modal]):not(:has([data-print-modal])):not([data-print-modal] *) {
+    display: none !important;
+  }
+  body:has([data-print-modal]) :has([data-print-modal]) {
+    display: block !important;
+    position: static !important;
+    width: 100% !important;
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    overflow: visible !important;
   }
   body:has([data-print-modal]) [data-print-modal] {
-    position: absolute;
-    inset: 0 auto auto 0;
-    width: 100%;
-    display: block;
-    padding: 0;
-    background: #fff;
-    backdrop-filter: none;
+    position: static !important;
+    inset: auto !important;
+    width: 100% !important;
+    height: auto !important;
+    min-height: 0 !important;
+    display: block !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    background: #ffffff !important;
+    backdrop-filter: none !important;
+    animation: none !important;
   }
   body:has([data-print-modal]) [data-print-sheet] {
-    max-width: none;
-    max-height: none;
-    overflow: visible;
-    border: 0;
-    box-shadow: none;
+    max-width: none !important;
+    width: 100% !important;
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    overflow: visible !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    display: block !important;
   }
   body:has([data-print-modal]) [data-print-body] {
-    overflow: visible;
-    padding: 0;
+    overflow: visible !important;
+    padding: 0 !important;
+    height: auto !important;
+    flex: none !important;
   }
 }
 

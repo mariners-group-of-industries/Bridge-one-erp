@@ -17,6 +17,7 @@ import {
 import { fetchApi } from "@/lib/api";
 import { toast } from "@/components/purchase/Toast";
 import { Spinner } from "@/components/ui/spinner";
+import { usePurchasePermissions } from "@/features/purchase/lib/usePurchasePermissions";
 import type { PurchaseFormOptions } from "@/features/purchase/components/PurchaseFormShared";
 import type { Office, Warehouse, Item, Supplier, PurchaseRequisition } from "@bridgeone/contracts";
 
@@ -71,6 +72,7 @@ export function CreateRequisitionView() {
 function CreateRequisitionForm({ templateReq }: { templateReq: PurchaseRequisition | null }) {
   const router = useRouter();
   const queryClient = useQueryClient();
+  const perms = usePurchasePermissions();
 
   // 1. Target Selector State
   const [targetType, setTargetType] = useState<"Employee" | "Department" | "Project">("Employee");
@@ -510,7 +512,8 @@ function CreateRequisitionForm({ templateReq }: { templateReq: PurchaseRequisiti
           <button
             type="button"
             onClick={() => createMutation.mutate(true)}
-            disabled={createMutation.isPending}
+            disabled={createMutation.isPending || !perms.requisitions.create}
+            title={!perms.requisitions.create ? "Requires Create permission in Configuration" : undefined}
             className="h-8 px-3.5 border border-[#2563eb] text-[#2563eb] hover:bg-blue-50 dark:hover:bg-blue-950 font-medium text-xs rounded transition flex items-center gap-1.5 disabled:opacity-50"
           >
             {createMutation.isPending && <Spinner className="size-3.5" />}
@@ -519,7 +522,8 @@ function CreateRequisitionForm({ templateReq }: { templateReq: PurchaseRequisiti
           <button
             type="button"
             onClick={() => createMutation.mutate(false)}
-            disabled={createMutation.isPending}
+            disabled={createMutation.isPending || !perms.requisitions.create}
+            title={!perms.requisitions.create ? "Requires Create permission in Configuration" : undefined}
             className="h-8 px-4 bg-[#2563eb] hover:bg-blue-700 text-white font-medium text-xs rounded transition flex items-center gap-1.5 shadow-2xs disabled:opacity-50"
           >
             {createMutation.isPending && <Spinner className="size-3.5" />}

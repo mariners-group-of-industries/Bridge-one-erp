@@ -1,17 +1,24 @@
 "use client";
 
-import Image from "next/image";
 import { useRouter } from "next/navigation";
 import React, { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Ban, Download, Eye, PackageCheck, Plus, Printer, RotateCcw, Search, Truck, X } from "lucide-react";
 import { ModalDialog } from "@/components/purchase/ModalDialog";
+import {
+  PrintablePurchaseDoc,
+  PurchasePrintToolbar,
+  fmtPrintDate,
+  fmtPrintNum,
+  type PrintHeaderContext,
+} from "@/components/purchase/PrintablePurchaseDoc";
 import { toast } from "@/components/purchase/Toast";
 import { Spinner } from "@/components/ui/spinner";
 import { fetchApi } from "@/lib/api";
 import { formatCurrency } from "@/lib/utils";
 import { effectiveUnitCost } from "@/lib/purchase-store/rules";
 import { PURCHASE_QUERY_KEYS, downloadCsv, localToday } from "@/features/purchase/lib/client";
+import { usePurchasePermissions } from "@/features/purchase/lib/usePurchasePermissions";
 import type { GoodsReceipt, Item, Office, PurchaseOrder, SupplierInvoiceItem } from "@bridgeone/contracts";
 
 const parsePoTag = (notes: string | undefined, prefix: string): string => {
@@ -109,6 +116,7 @@ function receiptStatus(g: Receipt) {
 export default function PurchaseReceivePage() {
   const router = useRouter();
   const queryClient = useQueryClient();
+  const perms = usePurchasePermissions();
   const [activeTab, setActiveTab] = useState<Tab>("APPROVED_PO");
   const [search, setSearch] = useState("");
 
@@ -139,7 +147,7 @@ export default function PurchaseReceivePage() {
   // Data
   const { data: offices = [] } = useQuery<Office[]>({ queryKey: ["offices"], queryFn: () => fetchApi("/master/offices") });
   const { data: items = [] } = useQuery<Item[]>({ queryKey: ["items"], queryFn: () => fetchApi("/master/items") });
-  const { data: context } = useQuery<{ company: { name: string } }>({ queryKey: ["context"], queryFn: () => fetchApi("/master/context") });
+  const { data: context } = useQuery<PrintHeaderContext>({ queryKey: ["context"], queryFn: () => fetchApi("/master/context") });
   const { data: approvedPOs = [], isFetching: posLoading, refetch: refetchApprovedPOs } = useQuery<PurchaseOrder[]>({
     queryKey: ["approvedPOs"],
     queryFn: () => fetchApi("/purchase/receipts/approved-orders"),
@@ -431,12 +439,16 @@ export default function PurchaseReceivePage() {
             />
             <Search className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
           </div>
-          <button type="button" onClick={handleExport} className={btnPrimary} title="Download Excel (CSV)">
-            <Download className="w-3.5 h-3.5" /> Excel
-          </button>
-          <button type="button" onClick={() => router.push("/purchase/receive/create")} className={btnPrimary}>
-            <Plus className="w-4 h-4" /> Direct Receive
-          </button>
+          {perms.receive.export && (
+            <button type="button" onClick={handleExport} className={btnPrimary} title="Download Excel (CSV)">
+              <Download className="w-3.5 h-3.5" /> Excel
+            </button>
+          )}
+          {perms.receive.create && (
+            <button type="button" onClick={() => router.push("/purchase/receive/create")} className={btnPrimary}>
+              <Plus className="w-4 h-4" /> Direct Receive
+            </button>
+          )}
         </div>
       </div>
 
@@ -541,22 +553,29 @@ export default function PurchaseReceivePage() {
                             <div className="flex items-center justify-center gap-0.5">
                               <button
                                 type="button"
-                                disabled={po.status !== "PARTIALLY_RECEIVED"}
+                                disabled={po.status !== "PARTIALLY_RECEIVED" || !perms.orders.edit}
                                 onClick={() => {
                                   setClosePO(po);
                                   setComment("");
                                 }}
                                 className={`${iconBtn} hover:bg-rose-100 hover:text-rose-700`}
-                                title={po.status === "PARTIALLY_RECEIVED" ? "Close remaining balance" : "Only partly received orders can be closed here; cancel unreceived orders from Purchase Order"}
+                                title={
+                                  !perms.orders.edit
+                                    ? "Requires Purchase Order Edit permission in Configuration"
+                                    : po.status === "PARTIALLY_RECEIVED"
+                                      ? "Close remaining balance"
+                                      : "Only partly received orders can be closed here; cancel unreceived orders from Purchase Order"
+                                }
                                 aria-label={`Close remaining balance of ${po.poNumber}`}
                               >
                                 <X className="w-3.5 h-3.5" />
                               </button>
                               <button
                                 type="button"
+                                disabled={!perms.receive.create}
                                 onClick={() => openReceive(po)}
                                 className={`${iconBtn} hover:bg-emerald-100 hover:text-emerald-700`}
-                                title="Receive goods"
+                                title={!perms.receive.create ? "Requires Create permission in Configuration" : "Receive goods"}
                                 aria-label={`Receive goods for ${po.poNumber}`}
                               >
                                 <PackageCheck className="w-3.5 h-3.5" />
@@ -724,23 +743,23 @@ export default function PurchaseReceivePage() {
                               </button>
                               <button
                                 type="button"
-                                disabled={!eligibleIds.has(g.id)}
+                                disabled={!eligibleIds.has(g.id) || !perms.returns.create}
                                 onClick={() => openReturn(g)}
                                 className={`${iconBtn} hover:bg-amber-100 hover:text-amber-800`}
-                                title="Return goods to supplier"
+                                title={!perms.returns.create ? "Requires Purchase Return Create permission in Configuration" : "Return goods to supplier"}
                                 aria-label={`Return goods from ${g.grnNumber}`}
                               >
                                 <RotateCcw className="w-3.5 h-3.5" />
                               </button>
                               <button
                                 type="button"
-                                disabled={g.status !== "RECEIVED"}
+                                disabled={g.status !== "RECEIVED" || !perms.receive.delete}
                                 onClick={() => {
                                   setCancelGRN(g);
                                   setComment("");
                                 }}
                                 className={`${iconBtn} hover:bg-rose-100 hover:text-rose-700`}
-                                title="Cancel receipt"
+                                title={!perms.receive.delete ? "Requires Delete permission in Configuration" : "Cancel receipt"}
                                 aria-label={`Cancel ${g.grnNumber}`}
                               >
                                 <Ban className="w-3.5 h-3.5" />
@@ -944,83 +963,66 @@ export default function PurchaseReceivePage() {
 
       {/* PRINT GRN */}
       <ModalDialog isOpen={Boolean(printGRN)} onClose={() => setPrintGRN(null)} title="Goods Receipt Note — Print Preview" maxWidth="4xl">
-        {printGRN && (
-          <div className="space-y-4 text-xs">
-            <div className="bg-white p-6 border border-slate-200 rounded text-slate-800 space-y-4 print:p-0 print:border-none">
-              <div className="flex justify-between items-start border-b border-slate-200 pb-3">
-                <div className="flex items-center gap-3.5">
-                  <Image src="/logo.png" width={8452} height={1738} alt="Company logo" className="h-10 w-auto object-contain" />
-                  <div>
-                    <h2 className="text-base font-bold text-slate-900 uppercase tracking-wide">{context?.company?.name ?? ""}</h2>
-                    <p className="text-slate-500 text-[11px]">{printGRN.officeName}</p>
-                  </div>
-                </div>
-                <div className="text-right">
-                  <div className="inline-block px-2.5 py-1 bg-slate-100 rounded text-[11px] font-bold text-slate-700 border border-slate-300">GOODS RECEIPT NOTE</div>
-                  <div className="text-sm font-bold text-sky-800 font-mono mt-1">{printGRN.grnNumber}</div>
-                  <div className="text-[11px] text-slate-500">Date: {printGRN.receiptDate}</div>
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="bg-slate-50 p-2.5 rounded border border-slate-100">
-                  <span className="font-bold text-slate-700 block mb-1 uppercase text-[10px]">Supplier</span>
-                  <div className="font-bold text-slate-900 text-sm">{printGRN.supplierName}</div>
-                  <div className="text-slate-500 text-[11px]">PO: {printGRN.poNumber} · Challan: {printGRN.challanNumber || "—"}</div>
-                  <div className="text-slate-500 text-[11px]">
-                    Invoice: {printGRN.supplierInvoiceNumber || "—"} · VAT challan: {printGRN.vatChallanNumber || "—"}
-                  </div>
-                </div>
-                <div className="bg-slate-50 p-2.5 rounded border border-slate-100">
-                  <span className="font-bold text-slate-700 block mb-1 uppercase text-[10px]">Received Into</span>
-                  <div className="font-bold text-slate-900 text-sm">{printGRN.warehouseName}</div>
-                  <div className="text-slate-500 text-[11px]">Received by: {printGRN.preparedBy}</div>
-                </div>
-              </div>
-              <table className="w-full text-left border border-slate-200">
-                <thead className="bg-slate-100 font-semibold">
-                  <tr>
-                    <th className="p-2">SL</th>
-                    <th className="p-2">Item</th>
-                    <th className="p-2 text-right">Ordered</th>
-                    <th className="p-2 text-right">Received</th>
-                    <th className="p-2 text-right">Rejected</th>
-                    <th className="p-2 text-right">Rate</th>
-                    <th className="p-2 text-right">Amount</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {printGRN.items.map((it, i) => (
-                    <tr key={it.id}>
-                      <td className="p-2">{i + 1}</td>
-                      <td className="p-2">{it.itemCode} — {it.itemName} ({it.uom})</td>
-                      <td className="p-2 text-right font-mono">{qtyFmt(it.orderedQuantity)}</td>
-                      <td className="p-2 text-right font-mono">{qtyFmt(it.currentReceivedQuantity)}</td>
-                      <td className="p-2 text-right font-mono">{qtyFmt(it.rejectedDamagedQuantity)}</td>
-                      <td className="p-2 text-right font-mono">{formatCurrency(it.unitPrice)}</td>
-                      <td className="p-2 text-right font-mono font-bold">{formatCurrency(it.lineTotal)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              <div className="flex justify-end font-bold text-sm">
-                Total: <span className="font-mono text-sky-800 ml-2">{formatCurrency(printGRN.totalReceivedAmount)}</span>
-              </div>
-              <div className="grid grid-cols-3 gap-6 pt-12 text-center text-slate-600">
-                <div className="border-t border-slate-300 pt-1.5 font-medium">Received By</div>
-                <div className="border-t border-slate-300 pt-1.5 font-medium">Quality Checked By</div>
-                <div className="border-t border-slate-300 pt-1.5 font-medium">Store In-charge</div>
-              </div>
+        {printGRN && (() => {
+          const totalOrd = printGRN.items.reduce((s, it) => s + Number(it.orderedQuantity || 0), 0);
+          const totalRecv = printGRN.items.reduce((s, it) => s + Number(it.currentReceivedQuantity || 0), 0);
+          const totalRej = printGRN.items.reduce((s, it) => s + Number(it.rejectedDamagedQuantity || 0), 0);
+          return (
+            <div className="space-y-4 text-xs">
+              <PrintablePurchaseDoc
+                context={context}
+                officeId={printGRN.officeId}
+                officeName={printGRN.officeName}
+                title="Goods Receipt Note (GRN)"
+                metaLeft={[
+                  ["GRN No", printGRN.grnNumber],
+                  ["Supplier Name", printGRN.supplierName],
+                  ["Office Name", printGRN.officeName],
+                  ["Warehouse Name", printGRN.warehouseName],
+                  ["Remarks", printGRN.remarks || ""],
+                ]}
+                metaRight={[
+                  ["Receive Date", fmtPrintDate(printGRN.receiptDate)],
+                  ["PO No", printGRN.poNumber || "Direct"],
+                  ["Challan No", printGRN.challanNumber || "-"],
+                  ["Invoice / VAT Challan", [printGRN.supplierInvoiceNumber, printGRN.vatChallanNumber].filter(Boolean).join(" / ") || "-"],
+                  ["Status", printGRN.status],
+                ]}
+                columns={[
+                  { header: "SL", align: "center", widthClass: "w-10" },
+                  { header: "Item Code/Model", align: "left", widthClass: "w-28" },
+                  { header: "Item Name", align: "left" },
+                  { header: "UOM", align: "center", widthClass: "w-14" },
+                  { header: "Order Qty", align: "right", widthClass: "w-20" },
+                  { header: "Recv. Qty", align: "right", widthClass: "w-20" },
+                  { header: "Rej. Qty", align: "right", widthClass: "w-20" },
+                  { header: "Amount", align: "right", widthClass: "w-28" },
+                ]}
+                rows={printGRN.items.map((it, i) => [
+                  i + 1,
+                  it.itemCode,
+                  it.itemName,
+                  it.uom || "PCS",
+                  fmtPrintNum(it.orderedQuantity),
+                  fmtPrintNum(it.currentReceivedQuantity),
+                  fmtPrintNum(it.rejectedDamagedQuantity),
+                  fmtPrintNum(it.lineTotal),
+                ])}
+                totalRows={[["", "", "", "Total", fmtPrintNum(totalOrd), fmtPrintNum(totalRecv), fmtPrintNum(totalRej), fmtPrintNum(printGRN.totalReceivedAmount)]]}
+                signatures={[
+                  { roleLabel: "Received By", name: printGRN.preparedBy },
+                  { roleLabel: "Quality Checked By" },
+                  { roleLabel: "Store In-Charge" },
+                ]}
+              />
+              <PurchasePrintToolbar
+                pdfUrl={`/api/v1/purchase/receipts/${encodeURIComponent(printGRN.id)}/pdf`}
+                onClose={() => setPrintGRN(null)}
+                canExportPdf={perms.receive.export}
+              />
             </div>
-            <div className="flex justify-end gap-2 print:hidden">
-              <button type="button" onClick={() => setPrintGRN(null)} className={btnGhost}>
-                Close
-              </button>
-              <button type="button" onClick={() => window.print()} className={btnPrimary}>
-                <Printer className="w-3.5 h-3.5" /> Print
-              </button>
-            </div>
-          </div>
-        )}
+          );
+        })()}
       </ModalDialog>
 
       {/* CLOSE PO BALANCE */}

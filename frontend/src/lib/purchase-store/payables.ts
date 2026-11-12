@@ -1,6 +1,7 @@
 import type { SupplierInvoiceItem, SupplierPaymentRecord } from "@bridgeone/contracts";
 import { badRequest, notFound } from "@/lib/api/errors";
 import { db } from "@/lib/prisma/client";
+import { assertApprovalPipeline, type PurchaseActor } from "./governance";
 
 /**
  * Supplier payables. What is owed comes from documents: goods receipts (less the
@@ -277,16 +278,29 @@ export async function createSupplierBill(input: Record<string, unknown>, actorNa
   });
 }
 
-export async function approveSupplierBill(id: string, actorName: string) {
+export async function approveSupplierBill(id: string, actorName: string, actor?: PurchaseActor) {
   const bill = await db().supplierBill.findUnique({ where: { id } }).catch(() => null);
   if (!bill) throw notFound("Bill");
   if (bill.status !== "PENDING") throw badRequest(`Bill ${bill.number} is already ${bill.status.toLowerCase()}.`);
-  return db().supplierBill.update({ where: { id }, data: { status: "APPROVED", approvedBy: actorName, approvedAt: new Date() } });
+  return db().$transaction(async (tx) => {
+    await assertApprovalPipeline(tx, ["Payment Approval"], bill.businessUnitId, num(bill.amount), actor);
+    return tx.supplierBill.update({ where: { id }, data: { status: "APPROVED", approvedBy: actorName, approvedAt: new Date() } });
+  });
 }
 
-export async function approvePendingSupplierBills(actorName: string) {
-  const result = await db().supplierBill.updateMany({ where: { status: "PENDING" }, data: { status: "APPROVED", approvedBy: actorName, approvedAt: new Date() } });
-  return { approved: result.count };
+export async function approvePendingSupplierBills(actorName: string, actor?: PurchaseActor) {
+  const pending = await db().supplierBill.findMany({ where: { status: "PENDING" } });
+  if (pending.length === 0) return { approved: 0 };
+  return db().$transaction(async (tx) => {
+    for (const bill of pending) {
+      await assertApprovalPipeline(tx, ["Payment Approval"], bill.businessUnitId, num(bill.amount), actor);
+    }
+    const result = await tx.supplierBill.updateMany({
+      where: { id: { in: pending.map((b) => b.id) }, status: "PENDING" },
+      data: { status: "APPROVED", approvedBy: actorName, approvedAt: new Date() },
+    });
+    return { approved: result.count };
+  });
 }
 
 /** Posted payments, newest first, with what each settled. */

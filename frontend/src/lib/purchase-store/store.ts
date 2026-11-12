@@ -16,11 +16,19 @@ import {
   ReportResult,
 } from "@bridgeone/contracts";
 import type { Prisma, StockSource } from "@/generated/prisma/client";
-import { AppError, badRequest, notFound } from "@/lib/api/errors";
+import { badRequest, notFound } from "@/lib/api/errors";
 import { db } from "@/lib/prisma/client";
 import { assertStockAvailable, lockWarehouse } from "@/features/sales/deliveries/services/stock.service";
 import { formatNumber, nextNumber } from "@/features/sales/lib/sequence";
 import { listSupplierInvoices, listSupplierPayables, validatePaymentLink } from "./payables";
+import {
+  assertApprovalPipeline,
+  assertPlaceInScope,
+  getApprovalRightsSummary,
+  isPlaceInOrgScope,
+  resolvePurchaseOrgScope,
+  type PurchaseActor,
+} from "./governance";
 import {
   appendNote,
   effectiveUnitCost,
@@ -207,54 +215,7 @@ function historyEntry(action: string, actorName: string, comments?: string) {
   return `[${new Date().toISOString()} ${action} by ${actorName.replace(/[\]\n]/g, " ").slice(0, 80)}]${clean ? ` ${clean.slice(0, 300)}` : ""}`;
 }
 
-export interface PurchaseActor {
-  id?: string;
-  name?: string;
-  isMaster?: boolean;
-}
-
-/** Enforces active Configuration › Approval Setup pipeline when configured for a Purchase feature. */
-async function assertApprovalPipeline(
-  tx: Tx,
-  features: string[],
-  businessUnitId: string,
-  amount: number,
-  actor?: PurchaseActor,
-) {
-  if (!actor?.id || actor.isMaster) return;
-  const pipeline = await tx.approvalPipeline.findFirst({
-    where: { feature: { in: features } },
-    orderBy: { updatedAt: "desc" },
-    include: {
-      superApproverEmployee: { select: { userId: true } },
-      stages: {
-        orderBy: { stageNo: "asc" },
-        include: { approvers: { include: { employee: { select: { userId: true } } } } },
-      },
-    },
-  });
-  if (!pipeline || pipeline.stages.length === 0) return;
-  const superId = pipeline.superApproverUserId ?? pipeline.superApproverEmployee?.userId ?? null;
-  if (superId && superId === actor.id) return;
-
-  const matchingStages = pipeline.stages.filter(
-    (s) =>
-      !s.allowThreshold ||
-      ((s.thresholdMin === null || amount >= Number(s.thresholdMin)) &&
-        (s.thresholdMax === null || amount <= Number(s.thresholdMax))),
-  );
-  const eligibleUserIds = new Set(
-    matchingStages.flatMap((s) =>
-      s.approvers
-        .filter((a) => !a.businessUnitId || a.businessUnitId === businessUnitId)
-        .map((a) => (a.userType === "EMPLOYEE" ? a.employee?.userId : a.userId))
-        .filter((uid): uid is string => Boolean(uid)),
-    ),
-  );
-  if (eligibleUserIds.size > 0 && !eligibleUserIds.has(actor.id)) {
-    throw new AppError(403, "FORBIDDEN", "You are not an authorized approver in the active approval pipeline for this document.");
-  }
-}
+export type { PurchaseActor };
 
 const REQUISITION_STATUS: Record<RequisitionDbStatus, PurchaseRequisition["status"]> = {
   DRAFT: "DRAFT",
@@ -332,42 +293,65 @@ async function buildOrderLines(businessUnitId: string, items: OrderLineInput[], 
 class PurchaseDataStore {
   private async getContextData() {
     const prisma = db();
-    const bu = await prisma.businessUnit.findFirst({
-      include: { company: true },
-      orderBy: { createdAt: "asc" },
-    });
+    const [bu, offices] = await Promise.all([
+      prisma.businessUnit.findFirst({
+        include: { company: true },
+        orderBy: { createdAt: "asc" },
+      }),
+      prisma.office.findMany({
+        select: { id: true, name: true, address: true, phone: true, email: true, businessUnitId: true },
+        orderBy: { createdAt: "asc" },
+      }),
+    ]);
+    const headOffice = offices[0];
     return {
       businessUnitId: bu?.id || "",
+      businessUnitName: bu?.name || "",
       companyId: bu?.companyId || "",
       companyName: bu?.company?.name || "BridgeOne Technologies Ltd.",
+      address: bu?.address || bu?.company?.address || headOffice?.address || "",
+      phone: bu?.contactNumber || headOffice?.phone || "",
+      email: bu?.email || bu?.company?.email || headOffice?.email || "",
+      offices,
     };
   }
 
   // -------------------------------------------------------------
   // MASTER DATA
   // -------------------------------------------------------------
-  public async getOffices(): Promise<Office[]> {
-    const rows = await db().office.findMany({ orderBy: { name: "asc" } });
-    return rows.map((o) => ({
-      id: o.id,
-      code: o.name.replace(/[^A-Za-z0-9]/g, "").slice(0, 8).toUpperCase() || "OFF",
-      name: o.name,
-      address: o.address || "",
-    }));
+  public async getOffices(actor?: PurchaseActor): Promise<Office[]> {
+    const [rows, scope] = await Promise.all([
+      db().office.findMany({ orderBy: { name: "asc" } }),
+      resolvePurchaseOrgScope(actor),
+    ]);
+    return rows
+      .filter((o) => isPlaceInOrgScope(scope, { officeId: o.id, businessUnitId: o.businessUnitId }))
+      .map((o) => ({
+        id: o.id,
+        code: o.name.replace(/[^A-Za-z0-9]/g, "").slice(0, 8).toUpperCase() || "OFF",
+        name: o.name,
+        address: o.address || "",
+      }));
   }
 
-  public async getWarehouses(officeId?: string): Promise<Warehouse[]> {
+  public async getWarehouses(officeId?: string, actor?: PurchaseActor): Promise<Warehouse[]> {
     const where = officeId && officeId !== "ALL" && isUuid(officeId) ? { officeId } : undefined;
-    const rows = await db().warehouse.findMany({
-      where,
-      orderBy: { name: "asc" },
-    });
-    return rows.map((w) => ({
-      id: w.id,
-      code: w.name.replace(/[^A-Za-z0-9]/g, "").slice(0, 8).toUpperCase() || "WH",
-      name: w.name,
-      officeId: w.officeId,
-    }));
+    const [rows, scope] = await Promise.all([
+      db().warehouse.findMany({
+        where,
+        include: { office: { select: { businessUnitId: true } } },
+        orderBy: { name: "asc" },
+      }),
+      resolvePurchaseOrgScope(actor),
+    ]);
+    return rows
+      .filter((w) => isPlaceInOrgScope(scope, { warehouseId: w.id, officeId: w.officeId, businessUnitId: w.office?.businessUnitId }))
+      .map((w) => ({
+        id: w.id,
+        code: w.name.replace(/[^A-Za-z0-9]/g, "").slice(0, 8).toUpperCase() || "WH",
+        name: w.name,
+        officeId: w.officeId,
+      }));
   }
 
   public async getSuppliers(): Promise<Supplier[]> {
@@ -462,9 +446,9 @@ class PurchaseDataStore {
     });
   }
 
-  public async getPurchaseFormOptions() {
+  public async getPurchaseFormOptions(actor?: PurchaseActor) {
     const prisma = db();
-    const ctx = await this.getContextData();
+    const [ctx, scope] = await Promise.all([this.getContextData(), resolvePurchaseOrgScope(actor)]);
     const buWhere = ctx.businessUnitId ? { businessUnitId: ctx.businessUnitId } : {};
 
     const [categories, salesOrders, projects, accounts, bankAccounts, terms, employees, stockAgg] = await Promise.all([
@@ -519,26 +503,28 @@ class PurchaseDataStore {
         level: c.level,
         parentId: c.parentId,
       })),
-      salesOrders: salesOrders.map((so) => ({
-        id: so.id,
-        number: so.number,
-        orderDate: toDateStr(so.orderDate),
-        expectedDeliveryDate: toDateStr(so.expectedDeliveryDate),
-        officeId: so.officeId,
-        customerName: so.customer?.name || "Customer",
-        shippingAddress: so.shippingAddress || "",
-        projectRef: so.refProjectOutlet || "",
-        lines: so.lines.map((l) => ({
-          id: l.id,
-          itemId: l.itemId,
-          itemCode: l.item?.code || "",
-          itemName: l.item?.name || "",
-          uom: l.uom || l.item?.uom || "Pcs",
-          qty: Number(l.qty),
-          unitPrice: Number(l.item?.purchasePrice ?? l.unitPrice ?? 0),
-          vatPercent: Number(l.vatPercent ?? l.item?.vatPercent ?? 0),
+      salesOrders: salesOrders
+        .filter((so) => isPlaceInOrgScope(scope, { businessUnitId: so.businessUnitId, officeId: so.officeId }))
+        .map((so) => ({
+          id: so.id,
+          number: so.number,
+          orderDate: toDateStr(so.orderDate),
+          expectedDeliveryDate: toDateStr(so.expectedDeliveryDate),
+          officeId: so.officeId,
+          customerName: so.customer?.name || "Customer",
+          shippingAddress: so.shippingAddress || "",
+          projectRef: so.refProjectOutlet || "",
+          lines: so.lines.map((l) => ({
+            id: l.id,
+            itemId: l.itemId,
+            itemCode: l.item?.code || "",
+            itemName: l.item?.name || "",
+            uom: l.uom || l.item?.uom || "Pcs",
+            qty: Number(l.qty),
+            unitPrice: Number(l.item?.purchasePrice ?? l.unitPrice ?? 0),
+            vatPercent: Number(l.vatPercent ?? l.item?.vatPercent ?? 0),
+          })),
         })),
-      })),
       projects: projects.map((p) => ({
         id: p.id,
         code: p.code,
@@ -569,19 +555,23 @@ class PurchaseDataStore {
         body: t.content,
         isDefault: t.isDefault,
       })),
-      employees: employees.map((e) => ({
-        id: e.id,
-        employeeCode: e.employeeCode,
-        name: e.name,
-        officeId: e.officeId,
-        department: e.department || "",
-        designation: e.designation || "",
-      })),
-      stockByWarehouse: stockAgg.map((s) => ({
-        warehouseId: s.warehouseId,
-        itemId: s.itemId,
-        qty: round3(Number(s._sum.qty ?? 0)),
-      })),
+      employees: employees
+        .filter((e) => isPlaceInOrgScope(scope, { officeId: e.officeId }))
+        .map((e) => ({
+          id: e.id,
+          employeeCode: e.employeeCode,
+          name: e.name,
+          officeId: e.officeId,
+          department: e.department || "",
+          designation: e.designation || "",
+        })),
+      stockByWarehouse: stockAgg
+        .filter((s) => isPlaceInOrgScope(scope, { warehouseId: s.warehouseId }))
+        .map((s) => ({
+          warehouseId: s.warehouseId,
+          itemId: s.itemId,
+          qty: round3(Number(s._sum.qty ?? 0)),
+        })),
     };
   }
 
@@ -703,15 +693,48 @@ class PurchaseDataStore {
     };
   }
 
-  /** Company shown on printed documents, and the signed-in user. */
-  public async getContext(user?: { id: string; name?: string; role: string }) {
-    const { companyId, companyName } = await this.getContextData();
+  /** Company shown on printed documents, signed-in user, and Configuration-driven approval & org scope. */
+  public async getContext(user?: PurchaseActor & { role?: string }) {
+    const [{ companyId, companyName, businessUnitName, address, phone, email, offices }, orgScope, reqApproval, poApproval, paymentApproval] =
+      await Promise.all([
+        this.getContextData(),
+        resolvePurchaseOrgScope(user),
+        getApprovalRightsSummary(["Purchase Requisition"], user),
+        getApprovalRightsSummary(["Purchase Order", "Purchase Order Local"], user),
+        getApprovalRightsSummary(["Payment Approval"], user),
+      ]);
+    const officesById = Object.fromEntries(
+      offices.map((o) => [
+        o.id,
+        {
+          id: o.id,
+          name: o.name,
+          address: o.address || address,
+          phone: o.phone || phone,
+          email: o.email || email,
+        },
+      ]),
+    );
+    const officeBusinessUnitIds = Object.fromEntries(offices.map((o) => [o.id, o.businessUnitId]));
     return {
       company: {
         id: companyId,
         code: companyName.replace(/[^A-Za-z0-9]/g, "").slice(0, 8).toUpperCase() || "COMPANY",
         name: companyName,
+        businessUnitName,
+        address,
+        phone,
+        email,
+        website: "",
         currency: "BDT",
+      },
+      officesById,
+      officeBusinessUnitIds,
+      orgScope,
+      approval: {
+        requisition: reqApproval,
+        purchaseOrder: poApproval,
+        payment: paymentApproval,
       },
       user: {
         id: user?.id ?? "",
@@ -733,18 +756,22 @@ class PurchaseDataStore {
     toDate?: string;
     requestType?: string;
     section?: string;
-  }): Promise<PurchaseRequisition[]> {
-    const rows = await db().purchaseRequisition.findMany({
-      include: {
-        lines: { orderBy: { lineNo: "asc" } },
-        office: true,
-        warehouse: true,
-        purchaseOrders: { where: { status: { not: "CANCELLED" } }, select: { number: true }, orderBy: { createdAt: "asc" } },
-      },
-      orderBy: { createdAt: "desc" },
-    });
+  }, actor?: PurchaseActor): Promise<PurchaseRequisition[]> {
+    const [rows, scope] = await Promise.all([
+      db().purchaseRequisition.findMany({
+        include: {
+          lines: { orderBy: { lineNo: "asc" } },
+          office: true,
+          warehouse: true,
+          purchaseOrders: { where: { status: { not: "CANCELLED" } }, select: { number: true }, orderBy: { createdAt: "asc" } },
+        },
+        orderBy: { createdAt: "desc" },
+      }),
+      resolvePurchaseOrgScope(actor),
+    ]);
 
     return rows
+      .filter((r) => isPlaceInOrgScope(scope, { businessUnitId: r.businessUnitId, officeId: r.officeId, warehouseId: r.warehouseId }))
       .map((r) => {
         const status = REQUISITION_STATUS[r.status as RequisitionDbStatus] ?? "SUBMITTED";
         const { body, history } = splitNotes(r.notes);
@@ -808,8 +835,8 @@ class PurchaseDataStore {
       });
   }
 
-  public async getRequisitionById(id: string): Promise<PurchaseRequisition | null> {
-    const list = await this.getRequisitions({});
+  public async getRequisitionById(id: string, actor?: PurchaseActor): Promise<PurchaseRequisition | null> {
+    const list = await this.getRequisitions({}, actor);
     return list.find((r) => r.id === id || r.requisitionNumber === id) || null;
   }
 
@@ -850,8 +877,9 @@ class PurchaseDataStore {
     return { lines, total: round2(total) };
   }
 
-  public async createRequisition(input: CreateRequisitionInput, actorName: string = "Admin"): Promise<PurchaseRequisition> {
+  public async createRequisition(input: CreateRequisitionInput, actorName: string = "Admin", actor?: PurchaseActor): Promise<PurchaseRequisition> {
     const { officeId, warehouseId, businessUnitId } = await officeAndWarehouse(input.officeId, input.warehouseId);
+    await assertPlaceInScope(actor, { businessUnitId, officeId, warehouseId });
     const { lines, total } = await this.buildRequisitionLines(businessUnitId, input.items);
     const requisitionDate = parseDate(input.requestDate, "Request date");
     const requiredDate = parseDate(input.requiredDeliveryDate || input.requestDate, "Required delivery date");
@@ -886,12 +914,13 @@ class PurchaseDataStore {
 
   public async updateRequisitionStatus(id: string, action: string, actorName: string, comments?: string, actor?: PurchaseActor) {
     const req = await this.findRequisition(id);
+    await assertPlaceInScope(actor, { businessUnitId: req.businessUnitId, officeId: req.officeId, warehouseId: req.warehouseId });
     const result = requisitionTransition(req.status as RequisitionDbStatus, action as RequisitionAction);
     if ("error" in result) throw badRequest(result.error);
     if (action === "REJECT" && !comments?.trim()) throw badRequest("Give a reason for rejecting the requisition.");
 
     await db().$transaction(async (tx) => {
-      if (action === "APPROVE") {
+      if (action === "APPROVE" || action === "REJECT") {
         await assertApprovalPipeline(tx, ["Purchase Requisition"], req.businessUnitId, Number(req.totalEstimated), actor);
       }
       await tx.purchaseRequisition.update({
@@ -899,15 +928,17 @@ class PurchaseDataStore {
         data: { status: result.to, notes: appendNote(req.notes, historyEntry(REQUISITION_PAST[action as RequisitionAction] ?? action, actorName, comments)) },
       });
     });
-    return this.getRequisitionById(req.id);
+    return this.getRequisitionById(req.id, actor);
   }
 
-  public async updateRequisition(id: string, input: Partial<CreateRequisitionInput>, actorName: string) {
+  public async updateRequisition(id: string, input: Partial<CreateRequisitionInput>, actorName: string, actor?: PurchaseActor) {
     const req = await this.findRequisition(id);
+    await assertPlaceInScope(actor, { businessUnitId: req.businessUnitId, officeId: req.officeId, warehouseId: req.warehouseId });
     if (!requisitionEditable(req.status as RequisitionDbStatus)) {
       throw badRequest(`A ${req.status.toLowerCase()} requisition cannot be edited; reverse it first.`);
     }
     const place = await officeAndWarehouse(input.officeId ?? req.officeId, input.warehouseId ?? req.warehouseId);
+    await assertPlaceInScope(actor, place);
     const requisitionDate = input.requestDate ? parseDate(input.requestDate, "Request date") : req.requisitionDate;
     const requiredDate = input.requiredDeliveryDate ? parseDate(input.requiredDeliveryDate, "Required delivery date") : req.requiredDate;
     if (requiredDate < requisitionDate) throw badRequest("The required delivery date cannot be before the request date.");
@@ -948,33 +979,45 @@ class PurchaseDataStore {
   }
 
   /** Sets how an approved requisition will be bought (direct, quotation, tender, contract). */
-  public async setRequisitionMethod(id: string, method: string, actorName: string) {
+  public async setRequisitionMethod(id: string, method: string, actorName: string, actor?: PurchaseActor) {
     const allowed = ["DIRECT", "QUOTATION", "TENDER", "CONTRACT"];
     if (!allowed.includes(method)) throw badRequest("Choose a valid purchase method.");
     const req = await this.findRequisition(id);
+    await assertPlaceInScope(actor, { businessUnitId: req.businessUnitId, officeId: req.officeId, warehouseId: req.warehouseId });
     if (req.status === "ORDERED" || req.status === "CANCELLED") throw badRequest(`A ${req.status.toLowerCase()} requisition's method cannot change.`);
     await db().purchaseRequisition.update({
       where: { id: req.id },
       data: { purchaseMethod: method, notes: appendNote(req.notes, historyEntry("METHOD_SET", actorName, method)) },
     });
-    return this.getRequisitionById(req.id);
+    return this.getRequisitionById(req.id, actor);
   }
 
   /**
    * Items still to be bought: lines of approved requisitions without an order,
    * summed per item, with the current stock (all warehouses of the office, or all).
    */
-  public async getRequisitionSummary(filters: { officeId?: string; fromDate?: string; toDate?: string }) {
+  public async getRequisitionSummary(filters: { officeId?: string; fromDate?: string; toDate?: string }, actor?: PurchaseActor) {
+    const scope = await resolvePurchaseOrgScope(actor);
     const office = filters.officeId && filters.officeId !== "ALL" && isUuid(filters.officeId) ? filters.officeId : undefined;
     const date: Prisma.DateTimeFilter = {};
     if (filters.fromDate) date.gte = parseDate(filters.fromDate, "From date");
     if (filters.toDate) date.lte = parseDate(filters.toDate, "To date");
-    const lines = await db().purchaseRequisitionLine.findMany({
+    const rawLines = await db().purchaseRequisitionLine.findMany({
       where: {
         requisition: { status: "APPROVED", ...(office ? { officeId: office } : {}), ...(date.gte || date.lte ? { requisitionDate: date } : {}) },
       },
-      include: { item: { include: { category: { include: { parent: true } } } } },
+      include: {
+        requisition: { select: { businessUnitId: true, officeId: true, warehouseId: true } },
+        item: { include: { category: { include: { parent: true } } } },
+      },
     });
+    const lines = rawLines.filter((l) =>
+      isPlaceInOrgScope(scope, {
+        businessUnitId: l.requisition.businessUnitId,
+        officeId: l.requisition.officeId,
+        warehouseId: l.requisition.warehouseId,
+      }),
+    );
     const byItem = new Map<string, { itemId: string; itemCode: string; itemName: string; category: string; subCategory: string; uom: string; quantity: number; requisitions: number }>();
     for (const l of lines) {
       const key = l.itemId ?? `${l.itemCode}|${l.itemName}`;
@@ -1017,21 +1060,28 @@ class PurchaseDataStore {
     search?: string;
     fromDate?: string;
     toDate?: string;
-  }): Promise<PurchaseOrder[]> {
-    const rows = await db().purchaseOrder.findMany({
-      include: {
-        lines: { orderBy: { lineNo: "asc" } },
-        supplier: true,
-        office: true,
-        warehouse: true,
-        requisition: true,
-        returns: { where: { status: { not: "CANCELLED" } }, include: { lines: true } },
-      },
-      orderBy: { createdAt: "desc" },
-    });
+  }, actor?: PurchaseActor): Promise<PurchaseOrder[]> {
+    const [rows, scope] = await Promise.all([
+      db().purchaseOrder.findMany({
+        include: {
+          lines: { orderBy: { lineNo: "asc" } },
+          supplier: true,
+          office: true,
+          warehouse: true,
+          requisition: true,
+          returns: { where: { status: { not: "CANCELLED" } }, include: { lines: true } },
+        },
+        orderBy: { createdAt: "desc" },
+      }),
+      resolvePurchaseOrgScope(actor),
+    ]);
 
     return rows
-      .filter((po) => !filters.status || filters.status === "ALL" || orderStatusMatches(po.status as OrderDbStatus, filters.status))
+      .filter(
+        (po) =>
+          isPlaceInOrgScope(scope, { businessUnitId: po.businessUnitId, officeId: po.officeId, warehouseId: po.warehouseId }) &&
+          (!filters.status || filters.status === "ALL" || orderStatusMatches(po.status as OrderDbStatus, filters.status)),
+      )
       .map((po) => {
         const returnedByItem = new Map<string, number>();
         for (const r of po.returns) for (const l of r.lines) {
@@ -1113,15 +1163,16 @@ class PurchaseDataStore {
       });
   }
 
-  public async getPurchaseOrderById(id: string): Promise<PurchaseOrder | null> {
-    const list = await this.getPurchaseOrders({});
+  public async getPurchaseOrderById(id: string, actor?: PurchaseActor): Promise<PurchaseOrder | null> {
+    const list = await this.getPurchaseOrders({}, actor);
     return list.find((p) => p.id === id || p.poNumber === id) || null;
   }
 
   /** Inserts an order inside the caller's transaction (also used by direct receiving). */
-  private async insertPurchaseOrder(tx: Tx, input: CreatePurchaseOrderInput, actorName: string) {
+  private async insertPurchaseOrder(tx: Tx, input: CreatePurchaseOrderInput, actorName: string, actor?: PurchaseActor) {
     const place = await officeAndWarehouse(input.officeId, input.warehouseId, tx);
     if (!place.warehouseId) throw badRequest("Select the warehouse the goods will be received into.");
+    await assertPlaceInScope(actor, place, tx);
     if (!isUuid(input.supplierId)) throw badRequest("Select the supplier.");
     const supplier = await tx.supplier.findUnique({ where: { id: input.supplierId }, select: { id: true, isActive: true, name: true } });
     if (!supplier) throw badRequest("The selected supplier does not exist.");
@@ -1175,9 +1226,9 @@ class PurchaseDataStore {
     return order;
   }
 
-  public async createPurchaseOrder(input: CreatePurchaseOrderInput, actorName: string = "Admin"): Promise<PurchaseOrder> {
-    const created = await db().$transaction((tx) => this.insertPurchaseOrder(tx, input, actorName));
-    return (await this.getPurchaseOrderById(created.id))!;
+  public async createPurchaseOrder(input: CreatePurchaseOrderInput, actorName: string = "Admin", actor?: PurchaseActor): Promise<PurchaseOrder> {
+    const created = await db().$transaction((tx) => this.insertPurchaseOrder(tx, input, actorName, actor));
+    return (await this.getPurchaseOrderById(created.id, actor))!;
   }
 
   private async findOrder(id: string) {
@@ -1186,8 +1237,9 @@ class PurchaseDataStore {
     return po;
   }
 
-  public async updatePurchaseOrder(id: string, input: Partial<CreatePurchaseOrderInput>, actorName: string) {
+  public async updatePurchaseOrder(id: string, input: Partial<CreatePurchaseOrderInput>, actorName: string, actor?: PurchaseActor) {
     const po = await this.findOrder(id);
+    await assertPlaceInScope(actor, { businessUnitId: po.businessUnitId, officeId: po.officeId, warehouseId: po.warehouseId });
     const progress = po.lines.map((l) => ({ ordered: Number(l.quantity), received: Number(l.receivedQuantity) }));
     if (!orderEditable(po.status as OrderDbStatus, progress)) {
       throw badRequest("Goods have been received or the order is closed; it can no longer be edited.");
@@ -1200,6 +1252,7 @@ class PurchaseDataStore {
       supplierId = input.supplierId;
     }
     const place = await officeAndWarehouse(input.officeId ?? po.officeId, input.warehouseId ?? po.warehouseId);
+    await assertPlaceInScope(actor, place);
     const shipping = input.shippingFee !== undefined ? Math.max(0, round2(num(input.shippingFee))) : Number(po.shippingFee);
     const lines = input.items?.length ? await buildOrderLines(place.businessUnitId, input.items as OrderLineInput[]) : null;
     const totals = lines
@@ -1241,6 +1294,7 @@ class PurchaseDataStore {
 
   public async updatePurchaseOrderStatus(id: string, action: string, actorName: string, comments?: string, actor?: PurchaseActor) {
     const po = await this.findOrder(id);
+    await assertPlaceInScope(actor, { businessUnitId: po.businessUnitId, officeId: po.officeId, warehouseId: po.warehouseId });
     const progress = po.lines.map((l) => ({ ordered: Number(l.quantity), received: Number(l.receivedQuantity) }));
     const result = orderTransition(po.status as OrderDbStatus, action as OrderAction, progress);
     if ("error" in result) throw badRequest(result.error);
@@ -1262,26 +1316,30 @@ class PurchaseDataStore {
         if (!otherOrders) await tx.purchaseRequisition.update({ where: { id: po.requisitionId }, data: { status: "APPROVED" } });
       }
     });
-    return this.getPurchaseOrderById(po.id);
+    return this.getPurchaseOrderById(po.id, actor);
   }
 
   // -------------------------------------------------------------
   // GOODS RECEIPT (GRN)
   // -------------------------------------------------------------
-  public async getGoodsReceipts(filters: { search?: string; status?: string }): Promise<GoodsReceipt[]> {
-    const rows = await db().goodsReceipt.findMany({
-      include: {
-        lines: { orderBy: { lineNo: "asc" } },
-        supplier: true,
-        office: true,
-        warehouse: true,
-        order: { include: { requisition: true } },
-        returns: { where: { status: { not: "CANCELLED" } }, include: { lines: true } },
-      },
-      orderBy: { createdAt: "desc" },
-    });
+  public async getGoodsReceipts(filters: { search?: string; status?: string }, actor?: PurchaseActor): Promise<GoodsReceipt[]> {
+    const [rows, scope] = await Promise.all([
+      db().goodsReceipt.findMany({
+        include: {
+          lines: { orderBy: { lineNo: "asc" } },
+          supplier: true,
+          office: true,
+          warehouse: true,
+          order: { include: { requisition: true } },
+          returns: { where: { status: { not: "CANCELLED" } }, include: { lines: true } },
+        },
+        orderBy: { createdAt: "desc" },
+      }),
+      resolvePurchaseOrgScope(actor),
+    ]);
 
     return rows
+      .filter((g) => isPlaceInOrgScope(scope, { businessUnitId: g.businessUnitId, officeId: g.officeId, warehouseId: g.warehouseId }))
       .map((g) => {
         const accepted = g.lines.map((l) => ({ itemKey: l.itemId ?? l.itemCode, qty: Number(l.acceptedQty) }));
         const returned = g.returns.flatMap((r) => r.lines.map((l) => ({ itemKey: l.itemId ?? l.itemCode, qty: Number(l.qty) })));
@@ -1350,12 +1408,12 @@ class PurchaseDataStore {
       });
   }
 
-  public async getApprovedOrdersForReceiving(): Promise<PurchaseOrder[]> {
-    const list = await this.getPurchaseOrders({});
+  public async getApprovedOrdersForReceiving(actor?: PurchaseActor): Promise<PurchaseOrder[]> {
+    const list = await this.getPurchaseOrders({}, actor);
     return list.filter((p) => (p.status === "APPROVED" || p.status === "PARTIALLY_RECEIVED") && p.items.some((i) => i.outstandingQuantity > 0));
   }
 
-  public async createGoodsReceipt(input: any, actorName: string = "Store Officer"): Promise<GoodsReceipt> {
+  public async createGoodsReceipt(input: any, actorName: string = "Store Officer", actor?: PurchaseActor): Promise<GoodsReceipt> {
     const prisma = db();
     const isDirect = !input.purchaseOrderId || input.purchaseOrderId === "DIRECT";
     const existing = isDirect
@@ -1370,6 +1428,7 @@ class PurchaseDataStore {
     if (!inputLines.length) throw badRequest("Enter a received quantity for at least one item.");
 
     const warehouse = await stockWarehouse(existing?.warehouseId || input.warehouseId);
+    await assertPlaceInScope(actor, { businessUnitId: warehouse.businessUnitId, officeId: warehouse.officeId, warehouseId: warehouse.id });
     const receivedAt = parseDate(input.receiptDate, "Receipt date");
     const challan = text(input.challanNumber ?? input.shipmentDocumentNumber, 100);
 
@@ -1411,6 +1470,7 @@ class PurchaseDataStore {
               })),
             },
             actorName,
+            actor,
           )
         : await tx.purchaseOrder.findUniqueOrThrow({ where: { id: existing!.id }, include: { lines: { orderBy: { lineNo: "asc" } } } });
 
@@ -1511,10 +1571,11 @@ class PurchaseDataStore {
   }
 
   /** Cancels a receipt: stock leaves again, the order is reopened and the supplier balance reduced. */
-  public async cancelGoodsReceipt(id: string, actorName: string, comments?: string) {
+  public async cancelGoodsReceipt(id: string, actorName: string, comments?: string, actor?: PurchaseActor) {
     const prisma = db();
     const receipt = await prisma.goodsReceipt.findFirst({ where: isUuid(id) ? { id } : { number: id }, include: { lines: true } });
     if (!receipt) throw notFound("Goods receipt");
+    await assertPlaceInScope(actor, { businessUnitId: receipt.businessUnitId, officeId: receipt.officeId, warehouseId: receipt.warehouseId });
     if (receipt.status === "CANCELLED") throw badRequest("The receipt is already cancelled.");
     const [returns, payments, bill] = await Promise.all([
       prisma.purchaseReturn.count({ where: { receiptId: receipt.id, status: { not: "CANCELLED" } } }),
@@ -1563,13 +1624,17 @@ class PurchaseDataStore {
   // -------------------------------------------------------------
   // PURCHASE RETURNS
   // -------------------------------------------------------------
-  public async getPurchaseReturns(filters: { search?: string; status?: string }): Promise<PurchaseReturn[]> {
-    const rows = await db().purchaseReturn.findMany({
-      include: { lines: { orderBy: { lineNo: "asc" } }, supplier: true, office: true, warehouse: true, receipt: { include: { lines: true } }, order: true },
-      orderBy: { createdAt: "desc" },
-    });
+  public async getPurchaseReturns(filters: { search?: string; status?: string }, actor?: PurchaseActor): Promise<PurchaseReturn[]> {
+    const [rows, scope] = await Promise.all([
+      db().purchaseReturn.findMany({
+        include: { lines: { orderBy: { lineNo: "asc" } }, supplier: true, office: true, warehouse: true, receipt: { include: { lines: true } }, order: true },
+        orderBy: { createdAt: "desc" },
+      }),
+      resolvePurchaseOrgScope(actor),
+    ]);
 
     return rows
+      .filter((pr) => isPlaceInOrgScope(scope, { businessUnitId: pr.businessUnitId, officeId: pr.officeId, warehouseId: pr.warehouseId }))
       .map((pr) => {
         const items = pr.lines.map((l) => {
           const grnLine = pr.receipt?.lines.find((g) => (l.itemId ? g.itemId === l.itemId : g.itemCode === l.itemCode));
@@ -1630,9 +1695,9 @@ class PurchaseDataStore {
    * what can still be returned (accepted less earlier returns), so the return
    * screen can never offer more than is left.
    */
-  public async getEligibleReceiptsForReturn(): Promise<GoodsReceipt[]> {
+  public async getEligibleReceiptsForReturn(actor?: PurchaseActor): Promise<GoodsReceipt[]> {
     const [receipts, rows] = await Promise.all([
-      this.getGoodsReceipts({}),
+      this.getGoodsReceipts({}, actor),
       db().goodsReceipt.findMany({
         where: { status: { not: "CANCELLED" } },
         select: { id: true, lines: true, returns: { where: { status: { not: "CANCELLED" } }, select: { lines: true } } },
@@ -1664,7 +1729,7 @@ class PurchaseDataStore {
       .filter((g) => g.items.length > 0);
   }
 
-  public async createPurchaseReturn(input: any, actorName: string = "Store Officer"): Promise<PurchaseReturn> {
+  public async createPurchaseReturn(input: any, actorName: string = "Store Officer", actor?: PurchaseActor): Promise<PurchaseReturn> {
     const prisma = db();
     const withReceipt = input.goodsReceiptId && input.goodsReceiptId !== "WITHOUT_REF";
     const grn = withReceipt
@@ -1678,6 +1743,7 @@ class PurchaseDataStore {
 
     const warehouse = await stockWarehouse(grn?.warehouseId || input.warehouseId);
     const officeId = grn?.officeId || warehouse.officeId;
+    await assertPlaceInScope(actor, { businessUnitId: warehouse.businessUnitId, officeId, warehouseId: warehouse.id });
     const supplierId = grn?.supplierId || (isUuid(input.supplierId) ? input.supplierId : "");
     if (!supplierId) throw badRequest("Select the supplier the goods are returned to.");
 
@@ -1779,10 +1845,11 @@ class PurchaseDataStore {
   }
 
   /** Cancels a return: the goods come back into stock and the supplier balance goes up again. */
-  public async cancelPurchaseReturn(id: string, actorName: string, comments?: string) {
+  public async cancelPurchaseReturn(id: string, actorName: string, comments?: string, actor?: PurchaseActor) {
     const prisma = db();
     const ret = await prisma.purchaseReturn.findFirst({ where: isUuid(id) ? { id } : { number: id } });
     if (!ret) throw notFound("Purchase return");
+    await assertPlaceInScope(actor, { businessUnitId: ret.businessUnitId, officeId: ret.officeId, warehouseId: ret.warehouseId });
     if (ret.status === "CANCELLED") throw badRequest("The return is already cancelled.");
     await prisma.$transaction(async (tx) => {
       if (ret.warehouseId) {
@@ -1894,11 +1961,14 @@ class PurchaseDataStore {
     });
   }
 
-  public async approveSupplierPayment(id: string) {
+  public async approveSupplierPayment(id: string, actor?: PurchaseActor) {
     const payment = await db().supplierPayment.findFirst({ where: isUuid(id) ? { id } : { number: id } });
     if (!payment) throw notFound("Supplier payment");
     if (payment.status === "CANCELLED") throw badRequest("A cancelled payment cannot be approved.");
-    return db().supplierPayment.update({ where: { id: payment.id }, data: { status: "PAID" } });
+    return db().$transaction(async (tx) => {
+      await assertApprovalPipeline(tx, ["Payment Approval"], payment.businessUnitId, Number(payment.amount), actor);
+      return tx.supplierPayment.update({ where: { id: payment.id }, data: { status: "PAID" } });
+    });
   }
 
   /** Cancels a payment: the amount is owed to the supplier again (the GL posts a reversal). */
@@ -1925,25 +1995,28 @@ class PurchaseDataStore {
   // -------------------------------------------------------------
   // DASHBOARD & ANALYTICS METRICS
   // -------------------------------------------------------------
-  public async getDashboardAnalytics(filters?: { fromDate?: string; toDate?: string; officeId?: string }): Promise<DashboardAnalytics> {
+  public async getDashboardAnalytics(filters?: { fromDate?: string; toDate?: string; officeId?: string }, actor?: PurchaseActor): Promise<DashboardAnalytics> {
     const officeId = filters?.officeId && filters.officeId !== "ALL" ? filters.officeId : undefined;
     const inRange = (date: string) => (!filters?.fromDate || date >= filters.fromDate) && (!filters?.toDate || date <= filters.toDate);
-    const [officeOrders, reqs, payments, invoices, itemsCatalog, receipts, returnsRows, linkedPayments] = await Promise.all([
-      this.getPurchaseOrders({ officeId }),
-      this.getRequisitions(filters || {}),
+    const scope = await resolvePurchaseOrgScope(actor);
+    const [officeOrders, reqs, payments, invoices, itemsCatalog, receiptsRaw, returnsRowsRaw, linkedPayments] = await Promise.all([
+      this.getPurchaseOrders({ officeId }, actor),
+      this.getRequisitions(filters || {}, actor),
       this.getSupplierPayments({}),
       this.getSupplierInvoices({}),
       this.getItems(),
       db().goodsReceipt.findMany({
         where: { status: { not: "CANCELLED" } },
-        select: { id: true, orderId: true, officeId: true, receiveDate: true, totalReceivedQty: true, totalAcceptedQty: true, totalRejectedQty: true, totalAmount: true },
+        select: { id: true, orderId: true, businessUnitId: true, officeId: true, warehouseId: true, receiveDate: true, totalReceivedQty: true, totalAcceptedQty: true, totalRejectedQty: true, totalAmount: true },
       }),
-      db().purchaseReturn.findMany({ where: { status: { not: "CANCELLED" } }, select: { officeId: true, returnDate: true, totalAmount: true } }),
+      db().purchaseReturn.findMany({ where: { status: { not: "CANCELLED" } }, select: { businessUnitId: true, officeId: true, warehouseId: true, returnDate: true, totalAmount: true } }),
       db().supplierPayment.findMany({
         where: { status: "PAID", OR: [{ receiptId: { not: null } }, { bill: { receiptId: { not: null } } }] },
         select: { paymentDate: true, receiptId: true, bill: { select: { receiptId: true } } },
       }),
     ]);
+    const receipts = receiptsRaw.filter((g) => isPlaceInOrgScope(scope, { businessUnitId: g.businessUnitId, officeId: g.officeId, warehouseId: g.warehouseId }));
+    const returnsRows = returnsRowsRaw.filter((r) => isPlaceInOrgScope(scope, { businessUnitId: r.businessUnitId, officeId: r.officeId, warehouseId: r.warehouseId }));
     const allPos = officeOrders.filter((p) => inRange(p.orderDate));
     // Cancelled orders are not spend.
     const pos = allPos.filter((p) => p.status !== "CANCELLED");

@@ -16,11 +16,19 @@ import {
   AlertTriangle,
 } from "lucide-react";
 import { ModalDialog } from "@/components/purchase/ModalDialog";
+import {
+  PrintablePurchaseDoc,
+  PurchasePrintToolbar,
+  fmtPrintDate,
+  fmtPrintNum,
+  type PrintHeaderContext,
+} from "@/components/purchase/PrintablePurchaseDoc";
 import { toast } from "@/components/purchase/Toast";
 import { Spinner } from "@/components/ui/spinner";
 import { fetchApi } from "@/lib/api";
 import { formatCurrency } from "@/lib/utils";
 import { PURCHASE_QUERY_KEYS, downloadCsv, localToday } from "@/features/purchase/lib/client";
+import { usePurchasePermissions } from "@/features/purchase/lib/usePurchasePermissions";
 import {
   PurchaseReturn,
   GoodsReceipt,
@@ -58,7 +66,11 @@ interface ReceivedRow {
 interface ReturnRow {
   id: string;
   sl: number;
+  officeId?: string;
   officeName: string;
+  warehouseName?: string;
+  grnNumber?: string;
+  createdBy?: string;
   returnDate: string;
   poNo: string;
   returnNo: string;
@@ -82,6 +94,7 @@ interface ReturnRow {
 export default function PurchaseReturnsPage() {
   const router = useRouter();
   const queryClient = useQueryClient();
+  const perms = usePurchasePermissions();
 
   // Active Tab: RECEIVED_LIST or RETURN_LIST
   const [activeTab, setActiveTab] = useState<"RECEIVED_LIST" | "RETURN_LIST">("RECEIVED_LIST");
@@ -136,6 +149,10 @@ export default function PurchaseReturnsPage() {
   const [noRefQty, setNoRefQty] = useState(1);
 
   // API Queries with TanStack
+  const { data: context } = useQuery<PrintHeaderContext>({
+    queryKey: ["context"],
+    queryFn: () => fetchApi("/master/context"),
+  });
   const { data: serverEligible } = useQuery<GoodsReceipt[]>({
     queryKey: ["eligibleGRNs"],
     queryFn: () => fetchApi("/purchase/returns/eligible-receipts"),
@@ -186,7 +203,11 @@ export default function PurchaseReturnsPage() {
       (serverReturns ?? []).map((r, i) => ({
         id: r.id,
         sl: i + 1,
+        officeId: r.officeId,
         officeName: r.officeName,
+        warehouseName: warehouses?.find((w) => w.officeId === r.officeId)?.name || "-",
+        grnNumber: r.grnNumber,
+        createdBy: r.createdBy,
         returnDate: r.returnDate,
         poNo: !r.poNumber || r.poNumber === "DIRECT-PO" ? "Direct" : r.poNumber,
         returnNo: r.returnNumber,
@@ -205,7 +226,7 @@ export default function PurchaseReturnsPage() {
           reason: it.reason,
         })),
       })),
-    [serverReturns],
+    [serverReturns, warehouses],
   );
 
   // Posts the return: stock leaves the warehouse and the supplier balance goes down.
@@ -412,25 +433,29 @@ export default function PurchaseReturnsPage() {
           </div>
 
           {/* Export to CSV / Excel Button */}
-          <button
-            type="button"
-            onClick={handleExportCSV}
-            title="Download CSV / Excel"
-            className="h-9 px-3.5 bg-[#2563eb] hover:bg-blue-700 text-white font-semibold text-xs rounded flex items-center gap-1.5 shadow-xs transition"
-          >
-            <Download className="w-3.5 h-3.5" />
-            <span>Excel</span>
-          </button>
+          {perms.returns.export && (
+            <button
+              type="button"
+              onClick={handleExportCSV}
+              title="Download CSV / Excel"
+              className="h-9 px-3.5 bg-[#2563eb] hover:bg-blue-700 text-white font-semibold text-xs rounded flex items-center gap-1.5 shadow-xs transition"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>Excel</span>
+            </button>
+          )}
 
           {/* + Return Without Ref. Blue Button */}
-          <button
-            type="button"
-            onClick={() => router.push("/purchase/returns/create")}
-            className="h-9 px-4 bg-[#2563eb] hover:bg-blue-700 text-white font-semibold text-xs rounded flex items-center gap-1.5 shadow-xs transition"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Return Without Ref.</span>
-          </button>
+          {perms.returns.create && (
+            <button
+              type="button"
+              onClick={() => router.push("/purchase/returns/create")}
+              className="h-9 px-4 bg-[#2563eb] hover:bg-blue-700 text-white font-semibold text-xs rounded flex items-center gap-1.5 shadow-xs transition"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Return Without Ref.</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -523,18 +548,20 @@ export default function PurchaseReturnsPage() {
                           <div className="flex items-center justify-center gap-1.5 text-xs">
                             <button
                               type="button"
+                              disabled={!perms.returns.create}
                               onClick={() => handleOpenFullReturn(row)}
-                              className="text-blue-600 hover:underline font-medium hover:text-blue-800"
-                              title="Return all items from this receipt"
+                              className="text-blue-600 hover:underline font-medium hover:text-blue-800 disabled:opacity-40 disabled:pointer-events-none"
+                              title={!perms.returns.create ? "Requires Create permission in Configuration" : "Return all items from this receipt"}
                             >
                               Full
                             </button>
                             <span className="text-slate-300">|</span>
                             <button
                               type="button"
+                              disabled={!perms.returns.create}
                               onClick={() => handleOpenPartialReturn(row)}
-                              className="text-blue-600 hover:underline font-medium hover:text-blue-800"
-                              title="Select specific items and quantities to return"
+                              className="text-blue-600 hover:underline font-medium hover:text-blue-800 disabled:opacity-40 disabled:pointer-events-none"
+                              title={!perms.returns.create ? "Requires Create permission in Configuration" : "Select specific items and quantities to return"}
                             >
                               Partial
                             </button>
@@ -730,9 +757,9 @@ export default function PurchaseReturnsPage() {
                                 setCancelReturnTarget(row);
                                 setCancelReason("");
                               }}
-                              disabled={row.status === "Cancelled"}
-                              className="p-1 hover:text-rose-600 transition disabled:opacity-30"
-                              title="Cancel return (goods come back into stock)"
+                              disabled={row.status === "Cancelled" || !perms.returns.delete}
+                              className="p-1 hover:text-rose-600 transition disabled:opacity-30 disabled:pointer-events-none"
+                              title={!perms.returns.delete ? "Requires Delete permission in Configuration" : "Cancel return (goods come back into stock)"}
                               aria-label={`Cancel return ${row.returnNo}`}
                             >
                               <Ban className="w-3.5 h-3.5" />
@@ -1263,124 +1290,63 @@ export default function PurchaseReturnsPage() {
         subtitle="Official Reversal Document for Outward Store Stock and Financial Adjustment"
         maxWidth="4xl"
       >
-        {printReturnTarget && (
-          <div className="space-y-4 text-xs">
-            <div className="bg-white p-6 border border-slate-200 rounded shadow-sm text-slate-800 space-y-4 print:p-0 print:border-none">
-              {/* Organization Header */}
-              <div className="flex justify-between items-start border-b border-slate-200 pb-3 mb-3">
-                <div className="flex items-center gap-3">
-                  {/* Company Logo */}
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src="/logo.png" alt="BridgeOne Logo" className="h-10 w-auto object-contain" />
-                  <div>
-                    <h2 className="font-bold text-base text-slate-900 tracking-wide uppercase">BridgeOne ERP Industries Ltd.</h2>
-                    <p className="text-[11px] text-slate-500">Corporate Head Office, Gulshan-2, Dhaka • Sirajganj Industrial Park</p>
-                  </div>
-                </div>
-                <div className="text-right">
-                  <span className="inline-block bg-rose-100 text-rose-800 font-bold px-2.5 py-0.5 rounded text-xs">
-                    PURCHASE DEBIT NOTE
-                  </span>
-                  <p className="font-mono font-bold text-slate-900 text-sm mt-1">{printReturnTarget.returnNo}</p>
-                  <p className="text-[10px] text-slate-400">Date: {printReturnTarget.returnDate}</p>
-                </div>
-              </div>
-
-              {/* Vendor & Return Metadata */}
-              <div className="grid grid-cols-2 gap-4 p-3 bg-slate-50 rounded border border-slate-200 text-xs">
-                <div>
-                  <h4 className="font-bold text-slate-800 text-[11px] uppercase mb-1">Debited Vendor</h4>
-                  <p className="font-bold text-slate-900">{printReturnTarget.supplier}</p>
-                  <p className="text-slate-600">PO Reference: <span className="font-mono font-semibold">{printReturnTarget.poNo}</span></p>
-                  <p className="text-slate-600">Settlement Type: {printReturnTarget.returnType}</p>
-                </div>
-                <div>
-                  <h4 className="font-bold text-slate-800 text-[11px] uppercase mb-1">Reversal Destination</h4>
-                  <p className="font-semibold text-slate-800">Originating Office: {printReturnTarget.officeName}</p>
-                  <p className="text-slate-600">Reversal Reason: {printReturnTarget.remarks}</p>
-                  <p className="text-slate-600">Audit Status: <span className="font-bold text-emerald-600">{printReturnTarget.status}</span></p>
-                </div>
-              </div>
-
-              {/* Items Table */}
-              <div className="border border-slate-200 rounded overflow-hidden">
-                <table className="w-full text-left text-xs border-collapse">
-                  <thead className="bg-slate-100 text-slate-700 font-semibold">
-                    <tr>
-                      <th className="p-2 border-b w-8 text-center">#</th>
-                      <th className="p-2 border-b">Item Code & Name</th>
-                      <th className="p-2 border-b text-center w-16">UoM</th>
-                      <th className="p-2 border-b text-center w-24">Returned Qty</th>
-                      <th className="p-2 border-b text-right w-28">Unit Price</th>
-                      <th className="p-2 border-b text-right w-32">Debit Amount</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {printReturnTarget.items?.map((it: any, idx: number) => (
-                      <tr key={idx}>
-                        <td className="p-2 text-center text-slate-400 font-mono">{idx + 1}</td>
-                        <td className="p-2">
-                          <div className="font-semibold text-slate-900">{it.itemName}</div>
-                          <div className="font-mono text-[10px] text-slate-400">{it.itemCode}</div>
-                        </td>
-                        <td className="p-2 text-center font-mono">{it.uom}</td>
-                        <td className="p-2 text-center font-mono font-bold text-rose-700">{it.quantity}</td>
-                        <td className="p-2 text-right font-mono">{formatCurrency(it.unitPrice)}</td>
-                        <td className="p-2 text-right font-mono font-bold text-slate-900">{formatCurrency(it.lineTotal)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                  <tfoot>
-                    <tr className="bg-slate-50 border-t border-slate-200">
-                      <td colSpan={5} className="p-2 text-right font-bold text-slate-700">Total Debit Value:</td>
-                      <td className="p-2 text-right font-bold font-mono text-rose-700 text-sm">
-                        {formatCurrency(printReturnTarget.amount)}
-                      </td>
-                    </tr>
-                  </tfoot>
-                </table>
-              </div>
-
-              {/* 4-Tier Sign-off Blocks */}
-              <div className="pt-12 grid grid-cols-4 gap-4 text-center text-[10px] text-slate-500">
-                <div className="border-t border-slate-300 pt-1">
-                  <span className="font-semibold text-slate-700 block">Fuad Hossain</span>
-                  <span>Store In-charge</span>
-                </div>
-                <div className="border-t border-slate-300 pt-1">
-                  <span className="font-semibold text-slate-700 block">Quality Inspector</span>
-                  <span>QC Inspection Team</span>
-                </div>
-                <div className="border-t border-slate-300 pt-1">
-                  <span className="font-semibold text-slate-700 block">Accounts & Finance</span>
-                  <span>Payables Reconciliation</span>
-                </div>
-                <div className="border-t border-slate-300 pt-1">
-                  <span className="font-semibold text-slate-700 block">Factory Head</span>
-                  <span>Authorized Signatory</span>
-                </div>
-              </div>
+        {printReturnTarget && (() => {
+          const itemsList = printReturnTarget.items ?? [];
+          const totalQty = itemsList.reduce((s, it) => s + Number(it.quantity || 0), 0);
+          return (
+            <div className="space-y-4 text-xs">
+              <PrintablePurchaseDoc
+                context={context}
+                officeId={printReturnTarget.officeId}
+                officeName={printReturnTarget.officeName}
+                title="Purchase Return / Debit Note"
+                metaLeft={[
+                  ["Return No", printReturnTarget.returnNo],
+                  ["Supplier Name", printReturnTarget.supplier],
+                  ["Office Name", printReturnTarget.officeName],
+                  ["Warehouse Name", printReturnTarget.warehouseName || "-"],
+                  ["Remarks / Reason", printReturnTarget.remarks || ""],
+                ]}
+                metaRight={[
+                  ["Return Date", fmtPrintDate(printReturnTarget.returnDate)],
+                  ["GRN No", printReturnTarget.grnNumber || "Without Ref."],
+                  ["PO No", printReturnTarget.poNo],
+                  ["Return Type", printReturnTarget.returnType],
+                  ["Status", printReturnTarget.status],
+                ]}
+                columns={[
+                  { header: "SL", align: "center", widthClass: "w-10" },
+                  { header: "Item Code/Model", align: "left", widthClass: "w-28" },
+                  { header: "Item Name", align: "left" },
+                  { header: "UOM", align: "center", widthClass: "w-14" },
+                  { header: "Return Qty", align: "right", widthClass: "w-24" },
+                  { header: "Unit Rate", align: "right", widthClass: "w-24" },
+                  { header: "Debit Amount", align: "right", widthClass: "w-28" },
+                ]}
+                rows={itemsList.map((it, idx) => [
+                  idx + 1,
+                  it.itemCode,
+                  it.itemName,
+                  it.uom || "PCS",
+                  fmtPrintNum(it.quantity),
+                  fmtPrintNum(it.unitPrice),
+                  fmtPrintNum(it.lineTotal),
+                ])}
+                totalRows={[["", "", "", "Total", fmtPrintNum(totalQty), "", fmtPrintNum(printReturnTarget.amount)]]}
+                signatures={[
+                  { roleLabel: "Prepared By", name: printReturnTarget.createdBy },
+                  { roleLabel: "Approved By" },
+                  { roleLabel: "Supplier Ack.", name: printReturnTarget.supplier, designation: "Supplier" },
+                ]}
+              />
+              <PurchasePrintToolbar
+                pdfUrl={`/api/v1/purchase/returns/${encodeURIComponent(printReturnTarget.id)}/pdf`}
+                onClose={() => setPrintReturnTarget(null)}
+                canExportPdf={perms.returns.export}
+              />
             </div>
-
-            <div className="flex justify-end gap-2 pt-2">
-              <button
-                type="button"
-                onClick={() => setPrintReturnTarget(null)}
-                className="px-4 py-1.5 border border-slate-200 rounded text-slate-700 font-semibold"
-              >
-                Close Preview
-              </button>
-              <button
-                type="button"
-                onClick={() => window.print()}
-                className="px-5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded font-bold flex items-center gap-1.5 shadow"
-              >
-                <Printer className="w-4 h-4" />
-                <span>Print Document</span>
-              </button>
-            </div>
-          </div>
-        )}
+          );
+        })()}
       </ModalDialog>
 
       {/* ============================================================= */}

@@ -9,8 +9,10 @@ const REPORTS = ["/accounts", "/accounts/financial-reports", "/accounts/other-re
 /** Pages that may load each section of the shared accounting store. */
 const SECTION_PAGES = {
   budgets: ["/accounts/budget"],
-  vouchers: ["/accounts/journal"],
-  bankAccounts: ["/accounts/banking", "/accounts/cheque-setup", "/accounts/cheque-issue", "/accounts/fund-transfers"],
+  vouchers: ["/accounts/journal", "/accounts/chart-of-accounts"],
+  coaPermissions: ["/accounts/chart-of-accounts"],
+  bankAccounts: ["/accounts/banking", "/accounts/cheque-setup", "/accounts/cheque-issue", "/accounts/fund-transfers", "/accounts/expenses"],
+  facilities: ["/accounts/banking"],
   chequeBooks: ["/accounts/banking", "/accounts/cheque-setup", "/accounts/cheque-issue"],
   chequeIssues: ["/accounts/banking", "/accounts/cheque-issue"],
   receivedCheques: ["/accounts/banking", "/accounts/cheque-issue"],
@@ -21,25 +23,64 @@ const SECTION_PAGES = {
 async function handleGET(_request: Request, _context: unknown, actor: Actor) {
   try {
     const prisma = db();
-    const may = (section: keyof typeof SECTION_PAGES) => [...REPORTS, ...SECTION_PAGES[section]].some((page) => can(actor, page));
+    const may = (section: keyof typeof SECTION_PAGES) =>
+      [...REPORTS, ...SECTION_PAGES[section]].some((page) => can(actor, page));
     const none = Promise.resolve([]);
-    // The chart of accounts and cost centers are pickers on every accounts page.
-    const [accounts, costCenters, budgets, vouchers, bankAccounts, chequeBooks, chequeIssues, receivedCheques, expenses, fundTransfers] = await Promise.all([
+
+    const [
+      accounts,
+      costCenters,
+      budgets,
+      vouchers,
+      coaPermissions,
+      bankAccounts,
+      facilities,
+      chequeBooks,
+      chequeIssues,
+      receivedCheques,
+      expenses,
+      fundTransfers,
+      offices,
+      employees,
+    ] = await Promise.all([
       prisma.account.findMany({ orderBy: { code: "asc" } }),
       prisma.costCenter.findMany({ orderBy: { code: "asc" } }),
       may("budgets") ? prisma.budget.findMany({ include: { items: true }, orderBy: { createdAt: "desc" } }) : none,
-      may("vouchers") ? prisma.journalVoucher.findMany({ include: { lines: true }, orderBy: { transactionDate: "desc" } }) : none,
+      may("vouchers") ? prisma.journalVoucher.findMany({ include: { lines: true }, orderBy: [{ transactionDate: "desc" }, { createdAt: "desc" }] }) : none,
+      may("coaPermissions") ? prisma.coaPermission.findMany({ orderBy: [{ employeeName: "asc" }, { accountHeadCode: "asc" }] }) : none,
       may("bankAccounts") ? prisma.bankAccount.findMany({ orderBy: { bankName: "asc" } }) : none,
+      may("facilities") ? prisma.bankFacility.findMany({ orderBy: { createdAt: "desc" } }) : none,
       may("chequeBooks") ? prisma.chequeBook.findMany({ orderBy: { createdAt: "desc" } }) : none,
       may("chequeIssues") ? prisma.chequeIssue.findMany({ orderBy: { issueDate: "desc" } }) : none,
       may("receivedCheques") ? prisma.receivedCheque.findMany({ orderBy: { receivedDate: "desc" } }) : none,
-      may("expenses") ? prisma.expenseRecord.findMany({ orderBy: { date: "desc" } }) : none,
-      may("fundTransfers") ? prisma.fundTransfer.findMany({ orderBy: { requestDate: "desc" } }) : none,
+      may("expenses") ? prisma.expenseRecord.findMany({ orderBy: [{ date: "desc" }, { createdAt: "desc" }] }) : none,
+      may("fundTransfers") ? prisma.fundTransfer.findMany({ orderBy: [{ requestDate: "desc" }, { createdAt: "desc" }] }) : none,
+      prisma.office.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" } }),
+      prisma.employee.findMany({
+        where: { isActive: true },
+        select: { id: true, employeeCode: true, name: true, designation: true, officeId: true },
+        orderBy: { name: "asc" },
+      }),
     ]);
 
     return NextResponse.json({
       success: true,
-      data: { accounts, costCenters, budgets, vouchers, bankAccounts, chequeBooks, chequeIssues, receivedCheques, expenses, fundTransfers },
+      data: {
+        accounts,
+        costCenters,
+        budgets,
+        vouchers,
+        coaPermissions,
+        bankAccounts,
+        facilities,
+        chequeBooks,
+        chequeIssues,
+        receivedCheques,
+        expenses,
+        fundTransfers,
+        offices,
+        employees,
+      },
     });
   } catch (error) {
     console.error("Failed to fetch all accounts data:", error);
@@ -47,5 +88,4 @@ async function handleGET(_request: Request, _context: unknown, actor: Actor) {
   }
 }
 
-// Signed-in users with any accounts page; each section only for the pages that use it.
 export const GET = apiHandler("accounts:read", handleGET);

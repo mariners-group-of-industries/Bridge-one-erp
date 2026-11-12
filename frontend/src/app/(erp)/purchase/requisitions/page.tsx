@@ -1,6 +1,5 @@
 "use client";
 
-import Image from "next/image";
 import React, { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Spinner } from "@/components/ui/spinner";
@@ -20,6 +19,7 @@ import {
   Ban,
 } from "lucide-react";
 import { PURCHASE_QUERY_KEYS, downloadCsv, localToday } from "@/features/purchase/lib/client";
+import { usePurchasePermissions } from "@/features/purchase/lib/usePurchasePermissions";
 
 type ReqStatus = PurchaseRequisition["status"];
 const AWAITING_APPROVAL: ReqStatus[] = ["DRAFT", "SUBMITTED", "PENDING_APPROVAL"];
@@ -35,6 +35,13 @@ const actionBtn =
 import { DataTable } from "@/components/purchase/DataTable";
 import { StatusBadge } from "@/components/purchase/StatusBadge";
 import { ModalDialog } from "@/components/purchase/ModalDialog";
+import {
+  PrintablePurchaseDoc,
+  PurchasePrintToolbar,
+  fmtPrintDate,
+  fmtPrintNum,
+  type PrintHeaderContext,
+} from "@/components/purchase/PrintablePurchaseDoc";
 import { toast } from "@/components/purchase/Toast";
 import { fetchApi } from "@/lib/api";
 import { formatCurrency } from "@/lib/utils";
@@ -49,6 +56,7 @@ import {
 export default function PurchaseRequisitionsPage() {
   const router = useRouter();
   const queryClient = useQueryClient();
+  const perms = usePurchasePermissions();
 
   // Tab state (supporting direct URL / tab param)
   const [activeTab, setActiveTab] = useState<"PURCHASE_REQUISITION" | "REQUISITION_SUMMARY">(() => {
@@ -138,7 +146,7 @@ export default function PurchaseRequisitionsPage() {
     queryKey: ["items"],
     queryFn: () => fetchApi("/master/items"),
   });
-  const { data: context } = useQuery<{ company: { name: string } }>({ queryKey: ["context"], queryFn: () => fetchApi("/master/context") });
+  const { data: context } = useQuery<PrintHeaderContext>({ queryKey: ["context"], queryFn: () => fetchApi("/master/context") });
 
   // Requisitions query with full ERP filters
   const { data: requisitions, isLoading, isFetching, refetch } = useQuery<PurchaseRequisition[]>({
@@ -544,23 +552,31 @@ export default function PurchaseRequisitionsPage() {
       className: "bg-sky-50/70 text-slate-800 font-semibold w-[230px] text-center",
       cell: (row: PurchaseRequisition) => (
         <div className="flex items-center justify-center gap-0.5 text-slate-700">
-          {/* Approve / Reject: only while the requisition waits for approval */}
+          {/* Approve / Reject: requires Configuration Approve + Approval Setup eligibility */}
           <button
             type="button"
-            disabled={!can.approve(row.status)}
+            disabled={!can.approve(row.status) || !perms.canApproveRequisition(row.officeId, row.totalEstimatedAmount)}
             onClick={() => openApproval(row, "APPROVE")}
             className={`${actionBtn} hover:bg-emerald-100 hover:text-emerald-700`}
-            title="Approve requisition"
+            title={
+              !perms.canApproveRequisition(row.officeId, row.totalEstimatedAmount)
+                ? "Requires Approve permission & Approval Setup eligibility in Configuration"
+                : "Approve requisition"
+            }
             aria-label={`Approve ${row.requisitionNumber}`}
           >
             <Check className="w-3.5 h-3.5" />
           </button>
           <button
             type="button"
-            disabled={!can.approve(row.status)}
+            disabled={!can.approve(row.status) || !perms.canApproveRequisition(row.officeId, row.totalEstimatedAmount)}
             onClick={() => openApproval(row, "REJECT")}
             className={`${actionBtn} hover:bg-rose-100 hover:text-rose-700`}
-            title="Reject requisition"
+            title={
+              !perms.canApproveRequisition(row.officeId, row.totalEstimatedAmount)
+                ? "Requires Approve permission & Approval Setup eligibility in Configuration"
+                : "Reject requisition"
+            }
             aria-label={`Reject ${row.requisitionNumber}`}
           >
             <Ban className="w-3.5 h-3.5" />
@@ -569,10 +585,16 @@ export default function PurchaseRequisitionsPage() {
           {/* Edit */}
           <button
             type="button"
-            disabled={!can.edit(row.status)}
+            disabled={!can.edit(row.status) || !perms.requisitions.edit}
             onClick={() => handleOpenEdit(row)}
             className={`${actionBtn} hover:bg-slate-200/80 hover:text-slate-950`}
-            title={can.edit(row.status) ? "Edit requisition" : "Approved, ordered or cancelled requisitions cannot be edited; reverse it first"}
+            title={
+              !perms.requisitions.edit
+                ? "Requires Edit permission in Configuration"
+                : can.edit(row.status)
+                  ? "Edit requisition"
+                  : "Approved, ordered or cancelled requisitions cannot be edited; reverse it first"
+            }
             aria-label={`Edit ${row.requisitionNumber}`}
           >
             <Pencil className="w-3.5 h-3.5" />
@@ -592,13 +614,13 @@ export default function PurchaseRequisitionsPage() {
           {/* Close / Cancel */}
           <button
             type="button"
-            disabled={!can.cancel(row.status)}
+            disabled={!can.cancel(row.status) || !perms.requisitions.delete}
             onClick={() => {
               setCloseModal(row);
               setCloseComment("");
             }}
             className={`${actionBtn} hover:bg-rose-100 hover:text-rose-700`}
-            title="Close / cancel requisition"
+            title={!perms.requisitions.delete ? "Requires Delete permission in Configuration" : "Close / cancel requisition"}
             aria-label={`Cancel ${row.requisitionNumber}`}
           >
             <X className="w-3.5 h-3.5" />
@@ -607,13 +629,13 @@ export default function PurchaseRequisitionsPage() {
           {/* Reverse */}
           <button
             type="button"
-            disabled={!can.reverse(row.status)}
+            disabled={!can.reverse(row.status) || !perms.requisitions.edit}
             onClick={() => {
               setReverseModal(row);
               setReverseComment("");
             }}
             className={`${actionBtn} hover:bg-amber-100 hover:text-amber-800`}
-            title="Reverse to submitted"
+            title={!perms.requisitions.edit ? "Requires Edit permission in Configuration" : "Reverse to submitted"}
             aria-label={`Reverse ${row.requisitionNumber}`}
           >
             <RotateCcw className="w-3.5 h-3.5" />
@@ -622,9 +644,10 @@ export default function PurchaseRequisitionsPage() {
           {/* New PR (Duplicate / Template) */}
           <button
             type="button"
+            disabled={!perms.requisitions.create}
             onClick={() => handleDuplicateAsNew(row)}
             className={`${actionBtn} hover:bg-sky-100 hover:text-sky-700`}
-            title="New PR (Duplicate from Template)"
+            title={!perms.requisitions.create ? "Requires Create permission in Configuration" : "New PR (Duplicate from Template)"}
             aria-label={`New requisition from ${row.requisitionNumber}`}
           >
             <PlusCircle className="w-3.5 h-3.5" />
@@ -871,14 +894,16 @@ export default function PurchaseRequisitionsPage() {
             <Search className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
           </div>
 
-          <button
-            type="button"
-            onClick={() => router.push("/purchase/requisitions/create")}
-            className="h-9 px-4 bg-[#2563eb] hover:bg-blue-700 text-white font-semibold text-xs rounded flex items-center gap-1.5 shadow-xs transition"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Requisition</span>
-          </button>
+          {perms.requisitions.create && (
+            <button
+              type="button"
+              onClick={() => router.push("/purchase/requisitions/create")}
+              className="h-9 px-4 bg-[#2563eb] hover:bg-blue-700 text-white font-semibold text-xs rounded flex items-center gap-1.5 shadow-xs transition"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Requisition</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -1075,7 +1100,9 @@ export default function PurchaseRequisitionsPage() {
             <button
               type="button"
               onClick={handleExport}
-              className="h-9 px-5 border border-[#2563eb] text-[#2563eb] hover:bg-blue-50 font-bold text-xs uppercase rounded shadow-xs transition flex items-center justify-center min-w-[75px]"
+              disabled={!perms.requisitions.export}
+              title={!perms.requisitions.export ? "Requires Export permission in Configuration" : "Export Excel (CSV)"}
+              className="h-9 px-5 border border-[#2563eb] text-[#2563eb] hover:bg-blue-50 disabled:opacity-40 disabled:pointer-events-none font-bold text-xs uppercase rounded shadow-xs transition flex items-center justify-center min-w-[75px]"
             >
               EXCEL
             </button>
@@ -1245,7 +1272,9 @@ export default function PurchaseRequisitionsPage() {
             <button
               type="button"
               onClick={handleExport}
-              className="h-9 px-5 border border-[#2563eb] text-[#2563eb] hover:bg-blue-50 font-bold text-xs uppercase rounded shadow-xs transition flex items-center justify-center min-w-[75px]"
+              disabled={!perms.requisitions.export}
+              title={!perms.requisitions.export ? "Requires Export permission in Configuration" : "Export Excel (CSV)"}
+              className="h-9 px-5 border border-[#2563eb] text-[#2563eb] hover:bg-blue-50 disabled:opacity-40 disabled:pointer-events-none font-bold text-xs uppercase rounded shadow-xs transition flex items-center justify-center min-w-[75px]"
             >
               EXCEL
             </button>
@@ -2171,174 +2200,66 @@ export default function PurchaseRequisitionsPage() {
         subtitle="Official Purchase Requisition Document for Physical Archival & Multi-level Signatures"
         maxWidth="4xl"
       >
-        {printReq && (
-          <div className="space-y-4 text-xs">
-            {/* Printable Document Sheet */}
-            <div className="bg-white p-6 border border-slate-200 rounded shadow-sm text-slate-800 space-y-4 print:p-0 print:border-none">
-              {/* Organization Header */}
-              <div className="flex justify-between items-start border-b border-slate-200 pb-3">
-                <div className="flex items-center gap-3.5">
-                  <Image
-                    src="/logo.png"
-                    width={8452}
-                    height={1738}
-                    alt="BridgeOne Logo"
-                    className="h-10 w-auto object-contain"
-                  />
-                  <div>
-                    <h2 className="text-base font-bold text-slate-900 tracking-wide uppercase">
-                      {context?.company?.name ?? ""}
-                    </h2>
-                    <p className="text-[11px] text-slate-500">
-                      Plot 18, Road 11, Gulshan-2, Dhaka-1212, Bangladesh
-                    </p>
-                    <p className="text-[11px] text-slate-500">
-                      Phone: +880 2 988-1234 | Web: erp.bridgeone.com
-                    </p>
-                  </div>
-                </div>
-                <div className="text-right">
-                  <div className="inline-block px-2.5 py-1 bg-slate-100 rounded text-[11px] font-bold text-slate-700 border border-slate-300">
-                    PURCHASE REQUISITION
-                  </div>
-                  <p className="text-xs font-mono font-bold text-sky-800 mt-1">
-                    {printReq.requisitionNumber}
-                  </p>
-                  <p className="text-[10px] text-slate-500">Date: {printReq.requestDate}</p>
-                </div>
-              </div>
-
-              {/* Metadata Grid */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 bg-slate-50/80 p-3 rounded border border-slate-200 text-[11px]">
-                <div>
-                  <span className="text-slate-400 block text-[10px]">Department:</span>
-                  <span className="font-semibold text-slate-800">{printReq.department}</span>
-                </div>
-                <div>
-                  <span className="text-slate-400 block text-[10px]">Requester / Buyer:</span>
-                  <span className="font-semibold text-slate-800">{printReq.requesterName}</span>
-                </div>
-                <div>
-                  <span className="text-slate-400 block text-[10px]">Delivery Office:</span>
-                  <span className="font-semibold text-slate-800">
-                    {offices?.find((o) => o.id === printReq.officeId)?.name || printReq.officeId}
-                  </span>
-                </div>
-                <div>
-                  <span className="text-slate-400 block text-[10px]">Required Delivery:</span>
-                  <span className="font-semibold text-slate-800 font-mono">
-                    {printReq.requiredDeliveryDate || "Immediate"}
-                  </span>
-                </div>
-              </div>
-
-              {/* Line Items Table */}
-              <div className="border border-slate-200 rounded overflow-hidden">
-                <table className="w-full text-left text-xs">
-                  <thead className="bg-slate-100 text-slate-700 font-semibold border-b border-slate-200">
-                    <tr>
-                      <th className="p-2 w-10 text-center">SL</th>
-                      <th className="p-2 w-28">Item Code</th>
-                      <th className="p-2">Description / Specifications</th>
-                      <th className="p-2 w-20 text-center">UOM</th>
-                      <th className="p-2 w-20 text-right">Quantity</th>
-                      <th className="p-2 w-28 text-right">Est. Unit Price</th>
-                      <th className="p-2 w-32 text-right">Total (BDT)</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {printReq.items.map((it, idx) => (
-                      <tr key={idx}>
-                        <td className="p-2 text-center text-slate-400 font-mono">{idx + 1}</td>
-                        <td className="p-2 font-mono text-slate-600">{it.itemCode}</td>
-                        <td className="p-2 font-medium text-slate-800">{it.itemName}</td>
-                        <td className="p-2 text-center font-mono text-slate-600">{it.uom}</td>
-                        <td className="p-2 text-right font-mono font-semibold">{it.quantity}</td>
-                        <td className="p-2 text-right font-mono">
-                          {formatCurrency(it.estimatedUnitPrice)}
-                        </td>
-                        <td className="p-2 text-right font-mono font-bold text-slate-900">
-                          {formatCurrency(it.lineTotal)}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                  <tfoot className="bg-slate-50/80 font-semibold border-t border-slate-200">
-                    <tr>
-                      <td colSpan={6} className="p-2 text-right text-slate-700 uppercase text-[11px]">
-                        Grand Total Estimated Value:
-                      </td>
-                      <td className="p-2 text-right font-mono text-sm font-bold text-slate-900">
-                        {formatCurrency(printReq.totalEstimatedAmount)}
-                      </td>
-                    </tr>
-                  </tfoot>
-                </table>
-              </div>
-
-              {/* Justification & Remarks */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px] bg-slate-50/60 p-2.5 rounded border border-slate-200">
-                <div>
-                  <span className="font-semibold text-slate-700 block">Justification:</span>
-                  <p className="text-slate-600 italic">
-                    {printReq.businessJustification || "Standard replenishment."}
-                  </p>
-                </div>
-                <div>
-                  <span className="font-semibold text-slate-700 block">Remarks:</span>
-                  <p className="text-slate-600 italic">{printReq.remarks || "N/A"}</p>
-                </div>
-              </div>
-
-              {/* 4 Official Authorization Signatures */}
-              <div className="grid grid-cols-4 gap-4 pt-12 text-center text-[10px] text-slate-600 border-t border-slate-200 mt-6">
-                <div>
-                  <div className="border-t border-slate-400 pt-1 font-semibold text-slate-800">
-                    {printReq.createdBy}
-                  </div>
-                  <span>Prepared By</span>
-                </div>
-                <div>
-                  <div className="border-t border-slate-400 pt-1 font-semibold text-slate-800">
-                    Department Head
-                  </div>
-                  <span>Verified By</span>
-                </div>
-                <div>
-                  <div className="border-t border-slate-400 pt-1 font-semibold text-slate-800">
-                    Procurement Manager
-                  </div>
-                  <span>Checked & Sourced</span>
-                </div>
-                <div>
-                  <div className="border-t border-slate-400 pt-1 font-semibold text-slate-800">
-                    Managing Director
-                  </div>
-                  <span>Final Approval</span>
-                </div>
-              </div>
+        {printReq && (() => {
+          const officeName = offices?.find((o) => o.id === printReq.officeId)?.name || printReq.officeId;
+          const warehouseName = allWarehouses?.find((w) => w.id === printReq.warehouseId)?.name || printReq.warehouseId || "-";
+          const approvedEntry = [...(printReq.approvalHistory || [])].reverse().find((h) => /approv/i.test(h.action));
+          const totalQty = printReq.items.reduce((s, it) => s + Number(it.quantity || 0), 0);
+          const totalEst = printReq.items.reduce((s, it) => s + Number(it.lineTotal || 0), 0);
+          return (
+            <div className="space-y-4 text-xs">
+              <PrintablePurchaseDoc
+                context={context}
+                officeId={printReq.officeId}
+                officeName={officeName}
+                title="Purchase Requisition"
+                metaLeft={[
+                  ["Requisition No", printReq.requisitionNumber],
+                  ["Req. Office Name", officeName],
+                  ["Req. Warehouse Name", warehouseName],
+                  ["Department / Section", printReq.department || "-"],
+                  ["Remarks", printReq.remarks || printReq.businessJustification || ""],
+                ]}
+                metaRight={[
+                  ["Req. Date", fmtPrintDate(printReq.requestDate)],
+                  ["Expected Date", fmtPrintDate(printReq.requiredDeliveryDate || printReq.requestDate)],
+                  ["Purchase Method", printReq.purchaseMethod || "DIRECT"],
+                  ["Ref. Document", printReq.referenceDocument || "Direct"],
+                  ["Review Comment", approvedEntry?.comments || printReq.status],
+                ]}
+                columns={[
+                  { header: "SL", align: "center", widthClass: "w-10" },
+                  { header: "Item Code/Model", align: "left", widthClass: "w-28" },
+                  { header: "Item Name", align: "left" },
+                  { header: "UOM", align: "center", widthClass: "w-14" },
+                  { header: "Req. Qty", align: "right", widthClass: "w-24" },
+                  { header: "Est. Rate", align: "right", widthClass: "w-24" },
+                  { header: "Est. Amount", align: "right", widthClass: "w-28" },
+                ]}
+                rows={printReq.items.map((it, idx) => [
+                  idx + 1,
+                  it.itemCode,
+                  it.itemName,
+                  it.uom || "PCS",
+                  fmtPrintNum(it.quantity),
+                  fmtPrintNum(it.estimatedUnitPrice),
+                  fmtPrintNum(it.lineTotal),
+                ])}
+                totalRows={[["", "", "", "Total", fmtPrintNum(totalQty), "", fmtPrintNum(totalEst)]]}
+                signatures={[
+                  { roleLabel: "Prepared By", name: printReq.requesterName || printReq.createdBy },
+                  { roleLabel: "Approved By", name: approvedEntry?.actorName },
+                  { roleLabel: "Received By" },
+                ]}
+              />
+              <PurchasePrintToolbar
+                pdfUrl={`/api/v1/purchase/requisitions/${encodeURIComponent(printReq.id)}/pdf`}
+                onClose={() => setPrintReq(null)}
+                canExportPdf={perms.requisitions.export}
+              />
             </div>
-
-            {/* Print & Close Toolbar */}
-            <div className="flex justify-end gap-2 pt-2 border-t border-slate-200">
-              <button
-                type="button"
-                onClick={() => setPrintReq(null)}
-                className="px-3 py-1.5 border border-slate-200 rounded text-slate-600 hover:bg-slate-50 text-xs"
-              >
-                Close
-              </button>
-              <button
-                type="button"
-                onClick={() => window.print()}
-                className="inline-flex items-center gap-1.5 px-4 py-1.5 bg-slate-800 hover:bg-slate-900 text-white rounded font-semibold text-xs"
-              >
-                <Printer className="w-3.5 h-3.5" />
-                <span>Print Document</span>
-              </button>
-            </div>
-          </div>
-        )}
+          );
+        })()}
       </ModalDialog>
 
       {/* CLOSE / CANCEL REQUISITION MODAL */}

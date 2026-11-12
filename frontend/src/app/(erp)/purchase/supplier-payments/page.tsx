@@ -17,12 +17,20 @@ import {
   Ban,
 } from "lucide-react";
 import { ModalDialog } from "@/components/purchase/ModalDialog";
+import {
+  PrintablePurchaseDoc,
+  PurchasePrintToolbar,
+  fmtPrintDate,
+  fmtPrintNum,
+  type PrintHeaderContext,
+} from "@/components/purchase/PrintablePurchaseDoc";
 import { AdvancePaymentModal } from "@/features/purchase/components/AdvancePaymentModal";
 import { toast } from "@/components/purchase/Toast";
 import { Spinner } from "@/components/ui/spinner";
 import { fetchApi } from "@/lib/api";
 import { formatCurrency } from "@/lib/utils";
 import { PURCHASE_QUERY_KEYS, downloadCsv, localToday } from "@/features/purchase/lib/client";
+import { usePurchasePermissions } from "@/features/purchase/lib/usePurchasePermissions";
 import {
   SupplierPaymentRecord,
   SupplierInvoiceItem,
@@ -78,10 +86,14 @@ export interface PendingBillRow {
 interface PaidRow {
   id: string;
   sl: number;
+  voucherNo?: string;
   paidDate: string;
   invoiceNo: string;
   supplier: string;
   moneyReceiptNo: string;
+  method?: string;
+  remarks?: string;
+  createdBy?: string;
   bankAmount: number;
   cashAmount: number;
   paidAmount: number;
@@ -95,6 +107,8 @@ interface PaymentHistoryRow {
   settles: string;
   method: string;
   referenceNumber: string;
+  remarks?: string;
+  createdBy?: string;
   amount: number;
 }
 
@@ -152,6 +166,7 @@ interface LedgerReconRow {
 export default function SupplierPaymentsPage() {
   const router = useRouter();
   const queryClient = useQueryClient();
+  const perms = usePurchasePermissions();
 
   // 6 Tabs state
   const [activeTab, setActiveTab] = useState<
@@ -229,6 +244,10 @@ export default function SupplierPaymentsPage() {
 
   // Dynamic Data Lists
   // Supplier payables and open receipts come from the server (receipts - returns - payments).
+  const { data: context } = useQuery<PrintHeaderContext>({
+    queryKey: ["context"],
+    queryFn: () => fetchApi("/master/context"),
+  });
   const { data: serverPayables } = useQuery<SupplierPaymentRecord[]>({
     queryKey: ["supplierPayables"],
     queryFn: () => fetchApi("/purchase/supplier-payments"),
@@ -333,10 +352,14 @@ export default function SupplierPaymentsPage() {
       (serverHistory ?? []).map((p, i) => ({
         id: p.id,
         sl: i + 1,
+        voucherNo: p.number,
         paidDate: p.paymentDate,
         invoiceNo: p.settles,
         supplier: p.supplierName,
         moneyReceiptNo: p.referenceNumber || p.number,
+        method: p.method,
+        remarks: p.remarks,
+        createdBy: p.createdBy,
         bankAmount: p.method === "CASH" ? 0 : p.amount,
         cashAmount: p.method === "CASH" ? p.amount : 0,
         paidAmount: p.amount,
@@ -679,35 +702,39 @@ export default function SupplierPaymentsPage() {
             <Search className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
           </div>
 
-          {/* + Payment By GRN */}
-          <button
-            type="button"
-            onClick={() => router.push("/purchase/supplier-payments/payment-by-grn")}
-            className="h-9 px-3.5 bg-[#2563eb] hover:bg-blue-700 text-white font-semibold text-xs rounded flex items-center gap-1.5 shadow-xs transition"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Payment By GRN</span>
-          </button>
+          {perms.payments.create && (
+            <>
+              {/* + Payment By GRN */}
+              <button
+                type="button"
+                onClick={() => router.push("/purchase/supplier-payments/payment-by-grn")}
+                className="h-9 px-3.5 bg-[#2563eb] hover:bg-blue-700 text-white font-semibold text-xs rounded flex items-center gap-1.5 shadow-xs transition"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Payment By GRN</span>
+              </button>
 
-          {/* + Advance Payment */}
-          <button
-            type="button"
-            onClick={() => setIsAdvancePaymentOpen(true)}
-            className="h-9 px-3.5 bg-[#2563eb] hover:bg-blue-700 text-white font-semibold text-xs rounded flex items-center gap-1.5 shadow-xs transition"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Advance Payment</span>
-          </button>
+              {/* + Advance Payment */}
+              <button
+                type="button"
+                onClick={() => setIsAdvancePaymentOpen(true)}
+                className="h-9 px-3.5 bg-[#2563eb] hover:bg-blue-700 text-white font-semibold text-xs rounded flex items-center gap-1.5 shadow-xs transition"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Advance Payment</span>
+              </button>
 
-          {/* + Create Bill */}
-          <button
-            type="button"
-            onClick={() => setIsCreateBillOpen(true)}
-            className="h-9 px-4 bg-[#2563eb] hover:bg-blue-700 text-white font-semibold text-xs rounded flex items-center gap-1.5 shadow-xs transition"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Create Bill</span>
-          </button>
+              {/* + Create Bill */}
+              <button
+                type="button"
+                onClick={() => setIsCreateBillOpen(true)}
+                className="h-9 px-4 bg-[#2563eb] hover:bg-blue-700 text-white font-semibold text-xs rounded flex items-center gap-1.5 shadow-xs transition"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Create Bill</span>
+              </button>
+            </>
+          )}
         </div>
       </div>
 
@@ -820,21 +847,30 @@ export default function SupplierPaymentsPage() {
             >
               View
             </button>
-            <button
-              type="button"
-              onClick={handleExportCSV}
-              className="px-4 py-1.5 border border-[#1976d2] text-[#1976d2] hover:bg-blue-50 font-bold rounded text-xs transition"
-            >
-              Excel
-            </button>
-            <button
-              type="button"
-              onClick={() => window.print()}
-              className="flex items-center gap-1 px-4 py-1.5 bg-[#1976d2] hover:bg-[#1565c0] text-white font-bold rounded text-xs transition"
-            >
-              <Download className="w-3.5 h-3.5" />
-              <span>PDF</span>
-            </button>
+            {perms.payments.export && (
+              <>
+                <button
+                  type="button"
+                  onClick={handleExportCSV}
+                  className="px-4 py-1.5 border border-[#1976d2] text-[#1976d2] hover:bg-blue-50 font-bold rounded text-xs transition"
+                >
+                  Excel
+                </button>
+                <a
+                  href={`/api/v1/purchase/supplier-payments/payables-pdf?${new URLSearchParams({
+                    ...(tab1FromDate ? { fromDate: tab1FromDate } : {}),
+                    ...(tab1ToDate ? { toDate: tab1ToDate } : {}),
+                    ...(searchTerm ? { search: searchTerm } : {}),
+                  }).toString()}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-1 px-4 py-1.5 bg-[#1976d2] hover:bg-[#1565c0] text-white font-bold rounded text-xs transition"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>PDF</span>
+                </a>
+              </>
+            )}
           </div>
 
           {/* Table Container with All Borders */}
@@ -862,9 +898,10 @@ export default function SupplierPaymentsPage() {
                     <td className="p-1 border border-slate-300 text-center">
                       <button
                         type="button"
+                        disabled={!perms.payments.create}
                         onClick={() => handleOpenQuickPay(row)}
-                        className="w-6 h-6 rounded bg-slate-100 hover:bg-emerald-100 text-slate-700 hover:text-emerald-700 font-bold text-xs inline-flex items-center justify-center border border-slate-300 transition"
-                        title="Make Payment to Supplier"
+                        className="w-6 h-6 rounded bg-slate-100 hover:bg-emerald-100 text-slate-700 hover:text-emerald-700 disabled:opacity-40 disabled:pointer-events-none font-bold text-xs inline-flex items-center justify-center border border-slate-300 transition"
+                        title={!perms.payments.create ? "Requires Create permission in Configuration" : "Make Payment to Supplier"}
                       >
                         $
                       </button>
@@ -983,22 +1020,24 @@ export default function SupplierPaymentsPage() {
             </div>
 
             <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  const pendingOnly = pendingBills.filter((b) => b.status === "Pending");
-                  if (pendingOnly.length === 0) {
-                    toast.info("No pending bills left to approve.");
-                    return;
-                  }
-                  approveMutation.mutate(null);
-                }}
-                disabled={approveMutation.isPending}
-                className="flex items-center gap-1.5 px-3 py-1 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white rounded text-xs font-semibold shadow-xs transition"
-              >
-                {approveMutation.isPending ? <Spinner className="size-3.5" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
-                <span>Batch Approve All</span>
-              </button>
+              {perms.payments.approve && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const pendingOnly = pendingBills.filter((b) => b.status === "Pending");
+                    if (pendingOnly.length === 0) {
+                      toast.info("No pending bills left to approve.");
+                      return;
+                    }
+                    approveMutation.mutate(null);
+                  }}
+                  disabled={approveMutation.isPending}
+                  className="flex items-center gap-1.5 px-3 py-1 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white rounded text-xs font-semibold shadow-xs transition"
+                >
+                  {approveMutation.isPending ? <Spinner className="size-3.5" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
+                  <span>Batch Approve All</span>
+                </button>
+              )}
             </div>
           </div>
 
@@ -1084,9 +1123,13 @@ export default function SupplierPaymentsPage() {
                               <button
                                 type="button"
                                 onClick={() => handleApproveBill(bill.billNo)}
-                                disabled={approveMutation.isPending}
-                                className="px-2 py-1 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white rounded text-[11px] font-semibold transition"
-                                title="Approve Bill"
+                                disabled={approveMutation.isPending || !perms.canApprovePayment(bill.netPayable)}
+                                className="px-2 py-1 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white rounded text-[11px] font-semibold transition"
+                                title={
+                                  !perms.canApprovePayment(bill.netPayable)
+                                    ? "Requires Approve permission & Approval Setup eligibility in Configuration"
+                                    : "Approve Bill"
+                                }
                               >
                                 Approve
                               </button>
@@ -1094,9 +1137,15 @@ export default function SupplierPaymentsPage() {
                             <button
                               type="button"
                               onClick={() => handlePayPendingBill(bill)}
-                              disabled={bill.status !== "Approved"}
+                              disabled={bill.status !== "Approved" || !perms.payments.create}
                               className="px-2 py-1 bg-[#1976d2] hover:bg-[#1565c0] disabled:opacity-40 disabled:hover:bg-[#1976d2] text-white rounded text-[11px] font-semibold transition"
-                              title={bill.status === "Approved" ? "Pay Bill" : "Approve the bill before paying it"}
+                              title={
+                                !perms.payments.create
+                                  ? "Requires Create permission in Configuration"
+                                  : bill.status === "Approved"
+                                    ? "Pay Bill"
+                                    : "Approve the bill before paying it"
+                              }
                             >
                               Pay Now
                             </button>
@@ -1175,13 +1224,15 @@ export default function SupplierPaymentsPage() {
             >
               View
             </button>
-            <button
-              type="button"
-              onClick={handleExportCSV}
-              className="px-4 py-1.5 border border-[#1976d2] text-[#1976d2] hover:bg-blue-50 font-bold rounded text-xs transition"
-            >
-              Excel
-            </button>
+            {perms.payments.export && (
+              <button
+                type="button"
+                onClick={handleExportCSV}
+                className="px-4 py-1.5 border border-[#1976d2] text-[#1976d2] hover:bg-blue-50 font-bold rounded text-xs transition"
+              >
+                Excel
+              </button>
+            )}
           </div>
 
           {/* Table Container with All Borders */}
@@ -1238,12 +1289,13 @@ export default function SupplierPaymentsPage() {
                         </button>
                         <button
                           type="button"
+                          disabled={!perms.payments.delete}
                           onClick={() => {
                             setCancelPayment(row);
                             setCancelPaymentReason("");
                           }}
-                          className="p-0.5 hover:text-rose-600 transition"
-                          title="Cancel payment"
+                          className="p-0.5 hover:text-rose-600 disabled:opacity-30 disabled:pointer-events-none transition"
+                          title={!perms.payments.delete ? "Requires Delete permission in Configuration" : "Cancel payment"}
                           aria-label={`Cancel payment ${row.moneyReceiptNo}`}
                         >
                           <Ban className="w-3.5 h-3.5" />
@@ -2061,79 +2113,60 @@ export default function SupplierPaymentsPage() {
       >
         {printPaidVoucher && (
           <div className="space-y-4 text-xs">
-            <div className="bg-white p-6 border border-slate-200 rounded shadow-sm text-slate-800 space-y-4 print:p-0 print:border-none">
-              {/* Header */}
-              <div className="flex justify-between items-start border-b border-slate-200 pb-3 mb-3">
-                <div className="flex items-center gap-3">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src="/logo.png" alt="BridgeOne Logo" className="h-10 w-auto object-contain" />
-                  <div>
-                    <h2 className="font-bold text-base text-slate-900 tracking-wide uppercase">BridgeOne ERP Industries Ltd.</h2>
-                    <p className="text-[11px] text-slate-500">Accounts & Procurement Finance Division • Dhaka, Bangladesh</p>
-                  </div>
-                </div>
-                <div className="text-right">
-                  <span className="inline-block bg-emerald-100 text-emerald-800 font-bold px-2.5 py-0.5 rounded text-xs">
-                    MONEY RECEIPT VOUCHER
-                  </span>
-                  <p className="font-mono font-bold text-slate-900 text-sm mt-1">{printPaidVoucher.moneyReceiptNo || "MR-2026-0914"}</p>
-                  <p className="text-[10px] text-slate-400">Payment Date: {printPaidVoucher.paidDate}</p>
-                </div>
-              </div>
-
-              {/* Payee Info */}
-              <div className="grid grid-cols-2 gap-4 p-3 bg-slate-50 rounded border border-slate-200 text-xs">
-                <div>
-                  <h4 className="font-bold text-slate-800 text-[11px] uppercase mb-1">Paid To Vendor</h4>
-                  <p className="font-bold text-slate-900 text-sm">{printPaidVoucher.supplier}</p>
-                  <p className="text-slate-600">Settled Invoices: <span className="font-mono">{printPaidVoucher.invoiceNo}</span></p>
-                </div>
-                <div>
-                  <h4 className="font-bold text-slate-800 text-[11px] uppercase mb-1">Payment Channel</h4>
-                  <p className="text-slate-700">Bank Amount: <span className="font-mono font-bold">{formatCurrency(printPaidVoucher.bankAmount)}</span></p>
-                  <p className="text-slate-700">Cash Amount: <span className="font-mono font-bold">{formatCurrency(printPaidVoucher.cashAmount)}</span></p>
-                  <p className="text-slate-900 font-bold text-sm mt-1">Total Disbursed: <span className="font-mono text-emerald-700">{formatCurrency(printPaidVoucher.paidAmount)}</span></p>
-                </div>
-              </div>
-
-              {/* Signatures */}
-              <div className="pt-16 grid grid-cols-4 gap-4 text-center text-[10px] text-slate-500">
-                <div className="border-t border-slate-300 pt-1">
-                  <span className="font-semibold text-slate-700 block">Fuad Hossain</span>
-                  <span>Prepared By</span>
-                </div>
-                <div className="border-t border-slate-300 pt-1">
-                  <span className="font-semibold text-slate-700 block">Accounts Officer</span>
-                  <span>Verified & Posted</span>
-                </div>
-                <div className="border-t border-slate-300 pt-1">
-                  <span className="font-semibold text-slate-700 block">Head of Finance</span>
-                  <span>Approved Disbursement</span>
-                </div>
-                <div className="border-t border-slate-300 pt-1">
-                  <span className="font-semibold text-slate-700 block">Payee Receiver</span>
-                  <span>Signature & Seal</span>
-                </div>
-              </div>
-            </div>
-
-            <div className="flex justify-end gap-2 pt-2">
-              <button
-                type="button"
-                onClick={() => setPrintPaidVoucher(null)}
-                className="px-4 py-1.5 border border-slate-200 rounded text-slate-700 font-semibold"
-              >
-                Close Preview
-              </button>
-              <button
-                type="button"
-                onClick={() => window.print()}
-                className="px-5 py-1.5 bg-[#1976d2] hover:bg-[#1565c0] text-white rounded font-bold flex items-center gap-1.5 shadow"
-              >
-                <Printer className="w-4 h-4" />
-                <span>Print Document</span>
-              </button>
-            </div>
+            <PrintablePurchaseDoc
+              context={context}
+              title="Supplier Payment Voucher"
+              metaLeft={[
+                ["Voucher / Receipt No", printPaidVoucher.voucherNo || printPaidVoucher.moneyReceiptNo],
+                ["Supplier Name", printPaidVoucher.supplier],
+                ["Payment Method", printPaidVoucher.method || "BANK"],
+                ["Remarks / Narration", printPaidVoucher.remarks || ""],
+              ]}
+              metaRight={[
+                ["Payment Date", fmtPrintDate(printPaidVoucher.paidDate)],
+                ["Settled Document", printPaidVoucher.invoiceNo || "-"],
+                ["Money Receipt / Ref.", printPaidVoucher.moneyReceiptNo || "-"],
+                ["Status", "PAID"],
+              ]}
+              columns={[
+                { header: "SL", align: "center", widthClass: "w-10" },
+                { header: "Document / Ref", align: "left", widthClass: "w-36" },
+                { header: "Description", align: "left" },
+                { header: "Bank Amount", align: "right", widthClass: "w-28" },
+                { header: "Cash Amount", align: "right", widthClass: "w-28" },
+                { header: "Total Paid", align: "right", widthClass: "w-28" },
+              ]}
+              rows={[
+                [
+                  1,
+                  printPaidVoucher.invoiceNo || "-",
+                  `Supplier Payment (${printPaidVoucher.supplier})`,
+                  fmtPrintNum(printPaidVoucher.bankAmount),
+                  fmtPrintNum(printPaidVoucher.cashAmount),
+                  fmtPrintNum(printPaidVoucher.paidAmount),
+                ],
+              ]}
+              totalRows={[
+                [
+                  "",
+                  "",
+                  "Total Disbursed",
+                  fmtPrintNum(printPaidVoucher.bankAmount),
+                  fmtPrintNum(printPaidVoucher.cashAmount),
+                  fmtPrintNum(printPaidVoucher.paidAmount),
+                ],
+              ]}
+              signatures={[
+                { roleLabel: "Prepared By", name: printPaidVoucher.createdBy },
+                { roleLabel: "Approved By" },
+                { roleLabel: "Received By", name: printPaidVoucher.supplier, designation: "Supplier / Payee" },
+              ]}
+            />
+            <PurchasePrintToolbar
+              pdfUrl={`/api/v1/purchase/supplier-payments/${encodeURIComponent(printPaidVoucher.id)}/pdf`}
+              onClose={() => setPrintPaidVoucher(null)}
+              canExportPdf={perms.payments.export}
+            />
           </div>
         )}
       </ModalDialog>

@@ -3148,6 +3148,7 @@ model Account {
   supplierPaymentCash      SupplierPayment[]          @relation("SupplierPaymentCashAccount")
 
   postingRoles             PostingAccount[]
+  coaPermissions           CoaPermission[]
   @@map("accounts")
 }
 
@@ -3225,13 +3226,17 @@ model JournalVoucherLine {
 model ExpenseRecord {
   id              String    @id @default(uuid()) @db.Uuid
   expenseNumber   String    @unique @db.VarChar(50)
+  recordKind      String    @default("EXPENSE") @db.VarChar(30)
   officeId        String?   @db.Uuid
   officeName      String?   @db.VarChar(150)
   expenseType     String    @db.VarChar(100)
   accountId       String?   @db.Uuid
+  accountCode     String?   @db.VarChar(50)
   accountName     String    @db.VarChar(150)
   payeeName       String    @db.VarChar(150)
   amount          Decimal   @db.Decimal(14, 2)
+  settledAmount   Decimal   @default(0) @db.Decimal(14, 2)
+  effectivePeriod String?   @db.VarChar(100)
   date            DateTime  @db.Date
   paymentMethod   String    @default("BANK") @db.VarChar(30)
   referenceNumber String?   @db.VarChar(100)
@@ -3411,6 +3416,58 @@ model BankAccount {
   @@map("bank_accounts")
 }
 
+model CoaPermission {
+  id              String   @id @default(uuid()) @db.Uuid
+  employeeUuid    String?  @db.Uuid
+  employeeId      String   @db.VarChar(50)
+  employeeName    String   @db.VarChar(150)
+  voucherType     String   @db.VarChar(50)
+  accountId       String?  @db.Uuid
+  accountHeadCode String   @db.VarChar(50)
+  accountHeadName String   @db.VarChar(150)
+  status          String   @default("ACTIVE") @db.VarChar(30)
+  createdAt       DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime @updatedAt @db.Timestamptz(3)
+
+  account  Account?  @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  employee Employee? @relation(fields: [employeeUuid], references: [id], onDelete: SetNull)
+
+  @@unique([employeeId, voucherType, accountHeadCode])
+  @@index([accountHeadCode])
+  @@index([voucherType])
+  @@map("coa_permissions")
+}
+
+model BankFacility {
+  id                   String    @id @default(uuid()) @db.Uuid
+  facilityKind         String    @db.VarChar(30) // DEPOSIT | LOAN | PARTNER
+  facilityNumber       String    @unique @db.VarChar(50)
+  bankAccountId        String?   @db.Uuid
+  officeId             String?   @db.Uuid
+  officeName           String?   @db.VarChar(150)
+  partyName            String    @db.VarChar(150)
+  facilityType         String    @db.VarChar(100)
+  category             String?   @db.VarChar(50)
+  partnerGroup         String?   @db.VarChar(100)
+  glAccountId          String?   @db.Uuid
+  glAccountName        String?   @db.VarChar(150)
+  principalAmount      Decimal   @default(0) @db.Decimal(14, 2)
+  interestRate         Decimal   @default(0) @db.Decimal(6, 2)
+  openingDate          DateTime? @db.Date
+  maturityDate         DateTime? @db.Date
+  maturityValue        Decimal   @default(0) @db.Decimal(14, 2)
+  installmentAmount    Decimal   @default(0) @db.Decimal(14, 2)
+  outstandingPrincipal Decimal   @default(0) @db.Decimal(14, 2)
+  accruedInterest      Decimal   @default(0) @db.Decimal(14, 2)
+  tenureMonths         Int?
+  status               String    @default("ACTIVE") @db.VarChar(30)
+  createdAt            DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt            DateTime  @updatedAt @db.Timestamptz(3)
+
+  @@index([facilityKind])
+  @@map("bank_facilities")
+}
+
 // ─── Configuration › Entity Master Data › Employee ──────────────────────────
 
 model Employee {
@@ -3494,6 +3551,7 @@ model Employee {
   rtmTourPlans         RtmTourPlan[]         @relation("RtmTourPlanSr")
   rtmVisits            RtmVisit[]
   rtmTargets           RtmTarget[]           @relation("RtmTargetSr")
+  coaPermissions       CoaPermission[]
   @@index([officeId])
   @@index([employeeCode])
   @@index([attendanceId])

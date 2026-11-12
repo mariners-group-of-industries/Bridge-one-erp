@@ -6,6 +6,7 @@ import {
   FileSpreadsheet,
   Download,
   Printer,
+  ExternalLink,
   Filter,
   RotateCcw,
   Building,
@@ -19,10 +20,12 @@ import {
   AlertCircle,
 } from "lucide-react";
 import { PageHeader } from "@/components/purchase/PageHeader";
+import { fmtPrintDate, type PrintHeaderContext } from "@/components/purchase/PrintablePurchaseDoc";
 import { toast } from "@/components/purchase/Toast";
 import { Spinner } from "@/components/ui/spinner";
 import { fetchApi } from "@/lib/api";
 import { formatCurrency } from "@/lib/utils";
+import { usePurchasePermissions } from "@/features/purchase/lib/usePurchasePermissions";
 import { ReportResult, Office, Supplier } from "@bridgeone/contracts";
 
 const REPORT_CATEGORIES = [
@@ -90,6 +93,7 @@ function statusTone(value: string): "ok" | "wait" | "bad" | "plain" {
 }
 
 export default function PurchaseReportsPage() {
+  const perms = usePurchasePermissions();
   const [reportType, setReportType] = useState("REQUISITION_REPORT");
   const [selectedOffice, setSelectedOffice] = useState("ALL");
   const [selectedSupplier, setSelectedSupplier] = useState("ALL");
@@ -107,7 +111,18 @@ export default function PurchaseReportsPage() {
     queryFn: () => fetchApi("/master/suppliers"),
   });
 
-  const { data: context } = useQuery<{ company: { name: string } }>({ queryKey: ["context"], queryFn: () => fetchApi("/master/context") });
+  const { data: context } = useQuery<PrintHeaderContext>({ queryKey: ["context"], queryFn: () => fetchApi("/master/context") });
+
+  const reportPdfUrl = useMemo(() => {
+    const p = new URLSearchParams();
+    p.append("reportType", reportType);
+    if (selectedOffice !== "ALL") p.append("officeId", selectedOffice);
+    if (selectedSupplier !== "ALL") p.append("supplierId", selectedSupplier);
+    if (fromDate) p.append("fromDate", fromDate);
+    if (toDate) p.append("toDate", toDate);
+    if (isSummary) p.append("isSummary", "true");
+    return `/api/v1/purchase/reports/pdf?${p.toString()}`;
+  }, [reportType, selectedOffice, selectedSupplier, fromDate, toDate, isSummary]);
 
   const { data: reportData, isLoading, isFetching, refetch } = useQuery<ReportResult>({
     queryKey: ["report", reportType, selectedOffice, selectedSupplier, fromDate, toDate, isSummary],
@@ -203,22 +218,41 @@ export default function PurchaseReportsPage() {
   return (
     <div className="space-y-4">
       {/* Printable Corporate Letterhead (visible only on print) */}
-      <div className="hidden print:block border-b-2 border-slate-900 pb-3 mb-4">
-        <div className="flex justify-between items-start">
-          <div>
-            <h1 className="text-xl font-black text-slate-900 tracking-tight uppercase">{context?.company?.name ?? ""}</h1>
-            <p className="text-xs text-slate-600">Purchase Reports</p>
-          </div>
-          <div className="text-right text-xs">
-            <p className="font-bold text-slate-800">{currentReportMeta.label}</p>
-            <p className="text-slate-500">Generated: {new Date().toLocaleString("en-GB")}</p>
-            {(fromDate || toDate) && (
-              <p className="text-slate-500">
-                Period: {fromDate || "…"} to {toDate || "…"}
-              </p>
-            )}
-          </div>
-        </div>
+      <div className="hidden print:block space-y-3 mb-3 text-black">
+        {(() => {
+          const officeInfo = selectedOffice !== "ALL" && context?.officesById ? context.officesById[selectedOffice] : undefined;
+          const companyName = context?.company?.name || context?.company?.businessUnitName || "";
+          const officeName = officeInfo?.name || context?.company?.businessUnitName || "";
+          const address = officeInfo?.address || context?.company?.address || "";
+          const phone = officeInfo?.phone || context?.company?.phone || "";
+          const email = officeInfo?.email || context?.company?.email || "";
+          const contactLine = [phone ? `Phone: ${phone}` : "", email ? `Email: ${email}` : ""].filter(Boolean).join(" , ");
+          return (
+            <>
+              <div className="relative flex items-start justify-center min-h-[48px]">
+                <div className="absolute left-0 top-0">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src="/logo.png" alt="Company Logo" className="h-9 w-auto max-w-[120px] object-contain" />
+                </div>
+                <div className="text-center px-32 leading-snug">
+                  {companyName && <h1 className="text-lg font-bold text-black">{companyName}</h1>}
+                  {officeName && <p className="text-[11px] font-medium text-black">{officeName}</p>}
+                  {address && <p className="text-[10.5px] text-slate-900">{address}</p>}
+                  {contactLine && <p className="text-[10.5px] text-slate-900">{contactLine}</p>}
+                </div>
+              </div>
+              <div className="flex justify-center">
+                <div className="border border-black px-4 py-1 text-center font-bold text-sm text-black">
+                  {currentReportMeta.label}
+                </div>
+              </div>
+              <div className="border border-black px-3 py-1.5 flex justify-between text-[10.5px]">
+                <span>Period: {fromDate ? fmtPrintDate(fromDate) : "Start"} - {toDate ? fmtPrintDate(toDate) : "Today"}</span>
+                <span>Generated: {fmtPrintDate(new Date().toISOString())}</span>
+              </div>
+            </>
+          );
+        })()}
       </div>
 
       {/* Screen Header */}
@@ -227,14 +261,27 @@ export default function PurchaseReportsPage() {
           title="Procurement Reports & Corporate Ledgers"
           actions={
             <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={handleClientExportCsv}
-                className="h-9 px-3.5 bg-[#2563eb] hover:bg-blue-700 text-white font-semibold text-xs rounded flex items-center gap-1.5 shadow-xs transition"
-              >
-                <Download className="w-3.5 h-3.5" />
-                <span>Excel</span>
-              </button>
+              {perms.reports.export && (
+                <>
+                  <button
+                    type="button"
+                    onClick={handleClientExportCsv}
+                    className="h-9 px-3.5 bg-[#2563eb] hover:bg-blue-700 text-white font-semibold text-xs rounded flex items-center gap-1.5 shadow-xs transition"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>Excel</span>
+                  </button>
+                  <a
+                    href={reportPdfUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="h-9 px-3.5 bg-[#1976d2] hover:bg-[#1565c0] text-white font-semibold text-xs rounded flex items-center gap-1.5 shadow-xs transition"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" />
+                    <span>PDF</span>
+                  </a>
+                </>
+              )}
               <button
                 type="button"
                 onClick={() => window.print()}
@@ -436,14 +483,28 @@ export default function PurchaseReportsPage() {
               <span>Reset</span>
             </button>
 
-            <button
-              type="button"
-              onClick={handleClientExportCsv}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-xs font-semibold shadow-2xs transition"
-            >
-              <Download className="w-3.5 h-3.5" />
-              <span>Export CSV</span>
-            </button>
+            {perms.reports.export && (
+              <>
+                <button
+                  type="button"
+                  onClick={handleClientExportCsv}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-xs font-semibold shadow-2xs transition"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Export CSV</span>
+                </button>
+
+                <a
+                  href={reportPdfUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 bg-[#1976d2] hover:bg-[#1565c0] text-white rounded text-xs font-medium transition"
+                >
+                  <ExternalLink className="w-3.5 h-3.5" />
+                  <span>Open PDF</span>
+                </a>
+              </>
+            )}
 
             <button
               type="button"

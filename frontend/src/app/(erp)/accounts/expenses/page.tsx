@@ -22,6 +22,7 @@ export default function ExpenseAdvancePage() {
   const advances = useAccountingStore((s) => s.advances);
   const provisions = useAccountingStore((s) => s.provisions);
   const accounts = useAccountingStore((s) => s.accounts);
+  const dbOffices = useAccountingStore((s) => s.offices);
   const createExpense = useAccountingStore((s) => s.createExpense);
   const markExpensePaid = useAccountingStore((s) => s.markExpensePaid);
   const createAdvance = useAccountingStore((s) => s.createAdvance);
@@ -85,17 +86,14 @@ export default function ExpenseAdvancePage() {
     description: "",
   });
 
-  // Offices list
-  const officeList = [
-    { id: "ALL", name: "Office (All)" },
-    { id: "MG Sirajganj Factory", name: "MG Sirajganj Factory" },
-    { id: "MGV-PLC", name: "MGV-PLC" },
-    { id: "Dhaka Head Office", name: "Dhaka Head Office" },
-    { id: "MBBL-HO", name: "MBBL-HO" },
-    { id: "MOHS-Eco", name: "MOHS-Eco" },
-    { id: "CFF-Chapai", name: "CFF-Chapai" },
-    { id: "MFIL-HO", name: "MFIL-HO" },
-  ];
+  // Offices list from DB
+  const officeList = useMemo(
+    () => [
+      { id: "ALL", name: "Office (All)" },
+      ...dbOffices.map((o) => ({ id: o.name, name: o.name })),
+    ],
+    [dbOffices]
+  );
 
   // Expense Types list
   const expenseTypes = [
