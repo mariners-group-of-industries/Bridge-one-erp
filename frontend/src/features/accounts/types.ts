@@ -44,6 +44,10 @@ export interface JournalLineItem {
   credit: number;
   narration?: string;
   costCenterId?: string;
+  /** Who the line is for (iBOS Customer/Supplier/Employee). */
+  partnerType?: "CUSTOMER" | "SUPPLIER" | "EMPLOYEE" | null;
+  partnerId?: string | null;
+  partnerName?: string | null;
 }
 
 export interface JournalVoucher {
@@ -69,6 +73,11 @@ export interface JournalVoucher {
   preparedBy?: string;
   approvedBy?: string;
   postedAt?: string;
+  employeeId?: string | null;
+  employeeName?: string | null;
+  projectId?: string | null;
+  projectName?: string | null;
+  attachmentId?: string | null;
   createdAt: string;
 }
 
@@ -99,7 +108,28 @@ export interface ExpenseRecord {
   status: ExpenseStatus;
   approvedBy?: string;
   paidAt?: string;
+  employeeId?: string | null;
+  employeeName?: string | null;
+  department?: string | null;
+  salesOrderId?: string | null;
+  salesOrderNo?: string | null;
+  supplierId?: string | null;
+  supplierName?: string | null;
+  attachmentId?: string | null;
+  lines?: ExpenseLineItem[];
   createdAt: string;
+}
+
+/** One GL line of an expense (iBOS Create Expense grid). */
+export interface ExpenseLineItem {
+  id?: string;
+  date: string;
+  accountId: string;
+  accountCode?: string;
+  accountName?: string;
+  subGl?: string | null;
+  remarks?: string | null;
+  amount: number;
 }
 
 export type AdvanceStatus = "DRAFT" | "PENDING" | "APPROVED" | "DISBURSED" | "SETTLED" | "PARTIAL";
@@ -213,6 +243,8 @@ export interface BankAccountItem {
   currentBalance: number;
   reconciliationStatus: "RECONCILED" | "PENDING_RECONCILIATION";
   isActive: boolean;
+  shortName?: string | null;
+  signatory?: string | null;
   createdAt: string;
 }
 
@@ -365,6 +397,11 @@ export interface BudgetLineItem {
   utilizedAmount?: number;
   remainingAmount?: number;
   remarks?: string;
+  /** The account head (group) the expense GL sits under. */
+  headCode?: string | null;
+  headName?: string | null;
+  /** Amount per month, keyed "2026-11". */
+  monthlyAmounts?: Record<string, number> | null;
 }
 
 export interface BudgetItem {
@@ -391,6 +428,9 @@ export interface BudgetItem {
   status?: string;
   version?: number;
   items?: BudgetLineItem[];
+  fromPeriod?: string | null;
+  toPeriod?: string | null;
+  remarks?: string | null;
   createdBy: string;
   createdAt: string;
 }

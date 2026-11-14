@@ -53,12 +53,12 @@ async function handleGET(_request: Request, _context: unknown, actor: Actor) {
       may("chequeBooks") ? prisma.chequeBook.findMany({ orderBy: { createdAt: "desc" } }) : none,
       may("chequeIssues") ? prisma.chequeIssue.findMany({ orderBy: { issueDate: "desc" } }) : none,
       may("receivedCheques") ? prisma.receivedCheque.findMany({ orderBy: { receivedDate: "desc" } }) : none,
-      may("expenses") ? prisma.expenseRecord.findMany({ orderBy: [{ date: "desc" }, { createdAt: "desc" }] }) : none,
+      may("expenses") ? prisma.expenseRecord.findMany({ include: { lines: { orderBy: { lineNo: "asc" } } }, orderBy: [{ date: "desc" }, { createdAt: "desc" }] }) : none,
       may("fundTransfers") ? prisma.fundTransfer.findMany({ orderBy: [{ requestDate: "desc" }, { createdAt: "desc" }] }) : none,
       prisma.office.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" } }),
       prisma.employee.findMany({
         where: { isActive: true },
-        select: { id: true, employeeCode: true, name: true, designation: true, officeId: true },
+        select: { id: true, employeeCode: true, name: true, designation: true, department: true, officeId: true },
         orderBy: { name: "asc" },
       }),
     ]);

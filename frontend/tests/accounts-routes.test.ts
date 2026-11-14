@@ -14,6 +14,10 @@ import { PATCH as updateCostCenterRoute } from "@/app/api/accounts/cost-centers/
 import { POST as createFundTransferRoute } from "@/app/api/accounts/fund-transfers/route";
 import { POST as createBankingRoute } from "@/app/api/accounts/banking/route";
 import { POST as createExpenseRoute } from "@/app/api/accounts/expenses/route";
+import { PATCH as payExpenseRoute } from "@/app/api/accounts/expenses/[id]/route";
+import { POST as uploadJournalAttachment } from "@/app/api/accounts/journal/attachments/route";
+import { GET as downloadJournalAttachment } from "@/app/api/accounts/journal/attachments/[attachmentId]/route";
+import { setStorage } from "@/lib/storage";
 import { POST as createBudgetRoute } from "@/app/api/accounts/budget/route";
 import { GET as partyLedgerRoute } from "@/app/api/accounts/party-ledger/route";
 import { GET as otherReportsRoute } from "@/app/api/accounts/other-reports/route";
@@ -21,7 +25,7 @@ import { createItem } from "@/features/sales/masters/services/masters.service";
 import { purchaseStore } from "@/lib/purchase-store/store";
 import { isoDateOrNull, uuidOrNull } from "@/lib/accounting/ids";
 import { transTypeBase, transTypeLabel, transTypeFilterOptions } from "@/features/accounts/transaction-types";
-import { adminActor, businessUnitInput, companyInput, officeInput } from "./helpers/fixtures";
+import { adminActor, businessUnitInput, companyInput, MemoryStorage, officeInput, pngBytes } from "./helpers/fixtures";
 import { resetTestDb, startTestDb, stopTestDb, testPrisma } from "./helpers/test-db";
 
 type Handler = (r: Request, c: unknown) => Promise<Response>;
@@ -90,6 +94,123 @@ describe("form value helpers", () => {
     expect(options).toContain("Contra Voucher");
     expect(options).toContain("LEGACY_TYPE");
     expect(options.filter((o) => o === "Sales")).toHaveLength(1);
+  });
+});
+
+describe("iBOS form fields", () => {
+  const auth = () => ({ authorization: `Bearer ${token}`, "user-agent": "vitest" });
+
+  it("journal: keeps the employee, project, attachment and each line's customer/supplier/employee", async () => {
+    setStorage(new MemoryStorage());
+    const form = new FormData();
+    form.append("file", new File([new Uint8Array(pngBytes())], "receipt.png", { type: "image/png" }));
+    const upload = await uploadJournalAttachment(new Request("http://localhost/api/accounts/journal/attachments", { method: "POST", headers: auth(), body: form }), {});
+    expect(upload.status).toBe(201);
+    const attachment = (await upload.json()).data;
+    expect(attachment.originalName).toBe("receipt.png");
+
+    // A text file pretending to be a PNG is refused.
+    const fake = new FormData();
+    fake.append("file", new File([new TextEncoder().encode("hello")], "x.png", { type: "image/png" }));
+    expect((await uploadJournalAttachment(new Request("http://localhost/api/accounts/journal/attachments", { method: "POST", headers: auth(), body: fake }), {})).status).toBe(415);
+
+    const employeeId = "3fe794bd-5cd9-4452-9832-9a7bdef68034";
+    const res = await post(createJournalRoute, "journal", {
+      transactionDate: "2026-11-14",
+      officeId,
+      officeName: "Dhaka Head Office",
+      narration: "Advance",
+      transType: "Journal Voucher",
+      status: "POSTED",
+      employeeId,
+      employeeName: "Md. Usuf Ali",
+      attachmentId: attachment.id,
+      lines: [
+        { accountId: expenseId, accountCode: "80201001", accountName: "Business Promotion Expenses", debit: 300, credit: 0, partnerType: "EMPLOYEE", partnerId: employeeId, partnerName: "Md. Usuf Ali" },
+        { accountId: cashId, accountCode: "10101001", accountName: "Cash In Hand", debit: 0, credit: 300, partnerType: "NOT_A_TYPE", partnerId: employeeId, partnerName: "x" },
+      ],
+    });
+    expect(res.status).toBe(201);
+    expect(res.json.data.employeeName).toBe("Md. Usuf Ali");
+    expect(res.json.data.attachmentId).toBe(attachment.id);
+    const [l1, l2] = res.json.data.lines.sort((a: { lineNo: number }, b: { lineNo: number }) => a.lineNo - b.lineNo);
+    expect(l1).toMatchObject({ partnerType: "EMPLOYEE", partnerName: "Md. Usuf Ali" });
+    // An unknown partner type is dropped rather than stored.
+    expect(l2).toMatchObject({ partnerType: null, partnerId: null });
+
+    const download = await downloadJournalAttachment(new Request(`http://localhost/api/accounts/journal/attachments/${attachment.id}`, { headers: auth() }), {
+      params: Promise.resolve({ attachmentId: attachment.id }),
+    });
+    expect(download.status).toBe(200);
+    expect(download.headers.get("content-type")).toBe("image/png");
+  });
+
+  it("expense: several GL lines make the total, and paying it debits each line", async () => {
+    const prisma = testPrisma();
+    const rent = (await prisma.account.create({ data: { code: "80301001", name: "Rent", accountType: "EXPENSE", accountSubtype: "Expense", normalBalance: "DEBIT", isGroup: false } })).id;
+    const res = await post(createExpenseRoute, "expenses", {
+      recordKind: "EXPENSE",
+      expenseType: "Employee",
+      officeId,
+      employeeId: "3fe794bd-5cd9-4452-9832-9a7bdef68034",
+      employeeName: "Md. Usuf Ali",
+      department: "Accounts & Finance",
+      date: "2026-11-14",
+      lines: [
+        { date: "2026-11-14", accountId: expenseId, remarks: "Promotion", amount: 120 },
+        { date: "2026-11-13", accountId: rent, remarks: "Office rent", amount: 80 },
+      ],
+    });
+    expect(res.status).toBe(201);
+    expect(Number(res.json.data.amount)).toBe(200);
+    expect(res.json.data.payeeName).toBe("Md. Usuf Ali");
+    expect(res.json.data.lines).toHaveLength(2);
+
+    const bad = await post(createExpenseRoute, "expenses", { recordKind: "EXPENSE", officeId, lines: [{ accountId: "acc-702", amount: 10 }] });
+    expect(bad.status).toBe(400);
+    expect(bad.json.error).toBe("Line 1: select the account (GL).");
+
+    const pay = await payExpenseRoute(
+      new Request(`http://localhost/api/accounts/expenses/${res.json.data.id}`, { method: "PATCH", headers: { ...auth(), "content-type": "application/json" }, body: JSON.stringify({ action: "PAY" }) }),
+      { params: Promise.resolve({ id: res.json.data.id }) },
+    );
+    expect(pay.status).toBe(200);
+    const voucher = await prisma.journalVoucher.findFirstOrThrow({ where: { referenceNumber: res.json.data.expenseNumber }, include: { lines: true } });
+    expect(voucher.lines.filter((l) => Number(l.debit) > 0).map((l) => [l.accountCode, Number(l.debit)]).sort()).toEqual([
+      ["80201001", 120],
+      ["80301001", 80],
+    ]);
+  });
+
+  it("budget: line amounts are the sum of their months; periods and remarks are kept", async () => {
+    const res = await post(createBudgetRoute, "budget", {
+      budgetCode: "BGT-M1",
+      budgetName: "Q4",
+      budgetYear: "2026",
+      budgetType: "OverHeads/Expense Budget",
+      fromPeriod: "2026-11-01",
+      toPeriod: "2027-01-31",
+      remarks: "Overheads",
+      items: [{ accountCode: "80201001", accountName: "Business Promotion Expenses", headCode: "802", headName: "Selling Expenses", monthlyAmounts: { "2026-11": 100, "2026-12": 150, "2027-01": 50, junk: 9 } }],
+    });
+    expect(res.status).toBe(201);
+    expect(Number(res.json.data.allocatedAmount)).toBe(300);
+    expect(res.json.data.remarks).toBe("Overheads");
+    expect(res.json.data.items[0]).toMatchObject({ headName: "Selling Expenses", monthlyAmounts: { "2026-11": 100, "2026-12": 150, "2027-01": 50 } });
+
+    // Without a code (the form never sends one) the server numbers it.
+    const numbered = await post(createBudgetRoute, "budget", { budgetName: "No code", budgetYear: "2026", items: [] });
+    expect(numbered.status).toBe(201);
+    expect(numbered.json.data.budgetCode).toMatch(/^BGT-\d{6}-\d{3}$/);
+    expect((await post(createBudgetRoute, "budget", { budgetName: "", items: [] })).status).toBe(400);
+
+    const backwards = await post(createBudgetRoute, "budget", { budgetCode: "BGT-M2", budgetName: "x", budgetYear: "2026", fromPeriod: "2027-01-01", toPeriod: "2026-01-01", items: [] });
+    expect(backwards.status).toBe(400);
+  });
+
+  it("bank account: keeps the short name and signatory", async () => {
+    const res = await post(createBankingRoute, "banking", { bankName: "PUBALI BANK LTD PLC", branchName: "Motijheel", accountHolder: "Mariners", accountNumber: "333", shortName: "PBL-MTJ", signatory: "MD and CFO jointly" });
+    expect(res.json.data).toMatchObject({ shortName: "PBL-MTJ", signatory: "MD and CFO jointly" });
   });
 });
 

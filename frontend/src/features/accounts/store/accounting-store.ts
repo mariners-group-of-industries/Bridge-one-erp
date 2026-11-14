@@ -55,6 +55,7 @@ export interface AccountingEmployeeOption {
   employeeCode: string;
   name: string;
   designation?: string | null;
+  department?: string | null;
   officeId: string;
 }
 
@@ -281,6 +282,7 @@ async function syncFromDatabase(): Promise<void> {
             amount,
             date: toDateStr(e.date),
             createdAt: toDateStr(e.createdAt),
+            lines: (e.lines || []).map((l: any) => ({ ...l, date: toDateStr(l.date), amount: Number(l.amount || 0) })),
           });
         }
       }

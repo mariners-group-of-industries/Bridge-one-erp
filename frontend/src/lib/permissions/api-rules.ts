@@ -156,6 +156,8 @@ export const API_RULES: Record<string, ApiRule> = {
   "/api/accounts/seed": { masterOnly: true },
   "/api/accounts/party-ledger": { feature: "/accounts/financial-reports" },
   "/api/accounts/other-reports": { feature: "/accounts/other-reports" },
+  // Names for the journal and expense forms: any accounts page may read them.
+  "/api/accounts/parties": { read: { anyViewIn: ["account"] } },
   "/api/accounts/chart-of-accounts": { feature: "/accounts/chart-of-accounts", read: { anyViewIn: ["account"] } },
   "/api/accounts/coa-permissions": { feature: "/accounts/chart-of-accounts", read: { anyViewIn: ["account"] } },
   "/api/accounts/cost-centers": { feature: "/accounts/center-setup", read: { anyViewIn: ["account"] } },
