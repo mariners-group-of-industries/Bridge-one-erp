@@ -41,8 +41,8 @@ export function Navbar({ onToggleSidebar, sidebarHidden, onOpenSearch }: NavbarP
   const [qrOpen, setQrOpen] = useState(false);
 
   function handleLogout() {
-    logout();
-    router.push("/login");
+    // logout() ends the session on the server, then loads the sign-in page itself.
+    void logout();
   }
 
   return (

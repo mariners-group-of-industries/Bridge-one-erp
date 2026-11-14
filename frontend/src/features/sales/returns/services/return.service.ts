@@ -227,7 +227,8 @@ export async function listReturns(actor: Actor, raw: unknown): Promise<ReturnLis
   };
   const where: Prisma.SalesReturnWhereInput = {
     businessUnitId: { in: unitIds },
-    status: query.status ?? LIVE,
+    // "All" lists deleted returns too, as in Managerium.
+    ...(query.status ? { status: query.status } : {}),
     ...(query.kind ? { kind: query.kind } : {}),
     ...(query.mode ? { mode: query.mode } : {}),
     ...(query.officeId ? { officeId: query.officeId } : {}),

@@ -1,6 +1,20 @@
 "use client";
 
-import { Check, Download, MapPinned, Pencil, Plus, Search, SquareMinus, SquarePlus, Trash2, Upload, User, Users, X } from "lucide-react";
+import {
+  Check,
+  Download,
+  MapPinned,
+  Pencil,
+  Plus,
+  Search,
+  SquareMinus,
+  SquarePlus,
+  Trash2,
+  Upload,
+  User,
+  Users,
+  X,
+} from "lucide-react";
 import { useMemo, useState } from "react";
 import { PageContainer, PageHead } from "@/components/layout/page";
 import { Button, buttonClasses } from "@/components/ui/button";
@@ -13,24 +27,50 @@ import { errorMessage } from "@/lib/api/client";
 import { cn } from "@/lib/cn";
 import { entityMasterDataBreadcrumbs } from "@/features/configuration/entity-master-data/breadcrumbs";
 import { BulkUploadDialog } from "@/features/configuration/entity-master-data/components/BulkUploadDialog";
-import { CONTROL_CLASS, EmptyBlock, Input, Select } from "@/features/configuration/entity-master-data/employee/components/kit";
-import { salesConfigPaths } from "../../paths";
-import type { LayerDto, NodeDto, TerritoryTree } from "../schemas/territory.schema";
+import {
+  CONTROL_CLASS,
+  EmptyBlock,
+  Input,
+  Select,
+} from "@/features/configuration/entity-master-data/employee/components/kit";
+import { fetchSetupLookups } from "@/features/sales/masters/services/masters.api";
+import { SimpleMastersPanel } from "@/features/sales/setup/components/SimpleMastersPanel";
+import { salesConfigPaths, type SalesSetupTab } from "../../paths";
+import type {
+  LayerDto,
+  NodeDto,
+  TerritoryTree,
+} from "../schemas/territory.schema";
 import { territoryApi } from "../services/territory.api";
 import { TerritoryCustomersTab } from "./TerritoryCustomersTab";
-import { AssignEmployeesDialog, NodeDialog, ScrollMore, useScrollLoad, type NodeDialogState } from "./territory-kit";
+import {
+  AssignEmployeesDialog,
+  NodeDialog,
+  ScrollMore,
+  useScrollLoad,
+  type NodeDialogState,
+} from "./territory-kit";
 
 const BREADCRUMBS = entityMasterDataBreadcrumbs(salesConfigPaths.salesSetup);
 const TABS = [
   { id: "territory", label: "Sales Territory" },
   { id: "customers", label: "Territory Wise Customer List" },
-] as const;
+  { id: "return-reasons", label: "Return Reasons" },
+  { id: "delivery-reasons", label: "Delivery Pending Reasons" },
+] as const satisfies readonly { id: SalesSetupTab; label: string }[];
+const isTab = (value: string | undefined): value is SalesSetupTab =>
+  TABS.some((t) => t.id === value);
 type View = "tree" | "table" | "layers";
 
-export function SalesSetupView() {
+export function SalesSetupView({ initialTab }: { initialTab?: string }) {
   const [unitId, setUnitId] = useState<string | undefined>();
-  const tree = useResource(`territory-tree:${unitId ?? ""}`, () => territoryApi.tree(unitId));
-  const [tab, setTab] = useState<(typeof TABS)[number]["id"]>("territory");
+  const tree = useResource(`territory-tree:${unitId ?? ""}`, () =>
+    territoryApi.tree(unitId),
+  );
+  const [tab, setTab] = useState<SalesSetupTab>(
+    isTab(initialTab) ? initialTab : "territory",
+  );
+  const isReasons = tab === "return-reasons" || tab === "delivery-reasons";
   const [view, setView] = useState<View>("tree");
   const [searchText, setSearchText] = useState("");
   const [search, setSearch] = useState("");
@@ -42,7 +82,7 @@ export function SalesSetupView() {
     <PageContainer full>
       <PageHead
         title="Sales Setup"
-        subtitle="Sales territory tree (National → Market), employee assignments and territory-wise customers."
+        subtitle="Sales territory tree (National → Market), territory-wise customers, and the return and delivery pending reasons Sales uses."
         breadcrumbs={BREADCRUMBS}
         actions={
           <>
@@ -59,44 +99,65 @@ export function SalesSetupView() {
                 onChange={(e) => setUnitId(e.target.value)}
               />
             )}
-            <form
-              role="search"
-              className="flex items-center gap-2"
-              onSubmit={(event) => {
-                event.preventDefault();
-                setSearch(searchText.trim());
-              }}
-            >
-              <label className="relative w-full sm:w-56">
-                <span className="sr-only">Search</span>
-                <Search aria-hidden="true" className="pointer-events-none absolute top-2 left-2.5 size-4 text-ink-faint" />
-                <input
-                  type="search"
-                  value={searchText}
-                  maxLength={100}
-                  placeholder={tab === "territory" ? "Code or name…" : "Customer code or name…"}
-                  onChange={(event) => {
-                    setSearchText(event.target.value);
-                    if (event.target.value === "") setSearch("");
+            {!isReasons && (
+              <>
+                <form
+                  role="search"
+                  className="flex items-center gap-2"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    setSearch(searchText.trim());
                   }}
-                  className={cn(CONTROL_CLASS, "pl-8")}
-                />
-              </label>
-              <Button type="submit">
-                <Search /> Search
-              </Button>
-            </form>
-            <a
-              href={businessUnitId ? territoryApi.excelUrl(businessUnitId, tab === "territory" ? "tree" : "customers") : undefined}
-              download
-              aria-disabled={!businessUnitId}
-              className={buttonClasses("secondary", "md")}
-            >
-              <Download /> Download Excel
-            </a>
-            <Button disabled={!businessUnitId} onClick={() => setUploadOpen(true)}>
-              <Upload /> Upload Excel
-            </Button>
+                >
+                  <label className="relative w-full sm:w-56">
+                    <span className="sr-only">Search</span>
+                    <Search
+                      aria-hidden="true"
+                      className="pointer-events-none absolute top-2 left-2.5 size-4 text-ink-faint"
+                    />
+                    <input
+                      type="search"
+                      value={searchText}
+                      maxLength={100}
+                      placeholder={
+                        tab === "territory"
+                          ? "Code or name…"
+                          : "Customer code or name…"
+                      }
+                      onChange={(event) => {
+                        setSearchText(event.target.value);
+                        if (event.target.value === "") setSearch("");
+                      }}
+                      className={cn(CONTROL_CLASS, "pl-8")}
+                    />
+                  </label>
+                  <Button type="submit">
+                    <Search /> Search
+                  </Button>
+                </form>
+                <a
+                  href={
+                    businessUnitId
+                      ? territoryApi.excelUrl(
+                          businessUnitId,
+                          tab === "territory" ? "tree" : "customers",
+                        )
+                      : undefined
+                  }
+                  download
+                  aria-disabled={!businessUnitId}
+                  className={buttonClasses("secondary", "md")}
+                >
+                  <Download /> Download Excel
+                </a>
+                <Button
+                  disabled={!businessUnitId}
+                  onClick={() => setUploadOpen(true)}
+                >
+                  <Upload /> Upload Excel
+                </Button>
+              </>
+            )}
           </>
         }
       />
@@ -114,7 +175,19 @@ export function SalesSetupView() {
               </EmptyBlock>
             </div>
           ) : tab === "territory" ? (
-            <TerritoryTab tree={data} view={view} onView={setView} search={search} onChanged={tree.reload} />
+            <TerritoryTab
+              tree={data}
+              view={view}
+              onView={setView}
+              search={search}
+              onChanged={tree.reload}
+            />
+          ) : isReasons ? (
+            <ReasonsTab
+              key={`${tab}:${businessUnitId}`}
+              kind={tab}
+              businessUnitId={businessUnitId}
+            />
           ) : (
             <TerritoryCustomersTab tree={data} search={search} />
           )}
@@ -126,8 +199,14 @@ export function SalesSetupView() {
           open={uploadOpen}
           onClose={() => setUploadOpen(false)}
           onImported={tree.reload}
-          noun={tab === "territory" ? "territory entries" : "customer assignments"}
-          templateUrl={tab === "territory" ? territoryApi.templateUrl(businessUnitId) : territoryApi.excelUrl(businessUnitId, "customers")}
+          noun={
+            tab === "territory" ? "territory entries" : "customer assignments"
+          }
+          templateUrl={
+            tab === "territory"
+              ? territoryApi.templateUrl(businessUnitId)
+              : territoryApi.excelUrl(businessUnitId, "customers")
+          }
           maxRows={5000}
           matchHint={
             tab === "territory"
@@ -135,7 +214,11 @@ export function SalesSetupView() {
               : "Columns Customer Code and Territory Code: each customer is moved into that territory."
           }
           upload={async (file) => {
-            const result = await territoryApi.upload(businessUnitId, tab === "territory" ? "tree" : "customers", file);
+            const result = await territoryApi.upload(
+              businessUnitId,
+              tab === "territory" ? "tree" : "customers",
+              file,
+            );
             return {
               created: result.created + result.updated,
               errors: result.errors,
@@ -147,21 +230,67 @@ export function SalesSetupView() {
   );
 }
 
+// ─── Return / Delivery Pending Reasons tabs ──────────────────────────────────
+
+/** The reasons Sales picks from on returns and pending deliveries; managed only here. */
+function ReasonsTab({
+  kind,
+  businessUnitId,
+}: {
+  kind: "return-reasons" | "delivery-reasons";
+  businessUnitId: string;
+}) {
+  const lookups = useResource(`setup:${businessUnitId}:${kind}`, () =>
+    fetchSetupLookups(businessUnitId),
+  );
+  return (
+    <div className="p-4">
+      {lookups.error ? (
+        <ErrorState message={lookups.error.message} onRetry={lookups.reload} />
+      ) : !lookups.data ? (
+        <LoadingState label="Loading reasons…" />
+      ) : (
+        <SimpleMastersPanel
+          kind={kind}
+          businessUnitId={businessUnitId}
+          lookups={lookups.data}
+          onChanged={lookups.reload}
+        />
+      )}
+    </div>
+  );
+}
+
 // ─── Sales Territory tab ──────────────────────────────────────────────────────
 
-function TerritoryTab({ tree, view, onView, search, onChanged }: { tree: TerritoryTree; view: View; onView: (view: View) => void; search: string; onChanged: () => void }) {
+function TerritoryTab({
+  tree,
+  view,
+  onView,
+  search,
+  onChanged,
+}: {
+  tree: TerritoryTree;
+  view: View;
+  onView: (view: View) => void;
+  search: string;
+  onChanged: () => void;
+}) {
   const toast = useToast();
   const [dialog, setDialog] = useState<NodeDialogState | null>(null);
   const [assignFor, setAssignFor] = useState<NodeDto | null>(null);
   const [deleting, setDeleting] = useState<NodeDto | null>(null);
   const [busy, setBusy] = useState(false);
-  const layerOf = (level: number) => tree.layers.find((layer) => layer.level === level);
+  const layerOf = (level: number) =>
+    tree.layers.find((layer) => layer.level === level);
 
   const actions = {
     add: (parent: NodeDto | null) => {
       const layer = layerOf(parent ? parent.level + 1 : 1);
       if (!layer) {
-        toast.error("There is no layer below this one. Add one in Layer Setup.");
+        toast.error(
+          "There is no layer below this one. Add one in Layer Setup.",
+        );
         return;
       }
       setDialog({
@@ -190,7 +319,11 @@ function TerritoryTab({ tree, view, onView, search, onChanged }: { tree: Territo
   return (
     <>
       <div className="flex flex-wrap items-center gap-4 border-b border-line px-4 py-3">
-        <div role="radiogroup" aria-label="View" className="flex flex-wrap items-center gap-4">
+        <div
+          role="radiogroup"
+          aria-label="View"
+          className="flex flex-wrap items-center gap-4"
+        >
           {(
             [
               ["tree", "Tree View"],
@@ -198,29 +331,59 @@ function TerritoryTab({ tree, view, onView, search, onChanged }: { tree: Territo
               ["layers", "Layer Setup"],
             ] as const
           ).map(([value, label]) => (
-            <label key={value} className="inline-flex cursor-pointer items-center gap-1.5 text-sm text-ink">
-              <input type="radio" name="territory-view" value={value} checked={view === value} onChange={() => onView(value)} className="size-4 accent-(--accent-strong)" />
+            <label
+              key={value}
+              className="inline-flex cursor-pointer items-center gap-1.5 text-sm text-ink"
+            >
+              <input
+                type="radio"
+                name="territory-view"
+                value={value}
+                checked={view === value}
+                onChange={() => onView(value)}
+                className="size-4 accent-(--accent-strong)"
+              />
               {label}
             </label>
           ))}
         </div>
         {view === "tree" && tree.layers[0] && (
-          <Button variant="accent-soft" className="ml-auto" onClick={() => actions.add(null)}>
+          <Button
+            variant="accent-soft"
+            className="ml-auto"
+            onClick={() => actions.add(null)}
+          >
             <Plus /> Add {tree.layers[0].name}
           </Button>
         )}
       </div>
 
-      {view === "tree" && <TreeView tree={tree} search={search} actions={actions} />}
-      {view === "table" && <TableView tree={tree} search={search} actions={actions} />}
+      {view === "tree" && (
+        <TreeView tree={tree} search={search} actions={actions} />
+      )}
+      {view === "table" && (
+        <TableView tree={tree} search={search} actions={actions} />
+      )}
       {view === "layers" && <LayerSetup tree={tree} onChanged={onChanged} />}
 
-      <NodeDialog state={dialog} onClose={() => setDialog(null)} onSaved={onChanged} />
-      <AssignEmployeesDialog node={assignFor} onClose={() => setAssignFor(null)} onChanged={onChanged} />
+      <NodeDialog
+        state={dialog}
+        onClose={() => setDialog(null)}
+        onSaved={onChanged}
+      />
+      <AssignEmployeesDialog
+        node={assignFor}
+        onClose={() => setAssignFor(null)}
+        onChanged={onChanged}
+      />
       <ConfirmDialog
         open={deleting !== null}
         title="Delete entry?"
-        message={deleting ? `Delete "${deleting.name}"? Entries with sub-entries or customers cannot be deleted.` : ""}
+        message={
+          deleting
+            ? `Delete "${deleting.name}"? Entries with sub-entries or customers cannot be deleted.`
+            : ""
+        }
         busy={busy}
         onClose={() => setDeleting(null)}
         onConfirm={async () => {
@@ -249,7 +412,17 @@ type Actions = {
   remove: (node: NodeDto) => void;
 };
 
-function NodeButtons({ node, tree, actions, compact = false }: { node: NodeDto; tree: TerritoryTree; actions: Actions; compact?: boolean }) {
+function NodeButtons({
+  node,
+  tree,
+  actions,
+  compact = false,
+}: {
+  node: NodeDto;
+  tree: TerritoryTree;
+  actions: Actions;
+  compact?: boolean;
+}) {
   const child = tree.layers.find((layer) => layer.level === node.level + 1);
   return (
     <div className="flex items-center justify-end gap-0.5 whitespace-nowrap">
@@ -266,17 +439,43 @@ function NodeButtons({ node, tree, actions, compact = false }: { node: NodeDto; 
             <Plus />
           </Button>
         ) : (
-          <Button size="sm" variant="ghost" className="hover:text-accent-strong" onClick={() => actions.add(node)} title={`Add ${child.name} under ${node.name}`}>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="hover:text-accent-strong"
+            onClick={() => actions.add(node)}
+            title={`Add ${child.name} under ${node.name}`}
+          >
             <Plus /> {child.name}
           </Button>
         ))}
-      <Button size="sm" variant="ghost" className="hover:text-accent-strong" onClick={() => actions.assign(node)} title="Assign employees">
+      <Button
+        size="sm"
+        variant="ghost"
+        className="hover:text-accent-strong"
+        onClick={() => actions.assign(node)}
+        title="Assign employees"
+      >
         <Users /> {node.employeeCount}
       </Button>
-      <Button variant="ghost" size="icon" className="hover:text-accent-strong" aria-label={`Update ${node.name}`} title="Update" onClick={() => actions.edit(node)}>
+      <Button
+        variant="ghost"
+        size="icon"
+        className="hover:text-accent-strong"
+        aria-label={`Update ${node.name}`}
+        title="Update"
+        onClick={() => actions.edit(node)}
+      >
         <Pencil />
       </Button>
-      <Button variant="ghost" size="icon" className="hover:text-danger" aria-label={`Delete ${node.name}`} title="Delete" onClick={() => actions.remove(node)}>
+      <Button
+        variant="ghost"
+        size="icon"
+        className="hover:text-danger"
+        aria-label={`Delete ${node.name}`}
+        title="Delete"
+        onClick={() => actions.remove(node)}
+      >
         <Trash2 />
       </Button>
     </div>
@@ -291,20 +490,40 @@ function useVisibleIds(tree: TerritoryTree, search: string) {
     const byId = new Map(tree.nodes.map((n) => [n.id, n]));
     const ids = new Set<string>();
     for (const node of tree.nodes) {
-      if (node.code.toLowerCase().includes(needle) || node.name.toLowerCase().includes(needle)) {
-        for (let current: NodeDto | undefined = node; current; current = current.parentId ? byId.get(current.parentId) : undefined) ids.add(current.id);
+      if (
+        node.code.toLowerCase().includes(needle) ||
+        node.name.toLowerCase().includes(needle)
+      ) {
+        for (
+          let current: NodeDto | undefined = node;
+          current;
+          current = current.parentId ? byId.get(current.parentId) : undefined
+        )
+          ids.add(current.id);
       }
     }
     return ids;
   }, [tree.nodes, search]);
 }
 
-function TreeView({ tree, search, actions }: { tree: TerritoryTree; search: string; actions: Actions }) {
+function TreeView({
+  tree,
+  search,
+  actions,
+}: {
+  tree: TerritoryTree;
+  search: string;
+  actions: Actions;
+}) {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const visible = useVisibleIds(tree, search);
   const childrenOf = useMemo(() => {
     const map = new Map<string, NodeDto[]>();
-    for (const node of tree.nodes) map.set(node.parentId ?? "", [...(map.get(node.parentId ?? "") ?? []), node]);
+    for (const node of tree.nodes)
+      map.set(node.parentId ?? "", [
+        ...(map.get(node.parentId ?? "") ?? []),
+        node,
+      ]);
     return map;
   }, [tree.nodes]);
 
@@ -319,21 +538,34 @@ function TreeView({ tree, search, actions }: { tree: TerritoryTree; search: stri
   // A classic outline (as in Managerium): ⊟ / ⊞ boxes and guide lines, names only;
   // the entry's buttons show on hover / focus. Searching opens every match.
   const branch = (parentId: string, root: boolean) => {
-    const nodes = (childrenOf.get(parentId) ?? []).filter((node) => !visible || visible.has(node.id));
+    const nodes = (childrenOf.get(parentId) ?? []).filter(
+      (node) => !visible || visible.has(node.id),
+    );
     if (nodes.length === 0) return null;
     return (
-      <ul role={root ? "tree" : "group"} aria-label={root ? "Sales territories" : undefined} className={cn(!root && "ml-2 border-l border-line-strong pl-4")}>
+      <ul
+        role={root ? "tree" : "group"}
+        aria-label={root ? "Sales territories" : undefined}
+        className={cn(!root && "ml-2 border-l border-line-strong pl-4")}
+      >
         {nodes.map((node) => {
           const hasChildren = (childrenOf.get(node.id) ?? []).length > 0;
           const open = !!visible || !collapsed.has(node.id);
           const layer = tree.layers.find((l) => l.level === node.level);
           const Box = open ? SquareMinus : SquarePlus;
           return (
-            <li key={node.id} role="treeitem" aria-level={node.level} aria-expanded={hasChildren ? open : undefined} aria-selected={false}>
+            <li
+              key={node.id}
+              role="treeitem"
+              aria-level={node.level}
+              aria-expanded={hasChildren ? open : undefined}
+              aria-selected={false}
+            >
               <div
                 className={cn(
                   "group relative flex min-h-8 items-center gap-2 rounded pr-1 hover:bg-grid-hover",
-                  !root && "before:absolute before:top-1/2 before:-left-4 before:w-3.5 before:border-t before:border-line-strong",
+                  !root &&
+                    "before:absolute before:top-1/2 before:-left-4 before:w-3.5 before:border-t before:border-line-strong",
                 )}
               >
                 {hasChildren ? (
@@ -348,12 +580,24 @@ function TreeView({ tree, search, actions }: { tree: TerritoryTree; search: stri
                 ) : (
                   <span className="size-4 shrink-0" />
                 )}
-                <span className="text-sm text-ink" title={`${layer?.name ?? ""} · ${node.code}`}>
+                <span
+                  className="text-sm text-ink"
+                  title={`${layer?.name ?? ""} · ${node.code}`}
+                >
                   {node.name}
                 </span>
-                {node.customerCount !== null && <span className="text-xs text-ink-faint">({node.customerCount} customers)</span>}
+                {node.customerCount !== null && (
+                  <span className="text-xs text-ink-faint">
+                    ({node.customerCount} customers)
+                  </span>
+                )}
                 <div className="ml-auto opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100">
-                  <NodeButtons node={node} tree={tree} actions={actions} compact />
+                  <NodeButtons
+                    node={node}
+                    tree={tree}
+                    actions={actions}
+                    compact
+                  />
                 </div>
               </div>
               {hasChildren && open && branch(node.id, false)}
@@ -370,11 +614,16 @@ function TreeView({ tree, search, actions }: { tree: TerritoryTree; search: stri
         {tree.nodes.length === 0 ? (
           <div className="p-3">
             <EmptyBlock icon={<MapPinned />} title="No territories yet">
-              Start with “Add {tree.layers[0]?.name ?? "National"}”, then add the levels below it.
+              Start with “Add {tree.layers[0]?.name ?? "National"}”, then add
+              the levels below it.
             </EmptyBlock>
           </div>
         ) : (
-          (branch("", true) ?? <p className="px-4 py-8 text-center text-sm text-ink-faint">Nothing matches “{search}”.</p>)
+          (branch("", true) ?? (
+            <p className="px-4 py-8 text-center text-sm text-ink-faint">
+              Nothing matches “{search}”.
+            </p>
+          ))
         )}
       </div>
       <LayersPanel layers={tree.layers} />
@@ -388,11 +637,23 @@ function TreeView({ tree, search, actions }: { tree: TerritoryTree; search: stri
  * layer below it (+), opens its Employee List (not on the two deepest layers, e.g.
  * Route and Market) and updates the entry; deleting stays in the Tree View.
  */
-function TableView({ tree, search, actions }: { tree: TerritoryTree; search: string; actions: Actions }) {
+function TableView({
+  tree,
+  search,
+  actions,
+}: {
+  tree: TerritoryTree;
+  search: string;
+  actions: Actions;
+}) {
   const visible = useVisibleIds(tree, search);
   const rows = useMemo(() => {
     const childrenOf = new Map<string, NodeDto[]>();
-    for (const node of tree.nodes) childrenOf.set(node.parentId ?? "", [...(childrenOf.get(node.parentId ?? "") ?? []), node]);
+    for (const node of tree.nodes)
+      childrenOf.set(node.parentId ?? "", [
+        ...(childrenOf.get(node.parentId ?? "") ?? []),
+        node,
+      ]);
     const ordered: NodeDto[] = [];
     const walk = (parentId: string) => {
       for (const node of childrenOf.get(parentId) ?? []) {
@@ -415,13 +676,24 @@ function TableView({ tree, search, actions }: { tree: TerritoryTree; search: str
         {top && (
           <div className="flex items-center justify-between border-b border-line px-3 py-1.5">
             <h3 className="text-sm font-semibold text-ink">Add {top.name}</h3>
-            <Button variant="ghost" size="icon" className={iconButton} aria-label={`Add ${top.name}`} title={`Add ${top.name}`} onClick={() => actions.add(null)}>
+            <Button
+              variant="ghost"
+              size="icon"
+              className={iconButton}
+              aria-label={`Add ${top.name}`}
+              title={`Add ${top.name}`}
+              onClick={() => actions.add(null)}
+            >
               <Plus />
             </Button>
           </div>
         )}
         {rows.length === 0 ? (
-          <p className="px-4 py-8 text-center text-sm text-ink-faint">{search ? `Nothing matches “${search}”.` : `No territories yet. Start with “Add ${top?.name ?? "National"}”.`}</p>
+          <p className="px-4 py-8 text-center text-sm text-ink-faint">
+            {search
+              ? `Nothing matches “${search}”.`
+              : `No territories yet. Start with “Add ${top?.name ?? "National"}”.`}
+          </p>
         ) : (
           <>
             <div className="overflow-x-auto">
@@ -429,7 +701,11 @@ function TableView({ tree, search, actions }: { tree: TerritoryTree; search: str
                 <thead>
                   <tr>
                     {tree.layers.map((layer) => (
-                      <th key={layer.id} scope="col" className="px-2.5 py-2 text-left">
+                      <th
+                        key={layer.id}
+                        scope="col"
+                        className="px-2.5 py-2 text-left"
+                      >
                         {layer.name}
                       </th>
                     ))}
@@ -440,14 +716,24 @@ function TableView({ tree, search, actions }: { tree: TerritoryTree; search: str
                 </thead>
                 <tbody>
                   {rows.slice(0, scroll.count).map((node) => {
-                    const child = tree.layers.find((layer) => layer.level === node.level + 1);
+                    const child = tree.layers.find(
+                      (layer) => layer.level === node.level + 1,
+                    );
                     return (
                       <tr key={node.id}>
                         {tree.layers.map((layer) => (
-                          <td key={layer.id} className="px-2.5 py-1.5 whitespace-nowrap">
+                          <td
+                            key={layer.id}
+                            className="px-2.5 py-1.5 whitespace-nowrap"
+                          >
                             {layer.level === node.level && (
                               <>
-                                <span className="font-medium text-ink">{node.name}</span> <span className="text-xs text-ink-faint">{node.code}</span>
+                                <span className="font-medium text-ink">
+                                  {node.name}
+                                </span>{" "}
+                                <span className="text-xs text-ink-faint">
+                                  {node.code}
+                                </span>
                               </>
                             )}
                           </td>
@@ -478,7 +764,14 @@ function TableView({ tree, search, actions }: { tree: TerritoryTree; search: str
                                 <User />
                               </Button>
                             )}
-                            <Button variant="ghost" size="icon" className={iconButton} aria-label={`Update ${node.name}`} title="Update Territory" onClick={() => actions.edit(node)}>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className={iconButton}
+                              aria-label={`Update ${node.name}`}
+                              title="Update Territory"
+                              onClick={() => actions.edit(node)}
+                            >
                               <Pencil />
                             </Button>
                           </div>
@@ -489,7 +782,13 @@ function TableView({ tree, search, actions }: { tree: TerritoryTree; search: str
                 </tbody>
               </table>
             </div>
-            <ScrollMore sentinel={scroll.sentinel} hasMore={scroll.hasMore} shown={scroll.count} total={rows.length} noun="entries" />
+            <ScrollMore
+              sentinel={scroll.sentinel}
+              hasMore={scroll.hasMore}
+              shown={scroll.count}
+              total={rows.length}
+              noun="entries"
+            />
           </>
         )}
       </div>
@@ -502,8 +801,13 @@ function TableView({ tree, search, actions }: { tree: TerritoryTree; search: str
 /** The layers beside the tree and table views (SL, code, name). */
 function LayersPanel({ layers }: { layers: LayerDto[] }) {
   return (
-    <section aria-label="Layers" className="self-start overflow-hidden rounded-md border border-line">
-      <h3 className="border-b border-line px-3 py-2 text-sm font-semibold text-ink">Layers</h3>
+    <section
+      aria-label="Layers"
+      className="self-start overflow-hidden rounded-md border border-line"
+    >
+      <h3 className="border-b border-line px-3 py-2 text-sm font-semibold text-ink">
+        Layers
+      </h3>
       <table className="data-grid w-full">
         <thead>
           <tr>
@@ -517,7 +821,9 @@ function LayersPanel({ layers }: { layers: LayerDto[] }) {
         <tbody>
           {layers.map((layer) => (
             <tr key={layer.id}>
-              <td className="w-10 px-2.5 py-1.5 text-right text-ink-faint tabular-nums">{layer.level}</td>
+              <td className="w-10 px-2.5 py-1.5 text-right text-ink-faint tabular-nums">
+                {layer.level}
+              </td>
               <td className="px-2.5 py-1.5 font-medium">{layer.code}</td>
               <td className="px-2.5 py-1.5">{layer.name}</td>
             </tr>
@@ -530,7 +836,13 @@ function LayersPanel({ layers }: { layers: LayerDto[] }) {
 
 // ─── Layer setup ──────────────────────────────────────────────────────────────
 
-function LayerSetup({ tree, onChanged }: { tree: TerritoryTree; onChanged: () => void }) {
+function LayerSetup({
+  tree,
+  onChanged,
+}: {
+  tree: TerritoryTree;
+  onChanged: () => void;
+}) {
   const toast = useToast();
   const [editing, setEditing] = useState<string | null>(null);
   const [draft, setDraft] = useState({ code: "", name: "" });
@@ -554,17 +866,39 @@ function LayerSetup({ tree, onChanged }: { tree: TerritoryTree; onChanged: () =>
   const editorCells = (onSave: () => void) => (
     <>
       <td className="px-2 py-1.5">
-        <Input aria-label="Layer code" autoFocus value={draft.code} maxLength={20} onChange={(e) => setDraft({ ...draft, code: e.target.value })} />
+        <Input
+          aria-label="Layer code"
+          autoFocus
+          value={draft.code}
+          maxLength={20}
+          onChange={(e) => setDraft({ ...draft, code: e.target.value })}
+        />
       </td>
       <td className="px-2 py-1.5">
-        <Input aria-label="Layer name" value={draft.name} maxLength={50} onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
+        <Input
+          aria-label="Layer name"
+          value={draft.name}
+          maxLength={50}
+          onChange={(e) => setDraft({ ...draft, name: e.target.value })}
+        />
       </td>
       <td className="px-2.5 py-2" />
       <td className="px-1.5 py-1 text-center whitespace-nowrap">
-        <Button variant="accent" size="icon" loading={busy} aria-label="Save layer" onClick={onSave}>
+        <Button
+          variant="accent"
+          size="icon"
+          loading={busy}
+          aria-label="Save layer"
+          onClick={onSave}
+        >
           {!busy && <Check />}
         </Button>
-        <Button variant="ghost" size="icon" aria-label="Cancel" onClick={() => setEditing(null)}>
+        <Button
+          variant="ghost"
+          size="icon"
+          aria-label="Cancel"
+          onClick={() => setEditing(null)}
+        >
           <X />
         </Button>
       </td>
@@ -574,7 +908,10 @@ function LayerSetup({ tree, onChanged }: { tree: TerritoryTree; onChanged: () =>
   return (
     <div className="flex flex-col gap-3 p-4">
       <div className="flex items-center gap-2">
-        <p className="text-xs text-ink-faint">Layers run from the top (1) down. The Territory layer is linked to the Sales territories customers use.</p>
+        <p className="text-xs text-ink-faint">
+          Layers run from the top (1) down. The Territory layer is linked to the
+          Sales territories customers use.
+        </p>
         <Button
           variant="accent-soft"
           className="ml-auto"
@@ -600,19 +937,30 @@ function LayerSetup({ tree, onChanged }: { tree: TerritoryTree; onChanged: () =>
           <tbody>
             {tree.layers.map((layer: LayerDto) => (
               <tr key={layer.id}>
-                <td className="w-12 px-2.5 py-2 text-right text-ink-faint tabular-nums">{layer.level}</td>
+                <td className="w-12 px-2.5 py-2 text-right text-ink-faint tabular-nums">
+                  {layer.level}
+                </td>
                 {editing === layer.id ? (
-                  editorCells(() => run(() => territoryApi.updateLayer(layer.id, draft), "Layer saved."))
+                  editorCells(() =>
+                    run(
+                      () => territoryApi.updateLayer(layer.id, draft),
+                      "Layer saved.",
+                    ),
+                  )
                 ) : (
                   <>
                     <td className="px-2.5 py-2 font-medium">{layer.code}</td>
                     <td className="px-2.5 py-2">
                       {layer.name}
                       {layer.isTerritory && (
-                        <span className="ml-2 rounded border border-accent-line bg-accent-soft px-1.5 text-[10px] font-semibold text-accent-strong uppercase dark:text-accent">Linked to Sales</span>
+                        <span className="ml-2 rounded border border-accent-line bg-accent-soft px-1.5 text-[10px] font-semibold text-accent-strong uppercase dark:text-accent">
+                          Linked to Sales
+                        </span>
                       )}
                     </td>
-                    <td className="px-2.5 py-2 text-right tabular-nums">{layer.nodeCount}</td>
+                    <td className="px-2.5 py-2 text-right tabular-nums">
+                      {layer.nodeCount}
+                    </td>
                     <td className="w-28 px-1.5 py-1 text-center whitespace-nowrap">
                       <Button
                         variant="ghost"
@@ -626,18 +974,25 @@ function LayerSetup({ tree, onChanged }: { tree: TerritoryTree; onChanged: () =>
                       >
                         <Pencil />
                       </Button>
-                      {layer.id === deepest?.id && !layer.isTerritory && layer.nodeCount === 0 && (
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="hover:text-danger"
-                          aria-label={`Delete ${layer.name}`}
-                          disabled={busy}
-                          onClick={() => run(() => territoryApi.deleteLayer(layer.id), "Layer removed.")}
-                        >
-                          <Trash2 />
-                        </Button>
-                      )}
+                      {layer.id === deepest?.id &&
+                        !layer.isTerritory &&
+                        layer.nodeCount === 0 && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="hover:text-danger"
+                            aria-label={`Delete ${layer.name}`}
+                            disabled={busy}
+                            onClick={() =>
+                              run(
+                                () => territoryApi.deleteLayer(layer.id),
+                                "Layer removed.",
+                              )
+                            }
+                          >
+                            <Trash2 />
+                          </Button>
+                        )}
                     </td>
                   </>
                 )}
@@ -645,8 +1000,15 @@ function LayerSetup({ tree, onChanged }: { tree: TerritoryTree; onChanged: () =>
             ))}
             {editing === "new" && (
               <tr>
-                <td className="px-2.5 py-2 text-right text-ink-faint tabular-nums">{(deepest?.level ?? 0) + 1}</td>
-                {editorCells(() => run(() => territoryApi.addLayer(tree.businessUnitId, draft), "Layer added."))}
+                <td className="px-2.5 py-2 text-right text-ink-faint tabular-nums">
+                  {(deepest?.level ?? 0) + 1}
+                </td>
+                {editorCells(() =>
+                  run(
+                    () => territoryApi.addLayer(tree.businessUnitId, draft),
+                    "Layer added.",
+                  ),
+                )}
               </tr>
             )}
           </tbody>

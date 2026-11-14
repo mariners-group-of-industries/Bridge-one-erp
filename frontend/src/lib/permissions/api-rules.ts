@@ -123,6 +123,7 @@ export const API_RULES: Record<string, ApiRule> = {
 
   // ── HRM ──
   "/api/hrm/options": { read: { anyViewIn: ["hrm"] } },
+  "/api/hrm/overtime": { feature: "/hrm/overtime" },
   "/api/hrm/bonus": { feature: "/hrm/compensation/bonus" },
   "/api/hrm/increments": { feature: "/hrm/talent/increment" },
   "/api/hrm/governance/checklist": { feature: "/hrm/governance/settings" },

@@ -111,6 +111,7 @@ const FEATURE_ACTIONS: Record<string, readonly PermissionAction[]> = {
   "/sales/returns": WITH_APPROVE,
   "/sales/collections": WITH_APPROVE,
   "/hrm/self-service/leave-movement": WITH_APPROVE,
+  "/hrm/overtime": WITH_APPROVE,
   "/hrm/compensation/bonus": WITH_APPROVE,
   "/hrm/talent/increment": WITH_APPROVE,
   "/hrm/payroll": WITH_APPROVE,
