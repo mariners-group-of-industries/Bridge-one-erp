@@ -2,7 +2,16 @@ import type { SupplierInvoiceItem, SupplierPaymentRecord } from "@bridgeone/cont
 import { AppError, badRequest, notFound } from "@/lib/api/errors";
 import { recordApproval } from "@/lib/approval/engine";
 import { db } from "@/lib/prisma/client";
-import type { PurchaseActor } from "./governance";
+import type { Prisma } from "@/lib/prisma/client";
+import {
+  assertPlaceInScope,
+  isPlaceInOrgScope,
+  resolvePurchaseOrgScope,
+  type PurchaseActor,
+  type PurchaseOrgScope,
+} from "./governance";
+
+type Client = ReturnType<typeof db> | Prisma.TransactionClient;
 
 /**
  * Supplier payables. What is owed comes from documents: goods receipts (less the
