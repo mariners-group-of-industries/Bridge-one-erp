@@ -19,6 +19,8 @@ Grounding design tokens and engineering rules inspired by Linear, Stripe, and mo
   - Neutral / Scheduled: `slate-600` (`#475569`) / tint `slate-500/10`
 
 ## 2. Typography Scale
+- **Font family**: Inter (sans-serif, variable; loaded with `next/font` in `src/app/layout.tsx`, exposed as `--font-sans`).
+- **Weights** (a step deeper than the defaults for legibility at the 13px desk scale): `font-normal` 450, `font-medium` 550, `font-semibold` 630, `font-bold` 720. Body text is 450.
 - **Display / Page Title**: `text-xl sm:text-2xl font-bold tracking-tight text-ink`
 - **Section Heading**: `text-sm sm:text-base font-semibold text-ink`
 - **Card Title / Record Name**: `text-sm font-semibold text-ink`

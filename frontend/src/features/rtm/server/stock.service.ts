@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { badRequest, notFound } from "@/lib/api/errors";
 import type { Actor } from "@/lib/auth/actor";
+import { decideWithPipeline } from "@/lib/approval/engine";
 import { db } from "@/lib/prisma/client";
 import { DATE, actorName, dateRange, distributorStock, documentNumber, fromDbDate, num, postDistributorStock, r3, requireDistributor, requireItems, toDbDate, unitIds } from "./common";
 
@@ -96,7 +97,10 @@ async function requireTransfer(actor: Actor, id: string) {
 export async function reviewTransfer(actor: Actor, id: string, decision: "approve" | "reject") {
   const t = await requireTransfer(actor, id);
   if (t.status !== "PENDING") throw badRequest(`${t.number} is already ${t.status.toLowerCase()}.`);
-  await db().rtmStockTransfer.update({ where: { id }, data: { status: decision === "approve" ? "APPROVED" : "REJECTED", approvedBy: actorName(actor) } });
+  // Multilayer approval: stays PENDING until the last pipeline stage approves.
+  await decideWithPipeline(actor, { feature: "Distributor Stock Transfer", documentId: id, businessUnitId: t.businessUnitId }, decision, async (tx) => {
+    await tx.rtmStockTransfer.update({ where: { id }, data: { status: decision === "approve" ? "APPROVED" : "REJECTED", approvedBy: actorName(actor) } });
+  });
   return listTransfers(actor);
 }
 
@@ -188,7 +192,8 @@ export async function reviewAdjustment(actor: Actor, id: string, decision: "appr
   const a = await db().rtmStockAdjustment.findFirst({ where: { id, businessUnitId: { in: units } }, include: { lines: { include: { item: { select: { name: true } } } } } });
   if (!a) throw notFound("Adjustment");
   if (a.status !== "PENDING") throw badRequest(`${a.number} is already ${a.status.toLowerCase()}.`);
-  await db().$transaction(async (tx) => {
+  // Multilayer approval: stock is posted only after the last pipeline stage approves.
+  await decideWithPipeline(actor, { feature: "Distributor Stock Adjustment", documentId: id, businessUnitId: a.businessUnitId }, decision, async (tx) => {
     await tx.rtmStockAdjustment.update({ where: { id }, data: { status: decision === "approve" ? "COMPLETED" : "REJECTED", approvedBy: actorName(actor) } });
     if (decision === "approve") {
       await postDistributorStock(

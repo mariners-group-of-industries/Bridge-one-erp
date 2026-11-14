@@ -1,17 +1,8 @@
 import type { SupplierInvoiceItem, SupplierPaymentRecord } from "@bridgeone/contracts";
-import { badRequest, notFound } from "@/lib/api/errors";
+import { AppError, badRequest, notFound } from "@/lib/api/errors";
+import { recordApproval } from "@/lib/approval/engine";
 import { db } from "@/lib/prisma/client";
-import type { Prisma } from "@/lib/prisma/client";
-import {
-  assertApprovalPipeline,
-  assertPlaceInScope,
-  isPlaceInOrgScope,
-  resolvePurchaseOrgScope,
-  type PurchaseActor,
-  type PurchaseOrgScope,
-} from "./governance";
-
-type Client = ReturnType<typeof db> | Prisma.TransactionClient;
+import type { PurchaseActor } from "./governance";
 
 /**
  * Supplier payables. What is owed comes from documents: goods receipts (less the
@@ -320,32 +311,60 @@ export async function createSupplierBill(input: Record<string, unknown>, actorNa
   });
 }
 
+const BILL_FEATURE = "Payment Approval";
+const billTarget = (bill: { id: string; businessUnitId: string; amount: { toString(): string } }) => ({
+  feature: BILL_FEATURE,
+  documentId: bill.id,
+  businessUnitId: bill.businessUnitId,
+  amount: Number(bill.amount.toString()),
+});
+
+/** Approves a bill; with an `actor`, through the multilayer approval pipeline (stays PENDING until the last stage). */
 export async function approveSupplierBill(id: string, actorName: string, actor?: PurchaseActor) {
   const bill = await db().supplierBill.findUnique({ where: { id } }).catch(() => null);
   if (!bill) throw notFound("Bill");
   await assertPlaceInScope(actor, { businessUnitId: bill.businessUnitId });
   if (bill.status !== "PENDING") throw badRequest(`Bill ${bill.number} is already ${bill.status.toLowerCase()}.`);
   return db().$transaction(async (tx) => {
-    await assertApprovalPipeline(tx, ["Payment Approval"], bill.businessUnitId, num(bill.amount), actor);
+    if (actor && !(await recordApproval(tx, actor, billTarget(bill))).final) return tx.supplierBill.findUniqueOrThrow({ where: { id } });
     return tx.supplierBill.update({ where: { id }, data: { status: "APPROVED", approvedBy: actorName, approvedAt: new Date() } });
   });
 }
 
+/**
+ * Approves every pending bill. With an `actor`, each bill goes through its
+ * pipeline; bills where the actor is not the current stage's approver are skipped
+ * (refused with 403 when the actor can act on none of them).
+ */
 export async function approvePendingSupplierBills(actorName: string, actor?: PurchaseActor) {
-  const [allPending, scope] = await Promise.all([db().supplierBill.findMany({ where: { status: "PENDING" } }), resolvePurchaseOrgScope(actor)]);
-  // Only the bills of business units the user may access.
-  const pending = allPending.filter((b) => isPlaceInOrgScope(scope, { businessUnitId: b.businessUnitId }));
-  if (pending.length === 0) return { approved: 0 };
-  return db().$transaction(async (tx) => {
-    for (const bill of pending) {
-      await assertApprovalPipeline(tx, ["Payment Approval"], bill.businessUnitId, num(bill.amount), actor);
-    }
-    const result = await tx.supplierBill.updateMany({
-      where: { id: { in: pending.map((b) => b.id) }, status: "PENDING" },
-      data: { status: "APPROVED", approvedBy: actorName, approvedAt: new Date() },
-    });
+  if (!actor) {
+    const result = await db().supplierBill.updateMany({ where: { status: "PENDING" }, data: { status: "APPROVED", approvedBy: actorName, approvedAt: new Date() } });
     return { approved: result.count };
-  });
+  }
+  const pending = await db().supplierBill.findMany({ where: { status: "PENDING" }, select: { id: true, businessUnitId: true, amount: true } });
+  let approved = 0;
+  let advanced = 0;
+  let skipped = 0;
+  for (const bill of pending) {
+    try {
+      await db().$transaction(async (tx) => {
+        const gate = await recordApproval(tx, actor, billTarget(bill));
+        if (!gate.final) {
+          advanced += 1;
+          return;
+        }
+        await tx.supplierBill.update({ where: { id: bill.id }, data: { status: "APPROVED", approvedBy: actorName, approvedAt: new Date() } });
+        approved += 1;
+      });
+    } catch (error) {
+      if (error instanceof AppError && error.status === 403) skipped += 1;
+      else throw error;
+    }
+  }
+  if (skipped > 0 && approved + advanced === 0) {
+    throw new AppError(403, "FORBIDDEN", "You are not the current approver of any pending bill in the approval pipeline.");
+  }
+  return { approved, advanced, skipped };
 }
 
 /**

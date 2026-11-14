@@ -20,7 +20,7 @@ import { approvalApi } from "../services/approval.api";
 
 const PAGE_SIZES = [10, 25, 50, 100] as const;
 const BREADCRUMBS = entityMasterDataBreadcrumbs(securityPaths.approvalSetup);
-const HEADERS = ["SL", "Action", "Pipeline Name", "Super Approver", "Feature Name"];
+const HEADERS = ["SL", "Action", "Pipeline Name", "Super Approver", "Feature Name", "Stages"];
 
 export function ApprovalListView() {
   const toast = useToast();
@@ -131,6 +131,7 @@ export function ApprovalListView() {
                       <td className="px-2.5 py-2 font-medium whitespace-nowrap">{row.name}</td>
                       <td className="px-2.5 py-2 whitespace-nowrap">{row.superApproverName ?? <span className="text-ink-faint">—</span>}</td>
                       <td className="px-2.5 py-2 whitespace-nowrap">{row.feature}</td>
+                      <td className="px-2.5 py-2 whitespace-nowrap tabular-nums">{row.stageCount === 1 ? "1 stage" : `${row.stageCount} stages`}</td>
                     </tr>
                   ))}
                 </tbody>

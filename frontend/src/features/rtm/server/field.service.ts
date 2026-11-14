@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { badRequest, notFound } from "@/lib/api/errors";
 import type { Actor } from "@/lib/auth/actor";
+import { decideWithPipeline } from "@/lib/approval/engine";
 import { db } from "@/lib/prisma/client";
 import { DATE, MONTH, actorName, dateRange, fromDbDate, num, requireDistributor, requireEmployee, requireOutlet, toDbDate, unitIds } from "./common";
 import { getSettings } from "./masters.service";
@@ -110,7 +111,10 @@ export async function reviewTourPlan(actor: Actor, id: string, decision: "approv
   const t = await db().rtmTourPlan.findFirst({ where: { id, businessUnitId: { in: units } } });
   if (!t) throw notFound("Tour plan");
   if (t.status !== "PENDING") throw badRequest(`This tour plan is already ${t.status.toLowerCase()}.`);
-  await db().rtmTourPlan.update({ where: { id }, data: { status: decision === "approve" ? "APPROVED" : "REJECTED", approvedBy: actorName(actor) } });
+  // Multilayer approval: stays PENDING until the last pipeline stage approves.
+  await decideWithPipeline(actor, { feature: "Tour Plan", documentId: id, businessUnitId: t.businessUnitId }, decision, async (tx) => {
+    await tx.rtmTourPlan.update({ where: { id }, data: { status: decision === "approve" ? "APPROVED" : "REJECTED", approvedBy: actorName(actor) } });
+  });
   return listTourPlans(actor);
 }
 

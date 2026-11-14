@@ -15,6 +15,7 @@ import { errorMessage } from "@/lib/api/client";
 import { cn } from "@/lib/cn";
 import { entityMasterDataBreadcrumbs } from "@/features/configuration/entity-master-data/breadcrumbs";
 import { Checkbox, DecimalInput, Field, Input, Notice, Panel, SaveState, Select, TABLE } from "@/features/configuration/entity-master-data/employee/components/kit";
+import { Combobox } from "@/features/production/components/Combobox";
 import { securityPaths } from "../../paths";
 import {
   APPROVAL_ORDERS,
@@ -352,16 +353,16 @@ function PipelineEditor({
                 error={err("superApproverId")}
                 hint={superApproverWithoutLogin ? "This employee has no ERP login yet, so they cannot approve until one is created." : undefined}
               >
-                {(id) => (
-                  <Select
-                    id={id}
-                    value={header.superApproverId}
-                    placeholder="Select Employee"
-                    options={peopleOf("EMPLOYEE")}
-                    aria-invalid={invalid("superApproverId")}
-                    onChange={(e) => patchHeader({ superApproverId: e.target.value })}
-                  />
-                )}
+                {/* Searchable: type a name, code or designation to filter. */}
+                <Combobox
+                  label="Super Approver"
+                  hideLabel
+                  value={header.superApproverId}
+                  placeholder="Type to search employee"
+                  emptyText="No employee matches."
+                  options={peopleOf("EMPLOYEE")}
+                  onChange={(value) => patchHeader({ superApproverId: value })}
+                />
               </Field>
               <Field label="Remarks" error={err("remarks")}>
                 {(id) => <Input id={id} value={header.remarks} maxLength={500} placeholder="Remarks" onChange={(e) => patchHeader({ remarks: e.target.value })} />}
@@ -393,7 +394,12 @@ function PipelineEditor({
         {stages.map((stage, index) => {
           const se = (key: string) => err(`stages.${index}.${key}`);
           const countOptions = Array.from({ length: Math.max(1, stage.approvers.length) }, (_, i) => String(i + 1));
-          const pickable = peopleOf(stage.userType, stage.businessUnitId).filter((p) => !stage.approvers.some((a) => a.userType === stage.userType && a.approverId === p.value));
+          // All approvers (users and employees), minus those already in the stage. Values are "TYPE:id".
+          const pickable = (["USER", "EMPLOYEE"] as const).flatMap((type) =>
+            peopleOf(type, stage.businessUnitId)
+              .filter((p) => !stage.approvers.some((a) => a.userType === type && a.approverId === p.value))
+              .map((p) => ({ value: `${type}:${p.value}`, label: `${p.label} — ${type === "USER" ? "User" : "Employee"}` })),
+          );
           const draftWithoutLogin = stage.userType === "EMPLOYEE" && employeeWithoutLogin(stage.draft.approverId);
           return (
             <Panel
@@ -483,16 +489,19 @@ function PipelineEditor({
                     required
                     hint={draftWithoutLogin ? "This employee has no ERP login yet, so they cannot approve until one is created." : undefined}
                   >
-                    {(id) => (
-                      <Select
-                        id={id}
-                        value={stage.draft.approverId}
-                        placeholder={stage.userType ? "Approver Name" : "Select a user type first"}
-                        disabled={!stage.userType}
-                        options={pickable}
-                        onChange={(e) => patchStage(index, { draft: { ...stage.draft, approverId: e.target.value } })}
-                      />
-                    )}
+                    {/* Searchable list of every approver (users and employees); picking one also sets the stage's user type. */}
+                    <Combobox
+                      label={`Stage ${index + 1} Approver Name`}
+                      hideLabel
+                      value={stage.draft.approverId && stage.userType ? `${stage.userType}:${stage.draft.approverId}` : ""}
+                      placeholder="Type to search approver"
+                      emptyText="No approver matches."
+                      options={pickable}
+                      onChange={(value) => {
+                        const [type, approverId = ""] = value.split(":");
+                        patchStage(index, { userType: (type as UserType) || stage.userType, draft: { ...stage.draft, approverId } });
+                      }}
+                    />
                   </Field>
                   <Field label="Authorization Type" required>
                     {(id) => (

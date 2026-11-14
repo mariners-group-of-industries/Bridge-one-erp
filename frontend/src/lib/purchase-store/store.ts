@@ -17,12 +17,12 @@ import {
 } from "@bridgeone/contracts";
 import type { Prisma, StockSource } from "@/generated/prisma/client";
 import { badRequest, notFound } from "@/lib/api/errors";
+import { approvalNote, recordApproval, recordRejection, resetApproval } from "@/lib/approval/engine";
 import { db } from "@/lib/prisma/client";
 import { assertStockAvailable, lockWarehouse } from "@/features/sales/deliveries/services/stock.service";
 import { formatNumber, nextNumber } from "@/features/sales/lib/sequence";
 import { listSupplierInvoices, listSupplierPayables, validatePaymentLink } from "./payables";
 import {
-  assertApprovalPipeline,
   assertPlaceInScope,
   getApprovalRightsSummary,
   isPlaceInOrgScope,
@@ -912,6 +912,11 @@ class PurchaseDataStore {
     return (await this.getRequisitionById(created.id))!;
   }
 
+  /**
+   * Approve / reject / cancel / reverse. With an `actor`, approving and rejecting
+   * go through the multilayer approval pipeline: the requisition stays PENDING
+   * until its last stage approves.
+   */
   public async updateRequisitionStatus(id: string, action: string, actorName: string, comments?: string, actor?: PurchaseActor) {
     const req = await this.findRequisition(id);
     await assertPlaceInScope(actor, { businessUnitId: req.businessUnitId, officeId: req.officeId, warehouseId: req.warehouseId });
@@ -919,13 +924,27 @@ class PurchaseDataStore {
     if ("error" in result) throw badRequest(result.error);
     if (action === "REJECT" && !comments?.trim()) throw badRequest("Give a reason for rejecting the requisition.");
 
+    const target = { feature: "Purchase Requisition", documentId: req.id, businessUnitId: req.businessUnitId, amount: Number(req.totalEstimated), comment: comments || null };
     await db().$transaction(async (tx) => {
-      if (action === "APPROVE" || action === "REJECT") {
-        await assertApprovalPipeline(tx, ["Purchase Requisition"], req.businessUnitId, Number(req.totalEstimated), actor);
+      let status = result.to as RequisitionDbStatus;
+      let label = REQUISITION_PAST[action as RequisitionAction] ?? action;
+      let note = comments;
+      if (action === "APPROVE" && actor) {
+        const gate = await recordApproval(tx, actor, target);
+        if (!gate.final) {
+          status = req.status as RequisitionDbStatus;
+          label = "STAGE_APPROVED";
+          note = [approvalNote(gate), comments].filter(Boolean).join(" ");
+        }
+      } else if (action === "REJECT" && actor) {
+        await recordRejection(tx, actor, target);
+      } else if (status === "PENDING") {
+        // Reversed back to pending: approval starts over.
+        await resetApproval(tx, target.feature, req.id);
       }
       await tx.purchaseRequisition.update({
         where: { id: req.id },
-        data: { status: result.to, notes: appendNote(req.notes, historyEntry(REQUISITION_PAST[action as RequisitionAction] ?? action, actorName, comments)) },
+        data: { status, notes: appendNote(req.notes, historyEntry(label, actorName, note)) },
       });
     });
     return this.getRequisitionById(req.id, actor);
@@ -1292,6 +1311,7 @@ class PurchaseDataStore {
     return this.getPurchaseOrderById(po.id);
   }
 
+  /** With an `actor`, approving goes through the multilayer approval pipeline (the order stays PENDING until the last stage). */
   public async updatePurchaseOrderStatus(id: string, action: string, actorName: string, comments?: string, actor?: PurchaseActor) {
     const po = await this.findOrder(id);
     await assertPlaceInScope(actor, { businessUnitId: po.businessUnitId, officeId: po.officeId, warehouseId: po.warehouseId });
@@ -1301,12 +1321,22 @@ class PurchaseDataStore {
 
     const pastTense: Record<string, string> = { APPROVE: "APPROVED", CLOSE: "CLOSED", CANCEL: "CANCELLED", REVERSE: "REVERSED" };
     await db().$transaction(async (tx) => {
-      if (action === "APPROVE") {
-        await assertApprovalPipeline(tx, ["Purchase Order", "Purchase Order Local"], po.businessUnitId, Number(po.totalAmount), actor);
+      let status = result.to as OrderDbStatus;
+      let label = pastTense[action] ?? action;
+      let note = comments;
+      if (action === "APPROVE" && actor) {
+        const gate = await recordApproval(tx, actor, { feature: "Purchase Order", documentId: po.id, businessUnitId: po.businessUnitId, amount: Number(po.totalAmount), comment: comments || null });
+        if (!gate.final) {
+          status = po.status as OrderDbStatus;
+          label = "STAGE_APPROVED";
+          note = [approvalNote(gate), comments].filter(Boolean).join(" ");
+        }
+      } else if (status === "PENDING") {
+        await resetApproval(tx, "Purchase Order", po.id);
       }
       await tx.purchaseOrder.update({
         where: { id: po.id },
-        data: { status: result.to, notes: appendNote(po.notes, historyEntry(pastTense[action] ?? action, actorName, comments)) },
+        data: { status, notes: appendNote(po.notes, historyEntry(label, actorName, note)) },
       });
       // A cancelled order frees its requisition for another order.
       if (result.to === "CANCELLED" && po.requisitionId) {
@@ -1972,7 +2002,9 @@ class PurchaseDataStore {
     await assertPlaceInScope(actor, { businessUnitId: payment.businessUnitId, officeId: payment.officeId });
     if (payment.status === "CANCELLED") throw badRequest("A cancelled payment cannot be approved.");
     return db().$transaction(async (tx) => {
-      await assertApprovalPipeline(tx, ["Payment Approval"], payment.businessUnitId, Number(payment.amount), actor);
+      // Multilayer approval: the payment is paid only after the last "Payment Approval" stage.
+      const gate = actor ? await recordApproval(tx, actor, { feature: "Payment Approval", documentId: payment.id, businessUnitId: payment.businessUnitId, amount: Number(payment.amount) }) : null;
+      if (gate && !gate.final) return tx.supplierPayment.findUniqueOrThrow({ where: { id: payment.id } });
       return tx.supplierPayment.update({ where: { id: payment.id }, data: { status: "PAID" } });
     });
   }
