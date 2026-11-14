@@ -159,10 +159,10 @@ export function ReturnWorkspaceView() {
 
 function DeliveriesTab({ today, search, onQuery }: { today: string; search: string; onQuery: (query: Query | null) => void }) {
   const filterLists = useFilterLookups();
-  const [filters, setFilters] = useState({ officeId: "", from: monthStart(today), to: today });
-  // Empty filters ("All") are left out of the query.
-  const toQuery = (values: typeof filters) => Object.fromEntries(Object.entries(values).filter(([, value]) => value)) as ReturnableDeliveryQuery;
-  const [query, setQuery] = useState<ReturnableDeliveryQuery>(toQuery(filters));
+  const [filters, setFilters] = useState({ officeId: "", from: monthAgo(today), to: today });
+  // "All" offices: leave the office out of the query.
+  const toQuery = ({ officeId, ...range }: typeof filters): ReturnableDeliveryQuery => ({ ...range, ...(officeId ? { officeId } : {}) });
+  const [query, setQuery] = useState<ReturnableDeliveryQuery>(() => toQuery(filters));
   const [filterError, setFilterError] = useState<string>();
   const effective: ReturnableDeliveryQuery = { ...query, ...(search ? { search } : {}) };
   const list = useResource(`returnable:${JSON.stringify(effective)}`, () => fetchReturnableDeliveries(effective), { refreshOnFocus: true });

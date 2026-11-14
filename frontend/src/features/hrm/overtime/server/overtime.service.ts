@@ -1,6 +1,7 @@
 import type { Prisma } from "@/generated/prisma/client";
 import { badRequest, conflict, notFound } from "@/lib/api/errors";
 import type { Actor } from "@/lib/auth/actor";
+import { decideWithPipeline } from "@/lib/approval/engine";
 import { db } from "@/lib/prisma/client";
 import { grossOf, monthRange } from "../../payroll/server/payroll.service";
 import { decisionBy, isoDate, money, num, officeScope, requireHr, toDate } from "../../shared/hr-access";
@@ -271,12 +272,20 @@ export async function listEntries(actor: Actor, input: EntryListQuery): Promise<
 export async function decideEntries(actor: Actor, input: DecisionInput, status: "Approved" | "Rejected"): Promise<{ updated: number }> {
   requireHr(actor);
   const { ids } = decisionInputSchema.parse(input);
-  const { count } = await db().overtimeEntry.updateMany({
+  const entries = await db().overtimeEntry.findMany({
     where: { id: { in: ids }, status: "Pending", ...entryScope(actor) },
-    data: { status, decidedByName: decisionBy(actor), decidedAt: new Date() },
+    select: { id: true, office: { select: { businessUnitId: true } } },
   });
-  if (!count) throw conflict("None of the selected entries is pending any more.");
-  return { updated: count };
+  if (entries.length === 0) throw conflict("None of the selected entries is pending any more.");
+  // Multilayer approval: each entry goes through the "Overtime" pipeline; it is decided after its last stage.
+  let updated = 0;
+  for (const entry of entries) {
+    await decideWithPipeline(actor, { feature: "Overtime", documentId: entry.id, businessUnitId: entry.office.businessUnitId }, status === "Approved" ? "approve" : "reject", async (tx) => {
+      const { count } = await tx.overtimeEntry.updateMany({ where: { id: entry.id, status: "Pending" }, data: { status, decidedByName: decisionBy(actor), decidedAt: new Date() } });
+      updated += count;
+    });
+  }
+  return { updated };
 }
 
 export async function deleteEntry(actor: Actor, id: string): Promise<void> {

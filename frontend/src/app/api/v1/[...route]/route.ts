@@ -312,7 +312,8 @@ async function handlePOST(
           id,
           "APPROVE",
           actorName,
-          comments
+          comments,
+          actor
         );
         return NextResponse.json({ success: true, data: updated });
       }
@@ -321,7 +322,8 @@ async function handlePOST(
           id,
           "REJECT",
           actorName,
-          comments
+          comments,
+          actor
         );
         return NextResponse.json({ success: true, data: updated });
       }
@@ -330,7 +332,8 @@ async function handlePOST(
           id,
           "CANCEL",
           actorName,
-          comments
+          comments,
+          actor
         );
         return NextResponse.json({ success: true, data: updated });
       }
@@ -366,7 +369,8 @@ async function handlePOST(
           id,
           "APPROVE",
           actorName,
-          comments
+          comments,
+          actor
         );
         return NextResponse.json({ success: true, data: updated });
       }
@@ -375,7 +379,8 @@ async function handlePOST(
           id,
           "CLOSE",
           actorName,
-          comments
+          comments,
+          actor
         );
         return NextResponse.json({ success: true, data: updated });
       }
@@ -384,7 +389,8 @@ async function handlePOST(
           id,
           "REVERSE",
           actorName,
-          comments
+          comments,
+          actor
         );
         return NextResponse.json({ success: true, data: updated });
       }
@@ -393,7 +399,8 @@ async function handlePOST(
           id,
           "CANCEL",
           actorName,
-          comments
+          comments,
+          actor
         );
         return NextResponse.json({ success: true, data: updated });
       }
@@ -449,11 +456,11 @@ async function handlePOST(
       return NextResponse.json({ success: true, data: created }, { status: 201 });
     }
     if (path === "purchase/supplier-bills/approve-pending") {
-      const result = await approvePendingSupplierBills(actorName);
+      const result = await approvePendingSupplierBills(actorName, actor);
       return NextResponse.json({ success: true, data: result });
     }
     if (route[0] === "purchase" && route[1] === "supplier-bills" && route.length === 4 && route[3] === "approve") {
-      const updated = await approveSupplierBill(route[2], actorName);
+      const updated = await approveSupplierBill(route[2], actorName, actor);
       return NextResponse.json({ success: true, data: updated });
     }
 

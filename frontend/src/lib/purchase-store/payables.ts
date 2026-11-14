@@ -1,5 +1,7 @@
 import type { SupplierInvoiceItem, SupplierPaymentRecord } from "@bridgeone/contracts";
-import { badRequest, notFound } from "@/lib/api/errors";
+import { AppError, badRequest, notFound } from "@/lib/api/errors";
+import { recordApproval } from "@/lib/approval/engine";
+import type { Actor } from "@/lib/auth/actor";
 import { db } from "@/lib/prisma/client";
 
 /**
@@ -244,16 +246,55 @@ export async function createSupplierBill(input: Record<string, unknown>, actorNa
   });
 }
 
-export async function approveSupplierBill(id: string, actorName: string) {
+const BILL_FEATURE = "Payment Approval";
+const billTarget = (bill: { id: string; businessUnitId: string; amount: { toString(): string } }) => ({
+  feature: BILL_FEATURE,
+  documentId: bill.id,
+  businessUnitId: bill.businessUnitId,
+  amount: Number(bill.amount.toString()),
+});
+
+/** Approves a bill; with an `actor`, through the multilayer approval pipeline (stays PENDING until the last stage). */
+export async function approveSupplierBill(id: string, actorName: string, actor?: Actor) {
   const bill = await db().supplierBill.findUnique({ where: { id } }).catch(() => null);
   if (!bill) throw notFound("Bill");
   if (bill.status !== "PENDING") throw badRequest(`Bill ${bill.number} is already ${bill.status.toLowerCase()}.`);
-  return db().supplierBill.update({ where: { id }, data: { status: "APPROVED", approvedBy: actorName, approvedAt: new Date() } });
+  return db().$transaction(async (tx) => {
+    if (actor && !(await recordApproval(tx, actor, billTarget(bill))).final) return tx.supplierBill.findUniqueOrThrow({ where: { id } });
+    return tx.supplierBill.update({ where: { id }, data: { status: "APPROVED", approvedBy: actorName, approvedAt: new Date() } });
+  });
 }
 
-export async function approvePendingSupplierBills(actorName: string) {
-  const result = await db().supplierBill.updateMany({ where: { status: "PENDING" }, data: { status: "APPROVED", approvedBy: actorName, approvedAt: new Date() } });
-  return { approved: result.count };
+/**
+ * Approves every pending bill. With an `actor`, each bill goes through its
+ * pipeline; bills where the actor is not the current stage's approver are skipped.
+ */
+export async function approvePendingSupplierBills(actorName: string, actor?: Actor) {
+  if (!actor) {
+    const result = await db().supplierBill.updateMany({ where: { status: "PENDING" }, data: { status: "APPROVED", approvedBy: actorName, approvedAt: new Date() } });
+    return { approved: result.count };
+  }
+  const pending = await db().supplierBill.findMany({ where: { status: "PENDING" }, select: { id: true, businessUnitId: true, amount: true } });
+  let approved = 0;
+  let advanced = 0;
+  let skipped = 0;
+  for (const bill of pending) {
+    try {
+      await db().$transaction(async (tx) => {
+        const gate = await recordApproval(tx, actor, billTarget(bill));
+        if (!gate.final) {
+          advanced += 1;
+          return;
+        }
+        await tx.supplierBill.update({ where: { id: bill.id }, data: { status: "APPROVED", approvedBy: actorName, approvedAt: new Date() } });
+        approved += 1;
+      });
+    } catch (error) {
+      if (error instanceof AppError && error.status === 403) skipped += 1;
+      else throw error;
+    }
+  }
+  return { approved, advanced, skipped };
 }
 
 /** Posted payments, newest first, with what each settled. */

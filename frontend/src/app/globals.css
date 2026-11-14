@@ -98,7 +98,7 @@
   --color-grid-line: var(--grid-line);
   --color-grid-hover: var(--grid-hover);
 
-  --font-sans: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-sans: var(--font-inter), "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
@@ -116,6 +116,13 @@
   --text-xl--line-height: 1.75rem;
 
   --shadow-dropdown: 0 0 1px rgb(0 0 0 / 0.2), 0 8px 24px -4px rgb(0 0 0 / 0.16);
+
+  /* Inter is variable, so weights sit a step deeper than the defaults
+     (400 / 500 / 600 / 700) for crisper, easier-to-read text at the dense 13px scale. */
+  --font-weight-normal: 450;
+  --font-weight-medium: 550;
+  --font-weight-semibold: 630;
+  --font-weight-bold: 720;
 }
 
 @layer base {
@@ -124,6 +131,19 @@
     color: var(--ink);
     font-size: var(--text-sm);
     line-height: var(--text-sm--line-height);
+    font-weight: var(--font-weight-normal);
+    /* Inter's open digits and disambiguated letters (1/l/I) read better in data-heavy screens. */
+    font-feature-settings: "cv05", "cv08";
+    font-optical-sizing: auto;
+  }
+
+  /* Form controls do not inherit the font by default. */
+  input,
+  select,
+  textarea,
+  button {
+    font-family: inherit;
+    font-weight: inherit;
   }
 
   :focus-visible {

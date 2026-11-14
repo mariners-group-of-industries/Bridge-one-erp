@@ -1,4 +1,5 @@
 import { accountWorkspace } from "@/features/accounts/navigation";
+import { approvalsWorkspace } from "@/features/approvals/navigation";
 import { configurationWorkspace } from "@/features/configuration/navigation";
 import { hrmWorkspace } from "@/features/hrm/navigation";
 import { inventoryWorkspace } from "@/features/inventory/navigation";
@@ -28,7 +29,12 @@ export const workspaces: readonly Workspace[] = [
   crmWorkspace,
   posWorkspace,
   connectWorkspace,
+  // Pinned under Home in the sidebar (PINNED_WORKSPACES), not listed with the modules.
+  approvalsWorkspace,
 ];
+
+/** Workspaces the sidebar shows as single links under Home instead of in the module list. */
+export const PINNED_WORKSPACES: ReadonlySet<string> = new Set([approvalsWorkspace.id]);
 
 export interface SearchEntry extends NavLink {
   group: string;

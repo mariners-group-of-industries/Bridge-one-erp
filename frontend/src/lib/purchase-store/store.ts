@@ -17,6 +17,8 @@ import {
 } from "@bridgeone/contracts";
 import type { Prisma, StockSource } from "@/generated/prisma/client";
 import { badRequest, notFound } from "@/lib/api/errors";
+import { approvalNote, recordApproval, recordRejection, resetApproval } from "@/lib/approval/engine";
+import type { Actor } from "@/lib/auth/actor";
 import { db } from "@/lib/prisma/client";
 import { assertStockAvailable, lockWarehouse } from "@/features/sales/deliveries/services/stock.service";
 import { formatNumber, nextNumber } from "@/features/sales/lib/sequence";
@@ -531,15 +533,39 @@ class PurchaseDataStore {
     return (await this.getRequisitionById(created.id))!;
   }
 
-  public async updateRequisitionStatus(id: string, action: string, actorName: string, comments?: string) {
+  /**
+   * Approve / reject / cancel / reverse. With an `actor`, approving and rejecting
+   * go through the multilayer approval pipeline: the requisition stays PENDING
+   * until its last stage approves.
+   */
+  public async updateRequisitionStatus(id: string, action: string, actorName: string, comments?: string, actor?: Actor) {
     const req = await this.findRequisition(id);
     const result = requisitionTransition(req.status as RequisitionDbStatus, action as RequisitionAction);
     if ("error" in result) throw badRequest(result.error);
     if (action === "REJECT" && !comments?.trim()) throw badRequest("Give a reason for rejecting the requisition.");
 
-    await db().purchaseRequisition.update({
-      where: { id: req.id },
-      data: { status: result.to, notes: appendNote(req.notes, historyEntry(REQUISITION_PAST[action as RequisitionAction] ?? action, actorName, comments)) },
+    const target = { feature: "Purchase Requisition", documentId: req.id, businessUnitId: req.businessUnitId, amount: Number(req.totalEstimated), comment: comments || null };
+    await db().$transaction(async (tx) => {
+      let status = result.to as RequisitionDbStatus;
+      let label = REQUISITION_PAST[action as RequisitionAction] ?? action;
+      let note = comments;
+      if (action === "APPROVE" && actor) {
+        const gate = await recordApproval(tx, actor, target);
+        if (!gate.final) {
+          status = req.status as RequisitionDbStatus;
+          label = "STAGE_APPROVED";
+          note = [approvalNote(gate), comments].filter(Boolean).join(" ");
+        }
+      } else if (action === "REJECT" && actor) {
+        await recordRejection(tx, actor, target);
+      } else if (status === "PENDING") {
+        // Reversed back to pending: approval starts over.
+        await resetApproval(tx, target.feature, req.id);
+      }
+      await tx.purchaseRequisition.update({
+        where: { id: req.id },
+        data: { status, notes: appendNote(req.notes, historyEntry(label, actorName, note)) },
+      });
     });
     return this.getRequisitionById(req.id);
   }
@@ -877,7 +903,8 @@ class PurchaseDataStore {
     return this.getPurchaseOrderById(po.id);
   }
 
-  public async updatePurchaseOrderStatus(id: string, action: string, actorName: string, comments?: string) {
+  /** With an `actor`, approving goes through the multilayer approval pipeline (the order stays PENDING until the last stage). */
+  public async updatePurchaseOrderStatus(id: string, action: string, actorName: string, comments?: string, actor?: Actor) {
     const po = await this.findOrder(id);
     const progress = po.lines.map((l) => ({ ordered: Number(l.quantity), received: Number(l.receivedQuantity) }));
     const result = orderTransition(po.status as OrderDbStatus, action as OrderAction, progress);
@@ -885,9 +912,22 @@ class PurchaseDataStore {
 
     const pastTense: Record<string, string> = { APPROVE: "APPROVED", CLOSE: "CLOSED", CANCEL: "CANCELLED", REVERSE: "REVERSED" };
     await db().$transaction(async (tx) => {
+      let status = result.to as OrderDbStatus;
+      let label = pastTense[action] ?? action;
+      let note = comments;
+      if (action === "APPROVE" && actor) {
+        const gate = await recordApproval(tx, actor, { feature: "Purchase Order", documentId: po.id, businessUnitId: po.businessUnitId, amount: Number(po.totalAmount), comment: comments || null });
+        if (!gate.final) {
+          status = po.status as OrderDbStatus;
+          label = "STAGE_APPROVED";
+          note = [approvalNote(gate), comments].filter(Boolean).join(" ");
+        }
+      } else if (status === "PENDING") {
+        await resetApproval(tx, "Purchase Order", po.id);
+      }
       await tx.purchaseOrder.update({
         where: { id: po.id },
-        data: { status: result.to, notes: appendNote(po.notes, historyEntry(pastTense[action] ?? action, actorName, comments)) },
+        data: { status, notes: appendNote(po.notes, historyEntry(label, actorName, note)) },
       });
       // A cancelled order frees its requisition for another order.
       if (result.to === "CANCELLED" && po.requisitionId) {

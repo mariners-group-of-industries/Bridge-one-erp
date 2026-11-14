@@ -3,6 +3,7 @@ import type { Prisma } from "@/generated/prisma/client";
 import { validateAttachment, type UploadedFile } from "@/features/configuration/entity-master-data/supplier/server/supplier.service";
 import { AppError, badRequest, conflict, notFound } from "@/lib/api/errors";
 import { actorUserId, can, type Actor } from "@/lib/auth/actor";
+import { decideWithPipeline, employeeBusinessUnit } from "@/lib/approval/engine";
 import { db } from "@/lib/prisma/client";
 import { getStorage } from "@/lib/storage";
 import {
@@ -248,9 +249,14 @@ async function loadLeave(actor: Actor, id: string) {
 
 export async function decideLeave(actor: Actor, id: string, status: "Approved" | "Rejected") {
   requireManager(actor);
-  await loadLeave(actor, id);
-  const { count } = await db().leaveApplication.updateMany({ where: { id, status: "Pending" }, data: decision(actor, status) });
-  if (!count) throw conflict("This application has already been decided.");
+  const leave = await loadLeave(actor, id);
+  if (leave.status !== "Pending") throw conflict("This application has already been decided.");
+  // Multilayer approval: stays Pending until the last pipeline stage approves.
+  const target = { feature: "Employee Leave", documentId: id, businessUnitId: await employeeBusinessUnit(leave.employeeId) };
+  await decideWithPipeline(actor, target, status === "Approved" ? "approve" : "reject", async (tx) => {
+    const { count } = await tx.leaveApplication.updateMany({ where: { id, status: "Pending" }, data: decision(actor, status) });
+    if (!count) throw conflict("This application has already been decided.");
+  });
 }
 
 export async function deleteLeave(actor: Actor, id: string) {
@@ -320,9 +326,13 @@ async function loadMovement(actor: Actor, id: string) {
 
 export async function decideMovement(actor: Actor, id: string, status: "Approved" | "Rejected") {
   requireManager(actor);
-  await loadMovement(actor, id);
-  const { count } = await db().movementApplication.updateMany({ where: { id, status: "Pending" }, data: decision(actor, status) });
-  if (!count) throw conflict("This application has already been decided.");
+  const movement = await loadMovement(actor, id);
+  if (movement.status !== "Pending") throw conflict("This application has already been decided.");
+  const target = { feature: "Employee Movement", documentId: id, businessUnitId: await employeeBusinessUnit(movement.employeeId) };
+  await decideWithPipeline(actor, target, status === "Approved" ? "approve" : "reject", async (tx) => {
+    const { count } = await tx.movementApplication.updateMany({ where: { id, status: "Pending" }, data: decision(actor, status) });
+    if (!count) throw conflict("This application has already been decided.");
+  });
 }
 
 export async function deleteMovement(actor: Actor, id: string) {

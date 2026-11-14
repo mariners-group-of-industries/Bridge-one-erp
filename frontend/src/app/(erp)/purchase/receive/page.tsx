@@ -98,6 +98,10 @@ export default function PurchaseReceivePage() {
   const [activeTab, setActiveTab] = useState<Tab>("APPROVED_PO");
   const [search, setSearch] = useState("");
 
+  /** "" = all offices; otherwise the office name the rows are filtered by. */
+  const [poOfficeFilter, setPoOfficeFilter] = useState("");
+  const [grnOfficeFilter, setGrnOfficeFilter] = useState("");
+
   // Received tab filters
   const [warehouseFilter, setWarehouseFilter] = useState("ALL");
   const [supplierFilter, setSupplierFilter] = useState("ALL");
@@ -121,30 +125,15 @@ export default function PurchaseReceivePage() {
   const [returnGRN, setReturnGRN] = useState<Receipt | null>(null);
   const [returnLines, setReturnLines] = useState<ReturnLine[]>([]);
   const [returnReason, setReturnReason] = useState("");
+  const [returnDate, setReturnDate] = useState(today());
 
-  // Queries
-  const { data: offices } = useQuery<{ id: string; name: string }[]>({
-    queryKey: ["offices"],
-    queryFn: () => fetchApi("/master/offices"),
-  });
-  /** "" = all offices; otherwise the office name the rows are filtered by. */
-  const [officeFilter, setOfficeFilter] = useState("");
-  const [grnOfficeFilter, setGrnOfficeFilter] = useState("");
-
-  const { data: warehouses } = useQuery<Warehouse[]>({
-    queryKey: ["warehouses"],
-    queryFn: () => fetchApi("/master/warehouses"),
-  });
-  const { data: suppliers } = useQuery<Supplier[]>({
-    queryKey: ["suppliers"],
-    queryFn: () => fetchApi("/master/suppliers"),
-  });
-  const { data: itemsCatalog } = useQuery<Item[]>({
-    queryKey: ["items"],
-    queryFn: () => fetchApi("/master/items"),
-  });
-
-  const { data: apiApprovedPOs } = useQuery<PurchaseOrder[]>({
+  // Data
+  const { data: offices = [] } = useQuery<{ id: string; name: string }[]>({ queryKey: ["offices"], queryFn: () => fetchApi("/master/offices") });
+  const { data: warehouses = [] } = useQuery<Warehouse[]>({ queryKey: ["warehouses", "ALL"], queryFn: () => fetchApi("/master/warehouses") });
+  const { data: suppliers = [] } = useQuery<Supplier[]>({ queryKey: ["suppliers"], queryFn: () => fetchApi("/master/suppliers") });
+  const { data: items = [] } = useQuery<Item[]>({ queryKey: ["items"], queryFn: () => fetchApi("/master/items") });
+  const { data: context } = useQuery<{ company: { name: string } }>({ queryKey: ["context"], queryFn: () => fetchApi("/master/context") });
+  const { data: approvedPOs = [], isFetching: posLoading } = useQuery<PurchaseOrder[]>({
     queryKey: ["approvedPOs"],
     queryFn: () => fetchApi("/purchase/receipts/approved-orders"),
   });
@@ -152,50 +141,34 @@ export default function PurchaseReceivePage() {
     queryKey: ["receivedGRNs"],
     queryFn: () => fetchApi("/purchase/receipts"),
   });
+  const { data: eligible = [] } = useQuery<GoodsReceipt[]>({
+    queryKey: ["eligibleGRNs"],
+    queryFn: () => fetchApi("/purchase/returns/eligible-receipts"),
+  });
+  const eligibleIds = useMemo(() => new Set(eligible.map((g) => g.id)), [eligible]);
 
-  // Combine Approved POs
-  const combinedApprovedPOs = useMemo(() => {
-    const list = [...seedApprovedPOs];
-    if (apiApprovedPOs && apiApprovedPOs.length > 0) {
-      apiApprovedPOs.forEach((o) => {
-        if (!list.some((existing) => existing.poNumber === o.poNumber)) {
-          list.unshift({
-            id: o.id,
-            poDate: o.orderDate,
-            receivedDate: o.expectedDeliveryDate,
-            requisitionNo: o.requisitionNumber || "N/A",
-            poNumber: o.poNumber,
-            supplierName: o.supplierName,
-            officeName: o.officeName,
-            shipmentNo: "N/A",
-            shipmentDocNo: "N/A",
-            vatChallanNo: "N/A",
-            salesInvoiceNo: "N/A",
-            deliveryNo: "N/A",
-            preparedBy: o.createdBy || "Mahfuz Rahman",
-            eta: o.expectedDeliveryDate,
-            status: o.status === "APPROVED" ? "Approved" : "Partially Received",
-            warehouseName: o.warehouseName || "Material WH",
-            items: o.items as any,
-          });
-        }
-      });
-    }
+  const pendingPOs = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return approvedPOs.filter(
+      (o) =>
+        (!poOfficeFilter || o.officeName === poOfficeFilter) &&
+        (!q || [o.poNumber, o.supplierName, o.officeName, o.warehouseName, o.createdBy, o.requisitionNumber ?? ""].some((v) => v.toLowerCase().includes(q))),
+    );
+  }, [approvedPOs, search, poOfficeFilter]);
 
-    return list.filter((item) => {
-      if (officeFilter && item.officeName !== officeFilter) return false;
-      if (search) {
-        const q = search.toLowerCase();
-        const m =
-          item.poNumber.toLowerCase().includes(q) ||
-          item.supplierName.toLowerCase().includes(q) ||
-          item.officeName.toLowerCase().includes(q) ||
-          item.preparedBy.toLowerCase().includes(q);
-        if (!m) return false;
-      }
+  const filteredGRNs = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return receipts.filter((g) => {
+      if (grnOfficeFilter && g.officeName !== grnOfficeFilter) return false;
+      if (warehouseFilter !== "ALL" && g.warehouseId !== warehouseFilter) return false;
+      if (supplierFilter !== "ALL" && g.supplierId !== supplierFilter) return false;
+      if (statusFilter !== "ALL" && g.status !== statusFilter) return false;
+      if (fromDate && g.receiptDate < fromDate) return false;
+      if (toDate && g.receiptDate > toDate) return false;
+      if (q && ![g.grnNumber, g.poNumber, g.supplierName, g.challanNumber ?? "", g.preparedBy].some((v) => v.toLowerCase().includes(q))) return false;
       return true;
     });
-  }, [apiApprovedPOs, search, officeFilter]);
+  }, [receipts, search, grnOfficeFilter, warehouseFilter, supplierFilter, statusFilter, fromDate, toDate]);
 
   const invalidate = () => {
     for (const key of ["approvedPOs", "receivedGRNs", "purchaseOrders", "eligibleGRNs", "returnsList", "suppliers", "dashboard"]) {
@@ -203,21 +176,34 @@ export default function PurchaseReceivePage() {
     }
   };
 
-    return list.filter((item) => {
-      if (grnOfficeFilter && item.officeName !== grnOfficeFilter) return false;
-      if (search) {
-        const q = search.toLowerCase();
-        const m =
-          item.invoiceGrn.toLowerCase().includes(q) ||
-          item.poNumber.toLowerCase().includes(q) ||
-          item.supplierName.toLowerCase().includes(q) ||
-          item.challanNo.toLowerCase().includes(q) ||
-          item.preparedBy.toLowerCase().includes(q);
-        if (!m) return false;
-      }
-      return true;
+  // ---------------------------------------------------------------
+  // Receive against PO
+  // ---------------------------------------------------------------
+  const openReceive = (po: PurchaseOrder) =>
+    setReceiveForm({
+      po,
+      receiptDate: today(),
+      challanNumber: "",
+      gatePassNumber: "",
+      vatChallanNumber: "",
+      supplierInvoiceNumber: "",
+      remarks: "",
+      lines: po.items
+        .filter((it) => it.outstandingQuantity > 0)
+        .map((it) => ({
+          poItemId: it.id ?? "",
+          itemId: it.itemId,
+          itemCode: it.itemCode,
+          itemName: it.itemName,
+          uom: it.uom,
+          orderedQuantity: it.orderedQuantity,
+          previouslyReceivedQuantity: it.receivedQuantity,
+          outstanding: it.outstandingQuantity,
+          received: it.outstandingQuantity,
+          rejected: 0,
+          rate: effectiveUnitCost(it.lineTotal, it.orderedQuantity),
+        })),
     });
-  }, [apiReceivedGRNs, search, grnOfficeFilter]);
 
   const patchReceiveLine = (idx: number, patch: Partial<ReceiveLine>) =>
     setReceiveForm((f) => (f ? { ...f, lines: f.lines.map((l, i) => (i === idx ? { ...l, ...patch } : l)) } : f));
@@ -485,54 +471,41 @@ export default function PurchaseReceivePage() {
       {/* TAB 1: Approved POs waiting for goods */}
       {activeTab === "APPROVED_PO" && (
         <div className="space-y-3">
-          {/* Filter Toolbar */}
-          <div className="bg-white rounded border border-slate-200/90 p-3.5 shadow-2xs">
-            <div className="flex flex-wrap items-end gap-3.5">
-              {/* Office Selector with 'All ×' pill */}
-              <div className="w-56">
-                <label className="block text-[11px] font-semibold text-slate-700 mb-1">Office</label>
-                <select
-                  value={officeFilter}
-                  onChange={(e) => setOfficeFilter(e.target.value)}
-                  className="w-full h-8 border border-slate-300 rounded px-2 text-xs text-slate-700 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
-                >
-                  <option value="">All offices</option>
-                  {(offices ?? []).map((office) => (
-                    <option key={office.id} value={office.name}>
-                      {office.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Exp. Receive Date */}
-              <div className="w-48">
-                <label className="block text-[11px] font-semibold text-slate-700 mb-1">Exp. Receive Date</label>
-                <input
-                  type="date"
-                  value={expReceiveDate}
-                  onChange={(e) => setExpReceiveDate(e.target.value)}
-                  className="w-full h-8 border border-slate-300 rounded px-2 text-xs text-slate-700 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
-                />
-              </div>
-
-              {/* View Button */}
-              <div>
-                <button
-                  type="button"
-                  className="h-8 px-6 bg-[#2563eb] hover:bg-blue-700 text-white font-bold text-xs uppercase rounded shadow-xs transition"
-                >
-                  View
-                </button>
-              </div>
-            </div>
-          </div>
-
-          {/* Table Container with All Borders */}
-          <div className="bg-white rounded border border-slate-200/90 shadow-2xs overflow-hidden">
-            <div className="erp-table-container">
-              <table className="erp-table">
-                <thead>
+        <div className="bg-white rounded border border-slate-200/90 p-3.5 shadow-2xs">
+          <label className="block w-full sm:w-56">
+            <span className="block text-[11px] font-semibold text-slate-700 mb-1">Office</span>
+            <select value={poOfficeFilter} onChange={(e) => setPoOfficeFilter(e.target.value)} className={inputCls}>
+              <option value="">All Offices</option>
+              {offices.map((o) => (
+                <option key={o.id} value={o.name}>
+                  {o.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+        <div className="bg-white rounded border border-slate-200/90 shadow-2xs overflow-hidden">
+          <div className="erp-table-container">
+            <table className="erp-table">
+              <thead>
+                <tr>
+                  <th className="w-12 text-center">SL</th>
+                  <th className="w-24 text-center">Actions</th>
+                  <th>PO Date</th>
+                  <th>Expected Date</th>
+                  <th>Requisition No</th>
+                  <th>PO No</th>
+                  <th>Supplier</th>
+                  <th>Office</th>
+                  <th>Warehouse</th>
+                  <th className="text-right">Ordered</th>
+                  <th className="text-right">Outstanding</th>
+                  <th>Prepared By</th>
+                  <th className="text-center">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {pendingPOs.length === 0 ? (
                   <tr>
                     <td colSpan={13} className="text-center py-10 text-slate-400">
                       {posLoading ? "Loading…" : "No approved purchase orders are waiting for goods."}
@@ -587,43 +560,34 @@ export default function PurchaseReceivePage() {
             </table>
           </div>
         </div>
+        </div>
       )}
 
       {/* TAB 2: Goods receipts */}
       {activeTab === "RECEIVED_PO" && (
         <div className="space-y-3">
           <div className="bg-white rounded border border-slate-200/90 p-3.5 shadow-2xs">
-            {/* Row 1 */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-3">
-              {/* Office */}
-              <div>
-                <label className="block text-[11px] font-semibold text-slate-700 mb-1">Office</label>
-                <select
-                  value={grnOfficeFilter}
-                  onChange={(e) => setGrnOfficeFilter(e.target.value)}
-                  className="w-full h-8 border border-slate-300 rounded px-2 text-xs text-slate-700 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
-                >
-                  <option value="">All offices</option>
-                  {(offices ?? []).map((office) => (
-                    <option key={office.id} value={office.name}>
-                      {office.name}
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
+              <label className="block">
+                <span className="block text-[11px] font-semibold text-slate-700 mb-1">Office</span>
+                <select value={grnOfficeFilter} onChange={(e) => setGrnOfficeFilter(e.target.value)} className={inputCls}>
+                  <option value="">All Offices</option>
+                  {offices.map((o) => (
+                    <option key={o.id} value={o.name}>
+                      {o.name}
                     </option>
                   ))}
                 </select>
-              </div>
-
-              {/* GRN Type */}
-              <div>
-                <label className="block text-[11px] font-semibold text-slate-700 mb-1">GRN Type</label>
-                <select
-                  value={grnType}
-                  onChange={(e) => setGrnType(e.target.value)}
-                  className="w-full h-8 border border-slate-300 rounded px-2 text-xs text-slate-700 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
-                >
-                  <option value="ALL">All</option>
-                  <option value="LOCAL_GRN">Local GRN</option>
-                  <option value="DIRECT_GRN">Direct GRN</option>
-                  <option value="IMPORT_GRN">Import GRN</option>
+              </label>
+              <label className="block">
+                <span className="block text-[11px] font-semibold text-slate-700 mb-1">Warehouse</span>
+                <select value={warehouseFilter} onChange={(e) => setWarehouseFilter(e.target.value)} className={inputCls}>
+                  <option value="ALL">All Warehouses</option>
+                  {warehouses.map((w) => (
+                    <option key={w.id} value={w.id}>
+                      {w.name}
+                    </option>
+                  ))}
                 </select>
               </label>
               <label className="block">

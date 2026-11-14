@@ -88,6 +88,7 @@ const FEATURE_ACTIONS: Record<string, readonly PermissionAction[]> = {
   "/sales/reports": REPORT,
   "/sales/analytics": REPORT,
   "/configuration/system-logs/audit-logs": REPORT,
+  "/approvals": REPORT,
   // Documents that go through approval.
   "/accounts/journal": WITH_APPROVE,
   "/accounts/budget": WITH_APPROVE,
