@@ -91,7 +91,7 @@ const inputCls =
 const btnPrimary =
   "h-9 px-4 bg-[#2563eb] hover:bg-blue-700 disabled:opacity-60 text-white font-semibold text-xs rounded inline-flex items-center justify-center gap-1.5 shadow-xs transition";
 const btnGhost = "h-9 px-4 border border-slate-300 rounded text-slate-700 hover:bg-slate-50 text-xs font-semibold";
-const iconBtn = "inline-flex items-center justify-center size-7 rounded hover:bg-slate-200 text-slate-700 transition disabled:opacity-30 disabled:hover:bg-transparent";
+const iconBtn = "inline-flex items-center justify-center size-5.5 rounded hover:bg-slate-200 text-slate-700 transition disabled:opacity-30 disabled:hover:bg-transparent";
 
 function formatEta(dateStr?: string) {
   if (!dateStr) return "—";
@@ -612,23 +612,23 @@ export default function PurchaseOrdersPage() {
 
           <div className="bg-white rounded border border-slate-200/90 shadow-2xs overflow-hidden">
             <div className="erp-table-container">
-              <table className="erp-table">
+              <table className="erp-table erp-table-compact">
                 <thead>
                   <tr>
-                    <th className="w-12 text-center">SL</th>
-                    <th className="w-[190px] text-center">Actions</th>
-                    <th>PO Date</th>
-                    <th>Recr. Date</th>
-                    <th>Reference No</th>
-                    <th>PO No</th>
+                    <th className="w-7 text-center whitespace-nowrap">SL</th>
+                    <th className="w-[125px] min-w-[120px] text-center whitespace-nowrap">Actions</th>
+                    <th className="whitespace-nowrap">PO Date</th>
+                    <th className="whitespace-nowrap">Recr. Date</th>
+                    <th className="text-center">Reference No</th>
+                    <th className="whitespace-nowrap">PO No</th>
                     <th>Office</th>
-                    <th>Project/Outlet/Ref.</th>
+                    <th>Project / Ref.</th>
                     <th>Supplier</th>
                     <th>Created By</th>
-                    <th className="text-right">Amount (BDT)</th>
-                    <th>ETA Estimated Time of Arrival</th>
-                    <th className="text-center">Status</th>
-                    <th>Review Comment</th>
+                    <th className="text-right whitespace-nowrap">Amount (BDT)</th>
+                    <th className="text-center leading-tight">ETA / Arrival</th>
+                    <th className="text-center whitespace-nowrap">Status</th>
+                    <th className="max-w-[120px] text-center">Review Comment</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -644,8 +644,8 @@ export default function PurchaseOrdersPage() {
                       const reviewComment = row.approvalHistory?.[row.approvalHistory.length - 1]?.comments;
                       return (
                         <tr key={row.id}>
-                          <td className="text-center font-mono text-slate-600">{ordersPage.offset + idx + 1}</td>
-                          <td className="text-center">
+                          <td className="text-center font-mono text-[11px] text-slate-500">{ordersPage.offset + idx + 1}</td>
+                          <td className="text-center whitespace-nowrap">
                             <div className="flex items-center justify-center gap-0.5">
                               <button
                                 type="button"
@@ -718,22 +718,22 @@ export default function PurchaseOrdersPage() {
                               </button>
                             </div>
                           </td>
-                          <td>{row.orderDate}</td>
-                          <td>{row.expectedDeliveryDate}</td>
-                          <td className="text-slate-500 font-mono text-[11px]">{row.referenceNumber || "N/A"}</td>
-                          <td>
+                          <td className="whitespace-nowrap font-mono text-[11px] text-center">{row.orderDate}</td>
+                          <td className="whitespace-nowrap font-mono text-[11px] text-center">{row.expectedDeliveryDate}</td>
+                          <td className="text-slate-500 font-mono text-[11px] text-center">{row.referenceNumber || "—"}</td>
+                          <td className="whitespace-nowrap">
                             <button type="button" onClick={() => setViewPO(row)} className="font-mono text-sky-700 font-semibold hover:underline">
                               {row.poNumber}
                             </button>
                           </td>
-                          <td>{row.officeName}</td>
-                          <td className="text-slate-500">{row.projectCostCenter || "—"}</td>
-                          <td className="font-medium text-slate-900">{row.supplierName}</td>
-                          <td>{row.createdBy}</td>
-                          <td className="text-right font-mono font-bold text-slate-900">{formatCurrency(row.totalAmount)}</td>
-                          <td className="text-slate-600 text-[11px] whitespace-nowrap">{formatEta(row.expectedDeliveryDate)}</td>
-                          <td className={`text-center text-[11px] font-semibold ${st.cls}`}>{st.text}</td>
-                          <td className="text-slate-600">{reviewComment || "—"}</td>
+                          <td className="leading-tight">{row.officeName}</td>
+                          <td className="text-slate-500 text-[11px]">{row.projectCostCenter || "—"}</td>
+                          <td className="font-medium text-slate-900 leading-tight">{row.supplierName}</td>
+                          <td className="text-slate-700 text-[11px] leading-tight">{row.createdBy}</td>
+                          <td className="text-right font-mono font-semibold text-slate-900 whitespace-nowrap">{formatCurrency(row.totalAmount)}</td>
+                          <td className="text-slate-600 text-[11px] text-center whitespace-nowrap">{formatEta(row.expectedDeliveryDate)}</td>
+                          <td className={`text-center text-[11px] font-semibold whitespace-nowrap ${st.cls}`}>{st.text}</td>
+                          <td className="text-slate-500 text-[11px] max-w-[120px] truncate" title={reviewComment || ""}>{reviewComment || "—"}</td>
                         </tr>
                       );
                     })
@@ -779,7 +779,7 @@ export default function PurchaseOrdersPage() {
           </div>
           <div className="bg-white rounded border border-slate-200/90 shadow-2xs overflow-hidden">
             <div className="erp-table-container">
-              <table className="erp-table">
+              <table className="erp-table erp-table-compact">
                 <thead>
                   <tr>
                     <th className="w-12 text-center">SL</th>
@@ -930,7 +930,7 @@ export default function PurchaseOrdersPage() {
           </div>
           <div className="bg-white rounded border border-slate-200/90 shadow-2xs overflow-hidden">
             <div className="erp-table-container">
-              <table className="erp-table">
+              <table className="erp-table erp-table-compact">
                 <thead>
                   <tr>
                     <th className="w-12 text-center">SL</th>

@@ -544,7 +544,7 @@ export default function PurchaseReportsPage() {
       {/* Main Report Table (.erp-table all-borders styling) */}
       <div className="bg-white rounded border border-slate-300 shadow-xs overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="erp-table w-full text-xs text-left border-collapse">
+          <table className="erp-table erp-table-compact w-full text-xs text-left border-collapse">
             <thead>
               <tr className="bg-slate-100 text-slate-800 font-bold border-b border-slate-300">
                 {(reportData?.columns || []).map((col, idx) => (

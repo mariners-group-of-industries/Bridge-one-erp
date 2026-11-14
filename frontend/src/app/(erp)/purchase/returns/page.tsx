@@ -495,7 +495,7 @@ export default function PurchaseReturnsPage() {
         <div className="space-y-2">
           {/* Table Container with All Borders */}
           <div className="border border-slate-300 bg-white rounded shadow-2xs overflow-x-auto">
-            <table className="erp-table w-full text-left text-xs border-collapse">
+            <table className="erp-table erp-table-compact w-full text-left text-xs border-collapse">
               <thead className="bg-[#e6f2fb] text-slate-800 font-semibold text-[11px] border-b border-slate-300 select-none">
                 <tr>
                   <th className="p-2 border border-slate-300 w-10 text-center">SL</th>
@@ -700,7 +700,7 @@ export default function PurchaseReturnsPage() {
 
           {/* Table Container with All Borders */}
           <div className="border border-slate-300 bg-white rounded shadow-2xs overflow-x-auto">
-            <table className="erp-table w-full text-left text-xs border-collapse">
+            <table className="erp-table erp-table-compact w-full text-left text-xs border-collapse">
               <thead className="bg-[#e6f2fb] text-slate-800 font-semibold text-[11px] border-b border-slate-300 select-none">
                 <tr>
                   <th className="p-2 border border-slate-300 w-10 text-center">SL</th>

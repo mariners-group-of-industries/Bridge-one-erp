@@ -96,7 +96,7 @@ const inputCls =
 const btnPrimary =
   "h-9 px-4 bg-[#2563eb] hover:bg-blue-700 disabled:opacity-60 text-white font-semibold text-xs rounded inline-flex items-center justify-center gap-1.5 shadow-xs transition";
 const btnGhost = "h-9 px-4 border border-slate-300 rounded text-slate-700 hover:bg-slate-50 text-xs font-semibold";
-const iconBtn = "inline-flex items-center justify-center size-7 rounded hover:bg-slate-200 text-slate-700 transition disabled:opacity-30 disabled:hover:bg-transparent";
+const iconBtn = "inline-flex items-center justify-center size-5.5 rounded hover:bg-slate-200 text-slate-700 transition disabled:opacity-30 disabled:hover:bg-transparent";
 
 const qtyFmt = (n: number) => n.toLocaleString("en-US", { maximumFractionDigits: 3 });
 
@@ -514,25 +514,25 @@ export default function PurchaseReceivePage() {
 
           <div className="bg-white rounded border border-slate-200/90 shadow-2xs overflow-hidden">
             <div className="erp-table-container">
-              <table className="erp-table">
+              <table className="erp-table erp-table-compact">
                 <thead>
                   <tr>
-                    <th className="w-12 text-center">SL</th>
-                    <th className="w-24 text-center">Actions</th>
-                    <th>PO Date</th>
-                    <th>Received Date</th>
-                    <th>Requisition No</th>
-                    <th>PO Number</th>
+                    <th className="w-7 text-center whitespace-nowrap">SL</th>
+                    <th className="w-[75px] min-w-[70px] text-center whitespace-nowrap">Actions</th>
+                    <th className="whitespace-nowrap">PO Date</th>
+                    <th className="whitespace-nowrap">Received Date</th>
+                    <th className="whitespace-nowrap">Requisition No</th>
+                    <th className="whitespace-nowrap">PO Number</th>
                     <th>Supplier</th>
                     <th>Office</th>
-                    <th>Shipment No</th>
-                    <th>Shipment Document No.</th>
-                    <th>VAT Challan No</th>
-                    <th>Sales Invoice No</th>
-                    <th>Delivery No</th>
+                    <th className="text-center font-mono">Shipment No</th>
+                    <th className="text-center font-mono">Shipment Doc No.</th>
+                    <th className="text-center font-mono">VAT Challan No</th>
+                    <th className="text-center font-mono">Sales Invoice No</th>
+                    <th className="text-center font-mono">Delivery No</th>
                     <th>Prepared By</th>
-                    <th>ETA</th>
-                    <th className="text-center">Status</th>
+                    <th className="text-center whitespace-nowrap">ETA</th>
+                    <th className="text-center whitespace-nowrap">Status</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -548,8 +548,8 @@ export default function PurchaseReceivePage() {
                       const docs = poDocFields(po);
                       return (
                         <tr key={po.id}>
-                          <td className="text-center font-mono text-slate-600">{idx + 1}</td>
-                          <td className="text-center">
+                          <td className="text-center font-mono text-[11px] text-slate-500">{idx + 1}</td>
+                          <td className="text-center whitespace-nowrap">
                             <div className="flex items-center justify-center gap-0.5">
                               <button
                                 type="button"
@@ -582,10 +582,10 @@ export default function PurchaseReceivePage() {
                               </button>
                             </div>
                           </td>
-                          <td>{po.orderDate}</td>
-                          <td className={overdue ? "text-rose-600 font-semibold" : ""}>{po.expectedDeliveryDate}</td>
-                          <td className="font-mono text-[11px] text-slate-500">{po.requisitionNumber || "N/A"}</td>
-                          <td>
+                          <td className="whitespace-nowrap font-mono text-[11px] text-center">{po.orderDate}</td>
+                          <td className={`whitespace-nowrap font-mono text-[11px] text-center ${overdue ? "text-rose-600 font-semibold" : ""}`}>{po.expectedDeliveryDate}</td>
+                          <td className="font-mono text-[11px] text-slate-500 text-center">{po.requisitionNumber || "—"}</td>
+                          <td className="whitespace-nowrap">
                             <button
                               type="button"
                               onClick={() => openReceive(po)}
@@ -595,16 +595,16 @@ export default function PurchaseReceivePage() {
                               <span>{po.poNumber}</span>
                             </button>
                           </td>
-                          <td className="font-medium text-slate-900">{po.supplierName}</td>
-                          <td>{po.officeName}</td>
-                          <td className="text-slate-500 font-mono text-[11px]">{docs.shipmentDocumentNumber || "N/A"}</td>
-                          <td className="text-slate-500 font-mono text-[11px]">{docs.shipmentDocumentNumber || "N/A"}</td>
-                          <td className="text-slate-500 font-mono text-[11px]">{docs.vatChallanNumber || "N/A"}</td>
-                          <td className="text-slate-500 font-mono text-[11px]">{docs.supplierInvoiceNumber || "N/A"}</td>
-                          <td className="text-slate-500 font-mono text-[11px]">{docs.deliveryNumber || "N/A"}</td>
-                          <td>{po.createdBy}</td>
-                          <td className="text-slate-600 text-[11px] whitespace-nowrap">{formatEta(po.expectedDeliveryDate)}</td>
-                          <td className={`text-center text-[11px] font-semibold ${po.status === "PARTIALLY_RECEIVED" ? "text-purple-700" : "text-sky-700"}`}>
+                          <td className="font-medium text-slate-900 leading-tight">{po.supplierName}</td>
+                          <td className="leading-tight">{po.officeName}</td>
+                          <td className="text-slate-500 font-mono text-[11px] text-center">{docs.shipmentDocumentNumber || "—"}</td>
+                          <td className="text-slate-500 font-mono text-[11px] text-center">{docs.shipmentDocumentNumber || "—"}</td>
+                          <td className="text-slate-500 font-mono text-[11px] text-center">{docs.vatChallanNumber || "—"}</td>
+                          <td className="text-slate-500 font-mono text-[11px] text-center">{docs.supplierInvoiceNumber || "—"}</td>
+                          <td className="text-slate-500 font-mono text-[11px] text-center">{docs.deliveryNumber || "—"}</td>
+                          <td className="text-slate-700 text-[11px] leading-tight">{po.createdBy}</td>
+                          <td className="text-slate-600 text-[11px] text-center whitespace-nowrap">{formatEta(po.expectedDeliveryDate)}</td>
+                          <td className={`text-center text-[11px] font-semibold whitespace-nowrap ${po.status === "PARTIALLY_RECEIVED" ? "text-purple-700" : "text-sky-700"}`}>
                             {po.status === "PARTIALLY_RECEIVED" ? "Partially Received" : "Approved"}
                           </td>
                         </tr>
@@ -697,25 +697,25 @@ export default function PurchaseReceivePage() {
           </div>
           <div className="bg-white rounded border border-slate-200/90 shadow-2xs overflow-hidden">
             <div className="erp-table-container">
-              <table className="erp-table">
+              <table className="erp-table erp-table-compact">
                 <thead>
                   <tr>
-                    <th className="w-12 text-center">SL</th>
-                    <th className="w-[130px] text-center">Actions</th>
-                    <th>Receive Date</th>
+                    <th className="w-7 text-center whitespace-nowrap">SL</th>
+                    <th className="w-[100px] min-w-[95px] text-center whitespace-nowrap">Actions</th>
+                    <th className="whitespace-nowrap">Receive Date</th>
                     <th>Office</th>
-                    <th>PO No</th>
-                    <th>Invoice/GRN</th>
-                    <th>Challan No</th>
-                    <th>Shipment Document No.</th>
-                    <th>VAT Challan No</th>
-                    <th>Sales Invoice No</th>
-                    <th>Delivery No</th>
+                    <th className="whitespace-nowrap">PO No</th>
+                    <th className="whitespace-nowrap">Invoice/GRN</th>
+                    <th className="whitespace-nowrap">Challan No</th>
+                    <th className="text-center font-mono">Shipment Doc No.</th>
+                    <th className="text-center font-mono">VAT Challan No</th>
+                    <th className="text-center font-mono">Sales Invoice No</th>
+                    <th className="text-center font-mono">Delivery No</th>
                     <th>Warehouse</th>
                     <th>Supplier</th>
-                    <th className="text-right">Total Qty</th>
-                    <th className="text-right">Total (BDT)</th>
-                    <th className="text-right">Pending (BDT)</th>
+                    <th className="text-right whitespace-nowrap">Total Qty</th>
+                    <th className="text-right whitespace-nowrap">Total (BDT)</th>
+                    <th className="text-right whitespace-nowrap">Pending (BDT)</th>
                     <th>Prepared By</th>
                   </tr>
                 </thead>
@@ -732,8 +732,8 @@ export default function PurchaseReceivePage() {
                       const pendingAmt = pendingByGrnId.get(g.id) ?? (g.status === "CANCELLED" ? 0 : g.totalReceivedAmount);
                       return (
                         <tr key={g.id}>
-                          <td className="text-center font-mono text-slate-600">{idx + 1}</td>
-                          <td className="text-center">
+                          <td className="text-center font-mono text-[11px] text-slate-500">{idx + 1}</td>
+                          <td className="text-center whitespace-nowrap">
                             <div className="flex items-center justify-center gap-0.5">
                               <button type="button" onClick={() => setViewGRN(g)} className={iconBtn} title="View" aria-label={`View ${g.grnNumber}`}>
                                 <Eye className="w-3.5 h-3.5" />
@@ -766,26 +766,26 @@ export default function PurchaseReceivePage() {
                               </button>
                             </div>
                           </td>
-                          <td>{g.receiptDate}</td>
-                          <td>{g.officeName}</td>
-                          <td className="font-mono text-[11px]">{g.poNumber === "DIRECT-PO" ? "Direct" : g.poNumber}</td>
-                          <td>
+                          <td className="whitespace-nowrap font-mono text-[11px] text-center">{g.receiptDate}</td>
+                          <td className="leading-tight">{g.officeName}</td>
+                          <td className="font-mono text-[11px] whitespace-nowrap">{g.poNumber === "DIRECT-PO" ? "Direct" : g.poNumber}</td>
+                          <td className="whitespace-nowrap">
                             <button type="button" onClick={() => setViewGRN(g)} className="inline-flex items-center gap-1.5 font-mono text-sky-700 font-semibold hover:underline">
                               <Truck className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
                               <span>{g.grnNumber}</span>
                             </button>
                           </td>
-                          <td className="font-mono text-[11px]">{g.challanNumber || "N/A"}</td>
-                          <td className="font-mono text-[11px] text-slate-500">{g.shipmentDocumentNumber || "N/A"}</td>
-                          <td className="font-mono text-[11px] text-slate-500">{g.vatChallanNumber || "N/A"}</td>
-                          <td className="font-mono text-[11px] text-slate-500">{g.supplierInvoiceNumber || "N/A"}</td>
-                          <td className="font-mono text-[11px] text-slate-500">{g.gatePassNumber || "N/A"}</td>
-                          <td>{g.warehouseName}</td>
-                          <td className="font-medium text-slate-900">{g.supplierName}</td>
-                          <td className="text-right font-mono">{qtyFmt(totalQty)}</td>
-                          <td className="text-right font-mono font-bold">{formatCurrency(g.totalReceivedAmount)}</td>
-                          <td className="text-right font-mono font-semibold text-amber-700">{formatCurrency(pendingAmt)}</td>
-                          <td>{g.preparedBy}</td>
+                          <td className="font-mono text-[11px] whitespace-nowrap text-slate-700">{g.challanNumber || "—"}</td>
+                          <td className="font-mono text-[11px] text-slate-500 text-center">{g.shipmentDocumentNumber || "—"}</td>
+                          <td className="font-mono text-[11px] text-slate-500 text-center">{g.vatChallanNumber || "—"}</td>
+                          <td className="font-mono text-[11px] text-slate-500 text-center">{g.supplierInvoiceNumber || "—"}</td>
+                          <td className="font-mono text-[11px] text-slate-500 text-center">{g.gatePassNumber || "—"}</td>
+                          <td className="leading-tight">{g.warehouseName}</td>
+                          <td className="font-medium text-slate-900 leading-tight">{g.supplierName}</td>
+                          <td className="text-right font-mono text-[11px] whitespace-nowrap">{qtyFmt(totalQty)}</td>
+                          <td className="text-right font-mono font-semibold text-slate-900 whitespace-nowrap">{formatCurrency(g.totalReceivedAmount)}</td>
+                          <td className="text-right font-mono font-semibold text-amber-700 whitespace-nowrap">{formatCurrency(pendingAmt)}</td>
+                          <td className="text-slate-700 text-[11px] leading-tight">{g.preparedBy}</td>
                         </tr>
                       );
                     })

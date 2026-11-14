@@ -875,7 +875,7 @@ export default function SupplierPaymentsPage() {
 
           {/* Table Container with All Borders */}
           <div className="border border-slate-300 bg-white rounded shadow-2xs overflow-x-auto">
-            <table className="erp-table w-full text-left text-xs border-collapse">
+            <table className="erp-table erp-table-compact w-full text-left text-xs border-collapse">
               <thead className="bg-[#e6f2fb] text-slate-800 font-semibold text-[11px] border-b border-slate-300 select-none">
                 <tr>
                   <th className="p-2 border border-slate-300 w-10 text-center">SL</th>
@@ -1065,7 +1065,7 @@ export default function SupplierPaymentsPage() {
           ) : (
             <div className="bg-white rounded border border-slate-300 shadow-xs overflow-hidden">
               <div className="overflow-x-auto">
-                <table className="erp-table w-full text-xs text-left border-collapse">
+                <table className="erp-table erp-table-compact w-full text-xs text-left border-collapse">
                   <thead>
                     <tr className="bg-slate-100 text-slate-800 font-bold border-b border-slate-300">
                       <th className="p-2 border border-slate-300 text-center w-10">SL</th>
@@ -1237,7 +1237,7 @@ export default function SupplierPaymentsPage() {
 
           {/* Table Container with All Borders */}
           <div className="border border-slate-300 bg-white rounded shadow-2xs overflow-x-auto">
-            <table className="erp-table w-full text-left text-xs border-collapse">
+            <table className="erp-table erp-table-compact w-full text-left text-xs border-collapse">
               <thead className="bg-[#e6f2fb] text-slate-800 font-semibold text-[11px] border-b border-slate-300 select-none">
                 <tr>
                   <th className="p-2 border border-slate-300 w-10 text-center">SL</th>
@@ -1410,7 +1410,7 @@ export default function SupplierPaymentsPage() {
 
           {/* Table Container with All Borders */}
           <div className="border border-slate-300 bg-white rounded shadow-2xs overflow-x-auto">
-            <table className="erp-table w-full text-left text-xs border-collapse">
+            <table className="erp-table erp-table-compact w-full text-left text-xs border-collapse">
               <thead className="bg-[#e6f2fb] text-slate-800 font-semibold text-[11px] border-b border-slate-300 select-none">
                 <tr>
                   <th className="p-2 border border-slate-300 w-10 text-center">SL</th>
@@ -1548,7 +1548,7 @@ export default function SupplierPaymentsPage() {
           {/* Table Container */}
           <div className="border border-slate-300 bg-white rounded shadow-2xs overflow-x-auto">
             {tab5DetailsCheck ? (
-              <table className="erp-table w-full text-left text-xs border-collapse">
+              <table className="erp-table erp-table-compact w-full text-left text-xs border-collapse">
                 <thead className="bg-[#e6f2fb] text-slate-800 font-semibold text-[11px] border-b border-slate-300 select-none">
                   <tr>
                     <th className="p-2 border border-slate-300 w-12 text-center">SL</th>
@@ -1593,7 +1593,7 @@ export default function SupplierPaymentsPage() {
                 </tfoot>
               </table>
             ) : (
-            <table className="erp-table w-full text-left text-xs border-collapse">
+            <table className="erp-table erp-table-compact w-full text-left text-xs border-collapse">
               <thead className="bg-[#e6f2fb] text-slate-800 font-semibold text-[11px] border-b border-slate-300 select-none">
                 <tr>
                   <th className="p-2 border border-slate-300 w-12 text-center">SL</th>
@@ -1682,7 +1682,7 @@ export default function SupplierPaymentsPage() {
 
           {/* Table Container with All Borders */}
           <div className="border border-slate-300 bg-white rounded shadow-2xs overflow-x-auto">
-            <table className="erp-table w-full text-left text-xs border-collapse">
+            <table className="erp-table erp-table-compact w-full text-left text-xs border-collapse">
               <thead className="bg-[#e6f2fb] text-slate-800 font-semibold text-[11px] border-b border-slate-300 select-none">
                 <tr>
                   <th className="p-2 border border-slate-300 w-12 text-center">SL</th>

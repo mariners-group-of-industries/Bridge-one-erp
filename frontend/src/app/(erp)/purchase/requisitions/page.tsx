@@ -1392,7 +1392,7 @@ export default function PurchaseRequisitionsPage() {
               </div>
 
               <div className="erp-table-container">
-                <table className="erp-table">
+                <table className="erp-table erp-table-compact">
                   <thead>
                     <tr>
                       <th>SL</th>
@@ -1464,7 +1464,7 @@ export default function PurchaseRequisitionsPage() {
               </div>
 
               <div className="erp-table-container">
-                <table className="erp-table">
+                <table className="erp-table erp-table-compact">
                   <thead>
                     <tr>
                       <th>SL</th>
