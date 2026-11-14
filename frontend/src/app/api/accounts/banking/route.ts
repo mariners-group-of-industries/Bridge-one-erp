@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/prisma/client";
 import { apiHandler } from "@/lib/api/handler";
+import { uuidOrNull } from "@/lib/accounting/ids";
+
 
 async function handleGET() {
   try {
@@ -44,7 +46,7 @@ async function handlePOST(request: Request) {
       const created = await prisma.chequeBook.create({
         data: {
           bookName: body.bookName,
-          bankAccountId: body.bankAccountId || null,
+          bankAccountId: uuidOrNull(body.bankAccountId),
           bankName: body.bankName,
           branchName: body.branchName || null,
           accountNumber: body.accountNumber,
@@ -63,9 +65,9 @@ async function handlePOST(request: Request) {
       const created = await prisma.$transaction(async (tx) => {
         const issue = await tx.chequeIssue.create({
           data: {
-            chequeBookId: body.chequeBookId || null,
+            chequeBookId: uuidOrNull(body.chequeBookId),
             chequeNumber: body.chequeNumber,
-            bankAccountId: body.bankAccountId || null,
+            bankAccountId: uuidOrNull(body.bankAccountId),
             bankName: body.bankName,
             transactionNumber: body.transactionNumber || `CHQ-${Date.now().toString().slice(-6)}`,
             payeeName: body.payeeName,
@@ -78,7 +80,7 @@ async function handlePOST(request: Request) {
           },
         });
 
-        if (body.chequeBookId) {
+        if (uuidOrNull(body.chequeBookId)) {
           const book = await tx.chequeBook.findUnique({ where: { id: body.chequeBookId } });
           if (book) {
             const nextUsed = book.usedLeaves + 1;
@@ -134,14 +136,14 @@ async function handlePOST(request: Request) {
         data: {
           facilityKind,
           facilityNumber,
-          bankAccountId: body.bankAccountId || null,
-          officeId: body.officeId || null,
+          bankAccountId: uuidOrNull(body.bankAccountId),
+          officeId: uuidOrNull(body.officeId),
           officeName: body.officeName || null,
           partyName: body.bankName || body.lenderName || body.partnerName || "Financial Partner",
           facilityType: body.depositType || body.loanType || body.accountType || facilityKind,
           category: body.category || null,
           partnerGroup: body.partnerGroup || body.group || null,
-          glAccountId: body.glAccountId || null,
+          glAccountId: uuidOrNull(body.glAccountId),
           glAccountName: body.glAccountName || null,
           principalAmount: Number(body.principalAmount || body.principalFacility || 0),
           interestRate: Number(body.interestRate || 0),
@@ -166,7 +168,7 @@ async function handlePOST(request: Request) {
         accountHolder: body.accountHolder,
         accountType: body.accountType || "CURRENT",
         currency: body.currency || "BDT",
-        glAccountId: body.glAccountId || null,
+        glAccountId: uuidOrNull(body.glAccountId),
         glAccountName: body.glAccountName || null,
         openingBalance: body.openingBalance ? Number(body.openingBalance) : 0,
         currentBalance: body.openingBalance ? Number(body.openingBalance) : 0,

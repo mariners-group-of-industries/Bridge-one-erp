@@ -16,7 +16,30 @@ import {
 } from "lucide-react";
 import { ModalDialog } from "@/components/purchase/ModalDialog";
 import { useAccountingStore } from "@/features/accounts/store/accounting-store";
+import { MANUAL_TRANS_TYPES, transTypeBase, transTypeFilterOptions, transTypeLabel } from "@/features/accounts/transaction-types";
 import type { JournalLineItem, JournalType, JournalVoucher, VoucherStatus } from "@/features/accounts/types";
+import { localDate, localDaysFromToday, localToday } from "@/features/purchase/lib/client";
+import { useSession } from "@/lib/auth/session";
+
+const blankLine = (): JournalLineItem => ({
+  id: `line-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+  accountId: "",
+  accountCode: "",
+  accountName: "",
+  debit: 0,
+  credit: 0,
+  narration: "",
+});
+
+/** "2026-11-14", or the date part of "2026-11-14 - 1:12 PM". */
+const dayOf = (value: string | undefined) => (value ?? "").slice(0, 10);
+
+/** Fiscal year July–June, as "2026-2027". */
+function fiscalYearOf(day: string) {
+  const d = new Date(`${day}T00:00:00`);
+  const start = d.getMonth() >= 6 ? d.getFullYear() : d.getFullYear() - 1;
+  return `${start}-${start + 1}`;
+}
 
 export default function AccountingJournalPage() {
   const vouchers = useAccountingStore((s) => s.vouchers);
@@ -24,6 +47,7 @@ export default function AccountingJournalPage() {
   const dbOffices = useAccountingStore((s) => s.offices);
   const createVoucher = useAccountingStore((s) => s.createVoucher);
   const postVoucher = useAccountingStore((s) => s.postVoucher);
+  const { user } = useSession();
 
   // Tabs: "ACCOUNTING_JOURNAL" | "PENDING_VOUCHER" | "VOUCHER_REPOSITORY"
   const [activeTab, setActiveTab] = useState<"ACCOUNTING_JOURNAL" | "PENDING_VOUCHER" | "VOUCHER_REPOSITORY">("ACCOUNTING_JOURNAL");
@@ -32,8 +56,9 @@ export default function AccountingJournalPage() {
   const [search, setSearch] = useState("");
   const [selectedOffice, setSelectedOffice] = useState<string>("ALL");
   const [selectedTransType, setSelectedTransType] = useState<string>("ALL");
-  const [fromDate, setFromDate] = useState("2026-10-05");
-  const [toDate, setToDate] = useState("2026-10-12");
+  // Last seven days, as iBOS opens the journal.
+  const [fromDate, setFromDate] = useState(() => localDaysFromToday(-7));
+  const [toDate, setToDate] = useState(() => localToday());
 
   // Repository-specific filters
   const [repoStatus, setRepoStatus] = useState<string>("ALL");
@@ -51,39 +76,22 @@ export default function AccountingJournalPage() {
   const [approveConfirmTarget, setApproveConfirmTarget] = useState<JournalVoucher | null>(null);
 
   // New Voucher Form
-  const [newVoucherHeader, setNewVoucherHeader] = useState({
-    transactionDate: new Date().toISOString().split("T")[0],
-    officeId: "office-sirajganj",
-    officeName: "MG Sirajganj Factory",
-    fiscalYear: "2026-2027",
+  const emptyHeader = () => ({
+    transactionDate: localToday(),
+    officeId: "",
+    officeName: "",
     journalType: "GENERAL" as JournalType,
-    transType: "Adjustment Journal (Manual)",
+    transType: MANUAL_TRANS_TYPES[0] as string,
     narration: "",
     referenceNumber: "",
-    preparedBy: "Md. Roni Mridha",
     status: "APPROVED" as VoucherStatus,
   });
+  const [newVoucherHeader, setNewVoucherHeader] = useState(emptyHeader);
+  const [controlAmount, setControlAmount] = useState("");
+  // The first office the user can pick until they choose one.
+  const voucherOffice = dbOffices.find((o) => o.id === newVoucherHeader.officeId) ?? dbOffices[0];
 
-  const [lines, setLines] = useState<JournalLineItem[]>([
-    {
-      id: "line-1",
-      accountId: "acc-10201",
-      accountCode: "10201",
-      accountName: "Accounts Receivable",
-      debit: 25000,
-      credit: 0,
-      narration: "Receivable adjustment",
-    },
-    {
-      id: "line-2",
-      accountId: "acc-601",
-      accountCode: "601",
-      accountName: "Sales Income",
-      debit: 0,
-      credit: 25000,
-      narration: "Revenue record",
-    },
-  ]);
+  const [lines, setLines] = useState<JournalLineItem[]>(() => [blankLine(), blankLine()]);
 
   const totalDebit = useMemo(() => lines.reduce((sum, l) => sum + (Number(l.debit) || 0), 0), [lines]);
   const totalCredit = useMemo(() => lines.reduce((sum, l) => sum + (Number(l.credit) || 0), 0), [lines]);
@@ -98,27 +106,14 @@ export default function AccountingJournalPage() {
     [dbOffices]
   );
 
-  // Transaction Types for Filter
-  const transTypeOptions = [
-    "Sales (Auto)",
-    "Inventory Movement [Transfer In...]",
-    "Inventory Movement [Transfer Out...]",
-    "Inventory Movement (Auto)",
-    "Adjustment Journal (Manual)",
-    "Other Bank Receive Voucher (Auto)",
-    "Other Cash Payment Voucher (Manual)",
-    "Sales Return (Auto)",
-  ];
+  // Transaction types: manual and automatic, plus any other type on the vouchers.
+  const transTypeOptions = useMemo(() => transTypeFilterOptions(vouchers), [vouchers]);
 
-  // Prepare By Options
-  const prepareByOptions = [
-    "ALL",
-    "Distribution & Logistics",
-    "MD. Tofajjol Hossin",
-    "RSM Md. Humayun Kabir",
-    "Md. Roni Mridha",
-    "Md. Manik Miah",
-  ];
+  // Everyone who prepared a voucher.
+  const prepareByOptions = useMemo(
+    () => ["ALL", ...[...new Set(vouchers.map((v) => v.preparedBy || v.createdBy).filter(Boolean))].sort()],
+    [vouchers],
+  );
 
   // Filtered dataset per tab
   const tabVouchers = useMemo(() => {
@@ -138,14 +133,19 @@ export default function AccountingJournalPage() {
           if (repoStatus === "PENDING" && v.status !== "PENDING") return false;
           if (repoStatus === "IN_PROGRESS" && v.status !== "IN_PROGRESS") return false;
         }
-        if (prepareBy !== "ALL" && v.preparedBy !== prepareBy) return false;
+        if (prepareBy !== "ALL" && (v.preparedBy || v.createdBy) !== prepareBy) return false;
       }
 
       // Office Filter
       if (selectedOffice !== "ALL" && v.officeName !== selectedOffice) return false;
 
       // Transaction Type Filter
-      if (selectedTransType !== "ALL" && v.transType !== selectedTransType) return false;
+      if (selectedTransType !== "ALL" && transTypeBase(v.transType, v.journalType) !== selectedTransType) return false;
+
+      // Transaction date range
+      const day = dayOf(v.transactionDate);
+      if (fromDate && day < fromDate) return false;
+      if (toDate && day > toDate) return false;
 
       // Search Query
       if (search.trim()) {
@@ -163,7 +163,7 @@ export default function AccountingJournalPage() {
 
       return true;
     });
-  }, [vouchers, activeTab, selectedOffice, selectedTransType, repoStatus, prepareBy, search]);
+  }, [vouchers, activeTab, selectedOffice, selectedTransType, repoStatus, prepareBy, search, fromDate, toDate]);
 
   // Paginated Slicing
   const totalRows = tabVouchers.length;
@@ -174,8 +174,7 @@ export default function AccountingJournalPage() {
   }, [tabVouchers, currentPage, rowsPerPage]);
 
   const handleAddLine = () => {
-    const id = `line-${Date.now()}`;
-    setLines([...lines, { id, accountId: "acc-1461", accountCode: "1461", accountName: "Cash In Hand", debit: 0, credit: 0, narration: "" }]);
+    setLines([...lines, blankLine()]);
   };
 
   const handleRemoveLine = (id: string) => {
@@ -206,17 +205,39 @@ export default function AccountingJournalPage() {
     setFormError("");
     setFormSuccess("");
 
+    if (!voucherOffice) {
+      setFormError("Select the office.");
+      return;
+    }
+    const missing = lines.findIndex((l) => !l.accountId);
+    if (missing >= 0) {
+      setFormError(`Line ${missing + 1}: select the GL account.`);
+      return;
+    }
+    if (lines.some((l) => (Number(l.debit) || 0) > 0 && (Number(l.credit) || 0) > 0)) {
+      setFormError("A line is either a debit or a credit, not both.");
+      return;
+    }
     if (!isBalanced) {
       setFormError(`Cannot save: Total Debit (৳${totalDebit.toLocaleString()}) must equal Total Credit (৳${totalCredit.toLocaleString()}).`);
       return;
     }
+    if (controlAmount.trim() !== "" && Math.abs(Number(controlAmount) - totalDebit) > 0.005) {
+      setFormError(`The voucher total (৳${totalDebit.toLocaleString()}) does not match the control amount (৳${Number(controlAmount).toLocaleString()}).`);
+      return;
+    }
 
+    const preparedBy = user?.name ?? "";
     const res = createVoucher({
       ...newVoucherHeader,
+      officeId: voucherOffice.id,
+      officeName: voucherOffice.name,
+      fiscalYear: fiscalYearOf(newVoucherHeader.transactionDate),
       lines,
-      createdBy: newVoucherHeader.preparedBy,
+      preparedBy,
+      createdBy: preparedBy,
       amount: totalDebit,
-      createDate: new Date().toLocaleDateString("en-GB").replace(/\//g, "-"),
+      createDate: localDate(new Date()),
     });
 
     if (!res.success) {
@@ -228,6 +249,9 @@ export default function AccountingJournalPage() {
     setTimeout(() => {
       setIsCreateOpen(false);
       setFormSuccess("");
+      setNewVoucherHeader(emptyHeader());
+      setLines([blankLine(), blankLine()]);
+      setControlAmount("");
     }, 800);
   };
 
@@ -244,7 +268,7 @@ export default function AccountingJournalPage() {
   const handleExportExcel = () => {
     let csv = "SL,Date,Trans Number,Office Name,Trans. Type,Narration,Prepare By,Amount,Status\n";
     tabVouchers.forEach((v, i) => {
-      csv += `"${i + 1}","${v.createDate || v.transactionDate}","${v.voucherNumber}","${v.officeName}","${v.transType || v.journalType}","${(v.narration || "").replace(/"/g, '""')}","${v.preparedBy || v.createdBy}","${v.amount || v.totalDebit}","${v.status}"\n`;
+      csv += `"${i + 1}","${v.createDate || v.transactionDate}","${v.voucherNumber}","${v.officeName}","${transTypeLabel(v.transType, v.journalType)}","${(v.narration || "").replace(/"/g, '""')}","${v.preparedBy || v.createdBy}","${v.amount || v.totalDebit}","${v.status}"\n`;
     });
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
@@ -542,7 +566,7 @@ export default function AccountingJournalPage() {
                           </button>
                         </td>
                         <td className="py-2 px-3 font-medium text-slate-800 whitespace-nowrap">{v.officeName}</td>
-                        <td className="py-2 px-3 text-slate-600 whitespace-nowrap">{v.transType || v.journalType}</td>
+                        <td className="py-2 px-3 text-slate-600 whitespace-nowrap">{transTypeLabel(v.transType, v.journalType)}</td>
                         <td className="py-2 px-3 text-slate-700 max-w-md truncate" title={v.narration}>
                           {v.narration}
                         </td>
@@ -614,7 +638,7 @@ export default function AccountingJournalPage() {
                           </button>
                         </td>
                         <td className="py-2 px-3 font-medium text-slate-800 whitespace-nowrap">{v.officeName}</td>
-                        <td className="py-2 px-3 text-slate-600 whitespace-nowrap">{v.transType || v.journalType}</td>
+                        <td className="py-2 px-3 text-slate-600 whitespace-nowrap">{transTypeLabel(v.transType, v.journalType)}</td>
                         <td className="py-2 px-3 text-slate-700 max-w-md truncate" title={v.narration}>
                           {v.narration}
                         </td>
@@ -698,7 +722,7 @@ export default function AccountingJournalPage() {
                           </button>
                         </td>
                         <td className="py-2 px-3 font-medium text-slate-800 whitespace-nowrap">{v.officeName}</td>
-                        <td className="py-2 px-3 text-slate-600 whitespace-nowrap">{v.transType || v.journalType}</td>
+                        <td className="py-2 px-3 text-slate-600 whitespace-nowrap">{transTypeLabel(v.transType, v.journalType)}</td>
                         <td className="py-2 px-3 text-slate-700 max-w-sm truncate" title={v.narration}>
                           {v.narration}
                         </td>
@@ -821,22 +845,19 @@ export default function AccountingJournalPage() {
             <div>
               <label className="block text-slate-600 font-medium mb-1">Office / Branch *</label>
               <select
-                value={newVoucherHeader.officeName}
-                onChange={(e) =>
-                  setNewVoucherHeader({
-                    ...newVoucherHeader,
-                    officeName: e.target.value,
-                  })
-                }
+                value={voucherOffice?.id ?? ""}
+                onChange={(e) => {
+                  const office = dbOffices.find((o) => o.id === e.target.value);
+                  setNewVoucherHeader({ ...newVoucherHeader, officeId: office?.id ?? "", officeName: office?.name ?? "" });
+                }}
                 className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white focus:ring-1 focus:ring-blue-500"
               >
-                <option value="MG Sirajganj Factory">MG Sirajganj Factory</option>
-                <option value="MGV-PLC">MGV-PLC</option>
-                <option value="Dhaka Head Office">Dhaka Head Office</option>
-                <option value="MBBL-HO">MBBL-HO</option>
-                <option value="MOHS-Eco">MOHS-Eco</option>
-                <option value="CFF-Chapai">CFF-Chapai</option>
-                <option value="MFIL-HO">MFIL-HO</option>
+                {dbOffices.length === 0 && <option value="">No office available</option>}
+                {dbOffices.map((o) => (
+                  <option key={o.id} value={o.id}>
+                    {o.name}
+                  </option>
+                ))}
               </select>
             </div>
             <div>
@@ -850,13 +871,13 @@ export default function AccountingJournalPage() {
               />
             </div>
             <div>
-              <label className="block text-slate-600 font-medium mb-1">Trans. Type *</label>
+              <label className="block text-slate-600 font-medium mb-1">Voucher Type *</label>
               <select
                 value={newVoucherHeader.transType}
                 onChange={(e) => setNewVoucherHeader({ ...newVoucherHeader, transType: e.target.value })}
                 className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white focus:ring-1 focus:ring-blue-500"
               >
-                {transTypeOptions.map((tt) => (
+                {MANUAL_TRANS_TYPES.map((tt) => (
                   <option key={tt} value={tt}>
                     {tt}
                   </option>
@@ -864,16 +885,16 @@ export default function AccountingJournalPage() {
               </select>
             </div>
             <div>
-              <label className="block text-slate-600 font-medium mb-1">Prepared By *</label>
+              <label className="block text-slate-600 font-medium mb-1">Prepared By</label>
+              {/* Always the signed-in user. */}
               <input
                 type="text"
-                required
-                value={newVoucherHeader.preparedBy}
-                onChange={(e) => setNewVoucherHeader({ ...newVoucherHeader, preparedBy: e.target.value })}
-                className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white focus:ring-1 focus:ring-blue-500"
+                readOnly
+                value={user?.name ?? ""}
+                className="w-full border border-slate-200 rounded px-2.5 py-1.5 bg-slate-50 text-slate-600"
               />
             </div>
-            <div className="sm:col-span-2 md:col-span-4">
+            <div className="sm:col-span-2 md:col-span-3">
               <label className="block text-slate-600 font-medium mb-1">Narration / Description *</label>
               <input
                 type="text"
@@ -882,6 +903,20 @@ export default function AccountingJournalPage() {
                 value={newVoucherHeader.narration}
                 onChange={(e) => setNewVoucherHeader({ ...newVoucherHeader, narration: e.target.value })}
                 className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white focus:ring-1 focus:ring-blue-500"
+              />
+            </div>
+            <div>
+              <label htmlFor="jv-control-amount" className="block text-slate-600 font-medium mb-1">Control Amount</label>
+              {/* As in iBOS: when given, the voucher total must equal it before it can be saved. */}
+              <input
+                id="jv-control-amount"
+                type="number"
+                min="0"
+                step="0.01"
+                placeholder="Control Amount"
+                value={controlAmount}
+                onChange={(e) => setControlAmount(e.target.value)}
+                className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white font-mono text-right focus:ring-1 focus:ring-blue-500"
               />
             </div>
           </div>
@@ -920,6 +955,7 @@ export default function AccountingJournalPage() {
                           onChange={(e) => handleLineChange(l.id, { accountId: e.target.value })}
                           className="w-full border border-slate-300 rounded px-2 py-1 bg-white focus:ring-1 focus:ring-blue-500 text-xs"
                         >
+                          <option value="">Select account</option>
                           {accounts
                             .filter((a) => !a.isGroup)
                             .map((a) => (
@@ -1032,7 +1068,7 @@ export default function AccountingJournalPage() {
                 <div>
                   <h4 className="font-bold text-sm text-slate-900">BridgeOne Industrial ERP</h4>
                   <p className="text-slate-500 text-[11px]">{viewingVoucher.officeName}</p>
-                  <p className="text-slate-500 text-[11px]">Type: {viewingVoucher.transType || viewingVoucher.journalType}</p>
+                  <p className="text-slate-500 text-[11px]">Type: {transTypeLabel(viewingVoucher.transType, viewingVoucher.journalType)}</p>
                 </div>
                 <div className="text-right">
                   <span className="text-xs font-mono font-bold text-blue-600 block">{viewingVoucher.voucherNumber}</span>

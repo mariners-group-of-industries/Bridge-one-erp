@@ -11,6 +11,7 @@ import { formatCurrency } from "@/lib/utils";
 import { round2 } from "@/lib/purchase-store/rules";
 import { usePurchasePermissions } from "@/features/purchase/lib/usePurchasePermissions";
 import {
+  categoryNamesAt,
   computeVatLine,
   INVENTORY_TYPE_OPTIONS,
   QuickAddItemModal,
@@ -128,15 +129,13 @@ export function DirectReceiveView() {
     : (availableWarehouses[0]?.id ?? "");
 
   const categories = useMemo(() => {
-    const lvl1 = (formOptions?.categories ?? []).filter((c) => c.level === 1).map((c) => c.name);
+    const lvl1 = categoryNamesAt(formOptions?.categories ?? [], 1);
     if (lvl1.length > 0) return lvl1;
     return Array.from(new Set(itemsCatalog.map((i) => i.category).filter(Boolean))).sort();
   }, [formOptions, itemsCatalog]);
 
   const subCategories = useMemo(() => {
-    const all = formOptions?.categories ?? [];
-    const parent = all.find((c) => c.level === 1 && c.name === categoryFilter);
-    const list = all.filter((c) => c.level === 2 && (!parent || c.parentId === parent.id)).map((c) => c.name);
+    const list = categoryNamesAt(formOptions?.categories ?? [], 2, categoryFilter);
     if (list.length > 0) return list;
     return Array.from(
       new Set(itemsCatalog.filter((i) => !categoryFilter || i.category === categoryFilter).map((i) => i.subCategory || ""))
@@ -146,9 +145,7 @@ export function DirectReceiveView() {
   }, [formOptions, itemsCatalog, categoryFilter]);
 
   const minorCategories = useMemo(() => {
-    const all = formOptions?.categories ?? [];
-    const sub = all.find((c) => c.level === 2 && c.name === subCategoryFilter);
-    const list = all.filter((c) => c.level === 3 && (!sub || c.parentId === sub.id)).map((c) => c.name);
+    const list = categoryNamesAt(formOptions?.categories ?? [], 3, subCategoryFilter);
     if (list.length > 0) return list;
     return Array.from(
       new Set(
@@ -594,7 +591,7 @@ export function DirectReceiveView() {
                   <button
                     type="button"
                     onClick={() => setIsAddSupplierOpen(true)}
-                    className="inline-flex items-center gap-0.5 text-[11px] font-semibold text-blue-600 hover:text-blue-700"
+                    className="inline-flex items-center gap-0.5 min-h-6 -my-0.5 text-[11px] font-semibold text-blue-600 hover:text-blue-700"
                   >
                     <Plus className="h-3 w-3" /> ADD NEW
                   </button>
@@ -757,7 +754,7 @@ export function DirectReceiveView() {
             <button
               type="button"
               onClick={() => setViewDetails((v) => !v)}
-              className="inline-flex items-center gap-1 text-[11px] font-semibold text-slate-700 hover:text-blue-600"
+              className="inline-flex items-center gap-1 min-h-6 text-[11px] font-semibold text-slate-700 hover:text-blue-600"
             >
               <span>View Details</span>
               {viewDetails ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
@@ -843,7 +840,7 @@ export function DirectReceiveView() {
                   <button
                     type="button"
                     onClick={() => setIsAddItemOpen(true)}
-                    className="inline-flex items-center gap-0.5 text-[11px] font-semibold text-blue-600 hover:text-blue-700"
+                    className="inline-flex items-center gap-0.5 min-h-6 -my-0.5 text-[11px] font-semibold text-blue-600 hover:text-blue-700"
                   >
                     <Plus className="h-3 w-3" /> ADD NEW
                   </button>

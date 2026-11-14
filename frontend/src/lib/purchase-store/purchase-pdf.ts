@@ -6,6 +6,7 @@ import { notFound } from "@/lib/api/errors";
 import { db } from "@/lib/prisma/client";
 import { purchaseStore } from "./store";
 import { listSupplierPayables } from "./payables";
+import { assertPlaceInScope, type PurchaseActor } from "./governance";
 
 export interface SignatureSlot {
   roleLabel: string;
@@ -518,8 +519,8 @@ async function resolvePersonContact(name?: string | null): Promise<{ name: strin
   };
 }
 
-export async function requisitionPdf(id: string): Promise<{ filename: string; bytes: Uint8Array }> {
-  const req = await purchaseStore.getRequisitionById(id);
+export async function requisitionPdf(id: string, actor?: PurchaseActor): Promise<{ filename: string; bytes: Uint8Array }> {
+  const req = await purchaseStore.getRequisitionById(id, actor);
   if (!req) throw notFound("Purchase requisition");
 
   const header = await resolveCorporateHeader(req.officeId, req.companyId);
@@ -588,8 +589,8 @@ export async function requisitionPdf(id: string): Promise<{ filename: string; by
   return { filename: `${req.requisitionNumber}.pdf`, bytes };
 }
 
-export async function purchaseOrderPdf(id: string): Promise<{ filename: string; bytes: Uint8Array }> {
-  const po = await purchaseStore.getPurchaseOrderById(id);
+export async function purchaseOrderPdf(id: string, actor?: PurchaseActor): Promise<{ filename: string; bytes: Uint8Array }> {
+  const po = await purchaseStore.getPurchaseOrderById(id, actor);
   if (!po) throw notFound("Purchase order");
 
   const [header, supplier] = await Promise.all([
@@ -663,8 +664,8 @@ export async function purchaseOrderPdf(id: string): Promise<{ filename: string; 
   return { filename: `${po.poNumber}.pdf`, bytes };
 }
 
-export async function goodsReceiptPdf(id: string): Promise<{ filename: string; bytes: Uint8Array }> {
-  const list = await purchaseStore.getGoodsReceipts({});
+export async function goodsReceiptPdf(id: string, actor?: PurchaseActor): Promise<{ filename: string; bytes: Uint8Array }> {
+  const list = await purchaseStore.getGoodsReceipts({}, actor);
   const grn = list.find((g) => g.id === id || g.grnNumber === id);
   if (!grn) throw notFound("Goods receipt");
 
@@ -743,8 +744,8 @@ export async function goodsReceiptPdf(id: string): Promise<{ filename: string; b
   return { filename: `${grn.grnNumber}.pdf`, bytes };
 }
 
-export async function purchaseReturnPdf(id: string): Promise<{ filename: string; bytes: Uint8Array }> {
-  const list = await purchaseStore.getPurchaseReturns({});
+export async function purchaseReturnPdf(id: string, actor?: PurchaseActor): Promise<{ filename: string; bytes: Uint8Array }> {
+  const list = await purchaseStore.getPurchaseReturns({}, actor);
   const ret = list.find((r) => r.id === id || r.returnNumber === id);
   if (!ret) throw notFound("Purchase return");
 
@@ -811,7 +812,7 @@ export async function purchaseReturnPdf(id: string): Promise<{ filename: string;
   return { filename: `${ret.returnNumber}.pdf`, bytes };
 }
 
-export async function supplierPaymentPdf(id: string): Promise<{ filename: string; bytes: Uint8Array }> {
+export async function supplierPaymentPdf(id: string, actor?: PurchaseActor): Promise<{ filename: string; bytes: Uint8Array }> {
   const prisma = db();
   const payment = await prisma.supplierPayment.findFirst({
     where: /^[0-9a-f-]{36}$/i.test(id) ? { id } : { number: id },
@@ -826,6 +827,7 @@ export async function supplierPaymentPdf(id: string): Promise<{ filename: string
     },
   });
   if (!payment) throw notFound("Supplier payment");
+  await assertPlaceInScope(actor, { businessUnitId: payment.businessUnitId, officeId: payment.officeId });
 
   const [header, prep] = await Promise.all([
     resolveCorporateHeader(payment.officeId, payment.businessUnitId),
@@ -897,10 +899,13 @@ export async function supplierPaymentPdf(id: string): Promise<{ filename: string
   return { filename: `${payment.number}.pdf`, bytes };
 }
 
-export async function payablesDueListPdf(filters?: { fromDate?: string; toDate?: string; search?: string }): Promise<{ filename: string; bytes: Uint8Array }> {
+export async function payablesDueListPdf(
+  filters?: { fromDate?: string; toDate?: string; search?: string },
+  actor?: PurchaseActor,
+): Promise<{ filename: string; bytes: Uint8Array }> {
   const [header, rows] = await Promise.all([
     resolveCorporateHeader(null, null),
-    listSupplierPayables({ fromDate: filters?.fromDate, toDate: filters?.toDate }),
+    listSupplierPayables({ fromDate: filters?.fromDate, toDate: filters?.toDate }, actor),
   ]);
 
   const filtered = filters?.search
@@ -971,10 +976,10 @@ export async function payablesDueListPdf(filters?: { fromDate?: string; toDate?:
   return { filename: "Supplier-Due-List.pdf", bytes };
 }
 
-export async function purchaseReportPdf(query: ReportQuery): Promise<{ filename: string; bytes: Uint8Array }> {
+export async function purchaseReportPdf(query: ReportQuery, actor?: PurchaseActor): Promise<{ filename: string; bytes: Uint8Array }> {
   const [header, report] = await Promise.all([
     resolveCorporateHeader(query.officeId && query.officeId !== "ALL" ? query.officeId : null, null),
-    purchaseStore.generateReport(query),
+    purchaseStore.generateReport(query, actor),
   ]);
 
   const cols: string[] = Array.isArray(report.columns) ? report.columns : [];

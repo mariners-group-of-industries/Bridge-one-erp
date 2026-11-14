@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/prisma/client";
 import { apiHandler } from "@/lib/api/handler";
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 async function handleGET() {
   try {
     const prisma = db();
@@ -22,15 +24,28 @@ async function handlePOST(request: Request) {
   try {
     const body = await request.json();
     const prisma = db();
+    const code = String(body.code ?? "").trim();
+    const name = String(body.name ?? "").trim();
+    if (!code || !name) {
+      return NextResponse.json({ success: false, error: "Enter the center code and name." }, { status: 400 });
+    }
+    if (!UUID.test(String(body.officeId ?? ""))) {
+      return NextResponse.json({ success: false, error: "Select the office." }, { status: 400 });
+    }
+    if (await prisma.costCenter.findUnique({ where: { code }, select: { id: true } })) {
+      return NextResponse.json({ success: false, error: `Center code ${code} is already used.` }, { status: 409 });
+    }
+    const effectiveDate = /^\d{4}-\d{2}-\d{2}$/.test(String(body.effectiveDate ?? "")) ? new Date(`${body.effectiveDate}T00:00:00.000Z`) : null;
 
     const created = await prisma.costCenter.create({
       data: {
-        code: body.code,
-        name: body.name,
+        code,
+        name,
         type: body.type || "DEPARTMENT",
-        officeId: body.officeId || null,
+        officeId: body.officeId,
         officeName: body.officeName || null,
         description: body.description || null,
+        effectiveDate,
         status: body.status || "ACTIVE",
       },
     });

@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import { ModalDialog } from "@/components/purchase/ModalDialog";
 import { useAccountingStore } from "@/features/accounts/store/accounting-store";
+import { localToday } from "@/features/purchase/lib/client";
 import type { PaymentMethod } from "@/features/accounts/types";
 
 export default function ExpenseAdvancePage() {
@@ -31,8 +32,13 @@ export default function ExpenseAdvancePage() {
   // Filters
   const [search, setSearch] = useState("");
   const [selectedOffice, setSelectedOffice] = useState("ALL");
-  const [fromDate, setFromDate] = useState("2026-09-11");
-  const [toDate, setToDate] = useState("2026-10-12");
+  // This month until today; the lists below are limited to it.
+  const [fromDate, setFromDate] = useState(() => `${localToday().slice(0, 8)}01`);
+  const [toDate, setToDate] = useState(() => localToday());
+  const inPeriod = (date: string | undefined) => {
+    const day = (date ?? "").slice(0, 10);
+    return (!fromDate || day >= fromDate) && (!toDate || day <= toDate);
+  };
   const [filterStatus, setFilterStatus] = useState("ALL");
   const [filterExpenseType, setFilterExpenseType] = useState("ALL");
   const [filterAccountHead, setFilterAccountHead] = useState("ALL");
@@ -49,14 +55,14 @@ export default function ExpenseAdvancePage() {
 
   // Forms
   const [expenseForm, setExpenseForm] = useState({
-    officeId: "office-sirajganj",
-    officeName: "MG Sirajganj Factory",
-    expenseType: "Factory Utilities",
-    accountId: "acc-702",
-    accountName: "Administrative & Operating Expenses",
+    officeId: "",
+    officeName: "",
+    expenseType: "Employee",
+    accountId: "",
+    accountName: "",
     payeeName: "",
     amount: 0,
-    date: new Date().toLocaleDateString("en-GB").replace(/\//g, "/"),
+    date: localToday(),
     paymentMethod: "BANK" as PaymentMethod,
     referenceNumber: "",
     description: "",
@@ -65,20 +71,21 @@ export default function ExpenseAdvancePage() {
   const [advanceForm, setAdvanceForm] = useState({
     employeeName: "",
     partnerPayee: "",
-    officeId: "office-sirajganj",
-    officeName: "MG Sirajganj Factory",
+    officeId: "",
+    officeName: "",
     purpose: "",
     chartOfAccounts: "105 - Advance, Deposits & Pre-Payments",
     requestedAmount: 0,
     approvedAmount: 0,
-    date: new Date().toLocaleDateString("en-GB").replace(/\//g, "/"),
+    date: localToday(),
   });
 
   const [provisionForm, setProvisionForm] = useState({
-    officeId: "office-sirajganj",
-    officeName: "MG Sirajganj Factory",
+    officeId: "",
+    officeName: "",
     expenseType: "Factory Wages Provision",
-    accountId: "acc-303",
+    // The server books provisions to the provisions account (303).
+    accountId: "",
     accountName: "Payables, Provision And Accruals",
     partnerPayee: "",
     amount: 0,
@@ -95,33 +102,27 @@ export default function ExpenseAdvancePage() {
     [dbOffices]
   );
 
-  // Expense Types list
-  const expenseTypes = [
-    "ALL",
-    "Factory Utilities",
-    "Office Utilities",
-    "Plant Maintenance",
-    "Fuel & Transportation",
-    "Audit & Professional",
-    "Factory Wages Provision",
-    "Office Lease Provision",
-    "Machinery Overhaul Provision",
+  // Expense categories (iBOS Expense › Expense Category); the list filter calls the partner one "Partner".
+  const expenseTypes = ["ALL", "Employee", "Partner/Supplier", "Project"];
+  const expenseTypeFilterOptions = [
+    { value: "Employee", label: "Employee" },
+    { value: "Project", label: "Project" },
+    { value: "Partner/Supplier", label: "Partner" },
   ];
 
-  // Accounts Heads list
-  const accountsHeads = [
-    { id: "ALL", name: "Accounts Head (All)" },
-    { id: "acc-701", name: "701 - Cost of Goods Sold (COGS)" },
-    { id: "acc-702", name: "702 - Administrative & Operating Expenses" },
-    { id: "acc-105", name: "105 - Advance, Deposits & Pre-Payments" },
-    { id: "acc-303", name: "303 - Payables, Provision And Accruals" },
-    { id: "acc-1460", name: "1460 - Cash Account" },
-    { id: "acc-10102", name: "10102 - Cash At Bank" },
-  ];
+  // Expense heads from the chart of accounts.
+  const expenseAccounts = useMemo(() => accounts.filter((a) => a.accountType === "EXPENSE" && !a.isGroup && a.status === "ACTIVE"), [accounts]);
+  const accountsHeads = useMemo(
+    () => [{ id: "ALL", name: "Accounts Head (All)" }, ...expenseAccounts.map((a) => ({ id: a.id, name: `${a.code} - ${a.name}` }))],
+    [expenseAccounts],
+  );
+  /** The office picked on a form (by name), or the first office. */
+  const officeByName = (name: string) => dbOffices.find((o) => o.name === name) ?? dbOffices[0];
 
   // 1. EXPENSES TAB DATA
   const displayedExpenses = useMemo(() => {
     return expenses.filter((e) => {
+      if (!inPeriod(e.date)) return false;
       if (selectedOffice !== "ALL" && e.officeName !== selectedOffice) return false;
       if (filterExpenseType !== "ALL" && e.expenseType !== filterExpenseType) return false;
       if (filterAccountHead !== "ALL" && e.accountId !== filterAccountHead) return false;
@@ -139,11 +140,13 @@ export default function ExpenseAdvancePage() {
       }
       return true;
     });
-  }, [expenses, selectedOffice, filterExpenseType, filterAccountHead, filterStatus, search]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- inPeriod reads fromDate/toDate
+  }, [expenses, selectedOffice, filterExpenseType, filterAccountHead, filterStatus, search, fromDate, toDate]);
 
   // 2. ADVANCES TAB DATA
   const displayedAdvances = useMemo(() => {
     return advances.filter((a) => {
+      if (!inPeriod(a.date)) return false;
       if (selectedOffice !== "ALL" && a.officeName !== selectedOffice) return false;
       if (filterStatus !== "ALL" && a.status !== filterStatus) return false;
       if (search.trim()) {
@@ -158,11 +161,13 @@ export default function ExpenseAdvancePage() {
       }
       return true;
     });
-  }, [advances, selectedOffice, filterStatus, search]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- inPeriod reads fromDate/toDate
+  }, [advances, selectedOffice, filterStatus, search, fromDate, toDate]);
 
   // 3. PROVISIONS TAB DATA
   const displayedProvisions = useMemo(() => {
     return provisions.filter((p) => {
+      if (!inPeriod(p.date)) return false;
       if (selectedOffice !== "ALL" && p.officeName !== selectedOffice) return false;
       if (filterStatus !== "ALL" && p.status !== filterStatus) return false;
       if (search.trim()) {
@@ -177,13 +182,15 @@ export default function ExpenseAdvancePage() {
       }
       return true;
     });
-  }, [provisions, selectedOffice, filterStatus, search]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- inPeriod reads fromDate/toDate
+  }, [provisions, selectedOffice, filterStatus, search, fromDate, toDate]);
 
   // 4. PAID TAB DATA (Expenses with status === 'PAID')
   const displayedPaid = useMemo(() => {
     return expenses
       .filter((e) => e.status === "PAID")
       .filter((e) => {
+        if (!inPeriod(e.date)) return false;
         if (selectedOffice !== "ALL" && e.officeName !== selectedOffice) return false;
         if (filterStatus !== "ALL" && e.status !== filterStatus) return false;
         if (search.trim()) {
@@ -197,7 +204,8 @@ export default function ExpenseAdvancePage() {
         }
         return true;
       });
-  }, [expenses, selectedOffice, filterStatus, search]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- inPeriod reads fromDate/toDate
+  }, [expenses, selectedOffice, filterStatus, search, fromDate, toDate]);
 
   // Calculations for Footer Totals
   const totalExpenseAmount = useMemo(
@@ -249,11 +257,17 @@ export default function ExpenseAdvancePage() {
   // Create handlers
   const handleCreateExpenseSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (expenseForm.amount <= 0 || !expenseForm.payeeName) return;
+    const office = officeByName(expenseForm.officeName);
+    const account = expenseAccounts.find((a) => a.id === expenseForm.accountId);
+    if (expenseForm.amount <= 0 || !expenseForm.payeeName || !office || !account) return;
     const count = expenses.length + 1;
     const code = `EXP-MG261000${(100 + count).toString()}`;
     createExpense({
       ...expenseForm,
+      officeId: office.id,
+      officeName: office.name,
+      accountName: account.name,
+      date: localToday(),
       code,
       partnerPayee: expenseForm.payeeName,
       chartOfAccount: `${accounts.find((a) => a.id === expenseForm.accountId)?.code} - ${expenseForm.accountName}`,
@@ -264,11 +278,15 @@ export default function ExpenseAdvancePage() {
 
   const handleCreateAdvanceSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (advanceForm.requestedAmount <= 0 || !advanceForm.employeeName) return;
+    const office = officeByName(advanceForm.officeName);
+    if (advanceForm.requestedAmount <= 0 || !advanceForm.employeeName || !office) return;
     const count = advances.length + 1;
     const code = `ADV-MG261000${(40 + count).toString()}`;
     createAdvance({
       ...advanceForm,
+      officeId: office.id,
+      officeName: office.name,
+      date: localToday(),
       code,
       partnerPayee: advanceForm.partnerPayee || advanceForm.employeeName,
       amount: advanceForm.requestedAmount,
@@ -280,11 +298,14 @@ export default function ExpenseAdvancePage() {
 
   const handleCreateProvisionSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (provisionForm.amount <= 0 || !provisionForm.partnerPayee) return;
+    const office = officeByName(provisionForm.officeName);
+    if (provisionForm.amount <= 0 || !provisionForm.partnerPayee || !office) return;
     const count = provisions.length + 1;
     const code = `PRV-MG261000${(10 + count).toString()}`;
     createProvision({
       ...provisionForm,
+      officeId: office.id,
+      officeName: office.name,
       code,
       chartOfAccount: "303 - Payables, Provision And Accruals",
       status: "POSTED",
@@ -453,10 +474,9 @@ export default function ExpenseAdvancePage() {
                     onChange={(e) => setFilterStatus(e.target.value)}
                     className="w-full text-xs border border-slate-300 rounded px-2.5 py-1 focus:ring-1 focus:ring-blue-500 bg-white text-slate-700"
                   >
-                    <option value="ALL">Status</option>
+                    <option value="ALL">All</option>
                     <option value="APPROVED">Approved</option>
                     <option value="PENDING">Pending</option>
-                    <option value="PAID">Paid</option>
                   </select>
                 </div>
                 <div>
@@ -466,10 +486,10 @@ export default function ExpenseAdvancePage() {
                     onChange={(e) => setFilterExpenseType(e.target.value)}
                     className="w-full text-xs border border-slate-300 rounded px-2.5 py-1 focus:ring-1 focus:ring-blue-500 bg-white text-slate-700 truncate"
                   >
-                    <option value="ALL">Expense Type</option>
-                    {expenseTypes.filter((t) => t !== "ALL").map((t) => (
-                      <option key={t} value={t}>
-                        {t}
+                    <option value="ALL">All</option>
+                    {expenseTypeFilterOptions.map((t) => (
+                      <option key={t.value} value={t.value}>
+                        {t.label}
                       </option>
                     ))}
                   </select>
@@ -1121,7 +1141,7 @@ export default function ExpenseAdvancePage() {
               </select>
             </div>
             <div>
-              <label className="block font-medium text-slate-700 mb-1">Expense Type *</label>
+              <label className="block font-medium text-slate-700 mb-1">Expense Category *</label>
               <select
                 value={expenseForm.expenseType}
                 onChange={(e) => setExpenseForm({ ...expenseForm, expenseType: e.target.value })}
@@ -1170,15 +1190,15 @@ export default function ExpenseAdvancePage() {
                     accountName: acc ? acc.name : expenseForm.accountName,
                   });
                 }}
+                required
                 className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white focus:ring-1 focus:ring-blue-500"
               >
-                {accounts
-                  .filter((a) => a.accountType === "EXPENSE" && !a.isGroup)
-                  .map((a) => (
-                    <option key={a.id} value={a.id}>
-                      {a.code} - {a.name}
-                    </option>
-                  ))}
+                <option value="">Select account</option>
+                {expenseAccounts.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.code} - {a.name}
+                  </option>
+                ))}
               </select>
             </div>
             <div>

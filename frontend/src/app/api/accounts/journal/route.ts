@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/prisma/client";
 import { apiHandler } from "@/lib/api/handler";
+import type { Actor } from "@/lib/auth/actor";
+import { uuidOrNull } from "@/lib/accounting/ids";
 
 async function handleGET() {
   try {
@@ -21,10 +23,21 @@ async function handleGET() {
   }
 }
 
-async function handlePOST(request: Request) {
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+async function handlePOST(request: Request, _context: unknown, actor: Actor) {
   try {
     const body = await request.json();
     const prisma = db();
+    // Recorded as "prepared by": the signed-in user, never a name sent by the browser.
+    const actorName = actor.name ?? actor.id;
+    if (!UUID.test(String(body.officeId ?? ""))) {
+      return NextResponse.json({ success: false, error: "Select the office." }, { status: 400 });
+    }
+    const badLine = (body.lines || []).findIndex((l: any) => !UUID.test(String(l?.accountId ?? "")));
+    if (badLine >= 0) {
+      return NextResponse.json({ success: false, error: `Line ${badLine + 1}: select the GL account.` }, { status: 400 });
+    }
 
     const lines = body.lines || [];
     const totalDebit = lines.reduce((sum: number, l: any) => sum + (Number(l.debit) || 0), 0);
@@ -57,23 +70,27 @@ async function handlePOST(request: Request) {
           referenceNumber: body.referenceNumber || null,
           journalType: body.journalType || "GENERAL",
           transactionDate: new Date(body.transactionDate || Date.now()),
-          officeId: body.officeId || null,
-          officeName: body.officeName || "Corporate HO",
-          fiscalYear: body.fiscalYear || "2026-2027",
+          officeId: body.officeId,
+          officeName: body.officeName || null,
+          fiscalYear: body.fiscalYear || String(new Date().getFullYear()),
+          transType: body.transType ? String(body.transType).slice(0, 50) : null,
           narration: body.narration,
           totalDebit,
           totalCredit,
+          amount: totalDebit,
           status: body.status || "POSTED",
-          createdBy: body.createdBy || "Admin User",
-          approvedBy: body.status === "POSTED" ? (body.approvedBy || body.postedBy || "Admin User") : null,
+          createdBy: actorName,
+          preparedBy: actorName,
+          approvedBy: body.status === "POSTED" ? actorName : null,
           postedAt: body.status === "POSTED" ? new Date() : null,
           lines: {
-            create: lines.map((l: any) => ({
-              accountId: l.accountId || null,
-              accountCode: l.accountCode,
-              accountName: l.accountName,
-              costCenterId: l.costCenterId || null,
-              costCenterName: l.costCenterName || null,
+            // Lines keep the cost center id only (there is no cost center name column).
+            create: lines.map((l: any, idx: number) => ({
+              lineNo: idx + 1,
+              accountId: l.accountId,
+              accountCode: String(l.accountCode ?? ""),
+              accountName: String(l.accountName ?? ""),
+              costCenterId: uuidOrNull(l.costCenterId),
               narration: l.narration || null,
               debit: Number(l.debit) || 0,
               credit: Number(l.credit) || 0,

@@ -15,6 +15,24 @@ import {
 } from "lucide-react";
 import { ModalDialog } from "@/components/purchase/ModalDialog";
 import { useAccountingStore } from "@/features/accounts/store/accounting-store";
+import { localToday } from "@/features/purchase/lib/client";
+import { BANK_NAMES } from "@/features/accounts/banks";
+
+/** Bank account types as iBOS lists them. */
+const BANK_ACCOUNT_TYPES = [
+  "Savings Account",
+  "Current Account",
+  "Recurring Deposit Account",
+  "Fixed Deposit Account",
+  "DEMAT Account",
+  "NRI Account",
+  "Short Notice Deposit (SND) Account",
+  "Bank Overdraft (OD) Account",
+  "Payment Against Document (PAD)",
+  "SOD against EM",
+];
+/** Compares types written either way ("CURRENT" and "Current Account" are the same). */
+const accountTypeKey = (t: string) => t.toLowerCase().replace(/\baccount\b/g, "").replace(/[^a-z]/g, "");
 import type {
   BankAccountItem,
 } from "@/features/accounts/types";
@@ -29,6 +47,17 @@ export default function FinanceBankingPage() {
   const addDeposit = useAccountingStore((s) => s.addDeposit);
   const addLoan = useAccountingStore((s) => s.addLoan);
   const addLoanPartner = useAccountingStore((s) => s.addLoanPartner);
+  const offices = useAccountingStore((s) => s.offices);
+  const allAccounts = useAccountingStore((s) => s.accounts);
+  // Posting accounts (not groups) a bank account or loan can be linked to.
+  const assetGlAccounts = useMemo(() => allAccounts.filter((a) => !a.isGroup && a.status === "ACTIVE" && a.accountType === "ASSET"), [allAccounts]);
+  const liabilityGlAccounts = useMemo(() => allAccounts.filter((a) => !a.isGroup && a.status === "ACTIVE" && a.accountType === "LIABILITY"), [allAccounts]);
+  const firstOffice = offices[0];
+  // The iBOS bank list plus any bank already used here (older records may be spelled differently).
+  const bankNameOptions = useMemo(
+    () => [...new Set<string>([...BANK_NAMES, ...bankAccounts.map((b) => b.bankName).filter(Boolean)])],
+    [bankAccounts],
+  );
 
   // -------------------------------------------------------------
   // TABS: Exact 5 tabs from user screenshots
@@ -99,63 +128,73 @@ export default function FinanceBankingPage() {
   const [newBankForm, setNewBankForm] = useState({
     bankName: "",
     branchName: "",
-    accountHolder: "BridgeOne Industrial Solutions Ltd",
+    accountHolder: "",
     accountType: "Current Account",
     accountNumber: "",
     currency: "BDT",
-    glAccountId: "acc-10102",
-    glAccountName: "Cash At Bank",
+    glAccountId: "",
+    glAccountName: "",
     openingBalance: 0,
     reconciliationStatus: "RECONCILED" as const,
     isActive: true,
   });
+  // Branches already used with the chosen bank.
+  const knownBranches = useMemo(
+    () => [...new Set(bankAccounts.filter((b) => b.bankName === newBankForm.bankName).map((b) => b.branchName).filter(Boolean))],
+    [bankAccounts, newBankForm.bankName],
+  );
 
-  const [newDepositForm, setNewDepositForm] = useState({
-    bankName: "Sonali Bank PLC",
+  const blankDepositForm = () => ({
+    bankName: "",
     depositType: "Security Deposit",
-    officeId: "office-dhaka",
-    officeName: "Dhaka Head Office",
-    principalAmount: 500000,
-    interestRate: 8.5,
-    openingDate: "2026-10-12",
-    maturityDate: "2027-10-12",
-    maturityValue: 542500,
-    interestEarned: 42500,
+    officeId: "",
+    officeName: "",
+    principalAmount: 0,
+    interestRate: 0,
+    openingDate: localToday(),
+    maturityDate: "",
+    maturityValue: 0,
+    interestEarned: 0,
     status: "ACTIVE",
   });
+  const [newDepositForm, setNewDepositForm] = useState(blankDepositForm);
 
-  const [newLoanForm, setNewLoanForm] = useState({
-    lenderName: "Eastern Bank PLC",
+  const blankLoanForm = () => ({
+    lenderName: "",
     loanType: "Working Capital",
     category: "BANK" as const,
-    officeId: "office-dhaka",
-    officeName: "Dhaka Head Office",
-    glAccountId: "acc-302",
-    glAccountName: "Short Term Borrowing",
+    officeId: "",
+    officeName: "",
+    glAccountId: "",
+    glAccountName: "",
     partnerGroup: "Corporate Credit",
-    principalAmount: 5000000,
-    interestRate: 9.5,
-    disbursementDate: "2026-10-01",
-    maturityDate: "2027-10-01",
-    installmentAmount: 438000,
-    outstandingPrincipal: 5000000,
+    principalAmount: 0,
+    interestRate: 0,
+    disbursementDate: localToday(),
+    maturityDate: "",
+    installmentAmount: 0,
+    outstandingPrincipal: 0,
     accruedInterest: 0,
     tenureMonths: 12,
     status: "ACTIVE",
   });
+  const [newLoanForm, setNewLoanForm] = useState(blankLoanForm);
 
-  const [newPartnerForm, setNewPartnerForm] = useState({
+  const blankPartnerForm = () => ({
     partnerName: "",
     group: "NBFI Corporate Partner",
-    officeId: "office-dhaka",
-    officeName: "Dhaka Head Office",
+    officeId: "",
+    officeName: "",
     accountType: "Lease Finance Facility",
-    principalFacility: 3000000,
-    interestRate: 10.0,
+    principalFacility: 0,
+    interestRate: 0,
     tenureMonths: 36,
-    outstanding: 3000000,
+    outstanding: 0,
     status: "ACTIVE" as const,
   });
+  const [newPartnerForm, setNewPartnerForm] = useState(blankPartnerForm);
+  /** The office chosen on a form, or the first office until one is picked. */
+  const officeOf = (officeId: string) => offices.find((o) => o.id === officeId) ?? firstOffice;
 
   // -------------------------------------------------------------
   // FILTERED DATASETS
@@ -174,7 +213,7 @@ export default function FinanceBankingPage() {
         if (!m) return false;
       }
       if (bankAccountTypeFilter !== "ALL") {
-        if (b.accountType.toLowerCase() !== bankAccountTypeFilter.toLowerCase()) return false;
+        if (accountTypeKey(b.accountType) !== accountTypeKey(bankAccountTypeFilter)) return false;
       }
       return true;
     });
@@ -321,12 +360,12 @@ export default function FinanceBankingPage() {
     setNewBankForm({
       bankName: "",
       branchName: "",
-      accountHolder: "BridgeOne Industrial Solutions Ltd",
+      accountHolder: "",
       accountType: "Current Account",
       accountNumber: "",
       currency: "BDT",
-      glAccountId: "acc-10102",
-      glAccountName: "Cash At Bank",
+      glAccountId: "",
+      glAccountName: "",
       openingBalance: 0,
       reconciliationStatus: "RECONCILED",
       isActive: true,
@@ -335,23 +374,29 @@ export default function FinanceBankingPage() {
 
   const handleSaveDeposit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (newDepositForm.principalAmount <= 0) return;
-    addDeposit(newDepositForm);
+    const office = officeOf(newDepositForm.officeId);
+    if (newDepositForm.principalAmount <= 0 || !office) return;
+    addDeposit({ ...newDepositForm, officeId: office.id, officeName: office.name });
     setIsNewDepositOpen(false);
+    setNewDepositForm(blankDepositForm());
   };
 
   const handleSaveLoan = (e: React.FormEvent) => {
     e.preventDefault();
-    if (newLoanForm.principalAmount <= 0) return;
-    addLoan(newLoanForm);
+    const office = officeOf(newLoanForm.officeId);
+    if (newLoanForm.principalAmount <= 0 || !office) return;
+    addLoan({ ...newLoanForm, officeId: office.id, officeName: office.name, outstandingPrincipal: newLoanForm.principalAmount });
     setIsNewLoanOpen(false);
+    setNewLoanForm(blankLoanForm());
   };
 
   const handleSaveLoanPartner = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newPartnerForm.partnerName) return;
-    addLoanPartner(newPartnerForm);
+    const office = officeOf(newPartnerForm.officeId);
+    if (!newPartnerForm.partnerName || !office) return;
+    addLoanPartner({ ...newPartnerForm, officeId: office.id, officeName: office.name, outstanding: newPartnerForm.principalFacility });
     setIsNewLoanPartnerOpen(false);
+    setNewPartnerForm(blankPartnerForm());
   };
 
   // -------------------------------------------------------------
@@ -581,10 +626,11 @@ export default function FinanceBankingPage() {
                 className="h-8 w-60 border border-slate-300 rounded px-2.5 text-xs bg-white text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500"
               >
                 <option value="ALL">Bank Account Type</option>
-                <option value="Current Account">Current Account</option>
-                <option value="Savings Account">Savings Account</option>
-                <option value="Escrow Account">Escrow Account</option>
-                <option value="Salary Account">Salary Account</option>
+                {BANK_ACCOUNT_TYPES.map((t) => (
+                  <option key={t} value={t}>
+                    {t}
+                  </option>
+                ))}
               </select>
             </div>
 
@@ -731,11 +777,11 @@ export default function FinanceBankingPage() {
                 className="h-8 w-60 border border-slate-300 rounded px-2.5 text-xs bg-white text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500"
               >
                 <option value="All">All</option>
-                <option value="Dhaka Head Office">Dhaka Head Office</option>
-                <option value="MG Sirajganj Factory">MG Sirajganj Factory</option>
-                <option value="MBBL-HO">MBBL-HO</option>
-                <option value="MGV-PLC">MGV-PLC</option>
-                <option value="MOHS-Eco">MOHS-Eco</option>
+                {offices.map((o) => (
+                  <option key={o.id} value={o.name}>
+                    {o.name}
+                  </option>
+                ))}
               </select>
             </div>
 
@@ -825,6 +871,43 @@ export default function FinanceBankingPage() {
                 <option value="Term Loan">Term Loan</option>
                 <option value="Syndicated Credit Facility">Syndicated Credit Facility</option>
               </select>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label htmlFor="loan-office" className="block text-xs font-semibold text-slate-700 mb-1">Office</label>
+                <select
+                  id="loan-office"
+                  value={officeOf(newLoanForm.officeId)?.id ?? ""}
+                  onChange={(e) => setNewLoanForm({ ...newLoanForm, officeId: e.target.value })}
+                  className="w-full h-9 px-3 text-xs border border-slate-300 rounded bg-white focus:ring-1 focus:ring-blue-500 focus:outline-none"
+                >
+                  {offices.length === 0 && <option value="">No office available</option>}
+                  {offices.map((o) => (
+                    <option key={o.id} value={o.id}>
+                      {o.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label htmlFor="loan-gl-account" className="block text-xs font-semibold text-slate-700 mb-1">GL Account</label>
+                <select
+                  id="loan-gl-account"
+                  value={newLoanForm.glAccountId}
+                  onChange={(e) => {
+                    const acc = liabilityGlAccounts.find((a) => a.id === e.target.value);
+                    setNewLoanForm({ ...newLoanForm, glAccountId: acc?.id ?? "", glAccountName: acc?.name ?? "" });
+                  }}
+                  className="w-full h-9 px-3 text-xs border border-slate-300 rounded bg-white focus:ring-1 focus:ring-blue-500 focus:outline-none"
+                >
+                  <option value="">Not linked</option>
+                  {liabilityGlAccounts.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.code} - {a.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
 
             <div className="flex flex-col gap-1">
@@ -1137,9 +1220,11 @@ export default function FinanceBankingPage() {
                 className="h-8 w-44 border border-slate-300 rounded px-2.5 text-xs bg-white text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500"
               >
                 <option value="ALL">Office</option>
-                <option value="Dhaka Head Office">Dhaka Head Office</option>
-                <option value="MG Sirajganj Factory">MG Sirajganj Factory</option>
-                <option value="MGV-PLC">MGV-PLC</option>
+                {offices.map((o) => (
+                  <option key={o.id} value={o.name}>
+                    {o.name}
+                  </option>
+                ))}
               </select>
             </div>
 
@@ -1257,50 +1342,65 @@ export default function FinanceBankingPage() {
       <ModalDialog
         isOpen={isNewBankOpen}
         onClose={() => setIsNewBankOpen(false)}
-        title="Add Regular Bank Account"
-        subtitle="Register corporate bank ledger for BridgeOne Group of Industries"
+        title="Create Bank Account"
+        subtitle="Register a company bank account"
         maxWidth="lg"
       >
         <form onSubmit={handleSaveBank} className="space-y-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
-                Bank Name <span className="text-red-500">*</span>
+              <label htmlFor="bank-account-name" className="block text-xs font-semibold text-slate-700 mb-1">
+                Account Name <span className="text-red-500">*</span>
               </label>
               <input
-                type="text"
-                required
-                value={newBankForm.bankName}
-                onChange={(e) => setNewBankForm({ ...newBankForm, bankName: e.target.value })}
-                placeholder="e.g. PRIME BANK LTD PLC"
-                className="w-full h-9 px-3 text-xs border border-slate-300 rounded focus:ring-1 focus:ring-blue-500 focus:outline-none"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
-                Branch Name <span className="text-red-500">*</span>
-              </label>
-              <input
-                type="text"
-                required
-                value={newBankForm.branchName}
-                onChange={(e) => setNewBankForm({ ...newBankForm, branchName: e.target.value })}
-                placeholder="e.g. ISLAMI BANKING(MIRPUR)"
-                className="w-full h-9 px-3 text-xs border border-slate-300 rounded focus:ring-1 focus:ring-blue-500 focus:outline-none"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
-                Account Holder <span className="text-red-500">*</span>
-              </label>
-              <input
+                id="bank-account-name"
                 type="text"
                 required
                 value={newBankForm.accountHolder}
                 onChange={(e) => setNewBankForm({ ...newBankForm, accountHolder: e.target.value })}
-                placeholder="e.g. BridgeOne Industrial Solutions Ltd"
+                placeholder="Account Name"
                 className="w-full h-9 px-3 text-xs border border-slate-300 rounded focus:ring-1 focus:ring-blue-500 focus:outline-none"
               />
+            </div>
+            <div>
+              <label htmlFor="bank-name" className="block text-xs font-semibold text-slate-700 mb-1">
+                Bank Name <span className="text-red-500">*</span>
+              </label>
+              <select
+                id="bank-name"
+                required
+                value={newBankForm.bankName}
+                onChange={(e) => setNewBankForm({ ...newBankForm, bankName: e.target.value, branchName: "" })}
+                className="w-full h-9 px-3 text-xs border border-slate-300 rounded bg-white focus:ring-1 focus:ring-blue-500 focus:outline-none"
+              >
+                <option value="">Bank Name</option>
+                {bankNameOptions.map((b) => (
+                  <option key={b} value={b}>
+                    {b}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label htmlFor="bank-branch" className="block text-xs font-semibold text-slate-700 mb-1">
+                Branch Name <span className="text-red-500">*</span>
+              </label>
+              {/* Branches already used with this bank are suggested; a new branch is typed in. */}
+              <input
+                id="bank-branch"
+                type="text"
+                required
+                list="bank-branch-options"
+                value={newBankForm.branchName}
+                onChange={(e) => setNewBankForm({ ...newBankForm, branchName: e.target.value })}
+                placeholder="Branch Name"
+                className="w-full h-9 px-3 text-xs border border-slate-300 rounded focus:ring-1 focus:ring-blue-500 focus:outline-none"
+              />
+              <datalist id="bank-branch-options">
+                {knownBranches.map((b) => (
+                  <option key={b} value={b} />
+                ))}
+              </datalist>
             </div>
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1">Account Type</label>
@@ -1309,10 +1409,11 @@ export default function FinanceBankingPage() {
                 onChange={(e) => setNewBankForm({ ...newBankForm, accountType: e.target.value })}
                 className="w-full h-9 px-3 text-xs border border-slate-300 rounded bg-white focus:ring-1 focus:ring-blue-500 focus:outline-none"
               >
-                <option value="Current Account">Current Account</option>
-                <option value="Savings Account">Savings Account</option>
-                <option value="Escrow Account">Escrow Account</option>
-                <option value="Salary Account">Salary Account</option>
+                {BANK_ACCOUNT_TYPES.map((t) => (
+                  <option key={t} value={t}>
+                    {t}
+                  </option>
+                ))}
               </select>
             </div>
             <div>
@@ -1337,6 +1438,26 @@ export default function FinanceBankingPage() {
                 onChange={(e) => setNewBankForm({ ...newBankForm, openingBalance: Number(e.target.value) })}
                 className="w-full h-9 px-3 text-xs border border-slate-300 rounded font-mono focus:ring-1 focus:ring-blue-500 focus:outline-none"
               />
+            </div>
+            <div className="sm:col-span-2">
+              <label htmlFor="bank-gl-account" className="block text-xs font-semibold text-slate-700 mb-1">GL Account (Chart of A/C)</label>
+              <select
+                id="bank-gl-account"
+                value={newBankForm.glAccountId}
+                onChange={(e) => {
+                  const acc = assetGlAccounts.find((a) => a.id === e.target.value);
+                  setNewBankForm({ ...newBankForm, glAccountId: acc?.id ?? "", glAccountName: acc?.name ?? "" });
+                }}
+                className="w-full h-9 px-3 text-xs border border-slate-300 rounded bg-white focus:ring-1 focus:ring-blue-500 focus:outline-none"
+              >
+                <option value="">Not linked</option>
+                {assetGlAccounts.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.code} - {a.name}
+                  </option>
+                ))}
+              </select>
+              <p className="mt-1 text-[11px] text-slate-500">Payments from this bank post to this account in the ledger.</p>
             </div>
           </div>
 
@@ -1395,14 +1516,16 @@ export default function FinanceBankingPage() {
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1">Office</label>
               <select
-                value={newDepositForm.officeName}
-                onChange={(e) => setNewDepositForm({ ...newDepositForm, officeName: e.target.value })}
+                value={officeOf(newDepositForm.officeId)?.id ?? ""}
+                onChange={(e) => setNewDepositForm({ ...newDepositForm, officeId: e.target.value })}
                 className="w-full h-9 px-3 text-xs border border-slate-300 rounded bg-white focus:ring-1 focus:ring-blue-500 focus:outline-none"
               >
-                <option value="Dhaka Head Office">Dhaka Head Office</option>
-                <option value="MG Sirajganj Factory">MG Sirajganj Factory</option>
-                <option value="MBBL-HO">MBBL-HO</option>
-                <option value="MGV-PLC">MGV-PLC</option>
+                {offices.length === 0 && <option value="">No office available</option>}
+                {offices.map((o) => (
+                  <option key={o.id} value={o.id}>
+                    {o.name}
+                  </option>
+                ))}
               </select>
             </div>
             <div className="grid grid-cols-2 gap-3">
@@ -1481,6 +1604,43 @@ export default function FinanceBankingPage() {
                 <option value="Term Loan">Term Loan</option>
                 <option value="Syndicated Credit Facility">Syndicated Credit Facility</option>
               </select>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label htmlFor="loan-office" className="block text-xs font-semibold text-slate-700 mb-1">Office</label>
+                <select
+                  id="loan-office"
+                  value={officeOf(newLoanForm.officeId)?.id ?? ""}
+                  onChange={(e) => setNewLoanForm({ ...newLoanForm, officeId: e.target.value })}
+                  className="w-full h-9 px-3 text-xs border border-slate-300 rounded bg-white focus:ring-1 focus:ring-blue-500 focus:outline-none"
+                >
+                  {offices.length === 0 && <option value="">No office available</option>}
+                  {offices.map((o) => (
+                    <option key={o.id} value={o.id}>
+                      {o.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label htmlFor="loan-gl-account" className="block text-xs font-semibold text-slate-700 mb-1">GL Account</label>
+                <select
+                  id="loan-gl-account"
+                  value={newLoanForm.glAccountId}
+                  onChange={(e) => {
+                    const acc = liabilityGlAccounts.find((a) => a.id === e.target.value);
+                    setNewLoanForm({ ...newLoanForm, glAccountId: acc?.id ?? "", glAccountName: acc?.name ?? "" });
+                  }}
+                  className="w-full h-9 px-3 text-xs border border-slate-300 rounded bg-white focus:ring-1 focus:ring-blue-500 focus:outline-none"
+                >
+                  <option value="">Not linked</option>
+                  {liabilityGlAccounts.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.code} - {a.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
@@ -1563,13 +1723,16 @@ export default function FinanceBankingPage() {
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1">Office</label>
               <select
-                value={newPartnerForm.officeName}
-                onChange={(e) => setNewPartnerForm({ ...newPartnerForm, officeName: e.target.value })}
+                value={officeOf(newPartnerForm.officeId)?.id ?? ""}
+                onChange={(e) => setNewPartnerForm({ ...newPartnerForm, officeId: e.target.value })}
                 className="w-full h-9 px-3 text-xs border border-slate-300 rounded bg-white focus:ring-1 focus:ring-blue-500 focus:outline-none"
               >
-                <option value="Dhaka Head Office">Dhaka Head Office</option>
-                <option value="MG Sirajganj Factory">MG Sirajganj Factory</option>
-                <option value="MGV-PLC">MGV-PLC</option>
+                {offices.length === 0 && <option value="">No office available</option>}
+                {offices.map((o) => (
+                  <option key={o.id} value={o.id}>
+                    {o.name}
+                  </option>
+                ))}
               </select>
             </div>
             <div className="grid grid-cols-2 gap-3">

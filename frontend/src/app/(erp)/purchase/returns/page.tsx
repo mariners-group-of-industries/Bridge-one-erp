@@ -550,7 +550,7 @@ export default function PurchaseReturnsPage() {
                               type="button"
                               disabled={!perms.returns.create}
                               onClick={() => handleOpenFullReturn(row)}
-                              className="text-blue-600 hover:underline font-medium hover:text-blue-800 disabled:opacity-40 disabled:pointer-events-none"
+                              className="inline-flex items-center min-h-6 px-1 rounded text-blue-600 hover:underline font-medium hover:text-blue-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/20 disabled:opacity-40 disabled:pointer-events-none"
                               title={!perms.returns.create ? "Requires Create permission in Configuration" : "Return all items from this receipt"}
                             >
                               Full
@@ -560,7 +560,7 @@ export default function PurchaseReturnsPage() {
                               type="button"
                               disabled={!perms.returns.create}
                               onClick={() => handleOpenPartialReturn(row)}
-                              className="text-blue-600 hover:underline font-medium hover:text-blue-800 disabled:opacity-40 disabled:pointer-events-none"
+                              className="inline-flex items-center min-h-6 px-1 rounded text-blue-600 hover:underline font-medium hover:text-blue-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/20 disabled:opacity-40 disabled:pointer-events-none"
                               title={!perms.returns.create ? "Requires Create permission in Configuration" : "Select specific items and quantities to return"}
                             >
                               Partial

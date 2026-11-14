@@ -18,7 +18,7 @@ import { fetchApi } from "@/lib/api";
 import { toast } from "@/components/purchase/Toast";
 import { Spinner } from "@/components/ui/spinner";
 import { usePurchasePermissions } from "@/features/purchase/lib/usePurchasePermissions";
-import type { PurchaseFormOptions } from "@/features/purchase/components/PurchaseFormShared";
+import { categoryNamesAt, type PurchaseFormOptions } from "@/features/purchase/components/PurchaseFormShared";
 import type { Office, Warehouse, Item, Supplier, PurchaseRequisition } from "@bridgeone/contracts";
 
 interface DirectoryEmployee {
@@ -27,7 +27,6 @@ interface DirectoryEmployee {
   designation?: string;
   department?: string;
   employeeCode?: string;
-  officeName?: string;
 }
 
 interface AddedItem {
@@ -167,27 +166,23 @@ function CreateRequisitionForm({ templateReq }: { templateReq: PurchaseRequisiti
     queryFn: () => fetchApi("/master/suppliers"),
   });
 
-  const { data: directoryData } = useQuery<{ success: boolean; employees: DirectoryEmployee[] }>({
-    queryKey: ["directory"],
-    queryFn: () => fetchApi("/connect/directory"),
-  });
-
   const { data: formOptions } = useQuery<PurchaseFormOptions>({
     queryKey: ["purchase-form-options"],
     queryFn: () => fetchApi("/master/purchase-form-options"),
   });
 
-  const employees = useMemo(() => {
-    const dir = directoryData?.employees ?? [];
-    if (dir.length > 0) return dir;
-    return (formOptions?.employees ?? []).map((e) => ({
-      id: e.id,
-      name: e.name,
-      employeeCode: e.employeeCode,
-      department: e.department,
-      designation: e.designation,
-    }));
-  }, [directoryData, formOptions]);
+  // Requesters come from the purchase form options, already limited to the user's offices.
+  const employees = useMemo<DirectoryEmployee[]>(
+    () =>
+      (formOptions?.employees ?? []).map((e) => ({
+        id: e.id,
+        name: e.name,
+        employeeCode: e.employeeCode,
+        department: e.department,
+        designation: e.designation,
+      })),
+    [formOptions],
+  );
 
   // The first office is used until the user picks one.
   const selectedOfficeId = pickedOfficeId || offices[0]?.id || "";
@@ -204,8 +199,8 @@ function CreateRequisitionForm({ templateReq }: { templateReq: PurchaseRequisiti
 
   // 3-Level Category Cascade from DB ItemCategory + item fallbacks
   const level1Categories = useMemo(() => {
-    const cats = (formOptions?.categories ?? []).filter((c) => c.level === 1);
-    if (cats.length > 0) return cats.map((c) => c.name);
+    const cats = categoryNamesAt(formOptions?.categories ?? [], 1);
+    if (cats.length > 0) return cats;
     const set = new Set<string>();
     itemsCatalog.forEach((it) => {
       if (it.category) set.add(it.category);
@@ -214,10 +209,8 @@ function CreateRequisitionForm({ templateReq }: { templateReq: PurchaseRequisiti
   }, [formOptions, itemsCatalog]);
 
   const level2SubCategories = useMemo(() => {
-    const allCats = formOptions?.categories ?? [];
-    const parent = allCats.find((c) => c.level === 1 && c.name === categoryFilter);
-    const list = allCats.filter((c) => c.level === 2 && (!parent || c.parentId === parent.id));
-    if (list.length > 0) return list.map((c) => c.name);
+    const list = categoryNamesAt(formOptions?.categories ?? [], 2, categoryFilter);
+    if (list.length > 0) return list;
     const set = new Set<string>();
     itemsCatalog.forEach((it) => {
       if ((categoryFilter === "All" || it.category === categoryFilter) && it.subCategory) set.add(it.subCategory);
@@ -226,10 +219,8 @@ function CreateRequisitionForm({ templateReq }: { templateReq: PurchaseRequisiti
   }, [formOptions, itemsCatalog, categoryFilter]);
 
   const level3MinorCategories = useMemo(() => {
-    const allCats = formOptions?.categories ?? [];
-    const sub = allCats.find((c) => c.level === 2 && c.name === subCategoryFilter);
-    const list = allCats.filter((c) => c.level === 3 && (!sub || c.parentId === sub.id));
-    if (list.length > 0) return list.map((c) => c.name);
+    const list = categoryNamesAt(formOptions?.categories ?? [], 3, subCategoryFilter);
+    if (list.length > 0) return list;
     const set = new Set<string>();
     itemsCatalog.forEach((it) => {
       if ((subCategoryFilter === "All" || it.subCategory === subCategoryFilter) && it.minorCategory) set.add(it.minorCategory);
@@ -659,13 +650,14 @@ function CreateRequisitionForm({ templateReq }: { templateReq: PurchaseRequisiti
                   placeholder="Select/Search Employee"
                   className="w-full h-8 text-xs border border-slate-300 dark:border-slate-700 rounded pl-2.5 pr-14 py-1 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-hidden focus:ring-1 focus:ring-blue-500"
                 />
-                <div className="absolute right-1 top-1.5 flex items-center gap-1 text-slate-400">
+                <div className="absolute right-1 top-1 flex items-center text-slate-400">
                   {employeeQuery && (
                     <button
                       type="button"
                       onClick={() => setEmployeeQuery("")}
-                      className="hover:text-slate-600 p-0.5"
+                      className="inline-flex size-6 items-center justify-center rounded hover:text-slate-600"
                       title="Clear"
+                      aria-label="Clear employee"
                     >
                       <X className="w-3.5 h-3.5" />
                     </button>
@@ -673,7 +665,8 @@ function CreateRequisitionForm({ templateReq }: { templateReq: PurchaseRequisiti
                   <button
                     type="button"
                     onClick={() => setIsEmployeeDropdownOpen((p) => !p)}
-                    className="hover:text-slate-600 p-0.5"
+                    className="inline-flex size-6 items-center justify-center rounded hover:text-slate-600"
+                    aria-label="Show employees"
                   >
                     <ChevronDown className="w-3.5 h-3.5" />
                   </button>
@@ -1011,7 +1004,8 @@ function CreateRequisitionForm({ templateReq }: { templateReq: PurchaseRequisiti
               <button
                 type="button"
                 onClick={() => setIsItemDropdownOpen((p) => !p)}
-                className="absolute right-2 top-2 text-slate-400 hover:text-slate-600"
+                className="absolute right-1 top-1 inline-flex size-6 items-center justify-center rounded text-slate-400 hover:text-slate-600"
+                aria-label="Show items"
               >
                 <ChevronDown className="w-3.5 h-3.5" />
               </button>

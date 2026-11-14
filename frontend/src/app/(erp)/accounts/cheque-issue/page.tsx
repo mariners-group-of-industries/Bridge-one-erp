@@ -14,6 +14,17 @@ import {
 } from "lucide-react";
 import { ModalDialog } from "@/components/purchase/ModalDialog";
 import { useAccountingStore } from "@/features/accounts/store/accounting-store";
+import { localToday } from "@/features/purchase/lib/client";
+
+/** The next unused leaf of a cheque book: its first number plus the leaves already used, same prefix and width. */
+function nextLeaf(book: { startChequeNumber: string; usedLeaves: number } | undefined): string {
+  if (!book) return "";
+  const match = book.startChequeNumber.match(/^(.*?)(\d+)$/);
+  if (!match) return "";
+  const [, prefix, digits] = match;
+  return `${prefix}${String(Number(digits) + (book.usedLeaves || 0)).padStart(digits.length, "0")}`;
+}
+
 import type { ChequeIssueItem, ChequeStatus } from "@/features/accounts/types";
 
 export default function ChequeIssuePage() {
@@ -42,20 +53,24 @@ export default function ChequeIssuePage() {
   const [errorMessage, setErrorMessage] = useState("");
 
   // Create Form State
-  const [form, setForm] = useState(() => ({
-    bankAccountId: "ba-1",
-    bankName: "PRIME BANK LTD PLC",
-    chequeBookId: "cb-1",
+  const blankForm = () => ({
+    bankAccountId: "",
+    bankName: "",
+    chequeBookId: "",
     chequeNumber: "",
-    transactionNumber: `TXN-CHQ-${Date.now().toString().slice(-6)}`,
+    transactionNumber: "",
     payeeName: "",
-    issueDate: new Date().toISOString().split("T")[0],
-    chequeDate: new Date().toISOString().split("T")[0],
+    issueDate: localToday(),
+    chequeDate: localToday(),
     amount: 0,
     purpose: "",
-    referenceVoucher: "JV-2026-CHQ",
+    referenceVoucher: "",
     status: "ISSUED" as ChequeStatus,
-  }));
+  });
+  const [form, setForm] = useState(blankForm);
+  /** The running cheque book of a bank account. */
+  const runningBook = (bankAccountId: string | undefined) =>
+    chequeBooks.find((cb) => cb.bankAccountId === bankAccountId && cb.status !== "EXHAUSTED" && cb.status !== "CANCELLED");
 
   // Extract unique bank names and transaction numbers for filters
   const bankOptions = useMemo(() => {
@@ -99,13 +114,13 @@ export default function ChequeIssuePage() {
 
   const handleBankSelect = (bankName: string) => {
     const bank = bankAccounts.find((b) => b.bankName === bankName) || bankAccounts[0];
-    const book = chequeBooks.find((cb) => cb.bankAccountId === bank?.id) || chequeBooks[0];
+    const book = runningBook(bank?.id);
     setForm({
       ...form,
       bankAccountId: bank?.id || "",
       bankName: bank?.bankName || bankName,
       chequeBookId: book?.id || "",
-      chequeNumber: book ? `${book.startChequeNumber.slice(0, 3)}${Date.now().toString().slice(-4)}` : "",
+      chequeNumber: nextLeaf(book),
     });
   };
 
@@ -122,37 +137,38 @@ export default function ChequeIssuePage() {
       return;
     }
 
-    const chequeNo = form.chequeNumber.trim() || `CHQ-${Date.now().toString().slice(-5)}`;
+    const bank = bankAccounts.find((b) => b.id === form.bankAccountId) ?? bankAccounts[0];
+    if (!bank) {
+      setErrorMessage("Add a bank account under Finance & Banking first.");
+      return;
+    }
+    const book = runningBook(bank.id);
+    const chequeNo = form.chequeNumber.trim() || nextLeaf(book);
+    if (!chequeNo) {
+      setErrorMessage("Enter the cheque number.");
+      return;
+    }
 
-    issueCheque({
-      bankAccountId: form.bankAccountId,
-      bankName: form.bankName,
-      chequeBookId: form.chequeBookId,
+    const res = issueCheque({
+      bankAccountId: bank.id,
+      bankName: bank.bankName,
+      chequeBookId: book?.id ?? "",
       chequeNumber: chequeNo,
       payeeName: form.payeeName.trim(),
       issueDate: form.issueDate,
       chequeDate: form.chequeDate,
       amount: Number(form.amount),
-      purpose: form.purpose || "Supplier & vendor settlement",
-      referenceVoucher: form.referenceVoucher || "JV-2026-CHQ",
-      status: new Date(form.chequeDate) > new Date() ? "POST_DATED" : form.status,
+      purpose: form.purpose,
+      referenceVoucher: form.referenceVoucher,
+      status: form.chequeDate > localToday() ? "POST_DATED" : form.status,
     });
+    if (!res.success) {
+      setErrorMessage(res.message);
+      return;
+    }
 
     setIsCreateOpen(false);
-    setForm({
-      bankAccountId: "ba-1",
-      bankName: "PRIME BANK LTD PLC",
-      chequeBookId: "cb-1",
-      chequeNumber: "",
-      transactionNumber: `TXN-CHQ-${Date.now().toString().slice(-6)}`,
-      payeeName: "",
-      issueDate: new Date().toISOString().split("T")[0],
-      chequeDate: new Date().toISOString().split("T")[0],
-      amount: 0,
-      purpose: "",
-      referenceVoucher: "JV-2026-CHQ",
-      status: "ISSUED",
-    });
+    setForm(blankForm());
   };
 
   const handleConfirmCancel = () => {
@@ -197,7 +213,7 @@ export default function ChequeIssuePage() {
           <button
             type="button"
             onClick={() => {
-              handleBankSelect(bankAccounts[0]?.bankName || "PRIME BANK LTD PLC");
+              handleBankSelect(bankAccounts[0]?.bankName ?? "");
               setIsCreateOpen(true);
             }}
             className="h-8 px-4 bg-[#2563eb] hover:bg-blue-700 text-white font-semibold text-xs rounded flex items-center gap-1.5 shadow-xs transition"

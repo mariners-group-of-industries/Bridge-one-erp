@@ -120,8 +120,9 @@ export function DataTable<T extends Record<string, any>>({
               type="button"
               disabled={currentPage === 1}
               onClick={() => setCurrentPage(1)}
-              className="p-1 rounded hover:bg-slate-200 disabled:opacity-40 disabled:hover:bg-transparent"
+              className="inline-flex size-6 items-center justify-center rounded hover:bg-slate-200 disabled:opacity-40 disabled:hover:bg-transparent"
               title="First Page"
+              aria-label="First Page"
             >
               <ChevronsLeft className="w-3.5 h-3.5" />
             </button>
@@ -129,8 +130,9 @@ export function DataTable<T extends Record<string, any>>({
               type="button"
               disabled={currentPage === 1}
               onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-              className="p-1 rounded hover:bg-slate-200 disabled:opacity-40 disabled:hover:bg-transparent"
+              className="inline-flex size-6 items-center justify-center rounded hover:bg-slate-200 disabled:opacity-40 disabled:hover:bg-transparent"
               title="Previous Page"
+              aria-label="Previous Page"
             >
               <ChevronLeft className="w-3.5 h-3.5" />
             </button>
@@ -141,8 +143,9 @@ export function DataTable<T extends Record<string, any>>({
               type="button"
               disabled={currentPage === totalPages}
               onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-              className="p-1 rounded hover:bg-slate-200 disabled:opacity-40 disabled:hover:bg-transparent"
+              className="inline-flex size-6 items-center justify-center rounded hover:bg-slate-200 disabled:opacity-40 disabled:hover:bg-transparent"
               title="Next Page"
+              aria-label="Next Page"
             >
               <ChevronRight className="w-3.5 h-3.5" />
             </button>
@@ -150,8 +153,9 @@ export function DataTable<T extends Record<string, any>>({
               type="button"
               disabled={currentPage === totalPages}
               onClick={() => setCurrentPage(totalPages)}
-              className="p-1 rounded hover:bg-slate-200 disabled:opacity-40 disabled:hover:bg-transparent"
+              className="inline-flex size-6 items-center justify-center rounded hover:bg-slate-200 disabled:opacity-40 disabled:hover:bg-transparent"
               title="Last Page"
+              aria-label="Last Page"
             >
               <ChevronsRight className="w-3.5 h-3.5" />
             </button>

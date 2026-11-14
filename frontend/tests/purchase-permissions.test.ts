@@ -7,7 +7,15 @@ import { grantsFromList, permissionKey, type PermissionAction } from "@/lib/perm
 import { canApproveWithSummary, type ApprovalRightsSummary } from "@/lib/purchase-store/rules";
 import { assertApprovalPipeline, getApprovalRightsSummary, resolvePurchaseOrgScope } from "@/lib/purchase-store/governance";
 import { purchaseStore } from "@/lib/purchase-store/store";
-import { approveSupplierBill, approvePendingSupplierBills, createSupplierBill } from "@/lib/purchase-store/payables";
+import {
+  approveSupplierBill,
+  approvePendingSupplierBills,
+  createSupplierBill,
+  listPaymentHistory,
+  listSupplierInvoices,
+  listSupplierPayables,
+} from "@/lib/purchase-store/payables";
+import { goodsReceiptPdf, supplierPaymentPdf } from "@/lib/purchase-store/purchase-pdf";
 import { businessUnitInput, companyInput, officeInput } from "./helpers/fixtures";
 import { resetTestDb, startTestDb, stopTestDb } from "./helpers/test-db";
 
@@ -43,6 +51,7 @@ describe("purchase API RBAC rule mapping", () => {
     expect(effectiveAction("POST", "/api/v1/purchase/receipts/123/cancel")).toBe("delete");
     expect(effectiveAction("POST", "/api/v1/purchase/returns/123/cancel")).toBe("delete");
     expect(effectiveAction("POST", "/api/v1/purchase/supplier-payments/123/cancel")).toBe("delete");
+    expect(effectiveAction("POST", "/api/v1/purchase/supplier-bills/123/cancel")).toBe("delete");
 
     expect(effectiveAction("PUT", "/api/v1/purchase/requisitions/123/reverse")).toBe("edit");
     expect(effectiveAction("PUT", "/api/v1/purchase/requisitions/123/method")).toBe("edit");
@@ -410,5 +419,48 @@ describe("purchase approval pipeline & organizational scope governance", () => {
         scopedActorObj,
       ),
     ).rejects.toThrowError(AppError);
+  });
+
+  it("restricts supplier payables, payments, bills and their PDFs by User Org Access", async () => {
+    const scoped = { id: scopedUserId, name: "Dhaka Scoped", isMaster: false };
+    const ctgSupplier = await prisma.supplier.create({ data: { businessUnitId: bu2Id, code: "SUP-GOV-2", name: "Ctg Supplier", type: "LOCAL" } });
+
+    // Goods received in Chattogram, and a payment recorded against the Chattogram office.
+    const ctgGrn = await purchaseStore.createGoodsReceipt(
+      {
+        purchaseOrderId: "DIRECT",
+        receiptDate: "2026-11-12",
+        supplierId: ctgSupplier.id,
+        warehouseId: wh2Id,
+        items: [{ itemId: item2Id, itemCode: "ITM-GOV-2", itemName: "Ctg Raw Material", uom: "KG", currentReceivedQuantity: 4, rejectedDamagedQuantity: 0, unitPrice: 100 }],
+      },
+      "Ctg Staff",
+    );
+    const ctgPayment = await purchaseStore.createSupplierPayment(
+      { supplierId: ctgSupplier.id, officeId: office2Id, amount: 100, method: "CASH", paymentDate: "2026-11-12" },
+      "Ctg Staff",
+    );
+
+    // Unrestricted users still see everything.
+    expect((await listSupplierInvoices()).some((i) => i.receiptId === ctgGrn.id)).toBe(true);
+
+    expect((await listSupplierPayables(undefined, scoped)).some((r) => r.supplierId === ctgSupplier.id)).toBe(false);
+    expect((await listSupplierInvoices(scoped)).some((i) => i.receiptId === ctgGrn.id)).toBe(false);
+    expect((await listPaymentHistory(scoped)).some((p) => p.id === ctgPayment.id)).toBe(false);
+    expect((await purchaseStore.getSupplierPayments({}, scoped)).some((r) => r.supplierId === ctgSupplier.id)).toBe(false);
+
+    await expect(goodsReceiptPdf(ctgGrn.id, scoped)).rejects.toThrowError(AppError);
+    await expect(supplierPaymentPdf(ctgPayment.id, scoped)).rejects.toThrowError(AppError);
+    await expect(purchaseStore.cancelSupplierPayment(ctgPayment.id, "Dhaka Scoped", "not mine", scoped)).rejects.toThrowError(AppError);
+    await expect(
+      purchaseStore.createSupplierPayment({ supplierId: ctgSupplier.id, receiptId: ctgGrn.id, amount: 50, method: "CASH" }, "Dhaka Scoped", scoped),
+    ).rejects.toThrowError(AppError);
+    await expect(
+      createSupplierBill({ supplierId: ctgSupplier.id, receiptId: ctgGrn.id, number: "CTG-INV-1" }, "Dhaka Scoped", scoped),
+    ).rejects.toThrowError(AppError);
+
+    // A pending Chattogram bill is not approved by a Dhaka user's "approve all".
+    await createSupplierBill({ supplierId: ctgSupplier.id, number: "CTG-ADHOC-1", amount: 75 }, "Ctg Staff");
+    expect(await approvePendingSupplierBills("Dhaka Scoped", scoped)).toEqual({ approved: 0 });
   });
 });

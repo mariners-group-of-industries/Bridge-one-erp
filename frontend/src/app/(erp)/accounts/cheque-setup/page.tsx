@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { ModalDialog } from "@/components/purchase/ModalDialog";
 import { useAccountingStore } from "@/features/accounts/store/accounting-store";
+import { localToday } from "@/features/purchase/lib/client";
 import type { ChequeBookItem } from "@/features/accounts/types";
 
 type TabKey = "REGISTER" | "OUTGOING_REPORT" | "POST_DATE_REPORT" | "RECEIVE_REPORT";
@@ -53,8 +54,9 @@ export default function ChequeSetupPage() {
   const [selectedBank, setSelectedBank] = useState("Bank");
   const [selectedBookName, setSelectedBookName] = useState("Select Book Name");
   const [selectedSupplier, setSelectedSupplier] = useState("Select Supplier");
-  const [fromDate, setFromDate] = useState("2026-09-12");
-  const [toDate, setToDate] = useState("2026-10-13");
+  // This month until today.
+  const [fromDate, setFromDate] = useState(() => `${localToday().slice(0, 8)}01`);
+  const [toDate, setToDate] = useState(() => localToday());
   const [receiveFilter, setReceiveFilter] = useState<"ALL" | "DEPOSITED" | "NOT_DEPOSITED">("ALL");
   const [searchQuery, setSearchQuery] = useState("");
 
@@ -74,34 +76,36 @@ export default function ChequeSetupPage() {
   // Forms
   const [bookForm, setBookForm] = useState({
     bookName: "",
-    bankAccountId: "ba-9",
-    bankName: "DUTCH-BANGLA BANK LTD PLC",
-    branchName: "MOHAKHALI",
-    accountNumber: "1141100508628",
-    startChequeNumber: "CD 0161770",
-    endChequeNumber: "CD 0161819",
+    bankAccountId: "",
+    bankName: "",
+    branchName: "",
+    accountNumber: "",
+    startChequeNumber: "",
+    endChequeNumber: "",
     status: "Running" as const,
   });
 
   const [issueForm, setIssueForm] = useState({
-    bankAccountId: "ba-9",
-    bankName: "DUTCH-BANGLA BANK LTD PLC",
-    chequeBookId: "cb-1",
-    chequeNumber: "CD 0161715",
+    bankAccountId: "",
+    bankName: "",
+    chequeBookId: "",
+    chequeNumber: "",
     payeeName: "",
-    issueDate: new Date().toISOString().split("T")[0],
-    chequeDate: new Date().toISOString().split("T")[0],
+    issueDate: localToday(),
+    chequeDate: localToday(),
     amount: 0,
-    purpose: "Vendor payment",
-    referenceVoucher: "JV-CHQ-2026",
+    purpose: "",
+    referenceVoucher: "",
     status: "ISSUED" as const,
   });
+  /** The bank account chosen on a form, or the first one until the user picks. */
+  const bankOf = (id: string) => bankAccounts.find((b) => b.id === id) ?? bankAccounts[0];
 
   const [receiveForm, setReceiveForm] = useState({
     chequeNumber: "",
     customerName: "",
-    bankName: "DUTCH-BANGLA BANK LTD PLC",
-    branchName: "Dhaka Main",
+    bankName: "",
+    branchName: "",
     receivedDate: new Date().toISOString().split("T")[0],
     chequeDate: new Date().toISOString().split("T")[0],
     amount: 0,
@@ -234,7 +238,7 @@ export default function ChequeSetupPage() {
         ...bookForm,
         bankAccountId: bank.id,
         bankName: bank.bankName,
-        branchName: bank.branchName || "MOHAKHALI",
+        branchName: bank.branchName || "",
         accountNumber: bank.accountNumber,
       });
     }
@@ -255,7 +259,19 @@ export default function ChequeSetupPage() {
     const end = parseInt(bookForm.endChequeNumber.replace(/\D/g, "")) || 0;
     const totalLeaves = Math.max(1, end - start + 1);
 
-    const res = addChequeBook({ ...bookForm, totalLeaves });
+    const bank = bankOf(bookForm.bankAccountId);
+    if (!bank) {
+      setErrorMessage("Add a bank account under Finance & Banking first.");
+      return;
+    }
+    const res = addChequeBook({
+      ...bookForm,
+      bankAccountId: bank.id,
+      bankName: bank.bankName,
+      branchName: bank.branchName || "",
+      accountNumber: bank.accountNumber,
+      totalLeaves,
+    });
     if (!res.success) {
       setErrorMessage(res.message);
       return;
@@ -279,9 +295,19 @@ export default function ChequeSetupPage() {
       return;
     }
 
+    const bank = bankOf(issueForm.bankAccountId);
+    if (!bank) {
+      setErrorMessage("Add a bank account under Finance & Banking first.");
+      return;
+    }
+    // The running cheque book of that bank account.
+    const book = chequeBooks.find((b) => b.bankAccountId === bank.id && b.status !== "EXHAUSTED" && b.status !== "CANCELLED");
     const res = issueCheque({
       ...issueForm,
-      status: new Date(issueForm.chequeDate) > new Date() ? "POST_DATED" : "ISSUED",
+      bankAccountId: bank.id,
+      bankName: bank.bankName,
+      chequeBookId: book?.id ?? "",
+      status: issueForm.chequeDate > localToday() ? "POST_DATED" : "ISSUED",
     });
 
     if (!res.success) {
@@ -315,8 +341,8 @@ export default function ChequeSetupPage() {
       setReceiveForm({
         chequeNumber: "",
         customerName: "",
-        bankName: "DUTCH-BANGLA BANK LTD PLC",
-        branchName: "Dhaka Main",
+        bankName: "",
+        branchName: "",
         receivedDate: new Date().toISOString().split("T")[0],
         chequeDate: new Date().toISOString().split("T")[0],
         amount: 0,
@@ -1073,7 +1099,7 @@ export default function ChequeSetupPage() {
               <div>
                 <label className="block font-semibold text-slate-700 mb-1">Select Bank Account *</label>
                 <select
-                  value={bookForm.bankAccountId}
+                  value={bankOf(bookForm.bankAccountId)?.id ?? ""}
                   onChange={(e) => handleBankChangeInForm(e.target.value)}
                   className="w-full h-8 border border-slate-300 rounded px-2 text-xs bg-white text-slate-800"
                 >
@@ -1167,7 +1193,7 @@ export default function ChequeSetupPage() {
               <div>
                 <label className="block font-semibold text-slate-700 mb-1">Select Bank Account *</label>
                 <select
-                  value={issueForm.bankAccountId}
+                  value={bankOf(issueForm.bankAccountId)?.id ?? ""}
                   onChange={(e) => {
                     const b = bankAccounts.find((x) => x.id === e.target.value);
                     setIssueForm({

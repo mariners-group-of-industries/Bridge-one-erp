@@ -14,24 +14,28 @@ import {
 import { ModalDialog } from "@/components/purchase/ModalDialog";
 import { useAccountingStore } from "@/features/accounts/store/accounting-store";
 import type { CostCenterItem } from "@/features/accounts/types";
+import { localToday } from "@/features/purchase/lib/client";
 
 export default function CenterSetupPage() {
   const costCenters = useAccountingStore((s) => s.costCenters);
   const addCostCenter = useAccountingStore((s) => s.addCostCenter);
+  const updateCostCenter = useAccountingStore((s) => s.updateCostCenter);
+  const offices = useAccountingStore((s) => s.offices);
 
   // Filters from screenshot
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedOffice, setSelectedOffice] = useState("All");
   const [selectedCenterType, setSelectedCenterType] = useState("");
-  const [fromDate, setFromDate] = useState("2026-09-11");
-  const [toDate, setToDate] = useState("2026-10-12");
+  // No date limit until the user picks one.
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
 
   // Submitted filter state (triggered on "View" button click)
   const [appliedFilters, setAppliedFilters] = useState({
     office: "All",
     centerType: "",
-    fromDate: "2026-09-11",
-    toDate: "2026-10-12",
+    fromDate: "",
+    toDate: "",
   });
 
   // Pagination
@@ -40,21 +44,22 @@ export default function CenterSetupPage() {
 
   // Modal dialog states
   const [isCreateOpen, setIsCreateOpen] = useState(false);
-  const [, setEditTarget] = useState<CostCenterItem | null>(null);
-  const [, setViewTarget] = useState<CostCenterItem | null>(null);
+  // The center being edited in the form; null when creating a new one.
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [viewTarget, setViewTarget] = useState<CostCenterItem | null>(null);
 
   // Create Form State
   const [createForm, setCreateForm] = useState({
     code: "",
     name: "",
     type: "Cost Center" as CostCenterItem["type"] | string,
-    officeId: "office-mbbl",
-    officeName: "MBBL-HO",
+    officeId: "",
     description: "",
-    effectiveDate: "2026-09-11",
+    effectiveDate: localToday(),
     status: "ACTIVE" as const,
-    createdBy: "Md. Tanvir Hossain",
   });
+  // The first office until the user picks one.
+  const formOffice = offices.find((o) => o.id === createForm.officeId) ?? offices[0];
 
   const handleApplyFilter = () => {
     setAppliedFilters({
@@ -77,15 +82,16 @@ export default function CenterSetupPage() {
         c.officeName.toLowerCase().includes(q) ||
         (c.description && c.description.toLowerCase().includes(q));
 
-      const matchOffice =
-        appliedFilters.office === "All" ||
-        c.officeName.toLowerCase().includes(appliedFilters.office.toLowerCase());
+      const matchOffice = appliedFilters.office === "All" || c.officeId === appliedFilters.office;
+
+      const day = (c.createdAt || "").slice(0, 10);
+      const matchDate = (!appliedFilters.fromDate || day >= appliedFilters.fromDate) && (!appliedFilters.toDate || day <= appliedFilters.toDate);
 
       const matchType =
         !appliedFilters.centerType ||
         c.type.toLowerCase() === appliedFilters.centerType.toLowerCase();
 
-      return matchSearch && matchOffice && matchType;
+      return matchSearch && matchOffice && matchType && matchDate;
     });
   }, [costCenters, searchQuery, appliedFilters]);
 
@@ -99,31 +105,49 @@ export default function CenterSetupPage() {
 
   const handleSaveCenter = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!createForm.code.trim() || !createForm.name.trim()) return;
+    if (!createForm.code.trim() || !createForm.name.trim() || !formOffice) return;
 
-    addCostCenter({
+    const values = {
       code: createForm.code.trim().toUpperCase(),
       name: createForm.name.trim(),
-      type: createForm.type as any,
-      officeId: createForm.officeId,
-      officeName: createForm.officeName,
+      type: createForm.type as CostCenterItem["type"],
+      officeId: formOffice.id,
+      officeName: formOffice.name,
       description: createForm.description,
       effectiveDate: createForm.effectiveDate,
-      status: "ACTIVE",
-    });
+    };
+    if (editingId) updateCostCenter(editingId, { ...values, status: createForm.status });
+    else addCostCenter({ ...values, status: "ACTIVE" });
 
     setIsCreateOpen(false);
+    setEditingId(null);
     setCreateForm({
       code: "",
       name: "",
       type: "Cost Center",
-      officeId: "office-mbbl",
-      officeName: "MBBL-HO",
+      officeId: "",
       description: "",
-      effectiveDate: "2026-09-11",
+      effectiveDate: localToday(),
       status: "ACTIVE",
-      createdBy: "Md. Tanvir Hossain",
     });
+  };
+
+  const openEdit = (c: CostCenterItem) => {
+    setEditingId(c.id);
+    setCreateForm({
+      code: c.code,
+      name: c.name,
+      type: c.type,
+      officeId: c.officeId,
+      description: c.description ?? "",
+      effectiveDate: (c.effectiveDate || "").slice(0, 10) || localToday(),
+      status: c.status as "ACTIVE",
+    });
+    setIsCreateOpen(true);
+  };
+  const closeForm = () => {
+    setIsCreateOpen(false);
+    setEditingId(null);
   };
 
   return (
@@ -184,10 +208,11 @@ export default function CenterSetupPage() {
                 className="w-full h-8 px-2.5 pr-7 border border-slate-300 rounded text-xs bg-white text-slate-800 appearance-none focus:outline-none focus:ring-1 focus:ring-[#2563eb]"
               >
                 <option value="All">All</option>
-                <option value="MBBL-HO">MBBL-HO</option>
-                <option value="MG Sirajganj Factory">MG Sirajganj Factory</option>
-                <option value="Dhaka Corporate HQ">Dhaka Corporate HQ</option>
-                <option value="Chattogram Port Depot">Chattogram Port Depot</option>
+                {offices.map((o) => (
+                  <option key={o.id} value={o.id}>
+                    {o.name}
+                  </option>
+                ))}
               </select>
               <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none" />
             </div>
@@ -295,7 +320,7 @@ export default function CenterSetupPage() {
                           <div className="flex items-center justify-center gap-1.5 text-slate-500">
                             <button
                               type="button"
-                              onClick={() => setEditTarget(c)}
+                              onClick={() => openEdit(c)}
                               className="p-1 hover:text-[#2563eb] rounded transition"
                               title="Edit Center"
                             >
@@ -312,7 +337,7 @@ export default function CenterSetupPage() {
                           </div>
                         </td>
                         <td className="px-3.5 py-2.5 border-r border-slate-200/80 text-slate-700 whitespace-nowrap">
-                          {c.effectiveDate || "11/09/2026"}
+                          {(c.createdAt || c.effectiveDate || "").slice(0, 10) || "—"}
                         </td>
                         <td className="px-3.5 py-2.5 border-r border-slate-200/80 font-medium text-slate-800">
                           {c.officeName}
@@ -329,9 +354,8 @@ export default function CenterSetupPage() {
                         <td className="px-3.5 py-2.5 border-r border-slate-200/80 text-slate-500 text-[11px]">
                           {c.description || "—"}
                         </td>
-                        <td className="px-3.5 py-2.5 text-slate-600 text-[11px]">
-                          Md. Tanvir Hossain
-                        </td>
+                        {/* Not recorded for cost centers yet. */}
+                        <td className="px-3.5 py-2.5 text-slate-400 text-[11px]">—</td>
                       </tr>
                     );
                   })
@@ -427,8 +451,8 @@ export default function CenterSetupPage() {
       {/* Create Center Setup Modal */}
       <ModalDialog
         isOpen={isCreateOpen}
-        onClose={() => setIsCreateOpen(false)}
-        title="New Center Setup"
+        onClose={closeForm}
+        title={editingId ? "Edit Center Setup" : "New Center Setup"}
         subtitle="Configure cost center or analytical dimension"
         maxWidth="lg"
       >
@@ -439,20 +463,16 @@ export default function CenterSetupPage() {
                 Office Location *
               </label>
               <select
-                value={createForm.officeName}
-                onChange={(e) =>
-                  setCreateForm({
-                    ...createForm,
-                    officeName: e.target.value,
-                    officeId: e.target.value === "MBBL-HO" ? "office-mbbl" : "office-main",
-                  })
-                }
+                value={formOffice?.id ?? ""}
+                onChange={(e) => setCreateForm({ ...createForm, officeId: e.target.value })}
                 className="w-full h-8 px-2.5 border border-slate-300 rounded text-xs focus:ring-1 focus:ring-[#2563eb]"
               >
-                <option value="MBBL-HO">MBBL-HO</option>
-                <option value="MG Sirajganj Factory">MG Sirajganj Factory</option>
-                <option value="Dhaka Corporate HQ">Dhaka Corporate HQ</option>
-                <option value="Chattogram Port Depot">Chattogram Port Depot</option>
+                {offices.length === 0 && <option value="">No office available</option>}
+                {offices.map((o) => (
+                  <option key={o.id} value={o.id}>
+                    {o.name}
+                  </option>
+                ))}
               </select>
             </div>
 
@@ -529,10 +549,25 @@ export default function CenterSetupPage() {
             />
           </div>
 
+          {editingId && (
+            <div>
+              <label htmlFor="center-status" className="block text-[11px] font-semibold text-slate-700 mb-1">Status</label>
+              <select
+                id="center-status"
+                value={createForm.status}
+                onChange={(e) => setCreateForm({ ...createForm, status: e.target.value as "ACTIVE" })}
+                className="w-full h-8 px-2.5 border border-slate-300 rounded text-xs focus:ring-1 focus:ring-[#2563eb]"
+              >
+                <option value="ACTIVE">Active</option>
+                <option value="INACTIVE">Inactive</option>
+              </select>
+            </div>
+          )}
+
           <div className="flex justify-end gap-2 pt-3 border-t border-slate-200">
             <button
               type="button"
-              onClick={() => setIsCreateOpen(false)}
+              onClick={closeForm}
               className="px-3.5 py-1.5 text-xs text-slate-600 hover:text-slate-800"
             >
               Cancel
@@ -541,10 +576,42 @@ export default function CenterSetupPage() {
               type="submit"
               className="px-4 py-1.5 bg-[#2563eb] hover:bg-blue-700 text-white font-semibold text-xs rounded transition shadow-2xs"
             >
-              Save Center Setup
+              {editingId ? "Update Center Setup" : "Save Center Setup"}
             </button>
           </div>
         </form>
+      </ModalDialog>
+
+      {/* View Center Setup */}
+      <ModalDialog
+        isOpen={Boolean(viewTarget)}
+        onClose={() => setViewTarget(null)}
+        title="Center Setup Details"
+        subtitle={viewTarget ? `${viewTarget.code} · ${viewTarget.name}` : ""}
+        maxWidth="md"
+      >
+        {viewTarget && (
+          <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-xs">
+            {[
+              ["Center Code", viewTarget.code],
+              ["Center Name", viewTarget.name],
+              ["Type", viewTarget.type],
+              ["Office", viewTarget.officeName || "—"],
+              ["Effective Date", (viewTarget.effectiveDate || "").slice(0, 10) || "—"],
+              ["Status", viewTarget.status],
+              ["Created", (viewTarget.createdAt || "").slice(0, 10) || "—"],
+            ].map(([label, value]) => (
+              <div key={label}>
+                <dt className="text-[11px] text-slate-500">{label}</dt>
+                <dd className="font-medium text-slate-800">{value}</dd>
+              </div>
+            ))}
+            <div className="col-span-2">
+              <dt className="text-[11px] text-slate-500">Description</dt>
+              <dd className="font-medium text-slate-800">{viewTarget.description || "—"}</dd>
+            </div>
+          </dl>
+        )}
       </ModalDialog>
     </div>
   );

@@ -12,11 +12,19 @@ import {
 } from "lucide-react";
 import { ModalDialog } from "@/components/purchase/ModalDialog";
 import { useAccountingStore } from "@/features/accounts/store/accounting-store";
+import { localDaysFromToday, localToday } from "@/features/purchase/lib/client";
 import type { FundTransferRecord } from "@/features/accounts/types";
 
 export default function FundTransferPage() {
   const transfers = useAccountingStore((s) => s.transfers);
   const dbOffices = useAccountingStore((s) => s.offices);
+  const accounts = useAccountingStore((s) => s.accounts);
+  const employees = useAccountingStore((s) => s.employees);
+  // Cash and bank posting accounts money can move between.
+  const cashBankAccounts = useMemo(
+    () => accounts.filter((a) => a.accountType === "ASSET" && !a.isGroup && a.status === "ACTIVE" && /cash|bank/i.test(`${a.name} ${a.accountSubtype}`)),
+    [accounts],
+  );
   const createTransfer = useAccountingStore((s) => s.createTransfer);
   const receiveTransfer = useAccountingStore((s) => s.receiveTransfer);
 
@@ -29,8 +37,9 @@ export default function FundTransferPage() {
   const [search, setSearch] = useState("");
   const [reqOfficeFilter, setReqOfficeFilter] = useState("ALL");
   const [sendingOfficeFilter, setSendingOfficeFilter] = useState("ALL");
-  const [fromDate, setFromDate] = useState("2026-10-06");
-  const [toDate, setToDate] = useState("2026-10-12");
+  // This month until today.
+  const [fromDate, setFromDate] = useState(() => `${localToday().slice(0, 8)}01`);
+  const [toDate, setToDate] = useState(() => localToday());
 
   // Pagination
   const [rowsPerPage, setRowsPerPage] = useState(50);
@@ -43,22 +52,52 @@ export default function FundTransferPage() {
   const [receiveTarget, setReceiveTarget] = useState<FundTransferRecord | null>(null);
 
   // Create Form State
-  const [form, setForm] = useState(() => ({
-    requestDate: new Date().toISOString().split("T")[0],
-    expectedDate: new Date(Date.now() + 86400000).toISOString().split("T")[0],
-    fromOfficeId: "office-mgv",
-    fromOfficeName: "MGV-PLC",
-    toOfficeId: "office-sirajganj",
-    toOfficeName: "MG Sirajganj Factory",
-    fromAccountId: "acc-10102",
-    fromAccountName: "Cash At Bank",
-    toAccountId: "acc-1460",
-    toAccountName: "Cash Account",
+  const blankForm = () => ({
+    requestDate: localToday(),
+    expectedDate: localDaysFromToday(1),
+    fromOfficeId: "",
+    fromOfficeName: "",
+    toOfficeId: "",
+    toOfficeName: "",
+    fromAccountId: "",
+    fromAccountName: "",
+    toAccountId: "",
+    toAccountName: "",
     requestedAmount: 0,
-    responsiblePerson: "Md. Roni Mridha",
-    purpose: "Operational liquidity and factory support",
+    responsiblePerson: "",
+    purpose: "",
     referenceNumber: "",
-  }));
+    receiveType: "Cash" as "Cash" | "Bank",
+  });
+  const [form, setForm] = useState(blankForm);
+  // Cash heads and bank heads, for the request's Req./Receive Type.
+  const isBankHead = (a: { code: string; name: string; accountSubtype: string }) => /bank/i.test(`${a.name} ${a.accountSubtype}`) || a.code.startsWith("10102");
+  const receiveHeads = cashBankAccounts.filter((a) => (form.receiveType === "Bank" ? isBankHead(a) : !isBankHead(a)));
+  const [formError, setFormError] = useState("");
+
+  /** The form with real office ids (picked by name) and account names, or an error. */
+  const resolveForm = (needAccounts: boolean) => {
+    const from = dbOffices.find((o) => o.name === form.fromOfficeName) ?? dbOffices[0];
+    const to = dbOffices.find((o) => o.name === form.toOfficeName) ?? dbOffices[0];
+    if (!from || !to) return { error: "No office is available." };
+    if (from.id === to.id) return { error: "The source and destination offices must be different." };
+    const fromAcc = cashBankAccounts.find((a) => a.id === form.fromAccountId);
+    const toAcc = cashBankAccounts.find((a) => a.id === form.toAccountId);
+    if (needAccounts && (!fromAcc || !toAcc)) return { error: "Select the source and destination cash/bank heads." };
+    return {
+      data: {
+        ...form,
+        fromOfficeId: from.id,
+        fromOfficeName: from.name,
+        toOfficeId: to.id,
+        toOfficeName: to.name,
+        fromAccountId: fromAcc?.id ?? "",
+        fromAccountName: fromAcc?.name ?? "",
+        toAccountId: toAcc?.id ?? "",
+        toAccountName: toAcc?.name ?? "",
+      },
+    };
+  };
 
   const officeList = useMemo(
     () => [
@@ -96,6 +135,9 @@ export default function FundTransferPage() {
       }
 
       // Office filters
+      const day = (t.requestDate ?? "").slice(0, 10);
+      if (fromDate && day < fromDate) return false;
+      if (toDate && day > toDate) return false;
       if (reqOfficeFilter !== "ALL" && t.toOfficeName !== reqOfficeFilter) return false;
       if (sendingOfficeFilter !== "ALL" && t.fromOfficeName !== sendingOfficeFilter) return false;
 
@@ -114,7 +156,7 @@ export default function FundTransferPage() {
 
       return true;
     });
-  }, [transfers, activeTab, reqOfficeFilter, sendingOfficeFilter, search]);
+  }, [transfers, activeTab, reqOfficeFilter, sendingOfficeFilter, search, fromDate, toDate]);
 
   // Paginated Slicing
   const totalRows = filteredTransfers.length;
@@ -126,28 +168,45 @@ export default function FundTransferPage() {
 
   const handleCreateRequestSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (form.requestedAmount <= 0) return;
-    const count = transfers.length + 1;
-    const outCode = `FTO-MG260500${(10 + count).toString()}`;
+    if (form.requestedAmount <= 0) return setFormError("Enter the request amount.");
+    // A request names only who asks for the money and where it goes; the sending office is chosen when it is sent out.
+    const office = dbOffices.find((o) => o.name === form.toOfficeName) ?? dbOffices[0];
+    const head = receiveHeads.find((a) => a.id === form.toAccountId);
+    if (!office) return setFormError("No office is available.");
+    if (!head) return setFormError(`Select the ${form.receiveType.toLowerCase()} the money is received in.`);
+    if (form.expectedDate && form.expectedDate < form.requestDate) return setFormError("The expected date cannot be before the request date.");
     createTransfer({
       ...form,
-      status: "Approved",
-      outCode,
+      fromOfficeId: "",
+      fromOfficeName: "",
+      fromAccountId: "",
+      fromAccountName: "",
+      toOfficeId: office.id,
+      toOfficeName: office.name,
+      toAccountId: head.id,
+      toAccountName: head.name,
+      status: "SUBMITTED",
     });
     setIsRequestModalOpen(false);
+    setForm(blankForm());
+    setFormError("");
   };
 
   const handleDirectTransferSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (form.requestedAmount <= 0) return;
+    const resolved = resolveForm(true);
+    if (!resolved.data) return setFormError(resolved.error);
     const count = transfers.length + 1;
     const outCode = `FTO-MG260500${(10 + count).toString()}`;
     createTransfer({
-      ...form,
+      ...resolved.data,
       status: "Completed",
       outCode,
     });
     setIsDirectModalOpen(false);
+    setForm(blankForm());
+    setFormError("");
   };
 
   const handleConfirmReceive = () => {
@@ -763,14 +822,19 @@ export default function FundTransferPage() {
         maxWidth="lg"
       >
         <form onSubmit={handleCreateRequestSubmit} className="space-y-3.5 text-xs">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {formError && (
+            <p role="alert" className="rounded border border-rose-200 bg-rose-50 px-3 py-2 text-rose-700">
+              {formError}
+            </p>
+          )}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div>
-              <label className="block font-medium text-slate-700 mb-1">From / Sending Office *</label>
-              <select
-                value={form.fromOfficeName}
-                onChange={(e) => setForm({ ...form, fromOfficeName: e.target.value })}
-                className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white focus:ring-1 focus:ring-blue-500"
-              >
+              <label htmlFor="ft-request-date" className="block font-medium text-slate-700 mb-1">Request Date *</label>
+              <input id="ft-request-date" type="date" required value={form.requestDate} onChange={(e) => setForm({ ...form, requestDate: e.target.value })} className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white focus:ring-1 focus:ring-blue-500" />
+            </div>
+            <div>
+              <label htmlFor="ft-office" className="block font-medium text-slate-700 mb-1">Req./Receiving Office *</label>
+              <select id="ft-office" value={form.toOfficeName} onChange={(e) => setForm({ ...form, toOfficeName: e.target.value })} className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white focus:ring-1 focus:ring-blue-500">
                 {officeList.filter((o) => o.id !== "ALL").map((o) => (
                   <option key={o.id} value={o.name}>
                     {o.name}
@@ -779,73 +843,61 @@ export default function FundTransferPage() {
               </select>
             </div>
             <div>
-              <label className="block font-medium text-slate-700 mb-1">Req. / Receiving Office *</label>
+              <label htmlFor="ft-type" className="block font-medium text-slate-700 mb-1">Req./Receive Type *</label>
               <select
-                value={form.toOfficeName}
-                onChange={(e) => setForm({ ...form, toOfficeName: e.target.value })}
+                id="ft-type"
+                value={form.receiveType}
+                onChange={(e) => setForm({ ...form, receiveType: e.target.value as "Cash" | "Bank", toAccountId: "" })}
                 className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white focus:ring-1 focus:ring-blue-500"
               >
-                {officeList.filter((o) => o.id !== "ALL").map((o) => (
-                  <option key={o.id} value={o.name}>
-                    {o.name}
+                <option value="Cash">Cash</option>
+                <option value="Bank">Bank</option>
+              </select>
+            </div>
+            <div>
+              <label htmlFor="ft-head" className="block font-medium text-slate-700 mb-1">Select Cash/Bank *</label>
+              <select id="ft-head" required value={form.toAccountId} onChange={(e) => setForm({ ...form, toAccountId: e.target.value })} className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white focus:ring-1 focus:ring-blue-500">
+                <option value="">{form.receiveType === "Bank" ? "Select bank" : "Select cash"}</option>
+                {receiveHeads.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.code} - {a.name}
                   </option>
                 ))}
               </select>
             </div>
             <div>
-              <label className="block font-medium text-slate-700 mb-1">Request Date *</label>
-              <input
-                type="date"
-                required
-                value={form.requestDate}
-                onChange={(e) => setForm({ ...form, requestDate: e.target.value })}
-                className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white focus:ring-1 focus:ring-blue-500"
-              />
+              <label htmlFor="ft-person" className="block font-medium text-slate-700 mb-1">Responsible Person</label>
+              <select id="ft-person" value={form.responsiblePerson} onChange={(e) => setForm({ ...form, responsiblePerson: e.target.value })} className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white focus:ring-1 focus:ring-blue-500">
+                <option value="">Responsible Person</option>
+                {employees.map((emp) => (
+                  <option key={emp.id} value={emp.name}>
+                    {emp.name} ({emp.employeeCode})
+                  </option>
+                ))}
+              </select>
             </div>
             <div>
-              <label className="block font-medium text-slate-700 mb-1">Expected Date *</label>
-              <input
-                type="date"
-                required
-                value={form.expectedDate}
-                onChange={(e) => setForm({ ...form, expectedDate: e.target.value })}
-                className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white focus:ring-1 focus:ring-blue-500"
-              />
+              <label htmlFor="ft-expected" className="block font-medium text-slate-700 mb-1">Expected Date *</label>
+              <input id="ft-expected" type="date" required value={form.expectedDate} onChange={(e) => setForm({ ...form, expectedDate: e.target.value })} className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white focus:ring-1 focus:ring-blue-500" />
             </div>
             <div>
-              <label className="block font-medium text-slate-700 mb-1">Transfer Amount (৳) *</label>
+              <label htmlFor="ft-amount" className="block font-medium text-slate-700 mb-1">Request Amount (৳) *</label>
               <input
+                id="ft-amount"
                 type="number"
                 required
                 min="1"
                 step="0.01"
-                placeholder="0.00"
+                placeholder="Request Amount"
                 value={form.requestedAmount || ""}
                 onChange={(e) => setForm({ ...form, requestedAmount: parseFloat(e.target.value) || 0 })}
-                className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white font-mono focus:ring-1 focus:ring-blue-500"
+                className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white focus:ring-1 focus:ring-blue-500 font-mono text-right"
               />
             </div>
-            <div>
-              <label className="block font-medium text-slate-700 mb-1">Responsible Person *</label>
-              <input
-                type="text"
-                required
-                value={form.responsiblePerson}
-                onChange={(e) => setForm({ ...form, responsiblePerson: e.target.value })}
-                className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white focus:ring-1 focus:ring-blue-500"
-              />
+            <div className="sm:col-span-2">
+              <label htmlFor="ft-remarks" className="block font-medium text-slate-700 mb-1">Remarks</label>
+              <input id="ft-remarks" type="text" placeholder="Remarks" value={form.purpose} onChange={(e) => setForm({ ...form, purpose: e.target.value })} className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white focus:ring-1 focus:ring-blue-500" />
             </div>
-          </div>
-          <div>
-            <label className="block font-medium text-slate-700 mb-1">Purpose / Justification *</label>
-            <textarea
-              required
-              rows={2}
-              placeholder="State purpose of this inter-office transfer..."
-              value={form.purpose}
-              onChange={(e) => setForm({ ...form, purpose: e.target.value })}
-              className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white focus:ring-1 focus:ring-blue-500"
-            />
           </div>
           <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
             <button
@@ -875,6 +927,11 @@ export default function FundTransferPage() {
         maxWidth="lg"
       >
         <form onSubmit={handleDirectTransferSubmit} className="space-y-3.5 text-xs">
+          {formError && (
+            <p role="alert" className="rounded border border-rose-200 bg-rose-50 px-3 py-2 text-rose-700">
+              {formError}
+            </p>
+          )}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block font-medium text-slate-700 mb-1">Source Office *</label>
@@ -909,10 +966,15 @@ export default function FundTransferPage() {
               <select
                 value={form.fromAccountId}
                 onChange={(e) => setForm({ ...form, fromAccountId: e.target.value })}
+                required
                 className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white focus:ring-1 focus:ring-blue-500"
               >
-                <option value="acc-10102">10102 - Cash At Bank</option>
-                <option value="acc-1460">1460 - Cash Account</option>
+                <option value="">Select source head</option>
+                {cashBankAccounts.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.code} - {a.name}
+                  </option>
+                ))}
               </select>
             </div>
             <div>
@@ -920,10 +982,15 @@ export default function FundTransferPage() {
               <select
                 value={form.toAccountId}
                 onChange={(e) => setForm({ ...form, toAccountId: e.target.value })}
+                required
                 className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white focus:ring-1 focus:ring-blue-500"
               >
-                <option value="acc-1460">1460 - Cash Account</option>
-                <option value="acc-10102">10102 - Cash At Bank</option>
+                <option value="">Select destination head</option>
+                {cashBankAccounts.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.code} - {a.name}
+                  </option>
+                ))}
               </select>
             </div>
             <div>
