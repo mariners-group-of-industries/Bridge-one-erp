@@ -1,6 +1,5 @@
 "use client";
 
-import Image from "next/image";
 import React, { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Spinner } from "@/components/ui/spinner";
@@ -13,13 +12,35 @@ import {
   History,
   Pencil,
   Printer,
-  RotateCcw,
   PlusCircle,
   Search,
+  Check,
+  Ban,
 } from "lucide-react";
+import { PURCHASE_QUERY_KEYS, downloadCsv, localToday } from "@/features/purchase/lib/client";
+import { usePurchasePermissions } from "@/features/purchase/lib/usePurchasePermissions";
+
+type ReqStatus = PurchaseRequisition["status"];
+const AWAITING_APPROVAL: ReqStatus[] = ["DRAFT", "SUBMITTED", "PENDING_APPROVAL"];
+/** What each requisition status allows (mirrors requisitionTransition / requisitionEditable on the server). */
+const can = {
+  approve: (s: ReqStatus) => AWAITING_APPROVAL.includes(s),
+  edit: (s: ReqStatus) => AWAITING_APPROVAL.includes(s) || s === "REJECTED",
+  cancel: (s: ReqStatus) => AWAITING_APPROVAL.includes(s) || s === "APPROVED" || s === "REJECTED",
+  reverse: (s: ReqStatus) => s === "APPROVED" || s === "REJECTED" || s === "CANCELLED",
+};
+const actionBtn =
+  "inline-flex size-5.5 items-center justify-center rounded transition-colors disabled:opacity-30 disabled:pointer-events-none hover:bg-slate-100 text-slate-600 hover:text-slate-900";
 import { DataTable } from "@/components/purchase/DataTable";
 import { StatusBadge } from "@/components/purchase/StatusBadge";
 import { ModalDialog } from "@/components/purchase/ModalDialog";
+import {
+  PrintablePurchaseDoc,
+  PurchasePrintToolbar,
+  fmtPrintDate,
+  fmtPrintNum,
+  type PrintHeaderContext,
+} from "@/components/purchase/PrintablePurchaseDoc";
 import { toast } from "@/components/purchase/Toast";
 import { fetchApi } from "@/lib/api";
 import { formatCurrency } from "@/lib/utils";
@@ -34,6 +55,7 @@ import {
 export default function PurchaseRequisitionsPage() {
   const router = useRouter();
   const queryClient = useQueryClient();
+  const perms = usePurchasePermissions();
 
   // Tab state (supporting direct URL / tab param)
   const [activeTab, setActiveTab] = useState<"PURCHASE_REQUISITION" | "REQUISITION_SUMMARY">(() => {
@@ -66,6 +88,9 @@ export default function PurchaseRequisitionsPage() {
   const [selectedSection, setSelectedSection] = useState("ALL");
   const [selectedStatus, setSelectedStatus] = useState("ALL");
   const [selectedBuyerOffice, setSelectedBuyerOffice] = useState("ALL");
+  const [summaryCategory, setSummaryCategory] = useState("ALL");
+  const [summarySubCategory, setSummarySubCategory] = useState("ALL");
+  const [isRemainingDetails, setIsRemainingDetails] = useState(false);
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
 
@@ -87,14 +112,14 @@ export default function PurchaseRequisitionsPage() {
   } | null>(null);
   const [approvalComment, setApprovalComment] = useState("");
 
-  // Edit Requisition form state
-  const [editOfficeId, setEditOfficeId] = useState("off-01");
-  const [editWarehouseId, setEditWarehouseId] = useState("wh-01");
+  // Edit Requisition form state (filled from the row when the dialog opens)
+  const [editOfficeId, setEditOfficeId] = useState("");
+  const [editWarehouseId, setEditWarehouseId] = useState("");
   const [editRequestType, setEditRequestType] = useState<"LOCAL" | "IMPORT" | "INTER_BRANCH" | "URGENT">("LOCAL");
-  const [editDepartment, setEditDepartment] = useState("Operations");
-  const [editRequester, setEditRequester] = useState("Mahfuz Rahman");
+  const [editDepartment, setEditDepartment] = useState("");
+  const [editRequester, setEditRequester] = useState("");
   const [editPurchaseMethod, setEditPurchaseMethod] = useState<"DIRECT" | "QUOTATION" | "TENDER" | "CONTRACT">("DIRECT");
-  const [editDeliveryDate, setEditDeliveryDate] = useState("2026-10-25");
+  const [editDeliveryDate, setEditDeliveryDate] = useState(localToday);
   const [editJustification, setEditJustification] = useState("");
   const [editRemarks, setEditRemarks] = useState("");
   const [editLineItems, setEditLineItems] = useState<any[]>([]);
@@ -111,13 +136,19 @@ export default function PurchaseRequisitionsPage() {
       return fetchApi(`/master/warehouses${p}`);
     },
   });
+  // Every warehouse, for the edit / duplicate dialogs (filtered by the office chosen there).
+  const { data: allWarehouses } = useQuery<Warehouse[]>({
+    queryKey: ["warehouses", "ALL"],
+    queryFn: () => fetchApi("/master/warehouses"),
+  });
   const { data: itemsCatalog } = useQuery<Item[]>({
     queryKey: ["items"],
     queryFn: () => fetchApi("/master/items"),
   });
+  const { data: context } = useQuery<PrintHeaderContext>({ queryKey: ["context"], queryFn: () => fetchApi("/master/context") });
 
   // Requisitions query with full ERP filters
-  const { data: requisitions, isLoading, refetch } = useQuery<PurchaseRequisition[]>({
+  const { data: requisitions, isLoading, isFetching, refetch } = useQuery<PurchaseRequisition[]>({
     queryKey: [
       "requisitions",
       selectedOffice,
@@ -125,7 +156,6 @@ export default function PurchaseRequisitionsPage() {
       selectedStatus,
       selectedRequestType,
       selectedSection,
-      selectedBuyerOffice,
       search,
       fromDate,
       toDate,
@@ -137,7 +167,6 @@ export default function PurchaseRequisitionsPage() {
       if (selectedStatus !== "ALL") params.append("status", selectedStatus);
       if (selectedRequestType !== "ALL") params.append("requestType", selectedRequestType);
       if (selectedSection !== "ALL") params.append("section", selectedSection);
-      if (selectedBuyerOffice !== "ALL") params.append("buyerOfficeId", selectedBuyerOffice);
       if (search) params.append("search", search);
       if (fromDate) params.append("fromDate", fromDate);
       if (toDate) params.append("toDate", toDate);
@@ -145,28 +174,23 @@ export default function PurchaseRequisitionsPage() {
     },
   });
 
-  // Create Requisition form state
-  const [formOfficeId, setFormOfficeId] = useState("off-01");
-  const [formWarehouseId, setFormWarehouseId] = useState("wh-01");
-  const [formRequestType, setFormRequestType] = useState<"LOCAL" | "IMPORT" | "INTER_BRANCH" | "URGENT">("LOCAL");
-  const [formDepartment, setFormDepartment] = useState("Operations");
-  const [formRequester, setFormRequester] = useState("Mahfuz Rahman");
+  // "New PR from this one" form state (filled from the source requisition when the dialog opens)
+  const [formOfficeId, setFormOfficeId] = useState("");
+  const [formWarehouseId, setFormWarehouseId] = useState("");
+  const [formRequestType] = useState<"LOCAL" | "IMPORT" | "INTER_BRANCH" | "URGENT">("LOCAL");
+  const [formDepartment, setFormDepartment] = useState("");
+  const [formRequester, setFormRequester] = useState("");
   const [formPurchaseMethod, setFormPurchaseMethod] = useState<"DIRECT" | "QUOTATION" | "TENDER" | "CONTRACT">("DIRECT");
-  const [formDeliveryDate, setFormDeliveryDate] = useState("2026-10-25");
-  const [formJustification, setFormJustification] = useState("Quarterly buffer replenishment for production.");
-  const [formRemarks, setFormRemarks] = useState("");
-  const [formLineItems, setFormLineItems] = useState([
-    {
-      itemId: "itm-01",
-      itemCode: "PPE-HLM-01",
-      itemName: "Industrial Safety Helmet ANSI Z89.1",
-      uom: "Pcs",
-      quantity: 50,
-      estimatedUnitPrice: 450,
-      lineTotal: 22500,
-      remarks: "",
-    },
-  ]);
+  const [formDeliveryDate, setFormDeliveryDate] = useState(localToday);
+  const [formJustification, setFormJustification] = useState("");
+  const [formRemarks] = useState("");
+  const [formLineItems, setFormLineItems] = useState<
+    { itemId: string; itemCode: string; itemName: string; uom: string; quantity: number; estimatedUnitPrice: number; lineTotal: number; remarks: string }[]
+  >([]);
+
+  const invalidateAll = () => {
+    for (const key of PURCHASE_QUERY_KEYS) queryClient.invalidateQueries({ queryKey: [key] });
+  };
 
   // Mutations
   const createMutation = useMutation({
@@ -176,8 +200,7 @@ export default function PurchaseRequisitionsPage() {
         body: JSON.stringify(payload),
       }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["requisitions"] });
-      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+      invalidateAll();
       setIsCreateOpen(false);
       toast.success("Purchase requisition created and submitted successfully!", {
         title: "Requisition Created",
@@ -197,8 +220,7 @@ export default function PurchaseRequisitionsPage() {
         body: JSON.stringify({ comments }),
       }),
     onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: ["requisitions"] });
-      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+      invalidateAll();
       setApprovalModal(null);
       setApprovalComment("");
       if (viewReq) setViewReq(null);
@@ -221,8 +243,7 @@ export default function PurchaseRequisitionsPage() {
         body: JSON.stringify(data),
       }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["requisitions"] });
-      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+      invalidateAll();
       setEditReq(null);
       toast.success("Requisition updated successfully!", {
         title: "Changes Saved",
@@ -242,8 +263,7 @@ export default function PurchaseRequisitionsPage() {
         body: JSON.stringify({ comments }),
       }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["requisitions"] });
-      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+      invalidateAll();
       setReverseModal(null);
       setReverseComment("");
       toast.success("Requisition status successfully reversed to Submitted for review!", {
@@ -264,8 +284,7 @@ export default function PurchaseRequisitionsPage() {
         body: JSON.stringify({ comments }),
       }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["requisitions"] });
-      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+      invalidateAll();
       setCloseModal(null);
       setCloseComment("");
       toast.success("Requisition closed/cancelled successfully.", {
@@ -294,7 +313,7 @@ export default function PurchaseRequisitionsPage() {
     setEditDepartment(req.department);
     setEditRequester(req.requesterName);
     setEditPurchaseMethod((req.purchaseMethod as any) || "DIRECT");
-    setEditDeliveryDate(req.requiredDeliveryDate || "2026-10-25");
+    setEditDeliveryDate(req.requiredDeliveryDate || localToday());
     setEditJustification(req.businessJustification || "");
     setEditRemarks(req.remarks || "");
     setEditLineItems(
@@ -383,29 +402,7 @@ export default function PurchaseRequisitionsPage() {
 
   // Duplicate existing Requisition to create a New PR quickly
   const handleDuplicateAsNew = (req: PurchaseRequisition) => {
-    setFormOfficeId(req.officeId);
-    setFormWarehouseId(req.warehouseId);
-    setFormRequestType((req.requestType as any) || "LOCAL");
-    setFormDepartment(req.department);
-    setFormRequester(req.requesterName);
-    setFormPurchaseMethod((req.purchaseMethod as any) || "DIRECT");
-    setFormDeliveryDate(req.requiredDeliveryDate || "2026-10-25");
-    setFormJustification(`Re-order based on previous requisition ${req.requisitionNumber}`);
-    setFormRemarks(`Cloned from ${req.requisitionNumber}`);
-    setFormLineItems(
-      req.items.map((it) => ({
-        itemId: it.itemId,
-        itemCode: it.itemCode,
-        itemName: it.itemName,
-        uom: it.uom,
-        quantity: it.quantity,
-        estimatedUnitPrice: it.estimatedUnitPrice,
-        lineTotal: it.lineTotal,
-        remarks: it.remarks || "",
-      }))
-    );
-    setTemplateNotification(`Template pre-filled from ${req.requisitionNumber}`);
-    setIsCreateOpen(true);
+    router.push(`/purchase/requisitions/create?fromId=${req.id}`);
   };
 
   const handleAddItem = () => {
@@ -468,7 +465,7 @@ export default function PurchaseRequisitionsPage() {
       department: formDepartment,
       requesterName: formRequester,
       purchaseMethod: formPurchaseMethod,
-      requestDate: new Date().toISOString().split("T")[0],
+      requestDate: localToday(),
       requiredDeliveryDate: formDeliveryDate,
       businessJustification: formJustification,
       remarks: formRemarks,
@@ -476,87 +473,206 @@ export default function PurchaseRequisitionsPage() {
     });
   };
 
-  // Export CSV
-  const handleExport = () => {
-    const params = new URLSearchParams();
-    params.append("reportType", "REQUISITION_REPORT");
-    if (selectedOffice !== "ALL") params.append("officeId", selectedOffice);
-    window.open(`${process.env.NEXT_PUBLIC_API_URL || "/api/v1"}/purchase/reports/export-csv?${params.toString()}`, "_blank");
+  const openApproval = (req: PurchaseRequisition, action: "APPROVE" | "REJECT") => {
+    setApprovalComment("");
+    setApprovalModal({ req, action });
   };
 
+  const officeName = (id: string) => offices?.find((o) => o.id === id)?.name ?? "";
+  const warehouseName = (id: string) => allWarehouses?.find((w) => w.id === id)?.name ?? warehouses?.find((w) => w.id === id)?.name ?? "";
+
+  // Export CSV: exactly the rows on screen (all filters applied).
+  const handleExport = () => {
+    const rows = requisitions ?? [];
+    if (!rows.length) {
+      toast.info("No requisitions to export.");
+      return;
+    }
+    downloadCsv(
+      `purchase_requisitions_${localToday()}.csv`,
+      [
+        "SL",
+        "Requisition Code",
+        "Reference Document",
+        "Date",
+        "Office",
+        "Warehouse",
+        "Buyer Office",
+        "Request Type",
+        "Employee/Department/Project",
+        "Section",
+        "Buyer Name",
+        "Method",
+        "Budget",
+        "Created By",
+        "Status",
+        "Remarks",
+        "Review Comment",
+      ],
+      rows.map((r, i) => [
+        i + 1,
+        r.requisitionNumber,
+        r.referenceDocument ?? "",
+        r.requestDate,
+        officeName(r.officeId),
+        warehouseName(r.warehouseId),
+        officeName(r.officeId),
+        r.requestType,
+        r.requesterName,
+        r.department,
+        r.requesterName,
+        r.purchaseMethod,
+        r.totalEstimatedAmount,
+        r.createdBy,
+        r.status,
+        r.remarks ?? "",
+        r.approvalHistory?.[r.approvalHistory.length - 1]?.comments ?? "",
+      ]),
+    );
+  };
+
+  // Section filter: the sections in use, plus the common ones.
+  const sectionOptions = React.useMemo(
+    () =>
+      [...new Set(["Operations", "Production", "Administration", "IT", "Logistics", "Maintenance", "Procurement", ...(requisitions ?? []).map((r) => r.department), selectedSection])]
+        .filter((s) => s && s !== "ALL")
+        .sort(),
+    [requisitions, selectedSection],
+  );
+
   // Table Columns (Exact columns as in Managerium screenshots)
+  const formatTableDate = (dateStr?: string) => {
+    if (!dateStr) return "—";
+    const parts = dateStr.split("T")[0].split("-");
+    if (parts.length === 3) {
+      return `${parts[2]}-${parts[1]}-${parts[0]}`;
+    }
+    return dateStr;
+  };
+
+  const formatRequestType = (type?: string) => {
+    if (!type) return "department";
+    const lower = type.toLowerCase();
+    if (lower === "local" || lower === "department") return "department";
+    if (lower === "employee") return "Employee";
+    if (lower === "project") return "Project";
+    return lower;
+  };
+
+  const formatMethod = (method?: string) => {
+    if (!method || method === "DIRECT" || method === "PURCHASE_ORDER") return "Purchase Order Method";
+    return method.replace(/_/g, " ").toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase()) + " Method";
+  };
+
+  const renderStatus = (status: string) => {
+    switch (status) {
+      case "PENDING_APPROVAL":
+      case "SUBMITTED":
+      case "DRAFT":
+        return <span className="text-amber-600 font-semibold">Pending</span>;
+      case "APPROVED":
+        return <span className="text-emerald-600 font-semibold">Approved</span>;
+      case "CONVERTED_TO_PO":
+        return <span className="text-sky-600 font-semibold">Ordered</span>;
+      case "REJECTED":
+        return <span className="text-rose-600 font-semibold">Rejected</span>;
+      case "CANCELLED":
+      case "CLOSED":
+        return <span className="text-slate-500 font-semibold">Closed</span>;
+      default:
+        return <span className="text-slate-600 font-semibold">{status}</span>;
+    }
+  };
+
   const columns = [
     {
       header: "SL",
-      cell: (_: any, idx: number) => <span className="font-mono text-slate-500">{idx + 1}</span>,
+      className: "w-7 text-center font-mono text-[11px] text-slate-500",
+      cell: (_: any, idx: number) => idx + 1,
     },
     {
       header: "Actions",
-      className: "bg-sky-50/70 text-slate-800 font-semibold w-[170px] text-center",
+      className: "w-[125px] min-w-[125px] text-center whitespace-nowrap",
       cell: (row: PurchaseRequisition) => (
-        <div className="flex items-center justify-center gap-1.5 text-slate-700">
-          {/* 1. Edit */}
+        <div className="flex items-center justify-center gap-0.5 text-slate-700">
+          {/* Edit */}
           <button
             type="button"
+            disabled={!can.edit(row.status) || !perms.requisitions.edit}
             onClick={() => handleOpenEdit(row)}
-            className="p-1 rounded hover:bg-slate-200/80 hover:text-slate-950 transition-colors"
-            title="Edit Requisition"
+            className={`${actionBtn} hover:bg-slate-200/80 hover:text-slate-950`}
+            title={
+              !perms.requisitions.edit
+                ? "Requires Edit permission in Configuration"
+                : can.edit(row.status)
+                  ? "Edit requisition"
+                  : "Approved, ordered or cancelled requisitions cannot be edited; reverse it first"
+            }
+            aria-label={`Edit ${row.requisitionNumber}`}
           >
             <Pencil className="w-3.5 h-3.5" />
           </button>
 
-          {/* 2. Print */}
+          {/* Print */}
           <button
             type="button"
             onClick={() => setPrintReq(row)}
-            className="p-1 rounded hover:bg-slate-200/80 hover:text-slate-950 transition-colors"
-            title="Print Requisition Voucher"
+            className={`${actionBtn} hover:bg-slate-200/80 hover:text-slate-950`}
+            title="Print requisition voucher"
+            aria-label={`Print ${row.requisitionNumber}`}
           >
             <Printer className="w-3.5 h-3.5" />
           </button>
 
-          {/* 3. Close / Cancel */}
+          {/* Close / Cancel */}
           <button
             type="button"
+            disabled={!can.cancel(row.status) || !perms.requisitions.delete}
             onClick={() => {
               setCloseModal(row);
               setCloseComment("");
             }}
-            className="p-1 rounded hover:bg-rose-100 hover:text-rose-700 transition-colors"
-            title="Close / Cancel Requisition"
+            className={`${actionBtn} hover:bg-rose-100 hover:text-rose-700`}
+            title={!perms.requisitions.delete ? "Requires Delete permission in Configuration" : "Close / cancel requisition"}
+            aria-label={`Cancel ${row.requisitionNumber}`}
           >
             <X className="w-3.5 h-3.5" />
           </button>
 
-          {/* 4. Reverse */}
+          {/* Reverse / Audit History */}
           <button
             type="button"
+            disabled={!can.reverse(row.status) || !perms.requisitions.edit}
             onClick={() => {
               setReverseModal(row);
               setReverseComment("");
             }}
-            className="p-1 rounded hover:bg-amber-100 hover:text-amber-800 transition-colors"
-            title="Reverse Requisition Status"
+            className={`${actionBtn} hover:bg-amber-100 hover:text-amber-800`}
+            title={!perms.requisitions.edit ? "Requires Edit permission in Configuration" : "Reverse to submitted"}
+            aria-label={`Reverse ${row.requisitionNumber}`}
           >
-            <RotateCcw className="w-3.5 h-3.5" />
+            <History className="w-3.5 h-3.5" />
           </button>
 
-          {/* 5. New PR (Duplicate / Template) */}
+          {/* New PR (Duplicate / Template) */}
           <button
             type="button"
+            disabled={!perms.requisitions.create}
             onClick={() => handleDuplicateAsNew(row)}
-            className="p-1 rounded hover:bg-sky-100 hover:text-sky-700 transition-colors"
-            title="New PR (Duplicate from Template)"
+            className={`${actionBtn} hover:bg-sky-100 hover:text-sky-700`}
+            title={!perms.requisitions.create ? "Requires Create permission in Configuration" : "New PR (Duplicate from Template)"}
+            aria-label={`New requisition from ${row.requisitionNumber}`}
           >
             <PlusCircle className="w-3.5 h-3.5" />
           </button>
 
-          {/* 6. View Requisition */}
+          {/* View Requisition */}
           <button
             type="button"
             onClick={() => setViewReq(row)}
-            className="p-1 rounded hover:bg-slate-200/80 hover:text-slate-950 transition-colors"
-            title="View Requisition Details"
+            className={`${actionBtn} hover:bg-slate-200/80 hover:text-slate-950`}
+            title="View requisition details"
+            aria-label={`View ${row.requisitionNumber}`}
           >
             <Eye className="w-3.5 h-3.5" />
           </button>
@@ -564,64 +680,87 @@ export default function PurchaseRequisitionsPage() {
       ),
     },
     {
-      header: "Requisition No.",
+      header: "Requisition Code",
+      className: "whitespace-nowrap font-mono font-semibold text-sky-700 text-left",
       cell: (row: PurchaseRequisition) => (
         <span className="font-semibold text-sky-700 font-mono">{row.requisitionNumber}</span>
       ),
     },
     {
-      header: "Reference",
-      accessorKey: "referenceDocument",
+      header: "Reference Document",
+      className: "text-center font-mono text-[11px] leading-tight",
+      cell: (row: PurchaseRequisition) => (
+        <span>{row.referenceDocument || "—"}</span>
+      ),
     },
     {
       header: "Date",
-      accessorKey: "requestDate",
+      className: "whitespace-nowrap font-mono text-center text-[11px]",
+      cell: (row: PurchaseRequisition) => (
+        <span>{formatTableDate(row.requestDate)}</span>
+      ),
     },
     {
       header: "Office",
-      cell: (row: PurchaseRequisition) => {
-        const off = offices?.find((o) => o.id === row.officeId);
-        return <span>{off?.name || row.officeId}</span>;
-      },
+      className: "text-left leading-tight",
+      cell: (row: PurchaseRequisition) => <span>{officeName(row.officeId) || "—"}</span>,
     },
     {
       header: "Warehouse",
-      cell: (row: PurchaseRequisition) => {
-        const wh = warehouses?.find((w) => w.id === row.warehouseId);
-        return <span>{wh?.name || row.warehouseId}</span>;
-      },
+      className: "text-left leading-tight",
+      cell: (row: PurchaseRequisition) => <span>{warehouseName(row.warehouseId) || "—"}</span>,
     },
     {
-      header: "Section",
-      accessorKey: "department",
-    },
-    {
-      header: "Buyer / Requester",
-      accessorKey: "requesterName",
+      header: "Buyer Office",
+      className: "text-left leading-tight",
+      cell: (row: PurchaseRequisition) => <span>{officeName(row.officeId) || "—"}</span>,
     },
     {
       header: "Request Type",
-      accessorKey: "requestType",
+      className: "text-center leading-tight",
+      cell: (row: PurchaseRequisition) => <span>{formatRequestType(row.requestType)}</span>,
     },
     {
-      header: "Purchase Method",
-      accessorKey: "purchaseMethod",
+      header: "Employee/Department/Project",
+      className: "text-left leading-tight max-w-[130px]",
+      cell: (row: PurchaseRequisition) => <span>{row.requesterName || row.department || "—"}</span>,
     },
     {
-      header: "Est. Amount",
+      header: "Section",
+      className: "text-center leading-tight",
+      cell: (row: PurchaseRequisition) => <span>{row.department || "All"}</span>,
+    },
+    {
+      header: "Buyer Name",
+      className: "text-left leading-tight",
+      cell: (row: PurchaseRequisition) => <span>{row.requesterName || "—"}</span>,
+    },
+    {
+      header: "Method",
+      className: "text-left leading-tight",
+      cell: (row: PurchaseRequisition) => <span>{formatMethod(row.purchaseMethod)}</span>,
+    },
+    {
+      header: "Budget",
+      className: "text-right whitespace-nowrap font-mono font-semibold",
       cell: (row: PurchaseRequisition) => (
-        <span className="font-bold font-mono text-slate-900">
-          {formatCurrency(row.totalEstimatedAmount)}
+        <span className="font-mono font-semibold text-slate-800">
+          {(row.totalEstimatedAmount || 0).toLocaleString("en-US", {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+          })}
         </span>
       ),
     },
     {
-      header: "Status",
-      cell: (row: PurchaseRequisition) => <StatusBadge status={row.status} />,
+      header: "Created By",
+      className: "text-left leading-tight",
+      cell: (row: PurchaseRequisition) => <span>{row.createdBy || row.requesterName || "—"}</span>,
     },
     {
-      header: "Remarks",
-      accessorKey: "remarks",
+      header: "Status",
+      className: "text-center whitespace-nowrap",
+      cell: (row: PurchaseRequisition) => renderStatus(row.status),
     },
   ];
 
@@ -726,13 +865,24 @@ export default function PurchaseRequisitionsPage() {
     });
 
     return Array.from(itemMap.values())
-      .map((it) => ({
-        ...it,
-        deptList: Array.from(it.departments).join(", "),
-        reqList: Array.from(it.reqNumbers).join(", "),
-      }))
+      .map((it) => {
+        const cat = itemsCatalog?.find((c) => c.id === it.itemId || c.code === it.itemCode);
+        return {
+          ...it,
+          category: cat?.category || "General",
+          subCategory: cat?.subCategory || "",
+          deptList: Array.from(it.departments).join(", "),
+          reqList: Array.from(it.reqNumbers).join(", "),
+        };
+      })
+      .filter((it) => {
+        if (summaryCategory !== "ALL" && it.category !== summaryCategory) return false;
+        if (summarySubCategory !== "ALL" && it.subCategory !== summarySubCategory) return false;
+        if (isRemainingDetails && it.totalBalanceQty <= 0) return false;
+        return true;
+      })
       .sort((a, b) => b.totalAmount - a.totalAmount);
-  }, [requisitions]);
+  }, [requisitions, itemsCatalog, summaryCategory, summarySubCategory, isRemainingDetails]);
 
   const totalSummaryMetrics = React.useMemo(() => {
     if (!requisitions) return { count: 0, amount: 0, pending: 0, approved: 0, converted: 0 };
@@ -767,14 +917,16 @@ export default function PurchaseRequisitionsPage() {
             <Search className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
           </div>
 
-          <button
-            type="button"
-            onClick={() => router.push("/purchase/requisitions/create")}
-            className="h-9 px-4 bg-[#2563eb] hover:bg-blue-700 text-white font-semibold text-xs rounded flex items-center gap-1.5 shadow-xs transition"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Requisition</span>
-          </button>
+          {perms.requisitions.create && (
+            <button
+              type="button"
+              onClick={() => router.push("/purchase/requisitions/create")}
+              className="h-9 px-4 bg-[#2563eb] hover:bg-blue-700 text-white font-semibold text-xs rounded flex items-center gap-1.5 shadow-xs transition"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Requisition</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -805,7 +957,8 @@ export default function PurchaseRequisitionsPage() {
         </button>
       </div>
 
-      {/* Enterprise Filter Card (Exact Managerium Layout) */}
+      {/* Enterprise Filter Card (Exact Managerium Layout per Active Tab) */}
+      {activeTab === "PURCHASE_REQUISITION" ? (
       <div className="bg-white rounded border border-slate-200/90 p-4 shadow-2xs mb-4">
         {/* Row 1: 5 Columns */}
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3.5 mb-3.5">
@@ -876,13 +1029,11 @@ export default function PurchaseRequisitionsPage() {
               className="w-full h-9 border border-slate-300 rounded px-2.5 py-1.5 text-xs text-slate-700 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
             >
               <option value="ALL">Section</option>
-              <option value="Operations">Operations</option>
-              <option value="Production">Production</option>
-              <option value="Administration">Administration</option>
-              <option value="IT">IT</option>
-              <option value="Logistics">Logistics</option>
-              <option value="Maintenance">Maintenance</option>
-              <option value="Procurement">Procurement</option>
+              {sectionOptions.map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
             </select>
           </div>
 
@@ -900,7 +1051,7 @@ export default function PurchaseRequisitionsPage() {
           </div>
         </div>
 
-        {/* Row 2: 4 Columns with Clean Actions */}
+        {/* Row 2: To Date | Status | Buyer Office | View & EXCEL */}
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3.5 items-end">
           {/* 1. To Date */}
           <div>
@@ -943,7 +1094,10 @@ export default function PurchaseRequisitionsPage() {
             </label>
             <select
               value={selectedBuyerOffice}
-              onChange={(e) => setSelectedBuyerOffice(e.target.value)}
+              onChange={(e) => {
+                setSelectedBuyerOffice(e.target.value);
+                setSelectedOffice(e.target.value);
+              }}
               className="w-full h-9 border border-slate-300 rounded px-2.5 py-1.5 text-xs text-slate-700 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
             >
               <option value="ALL">Buyer Office</option>
@@ -960,14 +1114,18 @@ export default function PurchaseRequisitionsPage() {
             <button
               type="button"
               onClick={() => refetch()}
-              className="h-9 px-6 bg-[#2563eb] hover:bg-blue-700 text-white font-bold text-xs uppercase rounded shadow-xs transition flex items-center justify-center min-w-[70px]"
+              disabled={isFetching}
+              className="h-9 px-6 bg-[#2563eb] hover:bg-blue-700 disabled:opacity-70 text-white font-bold text-xs uppercase rounded shadow-xs transition flex items-center justify-center gap-1.5 min-w-[70px]"
             >
+              {isFetching && <Spinner className="size-3.5" />}
               View
             </button>
             <button
               type="button"
               onClick={handleExport}
-              className="h-9 px-5 border border-[#2563eb] text-[#2563eb] hover:bg-blue-50 font-bold text-xs uppercase rounded shadow-xs transition flex items-center justify-center min-w-[75px]"
+              disabled={!perms.requisitions.export}
+              title={!perms.requisitions.export ? "Requires Export permission in Configuration" : "Export Excel (CSV)"}
+              className="h-9 px-5 border border-[#2563eb] text-[#2563eb] hover:bg-blue-50 disabled:opacity-40 disabled:pointer-events-none font-bold text-xs uppercase rounded shadow-xs transition flex items-center justify-center min-w-[75px]"
             >
               EXCEL
             </button>
@@ -976,7 +1134,6 @@ export default function PurchaseRequisitionsPage() {
               selectedRequestType !== "ALL" ||
               selectedSection !== "ALL" ||
               selectedStatus !== "ALL" ||
-              selectedBuyerOffice !== "ALL" ||
               fromDate !== "" ||
               toDate !== "" ||
               search !== "") && (
@@ -1002,6 +1159,152 @@ export default function PurchaseRequisitionsPage() {
           </div>
         </div>
       </div>
+      ) : (
+      <div className="bg-white rounded border border-slate-200/90 p-4 shadow-2xs mb-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3.5 mb-3.5">
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1.5">Office</label>
+            <select
+              value={selectedOffice}
+              onChange={(e) => setSelectedOffice(e.target.value)}
+              className="w-full h-9 border border-slate-300 rounded px-2.5 py-1.5 text-xs text-slate-700 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+            >
+              <option value="ALL">All</option>
+              {offices?.map((o) => (
+                <option key={o.id} value={o.id}>
+                  {o.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1.5">Warehouse</label>
+            <select
+              value={selectedWarehouse}
+              onChange={(e) => setSelectedWarehouse(e.target.value)}
+              className="w-full h-9 border border-slate-300 rounded px-2.5 py-1.5 text-xs text-slate-700 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+            >
+              <option value="ALL">All</option>
+              {warehouses?.map((w) => (
+                <option key={w.id} value={w.id}>
+                  {w.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1.5">From Date</label>
+            <input
+              type="date"
+              value={fromDate}
+              onChange={(e) => setFromDate(e.target.value)}
+              className="w-full h-9 border border-slate-300 rounded px-2.5 py-1.5 text-xs text-slate-700 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1.5">To Date</label>
+            <input
+              type="date"
+              value={toDate}
+              onChange={(e) => setToDate(e.target.value)}
+              className="w-full h-9 border border-slate-300 rounded px-2.5 py-1.5 text-xs text-slate-700 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1.5">Category</label>
+            <select
+              value={summaryCategory}
+              onChange={(e) => {
+                setSummaryCategory(e.target.value);
+                setSummarySubCategory("ALL");
+              }}
+              className="w-full h-9 border border-slate-300 rounded px-2.5 py-1.5 text-xs text-slate-700 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+            >
+              <option value="ALL">All</option>
+              {Array.from(new Set((itemsCatalog ?? []).map((i) => i.category).filter(Boolean))).sort().map((cat) => (
+                <option key={cat} value={cat}>
+                  {cat}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3.5 items-end">
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1.5">Sub Category</label>
+            <select
+              value={summarySubCategory}
+              onChange={(e) => setSummarySubCategory(e.target.value)}
+              className="w-full h-9 border border-slate-300 rounded px-2.5 py-1.5 text-xs text-slate-700 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+            >
+              <option value="ALL">All</option>
+              {Array.from(
+                new Set(
+                  (itemsCatalog ?? [])
+                    .filter((i) => summaryCategory === "ALL" || i.category === summaryCategory)
+                    .map((i) => i.subCategory || "")
+                    .filter(Boolean)
+                )
+              )
+                .sort()
+                .map((sub) => (
+                  <option key={sub} value={sub}>
+                    {sub}
+                  </option>
+                ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1.5">Buyer Office</label>
+            <select
+              value={selectedBuyerOffice}
+              onChange={(e) => {
+                setSelectedBuyerOffice(e.target.value);
+                setSelectedOffice(e.target.value);
+              }}
+              className="w-full h-9 border border-slate-300 rounded px-2.5 py-1.5 text-xs text-slate-700 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+            >
+              <option value="ALL">Buyer Office</option>
+              {offices?.map((o) => (
+                <option key={o.id} value={o.id}>
+                  {o.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <label className="flex h-9 cursor-pointer items-center gap-2 text-xs text-slate-700">
+            <input
+              type="checkbox"
+              checked={isRemainingDetails}
+              onChange={(e) => setIsRemainingDetails(e.target.checked)}
+              className="h-4 w-4 rounded border-slate-300 text-blue-600"
+            />
+            <span>Is Remaining Details</span>
+          </label>
+          <div className="flex items-center gap-3 lg:col-span-2">
+            <button
+              type="button"
+              onClick={() => refetch()}
+              disabled={isFetching}
+              className="h-9 px-6 bg-[#2563eb] hover:bg-blue-700 disabled:opacity-70 text-white font-bold text-xs uppercase rounded shadow-xs transition flex items-center justify-center gap-1.5 min-w-[70px]"
+            >
+              {isFetching && <Spinner className="size-3.5" />}
+              View
+            </button>
+            <button
+              type="button"
+              onClick={handleExport}
+              disabled={!perms.requisitions.export}
+              title={!perms.requisitions.export ? "Requires Export permission in Configuration" : "Export Excel (CSV)"}
+              className="h-9 px-5 border border-[#2563eb] text-[#2563eb] hover:bg-blue-50 disabled:opacity-40 disabled:pointer-events-none font-bold text-xs uppercase rounded shadow-xs transition flex items-center justify-center min-w-[75px]"
+            >
+              EXCEL
+            </button>
+          </div>
+        </div>
+      </div>
+      )}
 
       {/* Content: Requisitions List or Summary Matrix */}
       {activeTab === "PURCHASE_REQUISITION" ? (
@@ -1011,6 +1314,7 @@ export default function PurchaseRequisitionsPage() {
           data={requisitions || []}
           loading={isLoading}
           emptyMessage="No requisitions found matching the selected criteria."
+          compact
         />
       ) : (
         /* Requisition Summary View */
@@ -1088,7 +1392,7 @@ export default function PurchaseRequisitionsPage() {
               </div>
 
               <div className="erp-table-container">
-                <table className="erp-table">
+                <table className="erp-table erp-table-compact">
                   <thead>
                     <tr>
                       <th>SL</th>
@@ -1160,7 +1464,7 @@ export default function PurchaseRequisitionsPage() {
               </div>
 
               <div className="erp-table-container">
-                <table className="erp-table">
+                <table className="erp-table erp-table-compact">
                   <thead>
                     <tr>
                       <th>SL</th>
@@ -1250,7 +1554,10 @@ export default function PurchaseRequisitionsPage() {
               </label>
               <select
                 value={formOfficeId}
-                onChange={(e) => setFormOfficeId(e.target.value)}
+                onChange={(e) => {
+                  setFormOfficeId(e.target.value);
+                  setFormWarehouseId(allWarehouses?.find((w) => w.officeId === e.target.value)?.id ?? "");
+                }}
                 className="w-full border border-slate-300 rounded px-2 py-1.5 bg-white text-xs"
                 required
               >
@@ -1272,7 +1579,8 @@ export default function PurchaseRequisitionsPage() {
                 className="w-full border border-slate-300 rounded px-2 py-1.5 bg-white text-xs"
                 required
               >
-                {warehouses?.map((w) => (
+                <option value="">Select warehouse</option>
+                {allWarehouses?.filter((w) => w.officeId === formOfficeId).map((w) => (
                   <option key={w.id} value={w.id}>
                     {w.name}
                   </option>
@@ -1545,14 +1853,44 @@ export default function PurchaseRequisitionsPage() {
                 {viewReq.approvalHistory.map((h, i) => (
                   <div key={i} className="text-xs">
                     <div className="flex items-center gap-2">
-                      <span className="font-semibold text-slate-800">{h.action}</span>
+                      <span className="font-semibold text-slate-800">{h.action.replace(/_/g, " ")}</span>
                       <span className="text-[10px] text-slate-400">by {h.actorName}</span>
-                      <span className="text-[10px] text-slate-400">({new Date(h.timestamp).toLocaleDateString()})</span>
+                      <span className="text-[10px] text-slate-400">({new Date(h.timestamp).toLocaleString()})</span>
                     </div>
                     {h.comments && <p className="text-slate-600 italic mt-0.5">{h.comments}</p>}
                   </div>
                 ))}
               </div>
+            </div>
+
+            {viewReq.referenceDocument && (
+              <p className="text-slate-600">
+                Purchase order: <span className="font-mono font-semibold text-sky-700">{viewReq.referenceDocument}</span>
+              </p>
+            )}
+
+            <div className="flex flex-wrap justify-end gap-2 pt-2 border-t border-slate-200 print:hidden">
+              <button type="button" onClick={() => setViewReq(null)} className="h-9 px-4 border border-slate-300 rounded text-slate-700 hover:bg-slate-50 font-semibold">
+                Close
+              </button>
+              {can.approve(viewReq.status) && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => openApproval(viewReq, "REJECT")}
+                    className="h-9 px-4 bg-rose-600 hover:bg-rose-700 text-white rounded font-semibold inline-flex items-center gap-1.5"
+                  >
+                    <Ban className="w-3.5 h-3.5" /> Reject
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => openApproval(viewReq, "APPROVE")}
+                    className="h-9 px-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded font-semibold inline-flex items-center gap-1.5"
+                  >
+                    <Check className="w-3.5 h-3.5" /> Approve
+                  </button>
+                </>
+              )}
             </div>
           </div>
         )}
@@ -1639,7 +1977,11 @@ export default function PurchaseRequisitionsPage() {
                 </label>
                 <select
                   value={editOfficeId}
-                  onChange={(e) => setEditOfficeId(e.target.value)}
+                  onChange={(e) => {
+                    setEditOfficeId(e.target.value);
+                    // The warehouse must belong to the office.
+                    setEditWarehouseId(allWarehouses?.find((w) => w.officeId === e.target.value)?.id ?? "");
+                  }}
                   className="w-full border border-slate-300 rounded px-2 py-1.5 bg-white text-xs"
                   required
                 >
@@ -1661,7 +2003,8 @@ export default function PurchaseRequisitionsPage() {
                   className="w-full border border-slate-300 rounded px-2 py-1.5 bg-white text-xs"
                   required
                 >
-                  {warehouses?.map((w) => (
+                  <option value="">Select warehouse</option>
+                  {allWarehouses?.filter((w) => w.officeId === editOfficeId).map((w) => (
                     <option key={w.id} value={w.id}>
                       {w.name}
                     </option>
@@ -1881,174 +2224,66 @@ export default function PurchaseRequisitionsPage() {
         subtitle="Official Purchase Requisition Document for Physical Archival & Multi-level Signatures"
         maxWidth="4xl"
       >
-        {printReq && (
-          <div className="space-y-4 text-xs">
-            {/* Printable Document Sheet */}
-            <div className="bg-white p-6 border border-slate-200 rounded shadow-sm text-slate-800 space-y-4 print:p-0 print:border-none">
-              {/* Organization Header */}
-              <div className="flex justify-between items-start border-b border-slate-200 pb-3">
-                <div className="flex items-center gap-3.5">
-                  <Image
-                    src="/logo.png"
-                    width={8452}
-                    height={1738}
-                    alt="BridgeOne Logo"
-                    className="h-10 w-auto object-contain"
-                  />
-                  <div>
-                    <h2 className="text-base font-bold text-slate-900 tracking-wide uppercase">
-                      BridgeOne Technologies Ltd.
-                    </h2>
-                    <p className="text-[11px] text-slate-500">
-                      Plot 18, Road 11, Gulshan-2, Dhaka-1212, Bangladesh
-                    </p>
-                    <p className="text-[11px] text-slate-500">
-                      Phone: +880 2 988-1234 | Web: erp.bridgeone.com
-                    </p>
-                  </div>
-                </div>
-                <div className="text-right">
-                  <div className="inline-block px-2.5 py-1 bg-slate-100 rounded text-[11px] font-bold text-slate-700 border border-slate-300">
-                    PURCHASE REQUISITION
-                  </div>
-                  <p className="text-xs font-mono font-bold text-sky-800 mt-1">
-                    {printReq.requisitionNumber}
-                  </p>
-                  <p className="text-[10px] text-slate-500">Date: {printReq.requestDate}</p>
-                </div>
-              </div>
-
-              {/* Metadata Grid */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 bg-slate-50/80 p-3 rounded border border-slate-200 text-[11px]">
-                <div>
-                  <span className="text-slate-400 block text-[10px]">Department:</span>
-                  <span className="font-semibold text-slate-800">{printReq.department}</span>
-                </div>
-                <div>
-                  <span className="text-slate-400 block text-[10px]">Requester / Buyer:</span>
-                  <span className="font-semibold text-slate-800">{printReq.requesterName}</span>
-                </div>
-                <div>
-                  <span className="text-slate-400 block text-[10px]">Delivery Office:</span>
-                  <span className="font-semibold text-slate-800">
-                    {offices?.find((o) => o.id === printReq.officeId)?.name || printReq.officeId}
-                  </span>
-                </div>
-                <div>
-                  <span className="text-slate-400 block text-[10px]">Required Delivery:</span>
-                  <span className="font-semibold text-slate-800 font-mono">
-                    {printReq.requiredDeliveryDate || "Immediate"}
-                  </span>
-                </div>
-              </div>
-
-              {/* Line Items Table */}
-              <div className="border border-slate-200 rounded overflow-hidden">
-                <table className="w-full text-left text-xs">
-                  <thead className="bg-slate-100 text-slate-700 font-semibold border-b border-slate-200">
-                    <tr>
-                      <th className="p-2 w-10 text-center">SL</th>
-                      <th className="p-2 w-28">Item Code</th>
-                      <th className="p-2">Description / Specifications</th>
-                      <th className="p-2 w-20 text-center">UOM</th>
-                      <th className="p-2 w-20 text-right">Quantity</th>
-                      <th className="p-2 w-28 text-right">Est. Unit Price</th>
-                      <th className="p-2 w-32 text-right">Total (BDT)</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {printReq.items.map((it, idx) => (
-                      <tr key={idx}>
-                        <td className="p-2 text-center text-slate-400 font-mono">{idx + 1}</td>
-                        <td className="p-2 font-mono text-slate-600">{it.itemCode}</td>
-                        <td className="p-2 font-medium text-slate-800">{it.itemName}</td>
-                        <td className="p-2 text-center font-mono text-slate-600">{it.uom}</td>
-                        <td className="p-2 text-right font-mono font-semibold">{it.quantity}</td>
-                        <td className="p-2 text-right font-mono">
-                          {formatCurrency(it.estimatedUnitPrice)}
-                        </td>
-                        <td className="p-2 text-right font-mono font-bold text-slate-900">
-                          {formatCurrency(it.lineTotal)}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                  <tfoot className="bg-slate-50/80 font-semibold border-t border-slate-200">
-                    <tr>
-                      <td colSpan={6} className="p-2 text-right text-slate-700 uppercase text-[11px]">
-                        Grand Total Estimated Value:
-                      </td>
-                      <td className="p-2 text-right font-mono text-sm font-bold text-slate-900">
-                        {formatCurrency(printReq.totalEstimatedAmount)}
-                      </td>
-                    </tr>
-                  </tfoot>
-                </table>
-              </div>
-
-              {/* Justification & Remarks */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px] bg-slate-50/60 p-2.5 rounded border border-slate-200">
-                <div>
-                  <span className="font-semibold text-slate-700 block">Justification:</span>
-                  <p className="text-slate-600 italic">
-                    {printReq.businessJustification || "Standard replenishment."}
-                  </p>
-                </div>
-                <div>
-                  <span className="font-semibold text-slate-700 block">Remarks:</span>
-                  <p className="text-slate-600 italic">{printReq.remarks || "N/A"}</p>
-                </div>
-              </div>
-
-              {/* 4 Official Authorization Signatures */}
-              <div className="grid grid-cols-4 gap-4 pt-12 text-center text-[10px] text-slate-600 border-t border-slate-200 mt-6">
-                <div>
-                  <div className="border-t border-slate-400 pt-1 font-semibold text-slate-800">
-                    {printReq.createdBy}
-                  </div>
-                  <span>Prepared By</span>
-                </div>
-                <div>
-                  <div className="border-t border-slate-400 pt-1 font-semibold text-slate-800">
-                    Department Head
-                  </div>
-                  <span>Verified By</span>
-                </div>
-                <div>
-                  <div className="border-t border-slate-400 pt-1 font-semibold text-slate-800">
-                    Procurement Manager
-                  </div>
-                  <span>Checked & Sourced</span>
-                </div>
-                <div>
-                  <div className="border-t border-slate-400 pt-1 font-semibold text-slate-800">
-                    Managing Director
-                  </div>
-                  <span>Final Approval</span>
-                </div>
-              </div>
+        {printReq && (() => {
+          const officeName = offices?.find((o) => o.id === printReq.officeId)?.name || printReq.officeId;
+          const warehouseName = allWarehouses?.find((w) => w.id === printReq.warehouseId)?.name || printReq.warehouseId || "-";
+          const approvedEntry = [...(printReq.approvalHistory || [])].reverse().find((h) => /approv/i.test(h.action));
+          const totalQty = printReq.items.reduce((s, it) => s + Number(it.quantity || 0), 0);
+          const totalEst = printReq.items.reduce((s, it) => s + Number(it.lineTotal || 0), 0);
+          return (
+            <div className="space-y-4 text-xs">
+              <PrintablePurchaseDoc
+                context={context}
+                officeId={printReq.officeId}
+                officeName={officeName}
+                title="Purchase Requisition"
+                metaLeft={[
+                  ["Requisition No", printReq.requisitionNumber],
+                  ["Req. Office Name", officeName],
+                  ["Req. Warehouse Name", warehouseName],
+                  ["Department / Section", printReq.department || "-"],
+                  ["Remarks", printReq.remarks || printReq.businessJustification || ""],
+                ]}
+                metaRight={[
+                  ["Req. Date", fmtPrintDate(printReq.requestDate)],
+                  ["Expected Date", fmtPrintDate(printReq.requiredDeliveryDate || printReq.requestDate)],
+                  ["Purchase Method", printReq.purchaseMethod || "DIRECT"],
+                  ["Ref. Document", printReq.referenceDocument || "Direct"],
+                  ["Review Comment", approvedEntry?.comments || printReq.status],
+                ]}
+                columns={[
+                  { header: "SL", align: "center", widthClass: "w-10" },
+                  { header: "Item Code/Model", align: "left", widthClass: "w-28" },
+                  { header: "Item Name", align: "left" },
+                  { header: "UOM", align: "center", widthClass: "w-14" },
+                  { header: "Req. Qty", align: "right", widthClass: "w-24" },
+                  { header: "Est. Rate", align: "right", widthClass: "w-24" },
+                  { header: "Est. Amount", align: "right", widthClass: "w-28" },
+                ]}
+                rows={printReq.items.map((it, idx) => [
+                  idx + 1,
+                  it.itemCode,
+                  it.itemName,
+                  it.uom || "PCS",
+                  fmtPrintNum(it.quantity),
+                  fmtPrintNum(it.estimatedUnitPrice),
+                  fmtPrintNum(it.lineTotal),
+                ])}
+                totalRows={[["", "", "", "Total", fmtPrintNum(totalQty), "", fmtPrintNum(totalEst)]]}
+                signatures={[
+                  { roleLabel: "Prepared By", name: printReq.requesterName || printReq.createdBy },
+                  { roleLabel: "Approved By", name: approvedEntry?.actorName },
+                  { roleLabel: "Received By" },
+                ]}
+              />
+              <PurchasePrintToolbar
+                pdfUrl={`/api/v1/purchase/requisitions/${encodeURIComponent(printReq.id)}/pdf`}
+                onClose={() => setPrintReq(null)}
+                canExportPdf={perms.requisitions.export}
+              />
             </div>
-
-            {/* Print & Close Toolbar */}
-            <div className="flex justify-end gap-2 pt-2 border-t border-slate-200">
-              <button
-                type="button"
-                onClick={() => setPrintReq(null)}
-                className="px-3 py-1.5 border border-slate-200 rounded text-slate-600 hover:bg-slate-50 text-xs"
-              >
-                Close
-              </button>
-              <button
-                type="button"
-                onClick={() => window.print()}
-                className="inline-flex items-center gap-1.5 px-4 py-1.5 bg-slate-800 hover:bg-slate-900 text-white rounded font-semibold text-xs"
-              >
-                <Printer className="w-3.5 h-3.5" />
-                <span>Print Document</span>
-              </button>
-            </div>
-          </div>
-        )}
+          );
+        })()}
       </ModalDialog>
 
       {/* CLOSE / CANCEL REQUISITION MODAL */}
@@ -2101,9 +2336,10 @@ export default function PurchaseRequisitionsPage() {
                     comments: closeComment || "Cancelled by user via Action toolbar",
                   });
                 }}
-                className="px-4 py-1.5 bg-rose-600 hover:bg-rose-700 text-white font-semibold rounded"
+                className="px-4 py-1.5 bg-rose-600 hover:bg-rose-700 disabled:opacity-60 text-white font-semibold rounded inline-flex items-center gap-1.5"
               >
-                {cancelMutation.isPending ? "Closing..." : "Confirm Close"}
+                {cancelMutation.isPending && <Spinner className="size-3.5" />}
+                Confirm Close
               </button>
             </div>
           </div>
@@ -2161,9 +2397,10 @@ export default function PurchaseRequisitionsPage() {
                     comments: reverseComment || "Reversed for revision",
                   });
                 }}
-                className="px-4 py-1.5 bg-amber-600 hover:bg-amber-700 text-white font-semibold rounded"
+                className="px-4 py-1.5 bg-amber-600 hover:bg-amber-700 disabled:opacity-60 text-white font-semibold rounded inline-flex items-center gap-1.5"
               >
-                {reverseMutation.isPending ? "Reversing..." : "Confirm Reversal"}
+                {reverseMutation.isPending && <Spinner className="size-3.5" />}
+                Confirm Reversal
               </button>
             </div>
           </div>

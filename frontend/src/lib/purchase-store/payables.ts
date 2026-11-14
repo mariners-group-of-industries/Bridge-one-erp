@@ -1,8 +1,8 @@
 import type { SupplierInvoiceItem, SupplierPaymentRecord } from "@bridgeone/contracts";
 import { AppError, badRequest, notFound } from "@/lib/api/errors";
 import { recordApproval } from "@/lib/approval/engine";
-import type { Actor } from "@/lib/auth/actor";
 import { db } from "@/lib/prisma/client";
+import type { PurchaseActor } from "./governance";
 
 /**
  * Supplier payables. What is owed comes from documents: goods receipts (less the
@@ -74,22 +74,49 @@ function paymentStatus(amount: number, paid: number): SupplierInvoiceItem["statu
   return paid > 0 ? "PARTIALLY_PAID" : "UNPAID";
 }
 
+export interface PayablesDateFilter {
+  fromDate?: string;
+  toDate?: string;
+}
+
+function dateRangeWhere(fromDate?: string, toDate?: string) {
+  const f: { gte?: Date; lte?: Date } = {};
+  if (fromDate) {
+    const d = new Date(`${fromDate.slice(0, 10)}T00:00:00.000Z`);
+    if (!Number.isNaN(d.getTime())) f.gte = d;
+  }
+  if (toDate) {
+    const d = new Date(`${toDate.slice(0, 10)}T00:00:00.000Z`);
+    if (!Number.isNaN(d.getTime())) f.lte = d;
+  }
+  return Object.keys(f).length ? f : undefined;
+}
+
 /** Everything payables reports read, with the allocation applied. */
-async function loadPayables() {
+async function loadPayables(filters?: PayablesDateFilter) {
   const prisma = db();
+  const range = dateRangeWhere(filters?.fromDate, filters?.toDate);
   const [suppliers, receipts, returns, bills, payments] = await Promise.all([
     prisma.supplier.findMany({ where: { isActive: true }, orderBy: { name: "asc" } }),
     prisma.goodsReceipt.findMany({
-      where: { status: { not: "CANCELLED" } },
+      where: { status: { not: "CANCELLED" }, ...(range ? { receiveDate: range } : {}) },
       select: {
         id: true, supplierId: true, number: true, receiveDate: true, totalAmount: true, challanNumber: true,
         order: { select: { number: true } },
         bill: { select: { id: true, number: true, status: true, dueDate: true } },
       },
     }),
-    prisma.purchaseReturn.findMany({ where: { status: { not: "CANCELLED" } }, select: { supplierId: true, receiptId: true, totalAmount: true } }),
-    prisma.supplierBill.findMany({ where: { receiptId: null, status: { not: "CANCELLED" } } }),
-    prisma.supplierPayment.findMany({ where: { status: "PAID" }, select: { supplierId: true, amount: true, receiptId: true, billId: true, isAdvance: true, paymentDate: true } }),
+    prisma.purchaseReturn.findMany({
+      where: { status: { not: "CANCELLED" }, ...(range ? { returnDate: range } : {}) },
+      select: { supplierId: true, receiptId: true, totalAmount: true },
+    }),
+    prisma.supplierBill.findMany({
+      where: { receiptId: null, status: { not: "CANCELLED" }, ...(range ? { billDate: range } : {}) },
+    }),
+    prisma.supplierPayment.findMany({
+      where: { status: "PAID", ...(range ? { paymentDate: range } : {}) },
+      select: { supplierId: true, amount: true, receiptId: true, billId: true, isAdvance: true, paymentDate: true },
+    }),
   ]);
 
   const returnedByReceipt = new Map<string, number>();
@@ -113,8 +140,13 @@ async function loadPayables() {
   return { suppliers, receipts, returns, bills, payments, documents, allocation };
 }
 
-export async function listSupplierPayables(): Promise<SupplierPaymentRecord[]> {
-  const { suppliers, receipts, returns, bills, payments, allocation } = await loadPayables();
+export async function listSupplierPayables(filters?: PayablesDateFilter): Promise<SupplierPaymentRecord[]> {
+  const { suppliers, receipts, returns, bills, payments, documents, allocation } = await loadPayables(filters);
+  // Documents with something still to pay, per supplier.
+  const openBySupplier = new Map<string, number>();
+  for (const d of documents) {
+    if (d.amount - (allocation.paidByDocument.get(d.key) ?? 0) > 0.005) openBySupplier.set(d.supplierId, (openBySupplier.get(d.supplierId) ?? 0) + 1);
+  }
   const sumBy = <T extends { supplierId: string }>(rows: T[], supplierId: string, value: (row: T) => number) =>
     rows.filter((r) => r.supplierId === supplierId).reduce((total, r) => total + value(r), 0);
 
@@ -138,7 +170,7 @@ export async function listSupplierPayables(): Promise<SupplierPaymentRecord[]> {
       dueAmount,
       lastPaymentDate: last ? dateStr(last) : undefined,
       paymentStatus: paymentStatus(totalPurchasedAmount - returnedAmount, paidAmount),
-      openInvoicesCount: receipts.filter((g) => g.supplierId === s.id).length + bills.filter((b) => b.supplierId === s.id).length,
+      openInvoicesCount: openBySupplier.get(s.id) ?? 0,
       currency: "BDT",
       ledgerBalance: round2(num(s.balance)),
       advanceBalance: allocation.unappliedBySupplier.get(s.id) ?? 0,
@@ -222,8 +254,9 @@ export async function createSupplierBill(input: Record<string, unknown>, actorNa
     amount = num(receipt.totalAmount);
   }
   if (!(amount > 0)) throw badRequest("Enter a bill amount greater than 0.");
-  const billDate = new Date(String(input.billDate || dateStr(new Date())));
-  const dueDate = new Date(String(input.dueDate || input.billDate || dateStr(new Date())));
+  const billDate = new Date(`${String(input.billDate || dateStr(new Date())).slice(0, 10)}T00:00:00.000Z`);
+  const dueDate = new Date(`${String(input.dueDate || input.billDate || dateStr(new Date())).slice(0, 10)}T00:00:00.000Z`);
+  if (Number.isNaN(billDate.getTime()) || Number.isNaN(dueDate.getTime())) throw badRequest("Enter valid bill and due dates.");
   if (dueDate < billDate) throw badRequest("The due date is before the bill date.");
 
   return prisma.$transaction(async (tx) => {
@@ -255,7 +288,7 @@ const billTarget = (bill: { id: string; businessUnitId: string; amount: { toStri
 });
 
 /** Approves a bill; with an `actor`, through the multilayer approval pipeline (stays PENDING until the last stage). */
-export async function approveSupplierBill(id: string, actorName: string, actor?: Actor) {
+export async function approveSupplierBill(id: string, actorName: string, actor?: PurchaseActor) {
   const bill = await db().supplierBill.findUnique({ where: { id } }).catch(() => null);
   if (!bill) throw notFound("Bill");
   if (bill.status !== "PENDING") throw badRequest(`Bill ${bill.number} is already ${bill.status.toLowerCase()}.`);
@@ -267,9 +300,10 @@ export async function approveSupplierBill(id: string, actorName: string, actor?:
 
 /**
  * Approves every pending bill. With an `actor`, each bill goes through its
- * pipeline; bills where the actor is not the current stage's approver are skipped.
+ * pipeline; bills where the actor is not the current stage's approver are skipped
+ * (refused with 403 when the actor can act on none of them).
  */
-export async function approvePendingSupplierBills(actorName: string, actor?: Actor) {
+export async function approvePendingSupplierBills(actorName: string, actor?: PurchaseActor) {
   if (!actor) {
     const result = await db().supplierBill.updateMany({ where: { status: "PENDING" }, data: { status: "APPROVED", approvedBy: actorName, approvedAt: new Date() } });
     return { approved: result.count };
@@ -293,6 +327,9 @@ export async function approvePendingSupplierBills(actorName: string, actor?: Act
       if (error instanceof AppError && error.status === 403) skipped += 1;
       else throw error;
     }
+  }
+  if (skipped > 0 && approved + advanced === 0) {
+    throw new AppError(403, "FORBIDDEN", "You are not the current approver of any pending bill in the approval pipeline.");
   }
   return { approved, advanced, skipped };
 }
@@ -320,8 +357,8 @@ export async function listPaymentHistory() {
 }
 
 /** Advances per supplier: paid as advance, and what is still unused. */
-export async function listSupplierAdvances() {
-  const { suppliers, payments, allocation } = await loadPayables();
+export async function listSupplierAdvances(filters?: PayablesDateFilter) {
+  const { suppliers, payments, allocation } = await loadPayables(filters);
   return suppliers
     .map((s) => {
       const advanceAmount = round2(payments.filter((p) => p.supplierId === s.id && p.isAdvance).reduce((t, p) => t + num(p.amount), 0));
@@ -331,11 +368,36 @@ export async function listSupplierAdvances() {
     .filter((a) => a.advanceAmount > 0);
 }
 
+/** Individual advance payment vouchers, newest first, for Tab 5 Details view. */
+export async function listSupplierAdvanceDetails(filters?: PayablesDateFilter) {
+  const range = dateRangeWhere(filters?.fromDate, filters?.toDate);
+  const rows = await db().supplierPayment.findMany({
+    where: { status: "PAID", isAdvance: true, ...(range ? { paymentDate: range } : {}) },
+    include: { supplier: { select: { name: true, code: true } }, order: { select: { number: true } } },
+    orderBy: [{ paymentDate: "desc" }, { createdAt: "desc" }],
+  });
+  return rows.map((p) => ({
+    id: p.id,
+    number: p.number,
+    paymentDate: dateStr(p.paymentDate),
+    supplierId: p.supplierId,
+    supplierCode: p.supplier.code,
+    supplierName: p.supplier.name,
+    orderNumber: p.order?.number ?? "",
+    method: p.method,
+    referenceNumber: p.referenceNumber ?? "",
+    remarks: p.remarks ?? "",
+    amount: num(p.amount),
+  }));
+}
+
 /** Checks a payment's link and amount before it is posted. */
 export async function validatePaymentLink(supplierId: string, receiptId: string | null, billId: string | null, amount: number) {
   if (!receiptId && !billId) return;
   const invoices = await listSupplierInvoices();
   const target = invoices.find((inv) => (receiptId ? inv.receiptId === receiptId : inv.billId === billId));
   if (!target || target.supplierId !== supplierId) throw badRequest("The invoice does not belong to this supplier.");
+  // A booked bill is released for payment by approving it.
+  if (target.billStatus === "PENDING") throw badRequest(`Bill ${target.billNumber ?? target.invoiceNumber} is not approved yet; approve it before paying.`);
   if (amount > target.dueAmount + 0.005) throw badRequest(`Only ${target.dueAmount.toFixed(2)} is due on ${target.invoiceNumber}.`);
 }

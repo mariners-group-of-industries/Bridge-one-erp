@@ -151,6 +151,80 @@
   }
 }
 
+/*
+ * Printing while a dialog (data-print-modal) is open prints only the dialog's
+ * content: the page behind it, the overlay and the dialog chrome are left out,
+ * and the scroll box is released so long documents print on every page.
+ */
+@media print {
+  @page {
+    size: A4;
+    margin: 10mm;
+  }
+  * {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  /* Collapse background ERP chrome & tables completely so short print modals never spill onto a blank 2nd page. */
+  html:has([data-print-modal]),
+  body:has([data-print-modal]) {
+    background: #ffffff !important;
+    height: auto !important;
+    min-height: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: visible !important;
+  }
+  body:has([data-print-modal]) :not([data-print-modal]):not(:has([data-print-modal])):not([data-print-modal] *) {
+    display: none !important;
+  }
+  body:has([data-print-modal]) :has([data-print-modal]) {
+    display: block !important;
+    position: static !important;
+    width: 100% !important;
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    overflow: visible !important;
+  }
+  body:has([data-print-modal]) [data-print-modal] {
+    position: static !important;
+    inset: auto !important;
+    width: 100% !important;
+    height: auto !important;
+    min-height: 0 !important;
+    display: block !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    background: #ffffff !important;
+    backdrop-filter: none !important;
+    animation: none !important;
+  }
+  body:has([data-print-modal]) [data-print-sheet] {
+    max-width: none !important;
+    width: 100% !important;
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    overflow: visible !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    display: block !important;
+  }
+  body:has([data-print-modal]) [data-print-body] {
+    overflow: visible !important;
+    padding: 0 !important;
+    height: auto !important;
+    flex: none !important;
+  }
+}
+
 /* Dense ERP table scroll and sticky headers with full grid lines (All Borders) */
 .erp-table-container {
   overflow-x: auto;
@@ -162,7 +236,7 @@
   width: 100%;
   border-collapse: separate;
   border-spacing: 0;
-  font-size: 12px;
+  font-size: 11px;
 }
 
 .erp-table th {
@@ -170,15 +244,16 @@
   top: 0;
   background-color: var(--grid-head);
   z-index: 10;
-  font-weight: 700;
+  font-weight: 600;
   color: var(--grid-head-ink);
-  text-transform: uppercase;
-  letter-spacing: 0.025em;
-  padding: 8px 10px;
+  letter-spacing: normal;
+  padding: 5px 6px;
   border-top: 1px solid var(--grid-head-line);
   border-right: 1px solid var(--grid-head-line);
   border-bottom: 2px solid var(--grid-head-rule);
-  white-space: nowrap;
+  white-space: normal;
+  line-height: 1.25;
+  vertical-align: middle;
 }
 
 .erp-table th:first-child {
@@ -186,11 +261,13 @@
 }
 
 .erp-table td {
-  padding: 8px 10px;
+  padding: 5px 6px;
   border-right: 1px solid var(--grid-line);
   border-bottom: 1px solid var(--grid-line);
   color: var(--ink);
-  white-space: nowrap;
+  white-space: normal;
+  line-height: 1.25;
+  vertical-align: middle;
 }
 
 .erp-table td:first-child {
@@ -199,6 +276,56 @@
 
 .erp-table tr:hover td {
   background-color: var(--grid-hover);
+}
+
+/* Compact Managerium-style dense ERP table */
+.erp-table-compact {
+  font-size: 11px;
+  line-height: 1.25;
+}
+
+.erp-table-compact th {
+  padding: 4px 6px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: normal;
+  white-space: normal;
+  line-height: 1.2;
+  vertical-align: middle;
+  background-color: #dbeafe;
+  color: #1e3a8a;
+  border-top: 1px solid #93c5fd;
+  border-right: 1px solid #bfdbfe;
+  border-bottom: 2px solid #60a5fa;
+}
+
+.erp-table-compact th:first-child {
+  border-left: 1px solid #93c5fd;
+}
+
+.erp-table-compact td {
+  padding: 4px 6px;
+  font-size: 11px;
+  line-height: 1.25;
+  white-space: normal;
+  vertical-align: middle;
+  border-right: 1px solid #e2e8f0;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.erp-table-compact td:first-child {
+  border-left: 1px solid #e2e8f0;
+}
+
+[data-theme="dark"] .erp-table-compact th {
+  background-color: var(--grid-head);
+  color: var(--grid-head-ink);
+  border-color: var(--grid-head-line);
+}
+
+[data-theme="dark"] .erp-table-compact td {
+  border-color: var(--grid-line);
 }
 
 /*

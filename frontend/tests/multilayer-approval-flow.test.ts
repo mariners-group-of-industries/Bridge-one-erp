@@ -76,7 +76,7 @@ describe("multilayer approval: purchase requisition", () => {
 
     // Stage 1: still pending, waiting at stage 2.
     const afterStage1 = await purchaseStore.updateRequisitionStatus(req.id, "APPROVE", "Store Manager", "OK", manager);
-    expect(afterStage1.status).toBe("SUBMITTED");
+    expect(afterStage1?.status).toBe("SUBMITTED");
     expect((await prisma.purchaseRequisition.findUniqueOrThrow({ where: { id: req.id } })).status).toBe("PENDING");
 
     // The summary page shows it waiting at the Finance stage.
@@ -86,7 +86,7 @@ describe("multilayer approval: purchase requisition", () => {
 
     // Stage 2: approved.
     const approved = await purchaseStore.updateRequisitionStatus(req.id, "APPROVE", "Finance Head", "Budget OK", finance);
-    expect(approved.status).toBe("APPROVED");
+    expect(approved?.status).toBe("APPROVED");
     expect((await approvalTrail("Purchase Requisition", req.id)).map((s) => [s.name, s.status, s.approvedNames])).toEqual([
       ["Store Manager", "APPROVED", ["Store Manager"]],
       ["Finance", "APPROVED", ["Finance Head"]],

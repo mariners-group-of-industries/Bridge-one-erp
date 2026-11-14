@@ -1,15 +1,24 @@
 "use client";
 
-import Image from "next/image";
+import { useRouter } from "next/navigation";
 import React, { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, Download, Eye, Pencil, Plus, Printer, RotateCcw, Search, Trash2, X } from "lucide-react";
 import { ModalDialog } from "@/components/purchase/ModalDialog";
+import {
+  PrintablePurchaseDoc,
+  PurchasePrintToolbar,
+  fmtPrintDate,
+  fmtPrintNum,
+  type PrintHeaderContext,
+} from "@/components/purchase/PrintablePurchaseDoc";
 import { toast } from "@/components/purchase/Toast";
 import { Spinner } from "@/components/ui/spinner";
 import { fetchApi } from "@/lib/api";
 import { formatCurrency } from "@/lib/utils";
 import { orderTotals, priceLine } from "@/lib/purchase-store/rules";
+import { PURCHASE_QUERY_KEYS, downloadCsv } from "@/features/purchase/lib/client";
+import { usePurchasePermissions } from "@/features/purchase/lib/usePurchasePermissions";
 import type { Item, Office, PurchaseOrder, PurchaseRequisition, Supplier, Warehouse } from "@bridgeone/contracts";
 
 type Tab = "LOCAL_PO" | "REQUISITION_SUMMARY" | "PURCHASE_METHOD";
@@ -63,8 +72,6 @@ const METHOD_LABEL: Record<string, string> = {
   CONTRACT: "Contract / Rate Agreement",
 };
 
-const today = () => new Date().toISOString().slice(0, 10);
-const inDays = (days: number) => new Date(Date.now() + days * 86_400_000).toISOString().slice(0, 10);
 let lineKey = 0;
 const newLine = (partial: Partial<FormLine> = {}): FormLine => ({
   key: ++lineKey,
@@ -84,7 +91,14 @@ const inputCls =
 const btnPrimary =
   "h-9 px-4 bg-[#2563eb] hover:bg-blue-700 disabled:opacity-60 text-white font-semibold text-xs rounded inline-flex items-center justify-center gap-1.5 shadow-xs transition";
 const btnGhost = "h-9 px-4 border border-slate-300 rounded text-slate-700 hover:bg-slate-50 text-xs font-semibold";
-const iconBtn = "inline-flex items-center justify-center size-7 rounded hover:bg-slate-200 text-slate-700 transition disabled:opacity-30 disabled:hover:bg-transparent";
+const iconBtn = "inline-flex items-center justify-center size-5.5 rounded hover:bg-slate-200 text-slate-700 transition disabled:opacity-30 disabled:hover:bg-transparent";
+
+function formatEta(dateStr?: string) {
+  if (!dateStr) return "—";
+  const dt = new Date(`${dateStr}T00:00:00`);
+  if (Number.isNaN(dt.getTime())) return dateStr;
+  return `00.00h (${dt.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })})`;
+}
 
 function statusLabel(po: Order) {
   if (po.isClosed) return { text: "Closed", cls: "text-slate-600" };
@@ -108,17 +122,6 @@ const anyReceived = (po: Order) => po.items.some((i) => i.receivedQuantity > 0);
 const canEdit = (po: Order) => !po.isClosed && (po.status === "APPROVED" || po.status === "PENDING_APPROVAL" || po.status === "DRAFT") && !anyReceived(po);
 const canCloseOrCancel = (po: Order) => !po.isClosed && (po.status === "APPROVED" || po.status === "PARTIALLY_RECEIVED" || po.status === "PENDING_APPROVAL" || po.status === "DRAFT");
 const canReverse = (po: Order) => Boolean(po.isClosed) || (po.status === "APPROVED" && !anyReceived(po));
-
-function downloadCsv(name: string, header: string[], rows: (string | number)[][]) {
-  const esc = (v: string | number) => `"${String(v ?? "").replace(/"/g, '""')}"`;
-  const csv = [header.map(esc).join(","), ...rows.map((r) => r.map(esc).join(","))].join("\r\n");
-  const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = name;
-  a.click();
-  URL.revokeObjectURL(url);
-}
 
 function Pager({ total, page, size, onPage, onSize }: { total: number; page: number; size: number; onPage: (p: number) => void; onSize: (s: number) => void }) {
   const pages = Math.max(1, Math.ceil(total / size));
@@ -164,6 +167,7 @@ function usePaging<T>(rows: T[]) {
 }
 
 export default function PurchaseOrdersPage() {
+  const router = useRouter();
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<Tab>("LOCAL_PO");
   const [search, setSearch] = useState("");
@@ -184,6 +188,8 @@ export default function PurchaseOrdersPage() {
   // Purchase method filters
   const [pmOffice, setPmOffice] = useState("ALL");
   const [pmWarehouse, setPmWarehouse] = useState("ALL");
+  const [pmBuyerName, setPmBuyerName] = useState("");
+  const [pmBuyerOffice, setPmBuyerOffice] = useState("ALL");
   const [pmReqType, setPmReqType] = useState("ALL");
   const [pmFrom, setPmFrom] = useState("");
   const [pmTo, setPmTo] = useState("");
@@ -196,12 +202,13 @@ export default function PurchaseOrdersPage() {
   const [actionComment, setActionComment] = useState("");
   const [viewReq, setViewReq] = useState<PurchaseRequisition | null>(null);
 
-  // Master data
+  // Master data & permissions
+  const perms = usePurchasePermissions();
   const { data: offices = [] } = useQuery<Office[]>({ queryKey: ["offices"], queryFn: () => fetchApi("/master/offices") });
   const { data: warehouses = [] } = useQuery<Warehouse[]>({ queryKey: ["warehouses", "ALL"], queryFn: () => fetchApi("/master/warehouses") });
   const { data: suppliers = [] } = useQuery<Supplier[]>({ queryKey: ["suppliers"], queryFn: () => fetchApi("/master/suppliers") });
   const { data: items = [] } = useQuery<Item[]>({ queryKey: ["items"], queryFn: () => fetchApi("/master/items") });
-  const { data: context } = useQuery<{ company: { name: string } }>({ queryKey: ["context"], queryFn: () => fetchApi("/master/context") });
+  const { data: context } = useQuery<PrintHeaderContext>({ queryKey: ["context"], queryFn: () => fetchApi("/master/context") });
 
   const { data: orders = [], isFetching: ordersLoading, refetch } = useQuery<Order[]>({
     queryKey: ["purchaseOrders", officeFilter, supplierFilter, statusFilter, fromDate, toDate],
@@ -215,7 +222,7 @@ export default function PurchaseOrdersPage() {
       return fetchApi(`/purchase/orders?${p.toString()}`);
     },
   });
-  const { data: approvedReqs = [] } = useQuery<PurchaseRequisition[]>({
+  const { data: approvedReqs = [], isFetching: approvedReqsLoading } = useQuery<PurchaseRequisition[]>({
     queryKey: ["approvedReqs"],
     queryFn: () => fetchApi("/purchase/requisitions?status=APPROVED"),
   });
@@ -249,21 +256,24 @@ export default function PurchaseOrdersPage() {
 
   const filteredSummary = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return summary.filter((r) => !q || [r.itemCode, r.itemName, r.category].some((v) => v.toLowerCase().includes(q)));
+    return summary.filter((r) => !q || [r.itemCode, r.itemName, r.category, r.subCategory].some((v) => v.toLowerCase().includes(q)));
   }, [summary, search]);
 
   const methodReqs = useMemo(() => {
     const q = search.trim().toLowerCase();
+    const buyerQ = pmBuyerName.trim().toLowerCase();
     return approvedReqs.filter((r) => {
       if (pmOffice !== "ALL" && r.officeId !== pmOffice) return false;
       if (pmWarehouse !== "ALL" && r.warehouseId !== pmWarehouse) return false;
+      if (pmBuyerOffice !== "ALL" && r.officeId !== pmBuyerOffice) return false;
+      if (buyerQ && ![r.requesterName, r.createdBy].some((v) => v.toLowerCase().includes(buyerQ))) return false;
       if (pmReqType !== "ALL" && r.requestType !== pmReqType) return false;
       if (pmFrom && r.requestDate < pmFrom) return false;
       if (pmTo && r.requestDate > pmTo) return false;
-      if (q && ![r.requisitionNumber, r.requesterName, r.department].some((v) => v.toLowerCase().includes(q))) return false;
+      if (q && ![r.requisitionNumber, r.requesterName, r.department, r.remarks ?? ""].some((v) => v.toLowerCase().includes(q))) return false;
       return true;
     });
-  }, [approvedReqs, pmOffice, pmWarehouse, pmReqType, pmFrom, pmTo, search]);
+  }, [approvedReqs, pmOffice, pmWarehouse, pmBuyerName, pmBuyerOffice, pmReqType, pmFrom, pmTo, search]);
 
   const ordersPage = usePaging(filteredOrders);
   const summaryPage = usePaging(filteredSummary);
@@ -273,12 +283,7 @@ export default function PurchaseOrdersPage() {
   // Mutations
   // ---------------------------------------------------------------
   const invalidate = () => {
-    queryClient.invalidateQueries({ queryKey: ["purchaseOrders"] });
-    queryClient.invalidateQueries({ queryKey: ["approvedReqs"] });
-    queryClient.invalidateQueries({ queryKey: ["requisitionSummary"] });
-    queryClient.invalidateQueries({ queryKey: ["requisitions"] });
-    queryClient.invalidateQueries({ queryKey: ["approvedPOs"] });
-    queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+    for (const key of PURCHASE_QUERY_KEYS) queryClient.invalidateQueries({ queryKey: [key] });
   };
 
   const saveMutation = useMutation({
@@ -349,25 +354,7 @@ export default function PurchaseOrdersPage() {
   // Form helpers
   // ---------------------------------------------------------------
   const openCreate = (req?: PurchaseRequisition) => {
-    const officeId = req?.officeId ?? offices[0]?.id ?? "";
-    setForm({
-      editId: null,
-      requisitionId: req?.id ?? "",
-      supplierId: "",
-      officeId,
-      warehouseId: req?.warehouseId ?? warehouses.find((w) => w.officeId === officeId)?.id ?? "",
-      orderDate: today(),
-      expectedDeliveryDate: req?.requiredDeliveryDate && req.requiredDeliveryDate >= today() ? req.requiredDeliveryDate : inDays(7),
-      referenceNumber: "",
-      projectCostCenter: "",
-      paymentTerms: "Net 30 Days",
-      deliveryTerms: "FOB Warehouse",
-      shippingFee: 0,
-      notes: "",
-      lines: req
-        ? req.items.map((i) => newLine({ itemId: i.itemId, itemCode: i.itemCode, itemName: i.itemName, uom: i.uom, orderedQuantity: i.quantity, unitPrice: i.estimatedUnitPrice }))
-        : [newLine()],
-    });
+    router.push(req ? `/purchase/orders/create?requisitionId=${req.id}` : "/purchase/orders/create");
   };
 
   const openEdit = (po: Order) =>
@@ -438,20 +425,47 @@ export default function PurchaseOrdersPage() {
     if (activeTab === "LOCAL_PO") {
       downloadCsv(
         "purchase_orders.csv",
-        ["SL", "PO Date", "Expected Date", "Reference No", "PO No", "Requisition No", "Office", "Project/Ref", "Supplier", "Created By", "Amount (BDT)", "Status"],
-        filteredOrders.map((o, i) => [i + 1, o.orderDate, o.expectedDeliveryDate, o.referenceNumber ?? "", o.poNumber, o.requisitionNumber ?? "", o.officeName, o.projectCostCenter ?? "", o.supplierName, o.createdBy, o.totalAmount, statusLabel(o).text]),
+        ["SL", "PO Date", "Recr. Date", "Reference No", "PO No", "Office", "Project/Outlet/Ref.", "Supplier", "Created By", "Amount (BDT)", "ETA Estimated Time of Arrival", "Status", "Review Comment"],
+        filteredOrders.map((o, i) => [
+          i + 1,
+          o.orderDate,
+          o.expectedDeliveryDate,
+          o.referenceNumber ?? "N/A",
+          o.poNumber,
+          o.officeName,
+          o.projectCostCenter ?? "",
+          o.supplierName,
+          o.createdBy,
+          o.totalAmount,
+          o.expectedDeliveryDate,
+          statusLabel(o).text,
+          o.approvalHistory?.[o.approvalHistory.length - 1]?.comments ?? "",
+        ]),
       );
     } else if (activeTab === "REQUISITION_SUMMARY") {
       downloadCsv(
         "requisition_summary.csv",
-        ["SL", "Item Code", "Item Name", "Category", "Sub Category", "UoM", "Requested Qty", "Current Stock"],
+        ["SL", "Item Code", "Item Name", "Category", "Sub-Category", "UoM", "Quantity", "Current Stock"],
         filteredSummary.map((r, i) => [i + 1, r.itemCode, r.itemName, r.category, r.subCategory, r.uom, r.quantity, r.currentStock]),
       );
     } else {
       downloadCsv(
         "purchase_method.csv",
-        ["SL", "Requisition", "Date", "Department", "Requested By", "Office", "Warehouse", "Type", "Method", "Budget", "Status"],
-        methodReqs.map((r, i) => [i + 1, r.requisitionNumber, r.requestDate, r.department, r.requesterName, officeName(r.officeId), warehouseName(r.warehouseId), r.requestType, METHOD_LABEL[r.purchaseMethod] ?? r.purchaseMethod, r.totalEstimatedAmount, r.status]),
+        ["SL", "Requisition Code", "Date", "User Type", "User", "Buyer Name", "Buyer Office", "Method", "Budget", "Created By", "Remarks", "Status"],
+        methodReqs.map((r, i) => [
+          i + 1,
+          r.requisitionNumber,
+          r.requestDate,
+          r.department ? "Department" : "Employee",
+          r.department || r.requesterName,
+          r.requesterName || "N/A",
+          officeName(r.officeId) || "N/A",
+          METHOD_LABEL[r.purchaseMethod] ?? r.purchaseMethod,
+          r.totalEstimatedAmount,
+          r.createdBy,
+          r.remarks ?? "",
+          r.status === "APPROVED" ? "Approved" : r.status,
+        ]),
       );
     }
   };
@@ -479,11 +493,13 @@ export default function PurchaseOrdersPage() {
             />
             <Search className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
           </div>
-          <button type="button" onClick={handleExport} className={btnPrimary} title="Download Excel (CSV)">
-            <Download className="w-3.5 h-3.5" />
-            <span>Excel</span>
-          </button>
-          {activeTab === "LOCAL_PO" && (
+          {perms.orders.export && (
+            <button type="button" onClick={handleExport} className={btnPrimary} title="Download Excel (CSV)">
+              <Download className="w-3.5 h-3.5" />
+              <span>Excel</span>
+            </button>
+          )}
+          {activeTab === "LOCAL_PO" && perms.orders.create && (
             <button type="button" onClick={() => openCreate()} className={btnPrimary}>
               <Plus className="w-4 h-4" />
               <span>Create Local Order</span>
@@ -527,7 +543,7 @@ export default function PurchaseOrdersPage() {
                 </select>
               </label>
               <label className="block">
-                <span className="block text-[11px] font-semibold text-slate-700 mb-1">Status</span>
+                <span className="block text-[11px] font-semibold text-slate-700 mb-1">Filter By</span>
                 <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className={inputCls}>
                   <option value="ALL">All Statuses</option>
                   <option value="PENDING_APPROVAL">Pending Approval</option>
@@ -550,9 +566,9 @@ export default function PurchaseOrdersPage() {
                 </select>
               </label>
               <label className="block">
-                <span className="block text-[11px] font-semibold text-slate-700 mb-1">Supplier</span>
+                <span className="block text-[11px] font-semibold text-slate-700 mb-1">Select Supplier</span>
                 <select value={supplierFilter} onChange={(e) => setSupplierFilter(e.target.value)} className={inputCls}>
-                  <option value="ALL">All Suppliers</option>
+                  <option value="ALL">Select/Search Supplier (All)</option>
                   {suppliers.map((s) => (
                     <option key={s.id} value={s.id}>
                       {s.name}
@@ -596,40 +612,49 @@ export default function PurchaseOrdersPage() {
 
           <div className="bg-white rounded border border-slate-200/90 shadow-2xs overflow-hidden">
             <div className="erp-table-container">
-              <table className="erp-table">
+              <table className="erp-table erp-table-compact">
                 <thead>
                   <tr>
-                    <th className="w-12 text-center">SL</th>
-                    <th className="w-[190px] text-center">Actions</th>
-                    <th>PO Date</th>
-                    <th>Expected Date</th>
-                    <th>Reference No</th>
-                    <th>PO No</th>
-                    <th>Requisition</th>
+                    <th className="w-7 text-center whitespace-nowrap">SL</th>
+                    <th className="w-[125px] min-w-[120px] text-center whitespace-nowrap">Actions</th>
+                    <th className="whitespace-nowrap">PO Date</th>
+                    <th className="whitespace-nowrap">Recr. Date</th>
+                    <th className="text-center">Reference No</th>
+                    <th className="whitespace-nowrap">PO No</th>
                     <th>Office</th>
-                    <th>Project/Ref.</th>
+                    <th>Project / Ref.</th>
                     <th>Supplier</th>
                     <th>Created By</th>
-                    <th className="text-right">Amount (BDT)</th>
-                    <th className="text-center">Status</th>
+                    <th className="text-right whitespace-nowrap">Amount (BDT)</th>
+                    <th className="text-center leading-tight">ETA / Arrival</th>
+                    <th className="text-center whitespace-nowrap">Status</th>
+                    <th className="max-w-[120px] text-center">Review Comment</th>
                   </tr>
                 </thead>
                 <tbody>
                   {ordersPage.slice.length === 0 ? (
                     <tr>
-                      <td colSpan={13} className="text-center py-10 text-slate-400">
+                      <td colSpan={14} className="text-center py-10 text-slate-400">
                         {ordersLoading ? "Loading purchase orders…" : "No purchase orders match the filters."}
                       </td>
                     </tr>
                   ) : (
                     ordersPage.slice.map((row, idx) => {
                       const st = statusLabel(row);
+                      const reviewComment = row.approvalHistory?.[row.approvalHistory.length - 1]?.comments;
                       return (
                         <tr key={row.id}>
-                          <td className="text-center font-mono text-slate-600">{ordersPage.offset + idx + 1}</td>
-                          <td className="text-center">
+                          <td className="text-center font-mono text-[11px] text-slate-500">{ordersPage.offset + idx + 1}</td>
+                          <td className="text-center whitespace-nowrap">
                             <div className="flex items-center justify-center gap-0.5">
-                              <button type="button" disabled={!canEdit(row)} onClick={() => openEdit(row)} className={iconBtn} title="Edit" aria-label="Edit purchase order">
+                              <button
+                                type="button"
+                                disabled={!canEdit(row) || !perms.orders.edit}
+                                onClick={() => openEdit(row)}
+                                className={iconBtn}
+                                title={!perms.orders.edit ? "Requires Edit permission in Configuration" : "Edit"}
+                                aria-label="Edit purchase order"
+                              >
                                 <Pencil className="w-3.5 h-3.5" />
                               </button>
                               <button type="button" onClick={() => setPrintPO(row)} className={iconBtn} title="Print" aria-label="Print purchase order">
@@ -641,12 +666,17 @@ export default function PurchaseOrdersPage() {
                               {row.status === "PENDING_APPROVAL" && (
                                 <button
                                   type="button"
+                                  disabled={!perms.canApproveOrder(row.officeId, row.totalAmount)}
                                   onClick={() => {
                                     setActionPO({ po: row, action: "approve" });
                                     setActionComment("");
                                   }}
                                   className={`${iconBtn} hover:bg-emerald-100 hover:text-emerald-700`}
-                                  title="Approve"
+                                  title={
+                                    !perms.canApproveOrder(row.officeId, row.totalAmount)
+                                      ? "Requires Approve permission & Approval Setup eligibility in Configuration"
+                                      : "Approve"
+                                  }
                                   aria-label="Approve purchase order"
                                 >
                                   <Check className="w-3.5 h-3.5" />
@@ -654,47 +684,56 @@ export default function PurchaseOrdersPage() {
                               )}
                               <button
                                 type="button"
-                                disabled={!canCloseOrCancel(row)}
+                                disabled={!canCloseOrCancel(row) || (anyReceived(row) ? !perms.orders.edit : !perms.orders.delete)}
                                 onClick={() => {
                                   setActionPO({ po: row, action: anyReceived(row) ? "close" : "cancel" });
                                   setActionComment("");
                                 }}
                                 className={`${iconBtn} hover:bg-rose-100 hover:text-rose-700`}
-                                title={anyReceived(row) ? "Close (stop receiving)" : "Cancel order"}
+                                title={
+                                  anyReceived(row)
+                                    ? !perms.orders.edit
+                                      ? "Requires Edit permission in Configuration to close order"
+                                      : "Close (stop receiving)"
+                                    : !perms.orders.delete
+                                      ? "Requires Delete permission in Configuration to cancel order"
+                                      : "Cancel order"
+                                }
                                 aria-label="Close or cancel purchase order"
                               >
                                 <X className="w-3.5 h-3.5" />
                               </button>
                               <button
                                 type="button"
-                                disabled={!canReverse(row)}
+                                disabled={!canReverse(row) || !perms.orders.edit}
                                 onClick={() => {
                                   setActionPO({ po: row, action: "reverse" });
                                   setActionComment("");
                                 }}
                                 className={`${iconBtn} hover:bg-amber-100 hover:text-amber-800`}
-                                title="Reverse status"
+                                title={!perms.orders.edit ? "Requires Edit permission in Configuration" : "Reverse status"}
                                 aria-label="Reverse purchase order status"
                               >
                                 <RotateCcw className="w-3.5 h-3.5" />
                               </button>
                             </div>
                           </td>
-                          <td>{row.orderDate}</td>
-                          <td>{row.expectedDeliveryDate}</td>
-                          <td className="text-slate-500 font-mono text-[11px]">{row.referenceNumber || "—"}</td>
-                          <td>
+                          <td className="whitespace-nowrap font-mono text-[11px] text-center">{row.orderDate}</td>
+                          <td className="whitespace-nowrap font-mono text-[11px] text-center">{row.expectedDeliveryDate}</td>
+                          <td className="text-slate-500 font-mono text-[11px] text-center">{row.referenceNumber || "—"}</td>
+                          <td className="whitespace-nowrap">
                             <button type="button" onClick={() => setViewPO(row)} className="font-mono text-sky-700 font-semibold hover:underline">
                               {row.poNumber}
                             </button>
                           </td>
-                          <td className="font-mono text-[11px] text-slate-600">{row.requisitionNumber || "—"}</td>
-                          <td>{row.officeName}</td>
-                          <td className="text-slate-500">{row.projectCostCenter || "—"}</td>
-                          <td className="font-medium text-slate-900">{row.supplierName}</td>
-                          <td>{row.createdBy}</td>
-                          <td className="text-right font-mono font-bold text-slate-900">{formatCurrency(row.totalAmount)}</td>
-                          <td className={`text-center text-[11px] font-semibold ${st.cls}`}>{st.text}</td>
+                          <td className="leading-tight">{row.officeName}</td>
+                          <td className="text-slate-500 text-[11px]">{row.projectCostCenter || "—"}</td>
+                          <td className="font-medium text-slate-900 leading-tight">{row.supplierName}</td>
+                          <td className="text-slate-700 text-[11px] leading-tight">{row.createdBy}</td>
+                          <td className="text-right font-mono font-semibold text-slate-900 whitespace-nowrap">{formatCurrency(row.totalAmount)}</td>
+                          <td className="text-slate-600 text-[11px] text-center whitespace-nowrap">{formatEta(row.expectedDeliveryDate)}</td>
+                          <td className={`text-center text-[11px] font-semibold whitespace-nowrap ${st.cls}`}>{st.text}</td>
+                          <td className="text-slate-500 text-[11px] max-w-[120px] truncate" title={reviewComment || ""}>{reviewComment || "—"}</td>
                         </tr>
                       );
                     })
@@ -740,24 +779,23 @@ export default function PurchaseOrdersPage() {
           </div>
           <div className="bg-white rounded border border-slate-200/90 shadow-2xs overflow-hidden">
             <div className="erp-table-container">
-              <table className="erp-table">
+              <table className="erp-table erp-table-compact">
                 <thead>
                   <tr>
                     <th className="w-12 text-center">SL</th>
                     <th>Item Code</th>
                     <th>Item Name</th>
                     <th>Category</th>
-                    <th>Sub Category</th>
+                    <th>Sub-Category</th>
                     <th className="text-center">UoM</th>
-                    <th className="text-center">Requisitions</th>
-                    <th className="text-right">Requested Qty</th>
+                    <th className="text-right">Quantity</th>
                     <th className="text-right">Current Stock</th>
                   </tr>
                 </thead>
                 <tbody>
                   {summaryPage.slice.length === 0 ? (
                     <tr>
-                      <td colSpan={9} className="text-center py-10 text-slate-400">
+                      <td colSpan={8} className="text-center py-10 text-slate-400">
                         {summaryLoading ? "Loading…" : "No approved requisition items are waiting for an order."}
                       </td>
                     </tr>
@@ -768,9 +806,8 @@ export default function PurchaseOrdersPage() {
                         <td className="font-mono text-blue-700 font-semibold">{row.itemCode}</td>
                         <td className="font-semibold text-slate-800">{row.itemName}</td>
                         <td>{row.category}</td>
-                        <td className="text-slate-500">{row.subCategory}</td>
+                        <td className="text-slate-500">{row.subCategory || "—"}</td>
                         <td className="text-center">{row.uom}</td>
-                        <td className="text-center font-mono">{row.requisitions}</td>
                         <td className="text-right font-mono font-bold text-slate-900">{row.quantity.toLocaleString("en-US", { maximumFractionDigits: 3 })}</td>
                         <td className={`text-right font-mono font-semibold ${row.currentStock < row.quantity ? "text-rose-600" : "text-slate-700"}`}>
                           {row.currentStock.toLocaleString("en-US", { maximumFractionDigits: 3 })}
@@ -790,7 +827,7 @@ export default function PurchaseOrdersPage() {
       {activeTab === "PURCHASE_METHOD" && (
         <div className="space-y-3">
           <div className="bg-white rounded border border-slate-200/90 p-3.5 shadow-2xs">
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-3">
               <label className="block">
                 <span className="block text-[11px] font-semibold text-slate-700 mb-1">Office</span>
                 <select
@@ -823,6 +860,27 @@ export default function PurchaseOrdersPage() {
                 </select>
               </label>
               <label className="block">
+                <span className="block text-[11px] font-semibold text-slate-700 mb-1">Buyer Name</span>
+                <input
+                  type="text"
+                  value={pmBuyerName}
+                  onChange={(e) => setPmBuyerName(e.target.value)}
+                  placeholder="Select/Search Buyer Name (min 3 letters)"
+                  className={inputCls}
+                />
+              </label>
+              <label className="block">
+                <span className="block text-[11px] font-semibold text-slate-700 mb-1">Buyer Office</span>
+                <select value={pmBuyerOffice} onChange={(e) => setPmBuyerOffice(e.target.value)} className={inputCls}>
+                  <option value="ALL">All Buyer Offices</option>
+                  {offices.map((o) => (
+                    <option key={o.id} value={o.id}>
+                      {o.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="block">
                 <span className="block text-[11px] font-semibold text-slate-700 mb-1">Req Type</span>
                 <select value={pmReqType} onChange={(e) => setPmReqType(e.target.value)} className={inputCls}>
                   <option value="ALL">All Types</option>
@@ -841,29 +899,59 @@ export default function PurchaseOrdersPage() {
                 <input type="date" value={pmTo} onChange={(e) => setPmTo(e.target.value)} className={inputCls} />
               </label>
             </div>
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => queryClient.invalidateQueries({ queryKey: ["approvedReqs"] })}
+                disabled={approvedReqsLoading}
+                className={btnPrimary}
+              >
+                {approvedReqsLoading && <Spinner className="size-3.5" />}
+                VIEW
+              </button>
+              {(pmOffice !== "ALL" || pmWarehouse !== "ALL" || pmBuyerName || pmBuyerOffice !== "ALL" || pmReqType !== "ALL" || pmFrom || pmTo) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPmOffice("ALL");
+                    setPmWarehouse("ALL");
+                    setPmBuyerName("");
+                    setPmBuyerOffice("ALL");
+                    setPmReqType("ALL");
+                    setPmFrom("");
+                    setPmTo("");
+                  }}
+                  className="h-9 px-2 text-xs text-slate-500 hover:text-slate-800 underline"
+                >
+                  Clear Filters
+                </button>
+              )}
+            </div>
           </div>
           <div className="bg-white rounded border border-slate-200/90 shadow-2xs overflow-hidden">
             <div className="erp-table-container">
-              <table className="erp-table">
+              <table className="erp-table erp-table-compact">
                 <thead>
                   <tr>
                     <th className="w-12 text-center">SL</th>
                     <th className="w-24 text-center">Actions</th>
-                    <th>Requisition</th>
+                    <th>Requisition Code</th>
                     <th>Date</th>
-                    <th>Department</th>
-                    <th>Requested By</th>
-                    <th>Office</th>
-                    <th>Warehouse</th>
-                    <th>Type</th>
+                    <th>User Type</th>
+                    <th>User</th>
+                    <th>Buyer Name</th>
+                    <th>Buyer Office</th>
                     <th>Method</th>
                     <th className="text-right">Budget</th>
+                    <th>Created By</th>
+                    <th>Remarks</th>
+                    <th className="text-center">Status</th>
                   </tr>
                 </thead>
                 <tbody>
                   {methodPage.slice.length === 0 ? (
                     <tr>
-                      <td colSpan={11} className="text-center py-10 text-slate-400">
+                      <td colSpan={13} className="text-center py-10 text-slate-400">
                         No approved requisitions are waiting for a purchase order.
                       </td>
                     </tr>
@@ -878,9 +966,10 @@ export default function PurchaseOrdersPage() {
                             </button>
                             <button
                               type="button"
+                              disabled={!perms.orders.create}
                               onClick={() => openCreate(row)}
                               className={`${iconBtn} hover:bg-emerald-100 hover:text-emerald-700`}
-                              title="Create purchase order"
+                              title={!perms.orders.create ? "Requires Create permission in Configuration" : "Create purchase order"}
                               aria-label="Create purchase order from requisition"
                             >
                               <Check className="w-3.5 h-3.5" />
@@ -889,18 +978,18 @@ export default function PurchaseOrdersPage() {
                         </td>
                         <td className="font-mono text-sky-700 font-semibold">{row.requisitionNumber}</td>
                         <td>{row.requestDate}</td>
-                        <td>{row.department}</td>
-                        <td className="font-medium text-slate-800">{row.requesterName}</td>
-                        <td>{officeName(row.officeId)}</td>
-                        <td>{warehouseName(row.warehouseId)}</td>
-                        <td>{row.requestType}</td>
+                        <td className="text-slate-600">{row.department ? "Department" : "Employee"}</td>
+                        <td className="font-medium text-slate-800">{row.department || row.requesterName}</td>
+                        <td>{row.requesterName || "N/A"}</td>
+                        <td>{officeName(row.officeId) || "N/A"}</td>
                         <td>
                           <select
                             value={row.purchaseMethod}
-                            disabled={methodMutation.isPending}
+                            disabled={methodMutation.isPending || !perms.requisitions.edit}
                             onChange={(e) => methodMutation.mutate({ id: row.id, method: e.target.value })}
                             aria-label={`Purchase method for ${row.requisitionNumber}`}
-                            className="h-7 border border-slate-300 rounded px-2 text-xs bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                            title={!perms.requisitions.edit ? "Requires Requisition Edit permission in Configuration" : undefined}
+                            className="h-7 border border-slate-300 rounded px-2 text-xs bg-white text-slate-700 disabled:opacity-50 focus:outline-none focus:ring-1 focus:ring-blue-500"
                           >
                             {Object.entries(METHOD_LABEL).map(([v, label]) => (
                               <option key={v} value={v}>
@@ -910,6 +999,9 @@ export default function PurchaseOrdersPage() {
                           </select>
                         </td>
                         <td className="text-right font-mono font-bold text-slate-900">{formatCurrency(row.totalEstimatedAmount)}</td>
+                        <td>{row.createdBy}</td>
+                        <td className="text-slate-600">{row.remarks || "—"}</td>
+                        <td className="text-center text-[11px] font-semibold text-emerald-700">{row.status === "APPROVED" ? "Approved" : row.status}</td>
                       </tr>
                     ))
                   )}
@@ -1125,6 +1217,7 @@ export default function PurchaseOrdersPage() {
                 <span className="text-[10px] text-slate-500 font-bold uppercase block">Supplier</span>
                 <p className="font-bold text-slate-900 text-sm">{viewPO.supplierName}</p>
                 <p className="text-slate-600">Reference: {viewPO.referenceNumber || "—"}</p>
+                <p className="text-slate-600">Terms: {viewPO.paymentTerms || "—"} · {viewPO.deliveryTerms || "—"}</p>
               </div>
               <div>
                 <span className="text-[10px] text-slate-500 font-bold uppercase block">Deliver To</span>
@@ -1216,90 +1309,65 @@ export default function PurchaseOrdersPage() {
 
       {/* PRINT ORDER */}
       <ModalDialog isOpen={Boolean(printPO)} onClose={() => setPrintPO(null)} title="Purchase Order — Print Preview" maxWidth="4xl">
-        {printPO && (
-          <div className="space-y-4 text-xs">
-            <div className="bg-white p-6 border border-slate-200 rounded text-slate-800 space-y-4 print:p-0 print:border-none">
-              <div className="flex justify-between items-start border-b border-slate-200 pb-3">
-                <div className="flex items-center gap-3.5">
-                  <Image src="/logo.png" width={8452} height={1738} alt="Company logo" className="h-10 w-auto object-contain" />
-                  <div>
-                    <h2 className="text-base font-bold text-slate-900 uppercase tracking-wide">{context?.company?.name ?? ""}</h2>
-                    <p className="text-slate-500 text-[11px]">{printPO.officeName}</p>
-                  </div>
-                </div>
-                <div className="text-right">
-                  <div className="inline-block px-2.5 py-1 bg-slate-100 rounded text-[11px] font-bold text-slate-700 border border-slate-300">PURCHASE ORDER</div>
-                  <div className="text-sm font-bold text-sky-800 font-mono mt-1">{printPO.poNumber}</div>
-                  <div className="text-[11px] text-slate-500">Date: {printPO.orderDate}</div>
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="bg-slate-50 p-2.5 rounded border border-slate-100">
-                  <span className="font-bold text-slate-700 block mb-1 uppercase text-[10px]">Supplier</span>
-                  <div className="font-bold text-slate-900 text-sm">{printPO.supplierName}</div>
-                  <div className="text-slate-500 text-[11px]">Reference: {printPO.referenceNumber || "—"}</div>
-                </div>
-                <div className="bg-slate-50 p-2.5 rounded border border-slate-100">
-                  <span className="font-bold text-slate-700 block mb-1 uppercase text-[10px]">Deliver To</span>
-                  <div className="font-bold text-slate-900 text-sm">{printPO.warehouseName}, {printPO.officeName}</div>
-                  <div className="text-slate-500 text-[11px]">Expected delivery: {printPO.expectedDeliveryDate}</div>
-                  <div className="text-slate-500 text-[11px]">Project / Ref: {printPO.projectCostCenter || "—"}</div>
-                </div>
-              </div>
-              <table className="w-full text-left border border-slate-200">
-                <thead className="bg-slate-100 text-slate-700 font-semibold">
-                  <tr>
-                    <th className="p-2">SL</th>
-                    <th className="p-2">Item</th>
-                    <th className="p-2 text-right">Qty</th>
-                    <th className="p-2 text-center">UoM</th>
-                    <th className="p-2 text-right">Unit Price</th>
-                    <th className="p-2 text-right">Disc / VAT</th>
-                    <th className="p-2 text-right">Amount (BDT)</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {printPO.items.map((it, i) => (
-                    <tr key={it.id}>
-                      <td className="p-2">{i + 1}</td>
-                      <td className="p-2">
-                        <div className="font-semibold">{it.itemName}</div>
-                        <div className="text-[10px] text-slate-400 font-mono">{it.itemCode}</div>
-                      </td>
-                      <td className="p-2 text-right font-mono">{it.orderedQuantity}</td>
-                      <td className="p-2 text-center">{it.uom}</td>
-                      <td className="p-2 text-right font-mono">{formatCurrency(it.unitPrice)}</td>
-                      <td className="p-2 text-right font-mono">{it.discountPercentage}% / {it.taxPercentage}%</td>
-                      <td className="p-2 text-right font-mono font-bold">{formatCurrency(it.lineTotal)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              <div className="flex justify-end">
-                <div className="w-64 space-y-1 bg-slate-50 p-2.5 rounded border border-slate-100">
-                  <div className="flex justify-between"><span>Subtotal</span><span className="font-mono">{formatCurrency(printPO.subtotal)}</span></div>
-                  <div className="flex justify-between"><span>Discount</span><span className="font-mono">− {formatCurrency(printPO.totalDiscount)}</span></div>
-                  <div className="flex justify-between"><span>VAT</span><span className="font-mono">{formatCurrency(printPO.totalTax)}</span></div>
-                  <div className="flex justify-between"><span>Shipping</span><span className="font-mono">{formatCurrency(printPO.shippingFee)}</span></div>
-                  <div className="flex justify-between font-bold text-sm pt-1 border-t border-slate-300"><span>Total</span><span className="font-mono text-sky-800">{formatCurrency(printPO.totalAmount)}</span></div>
-                </div>
-              </div>
-              <div className="grid grid-cols-3 gap-6 pt-12 text-center text-slate-600">
-                <div className="border-t border-slate-300 pt-1.5 font-medium">Prepared By ({printPO.createdBy})</div>
-                <div className="border-t border-slate-300 pt-1.5 font-medium">Verified By</div>
-                <div className="border-t border-slate-300 pt-1.5 font-medium">Authorized Signature</div>
-              </div>
+        {printPO && (() => {
+          const approvedEntry = [...(printPO.approvalHistory || [])].reverse().find((h) => /approv/i.test(h.action));
+          const totalQty = printPO.items.reduce((s, it) => s + Number(it.orderedQuantity || 0), 0);
+          return (
+            <div className="space-y-4 text-xs">
+              <PrintablePurchaseDoc
+                context={context}
+                officeId={printPO.officeId}
+                officeName={printPO.officeName}
+                title="Purchase Order"
+                metaLeft={[
+                  ["PO No", printPO.poNumber],
+                  ["Supplier Name", printPO.supplierName],
+                  ["Office Name", printPO.officeName],
+                  ["Warehouse Name", printPO.warehouseName],
+                  ["Remarks / Terms", printPO.notes || printPO.paymentTerms || ""],
+                ]}
+                metaRight={[
+                  ["PO Date", fmtPrintDate(printPO.orderDate)],
+                  ["Expected Date", fmtPrintDate(printPO.expectedDeliveryDate)],
+                  ["Requisition No", printPO.requisitionNumber || "Direct"],
+                  ["Reference No", printPO.referenceNumber || "-"],
+                  ["Status", printPO.status],
+                ]}
+                columns={[
+                  { header: "SL", align: "center", widthClass: "w-10" },
+                  { header: "Item Code/Model", align: "left", widthClass: "w-28" },
+                  { header: "Item Name", align: "left" },
+                  { header: "UOM", align: "center", widthClass: "w-14" },
+                  { header: "Order Qty", align: "right", widthClass: "w-20" },
+                  { header: "Unit Rate", align: "right", widthClass: "w-24" },
+                  { header: "VAT %", align: "right", widthClass: "w-16" },
+                  { header: "Amount (BDT)", align: "right", widthClass: "w-28" },
+                ]}
+                rows={printPO.items.map((it, i) => [
+                  i + 1,
+                  it.itemCode,
+                  it.itemName,
+                  it.uom || "PCS",
+                  fmtPrintNum(it.orderedQuantity),
+                  fmtPrintNum(it.unitPrice),
+                  fmtPrintNum(it.taxPercentage ?? 0),
+                  fmtPrintNum(it.lineTotal),
+                ])}
+                totalRows={[["", "", "", "Total", fmtPrintNum(totalQty), "", "", fmtPrintNum(printPO.totalAmount)]]}
+                signatures={[
+                  { roleLabel: "Prepared By", name: printPO.createdBy },
+                  { roleLabel: "Approved By", name: approvedEntry?.actorName },
+                  { roleLabel: "Supplier / Receiver", name: printPO.supplierName, designation: "Supplier" },
+                ]}
+              />
+              <PurchasePrintToolbar
+                pdfUrl={`/api/v1/purchase/orders/${encodeURIComponent(printPO.id)}/pdf`}
+                onClose={() => setPrintPO(null)}
+                canExportPdf={perms.orders.export}
+              />
             </div>
-            <div className="flex justify-end gap-2 print:hidden">
-              <button type="button" onClick={() => setPrintPO(null)} className={btnGhost}>
-                Close
-              </button>
-              <button type="button" onClick={() => window.print()} className={btnPrimary}>
-                <Printer className="w-3.5 h-3.5" /> Print
-              </button>
-            </div>
-          </div>
-        )}
+          );
+        })()}
       </ModalDialog>
 
       {/* ORDER ACTION (approve / close / cancel / reverse) */}

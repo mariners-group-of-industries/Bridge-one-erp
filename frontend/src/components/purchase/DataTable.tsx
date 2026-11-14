@@ -2,12 +2,14 @@
 
 import React, { useState } from "react";
 import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 export interface TableColumn<T> {
-  header: string;
+  header: React.ReactNode;
   accessorKey?: keyof T | string;
   cell?: (row: T, index: number) => React.ReactNode;
   className?: string;
+  headerClassName?: string;
 }
 
 export interface DataTableProps<T> {
@@ -16,6 +18,9 @@ export interface DataTableProps<T> {
   loading?: boolean;
   emptyMessage?: string;
   pageSize?: number;
+  compact?: boolean;
+  tableClassName?: string;
+  containerClassName?: string;
 }
 
 export function DataTable<T extends Record<string, any>>({
@@ -24,6 +29,9 @@ export function DataTable<T extends Record<string, any>>({
   loading = false,
   emptyMessage = "No records found matching the active filters.",
   pageSize = 10,
+  compact = false,
+  tableClassName,
+  containerClassName,
 }: DataTableProps<T>) {
   const [currentPage, setCurrentPage] = useState(1);
   const [rowsPerPage, setRowsPerPage] = useState(pageSize);
@@ -34,12 +42,12 @@ export function DataTable<T extends Record<string, any>>({
 
   return (
     <div className="bg-white rounded border border-slate-200/90 shadow-2xs overflow-hidden">
-      <div className="erp-table-container min-h-[300px]">
-        <table className="erp-table">
+      <div className={cn("erp-table-container min-h-[300px]", containerClassName)}>
+        <table className={cn("erp-table", compact && "erp-table-compact", tableClassName)}>
           <thead>
             <tr>
               {columns.map((col, idx) => (
-                <th key={idx} className={col.className}>
+                <th key={idx} className={cn(col.headerClassName || col.className)}>
                   {col.header}
                 </th>
               ))}

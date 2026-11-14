@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useMemo } from "react";
+import { useRouter } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Eye,
@@ -13,14 +14,23 @@ import {
   ChevronRight,
   Truck,
   CheckCircle2,
-  Calendar,
   Ban,
 } from "lucide-react";
 import { ModalDialog } from "@/components/purchase/ModalDialog";
+import {
+  PrintablePurchaseDoc,
+  PurchasePrintToolbar,
+  fmtPrintDate,
+  fmtPrintNum,
+  type PrintHeaderContext,
+} from "@/components/purchase/PrintablePurchaseDoc";
+import { AdvancePaymentModal } from "@/features/purchase/components/AdvancePaymentModal";
 import { toast } from "@/components/purchase/Toast";
 import { Spinner } from "@/components/ui/spinner";
 import { fetchApi } from "@/lib/api";
 import { formatCurrency } from "@/lib/utils";
+import { PURCHASE_QUERY_KEYS, downloadCsv, localToday } from "@/features/purchase/lib/client";
+import { usePurchasePermissions } from "@/features/purchase/lib/usePurchasePermissions";
 import {
   SupplierPaymentRecord,
   SupplierInvoiceItem,
@@ -76,10 +86,14 @@ export interface PendingBillRow {
 interface PaidRow {
   id: string;
   sl: number;
+  voucherNo?: string;
   paidDate: string;
   invoiceNo: string;
   supplier: string;
   moneyReceiptNo: string;
+  method?: string;
+  remarks?: string;
+  createdBy?: string;
   bankAmount: number;
   cashAmount: number;
   paidAmount: number;
@@ -93,6 +107,8 @@ interface PaymentHistoryRow {
   settles: string;
   method: string;
   referenceNumber: string;
+  remarks?: string;
+  createdBy?: string;
   amount: number;
 }
 
@@ -101,6 +117,19 @@ interface AdvanceApiRow {
   advanceAmount: number;
   adjustAmount: number;
   remainingAdvance: number;
+}
+
+interface AdvanceDetailApiRow {
+  id: string;
+  number: string;
+  paymentDate: string;
+  supplierCode: string;
+  supplierName: string;
+  orderNumber: string;
+  method: string;
+  referenceNumber: string;
+  remarks: string;
+  amount: number;
 }
 
 interface DueInvoiceRow {
@@ -135,7 +164,9 @@ interface LedgerReconRow {
 
 
 export default function SupplierPaymentsPage() {
+  const router = useRouter();
   const queryClient = useQueryClient();
+  const perms = usePurchasePermissions();
 
   // 6 Tabs state
   const [activeTab, setActiveTab] = useState<
@@ -163,13 +194,13 @@ export default function SupplierPaymentsPage() {
   const [tab3ToDate, setTab3ToDate] = useState("");
 
   // Tab 4 filters
-  const [tab4FromDate, setTab4FromDate] = useState("09/10/2026");
-  const [tab4ToDate, setTab4ToDate] = useState("10/11/2026");
+  const [tab4FromDate, setTab4FromDate] = useState("");
+  const [tab4ToDate, setTab4ToDate] = useState("");
 
   // Tab 5 filters
   const [tab5Supplier, setTab5Supplier] = useState("");
-  const [tab5FromDate, setTab5FromDate] = useState("09/10/2026");
-  const [tab5ToDate, setTab5ToDate] = useState("10/11/2026");
+  const [tab5FromDate, setTab5FromDate] = useState("");
+  const [tab5ToDate, setTab5ToDate] = useState("");
   const [tab5DetailsCheck, setTab5DetailsCheck] = useState(false);
 
   // Pagination states
@@ -179,8 +210,8 @@ export default function SupplierPaymentsPage() {
   const [rowsPerPage6, setRowsPerPage6] = useState(50);
 
   // Tab 6 filters
-  const [tab6FromDate, setTab6FromDate] = useState("09/10/2026");
-  const [tab6ToDate, setTab6ToDate] = useState("10/11/2026");
+  const [tab6FromDate, setTab6FromDate] = useState("");
+  const [tab6ToDate, setTab6ToDate] = useState("");
 
   // Modals state
   const [isPaymentByGRNOpen, setIsPaymentByGRNOpen] = useState(false);
@@ -198,31 +229,48 @@ export default function SupplierPaymentsPage() {
   const [viewPaidVoucher, setViewPaidVoucher] = useState<PaidRow | null>(null);
   const [printPaidVoucher, setPrintPaidVoucher] = useState<PaidRow | null>(null);
 
-  // Advance Payment Modal inputs
-  const [advSupplier, setAdvSupplier] = useState("");
-  const [advAmount, setAdvAmount] = useState(0);
-  const [advDate, setAdvDate] = useState(new Date().toISOString().split("T")[0]);
-  const [advMode] = useState("BANK_TRANSFER");
-  const [advRemarks, setAdvRemarks] = useState("");
-
   // Create Bill Modal inputs
   const [billSupplier, setBillSupplier] = useState("");
   const [billReceiptId, setBillReceiptId] = useState("");
   const [billInvoiceNo, setBillInvoiceNo] = useState("");
   const [billAmount, setBillAmount] = useState(0);
-  const [billDate, setBillDate] = useState(new Date().toISOString().split("T")[0]);
-  const [billDueDate, setBillDueDate] = useState(new Date().toISOString().split("T")[0]);
+  const [billDate, setBillDate] = useState(localToday);
+  const [billDueDate, setBillDueDate] = useState(localToday);
 
   // Payment By GRN inputs
   const [grnPaySupplier, setGrnPaySupplier] = useState("");
-  const [grnPayDate, setGrnPayDate] = useState(new Date().toISOString().split("T")[0]);
+  const [grnPayDate, setGrnPayDate] = useState(localToday);
   const [grnPaySelected, setGrnPaySelected] = useState<string[]>([]);
 
   // Dynamic Data Lists
   // Supplier payables and open receipts come from the server (receipts - returns - payments).
+  const { data: context } = useQuery<PrintHeaderContext>({
+    queryKey: ["context"],
+    queryFn: () => fetchApi("/master/context"),
+  });
   const { data: serverPayables } = useQuery<SupplierPaymentRecord[]>({
     queryKey: ["supplierPayables"],
     queryFn: () => fetchApi("/purchase/supplier-payments"),
+  });
+  const { data: tab1Payables } = useQuery<SupplierPaymentRecord[]>({
+    queryKey: ["supplierPayables", "tab1", tab1FromDate, tab1ToDate],
+    queryFn: () => {
+      const params = new URLSearchParams();
+      if (tab1FromDate) params.set("fromDate", tab1FromDate);
+      if (tab1ToDate) params.set("toDate", tab1ToDate);
+      const q = params.toString();
+      return fetchApi(`/purchase/supplier-payments${q ? `?${q}` : ""}`);
+    },
+  });
+  const { data: tab6Payables } = useQuery<SupplierPaymentRecord[]>({
+    queryKey: ["supplierPayables", "tab6", tab6FromDate, tab6ToDate],
+    queryFn: () => {
+      const params = new URLSearchParams();
+      if (tab6FromDate) params.set("fromDate", tab6FromDate);
+      if (tab6ToDate) params.set("toDate", tab6ToDate);
+      const q = params.toString();
+      return fetchApi(`/purchase/supplier-payments${q ? `?${q}` : ""}`);
+    },
   });
   const { data: serverInvoices } = useQuery<SupplierInvoiceItem[]>({
     queryKey: ["supplierInvoices"],
@@ -230,7 +278,7 @@ export default function SupplierPaymentsPage() {
   });
   const dueList = useMemo<DueListRow[]>(
     () =>
-      (serverPayables ?? [])
+      (tab1Payables ?? serverPayables ?? [])
         .filter((p) => p.totalPurchasedAmount > 0 || p.paidAmount > 0)
         .map((p, i) => ({
           sl: i + 1,
@@ -243,7 +291,7 @@ export default function SupplierPaymentsPage() {
           paymentAmount: p.paidAmount,
           dueAmount: p.dueAmount,
         })),
-    [serverPayables],
+    [tab1Payables, serverPayables],
   );
   const { data: serverBills } = useQuery<SupplierInvoiceItem[]>({
     queryKey: ["supplierBills"],
@@ -254,8 +302,24 @@ export default function SupplierPaymentsPage() {
     queryFn: () => fetchApi("/purchase/supplier-payments/history"),
   });
   const { data: serverAdvances } = useQuery<AdvanceApiRow[]>({
-    queryKey: ["supplierAdvances"],
-    queryFn: () => fetchApi("/purchase/supplier-payments/advances"),
+    queryKey: ["supplierAdvances", tab5FromDate, tab5ToDate],
+    queryFn: () => {
+      const params = new URLSearchParams();
+      if (tab5FromDate) params.set("fromDate", tab5FromDate);
+      if (tab5ToDate) params.set("toDate", tab5ToDate);
+      const q = params.toString();
+      return fetchApi(`/purchase/supplier-payments/advances${q ? `?${q}` : ""}`);
+    },
+  });
+  const { data: serverAdvanceDetails } = useQuery<AdvanceDetailApiRow[]>({
+    queryKey: ["supplierAdvances", "details", tab5FromDate, tab5ToDate],
+    enabled: tab5DetailsCheck,
+    queryFn: () => {
+      const params = new URLSearchParams({ details: "true" });
+      if (tab5FromDate) params.set("fromDate", tab5FromDate);
+      if (tab5ToDate) params.set("toDate", tab5ToDate);
+      return fetchApi(`/purchase/supplier-payments/advances?${params.toString()}`);
+    },
   });
   // Booked bills that still have something to pay.
   const pendingBills = useMemo<PendingBillRow[]>(
@@ -288,10 +352,14 @@ export default function SupplierPaymentsPage() {
       (serverHistory ?? []).map((p, i) => ({
         id: p.id,
         sl: i + 1,
+        voucherNo: p.number,
         paidDate: p.paymentDate,
         invoiceNo: p.settles,
         supplier: p.supplierName,
         moneyReceiptNo: p.referenceNumber || p.number,
+        method: p.method,
+        remarks: p.remarks,
+        createdBy: p.createdBy,
         bankAmount: p.method === "CASH" ? 0 : p.amount,
         cashAmount: p.method === "CASH" ? p.amount : 0,
         paidAmount: p.amount,
@@ -305,7 +373,8 @@ export default function SupplierPaymentsPage() {
         receDate: inv.invoiceDate,
         invoice: inv.invoiceNumber,
         supplierName: inv.supplierName,
-        creditDays: 0,
+        // Days the supplier gives: bill due date less the invoice / receipt date.
+        creditDays: Math.max(0, Math.round((new Date(`${inv.dueDate}T00:00:00Z`).getTime() - new Date(`${inv.invoiceDate}T00:00:00Z`).getTime()) / 86_400_000)),
         exPaymentDate: inv.dueDate,
         totalAmount: inv.totalAmount,
         netAmount: inv.totalAmount,
@@ -333,7 +402,7 @@ export default function SupplierPaymentsPage() {
   // Payable worked out from documents vs the supplier balance stored on each movement.
   const ledgerReconList = useMemo<LedgerReconRow[]>(
     () =>
-      (serverPayables ?? [])
+      (tab6Payables ?? serverPayables ?? [])
         .filter((p) => p.totalPurchasedAmount > 0 || p.paidAmount > 0 || (p.ledgerBalance ?? 0) !== 0)
         .map((p, i) => {
           const due = Math.round((p.totalPurchasedAmount - p.returnedAmount - p.paidAmount) * 100) / 100;
@@ -348,12 +417,10 @@ export default function SupplierPaymentsPage() {
             difference: Math.round((ledger - due) * 100) / 100,
           };
         }),
-    [serverPayables],
+    [tab6Payables, serverPayables],
   );
   const refreshPayables = () => {
-    for (const key of ["supplierPayables", "supplierInvoices", "supplierBills", "supplierPaymentHistory", "supplierAdvances", "suppliers"]) {
-      queryClient.invalidateQueries({ queryKey: [key] });
-    }
+    for (const key of PURCHASE_QUERY_KEYS) queryClient.invalidateQueries({ queryKey: [key] });
   };
   const [cancelPayment, setCancelPayment] = useState<PaidRow | null>(null);
   const [cancelPaymentReason, setCancelPaymentReason] = useState("");
@@ -461,6 +528,8 @@ export default function SupplierPaymentsPage() {
   // Filtering Tab 4
   const filteredDueInvoices = useMemo(() => {
     return dueInvoices.filter((row) => {
+      if (tab4FromDate && row.receDate < tab4FromDate) return false;
+      if (tab4ToDate && row.receDate > tab4ToDate) return false;
       if (!searchTerm) return true;
       const s = searchTerm.toLowerCase();
       return (
@@ -468,7 +537,28 @@ export default function SupplierPaymentsPage() {
         row.supplierName.toLowerCase().includes(s)
       );
     });
-  }, [dueInvoices, searchTerm]);
+  }, [dueInvoices, tab4FromDate, tab4ToDate, searchTerm]);
+
+  // Filtering Tab 5
+  const filteredAdvanceList = useMemo(() => {
+    const supQ = tab5Supplier.trim().toLowerCase();
+    const s = searchTerm.trim().toLowerCase();
+    return advanceList.filter((row) => {
+      if (supQ && !row.supplierName.toLowerCase().includes(supQ)) return false;
+      if (s && !row.supplierName.toLowerCase().includes(s)) return false;
+      return true;
+    });
+  }, [advanceList, tab5Supplier, searchTerm]);
+
+  const filteredAdvanceDetails = useMemo(() => {
+    const supQ = tab5Supplier.trim().toLowerCase();
+    const s = searchTerm.trim().toLowerCase();
+    return (serverAdvanceDetails ?? []).filter((row) => {
+      if (supQ && !row.supplierName.toLowerCase().includes(supQ) && !row.supplierCode.toLowerCase().includes(supQ)) return false;
+      if (s && !row.supplierName.toLowerCase().includes(s) && !row.number.toLowerCase().includes(s) && !row.referenceNumber.toLowerCase().includes(s)) return false;
+      return true;
+    });
+  }, [serverAdvanceDetails, tab5Supplier, searchTerm]);
 
   // Filtering Tab 6
   const filteredLedgerReconList = useMemo(() => {
@@ -515,22 +605,10 @@ export default function SupplierPaymentsPage() {
       supplierId: quickPayTarget.supplierId,
       amount: quickPayAmount,
       method: quickPayMode === "CASH" ? "CASH" : quickPayMode === "CHEQUE" ? "CHEQUE" : "BANK",
-      paymentDate: new Date().toISOString().split("T")[0],
+      paymentDate: localToday(),
       receiptId: quickPayTarget.receiptId,
       billId: quickPayTarget.billId,
       referenceNumber: quickPayRef,
-    });
-  };
-
-  const handleCreateAdvancePayment = (e: React.FormEvent) => {
-    e.preventDefault();
-    paymentMutation.mutate({
-      supplierId: advSupplier,
-      amount: advAmount,
-      isAdvance: true,
-      method: advMode === "CASH" ? "CASH" : advMode === "CHEQUE" ? "CHEQUE" : "BANK",
-      paymentDate: advDate,
-      narration: advRemarks,
     });
   };
 
@@ -574,25 +652,31 @@ export default function SupplierPaymentsPage() {
   const billableReceipts = (serverInvoices ?? []).filter((inv) => inv.supplierId === billSupplier && inv.receiptId && !inv.billId);
 
   const handleExportCSV = () => {
-    const headers = ["SL", "Supplier Code", "Supplier Name", "Mobile No", "Total Amount", "Return Amount", "Payment Amount", "Due Amount"];
-    const rows = filteredDueList.map((r) => [
-      r.sl,
-      r.supplierCode,
-      `"${r.supplierName}"`,
-      r.mobileNumber,
-      r.totalAmount,
-      r.returnAmount,
-      r.paymentAmount,
-      r.dueAmount,
-    ]);
-    const csvContent = "data:text/csv;charset=utf-8," + [headers.join(","), ...rows.map((e) => e.join(","))].join("\n");
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
-    link.setAttribute("download", `supplier_payment_report_${new Date().toISOString().slice(0, 10)}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    if (activeTab === "PAID_GRN_BILL") {
+      downloadCsv(
+        `paid_grn_bill_${localToday()}.csv`,
+        ["SL", "Paid Date", "Invoice No", "Supplier", "Money receipt No", "Bank Amount", "Cash Amount", "Paid Amount"],
+        filteredPaidList.map((r) => [r.sl, r.paidDate, r.invoiceNo, r.supplier, r.moneyReceiptNo, r.bankAmount, r.cashAmount, r.paidAmount]),
+      );
+    } else if (activeTab === "DUE_INVOICES") {
+      downloadCsv(
+        `due_invoices_${localToday()}.csv`,
+        ["SL", "Rece. Date", "Invoice", "Supplier Name", "Credit Days", "Ex. Payment Date", "Total Amount", "Net Amount", "Due Amount"],
+        filteredDueInvoices.map((r) => [r.sl, r.receDate, r.invoice, r.supplierName, r.creditDays, r.exPaymentDate, r.totalAmount, r.netAmount, r.dueAmount]),
+      );
+    } else if (activeTab === "PAYMENT_ADVANCE") {
+      downloadCsv(
+        `payment_advance_${localToday()}.csv`,
+        ["SL", "Supplier Name", "Advance Amount", "Adjust Amount", "Remaining Advance"],
+        filteredAdvanceList.map((r) => [r.sl, r.supplierName, r.advanceAmount, r.adjustAmount, r.remainingAdvance]),
+      );
+    } else {
+      downloadCsv(
+        `supplier_payment_report_${localToday()}.csv`,
+        ["SL", "Supplier Code", "Supplier Name", "Mobile No.", "Total Amount", "Return Amount", "Payment Amount", "Due Amount"],
+        filteredDueList.map((r) => [r.sl, r.supplierCode, r.supplierName, r.mobileNumber, r.totalAmount, r.returnAmount, r.paymentAmount, r.dueAmount]),
+      );
+    }
   };
 
   return (
@@ -618,35 +702,39 @@ export default function SupplierPaymentsPage() {
             <Search className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
           </div>
 
-          {/* + Payment By GRN */}
-          <button
-            type="button"
-            onClick={() => setIsPaymentByGRNOpen(true)}
-            className="h-9 px-3.5 bg-[#2563eb] hover:bg-blue-700 text-white font-semibold text-xs rounded flex items-center gap-1.5 shadow-xs transition"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Payment By GRN</span>
-          </button>
+          {perms.payments.create && (
+            <>
+              {/* + Payment By GRN */}
+              <button
+                type="button"
+                onClick={() => router.push("/purchase/supplier-payments/payment-by-grn")}
+                className="h-9 px-3.5 bg-[#2563eb] hover:bg-blue-700 text-white font-semibold text-xs rounded flex items-center gap-1.5 shadow-xs transition"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Payment By GRN</span>
+              </button>
 
-          {/* + Advance Payment */}
-          <button
-            type="button"
-            onClick={() => setIsAdvancePaymentOpen(true)}
-            className="h-9 px-3.5 bg-[#2563eb] hover:bg-blue-700 text-white font-semibold text-xs rounded flex items-center gap-1.5 shadow-xs transition"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Advance Payment</span>
-          </button>
+              {/* + Advance Payment */}
+              <button
+                type="button"
+                onClick={() => setIsAdvancePaymentOpen(true)}
+                className="h-9 px-3.5 bg-[#2563eb] hover:bg-blue-700 text-white font-semibold text-xs rounded flex items-center gap-1.5 shadow-xs transition"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Advance Payment</span>
+              </button>
 
-          {/* + Create Bill */}
-          <button
-            type="button"
-            onClick={() => setIsCreateBillOpen(true)}
-            className="h-9 px-4 bg-[#2563eb] hover:bg-blue-700 text-white font-semibold text-xs rounded flex items-center gap-1.5 shadow-xs transition"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Create Bill</span>
-          </button>
+              {/* + Create Bill */}
+              <button
+                type="button"
+                onClick={() => setIsCreateBillOpen(true)}
+                className="h-9 px-4 bg-[#2563eb] hover:bg-blue-700 text-white font-semibold text-xs rounded flex items-center gap-1.5 shadow-xs transition"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Create Bill</span>
+              </button>
+            </>
+          )}
         </div>
       </div>
 
@@ -737,8 +825,7 @@ export default function SupplierPaymentsPage() {
             <div>
               <label className="block text-[11px] text-slate-500 mb-1">From Date</label>
               <input
-                type="text"
-                placeholder="mm/dd/yyyy"
+                type="date"
                 value={tab1FromDate}
                 onChange={(e) => setTab1FromDate(e.target.value)}
                 className="w-36 border border-slate-300 rounded px-2 py-1 bg-white text-xs"
@@ -747,8 +834,7 @@ export default function SupplierPaymentsPage() {
             <div>
               <label className="block text-[11px] text-slate-500 mb-1">To Date</label>
               <input
-                type="text"
-                placeholder="mm/dd/yyyy"
+                type="date"
                 value={tab1ToDate}
                 onChange={(e) => setTab1ToDate(e.target.value)}
                 className="w-36 border border-slate-300 rounded px-2 py-1 bg-white text-xs"
@@ -756,30 +842,40 @@ export default function SupplierPaymentsPage() {
             </div>
             <button
               type="button"
+              onClick={refreshPayables}
               className="px-4 py-1.5 bg-[#1976d2] hover:bg-[#1565c0] text-white font-bold rounded text-xs transition"
             >
               View
             </button>
-            <button
-              type="button"
-              onClick={handleExportCSV}
-              className="px-4 py-1.5 border border-[#1976d2] text-[#1976d2] hover:bg-blue-50 font-bold rounded text-xs transition"
-            >
-              Excel
-            </button>
-            <button
-              type="button"
-              onClick={() => window.print()}
-              className="flex items-center gap-1 px-4 py-1.5 bg-[#1976d2] hover:bg-[#1565c0] text-white font-bold rounded text-xs transition"
-            >
-              <Download className="w-3.5 h-3.5" />
-              <span>PDF</span>
-            </button>
+            {perms.payments.export && (
+              <>
+                <button
+                  type="button"
+                  onClick={handleExportCSV}
+                  className="px-4 py-1.5 border border-[#1976d2] text-[#1976d2] hover:bg-blue-50 font-bold rounded text-xs transition"
+                >
+                  Excel
+                </button>
+                <a
+                  href={`/api/v1/purchase/supplier-payments/payables-pdf?${new URLSearchParams({
+                    ...(tab1FromDate ? { fromDate: tab1FromDate } : {}),
+                    ...(tab1ToDate ? { toDate: tab1ToDate } : {}),
+                    ...(searchTerm ? { search: searchTerm } : {}),
+                  }).toString()}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-1 px-4 py-1.5 bg-[#1976d2] hover:bg-[#1565c0] text-white font-bold rounded text-xs transition"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>PDF</span>
+                </a>
+              </>
+            )}
           </div>
 
           {/* Table Container with All Borders */}
           <div className="border border-slate-300 bg-white rounded shadow-2xs overflow-x-auto">
-            <table className="erp-table w-full text-left text-xs border-collapse">
+            <table className="erp-table erp-table-compact w-full text-left text-xs border-collapse">
               <thead className="bg-[#e6f2fb] text-slate-800 font-semibold text-[11px] border-b border-slate-300 select-none">
                 <tr>
                   <th className="p-2 border border-slate-300 w-10 text-center">SL</th>
@@ -802,9 +898,10 @@ export default function SupplierPaymentsPage() {
                     <td className="p-1 border border-slate-300 text-center">
                       <button
                         type="button"
+                        disabled={!perms.payments.create}
                         onClick={() => handleOpenQuickPay(row)}
-                        className="w-6 h-6 rounded bg-slate-100 hover:bg-emerald-100 text-slate-700 hover:text-emerald-700 font-bold text-xs inline-flex items-center justify-center border border-slate-300 transition"
-                        title="Make Payment to Supplier"
+                        className="w-6 h-6 rounded bg-slate-100 hover:bg-emerald-100 text-slate-700 hover:text-emerald-700 disabled:opacity-40 disabled:pointer-events-none font-bold text-xs inline-flex items-center justify-center border border-slate-300 transition"
+                        title={!perms.payments.create ? "Requires Create permission in Configuration" : "Make Payment to Supplier"}
                       >
                         $
                       </button>
@@ -892,16 +989,16 @@ export default function SupplierPaymentsPage() {
           <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-50/50 p-2.5 rounded border border-slate-200 text-xs">
             <div className="flex items-center gap-3">
               <div>
-                <label className="block text-[11px] font-semibold text-slate-600 mb-0.5">Filter Status</label>
+                <label className="block text-[11px] font-semibold text-slate-600 mb-0.5">Filter By</label>
                 <select
                   value={pendingBillFilter}
                   onChange={(e) => setPendingBillFilter(e.target.value)}
                   className="border border-blue-500 rounded px-2.5 py-1 text-xs bg-white text-blue-700 font-bold focus:outline-none"
                 >
-                  <option value="Pending">Pending Approval ({pendingBills.filter((b) => b.status === "Pending").length})</option>
-                  <option value="Approved">Approved for Payment ({pendingBills.filter((b) => b.status === "Approved").length})</option>
-                  <option value="In_Review">In Review ({pendingBills.filter((b) => b.status === "In_Review").length})</option>
-                  <option value="In_Progress">In Progress ({pendingBills.filter((b) => b.status === "In_Progress").length})</option>
+                  <option value="Pending">Pending ({pendingBills.filter((b) => b.status === "Pending").length})</option>
+                  <option value="Approved">Approved ({pendingBills.filter((b) => b.status === "Approved").length})</option>
+                  <option value="In_Review">In_Review ({pendingBills.filter((b) => b.status === "In_Review").length})</option>
+                  <option value="In_Progress">In_Progress ({pendingBills.filter((b) => b.status === "In_Progress").length})</option>
                   <option value="ALL">All Bills ({pendingBills.length})</option>
                 </select>
               </div>
@@ -923,21 +1020,24 @@ export default function SupplierPaymentsPage() {
             </div>
 
             <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  const pendingOnly = pendingBills.filter((b) => b.status === "Pending");
-                  if (pendingOnly.length === 0) {
-                    toast.info("No pending bills left to approve.");
-                    return;
-                  }
-                  approveMutation.mutate(null);
-                }}
-                className="flex items-center gap-1.5 px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-xs font-semibold shadow-xs transition"
-              >
-                <CheckCircle2 className="w-3.5 h-3.5" />
-                <span>Batch Approve All</span>
-              </button>
+              {perms.payments.approve && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const pendingOnly = pendingBills.filter((b) => b.status === "Pending");
+                    if (pendingOnly.length === 0) {
+                      toast.info("No pending bills left to approve.");
+                      return;
+                    }
+                    approveMutation.mutate(null);
+                  }}
+                  disabled={approveMutation.isPending}
+                  className="flex items-center gap-1.5 px-3 py-1 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white rounded text-xs font-semibold shadow-xs transition"
+                >
+                  {approveMutation.isPending ? <Spinner className="size-3.5" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
+                  <span>Batch Approve All</span>
+                </button>
+              )}
             </div>
           </div>
 
@@ -965,7 +1065,7 @@ export default function SupplierPaymentsPage() {
           ) : (
             <div className="bg-white rounded border border-slate-300 shadow-xs overflow-hidden">
               <div className="overflow-x-auto">
-                <table className="erp-table w-full text-xs text-left border-collapse">
+                <table className="erp-table erp-table-compact w-full text-xs text-left border-collapse">
                   <thead>
                     <tr className="bg-slate-100 text-slate-800 font-bold border-b border-slate-300">
                       <th className="p-2 border border-slate-300 text-center w-10">SL</th>
@@ -1023,8 +1123,13 @@ export default function SupplierPaymentsPage() {
                               <button
                                 type="button"
                                 onClick={() => handleApproveBill(bill.billNo)}
-                                className="px-2 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-[11px] font-semibold transition"
-                                title="Approve Bill"
+                                disabled={approveMutation.isPending || !perms.canApprovePayment(bill.netPayable)}
+                                className="px-2 py-1 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white rounded text-[11px] font-semibold transition"
+                                title={
+                                  !perms.canApprovePayment(bill.netPayable)
+                                    ? "Requires Approve permission & Approval Setup eligibility in Configuration"
+                                    : "Approve Bill"
+                                }
                               >
                                 Approve
                               </button>
@@ -1032,8 +1137,15 @@ export default function SupplierPaymentsPage() {
                             <button
                               type="button"
                               onClick={() => handlePayPendingBill(bill)}
-                              className="px-2 py-1 bg-[#1976d2] hover:bg-[#1565c0] text-white rounded text-[11px] font-semibold transition"
-                              title="Pay Bill"
+                              disabled={bill.status !== "Approved" || !perms.payments.create}
+                              className="px-2 py-1 bg-[#1976d2] hover:bg-[#1565c0] disabled:opacity-40 disabled:hover:bg-[#1976d2] text-white rounded text-[11px] font-semibold transition"
+                              title={
+                                !perms.payments.create
+                                  ? "Requires Create permission in Configuration"
+                                  : bill.status === "Approved"
+                                    ? "Pay Bill"
+                                    : "Approve the bill before paying it"
+                              }
                             >
                               Pay Now
                             </button>
@@ -1107,22 +1219,25 @@ export default function SupplierPaymentsPage() {
             </div>
             <button
               type="button"
+              onClick={refreshPayables}
               className="px-4 py-1.5 bg-[#1976d2] hover:bg-[#1565c0] text-white font-bold rounded text-xs transition"
             >
               View
             </button>
-            <button
-              type="button"
-              onClick={handleExportCSV}
-              className="px-4 py-1.5 border border-[#1976d2] text-[#1976d2] hover:bg-blue-50 font-bold rounded text-xs transition"
-            >
-              Excel
-            </button>
+            {perms.payments.export && (
+              <button
+                type="button"
+                onClick={handleExportCSV}
+                className="px-4 py-1.5 border border-[#1976d2] text-[#1976d2] hover:bg-blue-50 font-bold rounded text-xs transition"
+              >
+                Excel
+              </button>
+            )}
           </div>
 
           {/* Table Container with All Borders */}
           <div className="border border-slate-300 bg-white rounded shadow-2xs overflow-x-auto">
-            <table className="erp-table w-full text-left text-xs border-collapse">
+            <table className="erp-table erp-table-compact w-full text-left text-xs border-collapse">
               <thead className="bg-[#e6f2fb] text-slate-800 font-semibold text-[11px] border-b border-slate-300 select-none">
                 <tr>
                   <th className="p-2 border border-slate-300 w-10 text-center">SL</th>
@@ -1174,12 +1289,13 @@ export default function SupplierPaymentsPage() {
                         </button>
                         <button
                           type="button"
+                          disabled={!perms.payments.delete}
                           onClick={() => {
                             setCancelPayment(row);
                             setCancelPaymentReason("");
                           }}
-                          className="p-0.5 hover:text-rose-600 transition"
-                          title="Cancel payment"
+                          className="p-0.5 hover:text-rose-600 disabled:opacity-30 disabled:pointer-events-none transition"
+                          title={!perms.payments.delete ? "Requires Delete permission in Configuration" : "Cancel payment"}
                           aria-label={`Cancel payment ${row.moneyReceiptNo}`}
                         >
                           <Ban className="w-3.5 h-3.5" />
@@ -1268,23 +1384,24 @@ export default function SupplierPaymentsPage() {
             <div>
               <label className="block text-[11px] text-slate-500 mb-1">Rece. From Date</label>
               <input
-                type="text"
+                type="date"
                 value={tab4FromDate}
                 onChange={(e) => setTab4FromDate(e.target.value)}
-                className="w-32 border border-slate-300 rounded px-2 py-1 bg-white text-xs"
+                className="w-36 border border-slate-300 rounded px-2 py-1 bg-white text-xs"
               />
             </div>
             <div>
               <label className="block text-[11px] text-slate-500 mb-1">Rece. To Date</label>
               <input
-                type="text"
+                type="date"
                 value={tab4ToDate}
                 onChange={(e) => setTab4ToDate(e.target.value)}
-                className="w-32 border border-slate-300 rounded px-2 py-1 bg-white text-xs"
+                className="w-36 border border-slate-300 rounded px-2 py-1 bg-white text-xs"
               />
             </div>
             <button
               type="button"
+              onClick={refreshPayables}
               className="px-6 py-1.5 bg-[#1976d2] hover:bg-[#1565c0] text-white font-bold rounded text-xs transition"
             >
               View
@@ -1293,7 +1410,7 @@ export default function SupplierPaymentsPage() {
 
           {/* Table Container with All Borders */}
           <div className="border border-slate-300 bg-white rounded shadow-2xs overflow-x-auto">
-            <table className="erp-table w-full text-left text-xs border-collapse">
+            <table className="erp-table erp-table-compact w-full text-left text-xs border-collapse">
               <thead className="bg-[#e6f2fb] text-slate-800 font-semibold text-[11px] border-b border-slate-300 select-none">
                 <tr>
                   <th className="p-2 border border-slate-300 w-10 text-center">SL</th>
@@ -1394,19 +1511,19 @@ export default function SupplierPaymentsPage() {
             <div>
               <label className="block text-[11px] text-slate-500 mb-1">From</label>
               <input
-                type="text"
+                type="date"
                 value={tab5FromDate}
                 onChange={(e) => setTab5FromDate(e.target.value)}
-                className="w-32 border border-slate-300 rounded px-2 py-1 bg-white text-xs"
+                className="w-36 border border-slate-300 rounded px-2 py-1 bg-white text-xs"
               />
             </div>
             <div>
               <label className="block text-[11px] text-slate-500 mb-1">To</label>
               <input
-                type="text"
+                type="date"
                 value={tab5ToDate}
                 onChange={(e) => setTab5ToDate(e.target.value)}
-                className="w-32 border border-slate-300 rounded px-2 py-1 bg-white text-xs"
+                className="w-36 border border-slate-300 rounded px-2 py-1 bg-white text-xs"
               />
             </div>
             <div className="flex items-center gap-1.5 pb-1">
@@ -1421,6 +1538,7 @@ export default function SupplierPaymentsPage() {
             </div>
             <button
               type="button"
+              onClick={refreshPayables}
               className="px-6 py-1.5 bg-[#1976d2] hover:bg-[#1565c0] text-white font-bold rounded text-xs transition"
             >
               View
@@ -1429,7 +1547,53 @@ export default function SupplierPaymentsPage() {
 
           {/* Table Container */}
           <div className="border border-slate-300 bg-white rounded shadow-2xs overflow-x-auto">
-            <table className="erp-table w-full text-left text-xs border-collapse">
+            {tab5DetailsCheck ? (
+              <table className="erp-table erp-table-compact w-full text-left text-xs border-collapse">
+                <thead className="bg-[#e6f2fb] text-slate-800 font-semibold text-[11px] border-b border-slate-300 select-none">
+                  <tr>
+                    <th className="p-2 border border-slate-300 w-12 text-center">SL</th>
+                    <th className="p-2 border border-slate-300 w-32">Voucher No</th>
+                    <th className="p-2 border border-slate-300 w-24">Date</th>
+                    <th className="p-2 border border-slate-300">Supplier</th>
+                    <th className="p-2 border border-slate-300 w-28">PO No</th>
+                    <th className="p-2 border border-slate-300 w-24">Method</th>
+                    <th className="p-2 border border-slate-300 w-28">Ref / LC No</th>
+                    <th className="p-2 border border-slate-300">Narration</th>
+                    <th className="p-2 border border-slate-300 w-36 text-right">Amount</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200 text-[11px] text-slate-800">
+                  {filteredAdvanceDetails.length === 0 ? (
+                    <tr>
+                      <td colSpan={9} className="p-6 text-center text-slate-500">No advance payment vouchers found.</td>
+                    </tr>
+                  ) : (
+                    filteredAdvanceDetails.map((row, idx) => (
+                      <tr key={row.id} className="hover:bg-slate-50/80 transition-colors">
+                        <td className="p-2 border border-slate-300 text-center font-mono text-slate-600">{idx + 1}</td>
+                        <td className="p-2 border border-slate-300 font-mono text-sky-700 font-semibold">{row.number}</td>
+                        <td className="p-2 border border-slate-300 font-mono text-slate-600">{row.paymentDate}</td>
+                        <td className="p-2 border border-slate-300 text-slate-900 font-medium">{row.supplierName}</td>
+                        <td className="p-2 border border-slate-300 font-mono text-slate-600">{row.orderNumber || "—"}</td>
+                        <td className="p-2 border border-slate-300">{row.method}</td>
+                        <td className="p-2 border border-slate-300 font-mono text-slate-600">{row.referenceNumber || "—"}</td>
+                        <td className="p-2 border border-slate-300 text-slate-600 max-w-xs truncate">{row.remarks || "—"}</td>
+                        <td className="p-2 border border-slate-300 text-right font-mono font-semibold text-slate-900">{formatCurrency(row.amount)}</td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+                <tfoot>
+                  <tr className="bg-slate-50 font-bold text-xs border-t-2 border-slate-300 text-slate-900">
+                    <td colSpan={8} className="p-2 border border-slate-300 text-right font-bold">Total</td>
+                    <td className="p-2 border border-slate-300 text-right font-mono text-xs font-bold">
+                      {formatCurrency(filteredAdvanceDetails.reduce((t, r) => t + r.amount, 0))}
+                    </td>
+                  </tr>
+                </tfoot>
+              </table>
+            ) : (
+            <table className="erp-table erp-table-compact w-full text-left text-xs border-collapse">
               <thead className="bg-[#e6f2fb] text-slate-800 font-semibold text-[11px] border-b border-slate-300 select-none">
                 <tr>
                   <th className="p-2 border border-slate-300 w-12 text-center">SL</th>
@@ -1440,7 +1604,7 @@ export default function SupplierPaymentsPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200 text-[11px] text-slate-800">
-                {advanceList.map((row) => (
+                {filteredAdvanceList.map((row) => (
                   <tr key={row.sl} className="hover:bg-slate-50/80 transition-colors">
                     <td className="p-2 border border-slate-300 text-center font-mono text-slate-600">
                       {row.sl}
@@ -1466,17 +1630,18 @@ export default function SupplierPaymentsPage() {
                     Total
                   </td>
                   <td className="p-2 border border-slate-300 text-right font-mono text-xs">
-                    {formatCurrency(advanceList.reduce((t, r) => t + r.advanceAmount, 0))}
+                    {formatCurrency(filteredAdvanceList.reduce((t, r) => t + r.advanceAmount, 0))}
                   </td>
                   <td className="p-2 border border-slate-300 text-right font-mono text-xs">
-                    {formatCurrency(advanceList.reduce((t, r) => t + r.adjustAmount, 0))}
+                    {formatCurrency(filteredAdvanceList.reduce((t, r) => t + r.adjustAmount, 0))}
                   </td>
                   <td className="p-2 border border-slate-300 text-right font-mono text-xs font-bold text-rose-700">
-                    {formatCurrency(advanceList.reduce((t, r) => t + r.remainingAdvance, 0))}
+                    {formatCurrency(filteredAdvanceList.reduce((t, r) => t + r.remainingAdvance, 0))}
                   </td>
                 </tr>
               </tfoot>
             </table>
+            )}
           </div>
         </div>
       )}
@@ -1490,30 +1655,25 @@ export default function SupplierPaymentsPage() {
           <div className="flex flex-wrap items-end gap-3 text-xs p-2">
             <div>
               <label className="block text-[11px] text-slate-500 mb-1">From</label>
-              <div className="relative">
-                <input
-                  type="text"
-                  value={tab6FromDate}
-                  onChange={(e) => setTab6FromDate(e.target.value)}
-                  className="w-36 border border-slate-300 rounded px-2 py-1 bg-white text-xs pr-7"
-                />
-                <Calendar className="w-3.5 h-3.5 text-slate-400 absolute right-2 top-2 pointer-events-none" />
-              </div>
+              <input
+                type="date"
+                value={tab6FromDate}
+                onChange={(e) => setTab6FromDate(e.target.value)}
+                className="w-36 border border-slate-300 rounded px-2 py-1 bg-white text-xs"
+              />
             </div>
             <div>
               <label className="block text-[11px] text-slate-500 mb-1">To</label>
-              <div className="relative">
-                <input
-                  type="text"
-                  value={tab6ToDate}
-                  onChange={(e) => setTab6ToDate(e.target.value)}
-                  className="w-36 border border-slate-300 rounded px-2 py-1 bg-white text-xs pr-7"
-                />
-                <Calendar className="w-3.5 h-3.5 text-slate-400 absolute right-2 top-2 pointer-events-none" />
-              </div>
+              <input
+                type="date"
+                value={tab6ToDate}
+                onChange={(e) => setTab6ToDate(e.target.value)}
+                className="w-36 border border-slate-300 rounded px-2 py-1 bg-white text-xs"
+              />
             </div>
             <button
               type="button"
+              onClick={refreshPayables}
               className="px-6 py-1.5 bg-[#1976d2] hover:bg-[#1565c0] text-white font-bold rounded text-xs transition shadow-xs"
             >
               View
@@ -1522,7 +1682,7 @@ export default function SupplierPaymentsPage() {
 
           {/* Table Container with All Borders */}
           <div className="border border-slate-300 bg-white rounded shadow-2xs overflow-x-auto">
-            <table className="erp-table w-full text-left text-xs border-collapse">
+            <table className="erp-table erp-table-compact w-full text-left text-xs border-collapse">
               <thead className="bg-[#e6f2fb] text-slate-800 font-semibold text-[11px] border-b border-slate-300 select-none">
                 <tr>
                   <th className="p-2 border border-slate-300 w-12 text-center">SL</th>
@@ -1711,8 +1871,10 @@ export default function SupplierPaymentsPage() {
               </button>
               <button
                 type="submit"
-                className="px-5 py-1.5 bg-[#1976d2] hover:bg-[#1565c0] text-white font-bold rounded shadow-xs transition"
+                disabled={paymentMutation.isPending}
+                className="px-5 py-1.5 bg-[#1976d2] hover:bg-[#1565c0] disabled:opacity-60 text-white font-bold rounded shadow-xs transition inline-flex items-center gap-1.5"
               >
+                {paymentMutation.isPending && <Spinner className="size-3.5" />}
                 Disburse & Generate Money Receipt
               </button>
             </div>
@@ -1812,8 +1974,9 @@ export default function SupplierPaymentsPage() {
               type="button"
               disabled={paymentMutation.isPending}
               onClick={handleConfirmGrnPayment}
-              className="px-5 py-1.5 bg-[#1976d2] hover:bg-[#1565c0] text-white font-bold rounded shadow-xs"
+              className="px-5 py-1.5 bg-[#1976d2] hover:bg-[#1565c0] disabled:opacity-60 text-white font-bold rounded shadow-xs inline-flex items-center gap-1.5"
             >
+              {paymentMutation.isPending && <Spinner className="size-3.5" />}
               Confirm Settlement
             </button>
           </div>
@@ -1823,85 +1986,10 @@ export default function SupplierPaymentsPage() {
       {/* ============================================================= */}
       {/* 5. MODAL: + ADVANCE PAYMENT */}
       {/* ============================================================= */}
-      <ModalDialog
+      <AdvancePaymentModal
         isOpen={isAdvancePaymentOpen}
         onClose={() => setIsAdvancePaymentOpen(false)}
-        title="Advance Supplier Payment"
-        subtitle="Post vendor advance deposit before purchase receipt / order confirmation"
-        maxWidth="lg"
-      >
-        <form onSubmit={handleCreateAdvancePayment} className="space-y-4 text-xs">
-          <div className="space-y-3">
-            <div>
-              <label className="block text-slate-700 font-semibold mb-1">Supplier / Vendor *</label>
-              <select
-                value={advSupplier}
-                onChange={(e) => setAdvSupplier(e.target.value)}
-                className="w-full border border-slate-300 rounded p-1.5 text-xs bg-white"
-                required
-              >
-                <option value="">Select supplier</option>
-                {(serverPayables ?? []).map((p) => (
-                  <option key={p.supplierId} value={p.supplierId}>
-                    {p.supplierName}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-slate-700 font-semibold mb-1">Advance Amount (BDT) *</label>
-                <input
-                  type="number"
-                  min="1"
-                  value={advAmount}
-                  onChange={(e) => setAdvAmount(Number(e.target.value))}
-                  className="w-full border border-slate-300 rounded p-1.5 text-xs bg-white font-mono font-bold"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="block text-slate-700 font-semibold mb-1">Date *</label>
-                <input
-                  type="date"
-                  value={advDate}
-                  onChange={(e) => setAdvDate(e.target.value)}
-                  className="w-full border border-slate-300 rounded p-1.5 text-xs bg-white"
-                  required
-                />
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-slate-700 font-semibold mb-1">Advance Purpose / Contract Note</label>
-              <textarea
-                value={advRemarks}
-                onChange={(e) => setAdvRemarks(e.target.value)}
-                rows={2}
-                className="w-full border border-slate-300 rounded p-1.5 text-xs bg-white"
-              />
-            </div>
-          </div>
-
-          <div className="flex justify-end gap-2 pt-2 border-t">
-            <button
-              type="button"
-              onClick={() => setIsAdvancePaymentOpen(false)}
-              className="px-4 py-1.5 border border-slate-200 rounded text-slate-600 font-medium"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              className="px-5 py-1.5 bg-[#1976d2] hover:bg-[#1565c0] text-white font-bold rounded shadow-xs"
-            >
-              Post Advance Voucher
-            </button>
-          </div>
-        </form>
-      </ModalDialog>
+      />
 
       {/* ============================================================= */}
       {/* 6. MODAL: + CREATE BILL */}
@@ -2004,8 +2092,9 @@ export default function SupplierPaymentsPage() {
               type="button"
               disabled={billMutation.isPending}
               onClick={handleCreateBill}
-              className="px-5 py-1.5 bg-[#1976d2] hover:bg-[#1565c0] text-white font-bold rounded shadow-xs"
+              className="px-5 py-1.5 bg-[#1976d2] hover:bg-[#1565c0] disabled:opacity-60 text-white font-bold rounded shadow-xs inline-flex items-center gap-1.5"
             >
+              {billMutation.isPending && <Spinner className="size-3.5" />}
               Save Vendor Bill
             </button>
           </div>
@@ -2024,79 +2113,60 @@ export default function SupplierPaymentsPage() {
       >
         {printPaidVoucher && (
           <div className="space-y-4 text-xs">
-            <div className="bg-white p-6 border border-slate-200 rounded shadow-sm text-slate-800 space-y-4 print:p-0 print:border-none">
-              {/* Header */}
-              <div className="flex justify-between items-start border-b border-slate-200 pb-3 mb-3">
-                <div className="flex items-center gap-3">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src="/logo.png" alt="BridgeOne Logo" className="h-10 w-auto object-contain" />
-                  <div>
-                    <h2 className="font-bold text-base text-slate-900 tracking-wide uppercase">BridgeOne ERP Industries Ltd.</h2>
-                    <p className="text-[11px] text-slate-500">Accounts & Procurement Finance Division • Dhaka, Bangladesh</p>
-                  </div>
-                </div>
-                <div className="text-right">
-                  <span className="inline-block bg-emerald-100 text-emerald-800 font-bold px-2.5 py-0.5 rounded text-xs">
-                    MONEY RECEIPT VOUCHER
-                  </span>
-                  <p className="font-mono font-bold text-slate-900 text-sm mt-1">{printPaidVoucher.moneyReceiptNo || "MR-2026-0914"}</p>
-                  <p className="text-[10px] text-slate-400">Payment Date: {printPaidVoucher.paidDate}</p>
-                </div>
-              </div>
-
-              {/* Payee Info */}
-              <div className="grid grid-cols-2 gap-4 p-3 bg-slate-50 rounded border border-slate-200 text-xs">
-                <div>
-                  <h4 className="font-bold text-slate-800 text-[11px] uppercase mb-1">Paid To Vendor</h4>
-                  <p className="font-bold text-slate-900 text-sm">{printPaidVoucher.supplier}</p>
-                  <p className="text-slate-600">Settled Invoices: <span className="font-mono">{printPaidVoucher.invoiceNo}</span></p>
-                </div>
-                <div>
-                  <h4 className="font-bold text-slate-800 text-[11px] uppercase mb-1">Payment Channel</h4>
-                  <p className="text-slate-700">Bank Amount: <span className="font-mono font-bold">{formatCurrency(printPaidVoucher.bankAmount)}</span></p>
-                  <p className="text-slate-700">Cash Amount: <span className="font-mono font-bold">{formatCurrency(printPaidVoucher.cashAmount)}</span></p>
-                  <p className="text-slate-900 font-bold text-sm mt-1">Total Disbursed: <span className="font-mono text-emerald-700">{formatCurrency(printPaidVoucher.paidAmount)}</span></p>
-                </div>
-              </div>
-
-              {/* Signatures */}
-              <div className="pt-16 grid grid-cols-4 gap-4 text-center text-[10px] text-slate-500">
-                <div className="border-t border-slate-300 pt-1">
-                  <span className="font-semibold text-slate-700 block">Fuad Hossain</span>
-                  <span>Prepared By</span>
-                </div>
-                <div className="border-t border-slate-300 pt-1">
-                  <span className="font-semibold text-slate-700 block">Accounts Officer</span>
-                  <span>Verified & Posted</span>
-                </div>
-                <div className="border-t border-slate-300 pt-1">
-                  <span className="font-semibold text-slate-700 block">Head of Finance</span>
-                  <span>Approved Disbursement</span>
-                </div>
-                <div className="border-t border-slate-300 pt-1">
-                  <span className="font-semibold text-slate-700 block">Payee Receiver</span>
-                  <span>Signature & Seal</span>
-                </div>
-              </div>
-            </div>
-
-            <div className="flex justify-end gap-2 pt-2">
-              <button
-                type="button"
-                onClick={() => setPrintPaidVoucher(null)}
-                className="px-4 py-1.5 border border-slate-200 rounded text-slate-700 font-semibold"
-              >
-                Close Preview
-              </button>
-              <button
-                type="button"
-                onClick={() => window.print()}
-                className="px-5 py-1.5 bg-[#1976d2] hover:bg-[#1565c0] text-white rounded font-bold flex items-center gap-1.5 shadow"
-              >
-                <Printer className="w-4 h-4" />
-                <span>Print Document</span>
-              </button>
-            </div>
+            <PrintablePurchaseDoc
+              context={context}
+              title="Supplier Payment Voucher"
+              metaLeft={[
+                ["Voucher / Receipt No", printPaidVoucher.voucherNo || printPaidVoucher.moneyReceiptNo],
+                ["Supplier Name", printPaidVoucher.supplier],
+                ["Payment Method", printPaidVoucher.method || "BANK"],
+                ["Remarks / Narration", printPaidVoucher.remarks || ""],
+              ]}
+              metaRight={[
+                ["Payment Date", fmtPrintDate(printPaidVoucher.paidDate)],
+                ["Settled Document", printPaidVoucher.invoiceNo || "-"],
+                ["Money Receipt / Ref.", printPaidVoucher.moneyReceiptNo || "-"],
+                ["Status", "PAID"],
+              ]}
+              columns={[
+                { header: "SL", align: "center", widthClass: "w-10" },
+                { header: "Document / Ref", align: "left", widthClass: "w-36" },
+                { header: "Description", align: "left" },
+                { header: "Bank Amount", align: "right", widthClass: "w-28" },
+                { header: "Cash Amount", align: "right", widthClass: "w-28" },
+                { header: "Total Paid", align: "right", widthClass: "w-28" },
+              ]}
+              rows={[
+                [
+                  1,
+                  printPaidVoucher.invoiceNo || "-",
+                  `Supplier Payment (${printPaidVoucher.supplier})`,
+                  fmtPrintNum(printPaidVoucher.bankAmount),
+                  fmtPrintNum(printPaidVoucher.cashAmount),
+                  fmtPrintNum(printPaidVoucher.paidAmount),
+                ],
+              ]}
+              totalRows={[
+                [
+                  "",
+                  "",
+                  "Total Disbursed",
+                  fmtPrintNum(printPaidVoucher.bankAmount),
+                  fmtPrintNum(printPaidVoucher.cashAmount),
+                  fmtPrintNum(printPaidVoucher.paidAmount),
+                ],
+              ]}
+              signatures={[
+                { roleLabel: "Prepared By", name: printPaidVoucher.createdBy },
+                { roleLabel: "Approved By" },
+                { roleLabel: "Received By", name: printPaidVoucher.supplier, designation: "Supplier / Payee" },
+              ]}
+            />
+            <PurchasePrintToolbar
+              pdfUrl={`/api/v1/purchase/supplier-payments/${encodeURIComponent(printPaidVoucher.id)}/pdf`}
+              onClose={() => setPrintPaidVoucher(null)}
+              canExportPdf={perms.payments.export}
+            />
           </div>
         )}
       </ModalDialog>

@@ -108,8 +108,20 @@ export const ItemSchema = z.object({
   code: z.string(),
   name: z.string(),
   category: z.string(),
+  categoryId: z.string().optional(),
+  subCategory: z.string().optional(),
+  subCategoryId: z.string().optional(),
+  minorCategory: z.string().optional(),
+  minorCategoryId: z.string().optional(),
+  itemType: z.string().optional(),
+  brand: z.string().optional(),
+  barcode: z.string().optional(),
   uom: z.string(),
   standardPrice: z.number().default(0),
+  vatPercent: z.number().optional(),
+  lastCost: z.number().optional(),
+  averageCost: z.number().optional(),
+  totalStock: z.number().optional(),
   description: z.string().optional(),
 });
 export type Item = z.infer<typeof ItemSchema>;
@@ -256,6 +268,8 @@ export const GoodsReceiptItemSchema = z.object({
   currentReceivedQuantity: z.number().min(0),
   rejectedDamagedQuantity: z.number().min(0).default(0),
   unitPrice: z.number(),
+  discountPercentage: z.number().min(0).max(100).optional(),
+  taxPercentage: z.number().min(0).max(100).optional(),
   lineTotal: z.number(),
   remarks: z.string().optional(),
 });
@@ -264,7 +278,12 @@ export type GoodsReceiptItem = z.infer<typeof GoodsReceiptItemSchema>;
 export const CreateGoodsReceiptSchema = z.object({
   companyId: z.string().default("comp-bridgeone-01"),
   purchaseOrderId: z.string().min(1, "Purchase Order is required"),
+  requisitionId: z.string().optional(),
   receiptDate: z.string().min(1, "Receipt date is required"),
+  challanDate: z.string().optional(),
+  paymentTerms: z.string().optional(),
+  deliveryTerms: z.string().optional(),
+  shippingFee: z.number().optional(),
   shipmentNumber: z.string().optional(),
   shipmentDocumentNumber: z.string().optional(),
   vatChallanNumber: z.string().optional(),
@@ -421,7 +440,7 @@ export const DashboardAnalyticsSchema = z.object({
   monthlyExpenditure: z.array(z.object({ month: z.string(), expenditure: z.number(), budget: z.number() })),
   poStatusDistribution: z.array(z.object({ status: z.string(), count: z.number() })),
   topSuppliers: z.array(z.object({ supplier: z.string(), totalSpend: z.number(), poCount: z.number() })),
-  topPurchasedItems: z.array(z.object({ item: z.string(), quantity: z.number(), amount: z.number() })),
+  topPurchasedItems: z.array(z.object({ item: z.string(), quantity: z.number(), amount: z.number(), orders: z.number().optional() })),
   procurementCycleTimeDays: z.number(),
   pendingApprovalItems: z.array(
     z.object({
@@ -435,6 +454,57 @@ export const DashboardAnalyticsSchema = z.object({
     })
   ),
   isSampleData: z.boolean().default(false),
+  /** Measured purchase performance for the period; stages without data are null. */
+  insights: z
+    .object({
+      /** Approved / partly received orders and the value still to arrive. */
+      pendingReceipt: z.object({ orders: z.number(), amount: z.number(), overdueOrders: z.number() }),
+      qc: z.object({
+        receivedQty: z.number(),
+        acceptedQty: z.number(),
+        rejectedQty: z.number(),
+        /** Accepted ÷ received, %. Null when nothing was received. */
+        acceptanceRate: z.number().nullable(),
+        receivedAmount: z.number(),
+        returnedAmount: z.number(),
+        /** Returned ÷ received value, %. */
+        returnRate: z.number().nullable(),
+      }),
+      payments: z.object({
+        invoices: z.number(),
+        overdue: z.number(),
+        overdueAmount: z.number(),
+        /** Invoices paid or not yet due, %. Null when there are no invoices. */
+        onTimeRate: z.number().nullable(),
+      }),
+      /** Average days per stage of the purchase cycle. */
+      cycle: z.object({
+        approvalDays: z.number().nullable(),
+        orderDays: z.number().nullable(),
+        deliveryDays: z.number().nullable(),
+        paymentDays: z.number().nullable(),
+      }),
+      approvalTurnaroundHours: z.number().nullable(),
+      /** Spend of the equally long period just before the date filter; null without a full date range. */
+      previousPeriodSpend: z.number().nullable(),
+      categories: z.array(z.string()),
+      register: z.array(
+        z.object({
+          id: z.string(),
+          poNumber: z.string(),
+          orderDate: z.string(),
+          supplierName: z.string(),
+          officeName: z.string(),
+          warehouseName: z.string(),
+          category: z.string(),
+          amount: z.number(),
+          status: z.string(),
+          receivedPercent: z.number(),
+          paymentStatus: z.enum(["PAID", "PARTIALLY_PAID", "UNPAID", "NOT_RECEIVED"]),
+        }),
+      ),
+    })
+    .optional(),
 });
 export type DashboardAnalytics = z.infer<typeof DashboardAnalyticsSchema>;
 

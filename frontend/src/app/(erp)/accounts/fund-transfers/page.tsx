@@ -16,6 +16,7 @@ import type { FundTransferRecord } from "@/features/accounts/types";
 
 export default function FundTransferPage() {
   const transfers = useAccountingStore((s) => s.transfers);
+  const dbOffices = useAccountingStore((s) => s.offices);
   const createTransfer = useAccountingStore((s) => s.createTransfer);
   const receiveTransfer = useAccountingStore((s) => s.receiveTransfer);
 
@@ -59,17 +60,13 @@ export default function FundTransferPage() {
     referenceNumber: "",
   }));
 
-  const officeList = [
-    { id: "ALL", name: "All Offices" },
-    { id: "MG Sirajganj Factory", name: "MG Sirajganj Factory" },
-    { id: "MGV-PLC", name: "MGV-PLC" },
-    { id: "Dhaka Head Office", name: "Dhaka Head Office" },
-    { id: "MBBL-HO", name: "MBBL-HO" },
-    { id: "MOHS-Eco", name: "MOHS-Eco" },
-    { id: "CFF-Chapai", name: "CFF-Chapai" },
-    { id: "MFIL-HO", name: "MFIL-HO" },
-    { id: "Marinozz", name: "Marinozz" },
-  ];
+  const officeList = useMemo(
+    () => [
+      { id: "ALL", name: "All Offices" },
+      ...dbOffices.map((o) => ({ id: o.name, name: o.name })),
+    ],
+    [dbOffices]
+  );
 
   // Tab Dataset Filtering
   const filteredTransfers = useMemo(() => {

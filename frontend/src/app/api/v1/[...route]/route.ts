@@ -8,9 +8,29 @@ import {
   approveSupplierBill,
   createSupplierBill,
   listPaymentHistory,
+  listSupplierAdvanceDetails,
   listSupplierAdvances,
   listSupplierBills,
 } from "@/lib/purchase-store/payables";
+import {
+  goodsReceiptPdf,
+  payablesDueListPdf,
+  purchaseOrderPdf,
+  purchaseReportPdf,
+  purchaseReturnPdf,
+  requisitionPdf,
+  supplierPaymentPdf,
+} from "@/lib/purchase-store/purchase-pdf";
+
+function pdfResponse(filename: string, bytes: Uint8Array, searchParams: URLSearchParams) {
+  const disposition = searchParams.has("download") ? "attachment" : "inline";
+  return new Response(Buffer.from(bytes), {
+    headers: {
+      "Content-Type": "application/pdf",
+      "Content-Disposition": `${disposition}; filename="${encodeURIComponent(filename)}"`,
+    },
+  });
+}
 import {
   CreateRequisitionSchema,
   CreatePurchaseOrderSchema,
@@ -35,21 +55,23 @@ function errorResponse(err: unknown, fallbackStatus: number) {
 
 async function handleGET(
   request: Request,
-  { params }: { params: Promise<{ route: string[] }> }
+  { params }: { params: Promise<{ route: string[] }> },
+  actor: Actor
 ) {
   const { route } = await params;
   const path = route.join("/");
   const searchParams = new URL(request.url).searchParams;
+  const pActor = { id: actor.id, name: actor.name ?? actor.id, isMaster: actor.isMaster, via: actor.via };
 
   try {
     // 1. MASTER DATA
     if (path === "master/offices") {
-      const data = await purchaseStore.getOffices();
+      const data = await purchaseStore.getOffices(pActor);
       return NextResponse.json({ success: true, data });
     }
     if (path === "master/warehouses") {
       const officeId = searchParams.get("officeId") || undefined;
-      const data = await purchaseStore.getWarehouses(officeId);
+      const data = await purchaseStore.getWarehouses(officeId, pActor);
       return NextResponse.json({ success: true, data });
     }
     if (path === "master/suppliers") {
@@ -60,8 +82,12 @@ async function handleGET(
       const data = await purchaseStore.getItems();
       return NextResponse.json({ success: true, data });
     }
+    if (path === "master/purchase-form-options") {
+      const data = await purchaseStore.getPurchaseFormOptions(pActor);
+      return NextResponse.json({ success: true, data });
+    }
     if (path === "master/context") {
-      const data = await purchaseStore.getContext();
+      const data = await purchaseStore.getContext({ ...actor, ...pActor });
       return NextResponse.json({ success: true, data });
     }
 
@@ -71,7 +97,7 @@ async function handleGET(
         fromDate: searchParams.get("fromDate") || undefined,
         toDate: searchParams.get("toDate") || undefined,
         officeId: searchParams.get("officeId") || undefined,
-      });
+      }, pActor);
       return NextResponse.json({ success: true, data: analytics });
     }
 
@@ -86,7 +112,7 @@ async function handleGET(
         toDate: searchParams.get("toDate") || undefined,
         requestType: searchParams.get("requestType") || undefined,
         section: searchParams.get("section") || undefined,
-      });
+      }, pActor);
       return NextResponse.json({
         success: true,
         data: list,
@@ -98,12 +124,16 @@ async function handleGET(
         officeId: searchParams.get("officeId") || undefined,
         fromDate: searchParams.get("fromDate") || undefined,
         toDate: searchParams.get("toDate") || undefined,
-      });
+      }, pActor);
       return NextResponse.json({ success: true, data, meta: { total: data.length } });
+    }
+    if (route.length === 4 && route[0] === "purchase" && route[1] === "requisitions" && route[3] === "pdf") {
+      const { filename, bytes } = await requisitionPdf(route[2]);
+      return pdfResponse(filename, bytes, searchParams);
     }
     if (path.startsWith("purchase/requisitions/") && route.length === 3) {
       const id = route[2];
-      const item = await purchaseStore.getRequisitionById(id);
+      const item = await purchaseStore.getRequisitionById(id, pActor);
       if (!item) {
         return NextResponse.json(
           { error: { message: `Requisition '${id}' not found` } },
@@ -122,16 +152,20 @@ async function handleGET(
         search: searchParams.get("search") || undefined,
         fromDate: searchParams.get("fromDate") || undefined,
         toDate: searchParams.get("toDate") || undefined,
-      });
+      }, pActor);
       return NextResponse.json({
         success: true,
         data: list,
         meta: { total: list.length },
       });
     }
+    if (route.length === 4 && route[0] === "purchase" && route[1] === "orders" && route[3] === "pdf") {
+      const { filename, bytes } = await purchaseOrderPdf(route[2]);
+      return pdfResponse(filename, bytes, searchParams);
+    }
     if (path.startsWith("purchase/orders/") && route.length === 3) {
       const id = route[2];
-      const po = await purchaseStore.getPurchaseOrderById(id);
+      const po = await purchaseStore.getPurchaseOrderById(id, pActor);
       if (!po) {
         return NextResponse.json(
           { error: { message: `Purchase Order '${id}' not found` } },
@@ -146,7 +180,7 @@ async function handleGET(
       const list = await purchaseStore.getGoodsReceipts({
         search: searchParams.get("search") || undefined,
         status: searchParams.get("status") || undefined,
-      });
+      }, pActor);
       return NextResponse.json({
         success: true,
         data: list,
@@ -157,7 +191,7 @@ async function handleGET(
       path === "purchase/receive/approved-orders" ||
       path === "purchase/receipts/approved-orders"
     ) {
-      const list = await purchaseStore.getApprovedOrdersForReceiving();
+      const list = await purchaseStore.getApprovedOrdersForReceiving(pActor);
       return NextResponse.json({
         success: true,
         data: list,
@@ -165,12 +199,26 @@ async function handleGET(
       });
     }
 
+    if (
+      route.length === 4 &&
+      route[0] === "purchase" &&
+      (route[1] === "receive" || route[1] === "receipts") &&
+      route[3] === "pdf"
+    ) {
+      const { filename, bytes } = await goodsReceiptPdf(route[2]);
+      return pdfResponse(filename, bytes, searchParams);
+    }
+
     // 6. PURCHASE RETURNS
+    if (route.length === 4 && route[0] === "purchase" && route[1] === "returns" && route[3] === "pdf") {
+      const { filename, bytes } = await purchaseReturnPdf(route[2]);
+      return pdfResponse(filename, bytes, searchParams);
+    }
     if (path === "purchase/returns") {
       const list = await purchaseStore.getPurchaseReturns({
         search: searchParams.get("search") || undefined,
         status: searchParams.get("status") || undefined,
-      });
+      }, pActor);
       return NextResponse.json({
         success: true,
         data: list,
@@ -178,7 +226,7 @@ async function handleGET(
       });
     }
     if (path === "purchase/returns/eligible-receipts") {
-      const list = await purchaseStore.getEligibleReceiptsForReturn();
+      const list = await purchaseStore.getEligibleReceiptsForReturn(pActor);
       return NextResponse.json({
         success: true,
         data: list,
@@ -192,6 +240,8 @@ async function handleGET(
         search: searchParams.get("search") || undefined,
         status: searchParams.get("status") || undefined,
         category: searchParams.get("category") || undefined,
+        fromDate: searchParams.get("fromDate") || undefined,
+        toDate: searchParams.get("toDate") || undefined,
       });
       return NextResponse.json({
         success: true,
@@ -217,8 +267,25 @@ async function handleGET(
       return NextResponse.json({ success: true, data, meta: { total: data.length } });
     }
     if (path === "purchase/supplier-payments/advances") {
-      const data = await listSupplierAdvances();
+      const fromDate = searchParams.get("fromDate") || undefined;
+      const toDate = searchParams.get("toDate") || undefined;
+      const details = searchParams.get("details") === "true";
+      const data = details
+        ? await listSupplierAdvanceDetails({ fromDate, toDate })
+        : await listSupplierAdvances({ fromDate, toDate });
       return NextResponse.json({ success: true, data, meta: { total: data.length } });
+    }
+    if (path === "purchase/supplier-payments/payables-pdf") {
+      const { filename, bytes } = await payablesDueListPdf({
+        fromDate: searchParams.get("fromDate") || undefined,
+        toDate: searchParams.get("toDate") || undefined,
+        search: searchParams.get("search") || undefined,
+      });
+      return pdfResponse(filename, bytes, searchParams);
+    }
+    if (route.length === 4 && route[0] === "purchase" && route[1] === "supplier-payments" && route[3] === "pdf") {
+      const { filename, bytes } = await supplierPaymentPdf(route[2]);
+      return pdfResponse(filename, bytes, searchParams);
     }
     if (path === "purchase/supplier-bills") {
       const data = await listSupplierBills();
@@ -238,6 +305,19 @@ async function handleGET(
       });
       const report = await purchaseStore.generateReport(query);
       return NextResponse.json({ success: true, data: report });
+    }
+    if (path === "purchase/reports/pdf") {
+      const query = ReportQuerySchema.parse({
+        reportType: searchParams.get("reportType") || "REQUISITION_REPORT",
+        officeId: searchParams.get("officeId") || undefined,
+        supplierId: searchParams.get("supplierId") || undefined,
+        fromDate: searchParams.get("fromDate") || undefined,
+        toDate: searchParams.get("toDate") || undefined,
+        status: searchParams.get("status") || undefined,
+        isSummary: searchParams.get("isSummary") === "true",
+      });
+      const { filename, bytes } = await purchaseReportPdf(query);
+      return pdfResponse(filename, bytes, searchParams);
     }
     if (path === "purchase/reports/export-csv") {
       const query = ReportQuerySchema.parse({
@@ -289,11 +369,22 @@ async function handlePOST(
     const body = await request.json().catch(() => ({}));
     // Recorded as "prepared by" / "received by": the signed-in user.
     const actorName = actor.name ?? actor.id;
+    const pActor = { id: actor.id, name: actorName, isMaster: actor.isMaster, via: actor.via };
+
+    // Quick-create Master Data (Supplier & Item) from Purchase forms
+    if (path === "master/suppliers") {
+      const created = await purchaseStore.quickCreateSupplier(body);
+      return NextResponse.json({ success: true, data: created }, { status: 201 });
+    }
+    if (path === "master/items") {
+      const created = await purchaseStore.quickCreateItem(body);
+      return NextResponse.json({ success: true, data: created }, { status: 201 });
+    }
 
     // Create Requisition
     if (path === "purchase/requisitions") {
       const validated = CreateRequisitionSchema.parse(body);
-      const created = await purchaseStore.createRequisition(validated, actorName);
+      const created = await purchaseStore.createRequisition(validated, actorName, pActor);
       return NextResponse.json({ success: true, data: created }, { status: 201 });
     }
 
@@ -313,7 +404,7 @@ async function handlePOST(
           "APPROVE",
           actorName,
           comments,
-          actor
+          pActor
         );
         return NextResponse.json({ success: true, data: updated });
       }
@@ -323,7 +414,7 @@ async function handlePOST(
           "REJECT",
           actorName,
           comments,
-          actor
+          pActor
         );
         return NextResponse.json({ success: true, data: updated });
       }
@@ -333,7 +424,7 @@ async function handlePOST(
           "CANCEL",
           actorName,
           comments,
-          actor
+          pActor
         );
         return NextResponse.json({ success: true, data: updated });
       }
@@ -342,12 +433,13 @@ async function handlePOST(
           id,
           "REVERSE",
           actorName,
-          comments || "Requisition reversed to submitted status."
+          comments || "Requisition reversed to submitted status.",
+          pActor
         );
         return NextResponse.json({ success: true, data: updated });
       }
       if (action === "method") {
-        const updated = await purchaseStore.setRequisitionMethod(id, String(body?.purchaseMethod ?? ""), actorName);
+        const updated = await purchaseStore.setRequisitionMethod(id, String(body?.purchaseMethod ?? ""), actorName, pActor);
         return NextResponse.json({ success: true, data: updated });
       }
     }
@@ -355,7 +447,7 @@ async function handlePOST(
     // Create Purchase Order
     if (path === "purchase/orders") {
       const validated = CreatePurchaseOrderSchema.parse(body);
-      const created = await purchaseStore.createPurchaseOrder(validated, actorName);
+      const created = await purchaseStore.createPurchaseOrder(validated, actorName, pActor);
       return NextResponse.json({ success: true, data: created }, { status: 201 });
     }
 
@@ -370,7 +462,7 @@ async function handlePOST(
           "APPROVE",
           actorName,
           comments,
-          actor
+          pActor
         );
         return NextResponse.json({ success: true, data: updated });
       }
@@ -380,7 +472,7 @@ async function handlePOST(
           "CLOSE",
           actorName,
           comments,
-          actor
+          pActor
         );
         return NextResponse.json({ success: true, data: updated });
       }
@@ -390,7 +482,7 @@ async function handlePOST(
           "REVERSE",
           actorName,
           comments,
-          actor
+          pActor
         );
         return NextResponse.json({ success: true, data: updated });
       }
@@ -400,7 +492,7 @@ async function handlePOST(
           "CANCEL",
           actorName,
           comments,
-          actor
+          pActor
         );
         return NextResponse.json({ success: true, data: updated });
       }
@@ -419,9 +511,14 @@ async function handlePOST(
           officeId: body.officeId,
           warehouseId: body.warehouseId,
           challanNumber: body.challanNumber,
+          challanDate: body.challanDate,
           gatePassNumber: body.gatePassNumber,
+          paymentTerms: body.paymentTerms,
+          deliveryTerms: body.deliveryTerms,
+          shippingFee: body.shippingFee,
         },
-        actorName
+        actorName,
+        pActor
       );
       return NextResponse.json({ success: true, data: created }, { status: 201 });
     }
@@ -439,7 +536,8 @@ async function handlePOST(
           officeId: body.officeId,
           warehouseId: body.warehouseId,
         },
-        actorName
+        actorName,
+        pActor
       );
       return NextResponse.json({ success: true, data: created }, { status: 201 });
     }
@@ -456,11 +554,11 @@ async function handlePOST(
       return NextResponse.json({ success: true, data: created }, { status: 201 });
     }
     if (path === "purchase/supplier-bills/approve-pending") {
-      const result = await approvePendingSupplierBills(actorName, actor);
+      const result = await approvePendingSupplierBills(actorName, pActor);
       return NextResponse.json({ success: true, data: result });
     }
     if (route[0] === "purchase" && route[1] === "supplier-bills" && route.length === 4 && route[3] === "approve") {
-      const updated = await approveSupplierBill(route[2], actorName, actor);
+      const updated = await approveSupplierBill(route[2], actorName, pActor);
       return NextResponse.json({ success: true, data: updated });
     }
 
@@ -469,10 +567,10 @@ async function handlePOST(
       const id = route[2];
       const comments = body?.comments || "";
       if (route[1] === "receipts" || route[1] === "receive") {
-        return NextResponse.json({ success: true, data: await purchaseStore.cancelGoodsReceipt(id, actorName, comments) });
+        return NextResponse.json({ success: true, data: await purchaseStore.cancelGoodsReceipt(id, actorName, comments, pActor) });
       }
       if (route[1] === "returns") {
-        return NextResponse.json({ success: true, data: await purchaseStore.cancelPurchaseReturn(id, actorName, comments) });
+        return NextResponse.json({ success: true, data: await purchaseStore.cancelPurchaseReturn(id, actorName, comments, pActor) });
       }
       if (route[1] === "supplier-payments") {
         return NextResponse.json({ success: true, data: await purchaseStore.cancelSupplierPayment(id, actorName, comments) });
@@ -487,7 +585,7 @@ async function handlePOST(
       route[3] === "approve"
     ) {
       const id = route[2];
-      const updated = await purchaseStore.approveSupplierPayment(id);
+      const updated = await purchaseStore.approveSupplierPayment(id, pActor);
       return NextResponse.json({ success: true, data: updated });
     }
 
@@ -511,6 +609,7 @@ async function handlePUT(
     const body = await request.json().catch(() => ({}));
     // Recorded as "prepared by" / "received by": the signed-in user.
     const actorName = actor.name ?? actor.id;
+    const pActor = { id: actor.id, name: actorName, isMaster: actor.isMaster, via: actor.via };
 
     // Update Requisition
     if (
@@ -519,14 +618,14 @@ async function handlePUT(
       route.length === 3
     ) {
       const id = route[2];
-      const updated = await purchaseStore.updateRequisition(id, body, actorName);
+      const updated = await purchaseStore.updateRequisition(id, body, actorName, pActor);
       return NextResponse.json({ success: true, data: updated });
     }
 
     // Update Purchase Order
     if (route[0] === "purchase" && route[1] === "orders" && route.length === 3) {
       const id = route[2];
-      const updated = await purchaseStore.updatePurchaseOrder(id, body, actorName);
+      const updated = await purchaseStore.updatePurchaseOrder(id, body, actorName, pActor);
       return NextResponse.json({ success: true, data: updated });
     }
 

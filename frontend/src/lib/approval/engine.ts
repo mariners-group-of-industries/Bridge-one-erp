@@ -1,6 +1,5 @@
 import type { Prisma } from "@/generated/prisma/client";
 import { AppError, conflict } from "@/lib/api/errors";
-import type { Actor } from "@/lib/auth/actor";
 import { db } from "@/lib/prisma/client";
 
 /**
@@ -20,6 +19,16 @@ import { db } from "@/lib/prisma/client";
  */
 
 type Tx = Prisma.TransactionClient;
+
+/**
+ * Who is acting: a session actor, or the lighter purchase-store actor. Without an
+ * id (internal calls) the pipeline is not applied. The master account clears the
+ * current stage like a super approver.
+ */
+export interface ApprovalActor {
+  id?: string;
+  isMaster?: boolean;
+}
 
 export interface ApprovalTarget {
   /** Approval Setup feature name, e.g. "Purchase Requisition". */
@@ -152,8 +161,8 @@ async function userNames(tx: Tx, ids: string[]): Promise<Map<string, string>> {
 }
 
 /** Who may act on the stage now, or why the actor may not. */
-async function checkTurn(tx: Tx, actor: Actor, stage: StageRow): Promise<{ superApprover: boolean }> {
-  const superApprover = !!stage.superApproverUserId && actor.id === stage.superApproverUserId;
+async function checkTurn(tx: Tx, actor: Required<Pick<ApprovalActor, "id">> & ApprovalActor, stage: StageRow): Promise<{ superApprover: boolean }> {
+  const superApprover = !!actor.isMaster || (!!stage.superApproverUserId && actor.id === stage.superApproverUserId);
   if (superApprover || stage.approverUserIds.length === 0) return { superApprover };
   if (stage.approvedUserIds.includes(actor.id)) {
     throw new AppError(403, "FORBIDDEN", `You have already approved stage ${stage.stageNo} (${stage.stageName}); it is waiting for other approvers.`);
@@ -171,7 +180,9 @@ async function checkTurn(tx: Tx, actor: Actor, stage: StageRow): Promise<{ super
  * when the actor is not an approver of that stage. `final` tells the caller to
  * mark the document approved.
  */
-export async function recordApproval(tx: Tx, actor: Actor, target: ApprovalTarget): Promise<ApprovalResult> {
+export async function recordApproval(tx: Tx, by: ApprovalActor, target: ApprovalTarget): Promise<ApprovalResult> {
+  if (!by.id) return SINGLE_LAYER;
+  const actor = { ...by, id: by.id };
   const stages = await ensureStages(tx, target);
   if (stages.length === 0) return SINGLE_LAYER;
   const current = stages.find((s) => s.status === "PENDING");
@@ -202,7 +213,9 @@ export async function recordApproval(tx: Tx, actor: Actor, target: ApprovalTarge
  * actor is not an approver of that stage. Without a pipeline it does nothing
  * (the caller's page permission decides).
  */
-export async function recordRejection(tx: Tx, actor: Actor, target: ApprovalTarget): Promise<void> {
+export async function recordRejection(tx: Tx, by: ApprovalActor, target: ApprovalTarget): Promise<void> {
+  if (!by.id) return;
+  const actor = { ...by, id: by.id };
   const stages = await ensureStages(tx, target);
   const current = stages.find((s) => s.status === "PENDING");
   if (!current) return;
@@ -225,7 +238,7 @@ export async function recordRejection(tx: Tx, actor: Actor, target: ApprovalTarg
  * approval result (null for a rejection).
  */
 export async function decideWithPipeline(
-  actor: Actor,
+  actor: ApprovalActor,
   target: ApprovalTarget,
   decision: "approve" | "reject",
   apply: (tx: Tx) => Promise<void>,
@@ -249,7 +262,7 @@ export async function employeeBusinessUnit(employeeId: string): Promise<string |
 }
 
 /** Approves several documents of one feature; returns the ids that became fully approved. */
-export async function recordApprovals(tx: Tx, actor: Actor, targets: ApprovalTarget[]): Promise<Set<string>> {
+export async function recordApprovals(tx: Tx, actor: ApprovalActor, targets: ApprovalTarget[]): Promise<Set<string>> {
   const final = new Set<string>();
   for (const target of targets) if ((await recordApproval(tx, actor, target)).final) final.add(target.documentId);
   return final;

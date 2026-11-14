@@ -630,6 +630,7 @@ model Office {
   purchaseOrders       PurchaseOrder[]
   goodsReceipts        GoodsReceipt[]
   purchaseReturns      PurchaseReturn[]
+  supplierPayments     SupplierPayment[]
   suppliers            Supplier[]
   customers            Customer[]
   openingStockReceipts OpeningStockReceipt[]
@@ -2884,6 +2885,8 @@ model PurchaseOrder {
   expectedDeliveryDate DateTime?           @db.Date
   referenceNumber      String?             @db.VarChar(100)
   projectCostCenter    String?             @db.VarChar(100)
+  paymentTerms         String?             @db.VarChar(100)
+  deliveryTerms        String?             @db.VarChar(100)
   status               PurchaseOrderStatus @default(PENDING)
   subtotal             Decimal             @default(0) @db.Decimal(14, 2)
   totalDiscount        Decimal             @default(0) @db.Decimal(14, 2)
@@ -2953,6 +2956,8 @@ model GoodsReceipt {
   challanDate      DateTime?          @db.Date
   receiveDate      DateTime           @db.Date
   gatePassNumber   String?            @db.VarChar(100)
+  supplierInvoiceNumber String?       @db.VarChar(100)
+  vatChallanNumber String?            @db.VarChar(100)
   status           GoodsReceiptStatus @default(RECEIVED)
   totalReceivedQty Decimal            @default(0) @db.Decimal(14, 3)
   totalAcceptedQty Decimal            @default(0) @db.Decimal(14, 3)
@@ -3023,6 +3028,7 @@ model PurchaseReturn {
   status         PurchaseReturnStatus @default(SUBMITTED)
   totalQty       Decimal              @default(0) @db.Decimal(14, 3)
   totalAmount    Decimal              @default(0) @db.Decimal(14, 2)
+  createdBy      String?              @db.VarChar(150)
   createdAt      DateTime             @default(now()) @db.Timestamptz(3)
   updatedAt      DateTime             @updatedAt @db.Timestamptz(3)
 
@@ -3087,6 +3093,10 @@ model SupplierPayment {
   /// The goods receipt or supplier bill this payment settles; neither = on account.
   receiptId       String?               @db.Uuid
   billId          String?               @db.Uuid
+  /// Office, Bank Account & GL cash/bank account chosen on the payment voucher.
+  officeId        String?               @db.Uuid
+  bankAccountId   String?               @db.Uuid
+  cashAccountId   String?               @db.Uuid
   /// Paid before goods or a bill; shown under Payment Advance until used up.
   isAdvance       Boolean               @default(false)
   createdBy       String?               @db.VarChar(150)
@@ -3098,6 +3108,9 @@ model SupplierPayment {
   order           PurchaseOrder?        @relation(fields: [orderId], references: [id], onDelete: SetNull)
   receipt         GoodsReceipt?         @relation(fields: [receiptId], references: [id], onDelete: SetNull)
   bill            SupplierBill?         @relation(fields: [billId], references: [id], onDelete: SetNull)
+  office          Office?               @relation(fields: [officeId], references: [id], onDelete: SetNull)
+  bankAccount     BankAccount?          @relation(fields: [bankAccountId], references: [id], onDelete: SetNull)
+  cashAccount     Account?              @relation("SupplierPaymentCashAccount", fields: [cashAccountId], references: [id], onDelete: SetNull)
 
   @@unique([businessUnitId, number])
   @@index([businessUnitId, paymentDate])
@@ -3167,8 +3180,10 @@ model Account {
   collectionCashAccounts   SalesCollection[]          @relation("CollectionCashAccount")
   collectionAdjustAccounts SalesCollection[]          @relation("CollectionAdjustAccount")
   collectionDeductions     SalesCollectionDeduction[]
+  supplierPaymentCash      SupplierPayment[]          @relation("SupplierPaymentCashAccount")
 
   postingRoles             PostingAccount[]
+  coaPermissions           CoaPermission[]
   @@map("accounts")
 }
 
@@ -3246,13 +3261,17 @@ model JournalVoucherLine {
 model ExpenseRecord {
   id              String    @id @default(uuid()) @db.Uuid
   expenseNumber   String    @unique @db.VarChar(50)
+  recordKind      String    @default("EXPENSE") @db.VarChar(30)
   officeId        String?   @db.Uuid
   officeName      String?   @db.VarChar(150)
   expenseType     String    @db.VarChar(100)
   accountId       String?   @db.Uuid
+  accountCode     String?   @db.VarChar(50)
   accountName     String    @db.VarChar(150)
   payeeName       String    @db.VarChar(150)
   amount          Decimal   @db.Decimal(14, 2)
+  settledAmount   Decimal   @default(0) @db.Decimal(14, 2)
+  effectivePeriod String?   @db.VarChar(100)
   date            DateTime  @db.Date
   paymentMethod   String    @default("BANK") @db.VarChar(30)
   referenceNumber String?   @db.VarChar(100)
@@ -3426,9 +3445,62 @@ model BankAccount {
   createdAt            DateTime @default(now()) @db.Timestamptz(3)
   updatedAt            DateTime @updatedAt @db.Timestamptz(3)
 
-  salesWallets SalesWallet[]
+  salesWallets     SalesWallet[]
+  supplierPayments SupplierPayment[]
 
   @@map("bank_accounts")
+}
+
+model CoaPermission {
+  id              String   @id @default(uuid()) @db.Uuid
+  employeeUuid    String?  @db.Uuid
+  employeeId      String   @db.VarChar(50)
+  employeeName    String   @db.VarChar(150)
+  voucherType     String   @db.VarChar(50)
+  accountId       String?  @db.Uuid
+  accountHeadCode String   @db.VarChar(50)
+  accountHeadName String   @db.VarChar(150)
+  status          String   @default("ACTIVE") @db.VarChar(30)
+  createdAt       DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime @updatedAt @db.Timestamptz(3)
+
+  account  Account?  @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  employee Employee? @relation(fields: [employeeUuid], references: [id], onDelete: SetNull)
+
+  @@unique([employeeId, voucherType, accountHeadCode])
+  @@index([accountHeadCode])
+  @@index([voucherType])
+  @@map("coa_permissions")
+}
+
+model BankFacility {
+  id                   String    @id @default(uuid()) @db.Uuid
+  facilityKind         String    @db.VarChar(30) // DEPOSIT | LOAN | PARTNER
+  facilityNumber       String    @unique @db.VarChar(50)
+  bankAccountId        String?   @db.Uuid
+  officeId             String?   @db.Uuid
+  officeName           String?   @db.VarChar(150)
+  partyName            String    @db.VarChar(150)
+  facilityType         String    @db.VarChar(100)
+  category             String?   @db.VarChar(50)
+  partnerGroup         String?   @db.VarChar(100)
+  glAccountId          String?   @db.Uuid
+  glAccountName        String?   @db.VarChar(150)
+  principalAmount      Decimal   @default(0) @db.Decimal(14, 2)
+  interestRate         Decimal   @default(0) @db.Decimal(6, 2)
+  openingDate          DateTime? @db.Date
+  maturityDate         DateTime? @db.Date
+  maturityValue        Decimal   @default(0) @db.Decimal(14, 2)
+  installmentAmount    Decimal   @default(0) @db.Decimal(14, 2)
+  outstandingPrincipal Decimal   @default(0) @db.Decimal(14, 2)
+  accruedInterest      Decimal   @default(0) @db.Decimal(14, 2)
+  tenureMonths         Int?
+  status               String    @default("ACTIVE") @db.VarChar(30)
+  createdAt            DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt            DateTime  @updatedAt @db.Timestamptz(3)
+
+  @@index([facilityKind])
+  @@map("bank_facilities")
 }
 
 // ─── Configuration › Entity Master Data › Employee ──────────────────────────
@@ -3515,6 +3587,7 @@ model Employee {
   rtmTourPlans         RtmTourPlan[]         @relation("RtmTourPlanSr")
   rtmVisits            RtmVisit[]
   rtmTargets           RtmTarget[]           @relation("RtmTargetSr")
+  coaPermissions       CoaPermission[]
   @@index([officeId])
   @@index([employeeCode])
   @@index([attendanceId])

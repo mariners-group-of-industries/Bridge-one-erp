@@ -21,6 +21,7 @@ import type { JournalLineItem, JournalType, JournalVoucher, VoucherStatus } from
 export default function AccountingJournalPage() {
   const vouchers = useAccountingStore((s) => s.vouchers);
   const accounts = useAccountingStore((s) => s.accounts);
+  const dbOffices = useAccountingStore((s) => s.offices);
   const createVoucher = useAccountingStore((s) => s.createVoucher);
   const postVoucher = useAccountingStore((s) => s.postVoucher);
 
@@ -88,17 +89,14 @@ export default function AccountingJournalPage() {
   const totalCredit = useMemo(() => lines.reduce((sum, l) => sum + (Number(l.credit) || 0), 0), [lines]);
   const isBalanced = Math.abs(totalDebit - totalCredit) < 0.01 && totalDebit > 0;
 
-  // Office List for Filter
-  const officeOptions = [
-    { id: "ALL", name: "All Office" },
-    { id: "MG Sirajganj Factory", name: "MG Sirajganj Factory" },
-    { id: "MGV-PLC", name: "MGV-PLC" },
-    { id: "Dhaka Head Office", name: "Dhaka Head Office" },
-    { id: "MBBL-HO", name: "MBBL-HO" },
-    { id: "MOHS-Eco", name: "MOHS-Eco" },
-    { id: "CFF-Chapai", name: "CFF-Chapai" },
-    { id: "MFIL-HO", name: "MFIL-HO" },
-  ];
+  // Office List for Filter (live DB)
+  const officeOptions = useMemo(
+    () => [
+      { id: "ALL", name: "All Office" },
+      ...dbOffices.map((o) => ({ id: o.name, name: o.name })),
+    ],
+    [dbOffices]
+  );
 
   // Transaction Types for Filter
   const transTypeOptions = [
