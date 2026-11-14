@@ -1901,8 +1901,11 @@ class PurchaseDataStore {
   // -------------------------------------------------------------
   // SUPPLIER PAYMENTS & PAYABLES
   // -------------------------------------------------------------
-  public async getSupplierPayments(filters: { search?: string; status?: string; category?: string; fromDate?: string; toDate?: string }): Promise<SupplierPaymentRecord[]> {
-    const rows = await listSupplierPayables({ fromDate: filters.fromDate, toDate: filters.toDate });
+  public async getSupplierPayments(
+    filters: { search?: string; status?: string; category?: string; fromDate?: string; toDate?: string },
+    actor?: PurchaseActor,
+  ): Promise<SupplierPaymentRecord[]> {
+    const rows = await listSupplierPayables({ fromDate: filters.fromDate, toDate: filters.toDate }, actor);
     return rows.filter((sp) => {
       if (filters.status && filters.status !== "ALL" && sp.paymentStatus !== filters.status) return false;
       if (filters.category && filters.category !== "ALL" && sp.category !== filters.category) return false;
@@ -1914,8 +1917,8 @@ class PurchaseDataStore {
     });
   }
 
-  public async getSupplierInvoices(filters: { search?: string; status?: string; type?: string }): Promise<SupplierInvoiceItem[]> {
-    const rows = await listSupplierInvoices();
+  public async getSupplierInvoices(filters: { search?: string; status?: string; type?: string }, actor?: PurchaseActor): Promise<SupplierInvoiceItem[]> {
+    const rows = await listSupplierInvoices(actor);
     return rows.filter((inv) => {
       if (filters.status && filters.status !== "ALL" && inv.status !== filters.status) return false;
       if (filters.type && filters.type !== "ALL" && inv.type !== filters.type) return false;
@@ -1928,7 +1931,7 @@ class PurchaseDataStore {
   }
 
   /** Posts a payment to a supplier: settles a receipt or bill, an advance, or on account. */
-  public async createSupplierPayment(input: any, actorName: string = "Admin") {
+  public async createSupplierPayment(input: any, actorName: string = "Admin", actor?: PurchaseActor) {
     const prisma = db();
     const supplierId = input.supplierId;
     if (!isUuid(supplierId)) throw badRequest("Select the supplier being paid.");
@@ -1954,11 +1957,13 @@ class PurchaseDataStore {
     if (bankAccountId && !bankAccount) throw badRequest("Selected bank account was not found.");
     if (cashAccountId && !explicitCashAccount) throw badRequest("Selected cash/GL account was not found.");
     if (!cashAccountId && bankAccount?.glAccountId) cashAccountId = bankAccount.glAccountId;
-
-    await validatePaymentLink(supplierId, receiptId, billId, amount);
+    await assertPlaceInScope(actor, { businessUnitId: supplier.businessUnitId, officeId });
     const paymentDate = parseDate(input.paymentDate, "Payment date");
 
     return prisma.$transaction(async (tx) => {
+      // One payment per supplier at a time, so two payments cannot both settle the same due amount.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`supplier-payment:${supplierId}`}))`;
+      await validatePaymentLink(supplierId, receiptId, billId, amount, actor, tx);
       const number = await issueNumber(tx, supplier.businessUnitId, "SUPPLIER_PAYMENT", "PAY", paymentDate, async (n) =>
         Boolean(await tx.supplierPayment.findFirst({ where: { businessUnitId: supplier.businessUnitId, number: n }, select: { id: true } })),
       );
@@ -1994,6 +1999,7 @@ class PurchaseDataStore {
   public async approveSupplierPayment(id: string, actor?: PurchaseActor) {
     const payment = await db().supplierPayment.findFirst({ where: isUuid(id) ? { id } : { number: id } });
     if (!payment) throw notFound("Supplier payment");
+    await assertPlaceInScope(actor, { businessUnitId: payment.businessUnitId, officeId: payment.officeId });
     if (payment.status === "CANCELLED") throw badRequest("A cancelled payment cannot be approved.");
     return db().$transaction(async (tx) => {
       // Multilayer approval: the payment is paid only after the last "Payment Approval" stage.
@@ -2004,10 +2010,11 @@ class PurchaseDataStore {
   }
 
   /** Cancels a payment: the amount is owed to the supplier again (the GL posts a reversal). */
-  public async cancelSupplierPayment(id: string, actorName: string, comments?: string) {
+  public async cancelSupplierPayment(id: string, actorName: string, comments?: string, actor?: PurchaseActor) {
     const prisma = db();
     const payment = await prisma.supplierPayment.findFirst({ where: isUuid(id) ? { id } : { number: id } });
     if (!payment) throw notFound("Supplier payment");
+    await assertPlaceInScope(actor, { businessUnitId: payment.businessUnitId, officeId: payment.officeId });
     if (payment.status === "CANCELLED") throw badRequest("The payment is already cancelled.");
     return prisma.$transaction(async (tx) => {
       const updated = await tx.supplierPayment.update({
@@ -2034,8 +2041,8 @@ class PurchaseDataStore {
     const [officeOrders, reqs, payments, invoices, itemsCatalog, receiptsRaw, returnsRowsRaw, linkedPayments] = await Promise.all([
       this.getPurchaseOrders({ officeId }, actor),
       this.getRequisitions(filters || {}, actor),
-      this.getSupplierPayments({}),
-      this.getSupplierInvoices({}),
+      this.getSupplierPayments({}, actor),
+      this.getSupplierInvoices({}, actor),
       this.getItems(),
       db().goodsReceipt.findMany({
         where: { status: { not: "CANCELLED" } },
@@ -2311,7 +2318,7 @@ class PurchaseDataStore {
   // -------------------------------------------------------------
   // REPORTS
   // -------------------------------------------------------------
-  public async generateReport(query: ReportQuery): Promise<ReportResult> {
+  public async generateReport(query: ReportQuery, actor?: PurchaseActor): Promise<ReportResult> {
     const inRange = (date: string) => (!query.fromDate || date >= query.fromDate) && (!query.toDate || date <= query.toDate);
     const officeOk = (officeId: string) => !query.officeId || query.officeId === "ALL" || officeId === query.officeId;
     const supplierOk = (supplierId: string) => !query.supplierId || query.supplierId === "ALL" || supplierId === query.supplierId;
@@ -2335,7 +2342,7 @@ class PurchaseDataStore {
 
     switch (query.reportType) {
       case "REQUISITION_REPORT": {
-        const list = (await this.getRequisitions({})).filter((r) => inRange(r.requestDate) && officeOk(r.officeId) && statusOk(r.status));
+        const list = (await this.getRequisitions({}, actor)).filter((r) => inRange(r.requestDate) && officeOk(r.officeId) && statusOk(r.status));
         columns = ["SL", "Requisition No", "Date", "Required By", "Department", "Requested By", "Items", "Estimated Amount", "Status"];
         rows = list.map((r, i) => ({
           SL: i + 1,
@@ -2352,7 +2359,7 @@ class PurchaseDataStore {
         break;
       }
       case "GOODS_RECEIPT_REPORT": {
-        const list = (await this.getGoodsReceipts({})).filter((g) => inRange(g.receiptDate) && officeOk(g.officeId) && supplierOk(g.supplierId) && statusOk(g.status));
+        const list = (await this.getGoodsReceipts({}, actor)).filter((g) => inRange(g.receiptDate) && officeOk(g.officeId) && supplierOk(g.supplierId) && statusOk(g.status));
         columns = ["SL", "GRN No", "Date", "PO No", "Supplier", "Warehouse", "Challan No", "Received Qty", "Rejected Qty", "Amount", "Status"];
         rows = list.map((g, i) => ({
           SL: i + 1,
@@ -2371,7 +2378,7 @@ class PurchaseDataStore {
         break;
       }
       case "PURCHASE_RETURN_REPORT": {
-        const list = (await this.getPurchaseReturns({})).filter((r) => inRange(r.returnDate) && officeOk(r.officeId) && supplierOk(r.supplierId) && statusOk(r.status));
+        const list = (await this.getPurchaseReturns({}, actor)).filter((r) => inRange(r.returnDate) && officeOk(r.officeId) && supplierOk(r.supplierId) && statusOk(r.status));
         columns = ["SL", "Return No", "Date", "GRN No", "PO No", "Supplier", "Reason", "Amount", "Status"];
         rows = list.map((r, i) => ({
           SL: i + 1,
@@ -2388,7 +2395,7 @@ class PurchaseDataStore {
         break;
       }
       case "SUPPLIER_PAYMENT_STATUS_REPORT": {
-        const list = (await this.getSupplierPayments({})).filter((p) => supplierOk(p.supplierId) && statusOk(p.paymentStatus));
+        const list = (await this.getSupplierPayments({}, actor)).filter((p) => supplierOk(p.supplierId) && statusOk(p.paymentStatus));
         columns = ["SL", "Supplier Code", "Supplier", "Category", "Purchased", "Returned", "Paid", "Due", "Open Invoices", "Status"];
         rows = list.map((p, i) => ({
           SL: i + 1,
@@ -2406,14 +2413,14 @@ class PurchaseDataStore {
         break;
       }
       case "SUPPLIER_PURCHASE_REPORT": {
-        const pos = (await this.getPurchaseOrders({})).filter((p) => p.status !== "CANCELLED" && inRange(p.orderDate) && officeOk(p.officeId) && supplierOk(p.supplierId));
+        const pos = (await this.getPurchaseOrders({}, actor)).filter((p) => p.status !== "CANCELLED" && inRange(p.orderDate) && officeOk(p.officeId) && supplierOk(p.supplierId));
         columns = ["SL", "Supplier", "Orders", "Amount"];
         rows = groupSum(pos, (p) => p.supplierName, (p) => p.totalAmount).map(([supplier, v], i) => ({ SL: i + 1, Supplier: supplier, Orders: v.count, Amount: round2(v.amount) }));
         summary = { Suppliers: rows.length, "Total Amount": round2(pos.reduce((s, p) => s + p.totalAmount, 0)) };
         break;
       }
       case "ITEM_PURCHASE_REPORT": {
-        const pos = (await this.getPurchaseOrders({})).filter((p) => p.status !== "CANCELLED" && inRange(p.orderDate) && officeOk(p.officeId) && supplierOk(p.supplierId));
+        const pos = (await this.getPurchaseOrders({}, actor)).filter((p) => p.status !== "CANCELLED" && inRange(p.orderDate) && officeOk(p.officeId) && supplierOk(p.supplierId));
         const lines = pos.flatMap((p) => p.items);
         const qty = new Map<string, { code: string; uom: string; ordered: number; received: number }>();
         for (const l of lines) {
@@ -2431,7 +2438,7 @@ class PurchaseDataStore {
         break;
       }
       case "OFFICE_WAREHOUSE_PURCHASE_REPORT": {
-        const pos = (await this.getPurchaseOrders({})).filter((p) => p.status !== "CANCELLED" && inRange(p.orderDate) && officeOk(p.officeId) && supplierOk(p.supplierId));
+        const pos = (await this.getPurchaseOrders({}, actor)).filter((p) => p.status !== "CANCELLED" && inRange(p.orderDate) && officeOk(p.officeId) && supplierOk(p.supplierId));
         columns = ["SL", "Office", "Warehouse", "Orders", "Amount"];
         rows = groupSum(pos, (p) => `${p.officeName}\u0000${p.warehouseName}`, (p) => p.totalAmount).map(([key, v], i) => {
           const [office, warehouse] = key.split("\u0000");
@@ -2441,7 +2448,7 @@ class PurchaseDataStore {
         break;
       }
       case "EXPENDITURE_SUMMARY_REPORT": {
-        const [pos, receipts, returns] = await Promise.all([this.getPurchaseOrders({}), this.getGoodsReceipts({}), this.getPurchaseReturns({})]);
+        const [pos, receipts, returns] = await Promise.all([this.getPurchaseOrders({}, actor), this.getGoodsReceipts({}, actor), this.getPurchaseReturns({}, actor)]);
         const month = (d: string) => d.slice(0, 7);
         const months = new Map<string, { ordered: number; received: number; returned: number }>();
         const bump = (m: string, k: "ordered" | "received" | "returned", v: number) => {
@@ -2464,7 +2471,7 @@ class PurchaseDataStore {
       }
       case "PURCHASE_ORDER_REPORT":
       default: {
-        const list = (await this.getPurchaseOrders({})).filter((p) => inRange(p.orderDate) && officeOk(p.officeId) && supplierOk(p.supplierId) && statusOk(p.status));
+        const list = (await this.getPurchaseOrders({}, actor)).filter((p) => inRange(p.orderDate) && officeOk(p.officeId) && supplierOk(p.supplierId) && statusOk(p.status));
         columns = ["SL", "PO Number", "Date", "Requisition No", "Supplier", "Office", "Warehouse", "Subtotal", "Discount", "VAT", "Total Amount", "Status"];
         rows = list.map((p, i) => ({
           SL: i + 1,

@@ -436,7 +436,8 @@ export default function PurchaseDashboardPage() {
                 type="button"
                 onClick={() => refetch()}
                 title="Refresh"
-                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+                aria-label="Refresh pending list"
+                className="inline-flex size-6 items-center justify-center rounded text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
               >
                 <RefreshCw className="size-3.5" />
               </button>

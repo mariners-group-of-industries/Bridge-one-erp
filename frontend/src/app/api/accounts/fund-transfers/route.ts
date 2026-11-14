@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/prisma/client";
 import { apiHandler } from "@/lib/api/handler";
+import { uuidOrNull } from "@/lib/accounting/ids";
 
 async function handleGET() {
   try {
@@ -35,20 +36,20 @@ async function handlePOST(request: Request) {
         requestCode: body.requestCode || `REQ-${num}`,
         requestDate: Number.isNaN(reqDate.getTime()) ? new Date() : reqDate,
         expectedDate: expDate && !Number.isNaN(expDate.getTime()) ? expDate : null,
-        fromOfficeId: body.fromOfficeId || null,
-        fromOfficeName: body.fromOfficeName || "Corporate HO",
-        toOfficeId: body.toOfficeId || null,
-        toOfficeName: body.toOfficeName || "Branch Office",
-        fromAccountId: body.fromAccountId || null,
-        fromAccountName: body.fromAccountName || "Cash At Bank",
-        toAccountId: body.toAccountId || null,
-        toAccountName: body.toAccountName || "Cash In Hand",
+        fromOfficeId: uuidOrNull(body.fromOfficeId),
+        fromOfficeName: body.fromOfficeName || "",
+        toOfficeId: uuidOrNull(body.toOfficeId),
+        toOfficeName: body.toOfficeName || "",
+        fromAccountId: uuidOrNull(body.fromAccountId),
+        fromAccountName: body.fromAccountName || "",
+        toAccountId: uuidOrNull(body.toAccountId),
+        toAccountName: body.toAccountName || "",
         requestedAmount,
         approvedAmount: Number(body.approvedAmount || 0),
         transferredAmount: Number(body.transferredAmount || 0),
         receivedAmount: 0,
-        responsiblePerson: body.responsiblePerson || "Accounts Officer",
-        purpose: body.purpose || "Inter-office fund transfer",
+        responsiblePerson: body.responsiblePerson || "",
+        purpose: body.purpose || "",
         status: body.status || "SUBMITTED",
       },
     });

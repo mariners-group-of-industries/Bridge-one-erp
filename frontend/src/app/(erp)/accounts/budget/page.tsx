@@ -18,6 +18,10 @@ import {
 import { ModalDialog } from "@/components/purchase/ModalDialog";
 import { useAccountingStore } from "@/features/accounts/store/accounting-store";
 import type { BudgetItem, BudgetLineItem } from "@/features/accounts/types";
+import { localToday } from "@/features/purchase/lib/client";
+
+/** Budget types as iBOS lists them. */
+const BUDGET_TYPES = ["OverHeads/Expense Budget", "Sales/Revenue Budget", "Purchase Budget", "Capital Expenditure Budget"];
 
 // Helper for formatting currency amounts with 2 decimals
 function formatAmount(amount: number | undefined | null): string {
@@ -93,55 +97,23 @@ export default function BudgetManagementPage() {
   const [revisionReason, setRevisionReason] = useState("");
 
   // Create Form State
-  const defaultCreateForm = {
-    budgetName: "October-2026",
-    budgetYear: "Sep 21, 2026 - Oct 20, 2026",
-    createDate: "19-09-2026",
+  // Nothing pre-filled: the user enters the budget and its lines.
+  const blankCreateForm = () => ({
+    budgetName: "",
+    budgetYear: "",
+    createDate: localToday().split("-").reverse().join("-"),
     budgetType: "OverHeads/Expense Budget",
-    officeId: "office-mbbl",
-    officeName: "MBBL-HO",
-    costCenterId: "cc-1",
-    costCenterName: "Dhaka Head Office",
-    accountId: "acc-5100",
-    accountName: "Overheads & Operational Expenses",
-    totalBudgetAmount: 6126907,
-    items: [
-      {
-        id: "item-1",
-        accountCode: "5100",
-        accountName: "Rent, Rates & Taxes (Corporate HQ)",
-        costCenterName: "Dhaka Head Office",
-        allocatedAmount: 1850000,
-        remarks: "HQ lease & local municipality rates",
-      },
-      {
-        id: "item-2",
-        accountCode: "5200",
-        accountName: "Electricity, Fuel & Plant Utilities",
-        costCenterName: "MG Factory Floor",
-        allocatedAmount: 2400000,
-        remarks: "Generator diesel and DESCO substation",
-      },
-      {
-        id: "item-3",
-        accountCode: "5300",
-        accountName: "Salaries, Overtime & Allowances",
-        costCenterName: "Administration",
-        allocatedAmount: 1200000,
-        remarks: "Support staff & security allowances",
-      },
-      {
-        id: "item-4",
-        accountCode: "5400",
-        accountName: "Office Supplies, IT & Maintenance",
-        costCenterName: "Corporate HQ",
-        allocatedAmount: 676907,
-        remarks: "IT software licenses, stationery & supplies",
-      },
-    ] as BudgetLineItem[],
-  };
+    officeId: "",
+    officeName: "",
+    costCenterId: "",
+    costCenterName: "",
+    accountId: "",
+    accountName: "",
+    totalBudgetAmount: 0,
+    items: [] as BudgetLineItem[],
+  });
 
-  const [createForm, setCreateForm] = useState(defaultCreateForm);
+  const [createForm, setCreateForm] = useState(blankCreateForm);
 
   // Edit Form State
   const [editForm, setEditForm] = useState<Partial<BudgetItem>>({});
@@ -219,16 +191,19 @@ export default function BudgetManagementPage() {
   const handleSaveBudget = (e: React.FormEvent) => {
     e.preventDefault();
     if (!createForm.budgetName.trim()) return;
+    // The budget belongs to the office of its cost center.
+    const center = costCenters.find((c) => c.id === createForm.costCenterId);
+    if (!center) return;
 
     createBudget({
       budgetName: createForm.budgetName,
       budgetYear: createForm.budgetYear,
       createDate: createForm.createDate,
       budgetType: createForm.budgetType,
-      officeId: createForm.officeId,
-      officeName: createForm.officeName,
-      costCenterId: createForm.costCenterId,
-      costCenterName: createForm.costCenterName,
+      officeId: center.officeId,
+      officeName: center.officeName,
+      costCenterId: center.id,
+      costCenterName: center.name,
       accountId: createForm.accountId,
       accountName: createForm.accountName,
       allocatedAmount: createForm.totalBudgetAmount,
@@ -239,6 +214,7 @@ export default function BudgetManagementPage() {
     });
 
     setIsCreateOpen(false);
+    setCreateForm(blankCreateForm());
   };
 
   // Handle Save Edit
@@ -292,7 +268,7 @@ export default function BudgetManagementPage() {
             <button
               type="button"
               onClick={() => {
-                setCreateForm(defaultCreateForm);
+                setCreateForm(blankCreateForm());
                 setIsCreateOpen(true);
               }}
               className="h-8 px-3.5 bg-[#2563eb] hover:bg-blue-700 text-white font-medium text-xs rounded flex items-center gap-1.5 shadow-2xs transition whitespace-nowrap"
@@ -320,12 +296,11 @@ export default function BudgetManagementPage() {
               className="w-full h-8 px-2.5 pr-8 border border-slate-300 rounded text-xs bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#2563eb] focus:border-[#2563eb] appearance-none shadow-2xs"
             >
               <option value="">Filter By Type</option>
-              <option value="OverHeads/Expense Budget">OverHeads/Expense Budget</option>
-              <option value="Capex Budget">Capex Budget</option>
-              <option value="OPERATING">Operating Budget</option>
-              <option value="CAPITAL">Capital Budget</option>
-              <option value="DEPARTMENT">Departmental Budget</option>
-              <option value="PROJECT">Project Budget</option>
+              {BUDGET_TYPES.map((t) => (
+                <option key={t} value={t}>
+                  {t}
+                </option>
+              ))}
             </select>
             <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
           </div>
@@ -503,7 +478,7 @@ export default function BudgetManagementPage() {
                                       Budget Breakdown — {b.budgetCode}
                                     </span>
                                     <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-blue-50 text-blue-700 border border-blue-200">
-                                      {b.costCenterName || "Corporate Cost Center"}
+                                      {b.costCenterName || "—"}
                                     </span>
                                   </div>
                                   <div className="text-[11px] text-slate-500">
@@ -712,12 +687,11 @@ export default function BudgetManagementPage() {
                 onChange={(e) => setCreateForm({ ...createForm, budgetType: e.target.value })}
                 className="w-full h-8 px-2.5 border border-slate-300 rounded text-xs focus:ring-1 focus:ring-[#2563eb] focus:border-[#2563eb]"
               >
-                <option value="OverHeads/Expense Budget">OverHeads/Expense Budget</option>
-                <option value="Capex Budget">Capex Budget</option>
-                <option value="OPERATING">Operating Budget</option>
-                <option value="CAPITAL">Capital Budget</option>
-                <option value="DEPARTMENT">Departmental Budget</option>
-                <option value="PROJECT">Project Budget</option>
+                {BUDGET_TYPES.map((t) => (
+                  <option key={t} value={t}>
+                    {t}
+                  </option>
+                ))}
               </select>
             </div>
 
@@ -765,8 +739,10 @@ export default function BudgetManagementPage() {
                     costCenterName: cc?.name || "",
                   });
                 }}
+                required
                 className="w-full h-8 px-2.5 border border-slate-300 rounded text-xs focus:ring-1 focus:ring-[#2563eb] focus:border-[#2563eb]"
               >
+                <option value="">Select cost center</option>
                 {costCenters.map((c) => (
                   <option key={c.id} value={c.id}>
                     {c.code} - {c.name}
@@ -972,12 +948,11 @@ export default function BudgetManagementPage() {
                   onChange={(e) => setEditForm({ ...editForm, budgetType: e.target.value })}
                   className="w-full h-8 px-2.5 border border-slate-300 rounded text-xs focus:ring-1 focus:ring-[#2563eb]"
                 >
-                  <option value="OverHeads/Expense Budget">OverHeads/Expense Budget</option>
-                  <option value="Capex Budget">Capex Budget</option>
-                  <option value="OPERATING">Operating Budget</option>
-                  <option value="CAPITAL">Capital Budget</option>
-                  <option value="DEPARTMENT">Departmental Budget</option>
-                  <option value="PROJECT">Project Budget</option>
+                  {BUDGET_TYPES.map((t) => (
+                    <option key={t} value={t}>
+                      {t}
+                    </option>
+                  ))}
                 </select>
               </div>
             </div>
@@ -1074,7 +1049,7 @@ export default function BudgetManagementPage() {
               </div>
               <div>
                 <span className="text-[10px] text-slate-400 font-bold uppercase">Cost Center</span>
-                <p className="font-semibold text-slate-900">{viewTarget.costCenterName || "Corporate Head Office"}</p>
+                <p className="font-semibold text-slate-900">{viewTarget.costCenterName || "—"}</p>
               </div>
               <div>
                 <span className="text-[10px] text-slate-400 font-bold uppercase">Primary Head</span>

@@ -30,7 +30,7 @@ const can = {
   reverse: (s: ReqStatus) => s === "APPROVED" || s === "REJECTED" || s === "CANCELLED",
 };
 const actionBtn =
-  "inline-flex size-5.5 items-center justify-center rounded transition-colors disabled:opacity-30 disabled:pointer-events-none hover:bg-slate-100 text-slate-600 hover:text-slate-900";
+  "inline-flex size-6 items-center justify-center rounded transition-colors disabled:opacity-30 disabled:pointer-events-none hover:bg-slate-100 text-slate-600 hover:text-slate-900";
 import { DataTable } from "@/components/purchase/DataTable";
 import { StatusBadge } from "@/components/purchase/StatusBadge";
 import { ModalDialog } from "@/components/purchase/ModalDialog";

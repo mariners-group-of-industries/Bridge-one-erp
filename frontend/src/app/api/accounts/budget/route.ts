@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/prisma/client";
 import { apiHandler } from "@/lib/api/handler";
+import { uuidOrNull } from "@/lib/accounting/ids";
+import type { Actor } from "@/lib/auth/actor";
 
 async function handleGET() {
   try {
@@ -21,7 +23,7 @@ async function handleGET() {
   }
 }
 
-async function handlePOST(request: Request) {
+async function handlePOST(request: Request, _context: unknown, actor: Actor) {
   try {
     const body = await request.json();
     const prisma = db();
@@ -35,12 +37,12 @@ async function handlePOST(request: Request) {
         budgetYear: body.budgetYear,
         createDate: body.createDate || null,
         financialPeriod: body.financialPeriod || "Q1-Q4 FY 2026-27",
-        officeId: body.officeId || null,
-        officeName: body.officeName || "MBBL Corporate HO",
-        costCenterId: body.costCenterId || null,
+        officeId: uuidOrNull(body.officeId),
+        officeName: body.officeName || null,
+        costCenterId: uuidOrNull(body.costCenterId),
         costCenterName: body.costCenterName || null,
         budgetType: body.budgetType || "Expense",
-        accountId: body.accountId || null,
+        accountId: uuidOrNull(body.accountId),
         accountName: body.accountName || null,
         allocatedAmount,
         totalBudgetAmount: allocatedAmount,
@@ -51,7 +53,8 @@ async function handlePOST(request: Request) {
         approvalStatus: body.approvalStatus || "Approved",
         status: body.status || "Approved",
         version: Number(body.version || 1),
-        createdBy: body.createdBy || "Admin User",
+        // The signed-in user, never a name sent by the browser.
+        createdBy: actor.name ?? actor.id,
         items: {
           create: (body.items || []).map((item: any) => ({
             accountCode: item.accountCode,

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/prisma/client";
 import { apiHandler } from "@/lib/api/handler";
+import { isoDateOrNull, uuidOrNull } from "@/lib/accounting/ids";
 import { createVoucherInTx } from "@/lib/accounting/accounts-service";
 import type { Actor } from "@/lib/auth/actor";
 
@@ -33,13 +34,14 @@ async function handlePOST(request: Request, _context: unknown, actor: Actor) {
 
     const prefix = kind === "ADVANCE" ? "ADV" : kind === "PROVISION" ? "PRV" : "EXP";
     const number = body.expenseNumber || `${prefix}-${new Date().getFullYear()}-${String(Date.now()).slice(-5)}`;
-    const dateVal = body.date ? new Date(body.date) : new Date();
+    // yyyy-mm-dd from the form; anything else would be read the wrong way round (dd/mm vs mm/dd).
+    const dateVal = isoDateOrNull(body.date) ?? new Date();
     const validDate = Number.isNaN(dateVal.getTime()) ? new Date() : dateVal;
 
     const created = await prisma.$transaction(async (tx) => {
       // Resolve GL account if present
-      let glAcc = body.accountId
-        ? await tx.account.findUnique({ where: { id: body.accountId } })
+      let glAcc = uuidOrNull(body.accountId)
+        ? await tx.account.findUnique({ where: { id: uuidOrNull(body.accountId)! } })
         : body.accountCode
         ? await tx.account.findUnique({ where: { code: body.accountCode } })
         : null;
@@ -54,7 +56,7 @@ async function handlePOST(request: Request, _context: unknown, actor: Actor) {
         data: {
           expenseNumber: number,
           recordKind: kind,
-          officeId: body.officeId || null,
+          officeId: uuidOrNull(body.officeId),
           officeName: body.officeName || "Corporate HO",
           expenseType: body.expenseType || kind,
           accountId: glAcc?.id ?? null,

@@ -17,6 +17,20 @@ export interface CategoryOption {
   parentId: string | null;
 }
 
+/**
+ * Names of the categories at `level` (1–3) for the item filters, which match items by
+ * category name. Business units may have categories with the same name, so every
+ * parent named `parentName` counts and each name appears once. Without a matching
+ * parent, every category of the level is listed.
+ */
+export function categoryNamesAt(all: CategoryOption[], level: number, parentName?: string): string[] {
+  const parentIds = new Set(all.filter((c) => c.level === level - 1 && c.name === parentName).map((c) => c.id));
+  const names = all
+    .filter((c) => c.level === level && (parentIds.size === 0 || (c.parentId !== null && parentIds.has(c.parentId))))
+    .map((c) => c.name);
+  return [...new Set(names)];
+}
+
 export interface SalesOrderLineOption {
   id: string;
   itemId: string;
@@ -259,7 +273,7 @@ export function SearchableCombobox({
           tabIndex={-1}
           disabled={disabled}
           onClick={() => !disabled && setOpen((prev) => !prev)}
-          className="text-slate-400 hover:text-slate-600 disabled:cursor-not-allowed"
+          className="inline-flex size-6 shrink-0 items-center justify-center rounded text-slate-400 hover:text-slate-600 disabled:cursor-not-allowed"
           aria-label="Toggle options"
         >
           <ChevronDown className="h-3.5 w-3.5" />

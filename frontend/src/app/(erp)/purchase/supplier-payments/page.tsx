@@ -434,6 +434,18 @@ export default function SupplierPaymentsPage() {
     },
     onError: (err: Error) => toast.error(err.message, { title: "Cancel Failed" }),
   });
+  const [cancelBill, setCancelBill] = useState<PendingBillRow | null>(null);
+  const [cancelBillReason, setCancelBillReason] = useState("");
+  const cancelBillMutation = useMutation({
+    mutationFn: ({ id, comments }: { id: string; comments: string }) =>
+      fetchApi<{ number: string }>(`/purchase/supplier-bills/${id}/cancel`, { method: "POST", body: JSON.stringify({ comments }) }),
+    onSuccess: (data) => {
+      refreshPayables();
+      setCancelBill(null);
+      toast.success(`Bill ${data.number} cancelled.`, { title: "Bill Cancelled" });
+    },
+    onError: (err: Error) => toast.error(err.message, { title: "Cancel Failed" }),
+  });
   const billMutation = useMutation({
     mutationFn: (payload: Record<string, unknown>) =>
       fetchApi<{ number: string }>("/purchase/supplier-bills", { method: "POST", body: JSON.stringify(payload) }),
@@ -1080,7 +1092,7 @@ export default function SupplierPaymentsPage() {
                       <th className="p-2 border border-slate-300 text-right">Net Payable</th>
                       <th className="p-2 border border-slate-300">Due Date</th>
                       <th className="p-2 border border-slate-300 text-center">Status</th>
-                      <th className="p-2 border border-slate-300 text-center w-36">Actions</th>
+                      <th className="p-2 border border-slate-300 text-center w-44">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1148,6 +1160,19 @@ export default function SupplierPaymentsPage() {
                               }
                             >
                               Pay Now
+                            </button>
+                            <button
+                              type="button"
+                              disabled={!perms.payments.delete || cancelBillMutation.isPending}
+                              onClick={() => {
+                                setCancelBill(bill);
+                                setCancelBillReason("");
+                              }}
+                              className="inline-flex items-center justify-center min-w-6 min-h-6 rounded text-slate-500 hover:text-rose-600 hover:bg-rose-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/20 disabled:opacity-30 disabled:pointer-events-none transition"
+                              title={!perms.payments.delete ? "Requires Delete permission in Configuration" : "Cancel bill"}
+                              aria-label={`Cancel bill ${bill.billNo}`}
+                            >
+                              <Ban className="w-3.5 h-3.5" />
                             </button>
                           </div>
                         </td>
@@ -2268,6 +2293,50 @@ export default function SupplierPaymentsPage() {
               <button type="submit" disabled={cancelPaymentMutation.isPending} className="h-9 px-4 bg-rose-600 hover:bg-rose-700 disabled:opacity-60 text-white rounded font-bold inline-flex items-center gap-1.5">
                 {cancelPaymentMutation.isPending && <Spinner className="size-3.5" />}
                 Cancel Payment
+              </button>
+            </div>
+          </form>
+        )}
+      </ModalDialog>
+      <ModalDialog
+        isOpen={Boolean(cancelBill)}
+        onClose={() => !cancelBillMutation.isPending && setCancelBill(null)}
+        title="Cancel Supplier Bill"
+        subtitle={cancelBill ? `${cancelBill.billNo} · ${cancelBill.supplierName}` : ""}
+        maxWidth="md"
+      >
+        {cancelBill && (
+          <form
+            className="space-y-3 text-xs"
+            onSubmit={(e) => {
+              e.preventDefault();
+              cancelBillMutation.mutate({ id: cancelBill.billId, comments: cancelBillReason });
+            }}
+          >
+            <p className="text-slate-600">
+              {cancelBill.receiptId
+                ? `The bill is removed from ${cancelBill.grnNumber}. The receipt stays payable and can be billed again or cancelled.`
+                : `${formatCurrency(cancelBill.grossAmount)} is no longer owed to ${cancelBill.supplierName}. The ledger posts a reversing voucher.`}{" "}
+              A bill that payments were made against cannot be cancelled until those payments are cancelled.
+            </p>
+            <div>
+              <label htmlFor="cancel-bill-reason" className="block text-slate-700 font-semibold mb-1">Reason *</label>
+              <textarea
+                id="cancel-bill-reason"
+                required
+                maxLength={300}
+                value={cancelBillReason}
+                onChange={(e) => setCancelBillReason(e.target.value)}
+                className="w-full border border-slate-300 rounded p-2 text-xs h-20"
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              <button type="button" onClick={() => setCancelBill(null)} disabled={cancelBillMutation.isPending} className="h-9 px-4 border border-slate-200 rounded text-slate-600">
+                Back
+              </button>
+              <button type="submit" disabled={cancelBillMutation.isPending} className="h-9 px-4 bg-rose-600 hover:bg-rose-700 disabled:opacity-60 text-white rounded font-bold inline-flex items-center gap-1.5">
+                {cancelBillMutation.isPending && <Spinner className="size-3.5" />}
+                Cancel Bill
               </button>
             </div>
           </form>

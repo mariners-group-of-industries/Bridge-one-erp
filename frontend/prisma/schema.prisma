@@ -3230,10 +3230,17 @@ model JournalVoucher {
   preparedBy      String?              @db.VarChar(150)
   approvedBy      String?              @db.VarChar(150)
   postedAt        DateTime?            @db.Timestamptz(3)
+  /// Manual vouchers (iBOS Journal Voucher Create): the employee the voucher is for, the project (a cost center) and one attached file.
+  employeeId      String?              @db.Uuid
+  employeeName    String?              @db.VarChar(150)
+  projectId       String?              @db.Uuid
+  projectName     String?              @db.VarChar(150)
+  attachmentId    String?              @db.Uuid
   createdAt       DateTime             @default(now()) @db.Timestamptz(3)
   updatedAt       DateTime             @updatedAt @db.Timestamptz(3)
 
   lines           JournalVoucherLine[]
+  attachment      AccountsAttachment?  @relation(fields: [attachmentId], references: [id], onDelete: SetNull)
 
   @@unique([sourceType, sourceId])
   @@map("journal_vouchers")
@@ -3250,6 +3257,10 @@ model JournalVoucherLine {
   credit       Decimal        @default(0) @db.Decimal(14, 2)
   narration    String?        @db.VarChar(500)
   costCenterId String?        @db.Uuid
+  /// The customer, supplier or employee the line is for (iBOS Customer/Supplier/Employee column).
+  partnerType  String?        @db.VarChar(20)
+  partnerId    String?        @db.Uuid
+  partnerName  String?        @db.VarChar(150)
 
   voucher      JournalVoucher @relation(fields: [voucherId], references: [id], onDelete: Cascade)
   account      Account?       @relation(fields: [accountId], references: [id], onDelete: SetNull)
@@ -3279,10 +3290,57 @@ model ExpenseRecord {
   status          String    @default("APPROVED") @db.VarChar(30)
   approvedBy      String?   @db.VarChar(150)
   paidAt          DateTime? @db.Timestamptz(3)
+  /// iBOS Create Expense header: who the expense is for, the order or supplier it belongs to, and one attached file.
+  employeeId      String?   @db.Uuid
+  employeeName    String?   @db.VarChar(150)
+  department      String?   @db.VarChar(100)
+  salesOrderId    String?   @db.Uuid
+  salesOrderNo    String?   @db.VarChar(30)
+  supplierId      String?   @db.Uuid
+  supplierName    String?   @db.VarChar(150)
+  attachmentId    String?   @db.Uuid
   createdAt       DateTime  @default(now()) @db.Timestamptz(3)
   updatedAt       DateTime  @updatedAt @db.Timestamptz(3)
 
+  lines           ExpenseLine[]
+  attachment      AccountsAttachment? @relation(fields: [attachmentId], references: [id], onDelete: SetNull)
+
   @@map("expense_records")
+}
+
+/// One GL line of an expense (iBOS Create Expense grid); the expense amount is their total.
+model ExpenseLine {
+  id          String        @id @default(uuid()) @db.Uuid
+  expenseId   String        @db.Uuid
+  lineNo      Int           @default(1)
+  date        DateTime      @db.Date
+  accountId   String?       @db.Uuid
+  accountCode String        @db.VarChar(50)
+  accountName String        @db.VarChar(150)
+  subGl       String?       @db.VarChar(150)
+  remarks     String?       @db.VarChar(500)
+  amount      Decimal       @db.Decimal(14, 2)
+
+  expense     ExpenseRecord @relation(fields: [expenseId], references: [id], onDelete: Cascade)
+
+  @@index([expenseId])
+  @@map("expense_lines")
+}
+
+/// A file attached to a journal voucher or an expense; the bytes live in object storage.
+model AccountsAttachment {
+  id           String           @id @default(uuid()) @db.Uuid
+  storageKey   String           @unique @db.VarChar(300)
+  originalName String           @db.VarChar(255)
+  mimeType     String           @db.VarChar(100)
+  size         Int
+  createdBy    String           @db.VarChar(150)
+  createdAt    DateTime         @default(now()) @db.Timestamptz(3)
+
+  journalVouchers JournalVoucher[]
+  expenses        ExpenseRecord[]
+
+  @@map("accounts_attachments")
 }
 
 model FundTransfer {
@@ -3404,6 +3462,10 @@ model Budget {
   status            String       @default("Approved") @db.VarChar(50)
   version           Int          @default(1)
   createdBy         String       @db.VarChar(150)
+  /// iBOS Create Budget: the period the budget covers and its remarks.
+  fromPeriod        DateTime?    @db.Date
+  toPeriod          DateTime?    @db.Date
+  remarks           String?      @db.VarChar(500)
   createdAt         DateTime     @default(now()) @db.Timestamptz(3)
   updatedAt         DateTime     @updatedAt @db.Timestamptz(3)
 
@@ -3422,6 +3484,10 @@ model BudgetLine {
   utilizedAmount  Decimal  @default(0) @db.Decimal(14, 2)
   remainingAmount Decimal  @default(0) @db.Decimal(14, 2)
   remarks         String?  @db.VarChar(500)
+  /// iBOS budget line: the account head (group) the expense GL sits under, and the amount per month ("2026-11": 1000, …).
+  headCode        String?  @db.VarChar(50)
+  headName        String?  @db.VarChar(150)
+  monthlyAmounts  Json?
 
   budget          Budget   @relation(fields: [budgetId], references: [id], onDelete: Cascade)
 
@@ -3442,6 +3508,9 @@ model BankAccount {
   currentBalance       Decimal  @default(0) @db.Decimal(14, 2)
   reconciliationStatus String   @default("RECONCILED") @db.VarChar(50)
   isActive             Boolean  @default(true)
+  /// iBOS Create Bank Account: short name shown in lists, and who signs for the account.
+  shortName            String?  @db.VarChar(50)
+  signatory            String?  @db.VarChar(500)
   createdAt            DateTime @default(now()) @db.Timestamptz(3)
   updatedAt            DateTime @updatedAt @db.Timestamptz(3)
 

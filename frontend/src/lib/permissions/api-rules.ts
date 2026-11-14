@@ -154,6 +154,8 @@ export const API_RULES: Record<string, ApiRule> = {
   "/api/accounts/all-data": { read: { anyViewIn: ["account"] } },
   "/api/accounts/dashboard": { feature: "/accounts", read: { anyViewIn: ["account"] } },
   "/api/accounts/seed": { masterOnly: true },
+  "/api/accounts/party-ledger": { feature: "/accounts/financial-reports" },
+  "/api/accounts/other-reports": { feature: "/accounts/other-reports" },
   "/api/accounts/chart-of-accounts": { feature: "/accounts/chart-of-accounts", read: { anyViewIn: ["account"] } },
   "/api/accounts/coa-permissions": { feature: "/accounts/chart-of-accounts", read: { anyViewIn: ["account"] } },
   "/api/accounts/cost-centers": { feature: "/accounts/center-setup", read: { anyViewIn: ["account"] } },
@@ -188,6 +190,7 @@ export const API_RULES: Record<string, ApiRule> = {
   // Approving bills releases them for payment.
   "/api/v1/purchase/supplier-bills/*/approve": { feature: "/purchase/supplier-payments", action: "approve" },
   "/api/v1/purchase/supplier-bills/approve-pending": { feature: "/purchase/supplier-payments", action: "approve" },
+  "/api/v1/purchase/supplier-bills/*/cancel": { feature: "/purchase/supplier-payments", action: "delete" },
 
   // ── RTM (/api/rtm/<page>/… maps to its page automatically) ──
   "/api/rtm/lookups": { read: { anyViewIn: ["rtm"] } },

@@ -1,6 +1,7 @@
 "use client";
 
 import { useSyncExternalStore } from "react";
+import { toast } from "@/components/purchase/Toast";
 import type {
   AccountItem,
   AdvanceRecord,
@@ -136,6 +137,7 @@ export interface AccountingState {
   updateBudgetRevision: (id: string, revisedAmount: number) => void;
   deleteBudget: (id: string) => void;
   addCostCenter: (center: Omit<CostCenterItem, "id" | "createdAt">) => void;
+  updateCostCenter: (id: string, updates: Partial<Omit<CostCenterItem, "id" | "createdAt">>) => void;
 
   // Analytics & Reports Helpers
   getDashboardKPIs: () => AccountDashboardKPIs;
@@ -464,7 +466,13 @@ function updateData(updater: (prev: StateData) => StateData) {
   notify();
 }
 
-async function apiJson(url: string, init: RequestInit): Promise<{ success: boolean; data?: any; error?: string }> {
+/**
+ * Calls an accounts API. Most store actions fire their save and return at once, so
+ * a save the server refuses is reported here: the user sees why it was not saved
+ * and the screen is reloaded from the database.
+ */
+async function apiJson(url: string, init: RequestInit, quiet = false): Promise<{ success: boolean; data?: any; error?: string }> {
+  let result: { success: boolean; data?: any; error?: string };
   try {
     const res = await fetch(url, {
       ...init,
@@ -472,13 +480,25 @@ async function apiJson(url: string, init: RequestInit): Promise<{ success: boole
     });
     const json = await res.json().catch(() => ({}));
     if (!res.ok || json.success === false) {
-      return { success: false, error: json.error || `Request failed (${res.status})` };
+      // Routes answer either { error: "text" } or { error: { message } }.
+      const message = typeof json.error === "string" ? json.error : json.error?.message;
+      result = { success: false, error: message || `Request failed (${res.status})` };
+    } else {
+      result = { success: true, data: json.data };
     }
-    return { success: true, data: json.data };
   } catch (err) {
-    return { success: false, error: err instanceof Error ? err.message : "Network error" };
+    result = { success: false, error: err instanceof Error ? err.message : "Network error" };
   }
+  const method = (init.method || "GET").toUpperCase();
+  if (!result.success && method !== "GET" && !quiet) {
+    toast.error(result.error ?? "The change was not saved.", { title: "Not saved" });
+    void syncFromDatabase();
+  }
+  return result;
 }
+
+/** For actions that hand the error back to the screen, which shows it itself. */
+const apiJsonQuiet = (url: string, init: RequestInit) => apiJson(url, init, true);
 
 function getFullState(): AccountingState {
   return {
@@ -489,7 +509,7 @@ function getFullState(): AccountingState {
     },
 
     addAccountAsync: async (accountData) => {
-      const res = await apiJson("/api/accounts/chart-of-accounts", {
+      const res = await apiJsonQuiet("/api/accounts/chart-of-accounts", {
         method: "POST",
         body: JSON.stringify(accountData),
       });
@@ -502,7 +522,7 @@ function getFullState(): AccountingState {
     },
 
     updateAccountAsync: async (id, updates) => {
-      const res = await apiJson(`/api/accounts/chart-of-accounts/${id}`, {
+      const res = await apiJsonQuiet(`/api/accounts/chart-of-accounts/${id}`, {
         method: "PATCH",
         body: JSON.stringify(updates),
       });
@@ -526,7 +546,7 @@ function getFullState(): AccountingState {
     },
 
     deleteAccountAsync: async (id) => {
-      const res = await apiJson(`/api/accounts/chart-of-accounts/${id}`, {
+      const res = await apiJsonQuiet(`/api/accounts/chart-of-accounts/${id}`, {
         method: "DELETE",
       });
       if (res.success) await syncFromDatabase();
@@ -551,7 +571,7 @@ function getFullState(): AccountingState {
     },
 
     seedStandardCoaAsync: async () => {
-      const res = await apiJson("/api/accounts/chart-of-accounts", {
+      const res = await apiJsonQuiet("/api/accounts/chart-of-accounts", {
         method: "POST",
         body: JSON.stringify({ action: "seedStandard" }),
       });
@@ -560,7 +580,7 @@ function getFullState(): AccountingState {
     },
 
     bulkUploadAccountsAsync: async (items) => {
-      const res = await apiJson("/api/accounts/chart-of-accounts", {
+      const res = await apiJsonQuiet("/api/accounts/chart-of-accounts", {
         method: "POST",
         body: JSON.stringify({ items }),
       });
@@ -569,7 +589,7 @@ function getFullState(): AccountingState {
     },
 
     saveCoaPermissionsBatchAsync: async (perms) => {
-      const res = await apiJson("/api/accounts/coa-permissions", {
+      const res = await apiJsonQuiet("/api/accounts/coa-permissions", {
         method: "POST",
         body: JSON.stringify({ items: perms }),
       });
@@ -947,6 +967,15 @@ function getFullState(): AccountingState {
       void apiJson("/api/accounts/cost-centers", {
         method: "POST",
         body: JSON.stringify(centerData),
+      }).then((r) => {
+        if (r.success) void syncFromDatabase();
+      });
+    },
+
+    updateCostCenter: (id, updates) => {
+      void apiJson(`/api/accounts/cost-centers/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify(updates),
       }).then((r) => {
         if (r.success) void syncFromDatabase();
       });

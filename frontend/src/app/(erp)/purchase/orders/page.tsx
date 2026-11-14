@@ -91,7 +91,7 @@ const inputCls =
 const btnPrimary =
   "h-9 px-4 bg-[#2563eb] hover:bg-blue-700 disabled:opacity-60 text-white font-semibold text-xs rounded inline-flex items-center justify-center gap-1.5 shadow-xs transition";
 const btnGhost = "h-9 px-4 border border-slate-300 rounded text-slate-700 hover:bg-slate-50 text-xs font-semibold";
-const iconBtn = "inline-flex items-center justify-center size-5.5 rounded hover:bg-slate-200 text-slate-700 transition disabled:opacity-30 disabled:hover:bg-transparent";
+const iconBtn = "inline-flex items-center justify-center size-6 rounded hover:bg-slate-200 text-slate-700 transition disabled:opacity-30 disabled:hover:bg-transparent";
 
 function formatEta(dateStr?: string) {
   if (!dateStr) return "—";

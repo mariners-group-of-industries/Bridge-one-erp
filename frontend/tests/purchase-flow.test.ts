@@ -2,7 +2,14 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { PrismaClient } from "@/generated/prisma/client";
 import { createItem } from "@/features/sales/masters/services/masters.service";
 import { purchaseStore } from "@/lib/purchase-store/store";
-import { listSupplierAdvanceDetails, listSupplierPayables } from "@/lib/purchase-store/payables";
+import {
+  approveSupplierBill,
+  cancelSupplierBill,
+  createSupplierBill,
+  listSupplierAdvanceDetails,
+  listSupplierInvoices,
+  listSupplierPayables,
+} from "@/lib/purchase-store/payables";
 import { postPendingDocuments } from "@/lib/accounting/posting.service";
 import {
   orderTransition,
@@ -417,5 +424,82 @@ describe("purchase flow: requisition → order → receipt → return", () => {
     await purchaseStore.cancelPurchaseReturn(ret.id, ACTOR, "reversed");
     await postPendingDocuments(ACTOR);
     expect(await prisma.journalVoucher.count({ where: { sourceType: "PURCHASE_RETURN_CANCEL", sourceId: ret.id } })).toBe(1);
+  });
+
+  it("cancels a bill booked for a receipt, freeing the receipt to be billed again or cancelled", async () => {
+    const sup = await purchaseStore.quickCreateSupplier({ name: "Bill Cancel Traders" });
+    const supBalance = async () => Number((await prisma.supplier.findUniqueOrThrow({ where: { id: sup.id } })).balance);
+    const grn = await purchaseStore.createGoodsReceipt(
+      {
+        purchaseOrderId: "DIRECT",
+        receiptDate: "2026-11-12",
+        supplierId: sup.id,
+        warehouseId,
+        items: [{ itemId: flourId, itemCode: "", itemName: "Wheat Flour", uom: "KG", currentReceivedQuantity: 2, rejectedDamagedQuantity: 0, unitPrice: 50 }],
+      },
+      ACTOR,
+    );
+    expect(await supBalance()).toBe(100);
+
+    const bill = await createSupplierBill({ supplierId: sup.id, receiptId: grn.id, number: "INV-1", billDate: "2026-11-12" }, ACTOR);
+    await expect(purchaseStore.cancelGoodsReceipt(grn.id, ACTOR, "wrong")).rejects.toThrow(/cancel the bill first/);
+    await expect(cancelSupplierBill(bill.id, ACTOR, " ")).rejects.toThrow(/reason/);
+
+    const cancelled = await cancelSupplierBill(bill.id, ACTOR, "wrong invoice number");
+    expect(cancelled.status).toBe("CANCELLED");
+    expect(cancelled.receiptId).toBeNull();
+    expect(cancelled.remarks).toContain(grn.grnNumber);
+    // The receipt is still the debt.
+    expect(await supBalance()).toBe(100);
+    expect((await listSupplierInvoices()).find((i) => i.receiptId === grn.id)?.billId).toBeUndefined();
+
+    await expect(createSupplierBill({ supplierId: sup.id, receiptId: grn.id, number: "INV-1" }, ACTOR)).rejects.toThrow(/cancelled bill/);
+    const rebilled = await createSupplierBill({ supplierId: sup.id, receiptId: grn.id, number: "INV-1-R" }, ACTOR);
+    await approveSupplierBill(rebilled.id, ACTOR);
+    const pay = await purchaseStore.createSupplierPayment({ supplierId: sup.id, billId: rebilled.id, amount: 100, method: "CASH", paymentDate: "2026-11-13" }, ACTOR);
+    await expect(cancelSupplierBill(rebilled.id, ACTOR, "late")).rejects.toThrow(/Payments have been made/);
+    // Nothing is left to pay on the bill.
+    await expect(
+      purchaseStore.createSupplierPayment({ supplierId: sup.id, billId: rebilled.id, amount: 1, method: "CASH", paymentDate: "2026-11-13" }, ACTOR),
+    ).rejects.toThrow(/Only 0.00 is due/);
+
+    await purchaseStore.cancelSupplierPayment(pay.id, ACTOR, "reissue");
+    await cancelSupplierBill(rebilled.id, ACTOR, "receipt returned in full");
+    await purchaseStore.cancelGoodsReceipt(grn.id, ACTOR, "wrong supplier");
+    expect(await supBalance()).toBe(0);
+  });
+
+  it("cancelling an ad-hoc bill removes it from what is owed and reverses it in the ledger", async () => {
+    const sup = await purchaseStore.quickCreateSupplier({ name: "Utility Services" });
+    const supBalance = async () => Number((await prisma.supplier.findUniqueOrThrow({ where: { id: sup.id } })).balance);
+    const bill = await createSupplierBill({ supplierId: sup.id, number: "UTIL-11", amount: 250, billDate: "2026-11-12" }, ACTOR);
+    expect(await supBalance()).toBe(250);
+    await postPendingDocuments(ACTOR);
+    expect(await prisma.journalVoucher.count({ where: { sourceType: "SUPPLIER_BILL", sourceId: bill.id } })).toBe(1);
+
+    await cancelSupplierBill(bill.id, ACTOR, "duplicate entry");
+    expect(await supBalance()).toBe(0);
+    expect((await listSupplierInvoices()).some((i) => i.billId === bill.id)).toBe(false);
+    await expect(cancelSupplierBill(bill.id, ACTOR, "again")).rejects.toThrow(/already cancelled/);
+    await postPendingDocuments(ACTOR);
+    expect(await prisma.journalVoucher.count({ where: { sourceType: "SUPPLIER_BILL_CANCEL", sourceId: bill.id } })).toBe(1);
+  });
+
+  it("two payments made at once cannot both settle the same due amount", async () => {
+    const sup = await purchaseStore.quickCreateSupplier({ name: "Race Traders" });
+    const grn = await purchaseStore.createGoodsReceipt(
+      {
+        purchaseOrderId: "DIRECT",
+        receiptDate: "2026-11-12",
+        supplierId: sup.id,
+        warehouseId,
+        items: [{ itemId: flourId, itemCode: "", itemName: "Wheat Flour", uom: "KG", currentReceivedQuantity: 3, rejectedDamagedQuantity: 0, unitPrice: 50 }],
+      },
+      ACTOR,
+    );
+    const pay = () => purchaseStore.createSupplierPayment({ supplierId: sup.id, receiptId: grn.id, amount: 150, method: "CASH", paymentDate: "2026-11-13" }, ACTOR);
+    const results = await Promise.allSettled([pay(), pay()]);
+    expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+    expect(await prisma.supplierPayment.count({ where: { supplierId: sup.id, status: "PAID" } })).toBe(1);
   });
 });
