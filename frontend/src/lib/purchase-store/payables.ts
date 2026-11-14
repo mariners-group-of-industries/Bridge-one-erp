@@ -350,7 +350,13 @@ export async function approvePendingSupplierBills(actorName: string, actor?: Pur
     const result = await db().supplierBill.updateMany({ where: { status: "PENDING" }, data: { status: "APPROVED", approvedBy: actorName, approvedAt: new Date() } });
     return { approved: result.count };
   }
-  const pending = await db().supplierBill.findMany({ where: { status: "PENDING" }, select: { id: true, businessUnitId: true, amount: true } });
+  const [allPending, scope] = await Promise.all([
+    db().supplierBill.findMany({ where: { status: "PENDING" }, select: { id: true, businessUnitId: true, amount: true } }),
+    resolvePurchaseOrgScope(actor),
+  ]);
+  // Only the bills of business units the user may access.
+  const pending = allPending.filter((b) => isPlaceInOrgScope(scope, { businessUnitId: b.businessUnitId }));
+  if (pending.length === 0) return { approved: 0 };
   let approved = 0;
   let advanced = 0;
   let skipped = 0;
