@@ -12,7 +12,6 @@ import {
   History,
   Pencil,
   Printer,
-  RotateCcw,
   PlusCircle,
   Search,
   Check,
@@ -31,7 +30,7 @@ const can = {
   reverse: (s: ReqStatus) => s === "APPROVED" || s === "REJECTED" || s === "CANCELLED",
 };
 const actionBtn =
-  "inline-flex size-7 items-center justify-center rounded transition-colors disabled:opacity-30 disabled:pointer-events-none";
+  "inline-flex size-5.5 items-center justify-center rounded transition-colors disabled:opacity-30 disabled:pointer-events-none hover:bg-slate-100 text-slate-600 hover:text-slate-900";
 import { DataTable } from "@/components/purchase/DataTable";
 import { StatusBadge } from "@/components/purchase/StatusBadge";
 import { ModalDialog } from "@/components/purchase/ModalDialog";
@@ -542,46 +541,60 @@ export default function PurchaseRequisitionsPage() {
   );
 
   // Table Columns (Exact columns as in Managerium screenshots)
+  const formatTableDate = (dateStr?: string) => {
+    if (!dateStr) return "—";
+    const parts = dateStr.split("T")[0].split("-");
+    if (parts.length === 3) {
+      return `${parts[2]}-${parts[1]}-${parts[0]}`;
+    }
+    return dateStr;
+  };
+
+  const formatRequestType = (type?: string) => {
+    if (!type) return "department";
+    const lower = type.toLowerCase();
+    if (lower === "local" || lower === "department") return "department";
+    if (lower === "employee") return "Employee";
+    if (lower === "project") return "Project";
+    return lower;
+  };
+
+  const formatMethod = (method?: string) => {
+    if (!method || method === "DIRECT" || method === "PURCHASE_ORDER") return "Purchase Order Method";
+    return method.replace(/_/g, " ").toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase()) + " Method";
+  };
+
+  const renderStatus = (status: string) => {
+    switch (status) {
+      case "PENDING_APPROVAL":
+      case "SUBMITTED":
+      case "DRAFT":
+        return <span className="text-amber-600 font-semibold">Pending</span>;
+      case "APPROVED":
+        return <span className="text-emerald-600 font-semibold">Approved</span>;
+      case "CONVERTED_TO_PO":
+        return <span className="text-sky-600 font-semibold">Ordered</span>;
+      case "REJECTED":
+        return <span className="text-rose-600 font-semibold">Rejected</span>;
+      case "CANCELLED":
+      case "CLOSED":
+        return <span className="text-slate-500 font-semibold">Closed</span>;
+      default:
+        return <span className="text-slate-600 font-semibold">{status}</span>;
+    }
+  };
+
   const columns = [
     {
       header: "SL",
-      cell: (_: any, idx: number) => <span className="font-mono text-slate-500">{idx + 1}</span>,
+      className: "w-7 text-center font-mono text-[11px] text-slate-500",
+      cell: (_: any, idx: number) => idx + 1,
     },
     {
       header: "Actions",
-      className: "bg-sky-50/70 text-slate-800 font-semibold w-[230px] text-center",
+      className: "w-[125px] min-w-[125px] text-center whitespace-nowrap",
       cell: (row: PurchaseRequisition) => (
         <div className="flex items-center justify-center gap-0.5 text-slate-700">
-          {/* Approve / Reject: requires Configuration Approve + Approval Setup eligibility */}
-          <button
-            type="button"
-            disabled={!can.approve(row.status) || !perms.canApproveRequisition(row.officeId, row.totalEstimatedAmount)}
-            onClick={() => openApproval(row, "APPROVE")}
-            className={`${actionBtn} hover:bg-emerald-100 hover:text-emerald-700`}
-            title={
-              !perms.canApproveRequisition(row.officeId, row.totalEstimatedAmount)
-                ? "Requires Approve permission & Approval Setup eligibility in Configuration"
-                : "Approve requisition"
-            }
-            aria-label={`Approve ${row.requisitionNumber}`}
-          >
-            <Check className="w-3.5 h-3.5" />
-          </button>
-          <button
-            type="button"
-            disabled={!can.approve(row.status) || !perms.canApproveRequisition(row.officeId, row.totalEstimatedAmount)}
-            onClick={() => openApproval(row, "REJECT")}
-            className={`${actionBtn} hover:bg-rose-100 hover:text-rose-700`}
-            title={
-              !perms.canApproveRequisition(row.officeId, row.totalEstimatedAmount)
-                ? "Requires Approve permission & Approval Setup eligibility in Configuration"
-                : "Reject requisition"
-            }
-            aria-label={`Reject ${row.requisitionNumber}`}
-          >
-            <Ban className="w-3.5 h-3.5" />
-          </button>
-
           {/* Edit */}
           <button
             type="button"
@@ -626,7 +639,7 @@ export default function PurchaseRequisitionsPage() {
             <X className="w-3.5 h-3.5" />
           </button>
 
-          {/* Reverse */}
+          {/* Reverse / Audit History */}
           <button
             type="button"
             disabled={!can.reverse(row.status) || !perms.requisitions.edit}
@@ -638,7 +651,7 @@ export default function PurchaseRequisitionsPage() {
             title={!perms.requisitions.edit ? "Requires Edit permission in Configuration" : "Reverse to submitted"}
             aria-label={`Reverse ${row.requisitionNumber}`}
           >
-            <RotateCcw className="w-3.5 h-3.5" />
+            <History className="w-3.5 h-3.5" />
           </button>
 
           {/* New PR (Duplicate / Template) */}
@@ -668,76 +681,86 @@ export default function PurchaseRequisitionsPage() {
     },
     {
       header: "Requisition Code",
+      className: "whitespace-nowrap font-mono font-semibold text-sky-700 text-left",
       cell: (row: PurchaseRequisition) => (
         <span className="font-semibold text-sky-700 font-mono">{row.requisitionNumber}</span>
       ),
     },
     {
       header: "Reference Document",
-      accessorKey: "referenceDocument",
+      className: "text-center font-mono text-[11px] leading-tight",
+      cell: (row: PurchaseRequisition) => (
+        <span>{row.referenceDocument || "—"}</span>
+      ),
     },
     {
       header: "Date",
-      accessorKey: "requestDate",
+      className: "whitespace-nowrap font-mono text-center text-[11px]",
+      cell: (row: PurchaseRequisition) => (
+        <span>{formatTableDate(row.requestDate)}</span>
+      ),
     },
     {
       header: "Office",
+      className: "text-left leading-tight",
       cell: (row: PurchaseRequisition) => <span>{officeName(row.officeId) || "—"}</span>,
     },
     {
       header: "Warehouse",
+      className: "text-left leading-tight",
       cell: (row: PurchaseRequisition) => <span>{warehouseName(row.warehouseId) || "—"}</span>,
     },
     {
       header: "Buyer Office",
+      className: "text-left leading-tight",
       cell: (row: PurchaseRequisition) => <span>{officeName(row.officeId) || "—"}</span>,
     },
     {
       header: "Request Type",
-      accessorKey: "requestType",
+      className: "text-center leading-tight",
+      cell: (row: PurchaseRequisition) => <span>{formatRequestType(row.requestType)}</span>,
     },
     {
       header: "Employee/Department/Project",
-      accessorKey: "requesterName",
+      className: "text-left leading-tight max-w-[130px]",
+      cell: (row: PurchaseRequisition) => <span>{row.requesterName || row.department || "—"}</span>,
     },
     {
       header: "Section",
-      accessorKey: "department",
+      className: "text-center leading-tight",
+      cell: (row: PurchaseRequisition) => <span>{row.department || "All"}</span>,
     },
     {
       header: "Buyer Name",
-      accessorKey: "requesterName",
+      className: "text-left leading-tight",
+      cell: (row: PurchaseRequisition) => <span>{row.requesterName || "—"}</span>,
     },
     {
       header: "Method",
-      accessorKey: "purchaseMethod",
+      className: "text-left leading-tight",
+      cell: (row: PurchaseRequisition) => <span>{formatMethod(row.purchaseMethod)}</span>,
     },
     {
       header: "Budget",
+      className: "text-right whitespace-nowrap font-mono font-semibold",
       cell: (row: PurchaseRequisition) => (
-        <span className="font-bold font-mono text-slate-900">
-          {formatCurrency(row.totalEstimatedAmount)}
+        <span className="font-mono font-semibold text-slate-800">
+          {(row.totalEstimatedAmount || 0).toLocaleString("en-US", {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+          })}
         </span>
       ),
     },
     {
       header: "Created By",
-      accessorKey: "createdBy",
+      className: "text-left leading-tight",
+      cell: (row: PurchaseRequisition) => <span>{row.createdBy || row.requesterName || "—"}</span>,
     },
     {
       header: "Status",
-      cell: (row: PurchaseRequisition) => <StatusBadge status={row.status} />,
-    },
-    {
-      header: "Remarks",
-      accessorKey: "remarks",
-    },
-    {
-      header: "Review Comment",
-      cell: (row: PurchaseRequisition) => {
-        const latest = row.approvalHistory?.[row.approvalHistory.length - 1]?.comments;
-        return <span className="text-slate-600">{latest || "—"}</span>;
-      },
+      className: "text-center whitespace-nowrap",
+      cell: (row: PurchaseRequisition) => renderStatus(row.status),
     },
   ];
 
@@ -1291,6 +1314,7 @@ export default function PurchaseRequisitionsPage() {
           data={requisitions || []}
           loading={isLoading}
           emptyMessage="No requisitions found matching the selected criteria."
+          compact
         />
       ) : (
         /* Requisition Summary View */
