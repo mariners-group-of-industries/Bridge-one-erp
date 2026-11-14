@@ -64,19 +64,19 @@ const fmtNum = (val: unknown, digits = 2) => {
 let cachedLogoBytes: Buffer | null | undefined;
 function getLogoBytes(): Buffer | null {
   if (cachedLogoBytes !== undefined) return cachedLogoBytes;
-  const candidates = [
-    path.join(process.cwd(), "public", "logo.png"),
-    path.join(process.cwd(), "frontend", "public", "logo.png"),
-  ];
-  for (const p of candidates) {
-    if (existsSync(p)) {
-      try {
-        cachedLogoBytes = readFileSync(p);
-        return cachedLogoBytes;
-      } catch {
-        // Ignore unreadable asset and fall back to text-only header.
-      }
+  try {
+    const p1 = path.join(process.cwd(), "public", "logo.png");
+    if (existsSync(/*turbopackIgnore: true*/ p1)) {
+      cachedLogoBytes = readFileSync(/*turbopackIgnore: true*/ p1);
+      return cachedLogoBytes;
     }
+    const p2 = path.join(process.cwd(), "frontend", "public", "logo.png");
+    if (existsSync(/*turbopackIgnore: true*/ p2)) {
+      cachedLogoBytes = readFileSync(/*turbopackIgnore: true*/ p2);
+      return cachedLogoBytes;
+    }
+  } catch {
+    // Ignore unreadable asset and fall back to text-only header.
   }
   cachedLogoBytes = null;
   return null;

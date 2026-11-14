@@ -19,6 +19,8 @@ import { cn } from "@/lib/cn";
 import { SearchPick } from "../../components/SearchPick";
 import { formatAmount, formatQty } from "../../dashboard/lib/format";
 import { DayCell, FilterForm, useDebounced, useFilterLookups } from "../../deliveries/components/DeliveryWorkspaceView";
+
+const monthStart = (today: string) => `${today.slice(0, 7)}-01`;
 import { DELIVERY_TYPE_LABELS } from "../../deliveries/schemas/delivery.schema";
 import { useToday } from "../../lib/use-today";
 import { paths } from "../../paths";
