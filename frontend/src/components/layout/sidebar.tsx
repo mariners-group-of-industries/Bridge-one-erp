@@ -6,7 +6,7 @@ import { usePathname } from "next/navigation";
 import { useId, useState, type ReactNode } from "react";
 import { cn } from "@/lib/cn";
 import { useSession } from "@/lib/auth/session";
-import { findWorkspace, workspaces as allWorkspaces } from "@/lib/navigation/registry";
+import { findWorkspace, PINNED_WORKSPACES, workspaces as allWorkspaces } from "@/lib/navigation/registry";
 import type { NavLink } from "@/lib/navigation/types";
 
 const isWithin = (pathname: string | null, href: string) => pathname === href || !!pathname?.startsWith(`${href}/`);
@@ -24,7 +24,9 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
 export function SidebarNav({ pathname, onNavigate }: { pathname: string | null; onNavigate?: () => void }) {
   const current = pathname === null ? undefined : findWorkspace(pathname);
   // Only modules and pages the user may open.
-  const { workspaces } = useSession();
+  const { workspaces: visible } = useSession();
+  const pinned = visible.filter((workspace) => PINNED_WORKSPACES.has(workspace.id));
+  const workspaces = visible.filter((workspace) => !PINNED_WORKSPACES.has(workspace.id));
 
   return (
     <nav aria-label="Modules" className="flex flex-col bg-surface px-2.5 py-3 text-sm">
@@ -42,6 +44,29 @@ export function SidebarNav({ pathname, onNavigate }: { pathname: string | null; 
         </IconTile>
         <span className="truncate">Home</span>
       </Link>
+
+      {pinned.map((workspace) => {
+        const Icon = workspace.icon;
+        const active = isWithin(pathname, workspace.href);
+        return (
+          <Link
+            key={workspace.id}
+            href={workspace.href}
+            aria-current={active ? "page" : undefined}
+            onClick={onNavigate}
+            title={workspace.description}
+            className={cn(
+              "mt-0.5 flex h-9 items-center gap-2.5 rounded-md px-2 transition-colors focus-visible:outline-2",
+              active ? "bg-accent-soft font-semibold text-accent-strong dark:text-accent" : "text-ink-muted hover:bg-control hover:text-ink",
+            )}
+          >
+            <IconTile active={active}>
+              <Icon />
+            </IconTile>
+            <span className="truncate">{workspace.label}</span>
+          </Link>
+        );
+      })}
 
       <p className="mt-5 mb-1.5 flex items-center gap-2 px-2 text-[10.5px] font-semibold tracking-[0.08em] text-ink-faint uppercase">
         Modules

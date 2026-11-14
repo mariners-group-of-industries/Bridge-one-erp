@@ -1,6 +1,7 @@
 import type { Prisma, StockSource } from "@/generated/prisma/client";
 import { badRequest, notFound } from "@/lib/api/errors";
 import type { Actor } from "@/lib/auth/actor";
+import { approvalNote, recordApproval, recordRejection } from "@/lib/approval/engine";
 import { db } from "@/lib/prisma/client";
 import { fromDbDate, toDbDate } from "@/features/sales/lib/dates";
 import { scopedBusinessUnitIds } from "@/features/sales/lib/scope";
@@ -30,6 +31,13 @@ const PREFIX: Record<InventoryDocType, string> = {
 const NEEDS_APPROVAL = new Set<InventoryDocType>(["STOCK_UPDATE", "CONVERSION", "TRANSFER_REQUEST", "STORE_REQUISITION"]);
 /** Approving these posts their stock movements. */
 const POSTS_ON_APPROVAL = new Set<InventoryDocType>(["STOCK_UPDATE", "CONVERSION"]);
+/** Approval Setup feature of each document that needs approval (multilayer approval). */
+const APPROVAL_FEATURE: Partial<Record<InventoryDocType, string>> = {
+  STOCK_UPDATE: "Stock Adjustment",
+  CONVERSION: "Inventory Item Conversion",
+  TRANSFER_REQUEST: "Transfer Request",
+  STORE_REQUISITION: "Store Requisition",
+};
 /** Gate pass kinds; a visitor pass stays open until the visitor leaves. */
 const GATE_KINDS = new Set(["Gate In", "Gate Out", "Visitor"]);
 
@@ -325,6 +333,12 @@ export async function approveDocument(actor: Actor, type: InventoryDocType, id: 
   await db().$transaction(async (tx) => {
     const doc = await requireDocument(actor, type, id, tx);
     if (doc.status !== "PENDING") throw badRequest(`${doc.number} is already ${doc.status.toLowerCase().replace("_", " ")}.`);
+    // Every pipeline stage must approve before the document is approved.
+    const gate = await recordApproval(tx, actor, { feature: APPROVAL_FEATURE[type]!, documentId: id, businessUnitId: doc.businessUnitId, comment });
+    if (!gate.final) {
+      await tx.inventoryDocument.update({ where: { id }, data: { reviewComment: [approvalNote(gate), comment].filter(Boolean).join(" ") || null } });
+      return;
+    }
     const done = POSTS_ON_APPROVAL.has(type);
     await tx.inventoryDocument.update({
       where: { id },
@@ -357,11 +371,14 @@ export async function approveDocument(actor: Actor, type: InventoryDocType, id: 
 export async function rejectDocument(actor: Actor, type: InventoryDocType, id: string, raw: unknown): Promise<InventoryDocument> {
   if (!NEEDS_APPROVAL.has(type)) throw badRequest("This document does not need approval.");
   const { comment } = reviewSchema.parse(raw ?? {});
-  const doc = await requireDocument(actor, type, id);
-  if (doc.status !== "PENDING") throw badRequest(`${doc.number} is already ${doc.status.toLowerCase().replace("_", " ")}.`);
-  await db().inventoryDocument.update({
-    where: { id },
-    data: { status: "REJECTED", approvedBy: actorName(actor), approvedAt: new Date(), reviewComment: comment ?? null },
+  await db().$transaction(async (tx) => {
+    const doc = await requireDocument(actor, type, id, tx);
+    if (doc.status !== "PENDING") throw badRequest(`${doc.number} is already ${doc.status.toLowerCase().replace("_", " ")}.`);
+    await recordRejection(tx, actor, { feature: APPROVAL_FEATURE[type]!, documentId: id, businessUnitId: doc.businessUnitId, comment });
+    await tx.inventoryDocument.update({
+      where: { id },
+      data: { status: "REJECTED", approvedBy: actorName(actor), approvedAt: new Date(), reviewComment: comment ?? null },
+    });
   });
   return getDocument(actor, type, id);
 }

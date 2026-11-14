@@ -12,10 +12,10 @@ export const APPROVAL_MODULES = [
   { module: "Purchase", features: ["Purchase Requisition", "Purchase Order", "Purchase Order Local", "Goods Receipt", "Purchase Return", "Payment Approval"] },
   { module: "Sales", features: ["Sales Quotation", "Sales Order", "Sales Delivery", "Sales Return", "Sales Collection", "Customer Price Setup", "Offer Setup"] },
   { module: "Accounts", features: ["Journal Voucher", "Fund Transfer", "Expense", "Advance"] },
-  { module: "Inventory", features: ["Stock Adjustment", "Inventory Item Conversion", "Transfer Request", "Transfer Return"] },
+  { module: "Inventory", features: ["Stock Adjustment", "Inventory Item Conversion", "Transfer Request", "Transfer Return", "Store Requisition"] },
   { module: "Production", features: ["Production Order"] },
-  { module: "HR & Payroll", features: ["Employee Attendance", "Employee Movement", "Employee Leave", "Attendance Register Location", "Attendance Register Device", "Salary Sheet", "Salary Advice Approval"] },
-  { module: "RTM", features: ["Outlet Setup Approval"] },
+  { module: "HR & Payroll", features: ["Employee Attendance", "Employee Movement", "Employee Leave", "Attendance Register Location", "Attendance Register Device", "Salary Sheet", "Salary Advice Approval", "Overtime", "Bonus", "Salary Increment"] },
+  { module: "RTM", features: ["Outlet Setup Approval", "Distributor Stock Transfer", "Distributor Stock Adjustment", "Tour Plan"] },
 ] as const;
 
 export type ApprovalModule = (typeof APPROVAL_MODULES)[number]["module"];

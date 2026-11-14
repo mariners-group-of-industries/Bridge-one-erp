@@ -1,6 +1,7 @@
 import type { Prisma } from "@/generated/prisma/client";
 import { badRequest, conflict, notFound } from "@/lib/api/errors";
 import type { Actor } from "@/lib/auth/actor";
+import { decideWithPipeline, employeeBusinessUnit } from "@/lib/approval/engine";
 import { db } from "@/lib/prisma/client";
 import { grossOf } from "../../payroll/server/payroll.service";
 import { decisionBy, employeeScope, isoDate, money, num, officeScope, requireHr, toDate } from "../../shared/hr-access";
@@ -109,9 +110,15 @@ export async function createBonus(actor: Actor, input: BonusInput): Promise<{ id
 
 export async function decideBonus(actor: Actor, id: string, status: "Approved" | "Rejected") {
   requireHr(actor);
-  if (!(await db().bonusRun.findFirst({ where: { id, ...bonusScope(actor) }, select: { id: true } }))) throw notFound("Bonus");
-  const { count } = await db().bonusRun.updateMany({ where: { id, status: "Pending" }, data: { status, decidedByName: decisionBy(actor), decidedAt: new Date() } });
-  if (!count) throw conflict("This bonus has already been decided.");
+  const run = await db().bonusRun.findFirst({ where: { id, ...bonusScope(actor) }, select: { id: true, status: true, totalAmount: true, office: { select: { businessUnitId: true } } } });
+  if (!run) throw notFound("Bonus");
+  if (run.status !== "Pending") throw conflict("This bonus has already been decided.");
+  // Multilayer approval: stays Pending until the last pipeline stage approves.
+  const target = { feature: "Bonus", documentId: id, businessUnitId: run.office?.businessUnitId ?? null, amount: num(run.totalAmount) };
+  await decideWithPipeline(actor, target, status === "Approved" ? "approve" : "reject", async (tx) => {
+    const { count } = await tx.bonusRun.updateMany({ where: { id, status: "Pending" }, data: { status, decidedByName: decisionBy(actor), decidedAt: new Date() } });
+    if (!count) throw conflict("This bonus has already been decided.");
+  });
 }
 
 export async function deleteBonus(actor: Actor, id: string) {
@@ -200,8 +207,11 @@ export async function decideIncrement(actor: Actor, id: string, status: "Approve
   if (!increment) throw notFound("Increment");
   if (increment.status !== "Pending") throw conflict("This increment has already been decided.");
   const decided = { status, decidedByName: decisionBy(actor), decidedAt: new Date() };
+  const target = { feature: "Salary Increment", documentId: id, businessUnitId: await employeeBusinessUnit(increment.employeeId) };
   if (status === "Rejected") {
-    await db().salaryIncrement.update({ where: { id }, data: decided });
+    await decideWithPipeline(actor, target, "reject", async (tx) => {
+      await tx.salaryIncrement.update({ where: { id }, data: decided });
+    });
     return;
   }
   const salary = increment.employee.salary;
@@ -211,10 +221,11 @@ export async function decideIncrement(actor: Actor, id: string, status: "Approve
   const newGross = newGrossOf(current, increment.incrementType, num(increment.value));
   const ratio = newGross / current;
   const scaled = Object.fromEntries(SALARY_AMOUNTS.filter((key) => salary[key] != null).map((key) => [key, money(num(salary[key]) * ratio)]));
-  await db().$transaction([
-    db().employeeSalary.update({ where: { id: salary.id }, data: scaled }),
-    db().salaryIncrement.update({ where: { id }, data: { ...decided, previousGross: money(current), newGross } }),
-  ]);
+  // Multilayer approval: the raise is applied only after the last pipeline stage approves.
+  await decideWithPipeline(actor, { ...target, amount: newGross - current }, "approve", async (tx) => {
+    await tx.employeeSalary.update({ where: { id: salary.id }, data: scaled });
+    await tx.salaryIncrement.update({ where: { id }, data: { ...decided, previousGross: money(current), newGross } });
+  });
 }
 
 export async function deleteIncrement(actor: Actor, id: string) {
