@@ -107,6 +107,10 @@ const FEATURE_ACTIONS: Record<string, readonly PermissionAction[]> = {
   "/inventory/item-stock-conversion": WITH_APPROVE,
   "/inventory/transfer-request": WITH_APPROVE,
   "/inventory/store-requisition": WITH_APPROVE,
+  // BRG Connect tasks: "approve" = supervisor verify/reject, blocker verification and
+  // governance edits; on the executive dashboard it is the MD decision.
+  "/connect/tasks": WITH_APPROVE,
+  "/connect/tasks/executive": WITH_APPROVE,
   "/sales/quotations": WITH_APPROVE,
   "/sales/orders": WITH_APPROVE,
   "/sales/returns": WITH_APPROVE,

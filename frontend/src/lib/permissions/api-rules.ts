@@ -54,6 +54,9 @@ export const API_RULES: Record<string, ApiRule> = {
   // ── Home ──
   "/api/home": { read: "signed-in" },
 
+  // ── BRG Connect file downloads (only `connect/` uploads are served; see the route) ──
+  "/api/storage": { read: "signed-in" },
+
   // ── Configuration › Business Config (offices, warehouses and terms are read everywhere) ──
   "/api/configuration/company": { feature: PAGE.companyProfile, read: "signed-in" },
   "/api/configuration/business-units": { feature: PAGE.businessUnits, read: "signed-in" },
