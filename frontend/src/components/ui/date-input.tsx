@@ -1,7 +1,7 @@
 "use client";
 
 import { CalendarDays } from "lucide-react";
-import { useEffect, useRef, useState, type InputHTMLAttributes } from "react";
+import { useRef, useState, type InputHTMLAttributes } from "react";
 import { cn } from "@/lib/cn";
 
 /** "2026-11-15" → "15/11/2026". */
@@ -32,10 +32,14 @@ type DateInputProps = Omit<InputHTMLAttributes<HTMLInputElement>, "value" | "onC
  */
 export function DateInput({ value, onChange, className, disabled, ...props }: DateInputProps) {
   const [text, setText] = useState(isoToDmy(value));
+  const [shown, setShown] = useState(value);
   const picker = useRef<HTMLInputElement>(null);
 
   // Follow the value when it changes from outside (a reset, a picked date).
-  useEffect(() => setText(isoToDmy(value)), [value]);
+  if (value !== shown) {
+    setShown(value);
+    setText(isoToDmy(value));
+  }
 
   const commit = (next: string) => {
     if (!next.trim()) return onChange("");

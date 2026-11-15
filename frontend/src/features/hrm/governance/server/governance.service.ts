@@ -2,6 +2,7 @@ import type { Prisma } from "@/generated/prisma/client";
 import { badRequest, notFound } from "@/lib/api/errors";
 import { actorUserId, type Actor } from "@/lib/auth/actor";
 import { db } from "@/lib/prisma/client";
+import { decideAttendanceAdjustment, listAttendanceAdjustments } from "../../attendance/services/attendance.service";
 import { decideBonus, decideIncrement, listBonusRuns, listIncrements } from "../../compensation/server/compensation.service";
 import { grossOf } from "../../payroll/server/payroll.service";
 import { decideLeave, decideMovement, listLeaves, listMovements } from "../../self-service/leave-movement/server/leave-movement.service";
@@ -220,6 +221,30 @@ const money2 = (value: number) => value.toFixed(2);
 export async function pendingApprovals(actor: Actor, kind: PendingKind): Promise<PendingList> {
   requireHr(actor);
   switch (kind) {
+    case "attendance": {
+      const rows = await listAttendanceAdjustments(actor, "Pending");
+      return {
+        columns: [
+          col("employee", "Employee"),
+          col("date", "Date"),
+          col("current", "Current Status"),
+          col("requested", "Requested Status"),
+          col("time", "In / Out"),
+          col("remarks", "Remarks"),
+          col("by", "Requested By"),
+        ],
+        rows: rows.map((r) => ({
+          id: r.id,
+          employee: `${r.employeeCode} — ${r.employeeName}`,
+          date: r.date,
+          current: r.originalStatus ?? "—",
+          requested: r.requestedStatus,
+          time: r.inTime || r.outTime ? `${r.inTime ?? "—"} / ${r.outTime ?? "—"}` : "—",
+          remarks: r.remarks ?? "—",
+          by: r.requestedBy ?? "—",
+        })),
+      };
+    }
     case "leave": {
       const rows = (await listLeaves(actor)).filter((r) => r.status === "Pending");
       return {
@@ -294,6 +319,6 @@ export async function pendingApprovals(actor: Actor, kind: PendingKind): Promise
 
 export async function decidePending(actor: Actor, kind: PendingKind, id: string, status: "Approved" | "Rejected") {
   requireHr(actor);
-  const decide = { leave: decideLeave, movement: decideMovement, bonus: decideBonus, increment: decideIncrement }[kind];
+  const decide = { attendance: decideAttendanceAdjustment, leave: decideLeave, movement: decideMovement, bonus: decideBonus, increment: decideIncrement }[kind];
   await decide(actor, id, status);
 }

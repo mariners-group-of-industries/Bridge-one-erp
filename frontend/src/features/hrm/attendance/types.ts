@@ -6,6 +6,9 @@ export type AttendanceStatus =
   | "Holiday"
   | "Leave";
 
+/** Statuses a manual change (HR edit or an employee's own request) may set. */
+export const ADJUSTABLE_STATUSES = ["Present", "Late", "Absent", "Leave", "Offday", "Holiday"] as const;
+
 export interface AttendanceRecord {
   id: string;
   sl: number;
@@ -27,6 +30,10 @@ export interface AttendanceRecord {
   remarks: string | null;
   lastActionBy: string | null;
   lastActionTime: string | null;
+  /** The manual adjustment shown on this row, if any. */
+  adjustmentId?: string;
+  /** Pending = waiting for HR approval; the status changes only once approved. */
+  adjustmentStatus?: "Pending" | "Approved";
 }
 
 export interface AttendanceFilterState {

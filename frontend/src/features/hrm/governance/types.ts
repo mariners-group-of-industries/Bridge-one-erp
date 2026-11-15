@@ -69,6 +69,7 @@ export interface ChecklistRow {
 }
 
 export const PENDING_KINDS = [
+  { id: "attendance", label: "Attendance" },
   { id: "leave", label: "Leave" },
   { id: "movement", label: "Movement" },
   { id: "bonus", label: "Bonus" },

@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import {
   getDailyAttendance,
-  clearAllDailyAttendance,
+  submitAttendanceAdjustment,
+  withdrawPendingAdjustments,
 } from "@/features/hrm/attendance/services/attendance.service";
-import { apiHandler } from "@/lib/api/handler";
+import { apiHandler, ok, parseJson } from "@/lib/api/handler";
 
 export const GET = apiHandler("employees:read", async (request) => {
   try {
@@ -41,34 +43,24 @@ export const GET = apiHandler("employees:read", async (request) => {
   }
 });
 
-export const POST = apiHandler("employees:read", async (request) => {
-  try {
-    const body = await request.json();
-    return NextResponse.json({
-      success: true,
-      message: "Attendance adjustment request submitted successfully.",
-      data: body,
-    });
-  } catch (error: any) {
-    return NextResponse.json(
-      { success: false, error: error.message || "Failed to update attendance" },
-      { status: 500 },
-    );
-  }
+const AdjustmentBody = z.object({
+  employeeId: z.string().uuid(),
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  requestedStatus: z.string().min(1).max(20),
+  inTime: z.string().max(20).nullish(),
+  outTime: z.string().max(20).nullish(),
+  remarks: z.string().max(500).nullish(),
+  originalStatus: z.string().max(20).nullish(),
 });
 
-export const DELETE = apiHandler("employees:read", async () => {
-  try {
-    clearAllDailyAttendance();
-    return NextResponse.json({
-      success: true,
-      message: "All daily attendance data has been removed.",
-    });
-  } catch (error: any) {
-    return NextResponse.json(
-      { success: false, error: error.message || "Failed to clear attendance data" },
-      { status: 500 },
-    );
-  }
+/** Submits a manual attendance adjustment; it waits in HR › Pending Approval › Attendance. */
+export const POST = apiHandler("employees:read", async (request, _context, actor) => {
+  const body = await parseJson(request, AdjustmentBody);
+  return ok(await submitAttendanceAdjustment(actor, body), 201);
 });
 
+/** Withdraws pending adjustments; device punches and decided adjustments are kept. */
+export const DELETE = apiHandler("employees:read", async (_request, _context, actor) => {
+  const withdrawn = await withdrawPendingAdjustments(actor);
+  return NextResponse.json({ success: true, withdrawn, message: `${withdrawn} pending adjustment(s) withdrawn.` });
+});

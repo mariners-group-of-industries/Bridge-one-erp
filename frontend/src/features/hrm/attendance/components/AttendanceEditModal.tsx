@@ -10,7 +10,8 @@ interface AttendanceEditModalProps {
   record: AttendanceRecord | null;
   open: boolean;
   onClose: () => void;
-  onSave: (updated: Partial<AttendanceRecord>) => void;
+  /** Submits the adjustment for HR approval; resolves true when it was accepted. */
+  onSave: (updated: { inTime: string; outTime: string; requestedStatus: string; remarks: string }) => Promise<boolean>;
 }
 
 export function AttendanceEditModal({ record, open, onClose, onSave }: AttendanceEditModalProps) {
@@ -26,23 +27,19 @@ function AttendanceEditForm({
 }: Omit<AttendanceEditModalProps, "open" | "record"> & { record: AttendanceRecord }) {
   const [inTime, setInTime] = useState(record.inTime || "09:00 AM");
   const [outTime, setOutTime] = useState(record.outTime || "06:00 PM");
+  // requestAttendance reads "Present (Pending HR approval)"; the select needs the bare status.
   const [requestedStatus, setRequestedStatus] = useState(
-    record.requestAttendance || "Present",
+    record.requestAttendance?.split(" (")[0] || "Present",
   );
   const [remarks, setRemarks] = useState(record.remarks || "Worked");
+  const [saving, setSaving] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    onSave({
-      inTime,
-      outTime,
-      requestAttendance: requestedStatus,
-      remarks,
-      actualAttendance: requestedStatus as any,
-      lastActionBy: "HR Admin",
-      lastActionTime: `${new Date().toISOString().slice(0, 10)} ${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`,
-    });
-    onClose();
+    setSaving(true);
+    const accepted = await onSave({ inTime, outTime, requestedStatus, remarks });
+    setSaving(false);
+    if (accepted) onClose();
   };
 
   return (
@@ -108,8 +105,10 @@ function AttendanceEditForm({
             >
               <option value="Present">Present</option>
               <option value="Late">Late</option>
+              <option value="Absent">Absent</option>
               <option value="Leave">Leave</option>
               <option value="Offday">Offday</option>
+              <option value="Holiday">Holiday</option>
             </select>
           </div>
 
@@ -133,8 +132,8 @@ function AttendanceEditForm({
             <Button variant="secondary" size="sm" onClick={onClose}>
               Cancel
             </Button>
-            <Button variant="primary" size="sm" type="submit">
-              Save Adjustment
+            <Button variant="primary" size="sm" type="submit" loading={saving}>
+              Submit for HR Approval
             </Button>
           </div>
         </form>

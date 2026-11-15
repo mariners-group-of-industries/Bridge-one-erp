@@ -3642,6 +3642,8 @@ model Employee {
   attendancePunches    AttendancePunch[]
   leaveApplications    LeaveApplication[]
   movementApplications MovementApplication[]
+  attendanceAdjustments AttendanceAdjustment[]
+  calendarDays          EmployeeCalendarDay[]
   overtimeEntries      OvertimeEntry[]
   payrollRunLines      PayrollRunLine[]
   bonusLines           BonusLine[]
@@ -4363,6 +4365,59 @@ model MovementApplication {
   @@map("movement_applications")
 }
 
+/// HRM › Attendance: a manual change to one employee's attendance on one day.
+/// It stays Pending until HR approves it (Approval Setup feature "Employee
+/// Attendance"); only an approved adjustment changes the day's status.
+model AttendanceAdjustment {
+  id              String    @id @default(uuid()) @db.Uuid
+  employeeId      String    @db.Uuid
+  date            DateTime  @db.Date
+  /// Status before the change (from device punches), for the approver.
+  originalStatus  String?   @db.VarChar(20)
+  requestedStatus String    @db.VarChar(20)
+  /// As typed, e.g. "09:00 AM".
+  inTime          String?   @db.VarChar(20)
+  outTime         String?   @db.VarChar(20)
+  remarks         String?   @db.VarChar(500)
+  status          String    @default("Pending") @db.VarChar(20)
+  createdById     String?   @db.Uuid
+  createdByName   String?   @db.VarChar(150)
+  decidedByName   String?   @db.VarChar(150)
+  decidedAt       DateTime? @db.Timestamptz(3)
+  createdAt       DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime  @updatedAt @db.Timestamptz(3)
+
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([employeeId, date])
+  @@index([date])
+  @@index([status])
+  @@map("attendance_adjustments")
+}
+
+/// HRM › Calendar Assign: the calendar (shift) an employee works on one day,
+/// or OFF (weekly off) / HOL (holiday). Overrides Roster, Holidays and Off Day.
+model EmployeeCalendarDay {
+  id            String   @id @default(uuid()) @db.Uuid
+  employeeId    String   @db.Uuid
+  date          DateTime @db.Date
+  /// The calendar's short code as assigned ("G", "A" …), or OFF / HOL.
+  code          String   @db.VarChar(20)
+  /// The Calendar Setup record (HR Governance); null for OFF / HOL.
+  calendarId    String?  @db.Uuid
+  updatedByName String?  @db.VarChar(150)
+  createdAt     DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime @updatedAt @db.Timestamptz(3)
+
+  employee Employee        @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  calendar HrPolicyRecord? @relation(fields: [calendarId], references: [id], onDelete: SetNull)
+
+  @@unique([employeeId, date])
+  @@index([date])
+  @@index([calendarId])
+  @@map("employee_calendar_days")
+}
+
 /// HRM › Overtime: one employee's overtime on one day, from attendance punches or entered by hand.
 /// It is paid (Monthly OT Summary) once approved.
 model OvertimeEntry {
@@ -4533,6 +4588,8 @@ model HrPolicyRecord {
 
   office   Office?   @relation(fields: [officeId], references: [id], onDelete: Restrict)
   employee Employee? @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  /// Calendar Setup records: the days employees are assigned to this calendar.
+  calendarDays EmployeeCalendarDay[]
 
   @@index([tab, effectiveFrom])
   @@index([employeeId])
