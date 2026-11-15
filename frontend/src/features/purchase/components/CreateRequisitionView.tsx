@@ -76,7 +76,23 @@ function CreateRequisitionForm({ templateReq }: { templateReq: PurchaseRequisiti
   // 1. Target Selector State
   const [targetType, setTargetType] = useState<"Employee" | "Department" | "Project">("Employee");
   const [createFromSalesOrder, setCreateFromSalesOrder] = useState(false);
-  const [selectedSalesOrderId, setSelectedSalesOrderId] = useState("");
+  const [selectedSalesOrderIds, setSelectedSalesOrderIds] = useState<string[]>([]);
+  const [isSoDropdownOpen, setIsSoDropdownOpen] = useState(false);
+  const [soSearchQuery, setSoSearchQuery] = useState("");
+
+  const [soAllocatedLines, setSoAllocatedLines] = useState<{
+    id: string;
+    soId: string;
+    soNumber: string;
+    customerName: string;
+    itemId: string;
+    itemCode: string;
+    itemName: string;
+    uom: string;
+    reqQty: number;
+    estRate: number;
+    total: number;
+  }[]>([]);
 
   // 2. Primary Form Fields (Row 1)
   const todayStr = useMemo(() => new Date().toISOString().split("T")[0], []);
@@ -332,6 +348,144 @@ function CreateRequisitionForm({ templateReq }: { templateReq: PurchaseRequisiti
   const totalQuantitySum = addedItems.reduce((acc, it) => acc + Number(it.quantity), 0);
   const totalEstimatedCostSum = addedItems.reduce((acc, it) => acc + Number(it.lineTotal), 0);
 
+  // Sales Order Allocation Handlers
+  const handleToggleSalesOrder = (soId: string) => {
+    setSelectedSalesOrderIds((prev) =>
+      prev.includes(soId) ? prev.filter((id) => id !== soId) : [...prev, soId]
+    );
+  };
+
+  const handleRemoveSalesOrder = (soId: string) => {
+    setSelectedSalesOrderIds((prev) => prev.filter((id) => id !== soId));
+    setSoAllocatedLines((prev) => prev.filter((l) => l.soId !== soId));
+  };
+
+  const handleClearAllSalesOrders = () => {
+    setSelectedSalesOrderIds([]);
+    setSoAllocatedLines([]);
+  };
+
+  const handleLoadSalesOrders = () => {
+    if (selectedSalesOrderIds.length === 0) {
+      toast.error("Please select at least one sales order.", { title: "No Sales Order Selected" });
+      return;
+    }
+
+    const allSos = formOptions?.salesOrders ?? [];
+    const selectedSos = allSos.filter((so) => selectedSalesOrderIds.includes(so.id));
+
+    if (selectedSos.length === 0) return;
+
+    if (selectedSos[0].officeId && !pickedOfficeId) {
+      setSelectedOfficeId(selectedSos[0].officeId);
+    }
+
+    const soRemarks = selectedSos.map((s) => `${s.number} (${s.customerName})`).join(", ");
+    if (!remarks) {
+      setRemarks(`Against Sales Order: ${soRemarks}`);
+    }
+
+    const newLines: {
+      id: string;
+      soId: string;
+      soNumber: string;
+      customerName: string;
+      itemId: string;
+      itemCode: string;
+      itemName: string;
+      uom: string;
+      reqQty: number;
+      estRate: number;
+      total: number;
+    }[] = [];
+
+    for (const so of selectedSos) {
+      for (let i = 0; i < so.lines.length; i++) {
+        const l = so.lines[i];
+        newLines.push({
+          id: `so_${so.id}_${l.id || i}_${Math.random().toString(36).slice(2, 7)}`,
+          soId: so.id,
+          soNumber: so.number,
+          customerName: so.customerName,
+          itemId: l.itemId,
+          itemCode: l.itemCode,
+          itemName: l.itemName,
+          uom: l.uom || "PCS",
+          reqQty: Number(l.qty) || 0,
+          estRate: 0,
+          total: 0,
+        });
+      }
+    }
+
+    setSoAllocatedLines(newLines);
+    toast.success(`Loaded ${newLines.length} item(s) from ${selectedSos.length} sales order(s).`, {
+      title: "Items Loaded",
+    });
+  };
+
+  const handleUpdateSoLine = (id: string, field: "reqQty" | "estRate", value: number) => {
+    setSoAllocatedLines((prev) =>
+      prev.map((line) => {
+        if (line.id !== id) return line;
+        const updated = { ...line, [field]: value };
+        const q = Number(updated.reqQty) || 0;
+        const r = Number(updated.estRate) || 0;
+        updated.total = Number((q * r).toFixed(2));
+        return updated;
+      })
+    );
+  };
+
+  const handleDeleteSoLine = (id: string) => {
+    setSoAllocatedLines((prev) => prev.filter((line) => line.id !== id));
+  };
+
+  const soGroupedLines = useMemo(() => {
+    const groups: {
+      soId: string;
+      soNumber: string;
+      customerName: string;
+      lines: typeof soAllocatedLines;
+      subtotalQty: number;
+      subtotalTotal: number;
+    }[] = [];
+
+    const map = new Map<string, typeof soAllocatedLines>();
+    for (const line of soAllocatedLines) {
+      if (!map.has(line.soId)) {
+        map.set(line.soId, []);
+      }
+      map.get(line.soId)!.push(line);
+    }
+
+    for (const [soId, lines] of map.entries()) {
+      const first = lines[0];
+      const subtotalQty = lines.reduce((acc, l) => acc + Number(l.reqQty || 0), 0);
+      const subtotalTotal = lines.reduce((acc, l) => acc + Number(l.total || 0), 0);
+      groups.push({
+        soId,
+        soNumber: first.soNumber,
+        customerName: first.customerName,
+        lines,
+        subtotalQty,
+        subtotalTotal,
+      });
+    }
+
+    return groups;
+  }, [soAllocatedLines]);
+
+  const grandSoQtySum = useMemo(
+    () => soAllocatedLines.reduce((acc, l) => acc + Number(l.reqQty || 0), 0),
+    [soAllocatedLines]
+  );
+
+  const grandSoTotalSum = useMemo(
+    () => soAllocatedLines.reduce((acc, l) => acc + Number(l.total || 0), 0),
+    [soAllocatedLines]
+  );
+
   // File Attachment Handling
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
@@ -415,7 +569,36 @@ function CreateRequisitionForm({ templateReq }: { templateReq: PurchaseRequisiti
     mutationFn: async (isSaveAndNew: boolean) => {
       if (!selectedOfficeId) throw new Error("Office is required");
       if (!selectedWarehouseId) throw new Error("Warehouse is required");
-      if (addedItems.length === 0) throw new Error("Please add at least one item to the requisition table.");
+
+      const itemsToSubmit = createFromSalesOrder
+        ? soAllocatedLines.map((it) => ({
+            itemId: it.itemId,
+            itemCode: it.itemCode,
+            itemName: it.itemName,
+            uom: it.uom,
+            quantity: Number(it.reqQty),
+            estimatedUnitPrice: Number(it.estRate),
+            lineTotal: Number(it.total),
+            remarks: `SO ${it.soNumber}`,
+          }))
+        : addedItems.map((it) => ({
+            itemId: it.itemId,
+            itemCode: it.itemCode,
+            itemName: it.itemName,
+            uom: it.uom,
+            quantity: Number(it.quantity),
+            estimatedUnitPrice: Number(it.lastCost),
+            lineTotal: Number(it.lineTotal),
+            remarks: it.remarks || undefined,
+          }));
+
+      if (itemsToSubmit.length === 0) {
+        throw new Error(
+          createFromSalesOrder
+            ? "Please select and load at least one sales order item."
+            : "Please add at least one item to the requisition table."
+        );
+      }
 
       const requesterName = (
         targetType === "Employee" ? employeeQuery : targetType === "Department" ? selectedDepartment : selectedProject
@@ -435,16 +618,7 @@ function CreateRequisitionForm({ templateReq }: { templateReq: PurchaseRequisiti
         businessJustification:
           remarks.trim() || `Requisition requested by ${requesterName} for operational requirements`,
         remarks: remarks || undefined,
-        items: addedItems.map((it) => ({
-          itemId: it.itemId,
-          itemCode: it.itemCode,
-          itemName: it.itemName,
-          uom: it.uom,
-          quantity: Number(it.quantity),
-          estimatedUnitPrice: Number(it.lastCost),
-          lineTotal: Number(it.lineTotal),
-          remarks: it.remarks || undefined,
-        })),
+        items: itemsToSubmit,
       };
 
       const result = await fetchApi<{ requisitionNumber: string }>("/purchase/requisitions", {
@@ -463,6 +637,8 @@ function CreateRequisitionForm({ templateReq }: { templateReq: PurchaseRequisiti
           title: "Created Successfully",
         });
         setAddedItems([]);
+        setSoAllocatedLines([]);
+        setSelectedSalesOrderIds([]);
         setSelectedItemId("");
         setItemSearchQuery("");
         setReqQty(1);
@@ -560,58 +736,21 @@ function CreateRequisitionForm({ templateReq }: { templateReq: PurchaseRequisiti
             <span>Project</span>
           </label>
 
-          <label className="flex items-center gap-2 cursor-pointer text-slate-700 dark:text-slate-300 ml-2">
+          <label className="flex items-center gap-2 cursor-pointer font-medium text-slate-800 dark:text-slate-200 ml-2">
             <input
               type="checkbox"
               checked={createFromSalesOrder}
               onChange={(e) => {
                 setCreateFromSalesOrder(e.target.checked);
-                if (!e.target.checked) setSelectedSalesOrderId("");
+                if (!e.target.checked) {
+                  setSelectedSalesOrderIds([]);
+                  setSoAllocatedLines([]);
+                }
               }}
               className="w-4 h-4 text-blue-600 rounded border-slate-300 focus:ring-blue-500"
             />
             <span>Create From Sales Order</span>
           </label>
-
-          {createFromSalesOrder && (
-            <select
-              value={selectedSalesOrderId}
-              onChange={(e) => {
-                const soId = e.target.value;
-                setSelectedSalesOrderId(soId);
-                const so = formOptions?.salesOrders.find((s) => s.id === soId);
-                if (so) {
-                  if (so.officeId) setSelectedOfficeId(so.officeId);
-                  setRemarks(`Against Sales Order ${so.number} (${so.customerName})`);
-                  setAddedItems(
-                    so.lines.map((l, i) => ({
-                      id: `so_${so.id}_${i}`,
-                      itemId: l.itemId,
-                      itemCode: l.itemCode,
-                      itemName: l.itemName,
-                      category: "Sales Order",
-                      uom: l.uom || "PCS",
-                      quantity: l.qty,
-                      expectedDate: so.expectedDeliveryDate || expectedDate,
-                      lastCost: l.unitPrice,
-                      averageCost: l.unitPrice,
-                      lineTotal: Number((l.qty * l.unitPrice).toFixed(2)),
-                      remarks: `SO ${so.number}`,
-                    }))
-                  );
-                  toast.success(`Loaded ${so.lines.length} item(s) from Sales Order ${so.number}.`);
-                }
-              }}
-              className="h-7 rounded border border-blue-300 bg-blue-50/50 px-2.5 text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500"
-            >
-              <option value="">Select Sales Order...</option>
-              {(formOptions?.salesOrders ?? []).map((so) => (
-                <option key={so.id} value={so.id}>
-                  {so.number} — {so.customerName} ({so.orderDate})
-                </option>
-              ))}
-            </select>
-          )}
         </div>
 
         {/* ── ROW 1: PRIMARY DETAILS (6 COLS GRID) ── */}
@@ -882,383 +1021,639 @@ function CreateRequisitionForm({ templateReq }: { templateReq: PurchaseRequisiti
           </div>
         </div>
 
-        {/* ── ROW 3: CATEGORY & SUPPLIER FILTER STRIP (5 COLS GRID) ── */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 pt-3 border-t border-slate-100 dark:border-slate-800">
-          {/* Item Type */}
-          <div>
-            <select
-              value={itemTypeFilter}
-              onChange={(e) => setItemTypeFilter(e.target.value)}
-              className="w-full h-8 text-xs border border-slate-300 dark:border-slate-700 rounded px-2.5 py-1 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 focus:outline-hidden focus:ring-1 focus:ring-blue-500"
-            >
-              <option value="All">Item Type</option>
-              <option value="Raw Material">Raw Material</option>
-              <option value="Packaging Material">Packaging Material</option>
-              <option value="Finished Goods">Finished Goods</option>
-              <option value="Spares & Consumables">Spares & Consumables</option>
-              <option value="Stationary">Stationary</option>
-              <option value="Electrical">Electrical</option>
-              <option value="Mechanical">Mechanical</option>
-            </select>
-          </div>
-
-          {/* Category */}
-          <div>
-            <select
-              value={categoryFilter}
-              onChange={(e) => {
-                setCategoryFilter(e.target.value);
-                setSubCategoryFilter("All");
-                setMinorCategoryFilter("All");
-              }}
-              className="w-full h-8 text-xs border border-slate-300 dark:border-slate-700 rounded px-2.5 py-1 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 focus:outline-hidden focus:ring-1 focus:ring-blue-500"
-            >
-              <option value="All">Category</option>
-              {level1Categories.map((cat) => (
-                <option key={cat} value={cat}>
-                  {cat}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* Sub Category */}
-          <div>
-            <select
-              value={subCategoryFilter}
-              onChange={(e) => {
-                setSubCategoryFilter(e.target.value);
-                setMinorCategoryFilter("All");
-              }}
-              className="w-full h-8 text-xs border border-slate-300 dark:border-slate-700 rounded px-2.5 py-1 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 focus:outline-hidden focus:ring-1 focus:ring-blue-500"
-            >
-              <option value="All">Sub Category</option>
-              {level2SubCategories.map((sub) => (
-                <option key={sub} value={sub}>
-                  {sub}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* Minor Category */}
-          <div>
-            <select
-              value={minorCategoryFilter}
-              onChange={(e) => setMinorCategoryFilter(e.target.value)}
-              className="w-full h-8 text-xs border border-slate-300 dark:border-slate-700 rounded px-2.5 py-1 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 focus:outline-hidden focus:ring-1 focus:ring-blue-500"
-            >
-              <option value="All">Minor Category</option>
-              {level3MinorCategories.map((m) => (
-                <option key={m} value={m}>
-                  {m}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* Select Supplier */}
-          <div>
-            <select
-              value={supplierFilter}
-              onChange={(e) => setSupplierFilter(e.target.value)}
-              className="w-full h-8 text-xs border border-slate-300 dark:border-slate-700 rounded px-2.5 py-1 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 focus:outline-hidden focus:ring-1 focus:ring-blue-500"
-            >
-              <option value="">Select/Search Supplier (min 3 letters)</option>
-              {suppliers.slice(0, 30).map((sup) => (
-                <option key={sup.id} value={sup.id}>
-                  {sup.name}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
-
-        {/* ── ROW 4: LINE ITEM INPUT ROW ── */}
-        <div className="grid grid-cols-1 md:grid-cols-12 gap-3 pt-1">
-          {/* Item Selector Combobox with Checkbox */}
-          <div className="md:col-span-3 relative">
-            <div className="flex items-center justify-between mb-1">
-              <label className="text-[11px] font-medium text-slate-700 dark:text-slate-300">Item</label>
-              <label className="flex items-center gap-1 text-[10px] text-slate-400 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={itemCheckbox}
-                  onChange={(e) => setItemCheckbox(e.target.checked)}
-                  className="w-3.5 h-3.5 text-blue-600 rounded border-slate-300"
-                />
-              </label>
-            </div>
-            <div className="relative">
-              <input
-                type="text"
-                value={itemSearchQuery}
-                onChange={(e) => {
-                  setItemSearchQuery(e.target.value);
-                  setIsItemDropdownOpen(true);
-                }}
-                onFocus={() => setIsItemDropdownOpen(true)}
-                placeholder="Select/Search Item"
-                className="w-full h-8 text-xs border border-slate-300 dark:border-slate-700 rounded pl-2.5 pr-8 py-1 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 placeholder:text-slate-400 focus:outline-hidden focus:ring-1 focus:ring-blue-500"
-              />
-              <button
-                type="button"
-                onClick={() => setIsItemDropdownOpen((p) => !p)}
-                className="absolute right-1 top-1 inline-flex size-6 items-center justify-center rounded text-slate-400 hover:text-slate-600"
-                aria-label="Show items"
-              >
-                <ChevronDown className="w-3.5 h-3.5" />
-              </button>
-
-              {isItemDropdownOpen && (
-                <>
-                  <div
-                    className="fixed inset-0 z-10"
-                    onClick={() => setIsItemDropdownOpen(false)}
-                  />
-                  <div className="absolute left-0 right-0 top-full mt-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded shadow-lg z-20 max-h-56 overflow-y-auto">
-                    {filteredItems.length > 0 ? (
-                      filteredItems.slice(0, 30).map((it) => (
-                        <div
-                          key={it.id}
-                          onClick={() => handleSelectItem(it)}
-                          className="px-3 py-1.5 text-xs hover:bg-blue-50 dark:hover:bg-slate-700 cursor-pointer border-b border-slate-50 dark:border-slate-700/50 flex items-center justify-between"
+        {/* ── SALES ORDER MULTI-SELECT STRIP (ONLY WHEN CREATE FROM SALES ORDER IS CHECKED) ── */}
+        {createFromSalesOrder && (
+          <div className="pt-2">
+            <label className="block text-[11px] font-medium text-slate-700 dark:text-slate-300 mb-1">
+              Select Sales Orders (Multiple) <span className="text-red-500">*</span>
+            </label>
+            <div className="flex items-center gap-2 max-w-xl">
+              <div className="relative flex-1">
+                <div
+                  onClick={() => setIsSoDropdownOpen((p) => !p)}
+                  className="min-h-8 w-full border border-slate-300 dark:border-slate-700 rounded px-2 py-1 bg-white dark:bg-slate-800 text-xs flex flex-wrap items-center gap-1.5 cursor-pointer focus-within:ring-1 focus-within:ring-blue-500"
+                >
+                  {selectedSalesOrderIds.map((soId) => {
+                    const so = (formOptions?.salesOrders ?? []).find((s) => s.id === soId);
+                    return (
+                      <span
+                        key={soId}
+                        className="inline-flex items-center gap-1 bg-slate-100 dark:bg-slate-700 text-slate-800 dark:text-slate-200 px-2 py-0.5 rounded text-[11px] font-mono border border-slate-200 dark:border-slate-600"
+                      >
+                        <span>{so?.number || soId}</span>
+                        <span
+                          role="button"
+                          tabIndex={0}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleRemoveSalesOrder(soId);
+                          }}
+                          className="hover:text-red-500 p-0.5 cursor-pointer"
                         >
-                          <div>
-                            <div className="font-semibold text-slate-800 dark:text-slate-100">{it.name}</div>
-                            <div className="text-[10px] text-slate-400">
-                              Code: {it.code} | UOM: {it.uom} | Cat: {it.category}
-                            </div>
-                          </div>
-                          <div className="text-right">
-                            <span className="font-medium text-blue-600 text-xs">
-                              ৳{Number(it.standardPrice).toLocaleString()}
-                            </span>
-                          </div>
-                        </div>
-                      ))
-                    ) : (
-                      <div className="p-3 text-xs text-slate-400 text-center">No matching items found</div>
-                    )}
-                  </div>
-                </>
-              )}
-            </div>
-          </div>
-
-          {/* Req. Qty */}
-          <div className="md:col-span-2">
-            <div className="flex items-center gap-1 mb-1">
-              <label className="text-[11px] font-medium text-slate-700 dark:text-slate-300">Req. Qty</label>
-              <span title="Quantity requested for this requisition line">
-                <Info className="w-3 h-3 text-slate-400 inline" />
-              </span>
-            </div>
-            <input
-              type="number"
-              min="1"
-              step="any"
-              value={reqQty}
-              onChange={(e) => setReqQty(e.target.value)}
-              placeholder="Request Quantity"
-              className="w-full h-8 text-xs border border-slate-300 dark:border-slate-700 rounded px-2.5 py-1 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 placeholder:text-slate-400 focus:outline-hidden focus:ring-1 focus:ring-blue-500 font-medium"
-            />
-          </div>
-
-          {/* Last Cost */}
-          <div className="md:col-span-2">
-            <label className="block text-[11px] font-medium text-slate-700 dark:text-slate-300 mb-1">
-              Last Cost
-            </label>
-            <input
-              type="text"
-              readOnly
-              value={lastCost ? `৳${lastCost.toLocaleString()}` : ""}
-              placeholder="Last Cost"
-              className="w-full h-8 text-xs border border-slate-200 dark:border-slate-700 rounded px-2.5 py-1 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 cursor-not-allowed placeholder:text-slate-400"
-            />
-          </div>
-
-          {/* Average Cost */}
-          <div className="md:col-span-2">
-            <label className="block text-[11px] font-medium text-slate-700 dark:text-slate-300 mb-1">
-              Average Cost
-            </label>
-            <input
-              type="text"
-              readOnly
-              value={averageCost ? `৳${averageCost.toLocaleString()}` : ""}
-              placeholder="Average Cost"
-              className="w-full h-8 text-xs border border-slate-200 dark:border-slate-700 rounded px-2.5 py-1 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 cursor-not-allowed placeholder:text-slate-400"
-            />
-          </div>
-
-          {/* Description */}
-          <div className="md:col-span-3">
-            <label className="block text-[11px] font-medium text-slate-700 dark:text-slate-300 mb-1">
-              Description
-            </label>
-            <input
-              type="text"
-              value={lineDescription}
-              onChange={(e) => setLineDescription(e.target.value)}
-              placeholder="Description"
-              className="w-full h-8 text-xs border border-slate-300 dark:border-slate-700 rounded px-2.5 py-1 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 placeholder:text-slate-400 focus:outline-hidden focus:ring-1 focus:ring-blue-500"
-            />
-          </div>
-        </div>
-
-        {/* ── ROW 5: ACTION BUTTONS (ADD, IMPORT, EXPORT) ── */}
-        <div className="flex items-center gap-2 pt-1">
-          <button
-            type="button"
-            onClick={handleAddItem}
-            className="h-8 px-5 bg-[#2563eb] hover:bg-blue-700 text-white font-semibold text-xs rounded transition flex items-center gap-1 shadow-2xs"
-          >
-            Add
-          </button>
-
-          {/* Hidden CSV Input */}
-          <input
-            type="file"
-            ref={csvInputRef}
-            onChange={handleImportCsv}
-            accept=".csv"
-            className="hidden"
-          />
-
-          <button
-            type="button"
-            onClick={handleDownloadTemplate}
-            title="Download Sample CSV Template"
-            className="h-8 w-8 flex items-center justify-center border border-slate-200 dark:border-slate-700 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-[#2563eb] transition"
-          >
-            <Download className="w-4 h-4" />
-          </button>
-
-          <button
-            type="button"
-            onClick={() => csvInputRef.current?.click()}
-            title="Import Line Items from CSV"
-            className="h-8 w-8 flex items-center justify-center border border-slate-200 dark:border-slate-700 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-[#2563eb] transition"
-          >
-            <Upload className="w-4 h-4" />
-          </button>
-        </div>
-
-        {/* ── ADDED ITEMS TABLE ── */}
-        <div className="mt-4 pt-3 border-t border-slate-200 dark:border-slate-800">
-          <div className="overflow-x-auto rounded border border-slate-200 dark:border-slate-800">
-            <table className="w-full text-left text-xs text-slate-700 dark:text-slate-300">
-              <thead className="bg-slate-50 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-800 text-[11px] font-semibold text-slate-700 dark:text-slate-200 uppercase tracking-wider">
-                <tr>
-                  <th className="py-2.5 px-3 w-12 text-center">SL</th>
-                  <th className="py-2.5 px-3">Item Code & Name</th>
-                  <th className="py-2.5 px-3">Category</th>
-                  <th className="py-2.5 px-3 w-20 text-center">UOM</th>
-                  <th className="py-2.5 px-3 w-28 text-right">Req. Qty</th>
-                  <th className="py-2.5 px-3 w-28 text-center">Expected Date</th>
-                  <th className="py-2.5 px-3 w-28 text-right">Last Cost</th>
-                  <th className="py-2.5 px-3 w-28 text-right">Line Total</th>
-                  <th className="py-2.5 px-3">Remarks</th>
-                  <th className="py-2.5 px-3 w-16 text-center">Action</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 dark:divide-slate-800 bg-white dark:bg-slate-900">
-                {addedItems.length > 0 ? (
-                  addedItems.map((item, idx) => (
-                    <tr key={item.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/50 transition">
-                      <td className="py-2 px-3 text-center text-slate-500 font-medium">{idx + 1}</td>
-                      <td className="py-2 px-3">
-                        <div className="font-semibold text-slate-900 dark:text-white">{item.itemName}</div>
-                        <div className="text-[10px] text-slate-400">{item.itemCode}</div>
-                      </td>
-                      <td className="py-2 px-3 text-slate-600 dark:text-slate-300">{item.category}</td>
-                      <td className="py-2 px-3 text-center">
-                        <span className="px-1.5 py-0.5 bg-slate-100 dark:bg-slate-800 rounded text-[10px] font-medium text-slate-600 dark:text-slate-300">
-                          {item.uom}
+                          <X className="w-3 h-3" />
                         </span>
-                      </td>
-                      <td className="py-2 px-3 text-right">
-                        <input
-                          type="number"
-                          min="1"
-                          step="any"
-                          value={item.quantity}
-                          onChange={(e) => handleUpdateLineQty(item.id, Number(e.target.value))}
-                          className="w-20 text-right h-7 px-2 border border-slate-200 dark:border-slate-700 rounded text-xs bg-white dark:bg-slate-800 font-semibold text-slate-900 dark:text-white"
-                        />
-                      </td>
-                      <td className="py-2 px-3 text-center text-slate-600 dark:text-slate-400 text-[11px]">
-                        {item.expectedDate}
-                      </td>
-                      <td className="py-2 px-3 text-right font-medium text-slate-700 dark:text-slate-300">
-                        ৳{item.lastCost.toLocaleString()}
-                      </td>
-                      <td className="py-2 px-3 text-right font-bold text-blue-600 dark:text-blue-400">
-                        ৳{item.lineTotal.toLocaleString()}
-                      </td>
-                      <td className="py-2 px-3">
+                      </span>
+                    );
+                  })}
+                  {selectedSalesOrderIds.length === 0 && (
+                    <span className="text-slate-400 text-xs">Select Sales Orders...</span>
+                  )}
+                  <div className="ml-auto flex items-center gap-1 text-slate-400">
+                    {selectedSalesOrderIds.length > 0 && (
+                      <span
+                        role="button"
+                        tabIndex={0}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleClearAllSalesOrders();
+                        }}
+                        className="hover:text-slate-600 p-0.5 cursor-pointer"
+                        title="Clear all"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </span>
+                    )}
+                    <ChevronDown className="w-3.5 h-3.5" />
+                  </div>
+                </div>
+
+                {isSoDropdownOpen && (
+                  <>
+                    <div
+                      className="fixed inset-0 z-10"
+                      onClick={() => setIsSoDropdownOpen(false)}
+                    />
+                    <div className="absolute left-0 right-0 top-full mt-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded shadow-lg z-20 max-h-60 overflow-y-auto">
+                      <div className="p-2 border-b border-slate-100 dark:border-slate-700">
                         <input
                           type="text"
-                          value={item.remarks}
-                          onChange={(e) => {
-                            const val = e.target.value;
-                            setAddedItems((prev) =>
-                              prev.map((it) => (it.id === item.id ? { ...it, remarks: val } : it))
-                            );
-                          }}
-                          placeholder="Line note..."
-                          className="w-full h-7 px-2 border border-slate-200 dark:border-slate-700 rounded text-xs bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300"
+                          value={soSearchQuery}
+                          onChange={(e) => setSoSearchQuery(e.target.value)}
+                          placeholder="Search sales order / customer..."
+                          className="w-full h-7 px-2 text-xs border border-slate-200 dark:border-slate-700 rounded bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-100"
+                          onClick={(e) => e.stopPropagation()}
                         />
-                      </td>
-                      <td className="py-2 px-3 text-center">
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteItem(item.id)}
-                          className="p-1 rounded text-red-500 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950 transition"
-                          title="Remove item"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+                      </div>
+                      <div className="divide-y divide-slate-50 dark:divide-slate-700/50">
+                        {(formOptions?.salesOrders ?? [])
+                          .filter((so) => {
+                            if (!soSearchQuery.trim()) return true;
+                            const q = soSearchQuery.toLowerCase();
+                            return (
+                              so.number.toLowerCase().includes(q) ||
+                              so.customerName.toLowerCase().includes(q)
+                            );
+                          })
+                          .map((so) => {
+                            const isSelected = selectedSalesOrderIds.includes(so.id);
+                            return (
+                              <div
+                                key={so.id}
+                                onClick={() => handleToggleSalesOrder(so.id)}
+                                className={`px-3 py-2 text-xs cursor-pointer flex items-center justify-between hover:bg-blue-50 dark:hover:bg-slate-700 ${
+                                  isSelected ? "bg-blue-50/60 dark:bg-slate-700/60 font-medium" : ""
+                                }`}
+                              >
+                                <div className="flex items-center gap-2">
+                                  <input
+                                    type="checkbox"
+                                    checked={isSelected}
+                                    onChange={() => {}}
+                                    className="w-3.5 h-3.5 text-blue-600 rounded border-slate-300"
+                                  />
+                                  <div>
+                                    <div className="font-semibold text-slate-800 dark:text-slate-100">{so.number}</div>
+                                    <div className="text-[10px] text-slate-400">{so.customerName} ({so.orderDate})</div>
+                                  </div>
+                                </div>
+                                <span className="text-[10px] text-blue-600 font-mono">
+                                  {so.lines.length} lines
+                                </span>
+                              </div>
+                            );
+                          })}
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+
+              <button
+                type="button"
+                onClick={handleLoadSalesOrders}
+                className="h-8 px-4 bg-[#2563eb] hover:bg-blue-700 text-white font-medium text-xs rounded transition flex items-center gap-1 shadow-2xs"
+              >
+                Load
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ── CONDITIONAL RENDERING: SALES ORDER ALLOCATION TABLE VS MANUAL ENTRY & TABLE ── */}
+        {createFromSalesOrder ? (
+          <div className="mt-4 pt-2">
+            <div className="overflow-x-auto rounded border border-slate-200 dark:border-slate-800">
+              <table className="w-full text-left text-xs text-slate-700 dark:text-slate-300 border-collapse">
+                <thead className="bg-[#e8f1f5] dark:bg-slate-800 text-[11px] font-semibold text-slate-700 dark:text-slate-200 border-b border-slate-200 dark:border-slate-700">
+                  <tr>
+                    <th className="py-2.5 px-3 w-36 font-semibold">Code</th>
+                    <th className="py-2.5 px-3 font-semibold">Item Name & Details</th>
+                    <th className="py-2.5 px-3 w-20 text-center font-semibold">UoM</th>
+                    <th className="py-2.5 px-3 w-28 text-right font-semibold">Req Qty</th>
+                    <th className="py-2.5 px-3 w-28 text-right font-semibold">Est. Rate</th>
+                    <th className="py-2.5 px-3 w-28 text-right font-semibold">Total</th>
+                    <th className="py-2.5 px-3 w-16 text-center font-semibold">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800 bg-white dark:bg-slate-900">
+                  {soGroupedLines.length > 0 ? (
+                    soGroupedLines.map((group) => (
+                      <React.Fragment key={group.soId}>
+                        {/* Allocation Header Row */}
+                        <tr className="bg-[#e6f4fa] dark:bg-sky-950/40 border-y border-sky-200 dark:border-sky-900">
+                          <td colSpan={7} className="py-2 px-3 font-bold text-slate-800 dark:text-slate-100 text-xs">
+                            Sales Order Allocation: {group.soNumber} ({group.customerName})
+                          </td>
+                        </tr>
+
+                        {/* Line Items */}
+                        {group.lines.map((line) => (
+                          <tr key={line.id} className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40 transition">
+                            <td className="py-2 px-3 text-slate-700 dark:text-slate-300 font-mono text-[11px]">
+                              {line.itemCode}
+                            </td>
+                            <td className="py-2 px-3 text-slate-800 dark:text-slate-200 font-medium">
+                              {line.itemName}
+                            </td>
+                            <td className="py-2 px-3 text-center text-slate-600 dark:text-slate-400">
+                              {line.uom}
+                            </td>
+                            <td className="py-2 px-3 text-right">
+                              <input
+                                type="number"
+                                min="0"
+                                step="any"
+                                value={line.reqQty}
+                                onChange={(e) => handleUpdateSoLine(line.id, "reqQty", Number(e.target.value))}
+                                className="w-24 text-right h-7 px-2 border border-slate-300 dark:border-slate-700 rounded text-xs bg-white dark:bg-slate-800 font-medium text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                              />
+                            </td>
+                            <td className="py-2 px-3 text-right">
+                              <input
+                                type="number"
+                                min="0"
+                                step="any"
+                                value={line.estRate}
+                                onChange={(e) => handleUpdateSoLine(line.id, "estRate", Number(e.target.value))}
+                                className="w-24 text-right h-7 px-2 border border-slate-300 dark:border-slate-700 rounded text-xs bg-white dark:bg-slate-800 font-medium text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                              />
+                            </td>
+                            <td className="py-2 px-3 text-right font-medium text-slate-800 dark:text-slate-200">
+                              {line.total.toFixed(2)}
+                            </td>
+                            <td className="py-2 px-3 text-center">
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteSoLine(line.id)}
+                                className="p-1 rounded text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950 transition"
+                                title="Remove item"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+
+                        {/* Subtotal Allocation Row */}
+                        <tr className="bg-slate-50 dark:bg-slate-800/60 font-bold border-b border-slate-200 dark:border-slate-700 text-xs">
+                          <td colSpan={3} className="py-2 px-3 text-right text-slate-800 dark:text-slate-100">
+                            Subtotal Allocation for {group.soNumber}:
+                          </td>
+                          <td className="py-2 px-3 text-right text-slate-800 dark:text-slate-100">
+                            {group.subtotalQty} Units
+                          </td>
+                          <td className="py-2 px-3"></td>
+                          <td className="py-2 px-3 text-right text-slate-800 dark:text-slate-100">
+                            {group.subtotalTotal.toFixed(2)} BDT
+                          </td>
+                          <td className="py-2 px-3"></td>
+                        </tr>
+                      </React.Fragment>
+                    ))
+                  ) : (
+                    <tr>
+                      <td colSpan={7} className="py-8 text-center text-slate-400 text-xs">
+                        <div className="flex flex-col items-center justify-center gap-1.5">
+                          <FileSpreadsheet className="w-8 h-8 text-slate-300 dark:text-slate-600" />
+                          <span>Select Sales Orders above and click &quot;Load&quot; to populate requisition items.</span>
+                        </div>
                       </td>
                     </tr>
-                  ))
-                ) : (
-                  <tr>
-                    <td colSpan={10} className="py-8 text-center text-slate-400 text-xs">
-                      <div className="flex flex-col items-center justify-center gap-1.5">
-                        <FileSpreadsheet className="w-8 h-8 text-slate-300 dark:text-slate-600" />
-                        <span>No items added yet. Select an item above, enter quantity, and click &quot;Add&quot;.</span>
-                      </div>
-                    </td>
-                  </tr>
+                  )}
+                </tbody>
+                {soGroupedLines.length > 0 && (
+                  <tfoot>
+                    <tr className="bg-slate-100 dark:bg-slate-800 font-bold border-t-2 border-slate-300 dark:border-slate-600 text-xs">
+                      <td colSpan={3} className="py-2.5 px-3 text-right text-slate-900 dark:text-white">
+                        Total Quantity Sum:
+                      </td>
+                      <td className="py-2.5 px-3 text-right text-slate-900 dark:text-white">
+                        {grandSoQtySum} Units
+                      </td>
+                      <td className="py-2.5 px-3 text-right text-slate-700 dark:text-slate-300">
+                        Budget Subtotal:
+                      </td>
+                      <td className="py-2.5 px-3 text-right text-slate-900 dark:text-white">
+                        {grandSoTotalSum.toFixed(2)} BDT
+                      </td>
+                      <td className="py-2.5 px-3"></td>
+                    </tr>
+                  </tfoot>
                 )}
-              </tbody>
-            </table>
+              </table>
+            </div>
           </div>
-
-          {/* ── TABLE SUMMARY BAR ── */}
-          <div className="mt-3 flex flex-wrap items-center justify-between gap-4 bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded p-3 text-xs">
-            <div className="flex items-center gap-6">
+        ) : (
+          <>
+            {/* ── ROW 3: CATEGORY & SUPPLIER FILTER STRIP (5 COLS GRID) ── */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 pt-3 border-t border-slate-100 dark:border-slate-800">
+              {/* Item Type */}
               <div>
-                <span className="text-slate-500">Total Items: </span>
-                <span className="font-bold text-slate-900 dark:text-white">{totalItemsCount}</span>
+                <select
+                  value={itemTypeFilter}
+                  onChange={(e) => setItemTypeFilter(e.target.value)}
+                  className="w-full h-8 text-xs border border-slate-300 dark:border-slate-700 rounded px-2.5 py-1 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 focus:outline-hidden focus:ring-1 focus:ring-blue-500"
+                >
+                  <option value="All">Item Type</option>
+                  <option value="Raw Material">Raw Material</option>
+                  <option value="Packaging Material">Packaging Material</option>
+                  <option value="Finished Goods">Finished Goods</option>
+                  <option value="Spares & Consumables">Spares & Consumables</option>
+                  <option value="Stationary">Stationary</option>
+                  <option value="Electrical">Electrical</option>
+                  <option value="Mechanical">Mechanical</option>
+                </select>
               </div>
+
+              {/* Category */}
               <div>
-                <span className="text-slate-500">Total Quantity: </span>
-                <span className="font-bold text-slate-900 dark:text-white">{totalQuantitySum.toLocaleString()}</span>
+                <select
+                  value={categoryFilter}
+                  onChange={(e) => {
+                    setCategoryFilter(e.target.value);
+                    setSubCategoryFilter("All");
+                    setMinorCategoryFilter("All");
+                  }}
+                  className="w-full h-8 text-xs border border-slate-300 dark:border-slate-700 rounded px-2.5 py-1 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 focus:outline-hidden focus:ring-1 focus:ring-blue-500"
+                >
+                  <option value="All">Category</option>
+                  {level1Categories.map((cat) => (
+                    <option key={cat} value={cat}>
+                      {cat}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Sub Category */}
+              <div>
+                <select
+                  value={subCategoryFilter}
+                  onChange={(e) => {
+                    setSubCategoryFilter(e.target.value);
+                    setMinorCategoryFilter("All");
+                  }}
+                  className="w-full h-8 text-xs border border-slate-300 dark:border-slate-700 rounded px-2.5 py-1 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 focus:outline-hidden focus:ring-1 focus:ring-blue-500"
+                >
+                  <option value="All">Sub Category</option>
+                  {level2SubCategories.map((sub) => (
+                    <option key={sub} value={sub}>
+                      {sub}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Minor Category */}
+              <div>
+                <select
+                  value={minorCategoryFilter}
+                  onChange={(e) => setMinorCategoryFilter(e.target.value)}
+                  className="w-full h-8 text-xs border border-slate-300 dark:border-slate-700 rounded px-2.5 py-1 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 focus:outline-hidden focus:ring-1 focus:ring-blue-500"
+                >
+                  <option value="All">Minor Category</option>
+                  {level3MinorCategories.map((m) => (
+                    <option key={m} value={m}>
+                      {m}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Select Supplier */}
+              <div>
+                <select
+                  value={supplierFilter}
+                  onChange={(e) => setSupplierFilter(e.target.value)}
+                  className="w-full h-8 text-xs border border-slate-300 dark:border-slate-700 rounded px-2.5 py-1 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 focus:outline-hidden focus:ring-1 focus:ring-blue-500"
+                >
+                  <option value="">Select/Search Supplier (min 3 letters)</option>
+                  {suppliers.slice(0, 30).map((sup) => (
+                    <option key={sup.id} value={sup.id}>
+                      {sup.name}
+                    </option>
+                  ))}
+                </select>
               </div>
             </div>
 
-            <div className="flex items-center gap-2">
-              <span className="text-slate-500 font-medium">Total Estimated Cost:</span>
-              <span className="text-base font-extrabold text-[#2563eb] dark:text-blue-400">
-                ৳{totalEstimatedCostSum.toLocaleString()}
-              </span>
+            {/* ── ROW 4: LINE ITEM INPUT ROW ── */}
+            <div className="grid grid-cols-1 md:grid-cols-12 gap-3 pt-1">
+              {/* Item Selector Combobox with Checkbox */}
+              <div className="md:col-span-3 relative">
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-[11px] font-medium text-slate-700 dark:text-slate-300">Item</label>
+                  <label className="flex items-center gap-1 text-[10px] text-slate-400 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={itemCheckbox}
+                      onChange={(e) => setItemCheckbox(e.target.checked)}
+                      className="w-3.5 h-3.5 text-blue-600 rounded border-slate-300"
+                    />
+                  </label>
+                </div>
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={itemSearchQuery}
+                    onChange={(e) => {
+                      setItemSearchQuery(e.target.value);
+                      setIsItemDropdownOpen(true);
+                    }}
+                    onFocus={() => setIsItemDropdownOpen(true)}
+                    placeholder="Select/Search Item"
+                    className="w-full h-8 text-xs border border-slate-300 dark:border-slate-700 rounded pl-2.5 pr-8 py-1 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 placeholder:text-slate-400 focus:outline-hidden focus:ring-1 focus:ring-blue-500"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setIsItemDropdownOpen((p) => !p)}
+                    className="absolute right-1 top-1 inline-flex size-6 items-center justify-center rounded text-slate-400 hover:text-slate-600"
+                    aria-label="Show items"
+                  >
+                    <ChevronDown className="w-3.5 h-3.5" />
+                  </button>
+
+                  {isItemDropdownOpen && (
+                    <>
+                      <div
+                        className="fixed inset-0 z-10"
+                        onClick={() => setIsItemDropdownOpen(false)}
+                      />
+                      <div className="absolute left-0 right-0 top-full mt-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded shadow-lg z-20 max-h-56 overflow-y-auto">
+                        {filteredItems.length > 0 ? (
+                          filteredItems.slice(0, 30).map((it) => (
+                            <div
+                              key={it.id}
+                              onClick={() => handleSelectItem(it)}
+                              className="px-3 py-1.5 text-xs hover:bg-blue-50 dark:hover:bg-slate-700 cursor-pointer border-b border-slate-50 dark:border-slate-700/50 flex items-center justify-between"
+                            >
+                              <div>
+                                <div className="font-semibold text-slate-800 dark:text-slate-100">{it.name}</div>
+                                <div className="text-[10px] text-slate-400">
+                                  Code: {it.code} | UOM: {it.uom} | Cat: {it.category}
+                                </div>
+                              </div>
+                              <div className="text-right">
+                                <span className="font-medium text-blue-600 text-xs">
+                                  ৳{Number(it.standardPrice).toLocaleString()}
+                                </span>
+                              </div>
+                            </div>
+                          ))
+                        ) : (
+                          <div className="p-3 text-xs text-slate-400 text-center">No matching items found</div>
+                        )}
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              {/* Req. Qty */}
+              <div className="md:col-span-2">
+                <div className="flex items-center gap-1 mb-1">
+                  <label className="text-[11px] font-medium text-slate-700 dark:text-slate-300">Req. Qty</label>
+                  <span title="Quantity requested for this requisition line">
+                    <Info className="w-3 h-3 text-slate-400 inline" />
+                  </span>
+                </div>
+                <input
+                  type="number"
+                  min="1"
+                  step="any"
+                  value={reqQty}
+                  onChange={(e) => setReqQty(e.target.value)}
+                  placeholder="Request Quantity"
+                  className="w-full h-8 text-xs border border-slate-300 dark:border-slate-700 rounded px-2.5 py-1 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 placeholder:text-slate-400 focus:outline-hidden focus:ring-1 focus:ring-blue-500 font-medium"
+                />
+              </div>
+
+              {/* Last Cost */}
+              <div className="md:col-span-2">
+                <label className="block text-[11px] font-medium text-slate-700 dark:text-slate-300 mb-1">
+                  Last Cost
+                </label>
+                <input
+                  type="text"
+                  readOnly
+                  value={lastCost ? `৳${lastCost.toLocaleString()}` : ""}
+                  placeholder="Last Cost"
+                  className="w-full h-8 text-xs border border-slate-200 dark:border-slate-700 rounded px-2.5 py-1 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 cursor-not-allowed placeholder:text-slate-400"
+                />
+              </div>
+
+              {/* Average Cost */}
+              <div className="md:col-span-2">
+                <label className="block text-[11px] font-medium text-slate-700 dark:text-slate-300 mb-1">
+                  Average Cost
+                </label>
+                <input
+                  type="text"
+                  readOnly
+                  value={averageCost ? `৳${averageCost.toLocaleString()}` : ""}
+                  placeholder="Average Cost"
+                  className="w-full h-8 text-xs border border-slate-200 dark:border-slate-700 rounded px-2.5 py-1 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 cursor-not-allowed placeholder:text-slate-400"
+                />
+              </div>
+
+              {/* Description */}
+              <div className="md:col-span-3">
+                <label className="block text-[11px] font-medium text-slate-700 dark:text-slate-300 mb-1">
+                  Description
+                </label>
+                <input
+                  type="text"
+                  value={lineDescription}
+                  onChange={(e) => setLineDescription(e.target.value)}
+                  placeholder="Description"
+                  className="w-full h-8 text-xs border border-slate-300 dark:border-slate-700 rounded px-2.5 py-1 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 placeholder:text-slate-400 focus:outline-hidden focus:ring-1 focus:ring-blue-500"
+                />
+              </div>
             </div>
-          </div>
-        </div>
+
+            {/* ── ROW 5: ACTION BUTTONS (ADD, IMPORT, EXPORT) ── */}
+            <div className="flex items-center gap-2 pt-1">
+              <button
+                type="button"
+                onClick={handleAddItem}
+                className="h-8 px-5 bg-[#2563eb] hover:bg-blue-700 text-white font-semibold text-xs rounded transition flex items-center gap-1 shadow-2xs"
+              >
+                Add
+              </button>
+
+              {/* Hidden CSV Input */}
+              <input
+                type="file"
+                ref={csvInputRef}
+                onChange={handleImportCsv}
+                accept=".csv"
+                className="hidden"
+              />
+
+              <button
+                type="button"
+                onClick={handleDownloadTemplate}
+                title="Download Sample CSV Template"
+                className="h-8 w-8 flex items-center justify-center border border-slate-200 dark:border-slate-700 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-[#2563eb] transition"
+              >
+                <Download className="w-4 h-4" />
+              </button>
+
+              <button
+                type="button"
+                onClick={() => csvInputRef.current?.click()}
+                title="Import Line Items from CSV"
+                className="h-8 w-8 flex items-center justify-center border border-slate-200 dark:border-slate-700 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-[#2563eb] transition"
+              >
+                <Upload className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* ── ADDED ITEMS TABLE ── */}
+            <div className="mt-4 pt-3 border-t border-slate-200 dark:border-slate-800">
+              <div className="overflow-x-auto rounded border border-slate-200 dark:border-slate-800">
+                <table className="w-full text-left text-xs text-slate-700 dark:text-slate-300">
+                  <thead className="bg-slate-50 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-800 text-[11px] font-semibold text-slate-700 dark:text-slate-200 uppercase tracking-wider">
+                    <tr>
+                      <th className="py-2.5 px-3 w-12 text-center">SL</th>
+                      <th className="py-2.5 px-3">Item Code & Name</th>
+                      <th className="py-2.5 px-3">Category</th>
+                      <th className="py-2.5 px-3 w-20 text-center">UOM</th>
+                      <th className="py-2.5 px-3 w-28 text-right">Req. Qty</th>
+                      <th className="py-2.5 px-3 w-28 text-center">Expected Date</th>
+                      <th className="py-2.5 px-3 w-28 text-right">Last Cost</th>
+                      <th className="py-2.5 px-3 w-28 text-right">Line Total</th>
+                      <th className="py-2.5 px-3">Remarks</th>
+                      <th className="py-2.5 px-3 w-16 text-center">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800 bg-white dark:bg-slate-900">
+                    {addedItems.length > 0 ? (
+                      addedItems.map((item, idx) => (
+                        <tr key={item.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/50 transition">
+                          <td className="py-2 px-3 text-center text-slate-500 font-medium">{idx + 1}</td>
+                          <td className="py-2 px-3">
+                            <div className="font-semibold text-slate-900 dark:text-white">{item.itemName}</div>
+                            <div className="text-[10px] text-slate-400">{item.itemCode}</div>
+                          </td>
+                          <td className="py-2 px-3 text-slate-600 dark:text-slate-300">{item.category}</td>
+                          <td className="py-2 px-3 text-center">
+                            <span className="px-1.5 py-0.5 bg-slate-100 dark:bg-slate-800 rounded text-[10px] font-medium text-slate-600 dark:text-slate-300">
+                              {item.uom}
+                            </span>
+                          </td>
+                          <td className="py-2 px-3 text-right">
+                            <input
+                              type="number"
+                              min="1"
+                              step="any"
+                              value={item.quantity}
+                              onChange={(e) => handleUpdateLineQty(item.id, Number(e.target.value))}
+                              className="w-20 text-right h-7 px-2 border border-slate-200 dark:border-slate-700 rounded text-xs bg-white dark:bg-slate-800 font-semibold text-slate-900 dark:text-white"
+                            />
+                          </td>
+                          <td className="py-2 px-3 text-center text-slate-600 dark:text-slate-400 text-[11px]">
+                            {item.expectedDate}
+                          </td>
+                          <td className="py-2 px-3 text-right font-medium text-slate-700 dark:text-slate-300">
+                            ৳{item.lastCost.toLocaleString()}
+                          </td>
+                          <td className="py-2 px-3 text-right font-bold text-blue-600 dark:text-blue-400">
+                            ৳{item.lineTotal.toLocaleString()}
+                          </td>
+                          <td className="py-2 px-3">
+                            <input
+                              type="text"
+                              value={item.remarks}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                setAddedItems((prev) =>
+                                  prev.map((it) => (it.id === item.id ? { ...it, remarks: val } : it))
+                                );
+                              }}
+                              placeholder="Line note..."
+                              className="w-full h-7 px-2 border border-slate-200 dark:border-slate-700 rounded text-xs bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300"
+                            />
+                          </td>
+                          <td className="py-2 px-3 text-center">
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteItem(item.id)}
+                              className="p-1 rounded text-red-500 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950 transition"
+                              title="Remove item"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td colSpan={10} className="py-8 text-center text-slate-400 text-xs">
+                          <div className="flex flex-col items-center justify-center gap-1.5">
+                            <FileSpreadsheet className="w-8 h-8 text-slate-300 dark:text-slate-600" />
+                            <span>No items added yet. Select an item above, enter quantity, and click &quot;Add&quot;.</span>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* ── TABLE SUMMARY BAR ── */}
+              <div className="mt-3 flex flex-wrap items-center justify-between gap-4 bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded p-3 text-xs">
+                <div className="flex items-center gap-6">
+                  <div>
+                    <span className="text-slate-500">Total Items: </span>
+                    <span className="font-bold text-slate-900 dark:text-white">{totalItemsCount}</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-500">Total Quantity: </span>
+                    <span className="font-bold text-slate-900 dark:text-white">{totalQuantitySum.toLocaleString()}</span>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <span className="text-slate-500 font-medium">Total Estimated Cost:</span>
+                  <span className="text-base font-extrabold text-[#2563eb] dark:text-blue-400">
+                    ৳{totalEstimatedCostSum.toLocaleString()}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
