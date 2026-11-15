@@ -592,7 +592,7 @@ export function ConnectGlobalNotifier() {
     <>
       {/* 1. Desktop Notification Permission Banner in Corner */}
       {notificationPermission === "default" && !hidePermissionBanner && (
-        <div className="fixed top-16 right-5 z-[99998] max-w-sm w-full rounded-xl border border-blue-500/40 bg-surface dark:bg-slate-900 p-3.5 shadow-2xl flex items-start gap-3 animate-in slide-in-from-top-4 duration-200">
+        <div className="fixed inset-x-2 top-16 z-[99998] max-w-sm sm:left-auto sm:right-5 sm:w-full rounded-xl border border-blue-500/40 bg-surface dark:bg-slate-900 p-3.5 shadow-2xl flex items-start gap-3 animate-in slide-in-from-top-4 duration-200">
           <div className="size-8 rounded-full bg-blue-100 dark:bg-blue-950 flex items-center justify-center shrink-0 text-blue-600 dark:text-blue-400">
             <Bell className="size-4 animate-bounce" />
           </div>

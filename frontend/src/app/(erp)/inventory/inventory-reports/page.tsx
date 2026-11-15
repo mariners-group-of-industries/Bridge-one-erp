@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { ChevronLeft, ChevronRight, Download, Printer, Search } from "lucide-react";
+import { ChevronLeft, ChevronRight, Download, Printer, Search, X } from "lucide-react";
 import { Spinner } from "@/components/ui/spinner";
 import { useResource } from "@/hooks/use-resource";
 import { dmy, inventoryApi, monthAgo, today } from "@/features/inventory/services/inventory.api";
@@ -235,9 +235,10 @@ const outlineBtn = "inline-flex h-9 items-center gap-1.5 rounded-md border borde
 export default function InventoryReportPage() {
   const [viewBy, setViewBy] = useState("Inventory Report");
   const [search, setSearch] = useState("");
-  const [officeId, setOfficeId] = useState("");
-  const [warehouseId, setWarehouseId] = useState("");
-  const [itemType, setItemType] = useState("");
+  // iBOS: Office, Warehouse and Item Type take several values (chips); none = All.
+  const [officeIds, setOfficeIds] = useState<string[]>([]);
+  const [warehouseIds, setWarehouseIds] = useState<string[]>([]);
+  const [itemTypeSel, setItemTypeSel] = useState<string[]>([]);
   const [category, setCategory] = useState("");
   const [subCategory, setSubCategory] = useState("");
   const [minorCategory, setMinorCategory] = useState("");
@@ -262,11 +263,11 @@ export default function InventoryReportPage() {
   // Filter choices.
   const warehouses = useMemo(() => masters.data?.warehouses ?? [], [masters.data]);
   const offices = useMemo(() => [...new Map(warehouses.map((w) => [w.officeId, w.officeName])).entries()].sort((a, b) => a[1].localeCompare(b[1])), [warehouses]);
-  const officeWarehouses = warehouses.filter((w) => !officeId || w.officeId === officeId);
+  const officeWarehouses = warehouses.filter((w) => !officeIds.length || officeIds.includes(w.officeId));
   const items = useMemo(() => masters.data?.items ?? [], [masters.data]);
   const uniq = (values: (string | null)[]) => [...new Set(values.filter((v): v is string => !!v))].sort();
   const itemTypes = uniq([...ITEM_TYPES, ...items.map((i) => i.itemType)]);
-  const categories = uniq(items.filter((i) => !itemType || i.itemType === itemType).map((i) => i.category));
+  const categories = uniq(items.filter((i) => !itemTypeSel.length || itemTypeSel.includes(i.itemType ?? "")).map((i) => i.category));
   const subCategories = uniq(items.filter((i) => !category || i.category === category).map((i) => i.subCategory));
   const minorCategories = uniq(items.filter((i) => (!category || i.category === category) && (!subCategory || i.subCategory === subCategory)).map((i) => i.minorCategory));
   const suppliers = masters.data?.suppliers ?? [];
@@ -278,12 +279,12 @@ export default function InventoryReportPage() {
   const detail = useMemo<Rec[]>(() => {
     const officeOf = (r: InventoryReportRow) => r.officeId;
     return (report.data ?? [])
-      .filter((r) => (!officeId || officeOf(r) === officeId) && (!warehouseId || r.warehouseId === warehouseId))
-      .filter((r) => (!itemType || r.itemType === itemType) && (!category || r.category === category))
+      .filter((r) => (!officeIds.length || officeIds.includes(officeOf(r))) && (!warehouseIds.length || warehouseIds.includes(r.warehouseId)))
+      .filter((r) => (!itemTypeSel.length || itemTypeSel.includes(r.itemType)) && (!category || r.category === category))
       .filter((r) => (!subCategory || r.subCategory === subCategory) && (!minorCategory || r.minorCategory === minorCategory))
       .filter((r) => !supplier || r.supplier === supplier)
       .map(flatten);
-  }, [report.data, officeId, warehouseId, itemType, category, subCategory, minorCategory, supplier]);
+  }, [report.data, officeIds, warehouseIds, itemTypeSel, category, subCategory, minorCategory, supplier]);
 
   const { rows, columns } = useMemo(() => {
     let rows: Rec[];
@@ -294,10 +295,10 @@ export default function InventoryReportPage() {
         const byCategory = new Map(items.map((i) => [i.code, i]));
         rows = (ledger.data ?? [])
           .filter((l: LedgerRow) => view.source === "ledger" || l.movement === "Store Issue")
-          .filter((l) => (!officeId || warehouseNames.get(l.warehouse) === officeId) && (!warehouseId || warehouses.find((w) => w.id === warehouseId)?.name === l.warehouse))
+          .filter((l) => (!officeIds.length || officeIds.includes(warehouseNames.get(l.warehouse) ?? "")) && (!warehouseIds.length || warehouses.some((w) => warehouseIds.includes(w.id) && w.name === l.warehouse)))
           .filter((l) => {
             const it = byCategory.get(l.itemCode);
-            return (!itemType || it?.itemType === itemType) && (!category || l.category === category) && (!subCategory || it?.subCategory === subCategory) && (!minorCategory || it?.minorCategory === minorCategory);
+            return (!itemTypeSel.length || itemTypeSel.includes(it?.itemType ?? "")) && (!category || l.category === category) && (!subCategory || it?.subCategory === subCategory) && (!minorCategory || it?.minorCategory === minorCategory);
           })
           .map((l) => ({ ...l }));
         break;
@@ -342,7 +343,7 @@ export default function InventoryReportPage() {
       columns = [...columns.slice(0, -2), Q("netWeightKg", "Net Weight (Kg)"), ...columns.slice(-2)];
     }
     return { rows, columns };
-  }, [view, applied, detail, ledger.data, items, officeId, warehouseId, itemType, category, subCategory, minorCategory, warehouses, warehouseNames, withoutZero, usesLedger, search, netWeight, days]);
+  }, [view, applied, detail, ledger.data, items, officeIds, warehouseIds, itemTypeSel, category, subCategory, minorCategory, warehouses, warehouseNames, withoutZero, usesLedger, search, netWeight, days]);
 
   const pages = Math.max(1, Math.ceil(rows.length / perPage));
   const current = Math.min(page, pages);
@@ -408,33 +409,30 @@ export default function InventoryReportPage() {
           </select>
         </div>
         <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-6">
-          <div>
-            <label className={labelCls} htmlFor="f-office">Office</label>
-            <select id="f-office" value={officeId} onChange={(e) => { setOfficeId(e.target.value); setWarehouseId(""); }} className={field}>
-              <option value="">All</option>
-              {offices.map(([id, name]) => (
-                <option key={id} value={id}>{name}</option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className={labelCls} htmlFor="f-wh">Warehouse (Location)</label>
-            <select id="f-wh" value={warehouseId} onChange={(e) => setWarehouseId(e.target.value)} className={field}>
-              <option value="">All</option>
-              {officeWarehouses.map((w) => (
-                <option key={w.id} value={w.id}>{w.name}</option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className={labelCls} htmlFor="f-type">Item Type</label>
-            <select id="f-type" value={itemType} onChange={(e) => { setItemType(e.target.value); setCategory(""); setSubCategory(""); setMinorCategory(""); }} className={field}>
-              <option value="">ALL</option>
-              {itemTypes.map((t) => (
-                <option key={t}>{t}</option>
-              ))}
-            </select>
-          </div>
+          <ChipSelect
+            id="f-office"
+            label="Office"
+            options={offices.map(([id, name]) => ({ value: id, label: name }))}
+            value={officeIds}
+            onChange={(v) => {
+              setOfficeIds(v);
+              // Keep only warehouses of the chosen offices.
+              setWarehouseIds((ws) => ws.filter((id) => !v.length || v.includes(warehouses.find((w) => w.id === id)?.officeId ?? "")));
+            }}
+          />
+          <ChipSelect id="f-wh" label="Warehouse (Location)" options={officeWarehouses.map((w) => ({ value: w.id, label: w.name }))} value={warehouseIds} onChange={setWarehouseIds} />
+          <ChipSelect
+            id="f-type"
+            label="Item Type"
+            options={itemTypes.map((t) => ({ value: t, label: t }))}
+            value={itemTypeSel}
+            onChange={(v) => {
+              setItemTypeSel(v);
+              setCategory("");
+              setSubCategory("");
+              setMinorCategory("");
+            }}
+          />
           <div>
             <label className={labelCls} htmlFor="f-cat">Item Category</label>
             <select id="f-cat" value={category} onChange={(e) => { setCategory(e.target.value); setSubCategory(""); setMinorCategory(""); }} className={field}>
@@ -485,12 +483,28 @@ export default function InventoryReportPage() {
           <label className="flex min-h-9 cursor-pointer items-center gap-2 self-end text-[13px]">
             <input type="checkbox" checked={withoutZero} onChange={(e) => { setWithoutZero(e.target.checked); setPage(1); }} className="size-4 rounded border-line" /> Without Zero Stock
           </label>
-          <div className="self-end">
+          <div className="flex min-w-0 flex-wrap gap-2 self-end">
+            <button
+              type="button"
+              onClick={() => {
+                setOfficeIds([]);
+                setWarehouseIds([]);
+                setItemTypeSel([]);
+                setCategory("");
+                setSubCategory("");
+                setMinorCategory("");
+                setSupplier("");
+                setPage(1);
+              }}
+              className="inline-flex h-9 items-center whitespace-nowrap rounded-md border border-line bg-surface px-3 text-[13px] font-medium text-ink-muted hover:bg-control focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/20"
+            >
+              Remove All
+            </button>
             <button
               type="button"
               onClick={apply}
               disabled={!fromDate || !toDate || fromDate > toDate || loading}
-              className="inline-flex h-9 min-w-24 items-center justify-center gap-2 rounded-md bg-blue-600 px-4 text-[13px] font-semibold text-white hover:bg-blue-700 disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/20"
+              className="inline-flex h-9 min-w-16 items-center justify-center gap-2 rounded-md bg-blue-600 px-4 text-[13px] font-semibold text-white hover:bg-blue-700 disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/20"
             >
               {loading && <Spinner className="size-4" />} View
             </button>
@@ -592,6 +606,50 @@ export default function InventoryReportPage() {
             </button>
           </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+/** iBOS multi-select: chosen values as chips (× removes one); nothing chosen means All. */
+function ChipSelect({
+  id,
+  label,
+  options,
+  value,
+  onChange,
+}: {
+  id: string;
+  label: string;
+  options: { value: string; label: string }[];
+  value: string[];
+  onChange: (value: string[]) => void;
+}) {
+  const nameOf = (v: string) => options.find((o) => o.value === v)?.label ?? v;
+  const rest = options.filter((o) => !value.includes(o.value));
+  return (
+    <div>
+      <label className={labelCls} htmlFor={id}>
+        {label}
+      </label>
+      <div className="flex min-h-9 flex-wrap items-center gap-1 rounded-md border border-line bg-surface px-1.5 py-1 focus-within:ring-2 focus-within:ring-blue-500/20">
+        {value.length === 0 && <span className="rounded bg-control px-1.5 py-0.5 text-[11px] text-ink-muted">All</span>}
+        {value.map((v) => (
+          <span key={v} className="inline-flex max-w-full items-center gap-0.5 rounded bg-control py-0.5 pl-1.5 text-[11px] text-ink">
+            <span className="truncate">{nameOf(v)}</span>
+            <button type="button" aria-label={`Remove ${nameOf(v)}`} onClick={() => onChange(value.filter((x) => x !== v))} className="inline-flex size-5 items-center justify-center rounded text-ink-muted hover:text-ink">
+              <X className="size-3" />
+            </button>
+          </span>
+        ))}
+        <select id={id} value="" onChange={(e) => e.target.value && onChange([...value, e.target.value])} className="h-6 min-w-14 flex-1 bg-transparent text-xs text-ink focus:outline-none">
+          <option value="">{value.length ? "Add…" : "Select…"}</option>
+          {rest.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </select>
       </div>
     </div>
   );

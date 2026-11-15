@@ -62,16 +62,18 @@ export function Navbar({ onToggleSidebar, sidebarHidden, onOpenSearch }: NavbarP
           width={8452}
           height={1738}
           alt="BridgeOne"
-          className="h-7 w-auto max-w-[140px] object-contain"
+          className="h-6 w-auto max-w-[104px] object-contain sm:h-7 sm:max-w-[140px]"
         />
       </Link>
 
-      <div className="ml-auto flex items-center gap-0.5">
+      {/* On phones only search, notifications, business unit and profile stay; the rest are on wider screens (theme is also in the profile menu). */}
+      <div className="ml-auto flex min-w-0 items-center gap-0.5">
         {/* Search bar */}
         <button
           type="button"
           onClick={onOpenSearch}
-          className="mr-1 flex h-8 w-48 items-center gap-2 rounded-lg border border-accent-line bg-accent-soft px-3 text-sm text-ink-faint hover:bg-control focus-visible:outline-2 sm:w-56"
+          aria-label="Search"
+          className="flex size-11 shrink-0 items-center justify-center gap-2 rounded-lg border border-accent-line bg-accent-soft text-sm text-ink-faint hover:bg-control focus-visible:outline-2 sm:mr-1 sm:h-8 sm:w-56 sm:justify-start sm:px-3"
         >
           <Search className="size-3.5 shrink-0 text-accent" />
           <span className="hidden flex-1 text-left sm:inline">Search…</span>
@@ -92,6 +94,7 @@ export function Navbar({ onToggleSidebar, sidebarHidden, onOpenSearch }: NavbarP
           )}
         </div>
 
+        <div className="hidden items-center gap-0.5 sm:flex">
         {/* Report Issue */}
         <NavIconBtn aria-label="Report issue" onClick={() => alert("Report issue — coming soon.")}>
           <Flag className="size-4" />
@@ -142,11 +145,12 @@ export function Navbar({ onToggleSidebar, sidebarHidden, onOpenSearch }: NavbarP
         </NavIconBtn>
 
         <div className="mx-1 h-5 w-px bg-line" />
+        </div>
 
         {/* Business unit switcher */}
         <BusinessUnitSwitcher />
 
-        <div className="mx-1 h-5 w-px bg-line" />
+        <div className="mx-1 hidden h-5 w-px bg-line sm:block" />
 
         {/* Profile */}
         <div className="relative">
@@ -154,13 +158,13 @@ export function Navbar({ onToggleSidebar, sidebarHidden, onOpenSearch }: NavbarP
             type="button"
             aria-label="Profile menu"
             onClick={() => setProfileOpen((v) => !v)}
-            className="flex items-center gap-1.5 rounded-lg px-2 py-1 text-sm hover:bg-control focus-visible:outline-2"
+            className="flex min-h-11 items-center gap-1.5 rounded-lg px-2 py-1 text-sm hover:bg-control focus-visible:outline-2 sm:min-h-0"
           >
             <span className="flex size-7 items-center justify-center rounded-full bg-accent-strong text-xs font-semibold text-white">
               {user?.initials ?? "?"}
             </span>
             <span className="hidden max-w-24 truncate text-sm text-ink sm:inline">{user?.name ?? "Guest"}</span>
-            <ChevronDown className="size-3 text-ink-faint" />
+            <ChevronDown className="hidden size-3 text-ink-faint sm:block" aria-hidden />
           </button>
 
           {profileOpen && (
@@ -209,11 +213,12 @@ function BusinessUnitSwitcher() {
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="flex items-center gap-1.5 rounded-lg px-2 py-1 hover:bg-control focus-visible:outline-2"
+        aria-label="Business unit"
+        className="flex min-h-11 min-w-11 items-center justify-center gap-1.5 rounded-lg px-2 py-1 hover:bg-control focus-visible:outline-2 sm:min-h-0 sm:min-w-0"
       >
         <Building2 className="size-4 text-ink-faint" />
         <span className="hidden max-w-28 truncate text-sm text-ink sm:inline">{selected.name}</span>
-        <ChevronDown className="size-3 text-ink-faint" />
+        <ChevronDown className="hidden size-3 text-ink-faint sm:block" aria-hidden />
       </button>
       {open && (
         <Popover onClose={() => setOpen(false)} className="right-0 w-56">
@@ -245,7 +250,7 @@ function NavIconBtn({ children, className, ...props }: React.ButtonHTMLAttribute
     <button
       type="button"
       className={cn(
-        "relative flex size-8 items-center justify-center rounded-lg text-ink-faint transition-colors hover:bg-control hover:text-ink focus-visible:outline-2",
+        "relative flex size-11 shrink-0 items-center justify-center rounded-lg sm:size-8 text-ink-faint transition-colors hover:bg-control hover:text-ink focus-visible:outline-2",
         className,
       )}
       {...props}
@@ -269,7 +274,8 @@ function Popover({ children, onClose, className }: { children: ReactNode; onClos
   return (
     <div
       ref={ref}
-      className={cn("absolute top-full z-50 mt-1 rounded-lg border border-line bg-surface shadow-dropdown", className)}
+      // On phones the menu spans the screen under the bar, so a menu of a middle button cannot hang off the edge.
+      className={cn("absolute top-full z-50 mt-1 rounded-lg border border-line bg-surface shadow-dropdown max-sm:fixed max-sm:inset-x-2 max-sm:top-14 max-sm:w-auto", className)}
     >
       {children}
     </div>

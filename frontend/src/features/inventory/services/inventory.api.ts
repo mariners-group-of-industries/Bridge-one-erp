@@ -28,6 +28,7 @@ export interface ItemOption {
   altUomFactor: number | null;
   /** Suppliers this item was received from (goods receipts). */
   supplierIds: string[];
+  barcode: string | null;
 }
 
 export interface NamedOption {

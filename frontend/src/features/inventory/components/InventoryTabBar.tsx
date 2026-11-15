@@ -74,6 +74,10 @@ export function InventoryTabBar<T extends string>({
   );
 }
 
+/** iBOS white outlined button on the strip (PDF, Excel). */
+export const tabBarOutlineButton =
+  "inline-flex h-8 items-center gap-1.5 rounded border border-line bg-surface px-3 text-xs font-semibold text-ink shadow-xs transition-colors hover:bg-control focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/30 disabled:opacity-60 [&_svg]:size-3.5";
+
 /** iBOS blue action button for the tab strip ("+ Request", "Create", …). */
 export const tabBarButton =
   "inline-flex h-8 items-center gap-1.5 rounded bg-blue-600 px-3.5 text-xs font-semibold text-white shadow-xs transition-colors hover:bg-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/30 disabled:opacity-60 [&_svg]:size-3.5";
