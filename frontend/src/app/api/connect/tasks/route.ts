@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 import { getConnectPool } from "@/lib/connect/db";
-import { getConnectAuthUser } from "@/lib/connect/auth";
+import { apiHandler } from "@/lib/api/handler";
+import { can, type Actor } from "@/lib/auth/actor";
+import { connectPaths } from "@/features/connect/paths";
 import { getPusherServer } from "@/lib/connect/pusher-server";
 import {
   ensureTasksSchema,
@@ -19,13 +21,8 @@ function deptPrefix(dept: string): string {
   return clean.slice(0, 8) || "TASK";
 }
 
-export async function GET(req: Request) {
+async function handleGET(req: Request) {
   try {
-    const user = await getConnectAuthUser(req);
-    if (!user) {
-      return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
-    }
-
     await ensureTasksSchema();
     const pool = getConnectPool();
     const { searchParams } = new URL(req.url);
@@ -151,19 +148,26 @@ export async function GET(req: Request) {
   }
 }
 
-export async function POST(req: Request) {
+/** Reviewing extension requests is a supervisor action; global settings belong to the executive dashboard. */
+function actionAllowed(actor: Actor, action: string): boolean {
+  if (action === "REVIEW_EXTENSION_REQUEST") return can(actor, connectPaths.tasks, "approve");
+  if (action === "UPDATE_SETTINGS") return can(actor, connectPaths.monitoring, "approve");
+  return true; // Create on the tasks page, checked by apiHandler.
+}
+
+async function handlePOST(req: Request, actor: Actor) {
   try {
-    const user = await getConnectAuthUser(req);
-    if (!user) {
-      return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
-    }
     await ensureTasksSchema();
-    const actorId = user.id || "emp-admin";
-    const actorName = user.name || "Management Admin";
+    // Identity comes from the session, never from the request body.
+    const actorId = actor.id;
+    const actorName = actor.name || "ERP User";
 
     const pool = getConnectPool();
     const body = await req.json();
-    const action = body.action || "CREATE_TASK";
+    const action = String(body.action || "CREATE_TASK");
+    if (!actionAllowed(actor, action)) {
+      return NextResponse.json({ success: false, error: "You do not have permission to perform this action." }, { status: 403 });
+    }
 
     // 1. Create & Assign a New Task
     if (action === "CREATE_TASK") {
@@ -506,7 +510,7 @@ export async function POST(req: Request) {
     if (action === "REVIEW_EXTENSION_REQUEST") {
       const requestId = String(body.requestId || "");
       const decision = String(body.decision || "APPROVED").toUpperCase(); // APPROVED | REJECTED
-      const reviewerName = String(body.reviewerName || actorName).trim();
+      const reviewerName = actorName;
       const reviewRemarks = String(body.reviewRemarks || "").trim();
 
       const extRes = await pool.query(
@@ -604,4 +608,7 @@ export async function POST(req: Request) {
     );
   }
 }
+
+export const GET = apiHandler("configuration:read", (req) => handleGET(req));
+export const POST = apiHandler("configuration:write", (req, _context, actor) => handlePOST(req, actor));
 

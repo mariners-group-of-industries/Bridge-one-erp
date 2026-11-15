@@ -1,17 +1,17 @@
 import { NextResponse } from "next/server";
-import { getConnectAuthUser } from "@/lib/connect/auth";
+import { apiHandler } from "@/lib/api/handler";
 import { R2Storage, r2ConfigFromEnv } from "@/lib/storage/r2";
 import fs from "fs/promises";
 import path from "path";
 
-// MIME type map for secure and correct content delivery
+// MIME type map for secure and correct content delivery.
+// SVG is deliberately absent: it can carry script, so it is served as a download.
 const MIME_TYPES: Record<string, string> = {
   png: "image/png",
   jpg: "image/jpeg",
   jpeg: "image/jpeg",
   webp: "image/webp",
   gif: "image/gif",
-  svg: "image/svg+xml",
   pdf: "application/pdf",
   webm: "audio/webm",
   ogg: "audio/ogg",
@@ -26,70 +26,60 @@ const MIME_TYPES: Record<string, string> = {
   json: "application/json",
 };
 
-export async function GET(
-  req: Request,
-  props: { params: Promise<{ key: string[] | string }> }
-) {
-  try {
-    const user = await getConnectAuthUser(req);
-    if (!user) {
-      return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
-    }
+/**
+ * Only BRG Connect uploads are served here. Module attachments (customers,
+ * suppliers, sales, accounts …) share the bucket but have their own routes and
+ * permission checks, so they must not be reachable through this one.
+ */
+const SERVED_PREFIX = "connect/";
+const KEY_PATTERN = /^connect\/[A-Za-z0-9._-]+$/;
+const UPLOADS_DIR = path.resolve(process.cwd(), "public", "uploads");
 
-    const resolvedParams = await props.params;
-    const rawKey = resolvedParams?.key;
-    const key = Array.isArray(rawKey)
-      ? rawKey.join("/")
-      : typeof rawKey === "string"
-      ? rawKey
-      : "";
-
-    if (!key) {
-      return NextResponse.json({ error: "File key required" }, { status: 400 });
-    }
-
-    const ext = key.split(".").pop()?.toLowerCase() || "";
-    const contentType = MIME_TYPES[ext] || "application/octet-stream";
-
-    // 1. Fetch from Cloudflare R2 Object Storage
-    const r2Config = r2ConfigFromEnv();
-    if (r2Config) {
-      try {
-        const r2 = new R2Storage(r2Config);
-        const data = await r2.get(key);
-        if (data) {
-          return new NextResponse(Buffer.from(data), {
-            headers: {
-              "Content-Type": contentType,
-              "Cache-Control": "public, max-age=31536000, immutable",
-              "Content-Disposition": ext === "pdf" || contentType.startsWith("image/") || contentType.startsWith("audio/")
-                ? "inline"
-                : `attachment; filename="${path.basename(key)}"`,
-            },
-          });
-        }
-      } catch (r2Err) {
-        console.warn("[Storage] R2 get error, falling back to local disk:", r2Err);
-      }
-    }
-
-    // 2. Fallback to local uploads directory for development
-    try {
-      const localPath = path.join(process.cwd(), "public", "uploads", key);
-      const localData = await fs.readFile(localPath);
-      return new NextResponse(localData, {
-        headers: {
-          "Content-Type": contentType,
-          "Cache-Control": "public, max-age=86400",
-        },
-      });
-    } catch {
-      // Local file not found
-    }
-
-    return NextResponse.json({ error: "File not found" }, { status: 404 });
-  } catch (error) {
-    console.error("Storage download error:", error);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
-  }
+/** The validated object key, or null for anything outside Connect uploads (incl. `..` traversal). */
+function safeKey(raw: string[] | string | undefined): string | null {
+  const key = Array.isArray(raw) ? raw.join("/") : typeof raw === "string" ? raw : "";
+  if (!key.startsWith(SERVED_PREFIX) || !KEY_PATTERN.test(key) || key.split("/").some((s) => s === "." || s === "..")) return null;
+  return key;
 }
+
+const notFound = () => NextResponse.json({ error: "File not found" }, { status: 404 });
+
+function fileResponse(data: Uint8Array, key: string) {
+  const ext = key.split(".").pop()?.toLowerCase() || "";
+  const contentType = MIME_TYPES[ext] || "application/octet-stream";
+  const inline = ext === "pdf" || contentType.startsWith("image/") || contentType.startsWith("audio/") || contentType.startsWith("video/");
+  return new NextResponse(Buffer.from(data), {
+    headers: {
+      "Content-Type": contentType,
+      "X-Content-Type-Options": "nosniff",
+      // Signed-in content: browsers may cache it, shared caches may not.
+      "Cache-Control": "private, max-age=86400",
+      "Content-Disposition": inline ? "inline" : `attachment; filename="${path.basename(key)}"`,
+    },
+  });
+}
+
+export const GET = apiHandler<{ params: Promise<{ key: string[] | string }> }>("configuration:read", async (_request, props) => {
+  const key = safeKey((await props.params)?.key);
+  if (!key) return notFound();
+
+  // 1. Cloudflare R2 object storage
+  const r2Config = r2ConfigFromEnv();
+  if (r2Config) {
+    try {
+      const data = await new R2Storage(r2Config).get(key);
+      if (data) return fileResponse(data, key);
+    } catch (r2Err) {
+      console.warn("[Storage] R2 get error, falling back to local disk:", r2Err);
+    }
+  }
+
+  // 2. Local uploads directory (development). The resolved path must stay inside it.
+  const localPath = path.resolve(UPLOADS_DIR, key);
+  if (!localPath.startsWith(UPLOADS_DIR + path.sep)) return notFound();
+  try {
+    return fileResponse(await fs.readFile(localPath), key);
+  } catch {
+    return notFound();
+  }
+});
