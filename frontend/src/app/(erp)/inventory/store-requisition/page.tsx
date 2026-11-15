@@ -4,10 +4,10 @@ import React, { useState, useMemo } from "react";
 import { useToast } from "@/components/ui/toast";
 import { useResource } from "@/hooks/use-resource";
 import { errorMessage } from "@/lib/api/client";
+import { InventoryTabBar, tabBarButton } from "@/features/inventory/components/InventoryTabBar";
 import { InventoryDocumentDialog } from "@/features/inventory/components/InventoryDocumentDialog";
 import { dmy, inventoryApi, today } from "@/features/inventory/services/inventory.api";
 import {
-  Search,
   Plus,
   Printer,
   Eye,
@@ -216,42 +216,22 @@ export default function StoreRequisitionPage() {
 
   return (
     <div className="space-y-3 p-1">
-      {/* ─────────────────────────────────────────────────── */}
-      {/* 1. TOP HEADER                                      */}
-      {/* ─────────────────────────────────────────────────── */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-3 rounded border border-slate-200/90 shadow-2xs">
-        <div>
-          <h1 className="text-xl font-bold text-slate-900 tracking-tight">
-            Store Requisition
-          </h1>
-        </div>
-
-        <div className="flex items-center gap-2">
-          {/* Search */}
-          <div className="relative">
-            <input
-              type="text"
-              placeholder="Search...."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-56 sm:w-64 h-9 pl-3 pr-8 text-xs border border-slate-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 bg-white placeholder-slate-400"
-            />
-            <Search className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-          </div>
-
-          {/* + Requisition Button */}
-          <button
-            type="button"
-            onClick={() => setIsModalOpen(true)}
-            className="h-9 px-4 bg-[#2563eb] hover:bg-blue-700 text-white font-semibold text-xs rounded flex items-center gap-1.5 shadow-xs transition"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Requisition</span>
+      <InventoryTabBar
+        title="Store Requisition"
+        tabs={[
+          { id: "REQUISITION_LIST", label: "Requisition List" },
+          { id: "REQUISITION_SUMMARY", label: "Store Requisition Summary" },
+        ]}
+        active={activeTab}
+        onChange={setActiveTab}
+        search={searchTerm}
+        onSearch={setSearchTerm}
+        actions={
+          <button type="button" onClick={() => setIsModalOpen(true)} className={tabBarButton}>
+            <Plus /> Requisition
           </button>
-        </div>
-      </div>
-
-      {/* ─────────────────────────────────────────────────── */}
+        }
+      />
       {/* 2. SUMMARY FILTER BAR (When on SUMMARY TAB)        */}
       {/* ─────────────────────────────────────────────────── */}
       {activeTab === "REQUISITION_SUMMARY" && (
@@ -338,51 +318,23 @@ export default function StoreRequisitionPage() {
       )}
 
       {/* ─────────────────────────────────────────────────── */}
-      {/* 3. TABS NAVIGATION                                 */}
-      {/* ─────────────────────────────────────────────────── */}
-      <div className="flex border-b border-slate-200 gap-8 text-xs font-bold uppercase tracking-wider">
-        <button
-          type="button"
-          onClick={() => setActiveTab("REQUISITION_LIST")}
-          className={`pb-2 transition ${
-            activeTab === "REQUISITION_LIST"
-              ? "border-b-2 border-blue-600 text-blue-600 font-extrabold"
-              : "text-slate-500 hover:text-slate-800"
-          }`}
-        >
-          REQUISITION LIST
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveTab("REQUISITION_SUMMARY")}
-          className={`pb-2 transition ${
-            activeTab === "REQUISITION_SUMMARY"
-              ? "border-b-2 border-blue-600 text-blue-600 font-extrabold"
-              : "text-slate-500 hover:text-slate-800"
-          }`}
-        >
-          STORE REQUISITION SUMMARY
-        </button>
-      </div>
-
-      {/* ─────────────────────────────────────────────────── */}
       {/* 4. TAB 1: REQUISITION LIST TABLE                   */}
       {/* ─────────────────────────────────────────────────── */}
       {activeTab === "REQUISITION_LIST" && (
         <div className="space-y-2">
           <div className="border border-slate-300 bg-white rounded shadow-2xs overflow-x-auto">
             <table className="erp-table w-full text-left text-xs border-collapse">
-              <thead className="bg-[#e6f2fb] text-slate-800 font-semibold text-[11px] border-b border-slate-300 select-none">
+              <thead className="bg-blue-100/70 text-slate-900 font-semibold text-xs select-none">
                 <tr>
-                  <th className="p-2 border border-slate-300 w-12 text-center">SL</th>
-                  <th className="p-2 border border-slate-300 w-36">Requisition Code</th>
-                  <th className="p-2 border border-slate-300 w-24">Date</th>
-                  <th className="p-2 border border-slate-300 w-24">User Type</th>
-                  <th className="p-2 border border-slate-300 w-24">User</th>
-                  <th className="p-2 border border-slate-300">Remarks</th>
-                  <th className="p-2 border border-slate-300 w-24 text-center">Status</th>
-                  <th className="p-2 border border-slate-300 w-32">Review Comment</th>
-                  <th className="p-2 border border-slate-300 w-20 text-center">Actions</th>
+                  <th className="px-2.5 py-2 border-b border-slate-200 w-12 text-center">SL</th>
+                  <th className="px-2.5 py-2 border-b border-slate-200 w-20 text-center">Action</th>
+                  <th className="px-2.5 py-2 border-b border-slate-200 w-36">Requisition Code</th>
+                  <th className="px-2.5 py-2 border-b border-slate-200 w-24">Date</th>
+                  <th className="px-2.5 py-2 border-b border-slate-200 w-24">User Type</th>
+                  <th className="px-2.5 py-2 border-b border-slate-200 w-24">User</th>
+                  <th className="px-2.5 py-2 border-b border-slate-200">Remarks</th>
+                  <th className="px-2.5 py-2 border-b border-slate-200 w-24 text-center">Status</th>
+                  <th className="px-2.5 py-2 border-b border-slate-200 w-32">Review Comment</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200 text-[11px] text-slate-800">
@@ -398,31 +350,10 @@ export default function StoreRequisitionPage() {
                 ) : (
                   filteredRequisitions.map((row) => (
                     <tr key={row.id} className="hover:bg-slate-50/80 transition-colors">
-                      <td className="p-2 border border-slate-300 text-center font-mono text-slate-600">
+                      <td className="px-2.5 py-2 border-b border-slate-200 text-center font-mono text-slate-600">
                         {row.sl}
                       </td>
-                      <td className="p-2 border border-slate-300 font-mono font-medium text-slate-900 whitespace-nowrap">
-                        {row.reqCode}
-                      </td>
-                      <td className="p-2 border border-slate-300 whitespace-nowrap text-slate-700">
-                        {row.date}
-                      </td>
-                      <td className="p-2 border border-slate-300 text-slate-700">
-                        {row.userType}
-                      </td>
-                      <td className="p-2 border border-slate-300 text-slate-700">
-                        {row.user}
-                      </td>
-                      <td className="p-2 border border-slate-300 text-slate-800">
-                        {row.remarks}
-                      </td>
-                      <td className="p-2 border border-slate-300 text-center">
-                        {renderStatus(row.status)}
-                      </td>
-                      <td className="p-2 border border-slate-300 text-slate-600">
-                        {row.reviewComment}
-                      </td>
-                      <td className="p-2 border border-slate-300 text-center">
+                      <td className="px-2.5 py-2 border-b border-slate-200 text-center">
                         <div className="flex items-center justify-center gap-1 text-slate-600">
                           {row.status === "Pending" && (
                             <>
@@ -460,6 +391,27 @@ export default function StoreRequisitionPage() {
                           </button>
                         </div>
                       </td>
+                      <td className="px-2.5 py-2 border-b border-slate-200 font-mono font-medium text-slate-900 whitespace-nowrap">
+                        {row.reqCode}
+                      </td>
+                      <td className="px-2.5 py-2 border-b border-slate-200 whitespace-nowrap text-slate-700">
+                        {row.date}
+                      </td>
+                      <td className="px-2.5 py-2 border-b border-slate-200 text-slate-700">
+                        {row.userType}
+                      </td>
+                      <td className="px-2.5 py-2 border-b border-slate-200 text-slate-700">
+                        {row.user}
+                      </td>
+                      <td className="px-2.5 py-2 border-b border-slate-200 text-slate-800">
+                        {row.remarks}
+                      </td>
+                      <td className="px-2.5 py-2 border-b border-slate-200 text-center">
+                        {renderStatus(row.status)}
+                      </td>
+                      <td className="px-2.5 py-2 border-b border-slate-200 text-slate-600">
+                        {row.reviewComment}
+                      </td>
                     </tr>
                   ))
                 )}
@@ -476,17 +428,17 @@ export default function StoreRequisitionPage() {
         <div className="space-y-2">
           <div className="border border-slate-300 bg-white rounded shadow-2xs overflow-x-auto">
             <table className="erp-table w-full text-left text-xs border-collapse">
-              <thead className="bg-[#e6f2fb] text-slate-800 font-semibold text-[11px] border-b border-slate-300 select-none">
+              <thead className="bg-blue-100/70 text-slate-900 font-semibold text-xs select-none">
                 <tr>
-                  <th className="p-2 border border-slate-300 w-12 text-center">SL</th>
-                  <th className="p-2 border border-slate-300 w-32">Item Code</th>
-                  <th className="p-2 border border-slate-300">Item Name</th>
-                  <th className="p-2 border border-slate-300">Item Category</th>
-                  <th className="p-2 border border-slate-300 w-20 text-center">UOM</th>
-                  <th className="p-2 border border-slate-300 w-28 text-right">Total Req. Qty</th>
-                  <th className="p-2 border border-slate-300 w-28 text-right">Issued Qty</th>
-                  <th className="p-2 border border-slate-300 w-28 text-right">Pending Qty</th>
-                  <th className="p-2 border border-slate-300 w-20 text-center">Actions</th>
+                  <th className="px-2.5 py-2 border-b border-slate-200 w-12 text-center">SL</th>
+                  <th className="px-2.5 py-2 border-b border-slate-200 w-32">Item Code</th>
+                  <th className="px-2.5 py-2 border-b border-slate-200">Item Name</th>
+                  <th className="px-2.5 py-2 border-b border-slate-200">Item Category</th>
+                  <th className="px-2.5 py-2 border-b border-slate-200 w-20 text-center">UOM</th>
+                  <th className="px-2.5 py-2 border-b border-slate-200 w-28 text-right">Total Req. Qty</th>
+                  <th className="px-2.5 py-2 border-b border-slate-200 w-28 text-right">Issued Qty</th>
+                  <th className="px-2.5 py-2 border-b border-slate-200 w-28 text-right">Pending Qty</th>
+                  <th className="px-2.5 py-2 border-b border-slate-200 w-20 text-center">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200 text-[11px] text-slate-800">
@@ -502,31 +454,31 @@ export default function StoreRequisitionPage() {
                 ) : (
                   filteredSummary.map((row) => (
                     <tr key={row.sl} className="hover:bg-slate-50/80 transition-colors">
-                      <td className="p-2 border border-slate-300 text-center font-mono text-slate-600">
+                      <td className="px-2.5 py-2 border-b border-slate-200 text-center font-mono text-slate-600">
                         {row.sl}
                       </td>
-                      <td className="p-2 border border-slate-300 font-mono font-medium text-slate-900">
+                      <td className="px-2.5 py-2 border-b border-slate-200 font-mono font-medium text-slate-900">
                         {row.itemCode}
                       </td>
-                      <td className="p-2 border border-slate-300 font-medium text-slate-900">
+                      <td className="px-2.5 py-2 border-b border-slate-200 font-medium text-slate-900">
                         {row.itemName}
                       </td>
-                      <td className="p-2 border border-slate-300 text-slate-700">
+                      <td className="px-2.5 py-2 border-b border-slate-200 text-slate-700">
                         {row.itemCategory}
                       </td>
-                      <td className="p-2 border border-slate-300 text-center text-slate-700">
+                      <td className="px-2.5 py-2 border-b border-slate-200 text-center text-slate-700">
                         {row.uom}
                       </td>
-                      <td className="p-2 border border-slate-300 text-right font-mono font-medium">
+                      <td className="px-2.5 py-2 border-b border-slate-200 text-right font-mono font-medium">
                         {row.totalReqQty.toFixed(2)}
                       </td>
-                      <td className="p-2 border border-slate-300 text-right font-mono">
+                      <td className="px-2.5 py-2 border-b border-slate-200 text-right font-mono">
                         {row.issuedQty.toFixed(2)}
                       </td>
-                      <td className="p-2 border border-slate-300 text-right font-mono text-amber-700 font-medium">
+                      <td className="px-2.5 py-2 border-b border-slate-200 text-right font-mono text-amber-700 font-medium">
                         {row.pendingQty.toFixed(2)}
                       </td>
-                      <td className="p-2 border border-slate-300 text-center">
+                      <td className="px-2.5 py-2 border-b border-slate-200 text-center">
                         <button
                           type="button"
                           className="p-1 hover:text-blue-600 text-slate-600"
@@ -558,14 +510,16 @@ export default function StoreRequisitionPage() {
           offices: true,
           dateLabel: "Create Date",
           expectedDateLabel: "Expected Date",
+          // iBOS: Employee / Department / Project, then that one person, department or project.
+          subtype: { label: "User Type", options: ["Employee", "Department", "Project"], radio: true },
           fields: [
-            { key: "employee", label: "Employee", kind: "employee", required: true, saveAs: "partyName" },
-            { key: "department", label: "Department", kind: "department" },
-            { key: "project", label: "Project", kind: "project" },
+            { key: "employee", label: "Employee", kind: "employee", required: true, saveAs: "partyName", when: ["Employee"] },
+            { key: "department", label: "Department", kind: "department", required: true, saveAs: "partyName", when: ["Department"] },
+            { key: "project", label: "Project", kind: "project", required: true, saveAs: "partyName", when: ["Project"] },
           ],
-          columns: ["code", "name", "uom", "stock", "qty"],
+          columns: ["code", "name", "uom", "qty"],
+          columnLabels: { code: "Code", name: "Item", qty: "Quantity" },
           qtyLabel: "Request Quantity",
-          stockLabel: "Curr. Stock",
         }}
       />
     </div>

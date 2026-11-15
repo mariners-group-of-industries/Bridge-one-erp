@@ -26,6 +26,8 @@ export interface ItemOption {
   mrp: number | null;
   altUom: string | null;
   altUomFactor: number | null;
+  /** Suppliers this item was received from (goods receipts). */
+  supplierIds: string[];
 }
 
 export interface NamedOption {
@@ -44,6 +46,8 @@ export interface InventoryMasters {
   expenseHeads: NamedOption[];
   /** Company name and address for report headers. */
   company: { name: string; address: string } | null;
+  /** Vehicles entered on earlier gate passes. */
+  vehicles: { number: string; name: string }[];
 }
 
 export interface StockOnHand {
@@ -88,6 +92,12 @@ export const inventoryApi = {
     apiRequest<InventoryDocument>(`/api/inventory/${slug}/${id}/${decision}`, json("POST", { comment })),
   receive: (id: string, lines: { lineId: string; receivedQty: number }[], receiveDate?: string) =>
     apiRequest<InventoryDocument>(`/api/inventory/transfer/${id}/receive`, json("POST", { lines, receiveDate })),
+  /** Uploads a store issue attachment (PDF or image, at most 5 MB). */
+  uploadIssueAttachment: (file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    return apiRequest<{ id: string; originalName: string; mimeType: string; size: number }>("/api/inventory/store-issue/attachments", { method: "POST", body: form });
+  },
   completeGatePass: (id: string) => apiRequest<InventoryDocument>(`/api/inventory/gate-in-out/${id}/complete`, json("POST", {})),
   overview: (q: { from: string; to: string; warehouseId?: string; category?: string }) =>
     apiRequest<InventoryOverview>(`/api/inventory/overview?${query(q)}`),

@@ -4,10 +4,10 @@ import React, { useState, useMemo } from "react";
 import { useToast } from "@/components/ui/toast";
 import { useResource } from "@/hooks/use-resource";
 import { errorMessage } from "@/lib/api/client";
+import { InventoryTabBar, tabBarButton } from "@/features/inventory/components/InventoryTabBar";
 import { InventoryDocumentDialog } from "@/features/inventory/components/InventoryDocumentDialog";
 import { dmy, inReview, inventoryApi, monthAgo, today } from "@/features/inventory/services/inventory.api";
 import {
-  Search,
   Plus,
   Printer,
   Eye,
@@ -188,42 +188,19 @@ export default function StockUpdatePage() {
 
   return (
     <div className="space-y-3 p-1">
-      {/* ─────────────────────────────────────────────────── */}
-      {/* 1. TOP HEADER                                      */}
-      {/* ─────────────────────────────────────────────────── */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-3 rounded border border-slate-200/90 shadow-2xs">
-        <div>
-          <h1 className="text-xl font-bold text-slate-900 tracking-tight">
-            Stock Update
-          </h1>
-        </div>
-
-        <div className="flex items-center gap-2">
-          {/* Search */}
-          <div className="relative">
-            <input
-              type="text"
-              placeholder="Search...."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-56 sm:w-64 h-9 pl-3 pr-8 text-xs border border-slate-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 bg-white placeholder-slate-400"
-            />
-            <Search className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-          </div>
-
-          {/* + Create Button */}
-          <button
-            type="button"
-            onClick={() => setIsCreateOpen(true)}
-            className="h-9 px-4 bg-[#2563eb] hover:bg-blue-700 text-white font-semibold text-xs rounded flex items-center gap-1.5 shadow-xs transition"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Create</span>
+      <InventoryTabBar
+        title="Stock Update"
+        tabs={[{ id: "STOCK_UPDATE", label: "Stock Update" }]}
+        active="STOCK_UPDATE"
+        onChange={() => {}}
+        search={searchTerm}
+        onSearch={setSearchTerm}
+        actions={
+          <button type="button" onClick={() => setIsCreateOpen(true)} className={tabBarButton}>
+            <Plus /> Create
           </button>
-        </div>
-      </div>
-
-      {/* ─────────────────────────────────────────────────── */}
+        }
+      />
       {/* 2. FILTER BAR                                       */}
       {/* ─────────────────────────────────────────────────── */}
       <div className="bg-slate-50/70 p-3 rounded border border-slate-200 space-y-3 text-xs">
@@ -368,19 +345,19 @@ export default function StockUpdatePage() {
       {/* ─────────────────────────────────────────────────── */}
       <div className="border border-slate-300 bg-white rounded shadow-2xs overflow-x-auto">
         <table className="erp-table w-full text-left text-xs border-collapse">
-          <thead className="bg-[#e6f2fb] text-slate-800 font-semibold text-[11px] border-b border-slate-300 select-none">
+          <thead className="bg-blue-100/70 text-slate-900 font-semibold text-xs select-none">
             <tr>
-              <th className="p-2 border border-slate-300 w-12 text-center">SL</th>
-              <th className="p-2 border border-slate-300 w-36">Code</th>
-              <th className="p-2 border border-slate-300">Remarks</th>
-              <th className="p-2 border border-slate-300">Office Name</th>
-              <th className="p-2 border border-slate-300">Warehouse</th>
-              <th className="p-2 border border-slate-300 w-24">Created Date</th>
-              <th className="p-2 border border-slate-300 w-24">Entry Date</th>
-              <th className="p-2 border border-slate-300">Action By</th>
-              <th className="p-2 border border-slate-300 w-24 text-center">Status</th>
-              <th className="p-2 border border-slate-300 w-32">Review Comment</th>
-              <th className="p-2 border border-slate-300 w-16 text-center">Action</th>
+              <th className="px-2.5 py-2 border-b border-slate-200 w-12 text-center">SL</th>
+              <th className="px-2.5 py-2 border-b border-slate-200 w-16 text-center">Action</th>
+              <th className="px-2.5 py-2 border-b border-slate-200 w-36">Code</th>
+              <th className="px-2.5 py-2 border-b border-slate-200">Remarks</th>
+              <th className="px-2.5 py-2 border-b border-slate-200">Office Name</th>
+              <th className="px-2.5 py-2 border-b border-slate-200">Warehouse</th>
+              <th className="px-2.5 py-2 border-b border-slate-200 w-24">Created Date</th>
+              <th className="px-2.5 py-2 border-b border-slate-200 w-24">Entry Date</th>
+              <th className="px-2.5 py-2 border-b border-slate-200">Action By</th>
+              <th className="px-2.5 py-2 border-b border-slate-200 w-24 text-center">Status</th>
+              <th className="px-2.5 py-2 border-b border-slate-200 w-32">Review Comment</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-200 text-[11px] text-slate-800">
@@ -396,47 +373,10 @@ export default function StockUpdatePage() {
             ) : (
               paginatedRows.map((row) => (
                 <tr key={row.id} className="hover:bg-slate-50/80 transition-colors">
-                  <td className="p-2 border border-slate-300 text-center font-mono text-slate-600">
+                  <td className="px-2.5 py-2 border-b border-slate-200 text-center font-mono text-slate-600">
                     {row.sl}
                   </td>
-                  <td className="p-2 border border-slate-300 font-mono font-medium text-slate-900 whitespace-nowrap">
-                    {row.code}
-                  </td>
-                  <td className="p-2 border border-slate-300 text-slate-800">
-                    {row.remarks}
-                  </td>
-                  <td className="p-2 border border-slate-300 text-slate-700">
-                    {row.officeName}
-                  </td>
-                  <td className="p-2 border border-slate-300 text-slate-700">
-                    {row.warehouse}
-                  </td>
-                  <td className="p-2 border border-slate-300 whitespace-nowrap text-slate-700">
-                    {row.createdDate}
-                  </td>
-                  <td className="p-2 border border-slate-300 whitespace-nowrap text-slate-700">
-                    {row.entryDate}
-                  </td>
-                  <td className="p-2 border border-slate-300 text-slate-700">
-                    {row.actionBy}
-                  </td>
-                  <td className="p-2 border border-slate-300 text-center">
-                    <span
-                      className={
-                        row.status === "Approved"
-                          ? "text-emerald-600 font-semibold text-[11px]"
-                          : row.status === "Rejected"
-                            ? "text-red-600 font-semibold text-[11px]"
-                            : "text-amber-600 font-semibold text-[11px]"
-                      }
-                    >
-                      {row.status}
-                    </span>
-                  </td>
-                  <td className="p-2 border border-slate-300 text-slate-600">
-                    {row.reviewComment}
-                  </td>
-                  <td className="p-2 border border-slate-300 text-center">
+                  <td className="px-2.5 py-2 border-b border-slate-200 text-center">
                     <div className="flex items-center justify-center gap-1.5 text-slate-600">
                       {(row.status === "Pending" || row.status === "In Review") && (
                         <>
@@ -475,6 +415,43 @@ export default function StockUpdatePage() {
                         <Printer className="w-3.5 h-3.5" />
                       </button>
                     </div>
+                  </td>
+                  <td className="px-2.5 py-2 border-b border-slate-200 font-mono font-medium text-slate-900 whitespace-nowrap">
+                    {row.code}
+                  </td>
+                  <td className="px-2.5 py-2 border-b border-slate-200 text-slate-800">
+                    {row.remarks}
+                  </td>
+                  <td className="px-2.5 py-2 border-b border-slate-200 text-slate-700">
+                    {row.officeName}
+                  </td>
+                  <td className="px-2.5 py-2 border-b border-slate-200 text-slate-700">
+                    {row.warehouse}
+                  </td>
+                  <td className="px-2.5 py-2 border-b border-slate-200 whitespace-nowrap text-slate-700">
+                    {row.createdDate}
+                  </td>
+                  <td className="px-2.5 py-2 border-b border-slate-200 whitespace-nowrap text-slate-700">
+                    {row.entryDate}
+                  </td>
+                  <td className="px-2.5 py-2 border-b border-slate-200 text-slate-700">
+                    {row.actionBy}
+                  </td>
+                  <td className="px-2.5 py-2 border-b border-slate-200 text-center">
+                    <span
+                      className={
+                        row.status === "Approved"
+                          ? "text-emerald-600 font-semibold text-[11px]"
+                          : row.status === "Rejected"
+                            ? "text-red-600 font-semibold text-[11px]"
+                            : "text-amber-600 font-semibold text-[11px]"
+                      }
+                    >
+                      {row.status}
+                    </span>
+                  </td>
+                  <td className="px-2.5 py-2 border-b border-slate-200 text-slate-600">
+                    {row.reviewComment}
                   </td>
                 </tr>
               ))

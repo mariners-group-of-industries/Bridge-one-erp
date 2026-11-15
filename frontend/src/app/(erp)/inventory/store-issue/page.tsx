@@ -2,16 +2,17 @@
 
 import React, { useState, useMemo } from "react";
 import { useResource } from "@/hooks/use-resource";
+import { InventoryTabBar, tabBarButton } from "@/features/inventory/components/InventoryTabBar";
 import { InventoryDocumentDialog, type DocumentFormConfig } from "@/features/inventory/components/InventoryDocumentDialog";
 import { dmy, inventoryApi } from "@/features/inventory/services/inventory.api";
 import {
-  Search,
   Plus,
   Printer,
   Eye,
   ChevronLeft,
   ChevronRight,
   FileSpreadsheet,
+  Paperclip,
 } from "lucide-react";
 
 // ============================================================================
@@ -41,9 +42,11 @@ interface IssuedItemRow {
   userType: string;
   user: string;
   remarks: string;
+  /** Attached file (PDF or image), if any. */
+  attachment: { id: string; name: string } | null;
 }
 
-const USER_TYPES = ["Department", "Production", "Employee", "Maintenance", "Other"] as const;
+const USER_TYPES = ["Employee", "Department", "Project"] as const;
 const USER_TYPE_OPTIONS = [{ value: "", label: "User Type" }, ...USER_TYPES.map((t) => ({ value: t, label: t }))];
 
 /** Store issues post the issued quantity out of the store (stock ledger). */
@@ -54,13 +57,20 @@ const ISSUE_FORM: DocumentFormConfig = {
   offices: true,
   dateLabel: "Issue Date",
   fulfils: { slug: "store-requisition", label: "Requisition Code" },
+  // iBOS: Employee / Department / Project radio; Issue For is the expense account charged.
+  subtype: { label: "User Type", options: USER_TYPES, radio: true },
   fields: [
-    { key: "employee", label: "Employee", kind: "employee", required: true, saveAs: "partyName" },
-    { key: "issueFor", label: "Issue For", kind: "expenseHead" },
+    { key: "createDate", label: "Create Date", kind: "date", required: true },
+    { key: "employee", label: "Employee", kind: "employee", required: true, saveAs: "partyName", when: ["Employee"] },
+    { key: "department", label: "Department", kind: "department", required: true, saveAs: "partyName", when: ["Department"] },
+    { key: "project", label: "Project", kind: "project", required: true, saveAs: "partyName", when: ["Project"] },
+    { key: "issueType", label: "Issue Type", kind: "select", options: ["Others"], defaultValue: "Others" },
+    { key: "issueFor", label: "Issue For", kind: "expenseHead", required: true, placeholder: "Chart Of Accounts" },
     { key: "receiveBy", label: "Receive By", kind: "employee" },
-    { key: "productionEntry", label: "Production Entry", kind: "text", saveAs: "reference" },
+    { key: "attachment", label: "Attachment", kind: "file" },
   ],
-  columns: ["code", "name", "cost", "amount", "uom", "stock", "qty"],
+  columns: ["code", "name", "cost", "amount", "uom", "qty"],
+  columnLabels: { code: "Code", name: "Item", cost: "Avg. Cost", amount: "Issue Amount", qty: "Quantity" },
   qtyLabel: "Issue Quantity",
 };
 
@@ -120,6 +130,7 @@ export default function StoreIssuePage() {
         userType: d.subtype ?? "",
         user: d.partyName ?? "",
         remarks: d.remarks ?? "",
+        attachment: d.meta?.attachment ? { id: d.meta.attachment, name: d.meta.attachmentName ?? "Attachment" } : null,
       })),
     [issueDocs.data],
   );
@@ -171,76 +182,26 @@ export default function StoreIssuePage() {
 
   return (
     <div className="space-y-3 p-1">
-      {/* ─────────────────────────────────────────────────── */}
-      {/* 1. TOP HEADER                                      */}
-      {/* ─────────────────────────────────────────────────── */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-3 rounded border border-slate-200/90 shadow-2xs">
-        <div>
-          <h1 className="text-xl font-bold text-slate-900 tracking-tight">
-            Store Issue
-          </h1>
-        </div>
-
-        <div className="flex items-center gap-2">
-          {/* Search */}
-          <div className="relative">
-            <input
-              type="text"
-              placeholder="Search...."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-56 sm:w-64 h-9 pl-3 pr-8 text-xs border border-slate-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 bg-white placeholder-slate-400"
-            />
-            <Search className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-          </div>
-
-          {/* + Direct Store Issue Button */}
-          <button
-            type="button"
-            onClick={() => setIsDirectIssueOpen(true)}
-            className="h-9 px-4 bg-[#2563eb] hover:bg-blue-700 text-white font-semibold text-xs rounded flex items-center gap-1.5 shadow-xs transition"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Direct Store Issue</span>
+      <InventoryTabBar
+        title="Store Issue"
+        tabs={[
+          { id: "APPROVED_REQUISITION", label: "APPROVED REQUISITION LIST" },
+          { id: "ISSUED_ITEM", label: "ISSUED ITEM" },
+        ]}
+        active={activeTab}
+        onChange={(id) => {
+          setActiveTab(id);
+          if (id === "APPROVED_REQUISITION") setReqPage(1);
+          else setIssuePage(1);
+        }}
+        search={searchTerm}
+        onSearch={setSearchTerm}
+        actions={
+          <button type="button" onClick={() => setIsDirectIssueOpen(true)} className={tabBarButton}>
+            <Plus /> Direct Store Issue
           </button>
-        </div>
-      </div>
-
-      {/* ─────────────────────────────────────────────────── */}
-      {/* 2. TABS NAVIGATION                                 */}
-      {/* ─────────────────────────────────────────────────── */}
-      <div className="flex border-b border-slate-200 gap-8 text-xs font-bold uppercase tracking-wider">
-        <button
-          type="button"
-          onClick={() => {
-            setActiveTab("APPROVED_REQUISITION");
-            setReqPage(1);
-          }}
-          className={`pb-2 transition ${
-            activeTab === "APPROVED_REQUISITION"
-              ? "border-b-2 border-blue-600 text-blue-600 font-extrabold"
-              : "text-slate-500 hover:text-slate-800"
-          }`}
-        >
-          APPROVED REQUISITION LIST
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            setActiveTab("ISSUED_ITEM");
-            setIssuePage(1);
-          }}
-          className={`pb-2 transition ${
-            activeTab === "ISSUED_ITEM"
-              ? "border-b-2 border-blue-600 text-blue-600 font-extrabold"
-              : "text-slate-500 hover:text-slate-800"
-          }`}
-        >
-          ISSUED ITEM
-        </button>
-      </div>
-
-      {/* ─────────────────────────────────────────────────── */}
+        }
+      />
       {/* 3. TAB 1: APPROVED REQUISITION LIST                 */}
       {/* ─────────────────────────────────────────────────── */}
       {activeTab === "APPROVED_REQUISITION" && (
@@ -282,16 +243,16 @@ export default function StoreIssuePage() {
           {/* Table */}
           <div className="border border-slate-300 bg-white rounded shadow-2xs overflow-x-auto">
             <table className="erp-table w-full text-left text-xs border-collapse">
-              <thead className="bg-[#e6f2fb] text-slate-800 font-semibold text-[11px] border-b border-slate-300 select-none">
+              <thead className="bg-blue-100/70 text-slate-900 font-semibold text-xs select-none">
                 <tr>
-                  <th className="p-2 border border-slate-300 w-12 text-center">SL</th>
-                  <th className="p-2 border border-slate-300 w-36">Requisition Code</th>
-                  <th className="p-2 border border-slate-300 w-24">Date</th>
-                  <th className="p-2 border border-slate-300 w-24">User Type</th>
-                  <th className="p-2 border border-slate-300 w-24">User</th>
-                  <th className="p-2 border border-slate-300">Remarks</th>
-                  <th className="p-2 border border-slate-300 w-24 text-center">Status</th>
-                  <th className="p-2 border border-slate-300 w-28 text-center">Action</th>
+                  <th className="px-2.5 py-2 border-b border-slate-200 w-12 text-center">SL</th>
+                  <th className="px-2.5 py-2 border-b border-slate-200 w-36">Requisition Code</th>
+                  <th className="px-2.5 py-2 border-b border-slate-200 w-24">Date</th>
+                  <th className="px-2.5 py-2 border-b border-slate-200 w-24">User Type</th>
+                  <th className="px-2.5 py-2 border-b border-slate-200 w-24">User</th>
+                  <th className="px-2.5 py-2 border-b border-slate-200">Remarks</th>
+                  <th className="px-2.5 py-2 border-b border-slate-200 w-24 text-center">Status</th>
+                  <th className="px-2.5 py-2 border-b border-slate-200 w-28 text-center">Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200 text-[11px] text-slate-800">
@@ -307,30 +268,30 @@ export default function StoreIssuePage() {
                 ) : (
                   paginatedApproved.map((row) => (
                     <tr key={row.sl} className="hover:bg-slate-50/80 transition-colors">
-                      <td className="p-2 border border-slate-300 text-center font-mono text-slate-600">
+                      <td className="px-2.5 py-2 border-b border-slate-200 text-center font-mono text-slate-600">
                         {row.sl}
                       </td>
-                      <td className="p-2 border border-slate-300 font-mono font-medium text-slate-900 whitespace-nowrap">
+                      <td className="px-2.5 py-2 border-b border-slate-200 font-mono font-medium text-slate-900 whitespace-nowrap">
                         {row.reqCode}
                       </td>
-                      <td className="p-2 border border-slate-300 whitespace-nowrap text-slate-700">
+                      <td className="px-2.5 py-2 border-b border-slate-200 whitespace-nowrap text-slate-700">
                         {row.date}
                       </td>
-                      <td className="p-2 border border-slate-300 text-slate-700">
+                      <td className="px-2.5 py-2 border-b border-slate-200 text-slate-700">
                         {row.userType}
                       </td>
-                      <td className="p-2 border border-slate-300 text-slate-700">
+                      <td className="px-2.5 py-2 border-b border-slate-200 text-slate-700">
                         {row.user}
                       </td>
-                      <td className="p-2 border border-slate-300 text-slate-800">
+                      <td className="px-2.5 py-2 border-b border-slate-200 text-slate-800">
                         {row.remarks}
                       </td>
-                      <td className="p-2 border border-slate-300 text-center">
+                      <td className="px-2.5 py-2 border-b border-slate-200 text-center">
                         <span className="text-emerald-600 font-semibold text-[11px]">
                           {row.status}
                         </span>
                       </td>
-                      <td className="p-2 border border-slate-300 text-center">
+                      <td className="px-2.5 py-2 border-b border-slate-200 text-center">
                         <div className="flex items-center justify-center gap-1.5">
                           <button
                             type="button"
@@ -459,16 +420,16 @@ export default function StoreIssuePage() {
           {/* Table */}
           <div className="border border-slate-300 bg-white rounded shadow-2xs overflow-x-auto">
             <table className="erp-table w-full text-left text-xs border-collapse">
-              <thead className="bg-[#e6f2fb] text-slate-800 font-semibold text-[11px] border-b border-slate-300 select-none">
+              <thead className="bg-blue-100/70 text-slate-900 font-semibold text-xs select-none">
                 <tr>
-                  <th className="p-2 border border-slate-300 w-36">Issue Code</th>
-                  <th className="p-2 border border-slate-300 w-24">Issue Date</th>
-                  <th className="p-2 border border-slate-300 w-36">Requisition Code</th>
-                  <th className="p-2 border border-slate-300 w-36">Production Entry Code</th>
-                  <th className="p-2 border border-slate-300 w-24">User Type</th>
-                  <th className="p-2 border border-slate-300 w-24">User</th>
-                  <th className="p-2 border border-slate-300">Remarks</th>
-                  <th className="p-2 border border-slate-300 w-20 text-center">Action</th>
+                  <th className="px-2.5 py-2 border-b border-slate-200 w-36">Issue Code</th>
+                  <th className="px-2.5 py-2 border-b border-slate-200 w-24">Issue Date</th>
+                  <th className="px-2.5 py-2 border-b border-slate-200 w-36">Requisition Code</th>
+                  <th className="px-2.5 py-2 border-b border-slate-200 w-36">Production Entry Code</th>
+                  <th className="px-2.5 py-2 border-b border-slate-200 w-24">User Type</th>
+                  <th className="px-2.5 py-2 border-b border-slate-200 w-24">User</th>
+                  <th className="px-2.5 py-2 border-b border-slate-200">Remarks</th>
+                  <th className="px-2.5 py-2 border-b border-slate-200 w-20 text-center">Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200 text-[11px] text-slate-800">
@@ -484,29 +445,39 @@ export default function StoreIssuePage() {
                 ) : (
                   paginatedIssued.map((row) => (
                     <tr key={row.issueCode} className="hover:bg-slate-50/80 transition-colors">
-                      <td className="p-2 border border-slate-300 font-mono font-medium text-slate-900 whitespace-nowrap">
+                      <td className="px-2.5 py-2 border-b border-slate-200 font-mono font-medium text-slate-900 whitespace-nowrap">
                         {row.issueCode}
                       </td>
-                      <td className="p-2 border border-slate-300 whitespace-nowrap text-slate-700">
+                      <td className="px-2.5 py-2 border-b border-slate-200 whitespace-nowrap text-slate-700">
                         {row.issueDate}
                       </td>
-                      <td className="p-2 border border-slate-300 font-mono text-slate-800 whitespace-nowrap">
+                      <td className="px-2.5 py-2 border-b border-slate-200 font-mono text-slate-800 whitespace-nowrap">
                         {row.requisitionCode}
                       </td>
-                      <td className="p-2 border border-slate-300 font-mono text-slate-800 whitespace-nowrap">
+                      <td className="px-2.5 py-2 border-b border-slate-200 font-mono text-slate-800 whitespace-nowrap">
                         {row.productionEntryCode}
                       </td>
-                      <td className="p-2 border border-slate-300 text-slate-700">
+                      <td className="px-2.5 py-2 border-b border-slate-200 text-slate-700">
                         {row.userType}
                       </td>
-                      <td className="p-2 border border-slate-300 text-slate-700">
+                      <td className="px-2.5 py-2 border-b border-slate-200 text-slate-700">
                         {row.user}
                       </td>
-                      <td className="p-2 border border-slate-300 text-slate-700">
+                      <td className="px-2.5 py-2 border-b border-slate-200 text-slate-700">
                         {row.remarks}
                       </td>
-                      <td className="p-2 border border-slate-300 text-center">
+                      <td className="px-2.5 py-2 border-b border-slate-200 text-center">
                         <div className="flex items-center justify-center gap-1.5 text-slate-600">
+                          {row.attachment && (
+                            <a
+                              href={`/api/inventory/store-issue/attachments/${row.attachment.id}`}
+                              className="inline-flex size-6 items-center justify-center rounded hover:text-blue-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/20"
+                              title={row.attachment.name}
+                              aria-label={`Download ${row.attachment.name}`}
+                            >
+                              <Paperclip className="w-3.5 h-3.5" />
+                            </a>
+                          )}
                           <button
                             type="button"
                             className="p-1 hover:text-blue-600"

@@ -4,11 +4,11 @@ import React, { useState, useMemo } from "react";
 import { useToast } from "@/components/ui/toast";
 import { useResource } from "@/hooks/use-resource";
 import { errorMessage } from "@/lib/api/client";
+import { InventoryTabBar, tabBarButton } from "@/features/inventory/components/InventoryTabBar";
 import { InventoryDocumentDialog } from "@/features/inventory/components/InventoryDocumentDialog";
 import type { InventoryDocument } from "@/features/inventory/schemas/document.schema";
 import { inReview, inventoryApi, monthAgo, today } from "@/features/inventory/services/inventory.api";
 import {
-  Search,
   Plus,
   Copy,
   Printer,
@@ -369,87 +369,30 @@ export default function ItemStockConversionPage() {
 
   return (
     <div className="space-y-3 p-1 font-sans text-slate-800">
-      {/* ───────────────────────────────────────────────────────────────── */}
-      {/* 1. TOP HEADER (Exact match to screenshot 1 & 2)                  */}
-      {/* ───────────────────────────────────────────────────────────────── */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-3 rounded border border-slate-200/90 shadow-2xs">
-        <div>
-          <h1 className="text-xl font-bold text-slate-900 tracking-tight">
-            Item Stock Conversion
-          </h1>
-        </div>
-
-        <div className="flex items-center gap-2">
-          {/* Search bar */}
-          <div className="relative">
-            <input
-              type="text"
-              placeholder="Search code, item, office, warehouse..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-64 sm:w-80 h-9 pl-3 pr-8 text-xs border border-slate-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white placeholder-slate-400"
-            />
-            <Search className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-          </div>
-
-          {/* Button 1: Item Stock Conversion (Layers / Clone icon) */}
-          <button
-            type="button"
-            onClick={() => setActiveTab("CONVERSION_LIST")}
-            className="h-9 px-3.5 bg-[#1976d2] hover:bg-[#1565c0] text-white font-medium text-xs rounded flex items-center gap-1.5 shadow-xs transition whitespace-nowrap"
-          >
-            <Copy className="w-3.5 h-3.5" />
-            <span>Item Stock Conversion</span>
-          </button>
-
-          {/* Button 2: + Item Stock Conversion */}
-          <button
-            type="button"
-            onClick={() => setIsCreateOpen(true)}
-            className="h-9 px-3.5 bg-[#1976d2] hover:bg-[#1565c0] text-white font-medium text-xs rounded flex items-center gap-1.5 shadow-xs transition whitespace-nowrap"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span>+ Item Stock Conversion</span>
-          </button>
-        </div>
-      </div>
-
-      {/* ───────────────────────────────────────────────────────────────── */}
-      {/* 2. TABS NAVIGATION (ITEM STOCK CONVERSION | REPORT)               */}
-      {/* ───────────────────────────────────────────────────────────────── */}
-      <div className="flex border-b border-slate-200 gap-8 text-xs font-bold uppercase tracking-wider bg-white px-3 pt-2">
-        <button
-          type="button"
-          onClick={() => {
-            setActiveTab("CONVERSION_LIST");
-            setPage(1);
-          }}
-          className={`pb-2 whitespace-nowrap transition cursor-pointer ${
-            activeTab === "CONVERSION_LIST"
-              ? "border-b-2 border-blue-600 text-blue-600 font-extrabold"
-              : "text-slate-500 hover:text-slate-800"
-          }`}
-        >
-          ITEM STOCK CONVERSION
-        </button>
-
-        <button
-          type="button"
-          onClick={() => {
-            setActiveTab("REPORT");
-            setPage(1);
-          }}
-          className={`pb-2 whitespace-nowrap transition cursor-pointer ${
-            activeTab === "REPORT"
-              ? "border-b-2 border-blue-600 text-blue-600 font-extrabold"
-              : "text-slate-500 hover:text-slate-800"
-          }`}
-        >
-          REPORT
-        </button>
-      </div>
-
-      {/* ───────────────────────────────────────────────────────────────── */}
+      <InventoryTabBar
+        title="Item Stock Conversion"
+        tabs={[
+          { id: "CONVERSION_LIST", label: "ITEM STOCK CONVERSION" },
+          { id: "REPORT", label: "REPORT" },
+        ]}
+        active={activeTab}
+        onChange={(id) => {
+          setActiveTab(id);
+          setPage(1);
+        }}
+        search={searchTerm}
+        onSearch={setSearchTerm}
+        actions={
+          <>
+            <button type="button" onClick={() => setActiveTab("CONVERSION_LIST")} className={tabBarButton}>
+              <Copy /> Item Stock Conversion
+            </button>
+            <button type="button" onClick={() => setIsCreateOpen(true)} className={tabBarButton} aria-label="Create Item Stock Conversion">
+              <Plus /> Item Stock Conversion
+            </button>
+          </>
+        }
+      />
       {/* 3. TAB 1: ITEM STOCK CONVERSION LIST VIEW                        */}
       {/* ───────────────────────────────────────────────────────────────── */}
       {activeTab === "CONVERSION_LIST" && (
@@ -1151,13 +1094,13 @@ export default function ItemStockConversionPage() {
         onSaved={() => docs.reload()}
         config={{
           slug: "item-stock-conversion",
-          title: "Create Item Stock Conversion",
+          title: "Create Item Conversion",
+          dateLabel: "Create Date",
           warehouses: "one",
           offices: true,
+          // iBOS: one From Item (Require Qty) converted into one or more items (Qty each).
           conversion: true,
           subtype: { label: "Conversion Type", options: CONVERSION_TYPE_OPTIONS.filter((o) => o.value !== "All").map((o) => o.value) },
-          columns: ["code", "name", "uom", "stock", "qty"],
-          qtyLabel: "From Qty",
         }}
       />
 

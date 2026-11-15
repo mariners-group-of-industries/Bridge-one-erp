@@ -81,6 +81,20 @@ describe("iBOS inventory forms", () => {
     expect(rows.find((r) => r.warehouseId === storeWh)).toMatchObject({ closingQty: 0, inTransitQty: 30 });
   });
 
+  it("a direct transfer in is received at once, with nothing left in transit", async () => {
+    const transfer = await createDocument(adminActor, "TRANSFER", {
+      docDate: "2026-11-15",
+      warehouseId: mainWh,
+      toWarehouseId: storeWh,
+      meta: { directTransferIn: "Yes" },
+      lines: [{ itemId: flourId, qty: 25 }],
+    });
+    expect(transfer.status).toBe("COMPLETED");
+    expect(transfer.processedQty).toBe(25);
+    expect(await stockOf(mainWh)).toBe(75);
+    expect(await stockOf(storeWh)).toBe(25);
+  });
+
   it("a goods gate pass needs no party; a visitor pass needs the visitor's name", async () => {
     const goods = await createDocument(adminActor, "GATE_PASS", {
       docDate: "2026-11-15",

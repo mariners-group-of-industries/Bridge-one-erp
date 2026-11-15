@@ -278,6 +278,22 @@
   background-color: var(--grid-hover);
 }
 
+/* Inventory lists follow iBOS (Managerium): light-blue header, row dividers only, no cell grid. */
+.inventory-module-root .erp-table th {
+  border-top: 0;
+  border-left: 0;
+  border-right: 0;
+  border-bottom: 1px solid var(--grid-head-line);
+  padding: 8px 10px;
+  font-size: 12px;
+}
+
+.inventory-module-root .erp-table td {
+  border-left: 0;
+  border-right: 0;
+  padding: 7px 10px;
+}
+
 /* Compact Managerium-style dense ERP table */
 .erp-table-compact {
   font-size: 11px;

@@ -280,8 +280,16 @@ export async function createDocument(actor: Actor, type: InventoryDocType, raw: 
       }
     }
 
+    // iBOS "Direct Transfer in": the stock is received at once, with no in-transit step.
+    const directIn = type === "TRANSFER" && input.meta?.directTransferIn === "Yes";
     const status =
-      NEEDS_APPROVAL.has(type) ? "PENDING" : type === "TRANSFER" ? "IN_TRANSIT" : type === "GATE_PASS" && input.subtype === "Visitor" ? "PENDING" : "COMPLETED";
+      NEEDS_APPROVAL.has(type)
+        ? "PENDING"
+        : type === "TRANSFER" && !directIn
+          ? "IN_TRANSIT"
+          : type === "GATE_PASS" && input.subtype === "Visitor"
+            ? "PENDING"
+            : "COMPLETED";
     const number = await companyDocumentNumber(tx, businessUnitId, `INVENTORY_${type}`, PREFIX[type], input.docDate);
     const doc = await tx.inventoryDocument.create({
       data: {
@@ -309,6 +317,7 @@ export async function createDocument(actor: Actor, type: InventoryDocType, raw: 
             toItemId: l.toItemId ?? null,
             toQty: l.toQty ?? null,
             remarks: l.remarks ?? null,
+            ...(directIn ? { processedQty: l.qty } : {}),
           })),
         },
       },
@@ -318,7 +327,10 @@ export async function createDocument(actor: Actor, type: InventoryDocType, raw: 
     if (source) {
       const movements: Movement[] =
         type === "TRANSFER"
-          ? input.lines.map((l) => ({ warehouseId: source.id, itemId: l.itemId, qty: -l.qty, source: "TRANSFER_OUT" }))
+          ? input.lines.flatMap((l): Movement[] => [
+              { warehouseId: source.id, itemId: l.itemId, qty: -l.qty, source: "TRANSFER_OUT" },
+              ...(directIn && target ? [{ warehouseId: target.id, itemId: l.itemId, qty: l.qty, source: "TRANSFER_IN" as const }] : []),
+            ])
           : type === "STORE_ISSUE"
             ? input.lines.map((l) => ({ warehouseId: source.id, itemId: l.itemId, qty: -l.qty, source: "STORE_ISSUE" }))
             : [];

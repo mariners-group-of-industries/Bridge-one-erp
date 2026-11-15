@@ -2,12 +2,12 @@
 
 import React, { useState, useMemo } from "react";
 import { useResource } from "@/hooks/use-resource";
+import { InventoryTabBar, tabBarButton } from "@/features/inventory/components/InventoryTabBar";
 import { InventoryDocumentDialog } from "@/features/inventory/components/InventoryDocumentDialog";
 import { ReceiveTransferDialog } from "@/features/inventory/components/ReceiveTransferDialog";
 import type { InventoryDocument } from "@/features/inventory/schemas/document.schema";
 import { dmy, inventoryApi, monthAgo, today } from "@/features/inventory/services/inventory.api";
 import {
-  Search,
   Upload,
   Download,
   Printer,
@@ -358,83 +358,30 @@ export default function TransferPage() {
 
   return (
     <div className="space-y-3 p-1">
-      {/* ─────────────────────────────────────────────────── */}
-      {/* 1. TOP HEADER                                      */}
-      {/* ─────────────────────────────────────────────────── */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-3 rounded border border-slate-200/90 shadow-2xs">
-        <div>
-          <h1 className="text-xl font-bold text-slate-900 tracking-tight">
-            Transfer
-          </h1>
-        </div>
-
-        <div className="flex items-center gap-2">
-          {/* Search */}
-          <div className="relative">
-            <input
-              type="text"
-              placeholder="Search...."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-56 sm:w-64 h-9 pl-3 pr-8 text-xs border border-slate-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 bg-white placeholder-slate-400"
-            />
-            <Search className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-          </div>
-
-          {/* Upload */}
-          <button
-            type="button"
-            title="Upload"
-            className="h-9 px-3.5 bg-[#1976d2] hover:bg-[#1565c0] text-white font-semibold text-xs rounded flex items-center gap-1.5 shadow-xs transition"
-          >
-            <Upload className="w-3.5 h-3.5" />
-            <span>Upload</span>
-          </button>
-
-          {/* Download */}
-          <button
-            type="button"
-            onClick={handleExportCSV}
-            title="Download CSV"
-            className="h-9 px-3.5 bg-[#1976d2] hover:bg-[#1565c0] text-white font-semibold text-xs rounded flex items-center gap-1.5 shadow-xs transition"
-          >
-            <Download className="w-3.5 h-3.5" />
-            <span>Download</span>
-          </button>
-
-          {/* Direct Transfer Out Button */}
-          <button
-            type="button"
-            onClick={() => openTransfer()}
-            className="h-9 px-4 bg-[#1976d2] hover:bg-[#1565c0] text-white font-semibold text-xs rounded flex items-center gap-1.5 shadow-xs transition whitespace-nowrap"
-          >
-            <span>Direct Transfer Out</span>
-          </button>
-        </div>
-      </div>
-
-      {/* ─────────────────────────────────────────────────── */}
-      {/* 2. TABS NAVIGATION                                 */}
-      {/* ─────────────────────────────────────────────────── */}
-      <div className="flex border-b border-slate-200 gap-8 text-xs font-bold uppercase tracking-wider overflow-x-auto">
-        {tabs.map((tab) => (
-          <button
-            key={tab.id}
-            type="button"
-            onClick={() => {
-              setActiveTab(tab.id);
-              setPage(1);
-            }}
-            className={`pb-2 whitespace-nowrap transition ${
-              activeTab === tab.id
-                ? "border-b-2 border-blue-600 text-blue-600 font-extrabold"
-                : "text-slate-500 hover:text-slate-800"
-            }`}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </div>
+      <InventoryTabBar
+        title="Transfer"
+        tabs={tabs}
+        active={activeTab}
+        onChange={(id) => {
+          setActiveTab(id);
+          setPage(1);
+        }}
+        search={searchTerm}
+        onSearch={setSearchTerm}
+        actions={
+          <>
+            <button type="button" className={tabBarButton} title="Upload">
+              <Upload /> Upload
+            </button>
+            <button type="button" onClick={handleExportCSV} className={tabBarButton}>
+              <Download /> Download
+            </button>
+            <button type="button" onClick={() => openTransfer()} className={tabBarButton}>
+              Direct Transfer Out
+            </button>
+          </>
+        }
+      />
 
       {/* ─────────────────────────────────────────────────── */}
       {/* 3. TAB 1: APPROVED TRANS. REQUEST                   */}
@@ -445,6 +392,7 @@ export default function TransferPage() {
           <div className="bg-slate-50/60 p-3 rounded border border-slate-200 space-y-3 text-xs">
             <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
               <div>
+                <label className="block text-[11px] text-slate-600 mb-1 font-medium">From Office</label>
                 <select
                   value={fromOffice}
                   onChange={(e) => setFromOffice(e.target.value)}
@@ -459,6 +407,7 @@ export default function TransferPage() {
               </div>
 
               <div>
+                <label className="block text-[11px] text-slate-600 mb-1 font-medium">From Warehouse</label>
                 <select
                   value={fromWarehouse}
                   onChange={(e) => setFromWarehouse(e.target.value)}
@@ -473,6 +422,7 @@ export default function TransferPage() {
               </div>
 
               <div>
+                <label className="block text-[11px] text-slate-600 mb-1 font-medium">To Office</label>
                 <select
                   value={toOffice}
                   onChange={(e) => setToOffice(e.target.value)}
@@ -487,6 +437,7 @@ export default function TransferPage() {
               </div>
 
               <div>
+                <label className="block text-[11px] text-slate-600 mb-1 font-medium">Requesting/Receive Warehouse</label>
                 <select
                   value={toWarehouse}
                   onChange={(e) => setToWarehouse(e.target.value)}
@@ -504,6 +455,7 @@ export default function TransferPage() {
             {/* Filter row 2 */}
             <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 items-end">
               <div>
+                <label className="block text-[11px] text-slate-600 mb-1 font-medium">Request To</label>
                 <input
                   type="text"
                   placeholder="Select/Search Request To (min 3 letters)"
@@ -555,31 +507,31 @@ export default function TransferPage() {
           ) : (
             <div className="border border-slate-300 bg-white rounded shadow-2xs overflow-x-auto">
               <table className="erp-table w-full text-left text-xs border-collapse">
-                <thead className="bg-[#e6f2fb] text-slate-800 font-semibold text-[11px] border-b border-slate-300">
+                <thead className="bg-blue-100/70 text-slate-900 font-semibold text-xs">
                   <tr>
-                    <th className="p-2 border border-slate-300 w-10 text-center">SL</th>
-                    <th className="p-2 border border-slate-300">Request Date</th>
-                    <th className="p-2 border border-slate-300">Request Code</th>
-                    <th className="p-2 border border-slate-300">From Warehouse</th>
-                    <th className="p-2 border border-slate-300">Requesting Warehouse</th>
-                    <th className="p-2 border border-slate-300 text-right">Requested</th>
-                    <th className="p-2 border border-slate-300 text-right">Sent</th>
-                    <th className="p-2 border border-slate-300 text-right">Open</th>
-                    <th className="p-2 border border-slate-300 w-28 text-center">Action</th>
+                    <th className="px-2.5 py-2 border-b border-slate-200 w-10 text-center">SL</th>
+                    <th className="px-2.5 py-2 border-b border-slate-200">Request Date</th>
+                    <th className="px-2.5 py-2 border-b border-slate-200">Request Code</th>
+                    <th className="px-2.5 py-2 border-b border-slate-200">From Warehouse</th>
+                    <th className="px-2.5 py-2 border-b border-slate-200">Requesting Warehouse</th>
+                    <th className="px-2.5 py-2 border-b border-slate-200 text-right">Requested</th>
+                    <th className="px-2.5 py-2 border-b border-slate-200 text-right">Sent</th>
+                    <th className="px-2.5 py-2 border-b border-slate-200 text-right">Open</th>
+                    <th className="px-2.5 py-2 border-b border-slate-200 w-28 text-center">Action</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200 text-[11px] text-slate-800">
                   {approvedRequests.map((r, i) => (
                     <tr key={r.id} className="hover:bg-slate-50/80">
-                      <td className="p-2 border border-slate-300 text-center font-mono">{i + 1}</td>
-                      <td className="p-2 border border-slate-300 whitespace-nowrap">{dmy(r.docDate)}</td>
-                      <td className="p-2 border border-slate-300 font-mono font-medium">{r.number}</td>
-                      <td className="p-2 border border-slate-300">{r.warehouse?.name}</td>
-                      <td className="p-2 border border-slate-300">{r.toWarehouse?.name}</td>
-                      <td className="p-2 border border-slate-300 text-right font-mono">{r.totalQty}</td>
-                      <td className="p-2 border border-slate-300 text-right font-mono">{r.processedQty}</td>
-                      <td className="p-2 border border-slate-300 text-right font-mono font-bold">{round3(r.totalQty - r.processedQty)}</td>
-                      <td className="p-2 border border-slate-300 text-center">
+                      <td className="px-2.5 py-2 border-b border-slate-200 text-center font-mono">{i + 1}</td>
+                      <td className="px-2.5 py-2 border-b border-slate-200 whitespace-nowrap">{dmy(r.docDate)}</td>
+                      <td className="px-2.5 py-2 border-b border-slate-200 font-mono font-medium">{r.number}</td>
+                      <td className="px-2.5 py-2 border-b border-slate-200">{r.warehouse?.name}</td>
+                      <td className="px-2.5 py-2 border-b border-slate-200">{r.toWarehouse?.name}</td>
+                      <td className="px-2.5 py-2 border-b border-slate-200 text-right font-mono">{r.totalQty}</td>
+                      <td className="px-2.5 py-2 border-b border-slate-200 text-right font-mono">{r.processedQty}</td>
+                      <td className="px-2.5 py-2 border-b border-slate-200 text-right font-mono font-bold">{round3(r.totalQty - r.processedQty)}</td>
+                      <td className="px-2.5 py-2 border-b border-slate-200 text-center">
                         <button
                           type="button"
                           onClick={() => openTransfer(r.id)}
@@ -606,6 +558,7 @@ export default function TransferPage() {
           <div className="bg-slate-50/60 p-3 rounded border border-slate-200 space-y-3 text-xs">
             <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
               <div>
+                <label className="block text-[11px] text-slate-600 mb-1 font-medium">From Office</label>
                 <select
                   value={fromOffice}
                   onChange={(e) => setFromOffice(e.target.value)}
@@ -620,6 +573,7 @@ export default function TransferPage() {
               </div>
 
               <div>
+                <label className="block text-[11px] text-slate-600 mb-1 font-medium">From Warehouse</label>
                 <select
                   value={fromWarehouse}
                   onChange={(e) => setFromWarehouse(e.target.value)}
@@ -634,6 +588,7 @@ export default function TransferPage() {
               </div>
 
               <div>
+                <label className="block text-[11px] text-slate-600 mb-1 font-medium">To Office</label>
                 <select
                   value={toOffice}
                   onChange={(e) => setToOffice(e.target.value)}
@@ -648,6 +603,7 @@ export default function TransferPage() {
               </div>
 
               <div>
+                <label className="block text-[11px] text-slate-600 mb-1 font-medium">Requesting/Receive Warehouse</label>
                 <select
                   value={toWarehouse}
                   onChange={(e) => setToWarehouse(e.target.value)}
@@ -665,6 +621,7 @@ export default function TransferPage() {
             {/* Filter row 2 */}
             <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 items-end">
               <div>
+                <label className="block text-[11px] text-slate-600 mb-1 font-medium">Request To</label>
                 <input
                   type="text"
                   placeholder="Select/Search Request To (min 3 letters)"
@@ -709,71 +666,71 @@ export default function TransferPage() {
           {/* Table */}
           <div className="border border-slate-300 bg-white rounded shadow-2xs overflow-x-auto">
             <table className="erp-table w-full text-left text-xs border-collapse">
-              <thead className="bg-[#e6f2fb] text-slate-800 font-semibold text-[11px] border-b border-slate-300 select-none">
+              <thead className="bg-blue-100/70 text-slate-900 font-semibold text-xs select-none">
                 <tr>
-                  <th className="p-2 border border-slate-300 w-10 text-center">SL</th>
-                  <th className="p-2 border border-slate-300 w-24">Transfer Date</th>
-                  <th className="p-2 border border-slate-300 w-28">Request Code</th>
-                  <th className="p-2 border border-slate-300 w-32">Transfer Code</th>
-                  <th className="p-2 border border-slate-300">From/Sending Office</th>
-                  <th className="p-2 border border-slate-300">From/Sending Warehouse</th>
-                  <th className="p-2 border border-slate-300">Requesting/Receive Office</th>
-                  <th className="p-2 border border-slate-300">Requesting/Receive Warehouse</th>
-                  <th className="p-2 border border-slate-300 w-24">Request By</th>
-                  <th className="p-2 border border-slate-300 w-24">Request To</th>
-                  <th className="p-2 border border-slate-300 w-24 text-right">Total Qty</th>
-                  <th className="p-2 border border-slate-300 w-24 text-right">Received Qty</th>
-                  <th className="p-2 border border-slate-300 w-20 text-right">Return Qty</th>
-                  <th className="p-2 border border-slate-300 w-20 text-right">In Transit Qty</th>
-                  <th className="p-2 border border-slate-300 w-16 text-center">Action</th>
+                  <th className="px-2.5 py-2 border-b border-slate-200 w-10 text-center">SL</th>
+                  <th className="px-2.5 py-2 border-b border-slate-200 w-24">Transfer Date</th>
+                  <th className="px-2.5 py-2 border-b border-slate-200 w-28">Request Code</th>
+                  <th className="px-2.5 py-2 border-b border-slate-200 w-32">Transfer Code</th>
+                  <th className="px-2.5 py-2 border-b border-slate-200">From/Sending Office</th>
+                  <th className="px-2.5 py-2 border-b border-slate-200">From/Sending Warehouse</th>
+                  <th className="px-2.5 py-2 border-b border-slate-200">Requesting/Receive Office</th>
+                  <th className="px-2.5 py-2 border-b border-slate-200">Requesting/Receive Warehouse</th>
+                  <th className="px-2.5 py-2 border-b border-slate-200 w-24">Request By</th>
+                  <th className="px-2.5 py-2 border-b border-slate-200 w-24">Request To</th>
+                  <th className="px-2.5 py-2 border-b border-slate-200 w-24 text-right">Total Qty</th>
+                  <th className="px-2.5 py-2 border-b border-slate-200 w-24 text-right">Received Qty</th>
+                  <th className="px-2.5 py-2 border-b border-slate-200 w-20 text-right">Return Qty</th>
+                  <th className="px-2.5 py-2 border-b border-slate-200 w-20 text-right">In Transit Qty</th>
+                  <th className="px-2.5 py-2 border-b border-slate-200 w-16 text-center">Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200 text-[11px] text-slate-800">
                 {filteredTransferOut.map((row) => (
                   <tr key={row.id} className="hover:bg-slate-50/80 transition-colors">
-                    <td className="p-2 border border-slate-300 text-center font-mono text-slate-600">
+                    <td className="px-2.5 py-2 border-b border-slate-200 text-center font-mono text-slate-600">
                       {row.sl}
                     </td>
-                    <td className="p-2 border border-slate-300 whitespace-nowrap text-slate-700">
+                    <td className="px-2.5 py-2 border-b border-slate-200 whitespace-nowrap text-slate-700">
                       {row.transferDate}
                     </td>
-                    <td className="p-2 border border-slate-300 font-mono text-slate-800">
+                    <td className="px-2.5 py-2 border-b border-slate-200 font-mono text-slate-800">
                       {row.requestCode}
                     </td>
-                    <td className="p-2 border border-slate-300 font-mono font-medium text-slate-900 whitespace-nowrap">
+                    <td className="px-2.5 py-2 border-b border-slate-200 font-mono font-medium text-slate-900 whitespace-nowrap">
                       {row.transferCode}
                     </td>
-                    <td className="p-2 border border-slate-300 text-slate-700">
+                    <td className="px-2.5 py-2 border-b border-slate-200 text-slate-700">
                       {row.fromOffice}
                     </td>
-                    <td className="p-2 border border-slate-300 text-slate-700">
+                    <td className="px-2.5 py-2 border-b border-slate-200 text-slate-700">
                       {row.fromWarehouse}
                     </td>
-                    <td className="p-2 border border-slate-300 text-slate-700">
+                    <td className="px-2.5 py-2 border-b border-slate-200 text-slate-700">
                       {row.receiveOffice}
                     </td>
-                    <td className="p-2 border border-slate-300 text-slate-700">
+                    <td className="px-2.5 py-2 border-b border-slate-200 text-slate-700">
                       {row.receiveWarehouse}
                     </td>
-                    <td className="p-2 border border-slate-300 text-slate-600">
+                    <td className="px-2.5 py-2 border-b border-slate-200 text-slate-600">
                       {row.requestBy}
                     </td>
-                    <td className="p-2 border border-slate-300 text-slate-600">
+                    <td className="px-2.5 py-2 border-b border-slate-200 text-slate-600">
                       {row.requestTo}
                     </td>
-                    <td className="p-2 border border-slate-300 text-right font-mono font-medium">
+                    <td className="px-2.5 py-2 border-b border-slate-200 text-right font-mono font-medium">
                       {row.totalQty.toLocaleString("en-US", { minimumFractionDigits: 2 })}
                     </td>
-                    <td className="p-2 border border-slate-300 text-right font-mono">
+                    <td className="px-2.5 py-2 border-b border-slate-200 text-right font-mono">
                       {row.receivedQty.toLocaleString("en-US", { minimumFractionDigits: 2 })}
                     </td>
-                    <td className="p-2 border border-slate-300 text-right font-mono">
+                    <td className="px-2.5 py-2 border-b border-slate-200 text-right font-mono">
                       {row.returnQty.toFixed(2)}
                     </td>
-                    <td className="p-2 border border-slate-300 text-right font-mono">
+                    <td className="px-2.5 py-2 border-b border-slate-200 text-right font-mono">
                       {row.inTransitQty.toFixed(2)}
                     </td>
-                    <td className="p-2 border border-slate-300 text-center">
+                    <td className="px-2.5 py-2 border-b border-slate-200 text-center">
                       <div className="flex items-center justify-center gap-1.5 text-slate-600">
                         <button type="button" className="p-0.5 hover:text-blue-600" title="Print">
                           <Printer className="w-3.5 h-3.5" />
@@ -797,6 +754,7 @@ export default function TransferPage() {
           <div className="bg-slate-50/60 p-3 rounded border border-slate-200 space-y-3 text-xs">
             <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
               <div>
+                <label className="block text-[11px] text-slate-600 mb-1 font-medium">From Office</label>
                 <select
                   value={fromOffice}
                   onChange={(e) => setFromOffice(e.target.value)}
@@ -811,6 +769,7 @@ export default function TransferPage() {
               </div>
 
               <div>
+                <label className="block text-[11px] text-slate-600 mb-1 font-medium">From Warehouse</label>
                 <select
                   value={fromWarehouse}
                   onChange={(e) => setFromWarehouse(e.target.value)}
@@ -825,6 +784,7 @@ export default function TransferPage() {
               </div>
 
               <div>
+                <label className="block text-[11px] text-slate-600 mb-1 font-medium">To Office</label>
                 <select
                   value={toOffice}
                   onChange={(e) => setToOffice(e.target.value)}
@@ -839,6 +799,7 @@ export default function TransferPage() {
               </div>
 
               <div>
+                <label className="block text-[11px] text-slate-600 mb-1 font-medium">Requesting/Receive Warehouse</label>
                 <select
                   value={toWarehouse}
                   onChange={(e) => setToWarehouse(e.target.value)}
@@ -856,6 +817,7 @@ export default function TransferPage() {
             {/* Filter row 2 */}
             <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 items-end">
               <div>
+                <label className="block text-[11px] text-slate-600 mb-1 font-medium">Request To</label>
                 <input
                   type="text"
                   placeholder="Select/Search Request To (min 3 letters)"
@@ -900,71 +862,71 @@ export default function TransferPage() {
           {/* Table */}
           <div className="border border-slate-300 bg-white rounded shadow-2xs overflow-x-auto">
             <table className="erp-table w-full text-left text-xs border-collapse">
-              <thead className="bg-[#e6f2fb] text-slate-800 font-semibold text-[11px] border-b border-slate-300 select-none">
+              <thead className="bg-blue-100/70 text-slate-900 font-semibold text-xs select-none">
                 <tr>
-                  <th className="p-2 border border-slate-300 w-10 text-center">SL</th>
-                  <th className="p-2 border border-slate-300 w-24">Transfer Date</th>
-                  <th className="p-2 border border-slate-300 w-28">Request Code</th>
-                  <th className="p-2 border border-slate-300 w-32">Transfer Code</th>
-                  <th className="p-2 border border-slate-300">From/Sending Office</th>
-                  <th className="p-2 border border-slate-300">From/Sending Warehouse</th>
-                  <th className="p-2 border border-slate-300">Requesting/Receive Office</th>
-                  <th className="p-2 border border-slate-300">Requesting/Receive Warehouse</th>
-                  <th className="p-2 border border-slate-300 w-24">Request By</th>
-                  <th className="p-2 border border-slate-300 w-24">Request To</th>
-                  <th className="p-2 border border-slate-300 w-24 text-right">Total Qty</th>
-                  <th className="p-2 border border-slate-300 w-24 text-right">Received Qty</th>
-                  <th className="p-2 border border-slate-300 w-20 text-right">Return Qty</th>
-                  <th className="p-2 border border-slate-300 w-20 text-right">In Transit Qty</th>
-                  <th className="p-2 border border-slate-300 w-16 text-center">Action</th>
+                  <th className="px-2.5 py-2 border-b border-slate-200 w-10 text-center">SL</th>
+                  <th className="px-2.5 py-2 border-b border-slate-200 w-24">Transfer Date</th>
+                  <th className="px-2.5 py-2 border-b border-slate-200 w-28">Request Code</th>
+                  <th className="px-2.5 py-2 border-b border-slate-200 w-32">Transfer Code</th>
+                  <th className="px-2.5 py-2 border-b border-slate-200">From/Sending Office</th>
+                  <th className="px-2.5 py-2 border-b border-slate-200">From/Sending Warehouse</th>
+                  <th className="px-2.5 py-2 border-b border-slate-200">Requesting/Receive Office</th>
+                  <th className="px-2.5 py-2 border-b border-slate-200">Requesting/Receive Warehouse</th>
+                  <th className="px-2.5 py-2 border-b border-slate-200 w-24">Request By</th>
+                  <th className="px-2.5 py-2 border-b border-slate-200 w-24">Request To</th>
+                  <th className="px-2.5 py-2 border-b border-slate-200 w-24 text-right">Total Qty</th>
+                  <th className="px-2.5 py-2 border-b border-slate-200 w-24 text-right">Received Qty</th>
+                  <th className="px-2.5 py-2 border-b border-slate-200 w-20 text-right">Return Qty</th>
+                  <th className="px-2.5 py-2 border-b border-slate-200 w-20 text-right">In Transit Qty</th>
+                  <th className="px-2.5 py-2 border-b border-slate-200 w-16 text-center">Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200 text-[11px] text-slate-800">
                 {filteredInTransit.map((row) => (
                   <tr key={row.id} className="hover:bg-slate-50/80 transition-colors">
-                    <td className="p-2 border border-slate-300 text-center font-mono text-slate-600">
+                    <td className="px-2.5 py-2 border-b border-slate-200 text-center font-mono text-slate-600">
                       {row.sl}
                     </td>
-                    <td className="p-2 border border-slate-300 whitespace-nowrap text-slate-700">
+                    <td className="px-2.5 py-2 border-b border-slate-200 whitespace-nowrap text-slate-700">
                       {row.transferDate}
                     </td>
-                    <td className="p-2 border border-slate-300 font-mono text-slate-800">
+                    <td className="px-2.5 py-2 border-b border-slate-200 font-mono text-slate-800">
                       {row.requestCode}
                     </td>
-                    <td className="p-2 border border-slate-300 font-mono font-medium text-slate-900 whitespace-nowrap">
+                    <td className="px-2.5 py-2 border-b border-slate-200 font-mono font-medium text-slate-900 whitespace-nowrap">
                       {row.transferCode}
                     </td>
-                    <td className="p-2 border border-slate-300 text-slate-700">
+                    <td className="px-2.5 py-2 border-b border-slate-200 text-slate-700">
                       {row.fromOffice}
                     </td>
-                    <td className="p-2 border border-slate-300 text-slate-700">
+                    <td className="px-2.5 py-2 border-b border-slate-200 text-slate-700">
                       {row.fromWarehouse}
                     </td>
-                    <td className="p-2 border border-slate-300 text-slate-700">
+                    <td className="px-2.5 py-2 border-b border-slate-200 text-slate-700">
                       {row.receiveOffice}
                     </td>
-                    <td className="p-2 border border-slate-300 text-slate-700">
+                    <td className="px-2.5 py-2 border-b border-slate-200 text-slate-700">
                       {row.receiveWarehouse}
                     </td>
-                    <td className="p-2 border border-slate-300 text-slate-600">
+                    <td className="px-2.5 py-2 border-b border-slate-200 text-slate-600">
                       {row.requestBy}
                     </td>
-                    <td className="p-2 border border-slate-300 text-slate-600">
+                    <td className="px-2.5 py-2 border-b border-slate-200 text-slate-600">
                       {row.requestTo}
                     </td>
-                    <td className="p-2 border border-slate-300 text-right font-mono font-medium">
+                    <td className="px-2.5 py-2 border-b border-slate-200 text-right font-mono font-medium">
                       {row.totalQty.toLocaleString("en-US", { minimumFractionDigits: 2 })}
                     </td>
-                    <td className="p-2 border border-slate-300 text-right font-mono">
+                    <td className="px-2.5 py-2 border-b border-slate-200 text-right font-mono">
                       {row.receivedQty.toLocaleString("en-US", { minimumFractionDigits: 2 })}
                     </td>
-                    <td className="p-2 border border-slate-300 text-right font-mono">
+                    <td className="px-2.5 py-2 border-b border-slate-200 text-right font-mono">
                       {row.returnQty.toFixed(2)}
                     </td>
-                    <td className="p-2 border border-slate-300 text-right font-mono text-blue-600 font-bold">
+                    <td className="px-2.5 py-2 border-b border-slate-200 text-right font-mono text-blue-600 font-bold">
                       {row.inTransitQty.toFixed(2)}
                     </td>
-                    <td className="p-2 border border-slate-300 text-center">
+                    <td className="px-2.5 py-2 border-b border-slate-200 text-center">
                       <div className="flex items-center justify-center gap-1.5 text-slate-600">
                         <button
                           type="button"
@@ -1027,57 +989,57 @@ export default function TransferPage() {
           {/* Table */}
           <div className="border border-slate-300 bg-white rounded shadow-2xs overflow-x-auto">
             <table className="erp-table w-full text-left text-xs border-collapse">
-              <thead className="bg-[#e6f2fb] text-slate-800 font-semibold text-[11px] border-b border-slate-300 select-none">
+              <thead className="bg-blue-100/70 text-slate-900 font-semibold text-xs select-none">
                 <tr>
-                  <th className="p-2 border border-slate-300 w-10 text-center">SL</th>
-                  <th className="p-2 border border-slate-300 w-24">Return Date</th>
-                  <th className="p-2 border border-slate-300 w-36">Transfer Code</th>
-                  <th className="p-2 border border-slate-300 w-36">Return Code</th>
-                  <th className="p-2 border border-slate-300">From/Sending Office</th>
-                  <th className="p-2 border border-slate-300">From/Sending Warehouse</th>
-                  <th className="p-2 border border-slate-300">Requesting/Receive Office</th>
-                  <th className="p-2 border border-slate-300">Requesting/Receive Warehouse</th>
-                  <th className="p-2 border border-slate-300 w-24 text-right">Return Qty</th>
-                  <th className="p-2 border border-slate-300 w-24 text-center">Status</th>
-                  <th className="p-2 border border-slate-300 w-16 text-center">Action</th>
+                  <th className="px-2.5 py-2 border-b border-slate-200 w-10 text-center">SL</th>
+                  <th className="px-2.5 py-2 border-b border-slate-200 w-24">Return Date</th>
+                  <th className="px-2.5 py-2 border-b border-slate-200 w-36">Transfer Code</th>
+                  <th className="px-2.5 py-2 border-b border-slate-200 w-36">Return Code</th>
+                  <th className="px-2.5 py-2 border-b border-slate-200">From/Sending Office</th>
+                  <th className="px-2.5 py-2 border-b border-slate-200">From/Sending Warehouse</th>
+                  <th className="px-2.5 py-2 border-b border-slate-200">Requesting/Receive Office</th>
+                  <th className="px-2.5 py-2 border-b border-slate-200">Requesting/Receive Warehouse</th>
+                  <th className="px-2.5 py-2 border-b border-slate-200 w-24 text-right">Return Qty</th>
+                  <th className="px-2.5 py-2 border-b border-slate-200 w-24 text-center">Status</th>
+                  <th className="px-2.5 py-2 border-b border-slate-200 w-16 text-center">Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200 text-[11px] text-slate-800">
                 {filteredReturn.map((row) => (
                   <tr key={row.id} className="hover:bg-slate-50/80 transition-colors">
-                    <td className="p-2 border border-slate-300 text-center font-mono text-slate-600">
+                    <td className="px-2.5 py-2 border-b border-slate-200 text-center font-mono text-slate-600">
                       {row.sl}
                     </td>
-                    <td className="p-2 border border-slate-300 whitespace-nowrap text-slate-700">
+                    <td className="px-2.5 py-2 border-b border-slate-200 whitespace-nowrap text-slate-700">
                       {row.returnDate}
                     </td>
-                    <td className="p-2 border border-slate-300 font-mono font-medium text-slate-900 whitespace-nowrap">
+                    <td className="px-2.5 py-2 border-b border-slate-200 font-mono font-medium text-slate-900 whitespace-nowrap">
                       {row.transferCode}
                     </td>
-                    <td className="p-2 border border-slate-300 font-mono text-slate-800 whitespace-nowrap">
+                    <td className="px-2.5 py-2 border-b border-slate-200 font-mono text-slate-800 whitespace-nowrap">
                       {row.returnCode}
                     </td>
-                    <td className="p-2 border border-slate-300 text-slate-700">
+                    <td className="px-2.5 py-2 border-b border-slate-200 text-slate-700">
                       {row.fromOffice}
                     </td>
-                    <td className="p-2 border border-slate-300 text-slate-700">
+                    <td className="px-2.5 py-2 border-b border-slate-200 text-slate-700">
                       {row.fromWarehouse}
                     </td>
-                    <td className="p-2 border border-slate-300 text-slate-700">
+                    <td className="px-2.5 py-2 border-b border-slate-200 text-slate-700">
                       {row.receiveOffice}
                     </td>
-                    <td className="p-2 border border-slate-300 text-slate-700">
+                    <td className="px-2.5 py-2 border-b border-slate-200 text-slate-700">
                       {row.receiveWarehouse}
                     </td>
-                    <td className="p-2 border border-slate-300 text-right font-mono font-medium">
+                    <td className="px-2.5 py-2 border-b border-slate-200 text-right font-mono font-medium">
                       {row.returnQty.toLocaleString("en-US", { minimumFractionDigits: 2 })}
                     </td>
-                    <td className="p-2 border border-slate-300 text-center">
+                    <td className="px-2.5 py-2 border-b border-slate-200 text-center">
                       <span className="text-emerald-600 font-semibold text-[11px]">
                         {row.status}
                       </span>
                     </td>
-                    <td className="p-2 border border-slate-300 text-center">
+                    <td className="px-2.5 py-2 border-b border-slate-200 text-center">
                       <button type="button" className="p-0.5 hover:text-blue-600 text-slate-600" title="View">
                         <Eye className="w-3.5 h-3.5" />
                       </button>
@@ -1099,6 +1061,7 @@ export default function TransferPage() {
           <div className="bg-slate-50/60 p-3 rounded border border-slate-200 space-y-3 text-xs">
             <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
               <div>
+                <label className="block text-[11px] text-slate-600 mb-1 font-medium">From Warehouse</label>
                 <select
                   value={fromWarehouse}
                   onChange={(e) => setFromWarehouse(e.target.value)}
@@ -1113,6 +1076,7 @@ export default function TransferPage() {
               </div>
 
               <div>
+                <label className="block text-[11px] text-slate-600 mb-1 font-medium">Requesting/Receive Warehouse</label>
                 <select
                   value={toWarehouse}
                   onChange={(e) => setToWarehouse(e.target.value)}
@@ -1127,6 +1091,7 @@ export default function TransferPage() {
               </div>
 
               <div>
+                <label className="block text-[11px] text-slate-600 mb-1 font-medium">Request To</label>
                 <input
                   type="text"
                   placeholder="Select/Search Request To (min 3 letters)"
@@ -1173,63 +1138,63 @@ export default function TransferPage() {
           {/* Table */}
           <div className="border border-slate-300 bg-white rounded shadow-2xs overflow-x-auto">
             <table className="erp-table w-full text-left text-xs border-collapse">
-              <thead className="bg-[#e6f2fb] text-slate-800 font-semibold text-[11px] border-b border-slate-300 select-none">
+              <thead className="bg-blue-100/70 text-slate-900 font-semibold text-xs select-none">
                 <tr>
-                  <th className="p-2 border border-slate-300 w-10 text-center">SL</th>
-                  <th className="p-2 border border-slate-300 w-24">Transfer Date</th>
-                  <th className="p-2 border border-slate-300 w-24">Receive Date</th>
-                  <th className="p-2 border border-slate-300 w-32">Transfer Request Number</th>
-                  <th className="p-2 border border-slate-300 w-32">Transfer Code</th>
-                  <th className="p-2 border border-slate-300">From/Sending Warehouse</th>
-                  <th className="p-2 border border-slate-300">Request/Receive Warehouse</th>
-                  <th className="p-2 border border-slate-300 w-24">Request To</th>
-                  <th className="p-2 border border-slate-300 w-24 text-right">Received Qty</th>
-                  <th className="p-2 border border-slate-300 w-24">Loading Time</th>
-                  <th className="p-2 border border-slate-300 w-28">Loading Temperature (°C)</th>
-                  <th className="p-2 border border-slate-300 w-28">Chilling Temperature (°C)</th>
-                  <th className="p-2 border border-slate-300 w-16 text-center">Actions</th>
+                  <th className="px-2.5 py-2 border-b border-slate-200 w-10 text-center">SL</th>
+                  <th className="px-2.5 py-2 border-b border-slate-200 w-24">Transfer Date</th>
+                  <th className="px-2.5 py-2 border-b border-slate-200 w-24">Receive Date</th>
+                  <th className="px-2.5 py-2 border-b border-slate-200 w-32">Transfer Request Number</th>
+                  <th className="px-2.5 py-2 border-b border-slate-200 w-32">Transfer Code</th>
+                  <th className="px-2.5 py-2 border-b border-slate-200">From/Sending Warehouse</th>
+                  <th className="px-2.5 py-2 border-b border-slate-200">Request/Receive Warehouse</th>
+                  <th className="px-2.5 py-2 border-b border-slate-200 w-24">Request To</th>
+                  <th className="px-2.5 py-2 border-b border-slate-200 w-24 text-right">Received Qty</th>
+                  <th className="px-2.5 py-2 border-b border-slate-200 w-24">Loading Time</th>
+                  <th className="px-2.5 py-2 border-b border-slate-200 w-28">Loading Temperature (°C)</th>
+                  <th className="px-2.5 py-2 border-b border-slate-200 w-28">Chilling Temperature (°C)</th>
+                  <th className="px-2.5 py-2 border-b border-slate-200 w-16 text-center">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200 text-[11px] text-slate-800">
                 {filteredReceived.map((row) => (
                   <tr key={row.id} className="hover:bg-slate-50/80 transition-colors">
-                    <td className="p-2 border border-slate-300 text-center font-mono text-slate-600">
+                    <td className="px-2.5 py-2 border-b border-slate-200 text-center font-mono text-slate-600">
                       {row.sl}
                     </td>
-                    <td className="p-2 border border-slate-300 whitespace-nowrap text-slate-700">
+                    <td className="px-2.5 py-2 border-b border-slate-200 whitespace-nowrap text-slate-700">
                       {row.transferDate}
                     </td>
-                    <td className="p-2 border border-slate-300 whitespace-nowrap text-slate-700">
+                    <td className="px-2.5 py-2 border-b border-slate-200 whitespace-nowrap text-slate-700">
                       {row.receiveDate}
                     </td>
-                    <td className="p-2 border border-slate-300 font-mono text-slate-800">
+                    <td className="px-2.5 py-2 border-b border-slate-200 font-mono text-slate-800">
                       {row.transferRequestNumber}
                     </td>
-                    <td className="p-2 border border-slate-300 font-mono font-medium text-slate-900 whitespace-nowrap">
+                    <td className="px-2.5 py-2 border-b border-slate-200 font-mono font-medium text-slate-900 whitespace-nowrap">
                       {row.transferCode}
                     </td>
-                    <td className="p-2 border border-slate-300 text-slate-700">
+                    <td className="px-2.5 py-2 border-b border-slate-200 text-slate-700">
                       {row.fromWarehouse}
                     </td>
-                    <td className="p-2 border border-slate-300 text-slate-700">
+                    <td className="px-2.5 py-2 border-b border-slate-200 text-slate-700">
                       {row.receiveWarehouse}
                     </td>
-                    <td className="p-2 border border-slate-300 text-slate-600">
+                    <td className="px-2.5 py-2 border-b border-slate-200 text-slate-600">
                       {row.requestTo}
                     </td>
-                    <td className="p-2 border border-slate-300 text-right font-mono font-medium">
+                    <td className="px-2.5 py-2 border-b border-slate-200 text-right font-mono font-medium">
                       {row.receivedQty.toLocaleString("en-US", { minimumFractionDigits: 2 })}
                     </td>
-                    <td className="p-2 border border-slate-300 text-slate-600">
+                    <td className="px-2.5 py-2 border-b border-slate-200 text-slate-600">
                       {row.loadingTime}
                     </td>
-                    <td className="p-2 border border-slate-300 text-slate-600">
+                    <td className="px-2.5 py-2 border-b border-slate-200 text-slate-600">
                       {row.loadingTemp}
                     </td>
-                    <td className="p-2 border border-slate-300 text-slate-600">
+                    <td className="px-2.5 py-2 border-b border-slate-200 text-slate-600">
                       {row.chillingTemp}
                     </td>
-                    <td className="p-2 border border-slate-300 text-center">
+                    <td className="px-2.5 py-2 border-b border-slate-200 text-center">
                       <div className="flex items-center justify-center gap-1.5 text-slate-600">
                         <button type="button" className="p-0.5 hover:text-blue-600" title="Print">
                           <Printer className="w-3.5 h-3.5" />
@@ -1263,9 +1228,15 @@ export default function TransferPage() {
           dateLabel: "Transfer Date",
           fulfils: { slug: "transfer-request", label: "Transfer Request" },
           fields: [
+            // iBOS: "Direct Transfer in" receives at once (no in-transit step); "Supplier Wise" asks for the supplier and lists its items.
+            { key: "directTransferIn", label: "Direct Transfer in", kind: "checkbox" },
+            { key: "supplierWise", label: "Supplier Wise", kind: "checkbox" },
             { key: "grnNo", label: "GRN", kind: "text" },
             { key: "productionEntry", label: "Production Entry", kind: "text" },
+            { key: "supplier", label: "Supplier", kind: "supplier", required: true, whenChecked: "supplierWise" },
           ],
+          picker: "simple",
+          qtyLabel: "Quantity",
           columns: ["code", "category", "name", "cost", "trade", "mrp", "altUom", "altQty", "uom", "stock", "qty", "remarks"],
         }}
       />
