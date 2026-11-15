@@ -7,6 +7,7 @@ import {
   ChevronRight,
 } from "lucide-react";
 import type { AttendanceRecord } from "../types";
+import { isoToDmy } from "@/components/ui/date-input";
 
 interface AttendanceTableProps {
   records: AttendanceRecord[];
@@ -266,7 +267,7 @@ export function AttendanceTable({
 
                     {/* Date */}
                     <td className="px-3 py-2 font-mono text-[11px] text-ink border-r border-grid-line">
-                      {r.date}
+                      {isoToDmy(r.date)}
                     </td>
 
                     {/* Day */}

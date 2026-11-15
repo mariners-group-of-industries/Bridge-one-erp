@@ -12,6 +12,7 @@ export const GET = apiHandler("employees:read", async (request) => {
     const toDate = searchParams.get("toDate") || "2026-10-26";
     const viewBy = (searchParams.get("viewBy") as any) || "Employee";
     const employeeId = searchParams.get("employeeId") || "ALL";
+    const officeId = searchParams.get("officeId") || "ALL";
     const status = searchParams.get("status") || "ALL";
     const pageSize = parseInt(searchParams.get("pageSize") || "50", 10);
     const page = parseInt(searchParams.get("page") || "1", 10);
@@ -21,6 +22,7 @@ export const GET = apiHandler("employees:read", async (request) => {
       toDate,
       viewBy,
       employeeId,
+      officeId,
       status,
       pageSize,
       page,

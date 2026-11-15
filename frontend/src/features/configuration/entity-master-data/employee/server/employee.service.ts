@@ -135,10 +135,19 @@ export async function employeeFilterOptions(actor: Actor): Promise<EmployeeFilte
   };
 }
 
+/** Employee types offered before any employee has one. */
+const EMPLOYEE_TYPE_DEFAULTS = ["Full Time", "Part Time", "Contractual", "Probation", "Intern"];
+
+/** "Name (Code)", so two people with the same name can be told apart. */
+const employeeLabel = (name: string, code: string) => `${name.trim()} (${code})`;
+
+/** Defaults first, then values already in use that are not among them; no duplicates. */
+const merged = (defaults: string[], used: string[]) => [...new Set([...defaults, ...used])];
+
 export async function employeeFormOptions(actor: Actor): Promise<EmployeeFormOptions> {
   const scope = scopeWhere(actor);
 
-  const [offices, designations, hrPositions, departments, departmentSections, employeeTypes, serviceCategories, employeePolicies, supervisors, lineManagers] =
+  const [offices, designations, hrPositions, departments, departmentSections, employeeTypes, serviceCategories, employeePolicies, supervisors, lineManagers, activeEmployees, productionSections] =
     await Promise.all([
       db().office.findMany({
         where: actor.companyScope === "ALL" ? {} : { businessUnit: { companyId: { in: [...actor.companyScope] } } },
@@ -154,19 +163,30 @@ export async function employeeFormOptions(actor: Actor): Promise<EmployeeFormOpt
       db().employee.findMany({ where: { AND: [scope, { employeePolicy: { not: null } }] }, distinct: ["employeePolicy"], select: { employeePolicy: true }, orderBy: { employeePolicy: "asc" } }),
       db().employee.findMany({ where: { AND: [scope, { supervisor: { not: null } }] }, distinct: ["supervisor"], select: { supervisor: true }, orderBy: { supervisor: "asc" } }),
       db().employee.findMany({ where: { AND: [scope, { lineManager: { not: null } }] }, distinct: ["lineManager"], select: { lineManager: true }, orderBy: { lineManager: "asc" } }),
+      // Anyone active can be picked as a supervisor or line manager.
+      db().employee.findMany({ where: { AND: [scope, { isActive: true }] }, select: { name: true, employeeCode: true }, orderBy: { name: "asc" } }),
+      // Department sections set up in Production (Juice, Snacks …).
+      db().productionDepartmentSection.findMany({
+        where: actor.companyScope === "ALL" ? {} : { department: { businessUnit: { companyId: { in: [...actor.companyScope] } } } },
+        distinct: ["name"],
+        select: { name: true },
+        orderBy: { name: "asc" },
+      }),
     ]);
+
+  const people = activeEmployees.map((e) => employeeLabel(e.name, e.employeeCode));
 
   return {
     offices,
     designations:       designations.flatMap((r) => (r.designation ? [r.designation] : [])),
     hrPositions:        hrPositions.flatMap((r) => (r.hrPosition ? [r.hrPosition] : [])),
     departments:        departments.flatMap((r) => (r.department ? [r.department] : [])),
-    departmentSections: departmentSections.flatMap((r) => (r.departmentSection ? [r.departmentSection] : [])),
-    employeeTypes:      employeeTypes.flatMap((r) => (r.employeeType ? [r.employeeType] : [])),
+    departmentSections: merged(productionSections.map((r) => r.name), departmentSections.flatMap((r) => (r.departmentSection ? [r.departmentSection] : []))),
+    employeeTypes:      merged(EMPLOYEE_TYPE_DEFAULTS, employeeTypes.flatMap((r) => (r.employeeType ? [r.employeeType] : []))),
     serviceCategories:  serviceCategories.flatMap((r) => (r.serviceCategory ? [r.serviceCategory] : [])),
     employeePolicies:   employeePolicies.flatMap((r) => (r.employeePolicy ? [r.employeePolicy] : [])),
-    supervisors:        supervisors.flatMap((r) => (r.supervisor ? [r.supervisor] : [])),
-    lineManagers:       lineManagers.flatMap((r) => (r.lineManager ? [r.lineManager] : [])),
+    supervisors:        merged(people, supervisors.flatMap((r) => (r.supervisor ? [r.supervisor] : []))),
+    lineManagers:       merged(people, lineManagers.flatMap((r) => (r.lineManager ? [r.lineManager] : []))),
   };
 }
 

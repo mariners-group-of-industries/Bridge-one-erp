@@ -31,6 +31,7 @@ export async function getAttendanceEmployees(): Promise<EmployeeOption[]> {
       designation: true,
       department: true,
       departmentSection: true,
+      officeId: true,
       office: { select: { name: true } },
     },
     orderBy: [{ employeeCode: "asc" }],
@@ -44,6 +45,7 @@ export async function getAttendanceEmployees(): Promise<EmployeeOption[]> {
     designation: e.designation || "",
     department: e.department || "",
     departmentSection: e.departmentSection || "",
+    officeId: e.officeId,
     officeName: e.office?.name || "",
   }));
 }
@@ -183,6 +185,11 @@ export async function getDailyAttendance(filters: AttendanceFilterState): Promis
     filtered = filtered.filter(
       (r) => r.employeeId === filters.employeeId || r.employeeCode === filters.employeeId,
     );
+  }
+
+  if (filters.officeId && filters.officeId !== "ALL") {
+    const inOffice = new Set(allEmployees.filter((e) => e.officeId === filters.officeId).map((e) => e.id));
+    filtered = filtered.filter((r) => inOffice.has(r.employeeId));
   }
 
   if (filters.status && filters.status !== "ALL") {

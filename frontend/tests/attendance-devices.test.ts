@@ -34,7 +34,7 @@ beforeEach(async () => {
 });
 
 const device = () => createDevice(adminActor, { name: "Gate", ipAddress: "192.168.0.119", port: 4370, officeId });
-const filters = { fromDate: "2026-10-28", toDate: "2026-10-28", viewBy: "Employee" as const, employeeId: "ALL", status: "ALL", pageSize: 50, page: 1 };
+const filters = { fromDate: "2026-10-28", toDate: "2026-10-28", viewBy: "Employee" as const, employeeId: "ALL", officeId: "ALL", status: "ALL", pageSize: 50, page: 1 };
 
 describe("attendance devices", () => {
   it("validates devices and refuses a second device on the same address", async () => {
@@ -109,6 +109,9 @@ describe("HRM daily attendance from punches", () => {
     ]);
     expect(records[1].remarks).toBe("3 punches");
     expect((await getDailyAttendance({ ...filters, employeeId: rahimId })).records).toHaveLength(1);
+    // Office filter: only employees of the chosen office.
+    expect((await getDailyAttendance({ ...filters, officeId })).records).toHaveLength(2);
+    expect((await getDailyAttendance({ ...filters, officeId: "00000000-0000-0000-0000-000000000000" })).records).toHaveLength(0);
     expect((await getDailyAttendance({ ...filters, fromDate: "2026-10-27", toDate: "2026-10-27" })).records.map((r) => r.inTime)).toEqual(["11:30 PM"]);
     await expect(getDailyAttendance({ ...filters, fromDate: "2026-01-01" })).rejects.toThrow(/at most/);
   });

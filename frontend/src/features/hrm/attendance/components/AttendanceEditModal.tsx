@@ -4,6 +4,7 @@ import { useState } from "react";
 import { X, Clock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { AttendanceRecord } from "../types";
+import { isoToDmy } from "@/components/ui/date-input";
 
 interface AttendanceEditModalProps {
   record: AttendanceRecord | null;
@@ -61,7 +62,7 @@ function AttendanceEditForm({
             <div>
               <h2 className="text-sm font-semibold text-ink">Manual Attendance Adjustment</h2>
               <p className="text-[11px] text-ink-muted">
-                {record.employeeName} ({record.employeeCode}) • {record.date} ({record.day})
+                {record.employeeName} ({record.employeeCode}) • {isoToDmy(record.date)} ({record.day})
               </p>
             </div>
           </div>

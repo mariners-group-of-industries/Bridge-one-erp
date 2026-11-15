@@ -1,6 +1,7 @@
 "use client";
 
 import { RefreshCw } from "lucide-react";
+import { DateInput } from "@/components/ui/date-input";
 import type { AttendanceFilterState, EmployeeOption } from "../types";
 
 interface AttendanceFilterBarProps {
@@ -18,17 +19,21 @@ export function AttendanceFilterBar({
   employees,
   loading = false,
 }: AttendanceFilterBarProps) {
+  // Offices of the employees on the list, and the employees of the chosen office.
+  const offices = [...new Map(employees.filter((e) => e.officeId).map((e) => [e.officeId, e.officeName])).entries()].sort((a, b) => a[1].localeCompare(b[1]));
+  const officeEmployees = filters.officeId === "ALL" ? employees : employees.filter((e) => e.officeId === filters.officeId);
+
   return (
     <div className="rounded-md border border-accent-line/60 bg-[#f4f8fe]/80 dark:bg-[#0c162c]/50 p-3 shadow-2xs">
-      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 items-end">
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-3 items-end">
         {/* From Date */}
         <div className="space-y-1">
           <label className="text-[11px] font-semibold text-ink">From Date</label>
           <div className="relative">
-            <input
-              type="date"
+            <DateInput
+              aria-label="From Date"
               value={filters.fromDate}
-              onChange={(e) => onChange({ fromDate: e.target.value })}
+              onChange={(iso) => onChange({ fromDate: iso })}
               className="w-full h-8 text-xs rounded border border-line-strong bg-surface px-2.5 text-ink focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary shadow-2xs"
             />
           </div>
@@ -38,10 +43,10 @@ export function AttendanceFilterBar({
         <div className="space-y-1">
           <label className="text-[11px] font-semibold text-ink">To Date</label>
           <div className="relative">
-            <input
-              type="date"
+            <DateInput
+              aria-label="To Date"
               value={filters.toDate}
-              onChange={(e) => onChange({ toDate: e.target.value })}
+              onChange={(iso) => onChange({ toDate: iso })}
               className="w-full h-8 text-xs rounded border border-line-strong bg-surface px-2.5 text-ink focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary shadow-2xs"
             />
           </div>
@@ -62,6 +67,25 @@ export function AttendanceFilterBar({
           </select>
         </div>
 
+        {/* Office */}
+        <div className="space-y-1">
+          <label htmlFor="attendance-office" className="text-[11px] font-semibold text-ink">Office</label>
+          <select
+            id="attendance-office"
+            value={filters.officeId}
+            // An employee picked for another office would leave the table empty.
+            onChange={(e) => onChange({ officeId: e.target.value, employeeId: "ALL" })}
+            className="w-full h-8 text-xs rounded border border-line-strong bg-surface px-2.5 text-ink focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary shadow-2xs"
+          >
+            <option value="ALL">All Offices</option>
+            {offices.map(([id, name]) => (
+              <option key={id} value={id}>
+                {name}
+              </option>
+            ))}
+          </select>
+        </div>
+
         {/* Employee */}
         <div className="space-y-1">
           <label className="text-[11px] font-semibold text-ink">Employee</label>
@@ -71,7 +95,7 @@ export function AttendanceFilterBar({
             className="w-full h-8 text-xs rounded border border-line-strong bg-surface px-2.5 text-ink focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary shadow-2xs"
           >
             <option value="ALL">All Employees</option>
-            {employees.map((emp) => (
+            {officeEmployees.map((emp) => (
               <option key={emp.id} value={emp.employeeCode}>
                 {emp.employeeCode} - {emp.name}
               </option>

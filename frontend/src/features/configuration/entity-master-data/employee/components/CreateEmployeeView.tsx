@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, ImagePlus, Lock, Plus, X } from "lucide-react";
+import { Check, ImagePlus, Lock } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
@@ -19,7 +19,7 @@ import {
 } from "../schemas/employee.schema";
 import type { ProfileTab } from "../actions/employee-actions";
 import { employeeApi } from "../services/employee.api";
-import { Checkbox, EmptyBlock, Field, FormGrid, Input, Notice, Panel, Select, TextArea } from "./kit";
+import { AddableSelect, Checkbox, EmptyBlock, Field, FormGrid, Input, Notice, Panel, Select, TextArea } from "./kit";
 import { PROFILE_TABS } from "./UpdateProfileView";
 
 const BREADCRUMBS = [
@@ -52,74 +52,6 @@ const FLAGS: [keyof CreateEmployeeInput, string][] = [
   ["isUser", "User"],
 ];
 
-// ─── Select with "add new value" ──────────────────────────────────────────────
-
-function AddableSelect({ label, value, options, onChange }: {
-  label: string;
-  value: string;
-  options: string[];
-  onChange: (value: string) => void;
-}) {
-  const [adding, setAdding] = useState(false);
-  const [draft, setDraft] = useState("");
-
-  const confirm = () => {
-    const next = draft.trim();
-    if (next) onChange(next);
-    setAdding(false);
-    setDraft("");
-  };
-  const cancel = () => {
-    setAdding(false);
-    setDraft("");
-  };
-
-  return (
-    <Field label={label}>
-      {(id) =>
-        adding ? (
-          <div className="flex gap-1.5">
-            <Input
-              id={id}
-              autoFocus
-              value={draft}
-              placeholder={`New ${label.toLowerCase()}`}
-              onChange={(e) => setDraft(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  confirm();
-                }
-                if (e.key === "Escape") cancel();
-              }}
-            />
-            <Button variant="accent" size="icon" className="size-8" aria-label={`Add ${label}`} onClick={confirm}>
-              <Check />
-            </Button>
-            <Button variant="ghost" size="icon" className="size-8" aria-label="Cancel" onClick={cancel}>
-              <X />
-            </Button>
-          </div>
-        ) : (
-          <div className="flex gap-1.5">
-            <Select id={id} value={value} options={options} onChange={(e) => onChange(e.target.value)} />
-            <Button
-              variant="accent-soft"
-              size="icon"
-              className="size-8"
-              aria-label={`Add new ${label}`}
-              title={`Add new ${label.toLowerCase()}`}
-              onClick={() => setAdding(true)}
-            >
-              <Plus />
-            </Button>
-          </div>
-        )
-      }
-    </Field>
-  );
-}
-
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export function CreateEmployeeView() {
@@ -132,11 +64,13 @@ export function CreateEmployeeView() {
   const { data: opts } = useResource("employee-form-options", employeeApi.formOptions);
 
   // Values typed with "add new" for the free-text masters.
-  const [extra, setExtra] = useState<Record<"designation" | "hrPosition" | "department" | "departmentSection", string[]>>({
+  const [extra, setExtra] = useState<Record<"designation" | "hrPosition" | "department" | "departmentSection" | "serviceCategory" | "employeePolicy", string[]>>({
     designation: [],
     hrPosition: [],
     department: [],
     departmentSection: [],
+    serviceCategory: [],
+    employeePolicy: [],
   });
 
   const set = <K extends keyof CreateEmployeeInput>(key: K, value: CreateEmployeeInput[K]) => {
@@ -283,8 +217,8 @@ export function CreateEmployeeView() {
               {addable("department", "Department", opts?.departments)}
               {addable("departmentSection", "Department Section", opts?.departmentSections)}
               {list("employeeType", "Employee Type", opts?.employeeTypes)}
-              {list("serviceCategory", "Service Category", opts?.serviceCategories)}
-              {list("employeePolicy", "Employee Policy", opts?.employeePolicies)}
+              {addable("serviceCategory", "Service Category", opts?.serviceCategories)}
+              {addable("employeePolicy", "Employee Policy", opts?.employeePolicies)}
               {text("location", "Location", { placeholder: "City / Area" })}
             </FormGrid>
           </Panel>
