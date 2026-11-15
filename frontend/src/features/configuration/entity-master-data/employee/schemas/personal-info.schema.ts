@@ -103,7 +103,7 @@ export interface AccountSettingsDto {
 
 export const updateCredentialsSchema = z.object({
   phone:    z.string().trim().min(1).max(30),
-  password: z.string().min(8).max(128).optional().or(z.literal("")),
+  password: z.string().min(6, "Password must be at least 6 characters.").max(128).optional().or(z.literal("")),
   confirmPassword: z.string().optional().or(z.literal("")),
   roleId:   z.string().regex(UUID_PATTERN, { message: "Invalid UUID" }).optional().or(z.literal("")),
   /** Withhold stock levels from this user in the Sales module. */
@@ -111,15 +111,6 @@ export const updateCredentialsSchema = z.object({
 }).refine(
   (d) => !d.password || d.password === d.confirmPassword,
   { message: "Passwords do not match.", path: ["confirmPassword"] },
-).refine(
-  (d) => !d.password || /[A-Z]/.test(d.password),
-  { message: "Password must contain at least one uppercase letter.", path: ["password"] },
-).refine(
-  (d) => !d.password || /[0-9]/.test(d.password),
-  { message: "Password must contain at least one number.", path: ["password"] },
-).refine(
-  (d) => !d.password || /[^A-Za-z0-9]/.test(d.password),
-  { message: "Password must contain at least one special character.", path: ["password"] },
 );
 
 export type UpdateCredentialsInput = z.infer<typeof updateCredentialsSchema>;
