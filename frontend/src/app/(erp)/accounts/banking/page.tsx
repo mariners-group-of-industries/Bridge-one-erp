@@ -137,6 +137,8 @@ export default function FinanceBankingPage() {
     openingBalance: 0,
     reconciliationStatus: "RECONCILED" as const,
     isActive: true,
+    shortName: "",
+    signatory: "",
   });
   // Branches already used with the chosen bank.
   const knownBranches = useMemo(
@@ -369,6 +371,8 @@ export default function FinanceBankingPage() {
       openingBalance: 0,
       reconciliationStatus: "RECONCILED",
       isActive: true,
+      shortName: "",
+      signatory: "",
     });
   };
 
@@ -1427,6 +1431,33 @@ export default function FinanceBankingPage() {
                 onChange={(e) => setNewBankForm({ ...newBankForm, accountNumber: e.target.value })}
                 placeholder="e.g. 3133131043165"
                 className="w-full h-9 px-3 text-xs border border-slate-300 rounded font-mono focus:ring-1 focus:ring-blue-500 focus:outline-none"
+              />
+            </div>
+            <div>
+              <label htmlFor="bank-short-name" className="block text-xs font-semibold text-slate-700 mb-1">
+                Bank Short Name <span className="text-red-500">*</span>
+              </label>
+              <input
+                id="bank-short-name"
+                type="text"
+                required
+                maxLength={50}
+                value={newBankForm.shortName}
+                onChange={(e) => setNewBankForm({ ...newBankForm, shortName: e.target.value })}
+                placeholder="Bank Short Name"
+                className="w-full h-9 px-3 text-xs border border-slate-300 rounded focus:ring-1 focus:ring-blue-500 focus:outline-none"
+              />
+            </div>
+            <div className="sm:col-span-2">
+              <label htmlFor="bank-signatory" className="block text-xs font-semibold text-slate-700 mb-1">Signatory</label>
+              <textarea
+                id="bank-signatory"
+                rows={2}
+                maxLength={500}
+                value={newBankForm.signatory}
+                onChange={(e) => setNewBankForm({ ...newBankForm, signatory: e.target.value })}
+                placeholder="Signatory"
+                className="w-full px-3 py-2 text-xs border border-slate-300 rounded focus:ring-1 focus:ring-blue-500 focus:outline-none"
               />
             </div>
             <div>

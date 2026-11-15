@@ -68,7 +68,7 @@ function numberToWords(num: number): string {
 export default function BudgetManagementPage() {
   const budgets = useAccountingStore((s) => s.budgets);
   const accounts = useAccountingStore((s) => s.accounts);
-  const costCenters = useAccountingStore((s) => s.costCenters);
+  const offices = useAccountingStore((s) => s.offices);
   const createBudget = useAccountingStore((s) => s.createBudget);
   const updateBudget = useAccountingStore((s) => s.updateBudget);
   const updateBudgetRevision = useAccountingStore((s) => s.updateBudgetRevision);
@@ -96,70 +96,100 @@ export default function BudgetManagementPage() {
   const [newRevisionAmount, setNewRevisionAmount] = useState<number>(0);
   const [revisionReason, setRevisionReason] = useState("");
 
-  // Create Form State
-  // Nothing pre-filled: the user enters the budget and its lines.
+  // Create Form State (iBOS Create Budget). Nothing pre-filled but today's date and a period from today.
+  const addMonths = (day: string, months: number) => {
+    const d = new Date(`${day}T00:00:00`);
+    d.setMonth(d.getMonth() + months);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  };
   const blankCreateForm = () => ({
-    budgetName: "",
-    budgetYear: "",
-    createDate: localToday().split("-").reverse().join("-"),
-    budgetType: "OverHeads/Expense Budget",
+    createDate: localToday(),
     officeId: "",
-    officeName: "",
-    costCenterId: "",
-    costCenterName: "",
-    accountId: "",
-    accountName: "",
-    totalBudgetAmount: 0,
+    budgetType: "OverHeads/Expense Budget",
+    budgetName: "",
+    fromPeriod: localToday(),
+    toPeriod: addMonths(localToday(), 2),
+    remarks: "",
     items: [] as BudgetLineItem[],
   });
-
   const [createForm, setCreateForm] = useState(blankCreateForm);
+  const [createError, setCreateError] = useState("");
 
   // Edit Form State
   const [editForm, setEditForm] = useState<Partial<BudgetItem>>({});
+  const createOffice = offices.find((o) => o.id === createForm.officeId) ?? offices[0];
 
-  // Line item adder in create form
-  const [newItemAccount, setNewItemAccount] = useState("");
-  const [newItemCostCenter, setNewItemCostCenter] = useState("");
-  const [newItemAmount, setNewItemAmount] = useState<number>(0);
-  const [newItemRemarks, setNewItemRemarks] = useState("");
+  // Months the budget covers, "2026-11" … (at most 24).
+  const periodMonths = useMemo(() => {
+    const out: string[] = [];
+    if (!createForm.fromPeriod || !createForm.toPeriod || createForm.toPeriod < createForm.fromPeriod) return out;
+    let y = Number(createForm.fromPeriod.slice(0, 4));
+    let m = Number(createForm.fromPeriod.slice(5, 7));
+    const endKey = createForm.toPeriod.slice(0, 7);
+    while (out.length < 24) {
+      const key = `${y}-${String(m).padStart(2, "0")}`;
+      out.push(key);
+      if (key >= endKey) break;
+      m += 1;
+      if (m > 12) {
+        m = 1;
+        y += 1;
+      }
+    }
+    return out;
+  }, [createForm.fromPeriod, createForm.toPeriod]);
+  const monthLabel = (key: string) => new Date(`${key}-01T00:00:00`).toLocaleDateString("en-US", { month: "short", year: "2-digit" });
+
+  // Account heads: expense groups; expense names: the posting accounts under the chosen head.
+  const expenseHeads = useMemo(() => accounts.filter((a) => a.isGroup && a.accountType === "EXPENSE"), [accounts]);
+  const [lineHeadCode, setLineHeadCode] = useState("");
+  const [lineAccountId, setLineAccountId] = useState("");
+  const [lineMonths, setLineMonths] = useState<Record<string, number>>({});
+  const expenseNames = useMemo(() => {
+    if (!lineHeadCode) return [];
+    // Everything below the head, however deep.
+    const below = new Set([lineHeadCode]);
+    let grew = true;
+    while (grew) {
+      grew = false;
+      for (const a of accounts) if (a.parentCode && below.has(a.parentCode) && !below.has(a.code)) {
+        below.add(a.code);
+        grew = true;
+      }
+    }
+    return accounts.filter((a) => !a.isGroup && a.parentCode && below.has(a.parentCode));
+  }, [accounts, lineHeadCode]);
 
   const handleAddLineItemToCreate = () => {
-    if (!newItemAccount || newItemAmount <= 0) return;
-    const acc = accounts.find((a) => a.id === newItemAccount);
-    const cc = costCenters.find((c) => c.id === newItemCostCenter);
+    setCreateError("");
+    const head = expenseHeads.find((h) => h.code === lineHeadCode);
+    const acc = expenseNames.find((a) => a.id === lineAccountId);
+    const months: Record<string, number> = {};
+    for (const k of periodMonths) if (Number(lineMonths[k]) > 0) months[k] = Number(lineMonths[k]);
+    const total = Object.values(months).reduce((t, v) => t + v, 0);
+    if (!head || !acc) return setCreateError("Select the account head and the expense name.");
+    if (total <= 0) return setCreateError("Enter an amount for at least one month.");
+    if (createForm.items.some((it) => it.accountCode === acc.code)) return setCreateError(`${acc.name} is already in this budget.`);
     const lineItem: BudgetLineItem = {
       id: `item-${Date.now()}`,
-      accountCode: acc?.code || "5000",
-      accountName: acc?.name || "General Operating",
-      costCenterName: cc?.name || createForm.costCenterName,
-      allocatedAmount: newItemAmount,
-      remainingAmount: newItemAmount,
+      accountCode: acc.code,
+      accountName: acc.name,
+      headCode: head.code,
+      headName: head.name,
+      monthlyAmounts: months,
+      allocatedAmount: total,
+      remainingAmount: total,
       utilizedAmount: 0,
-      remarks: newItemRemarks,
     };
-    const updatedItems = [...createForm.items, lineItem];
-    const total = updatedItems.reduce((sum, it) => sum + it.allocatedAmount, 0);
-    setCreateForm({
-      ...createForm,
-      items: updatedItems,
-      totalBudgetAmount: total,
-    });
-    setNewItemAccount("");
-    setNewItemCostCenter("");
-    setNewItemAmount(0);
-    setNewItemRemarks("");
+    setCreateForm({ ...createForm, items: [...createForm.items, lineItem] });
+    setLineAccountId("");
+    setLineMonths({});
   };
 
   const handleRemoveLineItem = (itemId: string) => {
-    const updated = createForm.items.filter((it) => it.id !== itemId);
-    const total = updated.reduce((sum, it) => sum + it.allocatedAmount, 0);
-    setCreateForm({
-      ...createForm,
-      items: updated,
-      totalBudgetAmount: total,
-    });
+    setCreateForm({ ...createForm, items: createForm.items.filter((it) => it.id !== itemId) });
   };
+  const createTotal = createForm.items.reduce((t, it) => t + it.allocatedAmount, 0);
 
   // Filtered List
   const filteredBudgets = useMemo(() => {
@@ -190,24 +220,25 @@ export default function BudgetManagementPage() {
   // Handle Save Create
   const handleSaveBudget = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!createForm.budgetName.trim()) return;
-    // The budget belongs to the office of its cost center.
-    const center = costCenters.find((c) => c.id === createForm.costCenterId);
-    if (!center) return;
+    setCreateError("");
+    if (!createOffice) return setCreateError("Select the office.");
+    if (!createForm.budgetName.trim()) return setCreateError("Enter the budget name.");
+    if (createForm.toPeriod < createForm.fromPeriod) return setCreateError("The To Period cannot be before the From Period.");
+    if (createForm.items.length === 0) return setCreateError("Add at least one budget line.");
+    const fmt = (day: string) => new Date(`${day}T00:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 
     createBudget({
-      budgetName: createForm.budgetName,
-      budgetYear: createForm.budgetYear,
-      createDate: createForm.createDate,
+      budgetName: createForm.budgetName.trim(),
+      budgetYear: `${fmt(createForm.fromPeriod)} - ${fmt(createForm.toPeriod)}`,
+      createDate: createForm.createDate.split("-").reverse().join("-"),
       budgetType: createForm.budgetType,
-      officeId: center.officeId,
-      officeName: center.officeName,
-      costCenterId: center.id,
-      costCenterName: center.name,
-      accountId: createForm.accountId,
-      accountName: createForm.accountName,
-      allocatedAmount: createForm.totalBudgetAmount,
-      totalBudgetAmount: createForm.totalBudgetAmount,
+      officeId: createOffice.id,
+      officeName: createOffice.name,
+      fromPeriod: createForm.fromPeriod,
+      toPeriod: createForm.toPeriod,
+      remarks: createForm.remarks || null,
+      allocatedAmount: createTotal,
+      totalBudgetAmount: createTotal,
       approvalStatus: "Approved",
       status: "Approved",
       items: createForm.items,
@@ -663,30 +694,29 @@ export default function BudgetManagementPage() {
         maxWidth="4xl"
       >
         <form onSubmit={handleSaveBudget} className="space-y-4 text-xs">
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          {createError && (
+            <p role="alert" className="rounded border border-rose-200 bg-rose-50 px-3 py-2 text-rose-700">
+              {createError}
+            </p>
+          )}
+          <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
             <div>
-              <label className="block text-[11px] font-semibold text-slate-700 mb-1">
-                Budget Name *
-              </label>
-              <input
-                type="text"
-                required
-                value={createForm.budgetName}
-                onChange={(e) => setCreateForm({ ...createForm, budgetName: e.target.value })}
-                className="w-full h-8 px-2.5 border border-slate-300 rounded text-xs focus:ring-1 focus:ring-[#2563eb] focus:border-[#2563eb]"
-                placeholder="e.g. November-2026"
-              />
+              <label htmlFor="bgt-date" className="block text-[11px] font-semibold text-slate-700 mb-1">Create Date *</label>
+              <input id="bgt-date" type="date" required value={createForm.createDate} onChange={(e) => setCreateForm({ ...createForm, createDate: e.target.value })} className="w-full h-8 px-2.5 border border-slate-300 rounded text-xs focus:ring-1 focus:ring-[#2563eb] focus:border-[#2563eb]" />
             </div>
-
             <div>
-              <label className="block text-[11px] font-semibold text-slate-700 mb-1">
-                Budget Type *
-              </label>
-              <select
-                value={createForm.budgetType}
-                onChange={(e) => setCreateForm({ ...createForm, budgetType: e.target.value })}
-                className="w-full h-8 px-2.5 border border-slate-300 rounded text-xs focus:ring-1 focus:ring-[#2563eb] focus:border-[#2563eb]"
-              >
+              <label htmlFor="bgt-office" className="block text-[11px] font-semibold text-slate-700 mb-1">Office *</label>
+              <select id="bgt-office" value={createOffice?.id ?? ""} onChange={(e) => setCreateForm({ ...createForm, officeId: e.target.value })} className="w-full h-8 px-2.5 border border-slate-300 rounded text-xs focus:ring-1 focus:ring-[#2563eb] focus:border-[#2563eb]">
+                {offices.map((o) => (
+                  <option key={o.id} value={o.id}>
+                    {o.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label htmlFor="bgt-type" className="block text-[11px] font-semibold text-slate-700 mb-1">Budget Type *</label>
+              <select id="bgt-type" value={createForm.budgetType} onChange={(e) => setCreateForm({ ...createForm, budgetType: e.target.value })} className="w-full h-8 px-2.5 border border-slate-300 rounded text-xs focus:ring-1 focus:ring-[#2563eb] focus:border-[#2563eb]">
                 {BUDGET_TYPES.map((t) => (
                   <option key={t} value={t}>
                     {t}
@@ -694,193 +724,145 @@ export default function BudgetManagementPage() {
                 ))}
               </select>
             </div>
-
             <div>
-              <label className="block text-[11px] font-semibold text-slate-700 mb-1">
-                Budget Year / Period *
-              </label>
-              <input
-                type="text"
-                required
-                value={createForm.budgetYear}
-                onChange={(e) => setCreateForm({ ...createForm, budgetYear: e.target.value })}
-                className="w-full h-8 px-2.5 border border-slate-300 rounded text-xs focus:ring-1 focus:ring-[#2563eb] focus:border-[#2563eb]"
-                placeholder="e.g. Sep 21, 2026 - Oct 20, 2026"
-              />
+              <label htmlFor="bgt-name" className="block text-[11px] font-semibold text-slate-700 mb-1">Budget Name *</label>
+              <input id="bgt-name" type="text" required value={createForm.budgetName} onChange={(e) => setCreateForm({ ...createForm, budgetName: e.target.value })} placeholder="Budget Name" className="w-full h-8 px-2.5 border border-slate-300 rounded text-xs focus:ring-1 focus:ring-[#2563eb] focus:border-[#2563eb]" />
+            </div>
+            <div>
+              <label htmlFor="bgt-from" className="block text-[11px] font-semibold text-slate-700 mb-1">From Period</label>
+              <input id="bgt-from" type="date" required value={createForm.fromPeriod} onChange={(e) => setCreateForm({ ...createForm, fromPeriod: e.target.value })} className="w-full h-8 px-2.5 border border-slate-300 rounded text-xs focus:ring-1 focus:ring-[#2563eb] focus:border-[#2563eb]" />
+            </div>
+            <div>
+              <label htmlFor="bgt-to" className="block text-[11px] font-semibold text-slate-700 mb-1">To Period</label>
+              <input id="bgt-to" type="date" required value={createForm.toPeriod} onChange={(e) => setCreateForm({ ...createForm, toPeriod: e.target.value })} className="w-full h-8 px-2.5 border border-slate-300 rounded text-xs focus:ring-1 focus:ring-[#2563eb] focus:border-[#2563eb]" />
+            </div>
+            <div className="sm:col-span-2">
+              <label htmlFor="bgt-remarks" className="block text-[11px] font-semibold text-slate-700 mb-1">Remarks</label>
+              <input id="bgt-remarks" type="text" value={createForm.remarks} onChange={(e) => setCreateForm({ ...createForm, remarks: e.target.value })} placeholder="Remarks" className="w-full h-8 px-2.5 border border-slate-300 rounded text-xs focus:ring-1 focus:ring-[#2563eb] focus:border-[#2563eb]" />
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <div>
-              <label className="block text-[11px] font-semibold text-slate-700 mb-1">
-                Create Date *
-              </label>
-              <input
-                type="text"
-                required
-                value={createForm.createDate}
-                onChange={(e) => setCreateForm({ ...createForm, createDate: e.target.value })}
-                className="w-full h-8 px-2.5 border border-slate-300 rounded text-xs focus:ring-1 focus:ring-[#2563eb] focus:border-[#2563eb]"
-                placeholder="DD-MM-YYYY"
-              />
-            </div>
-
-            <div>
-              <label className="block text-[11px] font-semibold text-slate-700 mb-1">
-                Cost Center *
-              </label>
-              <select
-                value={createForm.costCenterId}
-                onChange={(e) => {
-                  const cc = costCenters.find((c) => c.id === e.target.value);
-                  setCreateForm({
-                    ...createForm,
-                    costCenterId: e.target.value,
-                    costCenterName: cc?.name || "",
-                  });
-                }}
-                required
-                className="w-full h-8 px-2.5 border border-slate-300 rounded text-xs focus:ring-1 focus:ring-[#2563eb] focus:border-[#2563eb]"
-              >
-                <option value="">Select cost center</option>
-                {costCenters.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.code} - {c.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-[11px] font-semibold text-slate-700 mb-1">
-                Total Budget Amount (৳) *
-              </label>
-              <input
-                type="number"
-                required
-                min="1"
-                step="0.01"
-                value={createForm.totalBudgetAmount || ""}
-                onChange={(e) =>
-                  setCreateForm({ ...createForm, totalBudgetAmount: Number(e.target.value) || 0 })
-                }
-                className="w-full h-8 px-2.5 border border-slate-300 rounded text-xs font-bold text-slate-900 focus:ring-1 focus:ring-[#2563eb] focus:border-[#2563eb]"
-              />
-            </div>
-          </div>
-
-          {/* Granular Sub-Line Items Builder */}
-          <div className="border border-slate-200 rounded p-3 bg-slate-50/50 space-y-2.5">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-slate-800">
-                Budget Line Items Breakdown ({createForm.items.length})
-              </span>
-              <span className="text-[11px] font-medium text-slate-500">
-                Sum of lines: ৳{formatAmount(createForm.items.reduce((s, it) => s + it.allocatedAmount, 0))}
-              </span>
-            </div>
-
-            {/* Quick add line inputs */}
-            <div className="grid grid-cols-1 sm:grid-cols-4 gap-2 bg-white p-2 border border-slate-200 rounded">
+          {/* Line builder: head, expense name and an amount per month of the period */}
+          <div className="border border-slate-200 rounded p-3 bg-slate-50/50 space-y-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
+                <label htmlFor="bgt-head" className="block text-[11px] font-semibold text-slate-700 mb-1">Account Head *</label>
                 <select
-                  value={newItemAccount}
-                  onChange={(e) => setNewItemAccount(e.target.value)}
-                  className="w-full h-7 px-2 border border-slate-300 rounded text-[11px]"
+                  id="bgt-head"
+                  value={lineHeadCode}
+                  onChange={(e) => {
+                    setLineHeadCode(e.target.value);
+                    setLineAccountId("");
+                  }}
+                  className="w-full h-8 px-2.5 border border-slate-300 rounded text-xs focus:ring-1 focus:ring-[#2563eb] focus:border-[#2563eb] bg-white"
                 >
-                  <option value="">Select GL Account Head</option>
-                  {accounts
-                    .filter((a) => a.accountType === "EXPENSE" || a.accountType === "ASSET")
-                    .map((a) => (
-                      <option key={a.id} value={a.id}>
-                        {a.code} - {a.name}
-                      </option>
-                    ))}
-                </select>
-              </div>
-
-              <div>
-                <select
-                  value={newItemCostCenter}
-                  onChange={(e) => setNewItemCostCenter(e.target.value)}
-                  className="w-full h-7 px-2 border border-slate-300 rounded text-[11px]"
-                >
-                  <option value="">Select Cost Center</option>
-                  {costCenters.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name}
+                  <option value="">Account Head</option>
+                  {expenseHeads.map((h) => (
+                    <option key={h.id} value={h.code}>
+                      {h.name}
                     </option>
                   ))}
                 </select>
               </div>
-
               <div>
-                <input
-                  type="number"
-                  placeholder="Allocated Amount"
-                  value={newItemAmount || ""}
-                  onChange={(e) => setNewItemAmount(Number(e.target.value) || 0)}
-                  className="w-full h-7 px-2 border border-slate-300 rounded text-[11px]"
-                />
+                <label htmlFor="bgt-expense" className="block text-[11px] font-semibold text-slate-700 mb-1">Expense Name *</label>
+                <select id="bgt-expense" value={lineAccountId} onChange={(e) => setLineAccountId(e.target.value)} disabled={!lineHeadCode} className="w-full h-8 px-2.5 border border-slate-300 rounded text-xs focus:ring-1 focus:ring-[#2563eb] focus:border-[#2563eb] bg-white disabled:bg-slate-50">
+                  <option value="">Expense Name</option>
+                  {expenseNames.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.code} - {a.name}
+                    </option>
+                  ))}
+                </select>
               </div>
-
-              <div className="flex items-center gap-1.5">
-                <input
-                  type="text"
-                  placeholder="Remarks"
-                  value={newItemRemarks}
-                  onChange={(e) => setNewItemRemarks(e.target.value)}
-                  className="w-full h-7 px-2 border border-slate-300 rounded text-[11px]"
-                />
-                <button
-                  type="button"
-                  onClick={handleAddLineItemToCreate}
-                  className="h-7 px-2.5 bg-slate-800 hover:bg-slate-900 text-white rounded text-[11px] font-medium shrink-0"
-                >
+            </div>
+            {periodMonths.length === 0 ? (
+              <p className="text-[11px] text-slate-500">Set the From and To Period to enter monthly amounts.</p>
+            ) : (
+              <div className="flex flex-wrap items-end gap-2">
+                {periodMonths.map((k) => (
+                  <div key={k} className="w-24">
+                    <label htmlFor={`bgt-m-${k}`} className="block text-[11px] font-semibold text-slate-700 mb-1">{monthLabel(k)}</label>
+                    <input
+                      id={`bgt-m-${k}`}
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      placeholder="Amount"
+                      value={lineMonths[k] || ""}
+                      onChange={(e) => setLineMonths({ ...lineMonths, [k]: Number(e.target.value) || 0 })}
+                      className="w-full h-8 px-2.5 border border-slate-300 rounded text-xs focus:ring-1 focus:ring-[#2563eb] focus:border-[#2563eb] bg-white text-right font-mono"
+                    />
+                  </div>
+                ))}
+                <button type="button" onClick={handleAddLineItemToCreate} className="ml-auto h-8 px-4 bg-slate-800 hover:bg-slate-900 text-white rounded text-xs font-medium">
                   Add
                 </button>
               </div>
-            </div>
+            )}
 
-            {/* Lines List */}
-            {createForm.items.length > 0 && (
-              <div className="max-h-40 overflow-y-auto border border-slate-200 rounded bg-white">
-                <table className="w-full text-left text-xs">
-                  <thead className="bg-slate-50 text-[11px] text-slate-600 border-b border-slate-200">
+            <div className="overflow-x-auto border border-slate-200 rounded bg-white">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-slate-50 text-[11px] text-slate-600 border-b border-slate-200">
+                  <tr>
+                    <th className="p-1.5 pl-2 whitespace-nowrap">Account Head</th>
+                    <th className="p-1.5 whitespace-nowrap">Expense Name</th>
+                    {periodMonths.map((k) => (
+                      <th key={k} className="p-1.5 text-right whitespace-nowrap">
+                        {monthLabel(k)}
+                      </th>
+                    ))}
+                    <th className="p-1.5 text-right">Total</th>
+                    <th className="p-1.5 w-10 text-center">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {createForm.items.length === 0 ? (
                     <tr>
-                      <th className="p-1.5 pl-2">Account Head</th>
-                      <th className="p-1.5">Cost Center</th>
-                      <th className="p-1.5 text-right">Allocated (৳)</th>
-                      <th className="p-1.5">Remarks</th>
-                      <th className="p-1.5 w-8"></th>
+                      <td colSpan={periodMonths.length + 4} className="p-6 text-center text-slate-400">
+                        No data
+                      </td>
                     </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {createForm.items.map((it) => (
+                  ) : (
+                    createForm.items.map((it) => (
                       <tr key={it.id}>
-                        <td className="p-1.5 pl-2 font-medium text-slate-800">
+                        <td className="p-1.5 pl-2 text-slate-700 whitespace-nowrap">{it.headName}</td>
+                        <td className="p-1.5 font-medium text-slate-800 whitespace-nowrap">
                           {it.accountCode} - {it.accountName}
                         </td>
-                        <td className="p-1.5 text-slate-600 text-[11px]">{it.costCenterName}</td>
-                        <td className="p-1.5 text-right font-semibold text-slate-900">
-                          {formatAmount(it.allocatedAmount)}
-                        </td>
-                        <td className="p-1.5 text-slate-500 text-[11px]">{it.remarks || "—"}</td>
+                        {periodMonths.map((k) => (
+                          <td key={k} className="p-1.5 text-right font-mono text-slate-700">
+                            {it.monthlyAmounts?.[k] ? formatAmount(it.monthlyAmounts[k]) : "—"}
+                          </td>
+                        ))}
+                        <td className="p-1.5 text-right font-semibold text-slate-900">{formatAmount(it.allocatedAmount)}</td>
                         <td className="p-1.5 text-center">
                           <button
                             type="button"
                             onClick={() => handleRemoveLineItem(it.id)}
-                            className="text-slate-400 hover:text-rose-600"
+                            aria-label={`Remove ${it.accountName}`}
+                            className="inline-flex size-6 items-center justify-center rounded text-slate-400 hover:text-rose-600"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
                         </td>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
+                    ))
+                  )}
+                </tbody>
+                {createForm.items.length > 0 && (
+                  <tfoot>
+                    <tr className="bg-slate-50 font-semibold text-slate-900">
+                      <td colSpan={periodMonths.length + 2} className="p-1.5 text-right">
+                        Total Budget:
+                      </td>
+                      <td className="p-1.5 text-right">৳{formatAmount(createTotal)}</td>
+                      <td />
+                    </tr>
+                  </tfoot>
+                )}
+              </table>
+            </div>
           </div>
 
           {/* Modal Footer */}

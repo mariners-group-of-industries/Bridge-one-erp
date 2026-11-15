@@ -15,7 +15,7 @@ async function handlePATCH(
     const action = String(body?.action || "").toUpperCase();
     const prisma = db();
 
-    const existing = await prisma.expenseRecord.findUnique({ where: { id } });
+    const existing = await prisma.expenseRecord.findUnique({ where: { id }, include: { lines: { orderBy: { lineNo: "asc" } } } });
     if (!existing) {
       return NextResponse.json({ success: false, error: "Expense record not found" }, { status: 404 });
     }
@@ -60,7 +60,10 @@ async function handlePATCH(
             createdBy: actor.name || "Accounts User",
             approvedBy: actor.name || "Accounts User",
             lines: [
-              { accountId: debitAcc.id, accountCode: debitAcc.code, accountName: debitAcc.name, debit: Number(existing.amount), credit: 0, narration: existing.description },
+              // Each expense line is its own debit; without lines the single expense account takes it all.
+              ...(existing.lines.length
+                ? existing.lines.map((l) => ({ accountId: l.accountId, accountCode: l.accountCode, accountName: l.accountName, debit: Number(l.amount), credit: 0, narration: l.remarks || existing.description }))
+                : [{ accountId: debitAcc.id, accountCode: debitAcc.code, accountName: debitAcc.name, debit: Number(existing.amount), credit: 0, narration: existing.description }]),
               { accountId: creditAcc.id, accountCode: creditAcc.code, accountName: creditAcc.name, debit: 0, credit: Number(existing.amount), narration: `Paid via ${existing.paymentMethod}` },
             ],
           });

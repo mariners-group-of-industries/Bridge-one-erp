@@ -5,7 +5,7 @@ import { useToast } from "@/components/ui/toast";
 import { useResource } from "@/hooks/use-resource";
 import { errorMessage } from "@/lib/api/client";
 import { InventoryDocumentDialog } from "@/features/inventory/components/InventoryDocumentDialog";
-import { dmy, inventoryApi, monthAgo, STATUS_LABEL, today } from "@/features/inventory/services/inventory.api";
+import { dmy, inReview, inventoryApi, monthAgo, today } from "@/features/inventory/services/inventory.api";
 import {
   Search,
   Plus,
@@ -31,22 +31,24 @@ interface StockUpdateRow {
   createdDate: string;
   entryDate: string;
   actionBy: string;
-  status: "Approved" | "Pending" | "Rejected";
+  status: "Approved" | "In Review" | "Pending" | "Closed" | "Rejected";
   reviewComment: string;
 }
 
 const TYPE_OPTIONS = [
   { value: "All", label: "All" },
-  { value: "Stock Increase", label: "Stock Increase" },
-  { value: "Stock Decrease", label: "Stock Decrease" },
-  { value: "Damage / Expiry", label: "Damage / Expiry" },
-  { value: "Audit Reconciliation", label: "Audit Reconciliation" },
+  { value: "Stock Audit", label: "Stock Audit" },
+  { value: "Stock Adjustment", label: "Stock Adjustment" },
+  { value: "Damage", label: "Damage" },
 ];
 
+// iBOS statuses, plus Rejected (a reviewer can refuse an update here).
 const STATUS_OPTIONS = [
   { value: "All", label: "All" },
   { value: "Approved", label: "Approved" },
+  { value: "In Review", label: "In Review" },
   { value: "Pending", label: "Pending" },
+  { value: "Closed", label: "Closed" },
   { value: "Rejected", label: "Rejected" },
 ];
 
@@ -77,7 +79,16 @@ export default function StockUpdatePage() {
         createdDate: dmy(d.createdAt.slice(0, 10)),
         entryDate: dmy(d.docDate),
         actionBy: d.approvedBy ?? d.createdBy,
-        status: d.status === "COMPLETED" ? "Approved" : (STATUS_LABEL[d.status] as StockUpdateRow["status"]),
+        status:
+          d.status === "COMPLETED" || d.status === "APPROVED"
+            ? "Approved"
+            : d.status === "REJECTED"
+              ? "Rejected"
+              : d.status === "CANCELLED"
+                ? "Closed"
+                : inReview(d)
+                  ? "In Review"
+                  : "Pending",
         reviewComment: d.reviewComment ?? "",
       })),
     [docs.data],
@@ -427,7 +438,7 @@ export default function StockUpdatePage() {
                   </td>
                   <td className="p-2 border border-slate-300 text-center">
                     <div className="flex items-center justify-center gap-1.5 text-slate-600">
-                      {row.status === "Pending" && (
+                      {(row.status === "Pending" || row.status === "In Review") && (
                         <>
                           <button
                             type="button"
@@ -527,10 +538,13 @@ export default function StockUpdatePage() {
         onSaved={() => docs.reload()}
         config={{
           slug: "stock-adjustment",
-          title: "New Stock Update",
+          title: "Create Stock Adjustment",
           warehouses: "one",
+          offices: true,
           signed: true,
-          subtype: { label: "Adjustment Type", options: TYPE_OPTIONS.filter((o) => o.value !== "All").map((o) => o.value) },
+          subtype: { label: "Type", options: TYPE_OPTIONS.filter((o) => o.value !== "All").map((o) => o.value) },
+          columns: ["code", "category", "name", "uom", "stock", "cost", "qty", "remarks"],
+          qtyLabel: "Adjust Qty (+/−)",
         }}
       />
     </div>

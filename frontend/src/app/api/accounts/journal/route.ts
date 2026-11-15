@@ -24,6 +24,9 @@ async function handleGET() {
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** Who a line can be for (iBOS Customer/Supplier/Employee column). */
+const PARTNER_TYPES = new Set(["CUSTOMER", "SUPPLIER", "EMPLOYEE"]);
+const text = (value: unknown, max: number) => (typeof value === "string" && value.trim() ? value.trim().slice(0, max) : null);
 
 async function handlePOST(request: Request, _context: unknown, actor: Actor) {
   try {
@@ -83,18 +86,29 @@ async function handlePOST(request: Request, _context: unknown, actor: Actor) {
           preparedBy: actorName,
           approvedBy: body.status === "POSTED" ? actorName : null,
           postedAt: body.status === "POSTED" ? new Date() : null,
+          employeeId: uuidOrNull(body.employeeId),
+          employeeName: uuidOrNull(body.employeeId) ? text(body.employeeName, 150) : null,
+          projectId: uuidOrNull(body.projectId),
+          projectName: uuidOrNull(body.projectId) ? text(body.projectName, 150) : null,
+          attachmentId: uuidOrNull(body.attachmentId),
           lines: {
             // Lines keep the cost center id only (there is no cost center name column).
-            create: lines.map((l: any, idx: number) => ({
-              lineNo: idx + 1,
-              accountId: l.accountId,
-              accountCode: String(l.accountCode ?? ""),
-              accountName: String(l.accountName ?? ""),
-              costCenterId: uuidOrNull(l.costCenterId),
-              narration: l.narration || null,
-              debit: Number(l.debit) || 0,
-              credit: Number(l.credit) || 0,
-            })),
+            create: lines.map((l: any, idx: number) => {
+              const partnerId = PARTNER_TYPES.has(l.partnerType) ? uuidOrNull(l.partnerId) : null;
+              return {
+                lineNo: idx + 1,
+                accountId: l.accountId,
+                accountCode: String(l.accountCode ?? ""),
+                accountName: String(l.accountName ?? ""),
+                costCenterId: uuidOrNull(l.costCenterId),
+                narration: l.narration || null,
+                debit: Number(l.debit) || 0,
+                credit: Number(l.credit) || 0,
+                partnerType: partnerId ? l.partnerType : null,
+                partnerId,
+                partnerName: partnerId ? text(l.partnerName, 150) : null,
+              };
+            }),
           },
         },
         include: {
