@@ -356,7 +356,7 @@ export async function approvePendingSupplierBills(actorName: string, actor?: Pur
   ]);
   // Only the bills of business units the user may access.
   const pending = allPending.filter((b) => isPlaceInOrgScope(scope, { businessUnitId: b.businessUnitId }));
-  if (pending.length === 0) return { approved: 0 };
+  if (pending.length === 0) return { approved: 0, advanced: 0, skipped: 0 };
   let approved = 0;
   let advanced = 0;
   let skipped = 0;
