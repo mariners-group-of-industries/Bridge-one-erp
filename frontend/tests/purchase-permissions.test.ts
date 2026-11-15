@@ -461,6 +461,7 @@ describe("purchase approval pipeline & organizational scope governance", () => {
 
     // A pending Chattogram bill is not approved by a Dhaka user's "approve all".
     await createSupplierBill({ supplierId: ctgSupplier.id, number: "CTG-ADHOC-1", amount: 75 }, "Ctg Staff");
-    expect(await approvePendingSupplierBills("Dhaka Scoped", scoped)).toEqual({ approved: 0 });
+    // Not even offered to the pipeline: nothing approved, advanced or skipped.
+    expect(await approvePendingSupplierBills("Dhaka Scoped", scoped)).toEqual({ approved: 0, advanced: 0, skipped: 0 });
   });
 });

@@ -9,6 +9,7 @@ import {
 import { ModalDialog } from "@/components/purchase/ModalDialog";
 import { useAccountingStore } from "@/features/accounts/store/accounting-store";
 import { localToday } from "@/features/purchase/lib/client";
+import { Spinner } from "@/components/ui/spinner";
 import type { PaymentMethod } from "@/features/accounts/types";
 
 export default function ExpenseAdvancePage() {
@@ -54,19 +55,6 @@ export default function ExpenseAdvancePage() {
   const [viewingRecord, setViewingRecord] = useState<any | null>(null);
 
   // Forms
-  const [expenseForm, setExpenseForm] = useState({
-    officeId: "",
-    officeName: "",
-    expenseType: "Employee",
-    accountId: "",
-    accountName: "",
-    payeeName: "",
-    amount: 0,
-    date: localToday(),
-    paymentMethod: "BANK" as PaymentMethod,
-    referenceNumber: "",
-    description: "",
-  });
 
   const [advanceForm, setAdvanceForm] = useState({
     employeeName: "",
@@ -254,24 +242,97 @@ export default function ExpenseAdvancePage() {
     }
   };
 
-  // Create handlers
+  // ---------- Create Expense (iBOS layout) ----------
+  const blankExpLine = (date: string) => ({ key: `l-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, date, accountId: "", subGl: "", remarks: "", amount: 0 });
+  const blankExpHeader = () => ({
+    category: "Employee",
+    date: localToday(),
+    officeId: "",
+    employeeId: "",
+    department: "",
+    salesOrderId: "",
+    supplierId: "",
+    description: "",
+    paymentMethod: "BANK" as PaymentMethod,
+  });
+  const [expHeader, setExpHeader] = useState(blankExpHeader);
+  const [expLines, setExpLines] = useState(() => [blankExpLine(localToday())]);
+  const [expError, setExpError] = useState("");
+  const [expAttachment, setExpAttachment] = useState<{ id: string; name: string } | null>(null);
+  const [expAttachmentBusy, setExpAttachmentBusy] = useState(false);
+  const [expSuppliers, setExpSuppliers] = useState<Array<{ id: string; code: string; name: string }>>([]);
+  const [expSalesOrders, setExpSalesOrders] = useState<Array<{ id: string; code: string; name: string }>>([]);
+  const employees = useAccountingStore((s) => s.employees);
+  const departments = useMemo(() => [...new Set(employees.map((e) => e.department).filter((d): d is string => Boolean(d)))].sort(), [employees]);
+  const expOffice = dbOffices.find((o) => o.id === expHeader.officeId) ?? dbOffices[0];
+  const expTotal = expLines.reduce((t, l) => t + (Number(l.amount) || 0), 0);
+
+  const openCreateExpense = () => {
+    setExpHeader(blankExpHeader());
+    setExpLines([blankExpLine(localToday())]);
+    setExpAttachment(null);
+    setExpError("");
+    setIsCreateExpenseOpen(true);
+    // Supplier and sales order choices, loaded once.
+    const load = (type: string, set: (rows: Array<{ id: string; code: string; name: string }>) => void) =>
+      void fetch(`/api/accounts/parties?type=${type}`)
+        .then((r) => r.json())
+        .then((json) => json?.success && set(json.data));
+    if (expSuppliers.length === 0) load("SUPPLIER", setExpSuppliers);
+    if (expSalesOrders.length === 0) load("SALES_ORDER", setExpSalesOrders);
+  };
+
+  const uploadExpAttachment = async (file: File | undefined) => {
+    if (!file) return;
+    setExpAttachmentBusy(true);
+    setExpError("");
+    try {
+      const body = new FormData();
+      body.append("file", file);
+      const res = await fetch("/api/accounts/expenses/attachments", { method: "POST", body });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json?.error?.message ?? "The file could not be attached.");
+      setExpAttachment({ id: json.data.id, name: json.data.originalName });
+    } catch (err) {
+      setExpError(err instanceof Error ? err.message : "The file could not be attached.");
+    } finally {
+      setExpAttachmentBusy(false);
+    }
+  };
+
   const handleCreateExpenseSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const office = officeByName(expenseForm.officeName);
-    const account = expenseAccounts.find((a) => a.id === expenseForm.accountId);
-    if (expenseForm.amount <= 0 || !expenseForm.payeeName || !office || !account) return;
-    const count = expenses.length + 1;
-    const code = `EXP-MG261000${(100 + count).toString()}`;
+    setExpError("");
+    const employee = employees.find((x) => x.id === expHeader.employeeId);
+    const supplier = expSuppliers.find((x) => x.id === expHeader.supplierId);
+    const salesOrder = expSalesOrders.find((x) => x.id === expHeader.salesOrderId);
+    if (!expOffice) return setExpError("Select the office.");
+    if (expHeader.category === "Employee" && !employee) return setExpError("Select the employee.");
+    if (expHeader.category === "Partner/Supplier" && !supplier) return setExpError("Select the supplier/principle.");
+    const bad = expLines.findIndex((l) => !l.accountId || !(Number(l.amount) > 0));
+    if (bad >= 0) return setExpError(`Line ${bad + 1}: select the account (GL) and enter an amount.`);
+    const first = expenseAccounts.find((a) => a.id === expLines[0].accountId);
     createExpense({
-      ...expenseForm,
-      officeId: office.id,
-      officeName: office.name,
-      accountName: account.name,
-      date: localToday(),
-      code,
-      partnerPayee: expenseForm.payeeName,
-      chartOfAccount: `${accounts.find((a) => a.id === expenseForm.accountId)?.code} - ${expenseForm.accountName}`,
+      officeId: expOffice.id,
+      officeName: expOffice.name,
+      expenseType: expHeader.category,
+      accountId: first?.id ?? "",
+      accountName: first?.name ?? "",
+      payeeName: employee?.name ?? supplier?.name ?? "",
+      amount: expTotal,
+      date: expHeader.date,
+      paymentMethod: expHeader.paymentMethod,
+      description: expHeader.description,
       status: "APPROVED",
+      employeeId: employee?.id ?? null,
+      employeeName: employee?.name ?? null,
+      department: expHeader.department || null,
+      salesOrderId: salesOrder?.id ?? null,
+      salesOrderNo: salesOrder?.code ?? null,
+      supplierId: supplier?.id ?? null,
+      supplierName: supplier?.name ?? null,
+      attachmentId: expAttachment?.id ?? null,
+      lines: expLines.map((l) => ({ date: l.date, accountId: l.accountId, subGl: l.subGl || null, remarks: l.remarks || null, amount: Number(l.amount) })),
     });
     setIsCreateExpenseOpen(false);
   };
@@ -351,7 +412,7 @@ export default function ExpenseAdvancePage() {
             {/* Contextual Action Button */}
             {activeTab === "EXPENSE" && (
               <button
-                onClick={() => setIsCreateExpenseOpen(true)}
+                onClick={openCreateExpense}
                 className="inline-flex items-center gap-1 px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-medium transition-colors shadow-2xs"
               >
                 <Plus className="w-3.5 h-3.5" />
@@ -1121,32 +1182,19 @@ export default function ExpenseAdvancePage() {
       <ModalDialog
         isOpen={isCreateExpenseOpen}
         onClose={() => setIsCreateExpenseOpen(false)}
-        title="Create Expense Voucher"
-        maxWidth="lg"
+        title="Create Expense"
+        maxWidth="4xl"
       >
         <form onSubmit={handleCreateExpenseSubmit} className="space-y-3.5 text-xs">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {expError && (
+            <p role="alert" className="rounded border border-rose-200 bg-rose-50 px-3 py-2 text-rose-700">
+              {expError}
+            </p>
+          )}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div>
-              <label className="block font-medium text-slate-700 mb-1">Office / Branch *</label>
-              <select
-                value={expenseForm.officeName}
-                onChange={(e) => setExpenseForm({ ...expenseForm, officeName: e.target.value })}
-                className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white focus:ring-1 focus:ring-blue-500"
-              >
-                {officeList.filter((o) => o.id !== "ALL").map((o) => (
-                  <option key={o.id} value={o.name}>
-                    {o.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="block font-medium text-slate-700 mb-1">Expense Category *</label>
-              <select
-                value={expenseForm.expenseType}
-                onChange={(e) => setExpenseForm({ ...expenseForm, expenseType: e.target.value })}
-                className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white focus:ring-1 focus:ring-blue-500"
-              >
+              <label htmlFor="exp-category" className="block font-medium text-slate-700 mb-1">Expense Category *</label>
+              <select id="exp-category" value={expHeader.category} onChange={(e) => setExpHeader({ ...expHeader, category: e.target.value })} className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white focus:ring-1 focus:ring-blue-500">
                 {expenseTypes.filter((t) => t !== "ALL").map((t) => (
                   <option key={t} value={t}>
                     {t}
@@ -1155,76 +1203,196 @@ export default function ExpenseAdvancePage() {
               </select>
             </div>
             <div>
-              <label className="block font-medium text-slate-700 mb-1">Partner / Payee Name *</label>
-              <input
-                type="text"
-                required
-                placeholder="e.g. Apex Engineering Works"
-                value={expenseForm.payeeName}
-                onChange={(e) => setExpenseForm({ ...expenseForm, payeeName: e.target.value })}
-                className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white focus:ring-1 focus:ring-blue-500"
-              />
+              <label htmlFor="exp-date" className="block font-medium text-slate-700 mb-1">Expense Date</label>
+              <input id="exp-date" type="date" value={expHeader.date} onChange={(e) => setExpHeader({ ...expHeader, date: e.target.value })} className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white focus:ring-1 focus:ring-blue-500" />
             </div>
             <div>
-              <label className="block font-medium text-slate-700 mb-1">Amount (৳) *</label>
-              <input
-                type="number"
-                required
-                min="1"
-                step="0.01"
-                placeholder="0.00"
-                value={expenseForm.amount || ""}
-                onChange={(e) => setExpenseForm({ ...expenseForm, amount: parseFloat(e.target.value) || 0 })}
-                className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white font-mono focus:ring-1 focus:ring-blue-500"
-              />
-            </div>
-            <div>
-              <label className="block font-medium text-slate-700 mb-1">Chart of Account *</label>
-              <select
-                value={expenseForm.accountId}
-                onChange={(e) => {
-                  const acc = accounts.find((a) => a.id === e.target.value);
-                  setExpenseForm({
-                    ...expenseForm,
-                    accountId: e.target.value,
-                    accountName: acc ? acc.name : expenseForm.accountName,
-                  });
-                }}
-                required
-                className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white focus:ring-1 focus:ring-blue-500"
-              >
-                <option value="">Select account</option>
-                {expenseAccounts.map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.code} - {a.name}
+              <label htmlFor="exp-office" className="block font-medium text-slate-700 mb-1">Office *</label>
+              <select id="exp-office" value={expOffice?.id ?? ""} onChange={(e) => setExpHeader({ ...expHeader, officeId: e.target.value })} className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white focus:ring-1 focus:ring-blue-500">
+                {dbOffices.map((o) => (
+                  <option key={o.id} value={o.id}>
+                    {o.name}
                   </option>
                 ))}
               </select>
             </div>
             <div>
-              <label className="block font-medium text-slate-700 mb-1">Payment Method</label>
+              <label htmlFor="exp-employee" className="block font-medium text-slate-700 mb-1">Employee {expHeader.category === "Employee" ? "*" : ""}</label>
               <select
-                value={expenseForm.paymentMethod}
-                onChange={(e) => setExpenseForm({ ...expenseForm, paymentMethod: e.target.value as PaymentMethod })}
+                id="exp-employee"
+                value={expHeader.employeeId}
+                onChange={(e) => {
+                  const emp = employees.find((x) => x.id === e.target.value);
+                  setExpHeader({ ...expHeader, employeeId: e.target.value, department: emp?.department || expHeader.department });
+                }}
                 className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white focus:ring-1 focus:ring-blue-500"
               >
+                <option value="">Select/Search Employee</option>
+                {employees.map((emp) => (
+                  <option key={emp.id} value={emp.id}>
+                    {emp.name} ({emp.employeeCode})
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label htmlFor="exp-department" className="block font-medium text-slate-700 mb-1">Department</label>
+              <select id="exp-department" value={expHeader.department} onChange={(e) => setExpHeader({ ...expHeader, department: e.target.value })} className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white focus:ring-1 focus:ring-blue-500">
+                <option value="">Select Department</option>
+                {departments.map((d) => (
+                  <option key={d} value={d}>
+                    {d}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label htmlFor="exp-so" className="block font-medium text-slate-700 mb-1">Sales Order No</label>
+              <select id="exp-so" value={expHeader.salesOrderId} onChange={(e) => setExpHeader({ ...expHeader, salesOrderId: e.target.value })} className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white focus:ring-1 focus:ring-blue-500">
+                <option value="">Select Sales Order No</option>
+                {expSalesOrders.map((so) => (
+                  <option key={so.id} value={so.id}>
+                    {so.code}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label htmlFor="exp-supplier" className="block font-medium text-slate-700 mb-1">Supplier/Principle {expHeader.category === "Partner/Supplier" ? "*" : ""}</label>
+              <select id="exp-supplier" value={expHeader.supplierId} onChange={(e) => setExpHeader({ ...expHeader, supplierId: e.target.value })} className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white focus:ring-1 focus:ring-blue-500">
+                <option value="">Select/Search Supplier/Principle</option>
+                {expSuppliers.map((sp) => (
+                  <option key={sp.id} value={sp.id}>
+                    {sp.code} - {sp.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label htmlFor="exp-method" className="block font-medium text-slate-700 mb-1">Payment Method</label>
+              <select id="exp-method" value={expHeader.paymentMethod} onChange={(e) => setExpHeader({ ...expHeader, paymentMethod: e.target.value as PaymentMethod })} className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white focus:ring-1 focus:ring-blue-500">
                 <option value="BANK">Bank Transfer</option>
                 <option value="CHEQUE">Cheque</option>
                 <option value="CASH">Cash in Hand</option>
               </select>
             </div>
+            <div>
+              <label htmlFor="exp-attachment" className="block font-medium text-slate-700 mb-1">Attachment</label>
+              <div className="flex items-center gap-2">
+                <input
+                  id="exp-attachment"
+                  type="file"
+                  accept="application/pdf,image/png,image/jpeg,image/webp"
+                  disabled={expAttachmentBusy}
+                  onChange={(e) => {
+                    void uploadExpAttachment(e.target.files?.[0]);
+                    e.target.value = "";
+                  }}
+                  className="min-w-0 text-xs file:mr-2 file:h-8 file:rounded file:border file:border-slate-300 file:bg-white file:px-3 file:text-xs file:font-medium file:text-slate-700 hover:file:bg-slate-50"
+                />
+                {expAttachmentBusy && <Spinner className="size-3.5" />}
+              </div>
+              {expAttachment && (
+                <span className="mt-1 inline-flex items-center gap-1 rounded bg-slate-100 px-2 py-1 text-[11px] text-slate-700">
+                  {expAttachment.name}
+                  <button type="button" onClick={() => setExpAttachment(null)} aria-label="Remove attachment" className="inline-flex size-6 items-center justify-center rounded hover:text-rose-600">
+                    ×
+                  </button>
+                </span>
+              )}
+            </div>
+            <div className="sm:col-span-3">
+              <label htmlFor="exp-description" className="block font-medium text-slate-700 mb-1">Description</label>
+              <textarea id="exp-description" rows={2} value={expHeader.description} onChange={(e) => setExpHeader({ ...expHeader, description: e.target.value })} placeholder="Description" className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white focus:ring-1 focus:ring-blue-500" />
+            </div>
           </div>
-          <div>
-            <label className="block font-medium text-slate-700 mb-1">Description / Particulars *</label>
-            <textarea
-              required
-              rows={2}
-              placeholder="Enter details of expense voucher..."
-              value={expenseForm.description}
-              onChange={(e) => setExpenseForm({ ...expenseForm, description: e.target.value })}
-              className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white focus:ring-1 focus:ring-blue-500"
-            />
+
+          {/* GL lines: the expense amount is their total. */}
+          <div className="border border-slate-200 rounded overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead>
+                <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold text-[11px]">
+                  <th className="p-2 w-10 text-center">SL</th>
+                  <th className="p-2 w-36">Date</th>
+                  <th className="p-2 min-w-[240px]">Accounts Name (GL)</th>
+                  <th className="p-2 w-40">Sub GL</th>
+                  <th className="p-2 min-w-[160px]">Remarks</th>
+                  <th className="p-2 w-32 text-right">Amount</th>
+                  <th className="p-2 w-20 text-center">Action</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {expLines.map((l, idx) => {
+                  const set = (patch: Partial<typeof l>) => setExpLines(expLines.map((x) => (x.key === l.key ? { ...x, ...patch } : x)));
+                  return (
+                    <tr key={l.key}>
+                      <td className="p-2 text-center text-slate-500">{idx + 1}</td>
+                      <td className="p-2">
+                        <input type="date" aria-label={`Line ${idx + 1} date`} value={l.date} onChange={(e) => set({ date: e.target.value })} className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white focus:ring-1 focus:ring-blue-500" />
+                      </td>
+                      <td className="p-2">
+                        <select aria-label={`Line ${idx + 1} account`} value={l.accountId} onChange={(e) => set({ accountId: e.target.value })} className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white focus:ring-1 focus:ring-blue-500">
+                          <option value="">Accounts Name (GL)</option>
+                          {expenseAccounts.map((a) => (
+                            <option key={a.id} value={a.id}>
+                              {a.code} - {a.name}
+                            </option>
+                          ))}
+                        </select>
+                      </td>
+                      <td className="p-2">
+                        <input aria-label={`Line ${idx + 1} sub GL`} value={l.subGl} onChange={(e) => set({ subGl: e.target.value })} placeholder="Sub GL" className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white focus:ring-1 focus:ring-blue-500" />
+                      </td>
+                      <td className="p-2">
+                        <input aria-label={`Line ${idx + 1} remarks`} value={l.remarks} onChange={(e) => set({ remarks: e.target.value })} placeholder="Remarks" className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white focus:ring-1 focus:ring-blue-500" />
+                      </td>
+                      <td className="p-2">
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          aria-label={`Line ${idx + 1} amount`}
+                          value={l.amount || ""}
+                          onChange={(e) => set({ amount: parseFloat(e.target.value) || 0 })}
+                          placeholder="Amount"
+                          className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white focus:ring-1 focus:ring-blue-500 text-right font-mono"
+                        />
+                      </td>
+                      <td className="p-2">
+                        <div className="flex items-center justify-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => setExpLines([...expLines.slice(0, idx + 1), blankExpLine(l.date), ...expLines.slice(idx + 1)])}
+                            aria-label={`Add a line after line ${idx + 1}`}
+                            className="inline-flex size-6 items-center justify-center rounded text-slate-500 hover:bg-slate-100 hover:text-blue-600"
+                          >
+                            +
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setExpLines(expLines.filter((x) => x.key !== l.key))}
+                            disabled={expLines.length <= 1}
+                            aria-label={`Remove line ${idx + 1}`}
+                            className="inline-flex size-6 items-center justify-center rounded text-slate-500 hover:bg-slate-100 hover:text-rose-600 disabled:opacity-30"
+                          >
+                            ×
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+              <tfoot>
+                <tr className="bg-slate-50 font-semibold text-slate-800">
+                  <td colSpan={5} className="p-2 text-right">Total:</td>
+                  <td className="p-2 text-right font-mono">{expTotal.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                  <td />
+                </tr>
+              </tfoot>
+            </table>
           </div>
+
           <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
             <button
               type="button"
@@ -1235,9 +1403,10 @@ export default function ExpenseAdvancePage() {
             </button>
             <button
               type="submit"
-              className="px-5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-semibold shadow-2xs transition-colors"
+              disabled={expAttachmentBusy}
+              className="px-5 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white rounded text-xs font-semibold shadow-2xs transition-colors"
             >
-              Save Expense
+              Save
             </button>
           </div>
         </form>

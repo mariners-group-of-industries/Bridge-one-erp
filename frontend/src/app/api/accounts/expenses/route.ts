@@ -27,10 +27,26 @@ async function handlePOST(request: Request, _context: unknown, actor: Actor) {
     const prisma = db();
 
     const kind = String(body.recordKind || "EXPENSE").toUpperCase();
-    const amount = Number(body.amount || 0);
+
+    // iBOS Create Expense: one or more GL lines; the expense amount is their total.
+    const inputLines: Array<{ date?: string; accountId?: string; subGl?: string; remarks?: string; amount?: number }> = Array.isArray(body.lines) ? body.lines : [];
+    const lineAccounts = inputLines.length
+      ? await prisma.account.findMany({ where: { id: { in: inputLines.map((l) => uuidOrNull(l.accountId)).filter((x): x is string => Boolean(x)) } }, select: { id: true, code: true, name: true } })
+      : [];
+    const accountById = new Map(lineAccounts.map((a) => [a.id, a]));
+    for (const [i, l] of inputLines.entries()) {
+      if (!accountById.has(String(l.accountId))) {
+        return NextResponse.json({ success: false, error: `Line ${i + 1}: select the account (GL).` }, { status: 400 });
+      }
+      if (!(Number(l.amount) > 0)) {
+        return NextResponse.json({ success: false, error: `Line ${i + 1}: enter an amount greater than zero.` }, { status: 400 });
+      }
+    }
+    const amount = inputLines.length ? Math.round(inputLines.reduce((s, l) => s + Number(l.amount), 0) * 100) / 100 : Number(body.amount || 0);
     if (!amount || amount <= 0) {
       return NextResponse.json({ success: false, error: "Amount must be greater than zero." }, { status: 400 });
     }
+    const text = (value: unknown, max: number) => (typeof value === "string" && value.trim() ? value.trim().slice(0, max) : null);
 
     const prefix = kind === "ADVANCE" ? "ADV" : kind === "PROVISION" ? "PRV" : "EXP";
     const number = body.expenseNumber || `${prefix}-${new Date().getFullYear()}-${String(Date.now()).slice(-5)}`;
@@ -39,8 +55,11 @@ async function handlePOST(request: Request, _context: unknown, actor: Actor) {
     const validDate = Number.isNaN(dateVal.getTime()) ? new Date() : dateVal;
 
     const created = await prisma.$transaction(async (tx) => {
-      // Resolve GL account if present
-      let glAcc = uuidOrNull(body.accountId)
+      // Resolve GL account if present (the first line's account when the expense has lines)
+      const firstLineAccount = inputLines.length ? accountById.get(String(inputLines[0].accountId)) : undefined;
+      let glAcc = firstLineAccount
+        ? await tx.account.findUnique({ where: { id: firstLineAccount.id } })
+        : uuidOrNull(body.accountId)
         ? await tx.account.findUnique({ where: { id: uuidOrNull(body.accountId)! } })
         : body.accountCode
         ? await tx.account.findUnique({ where: { code: body.accountCode } })
@@ -53,16 +72,42 @@ async function handlePOST(request: Request, _context: unknown, actor: Actor) {
       }
 
       const rec = await tx.expenseRecord.create({
+        include: { lines: true },
         data: {
           expenseNumber: number,
           recordKind: kind,
           officeId: uuidOrNull(body.officeId),
-          officeName: body.officeName || "Corporate HO",
+          officeName: body.officeName || null,
           expenseType: body.expenseType || kind,
           accountId: glAcc?.id ?? null,
           accountCode: glAcc?.code ?? (body.accountCode || null),
-          accountName: glAcc?.name || body.accountName || "General Expense",
-          payeeName: body.payeeName || "Unspecified Payee",
+          accountName: glAcc?.name || body.accountName || "",
+          payeeName: text(body.payeeName, 150) ?? text(body.employeeName, 150) ?? text(body.supplierName, 150) ?? "",
+          employeeId: uuidOrNull(body.employeeId),
+          employeeName: uuidOrNull(body.employeeId) ? text(body.employeeName, 150) : null,
+          department: text(body.department, 100),
+          salesOrderId: uuidOrNull(body.salesOrderId),
+          salesOrderNo: uuidOrNull(body.salesOrderId) ? text(body.salesOrderNo, 30) : null,
+          supplierId: uuidOrNull(body.supplierId),
+          supplierName: uuidOrNull(body.supplierId) ? text(body.supplierName, 150) : null,
+          attachmentId: uuidOrNull(body.attachmentId),
+          lines: inputLines.length
+            ? {
+                create: inputLines.map((l, i) => {
+                  const acc = accountById.get(String(l.accountId))!;
+                  return {
+                    lineNo: i + 1,
+                    date: isoDateOrNull(l.date) ?? validDate,
+                    accountId: acc.id,
+                    accountCode: acc.code,
+                    accountName: acc.name,
+                    subGl: text(l.subGl, 150),
+                    remarks: text(l.remarks, 500),
+                    amount: Math.round(Number(l.amount) * 100) / 100,
+                  };
+                }),
+              }
+            : undefined,
           amount,
           settledAmount: Number(body.settledAmount || 0),
           effectivePeriod: body.effectivePeriod || null,
@@ -101,7 +146,13 @@ async function handlePOST(request: Request, _context: unknown, actor: Actor) {
             createdBy: actor.name || "Accounts User",
             approvedBy: actor.name || "Accounts User",
             lines: [
-              { accountId: expAcc.id, accountCode: expAcc.code, accountName: expAcc.name, debit: amount, credit: 0, narration: rec.description },
+              // Each expense line is its own debit; without lines the single expense account takes it all.
+              ...(inputLines.length
+                ? inputLines.map((l) => {
+                    const acc = accountById.get(String(l.accountId))!;
+                    return { accountId: acc.id, accountCode: acc.code, accountName: acc.name, debit: Math.round(Number(l.amount) * 100) / 100, credit: 0, narration: l.remarks || rec.description };
+                  })
+                : [{ accountId: expAcc.id, accountCode: expAcc.code, accountName: expAcc.name, debit: amount, credit: 0, narration: rec.description }]),
               { accountId: cashOrBank.id, accountCode: cashOrBank.code, accountName: cashOrBank.name, debit: 0, credit: amount, narration: `Settlement via ${rec.paymentMethod}` },
             ],
           });

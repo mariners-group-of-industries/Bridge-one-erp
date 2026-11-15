@@ -91,7 +91,8 @@ export interface InventoryDocument {
   createdAt: string;
   warehouse: WarehouseRef | null;
   toWarehouse: WarehouseRef | null;
-  request: { id: string; number: string } | null;
+  /** The request this fulfils: who raised it and who it was addressed to ("Request To"). */
+  request: { id: string; number: string; createdBy: string; requestTo: string | null } | null;
   /** Transfers / issues made against this request: quantity sent and received. */
   fulfilments: { id: string; number: string; status: InventoryDocStatus; qty: number; receivedQty: number }[];
   lines: InventoryDocumentLine[];

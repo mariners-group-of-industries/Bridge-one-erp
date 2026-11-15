@@ -166,6 +166,8 @@ async function handlePOST(request: Request) {
         bankName: body.bankName,
         branchName: body.branchName,
         accountHolder: body.accountHolder,
+        shortName: typeof body.shortName === "string" && body.shortName.trim() ? body.shortName.trim().slice(0, 50) : null,
+        signatory: typeof body.signatory === "string" && body.signatory.trim() ? body.signatory.trim().slice(0, 500) : null,
         accountType: body.accountType || "CURRENT",
         currency: body.currency || "BDT",
         glAccountId: uuidOrNull(body.glAccountId),

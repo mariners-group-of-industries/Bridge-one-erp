@@ -20,6 +20,7 @@ import { MANUAL_TRANS_TYPES, transTypeBase, transTypeFilterOptions, transTypeLab
 import type { JournalLineItem, JournalType, JournalVoucher, VoucherStatus } from "@/features/accounts/types";
 import { localDate, localDaysFromToday, localToday } from "@/features/purchase/lib/client";
 import { useSession } from "@/lib/auth/session";
+import { Spinner } from "@/components/ui/spinner";
 
 const blankLine = (): JournalLineItem => ({
   id: `line-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
@@ -48,6 +49,44 @@ export default function AccountingJournalPage() {
   const createVoucher = useAccountingStore((s) => s.createVoucher);
   const postVoucher = useAccountingStore((s) => s.postVoucher);
   const { user } = useSession();
+  const employees = useAccountingStore((s) => s.employees);
+  const costCenters = useAccountingStore((s) => s.costCenters);
+
+  // Header choices iBOS asks for: the employee the voucher is for, a project, one attachment.
+  const [voucherEmployeeId, setVoucherEmployeeId] = useState("");
+  const [voucherProjectId, setVoucherProjectId] = useState("");
+  const [attachment, setAttachment] = useState<{ id: string; name: string } | null>(null);
+  const [attachmentBusy, setAttachmentBusy] = useState(false);
+  const uploadAttachment = async (file: File | undefined) => {
+    if (!file) return;
+    setAttachmentBusy(true);
+    setFormError("");
+    try {
+      const body = new FormData();
+      body.append("file", file);
+      const res = await fetch("/api/accounts/journal/attachments", { method: "POST", body });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json?.error?.message ?? "The file could not be attached.");
+      setAttachment({ id: json.data.id, name: json.data.originalName });
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : "The file could not be attached.");
+    } finally {
+      setAttachmentBusy(false);
+    }
+  };
+
+  // Customers and suppliers for the line column, loaded the first time that type is picked.
+  const [partyLists, setPartyLists] = useState<{ CUSTOMER?: Array<{ id: string; code: string; name: string }>; SUPPLIER?: Array<{ id: string; code: string; name: string }> }>({});
+  const ensureParties = (type: "CUSTOMER" | "SUPPLIER" | "EMPLOYEE") => {
+    if (type === "EMPLOYEE" || partyLists[type]) return;
+    void fetch(`/api/accounts/parties?type=${type}`)
+      .then((r) => r.json())
+      .then((json) => json?.success && setPartyLists((prev) => ({ ...prev, [type]: json.data })));
+  };
+  const partyOptions = (type: string | null | undefined) =>
+    type === "EMPLOYEE"
+      ? employees.map((e) => ({ id: e.id, label: `${e.employeeCode} - ${e.name}` }))
+      : (partyLists[type as "CUSTOMER" | "SUPPLIER"] ?? []).map((p) => ({ id: p.id, label: `${p.code} - ${p.name}` }));
 
   // Tabs: "ACCOUNTING_JOURNAL" | "PENDING_VOUCHER" | "VOUCHER_REPOSITORY"
   const [activeTab, setActiveTab] = useState<"ACCOUNTING_JOURNAL" | "PENDING_VOUCHER" | "VOUCHER_REPOSITORY">("ACCOUNTING_JOURNAL");
@@ -222,6 +261,16 @@ export default function AccountingJournalPage() {
       setFormError(`Cannot save: Total Debit (৳${totalDebit.toLocaleString()}) must equal Total Credit (৳${totalCredit.toLocaleString()}).`);
       return;
     }
+    const voucherEmployee = employees.find((e) => e.id === voucherEmployeeId);
+    if (!voucherEmployee) {
+      setFormError("Select the employee.");
+      return;
+    }
+    const unpicked = lines.findIndex((l) => l.partnerType && !l.partnerId);
+    if (unpicked >= 0) {
+      setFormError(`Line ${unpicked + 1}: pick the ${(lines[unpicked].partnerType ?? "").toLowerCase()} from the list.`);
+      return;
+    }
     if (controlAmount.trim() !== "" && Math.abs(Number(controlAmount) - totalDebit) > 0.005) {
       setFormError(`The voucher total (৳${totalDebit.toLocaleString()}) does not match the control amount (৳${Number(controlAmount).toLocaleString()}).`);
       return;
@@ -238,6 +287,11 @@ export default function AccountingJournalPage() {
       createdBy: preparedBy,
       amount: totalDebit,
       createDate: localDate(new Date()),
+      employeeId: voucherEmployee.id,
+      employeeName: voucherEmployee.name,
+      projectId: voucherProjectId || null,
+      projectName: costCenters.find((c) => c.id === voucherProjectId)?.name ?? null,
+      attachmentId: attachment?.id ?? null,
     });
 
     if (!res.success) {
@@ -252,6 +306,9 @@ export default function AccountingJournalPage() {
       setNewVoucherHeader(emptyHeader());
       setLines([blankLine(), blankLine()]);
       setControlAmount("");
+      setVoucherEmployeeId("");
+      setVoucherProjectId("");
+      setAttachment(null);
     }, 800);
   };
 
@@ -919,6 +976,67 @@ export default function AccountingJournalPage() {
                 className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white font-mono text-right focus:ring-1 focus:ring-blue-500"
               />
             </div>
+            <div>
+              <label htmlFor="jv-employee" className="block text-slate-600 font-medium mb-1">Employee *</label>
+              <select
+                id="jv-employee"
+                required
+                value={voucherEmployeeId}
+                onChange={(e) => setVoucherEmployeeId(e.target.value)}
+                className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white focus:ring-1 focus:ring-blue-500"
+              >
+                <option value="">Select employee</option>
+                {employees.map((emp) => (
+                  <option key={emp.id} value={emp.id}>
+                    {emp.name} ({emp.employeeCode})
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label htmlFor="jv-project" className="block text-slate-600 font-medium mb-1">Project</label>
+              <select
+                id="jv-project"
+                value={voucherProjectId}
+                onChange={(e) => setVoucherProjectId(e.target.value)}
+                className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white focus:ring-1 focus:ring-blue-500"
+              >
+                <option value="">Project</option>
+                {costCenters
+                  .filter((c) => c.status === "ACTIVE")
+                  .map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.code} - {c.name}
+                    </option>
+                  ))}
+              </select>
+            </div>
+            <div className="sm:col-span-2">
+              <label htmlFor="jv-attachment" className="block text-slate-600 font-medium mb-1">Attachment</label>
+              <div className="flex items-center gap-2">
+                <input
+                  id="jv-attachment"
+                  type="file"
+                  accept="application/pdf,image/png,image/jpeg,image/webp"
+                  disabled={attachmentBusy}
+                  onChange={(e) => {
+                    void uploadAttachment(e.target.files?.[0]);
+                    e.target.value = "";
+                  }}
+                  className="text-xs file:mr-2 file:h-8 file:rounded file:border file:border-slate-300 file:bg-white file:px-3 file:text-xs file:font-medium file:text-slate-700 hover:file:bg-slate-50"
+                />
+                {attachmentBusy && <Spinner className="size-3.5" />}
+                {attachment && (
+                  <span className="inline-flex items-center gap-1 rounded bg-slate-100 px-2 py-1 text-[11px] text-slate-700">
+                    {attachment.name}
+                    <button type="button" onClick={() => setAttachment(null)} aria-label="Remove attachment" className="inline-flex size-6 items-center justify-center rounded hover:text-rose-600">
+                      ×
+                    </button>
+                  </span>
+                )}
+              </div>
+              <p className="mt-1 text-[11px] text-slate-500">PDF, PNG, JPEG or WebP, up to 5 MB.</p>
+            </div>
           </div>
 
           {/* Double-Entry Debit/Credit Table */}
@@ -940,9 +1058,10 @@ export default function AccountingJournalPage() {
                 <thead>
                   <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold uppercase text-[11px]">
                     <th className="p-2 w-72">GL Account</th>
+                    <th className="p-2 min-w-[260px]">Customer/Supplier/Employee</th>
                     <th className="p-2 w-32 text-right">Debit (৳)</th>
                     <th className="p-2 w-32 text-right">Credit (৳)</th>
-                    <th className="p-2">Line Narration</th>
+                    <th className="p-2 min-w-[160px]">Line Narration</th>
                     <th className="p-2 w-10 text-center"></th>
                   </tr>
                 </thead>
@@ -964,6 +1083,45 @@ export default function AccountingJournalPage() {
                               </option>
                             ))}
                         </select>
+                      </td>
+                      <td className="p-2">
+                        <div className="flex gap-1">
+                          <select
+                            aria-label="Partner type"
+                            value={l.partnerType ?? ""}
+                            onChange={(e) => {
+                              const type = (e.target.value || null) as JournalLineItem["partnerType"];
+                              if (type) ensureParties(type);
+                              handleLineChange(l.id, { partnerType: type, partnerId: null, partnerName: null });
+                            }}
+                            className="w-24 shrink-0 border border-slate-300 rounded px-1.5 py-1 bg-white text-xs focus:ring-1 focus:ring-blue-500"
+                          >
+                            <option value="">—</option>
+                            <option value="CUSTOMER">Customer</option>
+                            <option value="SUPPLIER">Supplier</option>
+                            <option value="EMPLOYEE">Employee</option>
+                          </select>
+                          {l.partnerType && (
+                            <>
+                              <input
+                                aria-label="Customer, supplier or employee"
+                                list={`jv-party-${l.id}`}
+                                value={l.partnerName ?? ""}
+                                onChange={(e) => {
+                                  const match = partyOptions(l.partnerType).find((o) => o.label === e.target.value);
+                                  handleLineChange(l.id, { partnerName: e.target.value, partnerId: match?.id ?? null });
+                                }}
+                                placeholder="Search…"
+                                className={`min-w-0 flex-1 border rounded px-2 py-1 text-xs focus:ring-1 focus:ring-blue-500 ${l.partnerName && !l.partnerId ? "border-rose-300" : "border-slate-300"}`}
+                              />
+                              <datalist id={`jv-party-${l.id}`}>
+                                {partyOptions(l.partnerType).map((o) => (
+                                  <option key={o.id} value={o.label} />
+                                ))}
+                              </datalist>
+                            </>
+                          )}
+                        </div>
                       </td>
                       <td className="p-2">
                         <input

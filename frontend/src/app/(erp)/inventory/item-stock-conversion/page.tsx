@@ -6,7 +6,7 @@ import { useResource } from "@/hooks/use-resource";
 import { errorMessage } from "@/lib/api/client";
 import { InventoryDocumentDialog } from "@/features/inventory/components/InventoryDocumentDialog";
 import type { InventoryDocument } from "@/features/inventory/schemas/document.schema";
-import { inventoryApi, monthAgo, today } from "@/features/inventory/services/inventory.api";
+import { inReview, inventoryApi, monthAgo, today } from "@/features/inventory/services/inventory.api";
 import {
   Search,
   Plus,
@@ -49,14 +49,11 @@ interface StockConversionRecord {
   wastageQty: number;
   wastageUom: string;
   wastagePercent: number;
-  status: "Pending" | "Approved" | "Completed" | "Rejected";
+  status: "Pending" | "In Review" | "Approved" | "Rejected";
   operator: string;
   remarks: string;
 }
 
-// ============================================================================
-// INITIAL MOCK DATA (matches user's real Mariners Group ERP screenshot)
-// ============================================================================
 /** One record per converted line; stock moves when the conversion is approved. */
 function toRecords(docs: InventoryDocument[]): StockConversionRecord[] {
   const round = (n: number, d = 3) => Math.round(n * 10 ** d) / 10 ** d;
@@ -84,7 +81,8 @@ function toRecords(docs: InventoryDocument[]): StockConversionRecord[] {
         wastageQty: wastage,
         wastageUom: l.uom,
         wastagePercent: sameUnit && l.qty > 0 ? round((wastage / l.qty) * 100, 2) : 0,
-        status: d.status === "PENDING" ? "Pending" : d.status === "REJECTED" ? "Rejected" : "Completed",
+        // An approved conversion has posted its stock (iBOS calls it Approved).
+        status: d.status === "PENDING" ? (inReview(d) ? "In Review" : "Pending") : d.status === "REJECTED" ? "Rejected" : "Approved",
         operator: d.approvedBy ?? d.createdBy,
         remarks: d.remarks ?? "",
       } satisfies StockConversionRecord;
@@ -100,18 +98,17 @@ const optionsOf = (placeholder: string, all: string, values: string[]) => [
 const CONVERSION_TYPE_OPTIONS = [
   { value: "All", label: "Conversion Type" },
   { value: "Stock Transfer", label: "Stock Transfer" },
-  { value: "Repackaging", label: "Repackaging" },
-  { value: "Unit Conversion", label: "Unit Conversion" },
-  { value: "Grade Categorization", label: "Grade Categorization" },
-  { value: "Raw to FG Conversion", label: "Raw to FG Conversion" },
+  { value: "Bundle", label: "Bundle" },
+  { value: "Un-Bundle", label: "Un-Bundle" },
+  { value: "ONE TO ONE", label: "ONE TO ONE" },
 ];
 
 const STATUS_OPTIONS = [
   { value: "All", label: "All Status" },
   { value: "Pending", label: "Pending" },
   { value: "Approved", label: "Approved" },
-  { value: "Completed", label: "Completed" },
   { value: "Rejected", label: "Rejected" },
+  { value: "In Review", label: "In Review" },
 ];
 
 const VIEW_BY_OPTIONS = [
@@ -137,6 +134,9 @@ export default function ItemStockConversionPage() {
 
   // Tab 2 Filters (Exact to Screenshot 2)
   const [reportOffice, setReportOffice] = useState("");
+  const masters = useResource("inventory-masters", inventoryApi.masters);
+  // Offices of the warehouses the user can see.
+  const reportOffices = useMemo(() => [...new Set((masters.data?.warehouses ?? []).map((w) => w.officeName))].sort(), [masters.data]);
   const [reportWarehouse, setReportWarehouse] = useState("");
   const [reportFromDate, setReportFromDate] = useState(monthAgo());
   const [reportToDate, setReportToDate] = useState(today());
@@ -689,7 +689,7 @@ export default function ItemStockConversionPage() {
                           )}
                         </td>
                         <td className="py-2 px-3 text-center whitespace-nowrap">
-                          {row.status === "Pending" && (
+                          {(row.status === "Pending" || row.status === "In Review") && (
                             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold bg-amber-50 text-amber-700 border border-amber-200">
                               <Clock className="w-3 h-3" /> Pending
                             </span>
@@ -699,9 +699,9 @@ export default function ItemStockConversionPage() {
                               <CheckCircle2 className="w-3 h-3" /> Approved
                             </span>
                           )}
-                          {row.status === "Completed" && (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold bg-blue-50 text-blue-700 border border-blue-200">
-                              <CheckCircle2 className="w-3 h-3" /> Completed
+                          {row.status === "In Review" && (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold bg-amber-50 text-amber-700 border border-amber-200">
+                              <Clock className="w-3 h-3" /> In Review
                             </span>
                           )}
                           {row.status === "Rejected" && (
@@ -813,10 +813,11 @@ export default function ItemStockConversionPage() {
                   className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white text-xs text-slate-600 focus:ring-1 focus:ring-blue-500"
                 >
                   <option value="">Office</option>
-                  <option value="MG Sirajganj Factory">MG Sirajganj Factory</option>
-                  <option value="Dhaka Head Office">Dhaka Head Office</option>
-                  <option value="Marinozz">Marinozz</option>
-                  <option value="MOHS Eco">MOHS Eco</option>
+                  {reportOffices.map((o) => (
+                    <option key={o} value={o}>
+                      {o}
+                    </option>
+                  ))}
                 </select>
               </div>
 
@@ -941,10 +942,10 @@ export default function ItemStockConversionPage() {
                 Item Stock Conversion Report
               </h2>
               <h3 className="text-sm font-semibold text-slate-800">
-                Mariners Group
+                {masters.data?.company?.name}
               </h3>
               <p className="text-xs text-slate-600">
-                10th Floor, MG SAM Center, 12 Bir Uttam A. K. Khandakar Road, Mohakhali C/A, Dhaka-1212, Bangladesh
+                {masters.data?.company?.address}
               </p>
               <p className="text-xs font-medium text-slate-700 pt-1">
                 From: {formatReportDate(reportFromDate)} &nbsp; To: {formatReportDate(reportToDate)}
@@ -1150,10 +1151,13 @@ export default function ItemStockConversionPage() {
         onSaved={() => docs.reload()}
         config={{
           slug: "item-stock-conversion",
-          title: "New Item Stock Conversion",
+          title: "Create Item Stock Conversion",
           warehouses: "one",
+          offices: true,
           conversion: true,
-          subtype: { label: "Conversion type", options: CONVERSION_TYPE_OPTIONS.filter((o) => o.value !== "All").map((o) => o.value) },
+          subtype: { label: "Conversion Type", options: CONVERSION_TYPE_OPTIONS.filter((o) => o.value !== "All").map((o) => o.value) },
+          columns: ["code", "name", "uom", "stock", "qty"],
+          qtyLabel: "From Qty",
         }}
       />
 
@@ -1250,7 +1254,7 @@ export default function ItemStockConversionPage() {
                 </button>
 
                 <div className="flex items-center gap-2">
-                  {viewRecord.status === "Pending" && (
+                  {(viewRecord.status === "Pending" || viewRecord.status === "In Review") && (
                     <button
                       type="button"
                       disabled={approving}

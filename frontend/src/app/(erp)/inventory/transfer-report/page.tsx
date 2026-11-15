@@ -171,6 +171,7 @@ export default function TransferReportPage() {
   const [fromDate, setFromDate] = useState(monthAgo());
   const [toDate, setToDate] = useState(today());
   const [period, setPeriod] = useState({ from: fromDate, to: toDate });
+  const masters = useResource("inventory-masters", inventoryApi.masters);
   const report = useResource(`transfer-report-${period.from}-${period.to}`, () => inventoryApi.transferReport(period));
   const transfers = useMemo(() => report.data?.transfers ?? [], [report.data]);
   const outRows = useMemo(() => outRecords(transfers), [transfers]);
@@ -542,10 +543,10 @@ export default function TransferReportPage() {
             Transfer Report - {viewBy}
           </h2>
           <h3 className="text-sm font-semibold text-slate-800">
-            Mariners Group
+            {masters.data?.company?.name}
           </h3>
           <p className="text-xs text-slate-600">
-            10th Floor, MG SAM Center, 12 Bir Uttam A. K. Khandakar Road, Mohakhali C/A, Dhaka-1212, Bangladesh
+            {masters.data?.company?.address}
           </p>
           <p className="text-xs font-medium text-slate-700 pt-1">
             From: {formatDateDisplay(fromDate)} &nbsp; To: {formatDateDisplay(toDate)}

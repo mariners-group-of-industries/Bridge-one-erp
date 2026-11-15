@@ -6,7 +6,7 @@ import { useResource } from "@/hooks/use-resource";
 import { errorMessage } from "@/lib/api/client";
 import { InventoryDocumentDialog } from "@/features/inventory/components/InventoryDocumentDialog";
 import type { InventoryDocument } from "@/features/inventory/schemas/document.schema";
-import { dmy, inventoryApi } from "@/features/inventory/services/inventory.api";
+import { dmy, inReview, inventoryApi } from "@/features/inventory/services/inventory.api";
 import {
   Search,
   Download,
@@ -37,7 +37,7 @@ interface TransferRequestRow {
   outQty: number;
   inQty: number;
   remainingQty: number;
-  status: "Pending" | "Approved" | "Partial" | "Completed" | "Rejected";
+  status: "Pending" | "In Progress" | "Approved" | "Review" | "Rejected" | "Closed";
   actionBy: string;
   requestTo: string;
 }
@@ -61,16 +61,23 @@ interface DetailRow {
   totalQty: number;
 }
 
-// ============================================================================
-// MOCK DATA — REQUEST LIST
-// ============================================================================
 /** Request rows: quantity requested, sent by transfers, and received. */
 function toRequestRows(docs: InventoryDocument[]): TransferRequestRow[] {
   return docs.map((d, i) => {
     const outQty = d.processedQty;
     const inQty = d.fulfilments.reduce((t, f) => t + f.receivedQty, 0);
     const status: TransferRequestRow["status"] =
-      d.status === "PENDING" ? "Pending" : d.status === "REJECTED" ? "Rejected" : d.status === "COMPLETED" ? "Completed" : outQty > 0 ? "Partial" : "Approved";
+      d.status === "PENDING"
+        ? inReview(d)
+          ? "Review"
+          : "Pending"
+        : d.status === "REJECTED"
+          ? "Rejected"
+          : d.status === "COMPLETED" || d.status === "CANCELLED"
+            ? "Closed"
+            : outQty > 0
+              ? "In Progress"
+              : "Approved";
     return {
       sl: i + 1,
       id: d.id,
@@ -86,7 +93,8 @@ function toRequestRows(docs: InventoryDocument[]): TransferRequestRow[] {
       remainingQty: Math.max(0, Math.round((d.totalQty - outQty) * 1000) / 1000),
       status,
       actionBy: d.createdBy,
-      requestTo: d.warehouse?.name ?? "",
+      // iBOS "Request To" is the person asked; older requests named the supplying warehouse.
+      requestTo: d.meta?.requestTo ?? d.warehouse?.name ?? "",
     };
   });
 }
@@ -123,13 +131,15 @@ function toDetailRows(docs: InventoryDocument[], office: string, warehouse: stri
   return [...byItem.values()];
 }
 
+// iBOS: In Progress = partly sent, Review = some approval stages signed, Closed = fully sent.
 const STATUS_OPTIONS = [
   { value: "", label: "All Status" },
   { value: "Pending", label: "Pending" },
+  { value: "In Progress", label: "In Progress" },
   { value: "Approved", label: "Approved" },
-  { value: "Partial", label: "Partial" },
-  { value: "Completed", label: "Completed" },
+  { value: "Review", label: "Review" },
   { value: "Rejected", label: "Rejected" },
+  { value: "Closed", label: "Closed" },
 ];
 
 // ============================================================================
@@ -150,8 +160,9 @@ function statusBadge(status: TransferRequestRow["status"]) {
   const map: Record<string, string> = {
     Pending: "bg-amber-50 text-amber-700 border-amber-200",
     Approved: "bg-emerald-50 text-emerald-700 border-emerald-200",
-    Partial: "bg-blue-50 text-blue-700 border-blue-200",
-    Completed: "bg-green-50 text-green-700 border-green-200",
+    "In Progress": "bg-blue-50 text-blue-700 border-blue-200",
+    Review: "bg-amber-50 text-amber-700 border-amber-200",
+    Closed: "bg-slate-100 text-slate-700 border-slate-200",
     Rejected: "bg-red-50 text-red-700 border-red-200",
   };
   return (
@@ -570,7 +581,7 @@ export default function TransferRequestPage() {
                         </td>
                         <td className="p-2 border border-slate-300 text-center">
                           <div className="flex items-center justify-center gap-1.5 text-slate-600">
-                            {row.status === "Pending" && (
+                            {(row.status === "Pending" || row.status === "Review") && (
                               <>
                                 <button
                                   type="button"
@@ -1011,12 +1022,23 @@ export default function TransferRequestPage() {
         onSaved={() => listDocs.reload()}
         config={{
           slug: "transfer-request",
-          title: "New Transfer Request",
-          warehouses: "two",
-          warehouseLabel: "Request to (supplying warehouse)",
-          toWarehouseLabel: "Requesting warehouse",
-          expectedDateLabel: "Expected date",
-          referenceLabel: "Sales order no",
+          title: "Create Transfer Request",
+          // iBOS: only the requesting side; the sending warehouse is chosen when the stock is sent out.
+          warehouses: "target",
+          offices: true,
+          toOfficeLabel: "To/Requesting Office",
+          toWarehouseLabel: "To/Requesting Warehouse",
+          dateLabel: "Request Date",
+          expectedDateLabel: "Expected Date",
+          fields: [
+            { key: "requestTo", label: "Request To", kind: "employee" },
+            { key: "itemType", label: "Item Type", kind: "select", options: ["Inventory Item", "Asset Item"], required: true },
+            { key: "salesOrder", label: "Sales Order", kind: "salesOrder", saveAs: "reference" },
+          ],
+          columns: ["code", "category", "name", "cost", "trade", "mrp", "stock", "altQty", "qty"],
+          stockOf: "target",
+          stockLabel: "Req. Warehouse Stock",
+          qtyLabel: "Request Quantity",
         }}
       />
     </div>
