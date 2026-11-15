@@ -223,7 +223,10 @@ function ChallanOrInvoice({ delivery, doc }: { delivery: DeliveryDetail; doc: Ex
           </p>
         ))}
       </footer>
-      <p className="text-right text-[9px] text-ink-faint">Printed {formatDateTime(new Date())}</p>
+      <div className="mt-6 flex items-center justify-between border-t border-line pt-2 text-[9px] text-ink-muted">
+        <span className="font-semibold">Made by BridgeOne</span>
+        <span>Printed {formatDateTime(new Date())}</span>
+      </div>
     </article>
   );
 }
@@ -326,7 +329,10 @@ function Mushak({ delivery }: { delivery: DeliveryDetail }) {
         </div>
         <p className="w-48 border-t border-line-strong pt-1 text-center">Signature</p>
       </footer>
-      <p className="text-right text-[9px] text-ink-faint">Printed {formatDateTime(new Date())}</p>
+      <div className="mt-6 flex items-center justify-between border-t border-line pt-2 text-[9px] text-ink-muted">
+        <span className="font-semibold">Made by BridgeOne</span>
+        <span>Printed {formatDateTime(new Date())}</span>
+      </div>
     </article>
   );
 }

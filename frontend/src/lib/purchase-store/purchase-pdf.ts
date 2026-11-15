@@ -136,16 +136,6 @@ export async function renderCorporatePurchasePdf(spec: CorporatePdfSpec): Promis
   const font = await doc.embedFont(StandardFonts.Helvetica);
   const bold = await doc.embedFont(StandardFonts.HelveticaBold);
 
-  let logoImage: PDFImage | null = null;
-  const logoBytes = getLogoBytes();
-  if (logoBytes) {
-    try {
-      logoImage = await doc.embedPng(logoBytes);
-    } catch {
-      logoImage = null;
-    }
-  }
-
   const pageWidth = spec.landscape ? 841.89 : 595.28;
   const pageHeight = spec.landscape ? 595.28 : 841.89;
   const marginX = 34;
@@ -167,37 +157,24 @@ export async function renderCorporatePurchasePdf(spec: CorporatePdfSpec): Promis
   let page = createPage();
   let y = pageHeight - marginTop;
 
-  // 1. CORPORATE LETTERHEAD (left logo + centered info)
-  const logoSlotWidth = 104;
-  if (logoImage) {
-    const scale = Math.min(logoSlotWidth / logoImage.width, 30 / logoImage.height);
-    const lw = logoImage.width * scale;
-    const lh = logoImage.height * scale;
-    page.drawImage(logoImage, {
-      x: marginX,
-      y: y - lh + 2,
-      width: lw,
-      height: lh,
-    });
-  }
-
-  const centerTextWidth = contentWidth - logoSlotWidth * 2;
-  const centerBlock = (text: string, size: number, f: PDFFont, color = ink, gapAfter = 3) => {
-    const lines = wrapLines(text, f, size, Math.max(240, centerTextWidth + 60));
+  // 1. CORPORATE LETTERHEAD (Centered, Elegant, No Misplaced Logos)
+  const centerBlock = (text: string, size: number, f: PDFFont, color = ink, gapAfter = 2.5) => {
+    const lines = wrapLines(text, f, size, contentWidth - 40);
     for (const line of lines) {
       drawAlignedText(page, line, marginX, y - size, contentWidth, f, size, "center", color);
-      y -= size + 2.5;
+      y -= size + 2.2;
     }
     y -= gapAfter;
   };
 
-  centerBlock(spec.header.companyName || "Company Name", 13.5, bold, black, 1);
+  centerBlock(spec.header.companyName || "Mariners Group", 13.5, bold, black, 1);
   if (spec.header.officeName) {
     centerBlock(spec.header.officeName, 8.5, font, ink, 0);
   }
   if (
     spec.header.businessUnitName &&
-    spec.header.businessUnitName.toLowerCase() !== spec.header.officeName.toLowerCase()
+    spec.header.businessUnitName.toLowerCase() !== (spec.header.companyName || "").toLowerCase() &&
+    spec.header.businessUnitName.toLowerCase() !== (spec.header.officeName || "").toLowerCase()
   ) {
     centerBlock(spec.header.businessUnitName, 8, font, muted, 0);
   }
@@ -452,14 +429,31 @@ export async function renderCorporatePurchasePdf(spec: CorporatePdfSpec): Promis
     });
   }
 
-  // Subtle footer page count if multiple pages
-  if (pages.length > 1) {
-    pages.forEach((p, idx) => {
-      const label = `Page ${idx + 1} of ${pages.length}`;
-      const w = font.widthOfTextAtSize(label, 7);
-      p.drawText(label, { x: pageWidth - marginX - w, y: 16, size: 7, font, color: muted });
+  // Footer on every page: "Made by BridgeOne" on left, page number on right
+  pages.forEach((p, idx) => {
+    p.drawLine({
+      start: { x: marginX, y: 22 },
+      end: { x: pageWidth - marginX, y: 22 },
+      thickness: 0.5,
+      color: rgb(0.8, 0.82, 0.85),
     });
-  }
+    p.drawText("Made by BridgeOne", {
+      x: marginX,
+      y: 12,
+      size: 7.5,
+      font,
+      color: rgb(0.38, 0.44, 0.52),
+    });
+    const label = `Page ${idx + 1} of ${pages.length}`;
+    const w = font.widthOfTextAtSize(label, 7.5);
+    p.drawText(label, {
+      x: pageWidth - marginX - w,
+      y: 12,
+      size: 7.5,
+      font,
+      color: rgb(0.38, 0.44, 0.52),
+    });
+  });
 
   return doc.save();
 }
@@ -487,7 +481,7 @@ async function resolveCorporateHeader(officeId?: string | null, businessUnitId?:
 
   const resolvedBu = office?.businessUnit ?? bu;
   return {
-    companyName: resolvedBu?.company?.name || resolvedBu?.name || "BridgeOne Technologies Ltd.",
+    companyName: resolvedBu?.company?.name || resolvedBu?.name || "Mariners Group",
     officeName: office?.name || resolvedBu?.name || "Head Office",
     businessUnitName: resolvedBu?.name || "",
     address: office?.address || resolvedBu?.address || resolvedBu?.company?.address || "",

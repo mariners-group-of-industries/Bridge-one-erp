@@ -7,6 +7,7 @@ import { Button, buttonClasses } from "@/components/ui/button";
 import { ErrorState, LoadingState } from "@/components/ui/section";
 import { useResource } from "@/hooks/use-resource";
 import { errorMessage } from "@/lib/api/client";
+import { formatDateTime } from "@/lib/format";
 import { formatAmount } from "../../dashboard/lib/format";
 import { amountInWords } from "../../lib/amount-in-words";
 import { formatDay, useToday } from "../../lib/use-today";
@@ -60,13 +61,19 @@ function Header({ company, office, address, title, number }: { company: string; 
 
 function Signatures({ labels }: { labels: string[] }) {
   return (
-    <footer className="mt-12 grid grid-cols-3 gap-6 text-center break-inside-avoid">
-      {labels.map((label) => (
-        <p key={label} className="border-t border-line-strong pt-1">
-          {label}
-        </p>
-      ))}
-    </footer>
+    <>
+      <footer className="mt-12 grid grid-cols-3 gap-6 text-center break-inside-avoid">
+        {labels.map((label) => (
+          <p key={label} className="border-t border-line-strong pt-1">
+            {label}
+          </p>
+        ))}
+      </footer>
+      <div className="mt-6 flex items-center justify-between border-t border-line pt-2 text-[9px] text-ink-muted">
+        <span className="font-semibold">Made by BridgeOne</span>
+        <span>Printed {formatDateTime(new Date())}</span>
+      </div>
+    </>
   );
 }
 

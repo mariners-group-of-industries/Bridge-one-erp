@@ -6,6 +6,7 @@ import { Button, buttonClasses } from "@/components/ui/button";
 import { ErrorState, LoadingState } from "@/components/ui/section";
 import { useResource } from "@/hooks/use-resource";
 import { errorMessage } from "@/lib/api/client";
+import { formatDateTime } from "@/lib/format";
 import { formatAmount, formatQty } from "../../dashboard/lib/format";
 import { amountInWords } from "../../lib/amount-in-words";
 import { formatDay } from "../../lib/use-today";
@@ -166,6 +167,10 @@ function ReturnDocument({ record }: { record: ReturnDetail }) {
           </p>
         ))}
       </footer>
+      <div className="mt-6 flex items-center justify-between border-t border-line pt-2 text-[9px] text-ink-muted">
+        <span className="font-semibold">Made by BridgeOne</span>
+        <span>Printed {formatDateTime(new Date())}</span>
+      </div>
     </article>
   );
 }

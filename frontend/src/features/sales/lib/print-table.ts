@@ -17,6 +17,10 @@ export function printTable(title: string, headers: string[], rows: (string | num
 <h1>${escape(title)}</h1>
 <table><thead><tr>${headers.map((header, column) => cell(header, column, "th")).join("")}</tr></thead>
 <tbody>${rows.map((row) => `<tr>${row.map((value, column) => cell(value, column, "td")).join("")}</tr>`).join("")}</tbody></table>
+<div style="margin-top:20px; font-size:10px; color:#64748b; border-top:1px solid #cbd5e1; padding-top:6px; display:flex; justify-content:space-between;">
+  <span style="font-weight:600;">Made by BridgeOne</span>
+  <span>Printed ${new Date().toLocaleDateString('en-GB')}</span>
+</div>
 <script>window.onload = () => { window.print(); };</script>
 </body></html>`;
   const page = window.open("", "_blank");
