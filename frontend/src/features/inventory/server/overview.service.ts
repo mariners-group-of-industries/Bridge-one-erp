@@ -8,10 +8,10 @@ import type { InventoryKpis, MovingFrequencyItem, TransactionValueItem, Turnover
 /** What each ledger movement is called on inventory screens. */
 export const STOCK_SOURCE_LABELS: Record<StockSource, string> = {
   OPENING: "Opening Balance",
-  ADJUSTMENT: "Stock Update",
+  ADJUSTMENT: "Stock Adjustment",
   SALES_DELIVERY: "Sales Delivery",
   SALES_RETURN: "Sales Return",
-  PRODUCTION_CONSUMPTION: "Production Consumption",
+  PRODUCTION_CONSUMPTION: "Issue for Production",
   PRODUCTION_OUTPUT: "Receive from Production",
   PURCHASE_RECEIPT: "Purchase",
   PURCHASE_RETURN: "Purchase Return",
@@ -33,6 +33,9 @@ export interface InventoryOverview {
   to: string;
   kpis: InventoryKpis;
   valuationData: ValuationCategory[];
+  /** Closing stock value by item type (iBOS "Valuation"), at the end of the period. */
+  valuationByType: { name: string; value: number }[];
+  totalValuation: number;
   topTransactions: TransactionValueItem[];
   movingFrequencies: MovingFrequencyItem[];
   turnoverRatios: TurnoverRatioItem[];
@@ -65,7 +68,7 @@ export async function inventoryOverview(actor: Actor, filters: OverviewFilters):
         qty: true,
         source: true,
         postingDate: true,
-        item: { select: { id: true, name: true, uom: true, purchasePrice: true, salesRate: true, category: { select: { name: true } } } },
+        item: { select: { id: true, name: true, uom: true, itemType: true, purchasePrice: true, salesRate: true, category: { select: { name: true } } } },
       },
     }),
   ]);
@@ -79,6 +82,7 @@ export async function inventoryOverview(actor: Actor, filters: OverviewFilters):
   let inflow = 0;
   let outflow = 0;
   const closingByCategory = new Map<string, number>();
+  const closingByType = new Map<string, number>();
   const openingByCategory = new Map<string, number>();
   const outByCategory = new Map<string, number>();
   const bySource = new Map<StockSource, number>();
@@ -90,6 +94,8 @@ export async function inventoryOverview(actor: Actor, filters: OverviewFilters):
     const v = value(e);
     const category = categoryOf(e);
     closingByCategory.set(category, (closingByCategory.get(category) ?? 0) + v);
+    const type = e.item.itemType || "Other";
+    closingByType.set(type, (closingByType.get(type) ?? 0) + v);
     if (e.postingDate < from) {
       opening += v;
       openingByCategory.set(category, (openingByCategory.get(category) ?? 0) + v);
@@ -103,7 +109,7 @@ export async function inventoryOverview(actor: Actor, filters: OverviewFilters):
       outByCategory.set(category, (outByCategory.get(category) ?? 0) - v);
       outByDay.set(day, (outByDay.get(day) ?? 0) - v);
     }
-    bySource.set(e.source, (bySource.get(e.source) ?? 0) + Math.abs(v));
+    bySource.set(e.source, (bySource.get(e.source) ?? 0) + v);
     const m = moves.get(e.item.id) ?? { name: e.item.name, category, uom: e.item.uom, count: 0 };
     m.count += 1;
     moves.set(e.item.id, m);
@@ -149,8 +155,14 @@ export async function inventoryOverview(actor: Actor, filters: OverviewFilters):
     to: filters.to,
     kpis: { openingBalance: round(opening), inventoryIn: round(inflow), inventoryOut: round(outflow), totalBalance: round(closing) },
     valuationData,
-    topTransactions: [...bySource]
+    valuationByType: [...closingByType]
+      .filter(([, v]) => v > 0)
       .sort((a, b) => b[1] - a[1])
+      .map(([name, v]) => ({ name, value: round(v) })),
+    totalValuation: round([...closingByType.values()].filter((v) => v > 0).reduce((t, v) => t + v, 0)),
+    // Largest movements first, whichever their direction (issues are negative).
+    topTransactions: [...bySource]
+      .sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]))
       .slice(0, 5)
       .map(([source, amount], i) => ({ id: i + 1, rank: i + 1, name: STOCK_SOURCE_LABELS[source], amount: round(amount) })),
     movingFrequencies: [...moves.values()]
