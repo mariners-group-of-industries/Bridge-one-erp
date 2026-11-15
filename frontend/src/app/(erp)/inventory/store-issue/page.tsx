@@ -49,13 +49,19 @@ const USER_TYPE_OPTIONS = [{ value: "", label: "User Type" }, ...USER_TYPES.map(
 /** Store issues post the issued quantity out of the store (stock ledger). */
 const ISSUE_FORM: DocumentFormConfig = {
   slug: "store-issue",
-  title: "Store Issue",
+  title: "Create Store Issue",
   warehouses: "one",
-  warehouseLabel: "Issue from store",
-  fulfils: { slug: "store-requisition", label: "Against requisition" },
-  subtype: { label: "User type", options: USER_TYPES },
-  partyLabel: "Issued to (user / department)",
-  referenceLabel: "Production entry no",
+  offices: true,
+  dateLabel: "Issue Date",
+  fulfils: { slug: "store-requisition", label: "Requisition Code" },
+  fields: [
+    { key: "employee", label: "Employee", kind: "employee", required: true, saveAs: "partyName" },
+    { key: "issueFor", label: "Issue For", kind: "expenseHead" },
+    { key: "receiveBy", label: "Receive By", kind: "employee" },
+    { key: "productionEntry", label: "Production Entry", kind: "text", saveAs: "reference" },
+  ],
+  columns: ["code", "name", "cost", "amount", "uom", "stock", "qty"],
+  qtyLabel: "Issue Quantity",
 };
 
 export default function StoreIssuePage() {

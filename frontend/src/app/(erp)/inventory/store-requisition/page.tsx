@@ -43,9 +43,6 @@ interface SummaryRow {
   pendingQty: number;
 }
 
-/** Who a requisition can be for; issues against it record the same user type. */
-const REQUISITION_USER_TYPES = ["Department", "Production", "Employee", "Maintenance", "Other"] as const;
-
 export default function StoreRequisitionPage() {
   const toast = useToast();
   const [activeTab, setActiveTab] = useState<StoreRequisitionTab>("REQUISITION_LIST");
@@ -556,11 +553,19 @@ export default function StoreRequisitionPage() {
         onSaved={() => docs.reload()}
         config={{
           slug: "store-requisition",
-          title: "New Store Requisition",
+          title: "Create Store Requisition",
           warehouses: "one",
-          warehouseLabel: "Store (warehouse)",
-          subtype: { label: "User type", options: REQUISITION_USER_TYPES },
-          partyLabel: "Requested for (user / department)",
+          offices: true,
+          dateLabel: "Create Date",
+          expectedDateLabel: "Expected Date",
+          fields: [
+            { key: "employee", label: "Employee", kind: "employee", required: true, saveAs: "partyName" },
+            { key: "department", label: "Department", kind: "department" },
+            { key: "project", label: "Project", kind: "project" },
+          ],
+          columns: ["code", "name", "uom", "stock", "qty"],
+          qtyLabel: "Request Quantity",
+          stockLabel: "Curr. Stock",
         }}
       />
     </div>

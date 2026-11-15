@@ -5,6 +5,7 @@ import type { InventoryOverview, InventoryReportRow, LedgerRow } from "../server
 export interface WarehouseOption {
   id: string;
   name: string;
+  officeId: string;
   officeName: string;
   businessUnitId: string;
 }
@@ -15,12 +16,34 @@ export interface ItemOption {
   name: string;
   uom: string;
   businessUnitId: string;
+  itemType: string | null;
+  /** Category path: Category → Sub Category → Minor Category. */
   category: string;
+  subCategory: string | null;
+  minorCategory: string | null;
+  costPrice: number | null;
+  tradePrice: number | null;
+  mrp: number | null;
+  altUom: string | null;
+  altUomFactor: number | null;
+}
+
+export interface NamedOption {
+  id: string;
+  code: string;
+  name: string;
 }
 
 export interface InventoryMasters {
   warehouses: WarehouseOption[];
   items: ItemOption[];
+  employees: Array<{ id: string; code: string; name: string; department: string | null; phone: string | null }>;
+  salesOrders: Array<{ id: string; number: string }>;
+  suppliers: NamedOption[];
+  projects: NamedOption[];
+  expenseHeads: NamedOption[];
+  /** Company name and address for report headers. */
+  company: { name: string; address: string } | null;
 }
 
 export interface StockOnHand {
@@ -85,6 +108,9 @@ export const STATUS_LABEL: Record<InventoryDocument["status"], string> = {
   COMPLETED: "Completed",
   CANCELLED: "Cancelled",
 };
+
+/** Pending, but some approval stages have already signed (iBOS "In Review"). */
+export const inReview = (d: Pick<InventoryDocument, "status" | "reviewComment">) => d.status === "PENDING" && !!d.reviewComment;
 
 /** "YYYY-MM-DD" → "DD-MM-YYYY", as the inventory tables show dates. */
 export const dmy = (date: string | null | undefined) => (date ? date.split("-").reverse().join("-") : "");

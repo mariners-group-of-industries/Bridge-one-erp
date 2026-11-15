@@ -85,14 +85,14 @@ function toTransferOutRow(d: InventoryDocument, i: number): TransferOutRow {
     sl: i + 1,
     id: d.id,
     transferDate: dmy(d.docDate),
-    requestCode: d.request?.number ?? "Direct",
+    requestCode: d.request?.number ?? "",
     transferCode: d.number,
     fromOffice: d.warehouse?.officeName ?? "",
     fromWarehouse: d.warehouse?.name ?? "",
     receiveOffice: d.toWarehouse?.officeName ?? "",
     receiveWarehouse: d.toWarehouse?.name ?? "",
-    requestBy: d.createdBy,
-    requestTo: d.toWarehouse?.name ?? "",
+    requestBy: d.request?.createdBy ?? "",
+    requestTo: d.request?.requestTo ?? "",
     totalQty: d.totalQty,
     receivedQty: received,
     returnQty: d.status === "COMPLETED" ? round3(d.totalQty - received) : 0,
@@ -173,11 +173,11 @@ export default function TransferPage() {
           id: d.id,
           transferDate: dmy(d.docDate),
           receiveDate: dmy(d.completedAt?.slice(0, 10)),
-          transferRequestNumber: d.request?.number ?? "Direct",
+          transferRequestNumber: d.request?.number ?? "",
           transferCode: d.number,
           fromWarehouse: d.warehouse?.name ?? "",
           receiveWarehouse: d.toWarehouse?.name ?? "",
-          requestTo: d.toWarehouse?.name ?? "",
+          requestTo: d.request?.requestTo ?? "",
           receivedQty: d.processedQty,
           loadingTime: d.meta?.loadingTime ?? "",
           loadingTemp: d.meta?.loadingTemp ?? "",
@@ -194,7 +194,7 @@ export default function TransferPage() {
     if (fromWarehouse && r.warehouse?.name !== fromWarehouse) return false;
     if (toOffice && r.toWarehouse?.officeName !== toOffice) return false;
     if (toWarehouse && r.toWarehouse?.name !== toWarehouse) return false;
-    if (requestTo.length >= 3 && !(r.toWarehouse?.name ?? "").toLowerCase().includes(requestTo.toLowerCase())) return false;
+    if (requestTo.length >= 3 && !(r.meta?.requestTo ?? "").toLowerCase().includes(requestTo.toLowerCase())) return false;
     return true;
   });
 
@@ -207,23 +207,20 @@ export default function TransferPage() {
     { id: "RECEIVED_LIST", label: "TRANSFER IN/RECEIVED LIST" },
   ];
 
-  // Filter Transfer Out rows
-  const filteredTransferOut = useMemo(() => {
-    return transferOutRows.filter((row) => {
-      if (fromOffice && row.fromOffice !== fromOffice) return false;
-      if (fromWarehouse && row.fromWarehouse !== fromWarehouse) return false;
-      if (toWarehouse && row.receiveWarehouse !== toWarehouse) return false;
-      if (searchTerm) {
-        const s = searchTerm.toLowerCase();
-        return (
-          row.transferCode.toLowerCase().includes(s) ||
-          row.fromWarehouse.toLowerCase().includes(s) ||
-          row.receiveWarehouse.toLowerCase().includes(s)
-        );
-      }
-      return true;
-    });
-  }, [transferOutRows, fromOffice, fromWarehouse, toWarehouse, searchTerm]);
+  // iBOS list filters: From Office/Warehouse, To Office/Requesting Warehouse, Request To, search.
+  const matches = useMemo(() => {
+    const who = requestTo.trim().toLowerCase();
+    const s = searchTerm.trim().toLowerCase();
+    return (row: TransferOutRow) =>
+      (!fromOffice || row.fromOffice === fromOffice) &&
+      (!fromWarehouse || row.fromWarehouse === fromWarehouse) &&
+      (!toOffice || row.receiveOffice === toOffice) &&
+      (!toWarehouse || row.receiveWarehouse === toWarehouse) &&
+      (who.length < 3 || row.requestTo.toLowerCase().includes(who)) &&
+      (!s || [row.transferCode, row.requestCode, row.fromWarehouse, row.receiveWarehouse, row.requestBy, row.requestTo].some((v) => v.toLowerCase().includes(s)));
+  }, [fromOffice, fromWarehouse, toOffice, toWarehouse, requestTo, searchTerm]);
+  const filteredTransferOut = useMemo(() => transferOutRows.filter(matches), [transferOutRows, matches]);
+  const filteredInTransit = useMemo(() => inTransitRows.filter(matches), [inTransitRows, matches]);
 
   // Filter Return rows
   const filteredReturn = useMemo(() => {
@@ -246,6 +243,7 @@ export default function TransferPage() {
     return receivedRows.filter((row) => {
       if (fromWarehouse && row.fromWarehouse !== fromWarehouse) return false;
       if (toWarehouse && row.receiveWarehouse !== toWarehouse) return false;
+      if (requestTo.trim().length >= 3 && !row.requestTo.toLowerCase().includes(requestTo.trim().toLowerCase())) return false;
       if (searchTerm) {
         const s = searchTerm.toLowerCase();
         return (
@@ -256,13 +254,13 @@ export default function TransferPage() {
       }
       return true;
     });
-  }, [receivedRows, fromWarehouse, toWarehouse, searchTerm]);
+  }, [receivedRows, fromWarehouse, toWarehouse, requestTo, searchTerm]);
 
   // CSV Export
   const handleExportCSV = () => {
     let csvContent = "";
     if (activeTab === "TRANSFER_OUT" || activeTab === "IN_TRANSIT") {
-      const source = activeTab === "TRANSFER_OUT" ? filteredTransferOut : inTransitRows;
+      const source = activeTab === "TRANSFER_OUT" ? filteredTransferOut : filteredInTransit;
       const headers = [
         "SL",
         "Transfer Date",
@@ -922,7 +920,7 @@ export default function TransferPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200 text-[11px] text-slate-800">
-                {inTransitRows.map((row) => (
+                {filteredInTransit.map((row) => (
                   <tr key={row.id} className="hover:bg-slate-50/80 transition-colors">
                     <td className="p-2 border border-slate-300 text-center font-mono text-slate-600">
                       {row.sl}
@@ -1255,12 +1253,20 @@ export default function TransferPage() {
         initialRequestId={createRequestId}
         config={{
           slug: "transfer",
-          title: "Transfer Out",
+          title: "Create Transfer Out",
           warehouses: "two",
-          warehouseLabel: "From warehouse",
-          toWarehouseLabel: "To warehouse",
-          fulfils: { slug: "transfer-request", label: "Against transfer request" },
-          referenceLabel: "Vehicle / challan no",
+          offices: true,
+          officeLabel: "From Office",
+          warehouseLabel: "From Warehouse",
+          toOfficeLabel: "To Office",
+          toWarehouseLabel: "To Warehouse",
+          dateLabel: "Transfer Date",
+          fulfils: { slug: "transfer-request", label: "Transfer Request" },
+          fields: [
+            { key: "grnNo", label: "GRN", kind: "text" },
+            { key: "productionEntry", label: "Production Entry", kind: "text" },
+          ],
+          columns: ["code", "category", "name", "cost", "trade", "mrp", "altUom", "altQty", "uom", "stock", "qty", "remarks"],
         }}
       />
       <ReceiveTransferDialog transfer={receiveTarget} onClose={() => setReceiveTarget(null)} onReceived={reload} />
