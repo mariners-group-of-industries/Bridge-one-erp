@@ -50,10 +50,7 @@ function CredentialsPanel({
     const e: typeof errors = {};
     if (!phone.trim()) e.phone = "Phone number is required.";
     if (password) {
-      if (password.length < 8) e.password = "At least 8 characters required.";
-      else if (!/[A-Z]/.test(password)) e.password = "Must contain an uppercase letter.";
-      else if (!/[0-9]/.test(password)) e.password = "Must contain a number.";
-      else if (!/[^A-Za-z0-9]/.test(password)) e.password = "Must contain a special character.";
+      if (password.length < 6) e.password = "At least 6 characters required.";
       if (password !== confirmPassword) e.confirmPassword = "Passwords do not match.";
     }
     setErrors(e);

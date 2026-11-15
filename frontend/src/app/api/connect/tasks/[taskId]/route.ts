@@ -1,20 +1,16 @@
 import { NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 import { getConnectPool } from "@/lib/connect/db";
-import { getConnectAuthUser } from "@/lib/connect/auth";
+import { apiHandler } from "@/lib/api/handler";
+import { can, type Actor } from "@/lib/auth/actor";
+import { connectPaths } from "@/features/connect/paths";
 import { getPusherServer } from "@/lib/connect/pusher-server";
 import { ensureTasksSchema, mapTaskRow, type TaskStatus, type TaskPriority } from "@/lib/connect/tasks-db";
 
-export async function GET(
-  req: Request,
-  context: { params: Promise<{ taskId: string }> }
-) {
-  try {
-    const user = await getConnectAuthUser(req);
-    if (!user) {
-      return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
-    }
+type TaskContext = { params: Promise<{ taskId: string }> };
 
+async function handleGET(_req: Request, context: TaskContext) {
+  try {
     await ensureTasksSchema();
     const { taskId } = await context.params;
     const pool = getConnectPool();
@@ -45,15 +41,20 @@ export async function GET(
   }
 }
 
-export async function PATCH(
-  req: Request,
-  context: { params: Promise<{ taskId: string }> }
-) {
+/**
+ * Who may run each mutation, from the signed-in user's page permissions. The
+ * client-supplied role is only a label; it never grants anything.
+ */
+const SUPERVISOR_MUTATIONS = new Set(["SUPERVISOR_VERIFY", "SUPERVISOR_REJECT", "VERIFY_BLOCKER", "GOVERNANCE_EDIT"]);
+
+function mutationAllowed(actor: Actor, mutationType: string): boolean {
+  if (SUPERVISOR_MUTATIONS.has(mutationType)) return can(actor, connectPaths.tasks, "approve");
+  if (mutationType === "MD_DECISION") return can(actor, connectPaths.monitoring, "approve");
+  return true; // STAFF_UPDATE, CMO_NUDGE: edit on the tasks page, checked by apiHandler.
+}
+
+async function handlePATCH(req: Request, context: TaskContext, actor: Actor) {
   try {
-    const user = await getConnectAuthUser(req);
-    if (!user) {
-      return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
-    }
 
     await ensureTasksSchema();
     const { taskId } = await context.params;
@@ -61,9 +62,13 @@ export async function PATCH(
 
     const body = await req.json();
     const mutationType = String(body.mutationType || "STAFF_UPDATE");
-    const actorName = String(body.actorName || user?.name || "ERP User").trim();
-    const actorRole = String(body.actorRole || "Staff").trim();
-    const actorId = user?.id || "emp-user";
+    if (!mutationAllowed(actor, mutationType)) {
+      return NextResponse.json({ success: false, error: "You do not have permission to perform this action." }, { status: 403 });
+    }
+    // Identity comes from the session, never from the request body.
+    const actorName = actor.name || "ERP User";
+    const actorRole = String(body.actorRole || "Staff").trim().slice(0, 100);
+    const actorId = actor.id;
 
     const existingRes = await pool.query(
       `SELECT * FROM connect_tasks WHERE id::text = $1 OR task_code = $1 LIMIT 1`,
@@ -632,4 +637,7 @@ export async function PATCH(
     );
   }
 }
+
+export const GET = apiHandler<TaskContext>("configuration:read", (req, context) => handleGET(req, context));
+export const PATCH = apiHandler<TaskContext>("configuration:write", (req, context, actor) => handlePATCH(req, context, actor));
 
