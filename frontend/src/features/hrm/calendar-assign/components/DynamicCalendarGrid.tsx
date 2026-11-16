@@ -9,7 +9,7 @@ import {
   RefreshCw,
 } from "lucide-react";
 import type { EmployeeRosterItem, RosterGridData } from "../types";
-import { CALENDAR_DEFINITIONS, CALENDAR_CODE_MAP } from "../constants";
+import { useCalendars } from "../use-calendars";
 
 interface DateInfo {
   dateStr: string; // YYYY-MM-DD
@@ -50,6 +50,7 @@ export function DynamicCalendarGrid({
   hasMore = false,
   totalCount,
 }: DynamicCalendarGridProps) {
+  const { calendars, byCode, forOffice } = useCalendars();
   // Active cell popover state
   const [activeCell, setActiveCell] = useState<{
     employeeId: string;
@@ -121,9 +122,9 @@ export function DynamicCalendarGrid({
         <span className="font-semibold text-ink flex items-center gap-1.5 pr-2 border-r border-line">
           <Info className="size-3.5 text-primary" /> Shift Legend:
         </span>
-        {CALENDAR_DEFINITIONS.map((c) => (
+        {calendars.map((c) => (
           <div
-            key={c.shortCode}
+            key={c.id}
             className="flex items-center gap-1.5 rounded-full border border-line bg-canvas px-2.5 py-0.5"
             title={`${c.calendarName} (${c.startTime} - ${c.endTime}) - Office: ${c.office}`}
           >
@@ -236,9 +237,9 @@ export function DynamicCalendarGrid({
                         Assign {date.dateStr} to all:
                       </div>
                       <div className="max-h-48 overflow-y-auto space-y-0.5">
-                        {CALENDAR_DEFINITIONS.map((c) => (
+                        {calendars.map((c) => (
                           <button
-                            key={c.shortCode}
+                            key={c.id}
                             type="button"
                             onClick={() => {
                               onColumnBulkAssign(date.dateStr, c.shortCode);
@@ -374,7 +375,7 @@ export function DynamicCalendarGrid({
                     {/* Date Shift Cells */}
                     {dates.map((date) => {
                       const code = empGrid[date.dateStr] || "";
-                      const cal = code ? CALENDAR_CODE_MAP.get(code) : undefined;
+                      const cal = code ? byCode.get(code) : undefined;
                       const isCellActive =
                         activeCell?.employeeId === emp.id &&
                         activeCell?.dateStr === date.dateStr;
@@ -440,9 +441,9 @@ export function DynamicCalendarGrid({
                               </div>
 
                               <div className="grid grid-cols-3 gap-1 mb-2">
-                                {CALENDAR_DEFINITIONS.map((c) => (
+                                {forOffice(emp.officeName).map((c) => (
                                   <button
-                                    key={c.shortCode}
+                                    key={c.id}
                                     type="button"
                                     onClick={() => {
                                       onCellChange(emp.id, date.dateStr, c.shortCode);
@@ -554,9 +555,9 @@ export function DynamicCalendarGrid({
             Skip Fridays
           </label>
           <div className="max-h-56 space-y-0.5 overflow-y-auto">
-            {CALENDAR_DEFINITIONS.map((c) => (
+            {forOffice(rowMenuEmployee.officeName).map((c) => (
               <button
-                key={c.shortCode}
+                key={c.id}
                 type="button"
                 role="menuitem"
                 onClick={() => {
