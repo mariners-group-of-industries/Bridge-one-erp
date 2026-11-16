@@ -1366,7 +1366,7 @@ class PurchaseDataStore {
           order: { include: { requisition: true } },
           returns: { where: { status: { not: "CANCELLED" } }, include: { lines: true } },
         },
-        orderBy: { createdAt: "desc" },
+        orderBy: [{ receiveDate: "desc" }, { createdAt: "desc" }],
       }),
       resolvePurchaseOrgScope(actor),
     ]);
@@ -1408,7 +1408,7 @@ class PurchaseDataStore {
           purchaseOrderId: g.orderId,
           grnNumber: g.number,
           receiptDate: toDateStr(g.receiveDate),
-          poNumber: g.order?.number || "DIRECT-PO",
+          poNumber: g.order?.number?.startsWith("DIR-") ? "DIRECT-PO" : (g.order?.number || "DIRECT-PO"),
           poDate: toDateStr(g.order?.orderDate || g.receiveDate),
           requisitionNumber: g.order?.requisition?.number || undefined,
           supplierId: g.supplierId,
