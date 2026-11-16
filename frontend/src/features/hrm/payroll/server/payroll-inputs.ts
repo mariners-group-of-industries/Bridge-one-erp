@@ -150,7 +150,7 @@ export async function loadPayrollInputs(officeId: string, month: string, employe
       select: { id: true, tab: true, officeId: true, employeeId: true, effectiveFrom: true, effectiveTo: true, data: true, updatedAt: true },
       orderBy: { id: "asc" },
     }),
-    db().employeeCalendarDay.findMany({ where: { employeeId: { in: ids }, date: { gte: range.from, lte: range.to } }, select: { employeeId: true, date: true, code: true } }),
+    db().employeeCalendarDay.findMany({ where: { employeeId: { in: ids }, date: { gte: range.from, lte: range.to } }, select: { employeeId: true, date: true, shortCode: true } }),
     // A day either side covers the time-zone offset; rows are then filtered by local day.
     db().attendancePunch.findMany({
       where: { employeeId: { in: ids }, punchTime: { gte: new Date(range.from.getTime() - DAY_MS), lt: new Date(range.to.getTime() + 2 * DAY_MS) } },
@@ -216,7 +216,7 @@ export async function loadPayrollInputs(officeId: string, month: string, employe
   for (const g of groups) for (const [d, title] of g.days) if (!officeHolidays.has(d)) officeHolidays.set(d, title);
 
   // ── Per employee ──
-  const codeOf = new Map(calendarDays.map((c) => [`${c.employeeId}:${iso(c.date)}`, c.code]));
+  const codeOf = new Map(calendarDays.map((c) => [`${c.employeeId}:${iso(c.date)}`, c.shortCode]));
   const firstPunch = new Map<string, Date>();
   for (const p of punches) {
     if (!p.employeeId) continue;

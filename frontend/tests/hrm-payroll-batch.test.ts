@@ -52,7 +52,7 @@ async function assignCalendar(code: string) {
   await testPrisma().employeeCalendarDay.createMany({
     data: Array.from({ length: 30 }, (_, i) => {
       const date = new Date(`${day(i + 1)}T00:00:00Z`);
-      return { employeeId: ids[code], date, code: date.getUTCDay() === 5 ? "OFF" : "G" };
+      return { employeeId: ids[code], date, shortCode: date.getUTCDay() === 5 ? "OFF" : "G" };
     }),
   });
 }
@@ -142,7 +142,7 @@ describe("Salary generation", () => {
     await testPrisma().employeeCalendarDay.createMany({
       data: Array.from({ length: 30 }, (_, i) => {
         const date = new Date(`${day(i + 1)}T00:00:00Z`);
-        return { employeeId: ids["E-2"], date, code: date.getUTCDay() === 6 ? "OFF" : "A" };
+        return { employeeId: ids["E-2"], date, shortCode: date.getUTCDay() === 6 ? "OFF" : "A" };
       }),
     });
     await testPrisma().leaveApplication.createMany({
