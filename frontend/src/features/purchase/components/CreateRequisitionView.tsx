@@ -61,7 +61,7 @@ export function CreateRequisitionView() {
   if (fromId && isTemplateLoading) {
     return (
       <div className="flex h-64 items-center justify-center">
-        <Spinner className="h-6 w-6 text-blue-600" />
+        <Spinner className="h-6 w-6 text-blue-600 dark:text-blue-400" />
       </div>
     );
   }
@@ -669,19 +669,19 @@ function CreateRequisitionForm({ templateReq }: { templateReq: PurchaseRequisiti
   });
 
   return (
-    <div className="min-h-screen bg-[#f8fafc] dark:bg-slate-950 p-3 md:p-6 text-slate-800 dark:text-slate-100">
+    <div className="min-h-screen bg-canvas dark:bg-slate-950 p-3 md:p-6 text-ink dark:text-slate-100">
       {/* ── TOP HEADER BAR ── */}
-      <div className="bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 rounded px-4 py-2.5 flex items-center justify-between shadow-2xs mb-3">
+      <div className="bg-surface dark:bg-slate-900 border border-line/90 dark:border-slate-800 rounded px-4 py-2.5 flex items-center justify-between shadow-2xs mb-3">
         <div className="flex items-center gap-3">
           <button
             type="button"
             onClick={() => router.push("/purchase/requisitions")}
-            className="h-8 w-8 rounded border border-slate-300 dark:border-slate-700 flex items-center justify-center text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition"
+            className="h-8 w-8 rounded border border-line-strong dark:border-slate-700 flex items-center justify-center text-ink-muted dark:text-slate-300 hover:bg-canvas dark:hover:bg-slate-800 transition"
             title="Back to Requisitions"
           >
             <ArrowLeft className="w-4 h-4" />
           </button>
-          <h1 className="text-base font-bold text-slate-900 dark:text-white tracking-tight">Create Requisition</h1>
+          <h1 className="text-base font-bold text-ink dark:text-white tracking-tight">Create Requisition</h1>
         </div>
 
         <div className="flex items-center gap-2">
@@ -690,7 +690,7 @@ function CreateRequisitionForm({ templateReq }: { templateReq: PurchaseRequisiti
             onClick={() => createMutation.mutate(true)}
             disabled={createMutation.isPending || !perms.requisitions.create}
             title={!perms.requisitions.create ? "Requires Create permission in Configuration" : undefined}
-            className="h-8 px-4 border border-[#2563eb] text-[#2563eb] hover:bg-blue-50 dark:hover:bg-blue-950 font-semibold text-xs rounded transition flex items-center gap-1.5 disabled:opacity-50"
+            className="h-8 px-4 border border-[#2563eb] text-primary hover:bg-blue-50 dark:hover:bg-blue-950 font-semibold text-xs rounded transition flex items-center gap-1.5 disabled:opacity-50"
           >
             {createMutation.isPending && <Spinner className="size-3.5" />}
             Save & New
@@ -709,13 +709,13 @@ function CreateRequisitionForm({ templateReq }: { templateReq: PurchaseRequisiti
       </div>
 
       {/* ── BASIC INFORMATION CARD ── */}
-      <div className="bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 rounded shadow-2xs overflow-hidden mb-3">
+      <div className="bg-surface dark:bg-slate-900 border border-line/90 dark:border-slate-800 rounded shadow-2xs overflow-hidden mb-3">
         {/* Card Header with Tabs & Collapse Button */}
-        <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-3 pt-2">
+        <div className="flex items-center justify-between border-b border-line dark:border-slate-800 bg-surface dark:bg-slate-900 px-3 pt-2">
           <div className="flex items-center gap-2">
             <button
               type="button"
-              className="px-4 py-2 text-xs font-semibold rounded-t bg-[#e6f2fb] dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border-b-2 border-blue-600 transition"
+              className="px-4 py-2 text-xs font-semibold rounded-t bg-grid-head dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border-b-2 border-blue-600 transition"
             >
               Basic Information
             </button>
@@ -723,7 +723,7 @@ function CreateRequisitionForm({ templateReq }: { templateReq: PurchaseRequisiti
           <button
             type="button"
             onClick={() => setIsFormCollapsed(!isFormCollapsed)}
-            className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 rounded transition"
+            className="p-1.5 text-ink-faint hover:text-ink-muted dark:hover:text-slate-300 rounded transition"
             title={isFormCollapsed ? "Expand" : "Collapse"}
           >
             {isFormCollapsed ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
@@ -734,41 +734,41 @@ function CreateRequisitionForm({ templateReq }: { templateReq: PurchaseRequisiti
         {!isFormCollapsed && (
           <div className="p-4 md:p-5 space-y-4">
             {/* ── TARGET SELECTION RADIO GROUP & CHECKBOX ── */}
-            <div className="flex flex-wrap items-center gap-6 py-1 border-b border-slate-100 dark:border-slate-800 text-xs">
-              <label className="flex items-center gap-2 cursor-pointer font-medium text-slate-800 dark:text-slate-200">
+            <div className="flex flex-wrap items-center gap-6 py-1 border-b border-line dark:border-slate-800 text-xs">
+              <label className="flex items-center gap-2 cursor-pointer font-medium text-ink dark:text-slate-200">
                 <input
                   type="radio"
                   name="targetType"
                   checked={targetType === "Employee"}
                   onChange={() => setTargetType("Employee")}
-                  className="w-4 h-4 text-blue-600 focus:ring-blue-500 border-slate-300"
+                  className="w-4 h-4 text-blue-600 dark:text-blue-400 focus:ring-blue-500 border-line-strong"
                 />
                 <span>Employee</span>
               </label>
 
-              <label className="flex items-center gap-2 cursor-pointer font-medium text-slate-800 dark:text-slate-200">
+              <label className="flex items-center gap-2 cursor-pointer font-medium text-ink dark:text-slate-200">
                 <input
                   type="radio"
                   name="targetType"
                   checked={targetType === "Department"}
                   onChange={() => setTargetType("Department")}
-                  className="w-4 h-4 text-blue-600 focus:ring-blue-500 border-slate-300"
+                  className="w-4 h-4 text-blue-600 dark:text-blue-400 focus:ring-blue-500 border-line-strong"
                 />
                 <span>Department</span>
               </label>
 
-              <label className="flex items-center gap-2 cursor-pointer font-medium text-slate-800 dark:text-slate-200">
+              <label className="flex items-center gap-2 cursor-pointer font-medium text-ink dark:text-slate-200">
                 <input
                   type="radio"
                   name="targetType"
                   checked={targetType === "Project"}
                   onChange={() => setTargetType("Project")}
-                  className="w-4 h-4 text-blue-600 focus:ring-blue-500 border-slate-300"
+                  className="w-4 h-4 text-blue-600 dark:text-blue-400 focus:ring-blue-500 border-line-strong"
                 />
                 <span>Project</span>
               </label>
 
-              <label className="flex items-center gap-2 cursor-pointer font-medium text-slate-800 dark:text-slate-200 ml-2">
+              <label className="flex items-center gap-2 cursor-pointer font-medium text-ink dark:text-slate-200 ml-2">
                 <input
                   type="checkbox"
                   checked={createFromSalesOrder}
@@ -779,7 +779,7 @@ function CreateRequisitionForm({ templateReq }: { templateReq: PurchaseRequisiti
                       setSoAllocatedLines([]);
                     }
                   }}
-                  className="w-4 h-4 text-blue-600 rounded border-slate-300 focus:ring-blue-500"
+                  className="w-4 h-4 text-blue-600 dark:text-blue-400 rounded border-line-strong focus:ring-blue-500"
                 />
                 <span>Create From Sales Order</span>
               </label>
@@ -789,7 +789,7 @@ function CreateRequisitionForm({ templateReq }: { templateReq: PurchaseRequisiti
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3">
               {/* Create Date */}
               <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                <label className="block text-xs font-semibold text-ink-muted dark:text-slate-300 mb-1">
                   <span className="text-red-500 font-bold mr-0.5">*</span>Create Date
                 </label>
                 <div className="relative">
@@ -797,14 +797,14 @@ function CreateRequisitionForm({ templateReq }: { templateReq: PurchaseRequisiti
                     type="date"
                     value={createDate}
                     onChange={(e) => setCreateDate(e.target.value)}
-                    className="w-full h-8 text-xs border border-slate-300 dark:border-slate-700 rounded px-2.5 py-1 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-hidden focus:ring-1 focus:ring-blue-500"
+                    className="w-full h-8 text-xs border border-line-strong dark:border-slate-700 rounded px-2.5 py-1 bg-surface dark:bg-slate-800 text-ink dark:text-slate-100 focus:outline-hidden focus:ring-1 focus:ring-blue-500"
                   />
                 </div>
               </div>
 
               {/* Employee / Department / Project Selector with Clear Button */}
               <div className="relative">
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                <label className="block text-xs font-semibold text-ink-muted dark:text-slate-300 mb-1">
                   <span className="text-red-500 font-bold mr-0.5">*</span>{targetType}
                 </label>
 
@@ -819,14 +819,14 @@ function CreateRequisitionForm({ templateReq }: { templateReq: PurchaseRequisiti
                       }}
                       onFocus={() => setIsEmployeeDropdownOpen(true)}
                       placeholder="Select/Search Employee"
-                      className="w-full h-8 text-xs border border-slate-300 dark:border-slate-700 rounded pl-2.5 pr-14 py-1 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-hidden focus:ring-1 focus:ring-blue-500"
+                      className="w-full h-8 text-xs border border-line-strong dark:border-slate-700 rounded pl-2.5 pr-14 py-1 bg-surface dark:bg-slate-800 text-ink dark:text-slate-100 focus:outline-hidden focus:ring-1 focus:ring-blue-500"
                     />
-                    <div className="absolute right-1 top-1 flex items-center text-slate-400">
+                    <div className="absolute right-1 top-1 flex items-center text-ink-faint">
                       {employeeQuery && (
                         <button
                           type="button"
                           onClick={() => setEmployeeQuery("")}
-                          className="inline-flex size-6 items-center justify-center rounded hover:text-slate-600"
+                          className="inline-flex size-6 items-center justify-center rounded hover:text-ink-muted"
                           title="Clear"
                           aria-label="Clear employee"
                         >
@@ -836,7 +836,7 @@ function CreateRequisitionForm({ templateReq }: { templateReq: PurchaseRequisiti
                       <button
                         type="button"
                         onClick={() => setIsEmployeeDropdownOpen((p) => !p)}
-                        className="inline-flex size-6 items-center justify-center rounded hover:text-slate-600"
+                        className="inline-flex size-6 items-center justify-center rounded hover:text-ink-muted"
                         aria-label="Show employees"
                       >
                         <ChevronDown className="w-3.5 h-3.5" />
@@ -849,7 +849,7 @@ function CreateRequisitionForm({ templateReq }: { templateReq: PurchaseRequisiti
                           className="fixed inset-0 z-10"
                           onClick={() => setIsEmployeeDropdownOpen(false)}
                         />
-                        <div className="absolute left-0 right-0 top-full mt-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded shadow-lg z-20 max-h-52 overflow-y-auto">
+                        <div className="absolute left-0 right-0 top-full mt-1 bg-surface dark:bg-slate-800 border border-line dark:border-slate-700 rounded shadow-lg z-20 max-h-52 overflow-y-auto">
                           {filteredEmployees.length > 0 ? (
                             filteredEmployees.map((emp) => (
                               <div
@@ -858,14 +858,14 @@ function CreateRequisitionForm({ templateReq }: { templateReq: PurchaseRequisiti
                                   setEmployeeQuery(emp.name);
                                   setIsEmployeeDropdownOpen(false);
                                 }}
-                                className="px-3 py-1.5 text-xs hover:bg-blue-50 dark:hover:bg-slate-700 cursor-pointer flex items-center justify-between border-b border-slate-50 dark:border-slate-700/50"
+                                className="px-3 py-1.5 text-xs hover:bg-blue-50 dark:hover:bg-slate-700 cursor-pointer flex items-center justify-between border-b border-line dark:border-slate-700/50"
                               >
-                                <span className="font-medium text-slate-800 dark:text-slate-100">{emp.name}</span>
-                                <span className="text-[10px] text-slate-400">{emp.department || emp.designation}</span>
+                                <span className="font-medium text-ink dark:text-slate-100">{emp.name}</span>
+                                <span className="text-[10px] text-ink-faint">{emp.department || emp.designation}</span>
                               </div>
                             ))
                           ) : (
-                            <div className="p-2 text-xs text-slate-400 text-center">No employee found</div>
+                            <div className="p-2 text-xs text-ink-faint text-center">No employee found</div>
                           )}
                         </div>
                       </>
@@ -875,7 +875,7 @@ function CreateRequisitionForm({ templateReq }: { templateReq: PurchaseRequisiti
                   <select
                     value={selectedDepartment}
                     onChange={(e) => setSelectedDepartment(e.target.value)}
-                    className="w-full h-8 text-xs border border-slate-300 dark:border-slate-700 rounded px-2.5 py-1 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-hidden focus:ring-1 focus:ring-blue-500"
+                    className="w-full h-8 text-xs border border-line-strong dark:border-slate-700 rounded px-2.5 py-1 bg-surface dark:bg-slate-800 text-ink dark:text-slate-100 focus:outline-hidden focus:ring-1 focus:ring-blue-500"
                   >
                     <option value="Operations">Operations</option>
                     <option value="Production">Production</option>
@@ -890,7 +890,7 @@ function CreateRequisitionForm({ templateReq }: { templateReq: PurchaseRequisiti
                   <select
                     value={selectedProject}
                     onChange={(e) => setSelectedProject(e.target.value)}
-                    className="w-full h-8 text-xs border border-slate-300 dark:border-slate-700 rounded px-2.5 py-1 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-hidden focus:ring-1 focus:ring-blue-500"
+                    className="w-full h-8 text-xs border border-line-strong dark:border-slate-700 rounded px-2.5 py-1 bg-surface dark:bg-slate-800 text-ink dark:text-slate-100 focus:outline-hidden focus:ring-1 focus:ring-blue-500"
                   >
                     <option value="">Select Project / Cost Center</option>
                     {(formOptions?.projects ?? []).map((proj) => (
@@ -904,7 +904,7 @@ function CreateRequisitionForm({ templateReq }: { templateReq: PurchaseRequisiti
 
               {/* Office */}
               <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                <label className="block text-xs font-semibold text-ink-muted dark:text-slate-300 mb-1">
                   <span className="text-red-500 font-bold mr-0.5">*</span>Office
                 </label>
                 <select
@@ -915,7 +915,7 @@ function CreateRequisitionForm({ templateReq }: { templateReq: PurchaseRequisiti
                     const matchingWh = allWarehouses.find((w) => w.officeId === newOfficeId);
                     setSelectedWarehouseId(matchingWh?.id || "");
                   }}
-                  className="w-full h-8 text-xs border border-slate-300 dark:border-slate-700 rounded px-2.5 py-1 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-hidden focus:ring-1 focus:ring-blue-500"
+                  className="w-full h-8 text-xs border border-line-strong dark:border-slate-700 rounded px-2.5 py-1 bg-surface dark:bg-slate-800 text-ink dark:text-slate-100 focus:outline-hidden focus:ring-1 focus:ring-blue-500"
                 >
                   <option value="">Select Office</option>
                   {offices.map((off) => (
@@ -928,14 +928,14 @@ function CreateRequisitionForm({ templateReq }: { templateReq: PurchaseRequisiti
 
               {/* Warehouse */}
               <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                <label className="block text-xs font-semibold text-ink-muted dark:text-slate-300 mb-1">
                   <span className="text-red-500 font-bold mr-0.5">*</span>Warehouse
                 </label>
                 <select
                   value={selectedWarehouseId}
                   onChange={(e) => setSelectedWarehouseId(e.target.value)}
                   disabled={!selectedOfficeId}
-                  className="w-full h-8 text-xs border border-slate-300 dark:border-slate-700 rounded px-2.5 py-1 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-hidden focus:ring-1 focus:ring-blue-500 disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed dark:disabled:bg-slate-900 dark:disabled:text-slate-500"
+                  className="w-full h-8 text-xs border border-line-strong dark:border-slate-700 rounded px-2.5 py-1 bg-surface dark:bg-slate-800 text-ink dark:text-slate-100 focus:outline-hidden focus:ring-1 focus:ring-blue-500 disabled:bg-control disabled:text-ink-faint disabled:cursor-not-allowed dark:disabled:bg-slate-900 dark:disabled:text-slate-500"
                 >
                   {!selectedOfficeId ? (
                     <option value="">Select Office first</option>
@@ -953,13 +953,13 @@ function CreateRequisitionForm({ templateReq }: { templateReq: PurchaseRequisiti
 
               {/* Inventory Type */}
               <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                <label className="block text-xs font-semibold text-ink-muted dark:text-slate-300 mb-1">
                   <span className="text-red-500 font-bold mr-0.5">*</span>Inventory Type
                 </label>
                 <select
                   value={inventoryType}
                   onChange={(e) => setInventoryType(e.target.value)}
-                  className="w-full h-8 text-xs border border-slate-300 dark:border-slate-700 rounded px-2.5 py-1 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-hidden focus:ring-1 focus:ring-blue-500"
+                  className="w-full h-8 text-xs border border-line-strong dark:border-slate-700 rounded px-2.5 py-1 bg-surface dark:bg-slate-800 text-ink dark:text-slate-100 focus:outline-hidden focus:ring-1 focus:ring-blue-500"
                 >
                   <option value="Inventory Item">Inventory Item</option>
                   <option value="Non-Inventory Item">Non-Inventory Item</option>
@@ -970,14 +970,14 @@ function CreateRequisitionForm({ templateReq }: { templateReq: PurchaseRequisiti
 
               {/* Expected Date */}
               <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                <label className="block text-xs font-semibold text-ink-muted dark:text-slate-300 mb-1">
                   <span className="text-red-500 font-bold mr-0.5">*</span>Expected Date
                 </label>
                 <input
                   type="date"
                   value={expectedDate}
                   onChange={(e) => setExpectedDate(e.target.value)}
-                  className="w-full h-8 text-xs border border-slate-300 dark:border-slate-700 rounded px-2.5 py-1 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-hidden focus:ring-1 focus:ring-blue-500"
+                  className="w-full h-8 text-xs border border-line-strong dark:border-slate-700 rounded px-2.5 py-1 bg-surface dark:bg-slate-800 text-ink dark:text-slate-100 focus:outline-hidden focus:ring-1 focus:ring-blue-500"
                 />
               </div>
             </div>
@@ -986,7 +986,7 @@ function CreateRequisitionForm({ templateReq }: { templateReq: PurchaseRequisiti
             <div className="grid grid-cols-1 md:grid-cols-12 gap-3 pt-1">
               {/* Buyer Name */}
               <div className="md:col-span-3">
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                <label className="block text-xs font-semibold text-ink-muted dark:text-slate-300 mb-1">
                   Buyer Name
                 </label>
                 <input
@@ -994,19 +994,19 @@ function CreateRequisitionForm({ templateReq }: { templateReq: PurchaseRequisiti
                   value={buyerName}
                   onChange={(e) => setBuyerName(e.target.value)}
                   placeholder="Select/Search Buyer Name (min 3 letters)"
-                  className="w-full h-8 text-xs border border-slate-300 dark:border-slate-700 rounded px-2.5 py-1 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 placeholder:text-slate-400 focus:outline-hidden focus:ring-1 focus:ring-blue-500"
+                  className="w-full h-8 text-xs border border-line-strong dark:border-slate-700 rounded px-2.5 py-1 bg-surface dark:bg-slate-800 text-ink dark:text-slate-100 placeholder:text-ink-faint focus:outline-hidden focus:ring-1 focus:ring-blue-500"
                 />
               </div>
 
               {/* Buyer Office */}
               <div className="md:col-span-3">
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                <label className="block text-xs font-semibold text-ink-muted dark:text-slate-300 mb-1">
                   Buyer Office
                 </label>
                 <select
                   value={buyerOfficeId}
                   onChange={(e) => setBuyerOfficeId(e.target.value)}
-                  className="w-full h-8 text-xs border border-slate-300 dark:border-slate-700 rounded px-2.5 py-1 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-hidden focus:ring-1 focus:ring-blue-500"
+                  className="w-full h-8 text-xs border border-line-strong dark:border-slate-700 rounded px-2.5 py-1 bg-surface dark:bg-slate-800 text-ink dark:text-slate-100 focus:outline-hidden focus:ring-1 focus:ring-blue-500"
                 >
                   <option value="">Select Buyer Office</option>
                   {offices.map((off) => (
@@ -1019,7 +1019,7 @@ function CreateRequisitionForm({ templateReq }: { templateReq: PurchaseRequisiti
 
               {/* Remarks with Attachment Icon */}
               <div className="md:col-span-6">
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                <label className="block text-xs font-semibold text-ink-muted dark:text-slate-300 mb-1">
                   Remarks
                 </label>
                 <div className="relative flex items-center">
@@ -1028,7 +1028,7 @@ function CreateRequisitionForm({ templateReq }: { templateReq: PurchaseRequisiti
                     value={remarks}
                     onChange={(e) => setRemarks(e.target.value)}
                     placeholder="Remarks"
-                    className="w-full h-8 text-xs border border-slate-300 dark:border-slate-700 rounded pl-2.5 pr-10 py-1 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 placeholder:text-slate-400 focus:outline-hidden focus:ring-1 focus:ring-blue-500"
+                    className="w-full h-8 text-xs border border-line-strong dark:border-slate-700 rounded pl-2.5 pr-10 py-1 bg-surface dark:bg-slate-800 text-ink dark:text-slate-100 placeholder:text-ink-faint focus:outline-hidden focus:ring-1 focus:ring-blue-500"
                   />
                   <input
                     type="file"
@@ -1040,7 +1040,7 @@ function CreateRequisitionForm({ templateReq }: { templateReq: PurchaseRequisiti
                   <button
                     type="button"
                     onClick={() => fileInputRef.current?.click()}
-                    className="absolute right-1 text-slate-400 hover:text-blue-600 p-1 rounded transition"
+                    className="absolute right-1 text-ink-faint hover:text-blue-600 dark:hover:text-blue-400 p-1 rounded transition"
                     title={
                       attachedFiles.length > 0
                         ? `${attachedFiles.length} file(s) attached`
@@ -1051,7 +1051,7 @@ function CreateRequisitionForm({ templateReq }: { templateReq: PurchaseRequisiti
                   </button>
                 </div>
                 {attachedFiles.length > 0 && (
-                  <div className="mt-1 flex items-center gap-2 text-[10px] text-blue-600">
+                  <div className="mt-1 flex items-center gap-2 text-[10px] text-blue-600 dark:text-blue-400">
                     <span>📎 {attachedFiles.length} file(s) attached:</span>
                     <span className="truncate max-w-xs">{attachedFiles.map((f) => f.name).join(", ")}</span>
                     <button
@@ -1070,12 +1070,12 @@ function CreateRequisitionForm({ templateReq }: { templateReq: PurchaseRequisiti
       </div>
 
       {/* ── REQUISITION ITEMS CARD ── */}
-      <div className="bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 rounded shadow-2xs overflow-hidden mb-3">
-        <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-3 pt-2">
+      <div className="bg-surface dark:bg-slate-900 border border-line/90 dark:border-slate-800 rounded shadow-2xs overflow-hidden mb-3">
+        <div className="flex items-center justify-between border-b border-line dark:border-slate-800 bg-surface dark:bg-slate-900 px-3 pt-2">
           <div className="flex items-center gap-2">
             <button
               type="button"
-              className="px-4 py-2 text-xs font-semibold rounded-t bg-[#e6f2fb] dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border-b-2 border-blue-600 transition"
+              className="px-4 py-2 text-xs font-semibold rounded-t bg-grid-head dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border-b-2 border-blue-600 transition"
             >
               Requisition Items
             </button>
@@ -1086,21 +1086,21 @@ function CreateRequisitionForm({ templateReq }: { templateReq: PurchaseRequisiti
         {/* ── SALES ORDER MULTI-SELECT STRIP (ONLY WHEN CREATE FROM SALES ORDER IS CHECKED) ── */}
         {createFromSalesOrder && (
           <div className="pt-2">
-            <label className="block text-[11px] font-medium text-slate-700 dark:text-slate-300 mb-1">
+            <label className="block text-[11px] font-medium text-ink-muted dark:text-slate-300 mb-1">
               Select Sales Orders (Multiple) <span className="text-red-500">*</span>
             </label>
             <div className="flex items-center gap-2 max-w-xl">
               <div className="relative flex-1">
                 <div
                   onClick={() => setIsSoDropdownOpen((p) => !p)}
-                  className="min-h-8 w-full border border-slate-300 dark:border-slate-700 rounded px-2 py-1 bg-white dark:bg-slate-800 text-xs flex flex-wrap items-center gap-1.5 cursor-pointer focus-within:ring-1 focus-within:ring-blue-500"
+                  className="min-h-8 w-full border border-line-strong dark:border-slate-700 rounded px-2 py-1 bg-surface dark:bg-slate-800 text-xs flex flex-wrap items-center gap-1.5 cursor-pointer focus-within:ring-1 focus-within:ring-blue-500"
                 >
                   {selectedSalesOrderIds.map((soId) => {
                     const so = (formOptions?.salesOrders ?? []).find((s) => s.id === soId);
                     return (
                       <span
                         key={soId}
-                        className="inline-flex items-center gap-1 bg-slate-100 dark:bg-slate-700 text-slate-800 dark:text-slate-200 px-2 py-0.5 rounded text-[11px] font-mono border border-slate-200 dark:border-slate-600"
+                        className="inline-flex items-center gap-1 bg-control dark:bg-slate-700 text-ink dark:text-slate-200 px-2 py-0.5 rounded text-[11px] font-mono border border-line dark:border-slate-600"
                       >
                         <span>{so?.number || soId}</span>
                         <span
@@ -1118,9 +1118,9 @@ function CreateRequisitionForm({ templateReq }: { templateReq: PurchaseRequisiti
                     );
                   })}
                   {selectedSalesOrderIds.length === 0 && (
-                    <span className="text-slate-400 text-xs">Select Sales Orders...</span>
+                    <span className="text-ink-faint text-xs">Select Sales Orders...</span>
                   )}
-                  <div className="ml-auto flex items-center gap-1 text-slate-400">
+                  <div className="ml-auto flex items-center gap-1 text-ink-faint">
                     {selectedSalesOrderIds.length > 0 && (
                       <span
                         role="button"
@@ -1129,7 +1129,7 @@ function CreateRequisitionForm({ templateReq }: { templateReq: PurchaseRequisiti
                           e.stopPropagation();
                           handleClearAllSalesOrders();
                         }}
-                        className="hover:text-slate-600 p-0.5 cursor-pointer"
+                        className="hover:text-ink-muted p-0.5 cursor-pointer"
                         title="Clear all"
                       >
                         <X className="w-3.5 h-3.5" />
@@ -1145,18 +1145,18 @@ function CreateRequisitionForm({ templateReq }: { templateReq: PurchaseRequisiti
                       className="fixed inset-0 z-10"
                       onClick={() => setIsSoDropdownOpen(false)}
                     />
-                    <div className="absolute left-0 right-0 top-full mt-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded shadow-lg z-20 max-h-60 overflow-y-auto">
-                      <div className="p-2 border-b border-slate-100 dark:border-slate-700">
+                    <div className="absolute left-0 right-0 top-full mt-1 bg-surface dark:bg-slate-800 border border-line dark:border-slate-700 rounded shadow-lg z-20 max-h-60 overflow-y-auto">
+                      <div className="p-2 border-b border-line dark:border-slate-700">
                         <input
                           type="text"
                           value={soSearchQuery}
                           onChange={(e) => setSoSearchQuery(e.target.value)}
                           placeholder="Search sales order / customer..."
-                          className="w-full h-7 px-2 text-xs border border-slate-200 dark:border-slate-700 rounded bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-100"
+                          className="w-full h-7 px-2 text-xs border border-line dark:border-slate-700 rounded bg-canvas dark:bg-slate-900 text-ink dark:text-slate-100"
                           onClick={(e) => e.stopPropagation()}
                         />
                       </div>
-                      <div className="divide-y divide-slate-50 dark:divide-slate-700/50">
+                      <div className="divide-y divide-line dark:divide-slate-700/50">
                         {(formOptions?.salesOrders ?? [])
                           .filter((so) => {
                             if (!soSearchQuery.trim()) return true;
@@ -1181,14 +1181,14 @@ function CreateRequisitionForm({ templateReq }: { templateReq: PurchaseRequisiti
                                     type="checkbox"
                                     checked={isSelected}
                                     onChange={() => {}}
-                                    className="w-3.5 h-3.5 text-blue-600 rounded border-slate-300"
+                                    className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400 rounded border-line-strong"
                                   />
                                   <div>
-                                    <div className="font-semibold text-slate-800 dark:text-slate-100">{so.number}</div>
-                                    <div className="text-[10px] text-slate-400">{so.customerName} ({so.orderDate})</div>
+                                    <div className="font-semibold text-ink dark:text-slate-100">{so.number}</div>
+                                    <div className="text-[10px] text-ink-faint">{so.customerName} ({so.orderDate})</div>
                                   </div>
                                 </div>
-                                <span className="text-[10px] text-blue-600 font-mono">
+                                <span className="text-[10px] text-blue-600 dark:text-blue-400 font-mono">
                                   {so.lines.length} lines
                                 </span>
                               </div>
@@ -1214,9 +1214,9 @@ function CreateRequisitionForm({ templateReq }: { templateReq: PurchaseRequisiti
         {/* ── CONDITIONAL RENDERING: SALES ORDER ALLOCATION TABLE VS MANUAL ENTRY & TABLE ── */}
         {createFromSalesOrder ? (
           <div className="mt-4 pt-2">
-            <div className="overflow-x-auto rounded border border-slate-200 dark:border-slate-800">
-              <table className="w-full text-left text-xs text-slate-700 dark:text-slate-300 border-collapse">
-                <thead className="bg-[#e8f1f5] dark:bg-slate-800 text-[11px] font-semibold text-slate-700 dark:text-slate-200 border-b border-slate-200 dark:border-slate-700">
+            <div className="overflow-x-auto rounded border border-line dark:border-slate-800">
+              <table className="w-full text-left text-xs text-ink-muted dark:text-slate-300 border-collapse">
+                <thead className="bg-grid-head dark:bg-slate-800 text-[11px] font-semibold text-ink-muted dark:text-slate-200 border-b border-line dark:border-slate-700">
                   <tr>
                     <th className="py-2.5 px-3 w-36 font-semibold">Code</th>
                     <th className="py-2.5 px-3 font-semibold">Item Name & Details</th>
@@ -1227,27 +1227,27 @@ function CreateRequisitionForm({ templateReq }: { templateReq: PurchaseRequisiti
                     <th className="py-2.5 px-3 w-16 text-center font-semibold">Actions</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100 dark:divide-slate-800 bg-white dark:bg-slate-900">
+                <tbody className="divide-y divide-line dark:divide-slate-800 bg-surface dark:bg-slate-900">
                   {soGroupedLines.length > 0 ? (
                     soGroupedLines.map((group) => (
                       <React.Fragment key={group.soId}>
                         {/* Allocation Header Row */}
-                        <tr className="bg-[#e6f4fa] dark:bg-sky-950/40 border-y border-sky-200 dark:border-sky-900">
-                          <td colSpan={7} className="py-2 px-3 font-bold text-slate-800 dark:text-slate-100 text-xs">
+                        <tr className="bg-grid-head dark:bg-sky-950/40 border-y border-sky-200 dark:border-sky-900">
+                          <td colSpan={7} className="py-2 px-3 font-bold text-ink dark:text-slate-100 text-xs">
                             Sales Order Allocation: {group.soNumber} ({group.customerName})
                           </td>
                         </tr>
 
                         {/* Line Items */}
                         {group.lines.map((line) => (
-                          <tr key={line.id} className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40 transition">
-                            <td className="py-2 px-3 text-slate-700 dark:text-slate-300 font-mono text-[11px]">
+                          <tr key={line.id} className="hover:bg-canvas/60 dark:hover:bg-slate-800/40 transition">
+                            <td className="py-2 px-3 text-ink-muted dark:text-slate-300 font-mono text-[11px]">
                               {line.itemCode}
                             </td>
-                            <td className="py-2 px-3 text-slate-800 dark:text-slate-200 font-medium">
+                            <td className="py-2 px-3 text-ink dark:text-slate-200 font-medium">
                               {line.itemName}
                             </td>
-                            <td className="py-2 px-3 text-center text-slate-600 dark:text-slate-400">
+                            <td className="py-2 px-3 text-center text-ink-muted dark:text-slate-400">
                               {line.uom}
                             </td>
                             <td className="py-2 px-3 text-right">
@@ -1257,7 +1257,7 @@ function CreateRequisitionForm({ templateReq }: { templateReq: PurchaseRequisiti
                                 step="any"
                                 value={line.reqQty}
                                 onChange={(e) => handleUpdateSoLine(line.id, "reqQty", Number(e.target.value))}
-                                className="w-24 text-right h-7 px-2 border border-slate-300 dark:border-slate-700 rounded text-xs bg-white dark:bg-slate-800 font-medium text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                className="w-24 text-right h-7 px-2 border border-line-strong dark:border-slate-700 rounded text-xs bg-surface dark:bg-slate-800 font-medium text-ink dark:text-slate-100 focus:outline-none focus:ring-1 focus:ring-blue-500"
                               />
                             </td>
                             <td className="py-2 px-3 text-right">
@@ -1267,17 +1267,17 @@ function CreateRequisitionForm({ templateReq }: { templateReq: PurchaseRequisiti
                                 step="any"
                                 value={line.estRate}
                                 onChange={(e) => handleUpdateSoLine(line.id, "estRate", Number(e.target.value))}
-                                className="w-24 text-right h-7 px-2 border border-slate-300 dark:border-slate-700 rounded text-xs bg-white dark:bg-slate-800 font-medium text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                className="w-24 text-right h-7 px-2 border border-line-strong dark:border-slate-700 rounded text-xs bg-surface dark:bg-slate-800 font-medium text-ink dark:text-slate-100 focus:outline-none focus:ring-1 focus:ring-blue-500"
                               />
                             </td>
-                            <td className="py-2 px-3 text-right font-medium text-slate-800 dark:text-slate-200">
+                            <td className="py-2 px-3 text-right font-medium text-ink dark:text-slate-200">
                               {line.total.toFixed(2)}
                             </td>
                             <td className="py-2 px-3 text-center">
                               <button
                                 type="button"
                                 onClick={() => handleDeleteSoLine(line.id)}
-                                className="p-1 rounded text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950 transition"
+                                className="p-1 rounded text-ink-faint hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950 transition"
                                 title="Remove item"
                               >
                                 <Trash2 className="w-4 h-4" />
@@ -1287,15 +1287,15 @@ function CreateRequisitionForm({ templateReq }: { templateReq: PurchaseRequisiti
                         ))}
 
                         {/* Subtotal Allocation Row */}
-                        <tr className="bg-slate-50 dark:bg-slate-800/60 font-bold border-b border-slate-200 dark:border-slate-700 text-xs">
-                          <td colSpan={3} className="py-2 px-3 text-right text-slate-800 dark:text-slate-100">
+                        <tr className="bg-canvas dark:bg-slate-800/60 font-bold border-b border-line dark:border-slate-700 text-xs">
+                          <td colSpan={3} className="py-2 px-3 text-right text-ink dark:text-slate-100">
                             Subtotal Allocation for {group.soNumber}:
                           </td>
-                          <td className="py-2 px-3 text-right text-slate-800 dark:text-slate-100">
+                          <td className="py-2 px-3 text-right text-ink dark:text-slate-100">
                             {group.subtotalQty} Units
                           </td>
                           <td className="py-2 px-3"></td>
-                          <td className="py-2 px-3 text-right text-slate-800 dark:text-slate-100">
+                          <td className="py-2 px-3 text-right text-ink dark:text-slate-100">
                             {group.subtotalTotal.toFixed(2)} BDT
                           </td>
                           <td className="py-2 px-3"></td>
@@ -1304,7 +1304,7 @@ function CreateRequisitionForm({ templateReq }: { templateReq: PurchaseRequisiti
                     ))
                   ) : (
                     <tr>
-                      <td colSpan={7} className="py-8 text-center text-slate-400 text-xs">
+                      <td colSpan={7} className="py-8 text-center text-ink-faint text-xs">
                         <div className="flex flex-col items-center justify-center gap-1.5">
                           <FileSpreadsheet className="w-8 h-8 text-slate-300 dark:text-slate-600" />
                           <span>Select Sales Orders above and click &quot;Load&quot; to populate requisition items.</span>
@@ -1315,17 +1315,17 @@ function CreateRequisitionForm({ templateReq }: { templateReq: PurchaseRequisiti
                 </tbody>
                 {soGroupedLines.length > 0 && (
                   <tfoot>
-                    <tr className="bg-slate-100 dark:bg-slate-800 font-bold border-t-2 border-slate-300 dark:border-slate-600 text-xs">
-                      <td colSpan={3} className="py-2.5 px-3 text-right text-slate-900 dark:text-white">
+                    <tr className="bg-control dark:bg-slate-800 font-bold border-t-2 border-line-strong dark:border-slate-600 text-xs">
+                      <td colSpan={3} className="py-2.5 px-3 text-right text-ink dark:text-white">
                         Total Quantity Sum:
                       </td>
-                      <td className="py-2.5 px-3 text-right text-slate-900 dark:text-white">
+                      <td className="py-2.5 px-3 text-right text-ink dark:text-white">
                         {grandSoQtySum} Units
                       </td>
-                      <td className="py-2.5 px-3 text-right text-slate-700 dark:text-slate-300">
+                      <td className="py-2.5 px-3 text-right text-ink-muted dark:text-slate-300">
                         Budget Subtotal:
                       </td>
-                      <td className="py-2.5 px-3 text-right text-slate-900 dark:text-white">
+                      <td className="py-2.5 px-3 text-right text-ink dark:text-white">
                         {grandSoTotalSum.toFixed(2)} BDT
                       </td>
                       <td className="py-2.5 px-3"></td>
@@ -1338,13 +1338,13 @@ function CreateRequisitionForm({ templateReq }: { templateReq: PurchaseRequisiti
         ) : (
           <>
             {/* ── ROW 3: CATEGORY & SUPPLIER FILTER STRIP (5 COLS GRID) ── */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 pt-3 border-t border-slate-100 dark:border-slate-800">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 pt-3 border-t border-line dark:border-slate-800">
               {/* Item Type */}
               <div>
                 <select
                   value={itemTypeFilter}
                   onChange={(e) => setItemTypeFilter(e.target.value)}
-                  className="w-full h-8 text-xs border border-slate-300 dark:border-slate-700 rounded px-2.5 py-1 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 focus:outline-hidden focus:ring-1 focus:ring-blue-500"
+                  className="w-full h-8 text-xs border border-line-strong dark:border-slate-700 rounded px-2.5 py-1 bg-surface dark:bg-slate-800 text-ink-muted dark:text-slate-200 focus:outline-hidden focus:ring-1 focus:ring-blue-500"
                 >
                   <option value="All">Item Type</option>
                   <option value="Raw Material">Raw Material</option>
@@ -1366,7 +1366,7 @@ function CreateRequisitionForm({ templateReq }: { templateReq: PurchaseRequisiti
                     setSubCategoryFilter("All");
                     setMinorCategoryFilter("All");
                   }}
-                  className="w-full h-8 text-xs border border-slate-300 dark:border-slate-700 rounded px-2.5 py-1 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 focus:outline-hidden focus:ring-1 focus:ring-blue-500"
+                  className="w-full h-8 text-xs border border-line-strong dark:border-slate-700 rounded px-2.5 py-1 bg-surface dark:bg-slate-800 text-ink-muted dark:text-slate-200 focus:outline-hidden focus:ring-1 focus:ring-blue-500"
                 >
                   <option value="All">Category</option>
                   {level1Categories.map((cat) => (
@@ -1385,7 +1385,7 @@ function CreateRequisitionForm({ templateReq }: { templateReq: PurchaseRequisiti
                     setSubCategoryFilter(e.target.value);
                     setMinorCategoryFilter("All");
                   }}
-                  className="w-full h-8 text-xs border border-slate-300 dark:border-slate-700 rounded px-2.5 py-1 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 focus:outline-hidden focus:ring-1 focus:ring-blue-500"
+                  className="w-full h-8 text-xs border border-line-strong dark:border-slate-700 rounded px-2.5 py-1 bg-surface dark:bg-slate-800 text-ink-muted dark:text-slate-200 focus:outline-hidden focus:ring-1 focus:ring-blue-500"
                 >
                   <option value="All">Sub Category</option>
                   {level2SubCategories.map((sub) => (
@@ -1401,7 +1401,7 @@ function CreateRequisitionForm({ templateReq }: { templateReq: PurchaseRequisiti
                 <select
                   value={minorCategoryFilter}
                   onChange={(e) => setMinorCategoryFilter(e.target.value)}
-                  className="w-full h-8 text-xs border border-slate-300 dark:border-slate-700 rounded px-2.5 py-1 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 focus:outline-hidden focus:ring-1 focus:ring-blue-500"
+                  className="w-full h-8 text-xs border border-line-strong dark:border-slate-700 rounded px-2.5 py-1 bg-surface dark:bg-slate-800 text-ink-muted dark:text-slate-200 focus:outline-hidden focus:ring-1 focus:ring-blue-500"
                 >
                   <option value="All">Minor Category</option>
                   {level3MinorCategories.map((m) => (
@@ -1417,7 +1417,7 @@ function CreateRequisitionForm({ templateReq }: { templateReq: PurchaseRequisiti
                 <select
                   value={supplierFilter}
                   onChange={(e) => setSupplierFilter(e.target.value)}
-                  className="w-full h-8 text-xs border border-slate-300 dark:border-slate-700 rounded px-2.5 py-1 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 focus:outline-hidden focus:ring-1 focus:ring-blue-500"
+                  className="w-full h-8 text-xs border border-line-strong dark:border-slate-700 rounded px-2.5 py-1 bg-surface dark:bg-slate-800 text-ink-muted dark:text-slate-200 focus:outline-hidden focus:ring-1 focus:ring-blue-500"
                 >
                   <option value="">Select/Search Supplier (min 3 letters)</option>
                   {suppliers.slice(0, 30).map((sup) => (
@@ -1434,13 +1434,13 @@ function CreateRequisitionForm({ templateReq }: { templateReq: PurchaseRequisiti
               {/* Item Selector Combobox with Checkbox */}
               <div className="md:col-span-3 relative">
                 <div className="flex items-center justify-between mb-1">
-                  <label className="text-[11px] font-medium text-slate-700 dark:text-slate-300">Item</label>
-                  <label className="flex items-center gap-1 text-[10px] text-slate-400 cursor-pointer">
+                  <label className="text-[11px] font-medium text-ink-muted dark:text-slate-300">Item</label>
+                  <label className="flex items-center gap-1 text-[10px] text-ink-faint cursor-pointer">
                     <input
                       type="checkbox"
                       checked={itemCheckbox}
                       onChange={(e) => setItemCheckbox(e.target.checked)}
-                      className="w-3.5 h-3.5 text-blue-600 rounded border-slate-300"
+                      className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400 rounded border-line-strong"
                     />
                   </label>
                 </div>
@@ -1454,12 +1454,12 @@ function CreateRequisitionForm({ templateReq }: { templateReq: PurchaseRequisiti
                     }}
                     onFocus={() => setIsItemDropdownOpen(true)}
                     placeholder="Select/Search Item"
-                    className="w-full h-8 text-xs border border-slate-300 dark:border-slate-700 rounded pl-2.5 pr-8 py-1 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 placeholder:text-slate-400 focus:outline-hidden focus:ring-1 focus:ring-blue-500"
+                    className="w-full h-8 text-xs border border-line-strong dark:border-slate-700 rounded pl-2.5 pr-8 py-1 bg-surface dark:bg-slate-800 text-ink dark:text-slate-100 placeholder:text-ink-faint focus:outline-hidden focus:ring-1 focus:ring-blue-500"
                   />
                   <button
                     type="button"
                     onClick={() => setIsItemDropdownOpen((p) => !p)}
-                    className="absolute right-1 top-1 inline-flex size-6 items-center justify-center rounded text-slate-400 hover:text-slate-600"
+                    className="absolute right-1 top-1 inline-flex size-6 items-center justify-center rounded text-ink-faint hover:text-ink-muted"
                     aria-label="Show items"
                   >
                     <ChevronDown className="w-3.5 h-3.5" />
@@ -1471,29 +1471,29 @@ function CreateRequisitionForm({ templateReq }: { templateReq: PurchaseRequisiti
                         className="fixed inset-0 z-10"
                         onClick={() => setIsItemDropdownOpen(false)}
                       />
-                      <div className="absolute left-0 right-0 top-full mt-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded shadow-lg z-20 max-h-56 overflow-y-auto">
+                      <div className="absolute left-0 right-0 top-full mt-1 bg-surface dark:bg-slate-800 border border-line dark:border-slate-700 rounded shadow-lg z-20 max-h-56 overflow-y-auto">
                         {filteredItems.length > 0 ? (
                           filteredItems.slice(0, 30).map((it) => (
                             <div
                               key={it.id}
                               onClick={() => handleSelectItem(it)}
-                              className="px-3 py-1.5 text-xs hover:bg-blue-50 dark:hover:bg-slate-700 cursor-pointer border-b border-slate-50 dark:border-slate-700/50 flex items-center justify-between"
+                              className="px-3 py-1.5 text-xs hover:bg-blue-50 dark:hover:bg-slate-700 cursor-pointer border-b border-line dark:border-slate-700/50 flex items-center justify-between"
                             >
                               <div>
-                                <div className="font-semibold text-slate-800 dark:text-slate-100">{it.name}</div>
-                                <div className="text-[10px] text-slate-400">
+                                <div className="font-semibold text-ink dark:text-slate-100">{it.name}</div>
+                                <div className="text-[10px] text-ink-faint">
                                   Code: {it.code} | UOM: {it.uom} | Cat: {it.category}
                                 </div>
                               </div>
                               <div className="text-right">
-                                <span className="font-medium text-blue-600 text-xs">
+                                <span className="font-medium text-blue-600 dark:text-blue-400 text-xs">
                                   ৳{Number(it.standardPrice).toLocaleString()}
                                 </span>
                               </div>
                             </div>
                           ))
                         ) : (
-                          <div className="p-3 text-xs text-slate-400 text-center">No matching items found</div>
+                          <div className="p-3 text-xs text-ink-faint text-center">No matching items found</div>
                         )}
                       </div>
                     </>
@@ -1504,9 +1504,9 @@ function CreateRequisitionForm({ templateReq }: { templateReq: PurchaseRequisiti
               {/* Req. Qty */}
               <div className="md:col-span-2">
                 <div className="flex items-center gap-1 mb-1">
-                  <label className="text-[11px] font-medium text-slate-700 dark:text-slate-300">Req. Qty</label>
+                  <label className="text-[11px] font-medium text-ink-muted dark:text-slate-300">Req. Qty</label>
                   <span title="Quantity requested for this requisition line">
-                    <Info className="w-3 h-3 text-slate-400 inline" />
+                    <Info className="w-3 h-3 text-ink-faint inline" />
                   </span>
                 </div>
                 <input
@@ -1516,13 +1516,13 @@ function CreateRequisitionForm({ templateReq }: { templateReq: PurchaseRequisiti
                   value={reqQty}
                   onChange={(e) => setReqQty(e.target.value)}
                   placeholder="Request Quantity"
-                  className="w-full h-8 text-xs border border-slate-300 dark:border-slate-700 rounded px-2.5 py-1 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 placeholder:text-slate-400 focus:outline-hidden focus:ring-1 focus:ring-blue-500 font-medium"
+                  className="w-full h-8 text-xs border border-line-strong dark:border-slate-700 rounded px-2.5 py-1 bg-surface dark:bg-slate-800 text-ink dark:text-slate-100 placeholder:text-ink-faint focus:outline-hidden focus:ring-1 focus:ring-blue-500 font-medium"
                 />
               </div>
 
               {/* Last Cost */}
               <div className="md:col-span-2">
-                <label className="block text-[11px] font-medium text-slate-700 dark:text-slate-300 mb-1">
+                <label className="block text-[11px] font-medium text-ink-muted dark:text-slate-300 mb-1">
                   Last Cost
                 </label>
                 <input
@@ -1530,13 +1530,13 @@ function CreateRequisitionForm({ templateReq }: { templateReq: PurchaseRequisiti
                   readOnly
                   value={lastCost ? `৳${lastCost.toLocaleString()}` : ""}
                   placeholder="Last Cost"
-                  className="w-full h-8 text-xs border border-slate-200 dark:border-slate-700 rounded px-2.5 py-1 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 cursor-not-allowed placeholder:text-slate-400"
+                  className="w-full h-8 text-xs border border-line dark:border-slate-700 rounded px-2.5 py-1 bg-control dark:bg-slate-800 text-ink-muted dark:text-slate-400 cursor-not-allowed placeholder:text-ink-faint"
                 />
               </div>
 
               {/* Average Cost */}
               <div className="md:col-span-2">
-                <label className="block text-[11px] font-medium text-slate-700 dark:text-slate-300 mb-1">
+                <label className="block text-[11px] font-medium text-ink-muted dark:text-slate-300 mb-1">
                   Average Cost
                 </label>
                 <input
@@ -1544,13 +1544,13 @@ function CreateRequisitionForm({ templateReq }: { templateReq: PurchaseRequisiti
                   readOnly
                   value={averageCost ? `৳${averageCost.toLocaleString()}` : ""}
                   placeholder="Average Cost"
-                  className="w-full h-8 text-xs border border-slate-200 dark:border-slate-700 rounded px-2.5 py-1 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 cursor-not-allowed placeholder:text-slate-400"
+                  className="w-full h-8 text-xs border border-line dark:border-slate-700 rounded px-2.5 py-1 bg-control dark:bg-slate-800 text-ink-muted dark:text-slate-400 cursor-not-allowed placeholder:text-ink-faint"
                 />
               </div>
 
               {/* Description */}
               <div className="md:col-span-3">
-                <label className="block text-[11px] font-medium text-slate-700 dark:text-slate-300 mb-1">
+                <label className="block text-[11px] font-medium text-ink-muted dark:text-slate-300 mb-1">
                   Description
                 </label>
                 <input
@@ -1558,7 +1558,7 @@ function CreateRequisitionForm({ templateReq }: { templateReq: PurchaseRequisiti
                   value={lineDescription}
                   onChange={(e) => setLineDescription(e.target.value)}
                   placeholder="Description"
-                  className="w-full h-8 text-xs border border-slate-300 dark:border-slate-700 rounded px-2.5 py-1 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 placeholder:text-slate-400 focus:outline-hidden focus:ring-1 focus:ring-blue-500"
+                  className="w-full h-8 text-xs border border-line-strong dark:border-slate-700 rounded px-2.5 py-1 bg-surface dark:bg-slate-800 text-ink dark:text-slate-100 placeholder:text-ink-faint focus:outline-hidden focus:ring-1 focus:ring-blue-500"
                 />
               </div>
             </div>
@@ -1586,7 +1586,7 @@ function CreateRequisitionForm({ templateReq }: { templateReq: PurchaseRequisiti
                 type="button"
                 onClick={handleDownloadTemplate}
                 title="Download Sample CSV Template"
-                className="h-8 w-8 flex items-center justify-center border border-slate-200 dark:border-slate-700 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-[#2563eb] transition"
+                className="h-8 w-8 flex items-center justify-center border border-line dark:border-slate-700 rounded hover:bg-control dark:hover:bg-slate-800 text-primary transition"
               >
                 <Download className="w-4 h-4" />
               </button>
@@ -1595,17 +1595,17 @@ function CreateRequisitionForm({ templateReq }: { templateReq: PurchaseRequisiti
                 type="button"
                 onClick={() => csvInputRef.current?.click()}
                 title="Import Line Items from CSV"
-                className="h-8 w-8 flex items-center justify-center border border-slate-200 dark:border-slate-700 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-[#2563eb] transition"
+                className="h-8 w-8 flex items-center justify-center border border-line dark:border-slate-700 rounded hover:bg-control dark:hover:bg-slate-800 text-primary transition"
               >
                 <Upload className="w-4 h-4" />
               </button>
             </div>
 
             {/* ── ADDED ITEMS TABLE ── */}
-            <div className="mt-4 pt-3 border-t border-slate-200 dark:border-slate-800">
-              <div className="overflow-x-auto rounded border border-slate-200 dark:border-slate-800">
-                <table className="w-full text-left text-xs text-slate-700 dark:text-slate-300">
-                  <thead className="bg-[#e6f2fb] dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 text-[11px] font-semibold text-slate-800 dark:text-slate-100 uppercase tracking-wider">
+            <div className="mt-4 pt-3 border-t border-line dark:border-slate-800">
+              <div className="overflow-x-auto rounded border border-line dark:border-slate-800">
+                <table className="w-full text-left text-xs text-ink-muted dark:text-slate-300">
+                  <thead className="bg-grid-head dark:bg-slate-800 border-b border-line dark:border-slate-700 text-[11px] font-semibold text-ink dark:text-slate-100 uppercase tracking-wider">
                     <tr>
                       <th className="py-2.5 px-3 w-12 text-center">SL</th>
                       <th className="py-2.5 px-3">Item Code & Name</th>
@@ -1619,18 +1619,18 @@ function CreateRequisitionForm({ templateReq }: { templateReq: PurchaseRequisiti
                       <th className="py-2.5 px-3 w-16 text-center">Action</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800 bg-white dark:bg-slate-900">
+                  <tbody className="divide-y divide-line dark:divide-slate-800 bg-surface dark:bg-slate-900">
                     {addedItems.length > 0 ? (
                       addedItems.map((item, idx) => (
-                        <tr key={item.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/50 transition">
-                          <td className="py-2 px-3 text-center text-slate-500 font-medium">{idx + 1}</td>
+                        <tr key={item.id} className="hover:bg-canvas/80 dark:hover:bg-slate-800/50 transition">
+                          <td className="py-2 px-3 text-center text-ink-faint font-medium">{idx + 1}</td>
                           <td className="py-2 px-3">
-                            <div className="font-semibold text-slate-900 dark:text-white">{item.itemName}</div>
-                            <div className="text-[10px] text-slate-400">{item.itemCode}</div>
+                            <div className="font-semibold text-ink dark:text-white">{item.itemName}</div>
+                            <div className="text-[10px] text-ink-faint">{item.itemCode}</div>
                           </td>
-                          <td className="py-2 px-3 text-slate-600 dark:text-slate-300">{item.category}</td>
+                          <td className="py-2 px-3 text-ink-muted dark:text-slate-300">{item.category}</td>
                           <td className="py-2 px-3 text-center">
-                            <span className="px-1.5 py-0.5 bg-slate-100 dark:bg-slate-800 rounded text-[10px] font-medium text-slate-600 dark:text-slate-300">
+                            <span className="px-1.5 py-0.5 bg-control dark:bg-slate-800 rounded text-[10px] font-medium text-ink-muted dark:text-slate-300">
                               {item.uom}
                             </span>
                           </td>
@@ -1641,13 +1641,13 @@ function CreateRequisitionForm({ templateReq }: { templateReq: PurchaseRequisiti
                               step="any"
                               value={item.quantity}
                               onChange={(e) => handleUpdateLineQty(item.id, Number(e.target.value))}
-                              className="w-20 text-right h-7 px-2 border border-slate-200 dark:border-slate-700 rounded text-xs bg-white dark:bg-slate-800 font-semibold text-slate-900 dark:text-white"
+                              className="w-20 text-right h-7 px-2 border border-line dark:border-slate-700 rounded text-xs bg-surface dark:bg-slate-800 font-semibold text-ink dark:text-white"
                             />
                           </td>
-                          <td className="py-2 px-3 text-center text-slate-600 dark:text-slate-400 text-[11px]">
+                          <td className="py-2 px-3 text-center text-ink-muted dark:text-slate-400 text-[11px]">
                             {item.expectedDate}
                           </td>
-                          <td className="py-2 px-3 text-right font-medium text-slate-700 dark:text-slate-300">
+                          <td className="py-2 px-3 text-right font-medium text-ink-muted dark:text-slate-300">
                             ৳{item.lastCost.toLocaleString()}
                           </td>
                           <td className="py-2 px-3 text-right font-bold text-blue-600 dark:text-blue-400">
@@ -1664,14 +1664,14 @@ function CreateRequisitionForm({ templateReq }: { templateReq: PurchaseRequisiti
                                 );
                               }}
                               placeholder="Line note..."
-                              className="w-full h-7 px-2 border border-slate-200 dark:border-slate-700 rounded text-xs bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300"
+                              className="w-full h-7 px-2 border border-line dark:border-slate-700 rounded text-xs bg-surface dark:bg-slate-800 text-ink-muted dark:text-slate-300"
                             />
                           </td>
                           <td className="py-2 px-3 text-center">
                             <button
                               type="button"
                               onClick={() => handleDeleteItem(item.id)}
-                              className="p-1 rounded text-red-500 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950 transition"
+                              className="p-1 rounded text-red-500 hover:text-red-700 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-950 transition"
                               title="Remove item"
                             >
                               <Trash2 className="w-4 h-4" />
@@ -1681,7 +1681,7 @@ function CreateRequisitionForm({ templateReq }: { templateReq: PurchaseRequisiti
                       ))
                     ) : (
                       <tr>
-                        <td colSpan={10} className="py-8 text-center text-slate-400 text-xs">
+                        <td colSpan={10} className="py-8 text-center text-ink-faint text-xs">
                           <div className="flex flex-col items-center justify-center gap-1.5">
                             <FileSpreadsheet className="w-8 h-8 text-slate-300 dark:text-slate-600" />
                             <span>No items added yet. Select an item above, enter quantity, and click &quot;Add&quot;.</span>
@@ -1694,21 +1694,21 @@ function CreateRequisitionForm({ templateReq }: { templateReq: PurchaseRequisiti
               </div>
 
               {/* ── TABLE SUMMARY BAR ── */}
-              <div className="mt-3 flex flex-wrap items-center justify-between gap-4 bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded p-3 text-xs">
+              <div className="mt-3 flex flex-wrap items-center justify-between gap-4 bg-canvas dark:bg-slate-800/60 border border-line dark:border-slate-700 rounded p-3 text-xs">
                 <div className="flex items-center gap-6">
                   <div>
-                    <span className="text-slate-500">Total Items: </span>
-                    <span className="font-bold text-slate-900 dark:text-white">{totalItemsCount}</span>
+                    <span className="text-ink-faint">Total Items: </span>
+                    <span className="font-bold text-ink dark:text-white">{totalItemsCount}</span>
                   </div>
                   <div>
-                    <span className="text-slate-500">Total Quantity: </span>
-                    <span className="font-bold text-slate-900 dark:text-white">{totalQuantitySum.toLocaleString()}</span>
+                    <span className="text-ink-faint">Total Quantity: </span>
+                    <span className="font-bold text-ink dark:text-white">{totalQuantitySum.toLocaleString()}</span>
                   </div>
                 </div>
 
                 <div className="flex items-center gap-2">
-                  <span className="text-slate-500 font-medium">Total Estimated Cost:</span>
-                  <span className="text-base font-extrabold text-[#2563eb] dark:text-blue-400">
+                  <span className="text-ink-faint font-medium">Total Estimated Cost:</span>
+                  <span className="text-base font-extrabold text-primary dark:text-blue-400">
                     ৳{totalEstimatedCostSum.toLocaleString()}
                   </span>
                 </div>
