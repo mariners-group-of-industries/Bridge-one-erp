@@ -135,7 +135,7 @@ describe("sales quotations", () => {
     billingContactNo: "01800000000",
     reference: "Visit 12-10",
     subject: "Price offer for snacks",
-    quotationType: "Quotation",
+    quotationType: "Special Price",
     includingVat: false,
     remarksBody: doc("Dear Sir,", "Please find our offer below.") as QuotationInput["remarksBody"],
     remarksFooter: doc("Thank you.") as QuotationInput["remarksFooter"],

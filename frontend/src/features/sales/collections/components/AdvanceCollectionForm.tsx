@@ -243,7 +243,7 @@ export function AdvanceCollectionForm({
           <SearchPick
             label="Cash Account"
             required
-            placeholder="Cash Account (min 3 letters)"
+            placeholder="Cash Account"
             error={errors.cashAccountId}
             options={accountOptions}
             selectedId={header.cashAccountId}
@@ -252,7 +252,7 @@ export function AdvanceCollectionForm({
           <TextField label="Cash Remarks" placeholder="Cash Remarks" value={header.cashRemarks} error={errors.cashRemarks} onChange={(event) => set("cashRemarks", event.target.value)} />
           <SearchPick
             label="Adjustment GL"
-            placeholder="Adjustment GL (min 3 letters)"
+            placeholder="Adjustment GL"
             options={accountOptions}
             selectedId={header.adjustAccountId}
             onPick={(id) => set("adjustAccountId", id ?? "")}
@@ -342,7 +342,7 @@ function AdvanceRow({
           key={customers.length}
           label={`Partner, row ${index + 1}`}
           hideLabel
-          placeholder="Select/Search Customer (min 3 letters)"
+          placeholder="Select/Search Customer"
           options={customers.map((customer) => ({ id: customer.id, label: `${customer.name} (${customer.code})` }))}
           selectedId={row.customerId}
           onPick={(id) => onChange({ customerId: id ?? "", salesOrderId: "" })}

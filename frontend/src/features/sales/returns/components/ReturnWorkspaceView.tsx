@@ -20,7 +20,6 @@ import { SearchPick } from "../../components/SearchPick";
 import { formatAmount, formatQty } from "../../dashboard/lib/format";
 import { DayCell, FilterForm, useDebounced, useFilterLookups } from "../../deliveries/components/DeliveryWorkspaceView";
 
-const monthStart = (today: string) => `${today.slice(0, 7)}-01`;
 import { DELIVERY_TYPE_LABELS } from "../../deliveries/schemas/delivery.schema";
 import { useToday } from "../../lib/use-today";
 import { paths } from "../../paths";
@@ -406,7 +405,7 @@ function ReturnsTab({ market, today, search, onQuery }: { market: boolean; today
           <SearchPick
             key={persons.length}
             label="Sales Force"
-            placeholder="Select/Search Sales Force (min 3 letters)"
+            placeholder="Select/Search Sales Force"
             options={persons.map((person) => ({ id: person.id, label: person.name }))}
             selectedId={filters.salesPersonId}
             onPick={(id) => setFilters((current) => ({ ...current, salesPersonId: id ?? "" }))}

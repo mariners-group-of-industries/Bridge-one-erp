@@ -117,7 +117,7 @@ function Detail({ quotation, today, onChanged }: { quotation: QuotationDetail; t
     <div className="flex flex-col gap-4">
       <Card className="flex flex-col gap-4 p-4">
         <div className="flex flex-wrap items-center gap-2">
-          <h2 className="flex-1 text-base font-semibold text-ink">{quotation.quotationType} Details</h2>
+          <h2 className="flex-1 text-base font-semibold text-ink">Quotation Details ({quotation.quotationType})</h2>
           {actions.map((action) => (
             <Button key={action} size="sm" variant={action === "approve" ? "primary" : action === "reopen" ? "secondary" : "danger"} onClick={() => setActing(action)}>
               {ICONS[action]}

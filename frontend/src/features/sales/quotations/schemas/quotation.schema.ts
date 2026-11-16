@@ -20,7 +20,9 @@ export const STATUS_LABELS: Record<QuotationDisplayStatus, string> = {
   EXPIRED: "Expired",
 };
 
-export const QUOTATION_TYPES = ["Quotation", "Proforma Invoice", "Price Offer"] as const;
+export const QUOTATION_TYPES = ["Special Price", "Contract"] as const;
+export type QuotationType = (typeof QUOTATION_TYPES)[number];
+export const DEFAULT_QUOTATION_TYPE: QuotationType = "Special Price";
 
 /** Rows per page of the quotation list, as in Managerium. */
 export const QUOTATION_PAGE_SIZES = [25, 50, 100, 200] as const;
@@ -65,7 +67,7 @@ export const quotationInputSchema = z
     billingContactNo: optionalPhone("Billing Contact No"),
     reference: optionalText("Reference", 150),
     subject: optionalText("Subject", 300),
-    quotationType: z.enum(QUOTATION_TYPES).default("Quotation"),
+    quotationType: z.enum(QUOTATION_TYPES).default(DEFAULT_QUOTATION_TYPE),
     includingVat: z.boolean().default(false),
     remarksBody: richTextSchema.nullish(),
     remarksFooter: richTextSchema.nullish(),
@@ -105,8 +107,8 @@ export const quotationListQuerySchema = z
     to: z.iso.date().optional(),
     status: z.enum([...QUOTATION_STATUSES, "EXPIRED"]).optional(),
     search: z.string().trim().max(100).optional(),
-    /** The browser's local date, used to tell SUBMITTED from EXPIRED. */
-    today: z.iso.date(),
+    /** The browser's local date, used to tell SUBMITTED from EXPIRED (defaults to server today). */
+    today: z.iso.date().default(() => new Date().toISOString().slice(0, 10)),
   })
   .refine((query) => !query.from || !query.to || query.from <= query.to, {
     error: "From Date must be on or before To Date.",
