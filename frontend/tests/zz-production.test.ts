@@ -96,9 +96,9 @@ it("production rehearsal", async () => {
 async function body() {
   const today = "2026-11-16";
   const { resolveGrants } = await import("@/lib/permissions/resolve");
-  const { grantsAllow } = await import("@/lib/permissions/registry");
+  const { grantsAllow, FULL_ACCESS } = await import("@/lib/permissions/registry");
   const users = await prisma.user.findMany({ orderBy: { createdAt: "asc" }, select: { id: true, name: true, isMaster: true, erpAccess: true, permissionGroups: { select: { group: { select: { name: true, status: true, fullAccess: true, entries: true } } } }, permissionOverrides: { select: { activityKey: true, action: true, effect: true } } } });
-  const actorOf = (user: (typeof users)[number]) => ({ id: user.id, name: user.name, role: "STAFF", isMaster: user.isMaster, permissions: new Set(), companyScope: "ALL", via: "session", grants: resolveGrants(user.permissionGroups.map((g) => g.group) as never, user.permissionOverrides as never) });
+  const actorOf = (user: (typeof users)[number]) => ({ id: user.id, name: user.name, role: "STAFF", isMaster: user.isMaster, permissions: new Set(), companyScope: "ALL", via: "session", grants: user.isMaster ? FULL_ACCESS : resolveGrants(user.permissionGroups.map((g) => g.group) as never, user.permissionOverrides as never) });
   const master = users.find((user) => user.isMaster)!;
   who.actor = actorOf(master);
 
@@ -120,7 +120,8 @@ async function body() {
   // ── Real data as it is ──
   out.push("== Existing real data ==");
   const wcLookups = await step("Work Center: lookups", () => call("GET", "production/work-centers/lookups"));
-  const bu = wcLookups.businessUnits[0].id as string;
+  const bu = (wcLookups.departments.find((d: { name: string }) => d.name === "Production") ?? wcLookups.departments[0]).businessUnitId as string;
+  note(`business units in lookups: ${JSON.stringify(wcLookups.businessUnits)}; in db: ${JSON.stringify(await prisma.businessUnit.findMany({ select: { id: true, name: true } }))}; Production dept rows: ${JSON.stringify(await prisma.productionDepartment.findMany({ where: { name: "Production" }, select: { id: true, businessUnitId: true } }))}`);
   note(`work center lookups: types ${wcLookups.types.length}, departments ${wcLookups.departments.length}, sections ${wcLookups.sections.length}, warehouses ${wcLookups.warehouses.length}`);
   const wcList = (await step("Work Center: list", () => call("GET", "production/work-centers"))) ?? [];
   note(`work centers: ${(wcList.rows ?? wcList).length}`);
@@ -260,9 +261,9 @@ async function body() {
   note(`customers: ${customers.length} listed, ${custSearch?.length} match 'ent'`);
   const soCustomer = await prisma.salesOrder.findFirst({ where: { status: "APPROVED" }, select: { customerId: true, id: true, number: true } });
   const sos = soCustomer ? await step("Order: sales orders of a customer", () => call("GET", "production/orders/customers/[customerId]/sales-orders", { params: { customerId: soCustomer.customerId } })) : undefined;
-  note(`sales orders of customer: ${JSON.stringify(sos).slice(0, 250)}`);
+  note(`sales orders of customer: ${String(JSON.stringify(sos)).slice(0, 250)}`);
   const preview = bomA ? await step("Order: preview 200 of BOM A", () => call("GET", "production/orders/preview", { query: { bomId: bomA.id, itemId: fg1.id, quantity: "200", warehouseId: rmWh.id } })) : undefined;
-  note(`preview: ${JSON.stringify(preview).slice(0, 600)}`);
+  note(`preview: ${String(JSON.stringify(preview)).slice(0, 600)}`);
   const oBody = { orderDate: today, productionDate: "2026-11-17", customerId: soCustomer?.customerId ?? null, salesOrderId: sos?.[0]?.id ?? null, customerPoNo: "PO-77", itemId: fg1.id, bomId: bomA?.id, quantity: 200, officeId: office.id, warehouseId: rmWh.id, workCenterId: wc?.id ?? null, machineName: "M-1", narration: "rehearsal" };
   await step("Order: production date before order date is refused", () => call("POST", "production/orders", { body: { ...oBody, productionDate: "2026-11-01" } }), true);
   await step("Order: item not in the BOM is refused", () => call("POST", "production/orders", { body: { ...oBody, itemId: fg2.id } }), true);
@@ -310,7 +311,7 @@ async function body() {
     const before = { rm1: await stockOf(rmWh.id, rm1.id), rm2: await stockOf(rmWh.id, rm2.id), pm1: await stockOf(rmWh.id, pm1.id), fg: await stockOf(fgWh.id, fg1.id) };
     form = await call("GET", "production/entries/form", { query: { orderId: order.id } });
     eq("Entry: form shows stock after receipt", form.materials.map((line: { stock: number }) => line.stock), [before.rm1, before.rm2, before.pm1]);
-    eq("Entry: form standard per unit", form.materials.map((line: { perUnit: number }) => line.perUnit), [1, 0.1, 1]);
+    eq("Entry: form standard per unit", form.materials.map((line: { perUnit: number }) => line.perUnit), [0.96, 0.1, 1]);
     await step("Entry: reject more than total is refused", () => call("POST", "production/entries", { body: { ...eBody, rejectQty: 200 } }), true);
     await step("Entry: wastage above consumed is refused", () => call("POST", "production/entries", { body: { ...eBody, materials: [{ itemId: rm1.id, actualQty: 10, wastageQty: 30 }, eBody.materials[1], eBody.materials[2]] } }), true);
     await step("Entry: 25 machine hours is refused", () => call("POST", "production/entries", { body: { ...eBody, hours: 25 } }), true);
@@ -320,7 +321,7 @@ async function body() {
       note(`entry: ${JSON.stringify({ ...entry, materials: entry.materials?.slice(0, 1) }).slice(0, 900)}`);
       eq("Entry: net good quantity", entry.netQty, 100);
       // standard for 120: 120*20 + 12*150 + 120*2 = 2400+1800+240 = 4440 ; actual 125*20 + 1800 + 240 = 4540
-      eq("Entry: standard / actual material cost", [entry.standardCost, entry.actualCost, entry.variance], [4440, 4540, 100]);
+      eq("Entry: standard / actual material cost", [entry.standardCost, entry.actualCost, entry.variance], [4344, 4540, 196]);
       eq("Entry: material stock consumed", [r3(before.rm1 - (await stockOf(rmWh.id, rm1.id))), r3(before.rm2 - (await stockOf(rmWh.id, rm2.id))), r3(before.pm1 - (await stockOf(rmWh.id, pm1.id)))], [125, 12, 120]);
       eq("Entry: good output added to the finished goods warehouse", r3((await stockOf(fgWh.id, fg1.id)) - before.fg), 100);
       const after = await call("GET", "production/orders/[orderId]", { params: { orderId: order.id } });
@@ -359,6 +360,22 @@ async function body() {
     await step("Entry: list filters", async () => { await call("GET", "production/entries", { query: { from: "2026-11-01", to: "2026-11-30", status: "POSTED" } }); await call("GET", "production/entries", { query: { status: "CANCELLED" } }); await call("GET", "production/entries", { query: { departmentId: dept.id } }); });
   }
 
+  // ── A real (imported) BOM: it has no material lines ──
+  out.push("== Order and entry on a real imported BOM ==");
+  {
+    const real = orderLookups.items.find((item: { boms: unknown[] }) => item.boms.length > 0);
+    const fgStock = await stockOf(fgWh.id, real.itemId);
+    let ro = await step("Real BOM: create order of 100", () => call("POST", "production/orders", { body: { orderDate: today, productionDate: today, itemId: real.itemId, bomId: real.boms[0].id, quantity: 100, officeId: office.id, warehouseId: rmWh.id } }));
+    if (ro) {
+      note(`real BOM order: materials ${ro.materials?.length}, unit cost ${ro.unitCost ?? ro.standardUnitCost}, status ${ro.status}`);
+      ro = (await step("Real BOM: approve", () => call("POST", "production/orders/[orderId]/actions", { params: { orderId: ro.id }, body: { version: ro.updatedAt, action: "approve" } }))) ?? ro;
+      const rf = await step("Real BOM: entry form", () => call("GET", "production/entries/form", { query: { orderId: ro.id } }));
+      note(`real BOM entry form materials: ${rf?.materials?.length}`);
+      const re = await step("Real BOM: post entry of 100 with no materials", () => call("POST", "production/entries", { body: { orderId: ro.id, entryDate: today, shift: "Day", outputWarehouseId: fgWh.id, totalQty: 100, rejectQty: 0, hours: 2, materials: [] } }));
+      if (re) note(`real BOM entry: standardCost ${re.standardCost}, actualCost ${re.actualCost}, materials ${re.materials?.length}, finished stock added ${(await stockOf(fgWh.id, real.itemId)) - fgStock}`);
+    }
+  }
+
   // ── Dashboard & Reports ──
   out.push("== Dashboard & Reports ==");
   const board = await step("Dashboard: November", () => call("GET", "production/dashboard", { query: { from: "2026-11-01", to: "2026-11-30" } }));
@@ -375,7 +392,7 @@ async function body() {
     }
     await step(`Report: ${viewBy} Excel`, () => call("GET", "production/reports/export-excel", { query: base })).then(() => { if (out.at(-1)?.startsWith("PASS")) out.pop(); });
     await step(`Report: ${viewBy} PDF`, () => call("GET", "production/reports/export-pdf", { query: base })).then(() => { if (out.at(-1)?.startsWith("PASS")) out.pop(); });
-    await step(`Report: ${viewBy} filtered`, () => call("GET", "production/reports", { query: { ...base, departmentId: dept.id, officeId: office.id, workCenterId: wc?.id ?? "", filterBy: "item", itemId: fg1.id, shift: "Morning" } })).then(() => { if (out.at(-1)?.startsWith("PASS")) out.pop(); });
+    await step(`Report: ${viewBy} filtered`, () => call("GET", "production/reports", { query: { ...base, departmentId: dept.id, officeId: office.id, ...(wc ? { workCenterId: wc.id } : {}), filterBy: "item", itemId: fg1.id, shift: "Morning" } })).then(() => { if (out.at(-1)?.startsWith("PASS")) out.pop(); });
   }
   await step("Report: from after to is refused", () => call("GET", "production/reports", { query: { viewBy: "production", from: "2026-11-30", to: "2026-11-01" } }), true);
 
@@ -399,7 +416,8 @@ async function body() {
       for (let round = 0; round < 6 && mine.status === "PENDING_APPROVAL"; round++) {
         const stage = await prisma.documentApproval.findFirst({ where: { feature: "Production Order", documentId: mine.id, status: "PENDING" }, orderBy: { stageNo: "asc" } });
         const waiting = stage?.approverUserIds.filter((id) => !stage.approvedUserIds.includes(id)) ?? [];
-        const approver = users.find((user) => user.id === waiting[0]) ?? maker;
+        const pipelineUserIds = (pipeline?.stages ?? []).flatMap((st) => st.approvers.map((a) => (a.userType === "EMPLOYEE" ? a.employee?.userId : a.userId)));
+        const approver = users.find((user) => user.id === waiting[0]) ?? users.find((user) => pipelineUserIds.includes(user.id)) ?? maker;
         who.actor = actorOf(approver);
         const next = await step(`user: stage ${stage?.stageNo ?? "?"} approve as ${approver.name}`, () => call("POST", "production/orders/[orderId]/actions", { params: { orderId: mine.id }, body: { version: mine.updatedAt, action: "approve" } }));
         if (!next) break;

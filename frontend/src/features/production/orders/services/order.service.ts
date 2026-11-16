@@ -390,6 +390,9 @@ export async function updateOrder(actor: Actor, id: string, raw: unknown): Promi
     const businessUnitId = await checkReferences(tx, office, data);
     if (businessUnitId !== current.businessUnitId) throw badRequest("An order cannot move to another business unit.");
     const exploded = await explode(tx, businessUnitId, data.bomId, data.itemId, data.quantity);
+    if (current.status !== "PENDING_APPROVAL") {
+      throw conflict(`This order is ${current.status.toLowerCase().replace(/_/g, " ")} and can no longer be edited.${current.status === "REJECTED" ? " Create a new order instead." : ""}`);
+    }
     const approvals = await tx.productionOrderApproval.findMany({ where: { orderId: id }, select: { status: true, approvedUserIds: true } });
     if (approvals.some((stage) => stage.status !== "PENDING" || stage.approvedUserIds.length > 0)) {
       throw conflict("This order is already being approved and can no longer be edited.");
