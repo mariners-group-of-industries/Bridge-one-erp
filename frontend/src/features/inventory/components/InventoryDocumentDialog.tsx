@@ -320,10 +320,11 @@ function DocumentForm({
   const stock = useResource(stockWarehouseId ? `inventory-stock-${stockWarehouseId}` : null, () => inventoryApi.stock(stockWarehouseId));
   const onHand = useMemo(() => new Map((stock.data ?? []).map((s) => [s.itemId, s.qty])), [stock.data]);
 
+  // With an office picker, warehouses stay hidden until an office is chosen.
   const warehouseOptions = (office: string, placeholder: string, exclude?: string) => [
-    { value: "", label: masters.loading ? "Loading…" : placeholder },
+    { value: "", label: masters.loading ? "Loading…" : config.offices && !office ? "Select office first" : placeholder },
     ...warehouses
-      .filter((w) => (!config.offices || !office || w.officeId === office) && w.id !== exclude)
+      .filter((w) => (!config.offices || (!!office && w.officeId === office)) && w.id !== exclude)
       .map((w) => ({ value: w.id, label: config.offices ? w.name : `${w.name} · ${w.officeName}` })),
   ];
   const supplierOptions = useMemo(() => lookupOptions("supplier", data), [data]);
@@ -668,7 +669,7 @@ function DocumentForm({
                   label={config.warehouseLabel ?? "Warehouse"}
                   required
                   value={warehouseId}
-                  disabled={!!requestId && !!source && !!requests.data?.find((r) => r.id === requestId)?.warehouse}
+                  disabled={(!!config.offices && !officeId) || (!!requestId && !!source && !!requests.data?.find((r) => r.id === requestId)?.warehouse)}
                   onChange={(e) => {
                     setWarehouseId(e.target.value);
                     // Picking a warehouse first fills in its office.
@@ -698,7 +699,7 @@ function DocumentForm({
                   label={config.toWarehouseLabel ?? "To Warehouse"}
                   required
                   value={toWarehouseId}
-                  disabled={!!requestId}
+                  disabled={(!!config.offices && !toOfficeId) || !!requestId}
                   onChange={(e) => {
                     setToWarehouseId(e.target.value);
                     const w = warehouses.find((x) => x.id === e.target.value);

@@ -227,12 +227,12 @@ export function SearchableCombobox({
   return (
     <div ref={containerRef} className={`relative ${className}`}>
       <div
-        className={`flex h-8 w-full items-center rounded border bg-white px-2 text-xs transition-colors ${
+        className={`flex h-8 w-full items-center rounded border bg-surface px-2 text-xs transition-colors ${
           disabled
-            ? "cursor-not-allowed border-slate-200 bg-slate-50 text-slate-400"
+            ? "cursor-not-allowed border-line bg-canvas text-ink-faint"
             : open
               ? "border-blue-500 ring-1 ring-blue-500/20"
-              : "border-slate-300 hover:border-slate-400"
+              : "border-line-strong hover:border-line-strong"
         }`}
       >
         <input
@@ -250,7 +250,7 @@ export function SearchableCombobox({
             setQuery(e.target.value);
             if (!open) setOpen(true);
           }}
-          className="h-full w-full bg-transparent text-xs text-slate-800 placeholder:text-slate-400 focus:outline-none disabled:cursor-not-allowed"
+          className="h-full w-full bg-transparent text-xs text-ink placeholder:text-ink-faint focus:outline-none disabled:cursor-not-allowed"
         />
         {allowClear && value && !disabled && (
           <button
@@ -262,7 +262,7 @@ export function SearchableCombobox({
               setQuery("");
               setOpen(false);
             }}
-            className="mr-1 rounded p-0.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+            className="mr-1 rounded p-0.5 text-ink-faint hover:bg-control hover:text-ink-muted"
             aria-label="Clear selection"
           >
             <X className="h-3 w-3" />
@@ -273,7 +273,7 @@ export function SearchableCombobox({
           tabIndex={-1}
           disabled={disabled}
           onClick={() => !disabled && setOpen((prev) => !prev)}
-          className="inline-flex size-6 shrink-0 items-center justify-center rounded text-slate-400 hover:text-slate-600 disabled:cursor-not-allowed"
+          className="inline-flex size-6 shrink-0 items-center justify-center rounded text-ink-faint hover:text-ink-muted disabled:cursor-not-allowed"
           aria-label="Toggle options"
         >
           <ChevronDown className="h-3.5 w-3.5" />
@@ -281,13 +281,13 @@ export function SearchableCombobox({
       </div>
 
       {open && !disabled && (
-        <div className="absolute left-0 top-full z-50 mt-1 max-h-60 w-full min-w-[220px] overflow-y-auto rounded-md border border-slate-200 bg-white py-1 shadow-lg">
+        <div className="absolute left-0 top-full z-50 mt-1 max-h-60 w-full min-w-[220px] overflow-y-auto rounded-md border border-line bg-surface py-1 shadow-lg">
           {minCharsHint && query.trim().length > 0 && query.trim().length < minCharsHint && filtered.length === 0 ? (
-            <div className="px-3 py-2 text-[11px] text-slate-400">
+            <div className="px-3 py-2 text-[11px] text-ink-faint">
               Type at least {minCharsHint} characters to search...
             </div>
           ) : filtered.length === 0 ? (
-            <div className="px-3 py-2 text-[11px] text-slate-400">No matching records found</div>
+            <div className="px-3 py-2 text-[11px] text-ink-faint">No matching records found</div>
           ) : (
             filtered.map((opt) => (
               <button
@@ -298,12 +298,12 @@ export function SearchableCombobox({
                   setQuery("");
                   setOpen(false);
                 }}
-                className={`flex w-full flex-col px-3 py-1.5 text-left text-xs transition-colors hover:bg-blue-50 ${
-                  opt.value === value ? "bg-blue-50/70 font-medium text-blue-700" : "text-slate-700"
+                className={`flex w-full flex-col px-3 py-1.5 text-left text-xs transition-colors hover:bg-blue-50 dark:hover:bg-blue-500/10 ${
+                  opt.value === value ? "bg-blue-50/70 dark:bg-blue-500/10 font-medium text-blue-700 dark:text-blue-300" : "text-ink-muted"
                 }`}
               >
                 <span className="truncate">{opt.label}</span>
-                {opt.sublabel && <span className="truncate text-[10px] text-slate-400">{opt.sublabel}</span>}
+                {opt.sublabel && <span className="truncate text-[10px] text-ink-faint">{opt.sublabel}</span>}
               </button>
             ))
           )}
@@ -372,7 +372,7 @@ export function QuickAddSupplierModal({
       >
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div>
-            <label className="mb-1 block text-[11px] font-semibold text-slate-600">
+            <label className="mb-1 block text-[11px] font-semibold text-ink-muted">
               Supplier Name <span className="text-red-500">*</span>
             </label>
             <input
@@ -381,77 +381,77 @@ export function QuickAddSupplierModal({
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="e.g. Rahim Steel & Hardware"
-              className="h-8 w-full rounded border border-slate-300 px-2.5 text-xs focus:border-blue-500 focus:outline-none"
+              className="h-8 w-full rounded border border-line-strong px-2.5 text-xs focus:border-blue-500 focus:outline-none"
             />
           </div>
           <div>
-            <label className="mb-1 block text-[11px] font-semibold text-slate-600">Phone</label>
+            <label className="mb-1 block text-[11px] font-semibold text-ink-muted">Phone</label>
             <input
               type="text"
               value={phone}
               onChange={(e) => setPhone(e.target.value)}
               placeholder="e.g. 017XXXXXXXX"
-              className="h-8 w-full rounded border border-slate-300 px-2.5 text-xs focus:border-blue-500 focus:outline-none"
+              className="h-8 w-full rounded border border-line-strong px-2.5 text-xs focus:border-blue-500 focus:outline-none"
             />
           </div>
           <div>
-            <label className="mb-1 block text-[11px] font-semibold text-slate-600">Contact Person</label>
+            <label className="mb-1 block text-[11px] font-semibold text-ink-muted">Contact Person</label>
             <input
               type="text"
               value={contactPerson}
               onChange={(e) => setContactPerson(e.target.value)}
               placeholder="Contact Name"
-              className="h-8 w-full rounded border border-slate-300 px-2.5 text-xs focus:border-blue-500 focus:outline-none"
+              className="h-8 w-full rounded border border-line-strong px-2.5 text-xs focus:border-blue-500 focus:outline-none"
             />
           </div>
           <div>
-            <label className="mb-1 block text-[11px] font-semibold text-slate-600">Supplier Type</label>
+            <label className="mb-1 block text-[11px] font-semibold text-ink-muted">Supplier Type</label>
             <select
               value={type}
               onChange={(e) => setType(e.target.value === "FOREIGN" ? "FOREIGN" : "LOCAL")}
-              className="h-8 w-full rounded border border-slate-300 px-2 text-xs focus:border-blue-500 focus:outline-none"
+              className="h-8 w-full rounded border border-line-strong px-2 text-xs focus:border-blue-500 focus:outline-none"
             >
               <option value="LOCAL">Local Supplier</option>
               <option value="FOREIGN">Foreign / Import</option>
             </select>
           </div>
           <div>
-            <label className="mb-1 block text-[11px] font-semibold text-slate-600">BIN / Tax Number</label>
+            <label className="mb-1 block text-[11px] font-semibold text-ink-muted">BIN / Tax Number</label>
             <input
               type="text"
               value={taxNumber}
               onChange={(e) => setTaxNumber(e.target.value)}
               placeholder="VAT / BIN No"
-              className="h-8 w-full rounded border border-slate-300 px-2.5 text-xs focus:border-blue-500 focus:outline-none"
+              className="h-8 w-full rounded border border-line-strong px-2.5 text-xs focus:border-blue-500 focus:outline-none"
             />
           </div>
           <div>
-            <label className="mb-1 block text-[11px] font-semibold text-slate-600">Credit Days</label>
+            <label className="mb-1 block text-[11px] font-semibold text-ink-muted">Credit Days</label>
             <input
               type="number"
               min="0"
               value={creditDays}
               onChange={(e) => setCreditDays(e.target.value)}
               placeholder="e.g. 30"
-              className="h-8 w-full rounded border border-slate-300 px-2.5 text-xs focus:border-blue-500 focus:outline-none"
+              className="h-8 w-full rounded border border-line-strong px-2.5 text-xs focus:border-blue-500 focus:outline-none"
             />
           </div>
         </div>
         <div>
-          <label className="mb-1 block text-[11px] font-semibold text-slate-600">Address</label>
+          <label className="mb-1 block text-[11px] font-semibold text-ink-muted">Address</label>
           <input
             type="text"
             value={address}
             onChange={(e) => setAddress(e.target.value)}
             placeholder="Office or billing address"
-            className="h-8 w-full rounded border border-slate-300 px-2.5 text-xs focus:border-blue-500 focus:outline-none"
+            className="h-8 w-full rounded border border-line-strong px-2.5 text-xs focus:border-blue-500 focus:outline-none"
           />
         </div>
         <div className="flex justify-end gap-2 pt-2">
           <button
             type="button"
             onClick={onClose}
-            className="h-8 rounded border border-slate-300 px-4 text-xs font-medium text-slate-600 hover:bg-slate-50"
+            className="h-8 rounded border border-line-strong px-4 text-xs font-medium text-ink-muted hover:bg-canvas"
           >
             Cancel
           </button>
@@ -532,7 +532,7 @@ export function QuickAddItemModal({
       >
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div>
-            <label className="mb-1 block text-[11px] font-semibold text-slate-600">
+            <label className="mb-1 block text-[11px] font-semibold text-ink-muted">
               Item Name <span className="text-red-500">*</span>
             </label>
             <input
@@ -541,25 +541,25 @@ export function QuickAddItemModal({
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="e.g. MS Angle 2x2"
-              className="h-8 w-full rounded border border-slate-300 px-2.5 text-xs focus:border-blue-500 focus:outline-none"
+              className="h-8 w-full rounded border border-line-strong px-2.5 text-xs focus:border-blue-500 focus:outline-none"
             />
           </div>
           <div>
-            <label className="mb-1 block text-[11px] font-semibold text-slate-600">Item Code</label>
+            <label className="mb-1 block text-[11px] font-semibold text-ink-muted">Item Code</label>
             <input
               type="text"
               value={code}
               onChange={(e) => setCode(e.target.value)}
               placeholder="Auto-generated if blank"
-              className="h-8 w-full rounded border border-slate-300 px-2.5 text-xs focus:border-blue-500 focus:outline-none"
+              className="h-8 w-full rounded border border-line-strong px-2.5 text-xs focus:border-blue-500 focus:outline-none"
             />
           </div>
           <div>
-            <label className="mb-1 block text-[11px] font-semibold text-slate-600">Category</label>
+            <label className="mb-1 block text-[11px] font-semibold text-ink-muted">Category</label>
             <select
               value={categoryId}
               onChange={(e) => setCategoryId(e.target.value)}
-              className="h-8 w-full rounded border border-slate-300 px-2 text-xs focus:border-blue-500 focus:outline-none"
+              className="h-8 w-full rounded border border-line-strong px-2 text-xs focus:border-blue-500 focus:outline-none"
             >
               <option value="">Uncategorized</option>
               {categories.map((c) => (
@@ -571,17 +571,17 @@ export function QuickAddItemModal({
             </select>
           </div>
           <div>
-            <label className="mb-1 block text-[11px] font-semibold text-slate-600">UoM</label>
+            <label className="mb-1 block text-[11px] font-semibold text-ink-muted">UoM</label>
             <input
               type="text"
               value={uom}
               onChange={(e) => setUom(e.target.value)}
               placeholder="Pcs / Kg / Box"
-              className="h-8 w-full rounded border border-slate-300 px-2.5 text-xs focus:border-blue-500 focus:outline-none"
+              className="h-8 w-full rounded border border-line-strong px-2.5 text-xs focus:border-blue-500 focus:outline-none"
             />
           </div>
           <div>
-            <label className="mb-1 block text-[11px] font-semibold text-slate-600">Purchase Price (BDT)</label>
+            <label className="mb-1 block text-[11px] font-semibold text-ink-muted">Purchase Price (BDT)</label>
             <input
               type="number"
               step="0.01"
@@ -589,11 +589,11 @@ export function QuickAddItemModal({
               value={purchasePrice}
               onChange={(e) => setPurchasePrice(e.target.value)}
               placeholder="0.00"
-              className="h-8 w-full rounded border border-slate-300 px-2.5 text-xs focus:border-blue-500 focus:outline-none"
+              className="h-8 w-full rounded border border-line-strong px-2.5 text-xs focus:border-blue-500 focus:outline-none"
             />
           </div>
           <div>
-            <label className="mb-1 block text-[11px] font-semibold text-slate-600">VAT (%)</label>
+            <label className="mb-1 block text-[11px] font-semibold text-ink-muted">VAT (%)</label>
             <input
               type="number"
               step="0.01"
@@ -602,27 +602,27 @@ export function QuickAddItemModal({
               value={vatPercent}
               onChange={(e) => setVatPercent(e.target.value)}
               placeholder="0"
-              className="h-8 w-full rounded border border-slate-300 px-2.5 text-xs focus:border-blue-500 focus:outline-none"
+              className="h-8 w-full rounded border border-line-strong px-2.5 text-xs focus:border-blue-500 focus:outline-none"
             />
           </div>
           <div>
-            <label className="mb-1 block text-[11px] font-semibold text-slate-600">Brand</label>
+            <label className="mb-1 block text-[11px] font-semibold text-ink-muted">Brand</label>
             <input
               type="text"
               value={brand}
               onChange={(e) => setBrand(e.target.value)}
               placeholder="Brand"
-              className="h-8 w-full rounded border border-slate-300 px-2.5 text-xs focus:border-blue-500 focus:outline-none"
+              className="h-8 w-full rounded border border-line-strong px-2.5 text-xs focus:border-blue-500 focus:outline-none"
             />
           </div>
           <div>
-            <label className="mb-1 block text-[11px] font-semibold text-slate-600">Barcode</label>
+            <label className="mb-1 block text-[11px] font-semibold text-ink-muted">Barcode</label>
             <input
               type="text"
               value={barcode}
               onChange={(e) => setBarcode(e.target.value)}
               placeholder="Barcode"
-              className="h-8 w-full rounded border border-slate-300 px-2.5 text-xs focus:border-blue-500 focus:outline-none"
+              className="h-8 w-full rounded border border-line-strong px-2.5 text-xs focus:border-blue-500 focus:outline-none"
             />
           </div>
         </div>
@@ -630,7 +630,7 @@ export function QuickAddItemModal({
           <button
             type="button"
             onClick={onClose}
-            className="h-8 rounded border border-slate-300 px-4 text-xs font-medium text-slate-600 hover:bg-slate-50"
+            className="h-8 rounded border border-line-strong px-4 text-xs font-medium text-ink-muted hover:bg-canvas"
           >
             Cancel
           </button>
@@ -693,14 +693,14 @@ function TermsConditionModalBody({
       <div className="space-y-3">
         {termsTemplates.length > 0 && (
           <div>
-            <label className="mb-1 block text-[11px] font-semibold text-slate-600">Apply Configured Template</label>
+            <label className="mb-1 block text-[11px] font-semibold text-ink-muted">Apply Configured Template</label>
             <div className="flex flex-wrap gap-1.5">
               {termsTemplates.map((t) => (
                 <button
                   key={t.id}
                   type="button"
                   onClick={() => setDraft(t.body)}
-                  className="rounded border border-blue-200 bg-blue-50 px-2.5 py-1 text-[11px] font-medium text-blue-700 hover:bg-blue-100"
+                  className="rounded border border-blue-200 dark:border-blue-500/30 bg-blue-50 dark:bg-blue-500/10 px-2.5 py-1 text-[11px] font-medium text-blue-700 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-500/15"
                 >
                   {t.title}
                   {t.isDefault ? " (Default)" : ""}
@@ -710,20 +710,20 @@ function TermsConditionModalBody({
           </div>
         )}
         <div>
-          <label className="mb-1 block text-[11px] font-semibold text-slate-600">Purchase Order Terms & Conditions</label>
+          <label className="mb-1 block text-[11px] font-semibold text-ink-muted">Purchase Order Terms & Conditions</label>
           <textarea
             rows={6}
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             placeholder="Enter delivery, warranty, quality, or payment terms..."
-            className="w-full rounded border border-slate-300 p-2.5 text-xs focus:border-blue-500 focus:outline-none"
+            className="w-full rounded border border-line-strong p-2.5 text-xs focus:border-blue-500 focus:outline-none"
           />
         </div>
         <div className="flex justify-end gap-2">
           <button
             type="button"
             onClick={onClose}
-            className="h-8 rounded border border-slate-300 px-4 text-xs font-medium text-slate-600 hover:bg-slate-50"
+            className="h-8 rounded border border-line-strong px-4 text-xs font-medium text-ink-muted hover:bg-canvas"
           >
             Cancel
           </button>

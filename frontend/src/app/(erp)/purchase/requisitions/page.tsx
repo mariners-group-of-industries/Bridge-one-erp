@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { Spinner } from "@/components/ui/spinner";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -30,7 +30,7 @@ const can = {
   reverse: (s: ReqStatus) => s === "APPROVED" || s === "REJECTED" || s === "CANCELLED",
 };
 const actionBtn =
-  "inline-flex size-6 items-center justify-center rounded transition-colors disabled:opacity-30 disabled:pointer-events-none hover:bg-slate-100 text-slate-600 hover:text-slate-900";
+  "inline-flex size-6 items-center justify-center rounded transition-colors disabled:opacity-30 disabled:pointer-events-none hover:bg-control text-ink-muted hover:text-ink";
 import { DataTable } from "@/components/purchase/DataTable";
 import { StatusBadge } from "@/components/purchase/StatusBadge";
 import { ModalDialog } from "@/components/purchase/ModalDialog";
@@ -44,6 +44,7 @@ import {
 import { toast } from "@/components/purchase/Toast";
 import { fetchApi } from "@/lib/api";
 import { formatCurrency } from "@/lib/utils";
+import type { PurchaseFormOptions } from "@/features/purchase/components/PurchaseFormShared";
 import {
   PurchaseRequisition,
   Office,
@@ -141,18 +142,48 @@ export default function PurchaseRequisitionsPage() {
     queryKey: ["warehouses", "ALL"],
     queryFn: () => fetchApi("/master/warehouses"),
   });
+
+  // Dynamically filter warehouses in-memory according to the selected Office.
+  // When no office is selected (ALL), no warehouses should be available/selectable.
+  const isOfficeSelected = Boolean(selectedOffice && selectedOffice !== "ALL");
+
+  const filteredWarehouses = useMemo(() => {
+    if (!isOfficeSelected) return [];
+    const list = allWarehouses ?? warehouses ?? [];
+    return list.filter((w) => w.officeId === selectedOffice);
+  }, [allWarehouses, warehouses, selectedOffice, isOfficeSelected]);
+
+  // When office filter changes, update office and reset warehouse filter to ALL
+  const handleOfficeChange = (newOffice: string) => {
+    setSelectedOffice(newOffice);
+    setSelectedWarehouse("ALL");
+  };
+
+  // If no office is selected or selected warehouse is not valid for chosen office, treat as ALL
+  const effectiveWarehouse = useMemo(() => {
+    if (!isOfficeSelected || selectedWarehouse === "ALL") return "ALL";
+    if (filteredWarehouses.length > 0 && !filteredWarehouses.some((w) => w.id === selectedWarehouse)) {
+      return "ALL";
+    }
+    return selectedWarehouse;
+  }, [isOfficeSelected, selectedWarehouse, filteredWarehouses]);
   const { data: itemsCatalog } = useQuery<Item[]>({
     queryKey: ["items"],
     queryFn: () => fetchApi("/master/items"),
   });
   const { data: context } = useQuery<PrintHeaderContext>({ queryKey: ["context"], queryFn: () => fetchApi("/master/context") });
+  // Departments come from Configuration › Employee profiles (same list the requisition form uses).
+  const { data: formOptions } = useQuery<PurchaseFormOptions>({
+    queryKey: ["purchase-form-options"],
+    queryFn: () => fetchApi("/master/purchase-form-options"),
+  });
 
   // Requisitions query with full ERP filters
   const { data: requisitions, isLoading, isFetching, refetch } = useQuery<PurchaseRequisition[]>({
     queryKey: [
       "requisitions",
       selectedOffice,
-      selectedWarehouse,
+      effectiveWarehouse,
       selectedStatus,
       selectedRequestType,
       selectedSection,
@@ -163,7 +194,7 @@ export default function PurchaseRequisitionsPage() {
     queryFn: () => {
       const params = new URLSearchParams();
       if (selectedOffice !== "ALL") params.append("officeId", selectedOffice);
-      if (selectedWarehouse !== "ALL") params.append("warehouseId", selectedWarehouse);
+      if (effectiveWarehouse !== "ALL") params.append("warehouseId", effectiveWarehouse);
       if (selectedStatus !== "ALL") params.append("status", selectedStatus);
       if (selectedRequestType !== "ALL") params.append("requestType", selectedRequestType);
       if (selectedSection !== "ALL") params.append("section", selectedSection);
@@ -187,6 +218,17 @@ export default function PurchaseRequisitionsPage() {
   const [formLineItems, setFormLineItems] = useState<
     { itemId: string; itemCode: string; itemName: string; uom: string; quantity: number; estimatedUnitPrice: number; lineTotal: number; remarks: string }[]
   >([]);
+
+  // Default office with warehouses for Quick Requisition
+  const defaultFormOfficeId = useMemo(() => {
+    if (!offices?.length) return "";
+    const withWh = offices.find((o) => (allWarehouses ?? []).some((w) => w.officeId === o.id));
+    return withWh?.id || offices[0]?.id || "";
+  }, [offices, allWarehouses]);
+
+  const activeFormOfficeId = formOfficeId || defaultFormOfficeId;
+  const activeFormWarehouseId =
+    formWarehouseId || (allWarehouses?.find((w) => w.officeId === activeFormOfficeId)?.id ?? "");
 
   const invalidateAll = () => {
     for (const key of PURCHASE_QUERY_KEYS) queryClient.invalidateQueries({ queryKey: [key] });
@@ -459,8 +501,8 @@ export default function PurchaseRequisitionsPage() {
     e.preventDefault();
     createMutation.mutate({
       companyId: "comp-bridgeone-01",
-      officeId: formOfficeId,
-      warehouseId: formWarehouseId,
+      officeId: activeFormOfficeId,
+      warehouseId: activeFormWarehouseId,
       requestType: formRequestType,
       department: formDepartment,
       requesterName: formRequester,
@@ -531,13 +573,13 @@ export default function PurchaseRequisitionsPage() {
     );
   };
 
-  // Section filter: the sections in use, plus the common ones.
+  // Section filter: the departments configured on employee profiles, plus any older ones still on requisitions.
   const sectionOptions = React.useMemo(
     () =>
-      [...new Set(["Operations", "Production", "Administration", "IT", "Logistics", "Maintenance", "Procurement", ...(requisitions ?? []).map((r) => r.department), selectedSection])]
+      [...new Set([...(formOptions?.employees ?? []).map((e) => e.department), ...(requisitions ?? []).map((r) => r.department), selectedSection])]
         .filter((s) => s && s !== "ALL")
         .sort(),
-    [requisitions, selectedSection],
+    [formOptions, requisitions, selectedSection],
   );
 
   // Table Columns (Exact columns as in Managerium screenshots)
@@ -569,38 +611,38 @@ export default function PurchaseRequisitionsPage() {
       case "PENDING_APPROVAL":
       case "SUBMITTED":
       case "DRAFT":
-        return <span className="text-amber-600 font-semibold">Pending</span>;
+        return <span className="text-amber-600 dark:text-amber-400 font-semibold">Pending</span>;
       case "APPROVED":
-        return <span className="text-emerald-600 font-semibold">Approved</span>;
+        return <span className="text-emerald-600 dark:text-emerald-400 font-semibold">Approved</span>;
       case "CONVERTED_TO_PO":
-        return <span className="text-sky-600 font-semibold">Ordered</span>;
+        return <span className="text-sky-600 dark:text-sky-400 font-semibold">Ordered</span>;
       case "REJECTED":
-        return <span className="text-rose-600 font-semibold">Rejected</span>;
+        return <span className="text-rose-600 dark:text-rose-400 font-semibold">Rejected</span>;
       case "CANCELLED":
       case "CLOSED":
-        return <span className="text-slate-500 font-semibold">Closed</span>;
+        return <span className="text-ink-faint font-semibold">Closed</span>;
       default:
-        return <span className="text-slate-600 font-semibold">{status}</span>;
+        return <span className="text-ink-muted font-semibold">{status}</span>;
     }
   };
 
   const columns = [
     {
       header: "SL",
-      className: "w-7 text-center font-mono text-[11px] text-slate-500",
+      className: "w-7 text-center font-mono text-[11px] text-ink-faint",
       cell: (_: any, idx: number) => idx + 1,
     },
     {
       header: "Actions",
       className: "w-[125px] min-w-[125px] text-center whitespace-nowrap",
       cell: (row: PurchaseRequisition) => (
-        <div className="flex items-center justify-center gap-0.5 text-slate-700">
+        <div className="flex items-center justify-center gap-0.5 text-ink-muted">
           {/* Edit */}
           <button
             type="button"
             disabled={!can.edit(row.status) || !perms.requisitions.edit}
             onClick={() => handleOpenEdit(row)}
-            className={`${actionBtn} hover:bg-slate-200/80 hover:text-slate-950`}
+            className={`${actionBtn} hover:bg-hover/80 hover:text-ink`}
             title={
               !perms.requisitions.edit
                 ? "Requires Edit permission in Configuration"
@@ -617,7 +659,7 @@ export default function PurchaseRequisitionsPage() {
           <button
             type="button"
             onClick={() => setPrintReq(row)}
-            className={`${actionBtn} hover:bg-slate-200/80 hover:text-slate-950`}
+            className={`${actionBtn} hover:bg-hover/80 hover:text-ink`}
             title="Print requisition voucher"
             aria-label={`Print ${row.requisitionNumber}`}
           >
@@ -632,7 +674,7 @@ export default function PurchaseRequisitionsPage() {
               setCloseModal(row);
               setCloseComment("");
             }}
-            className={`${actionBtn} hover:bg-rose-100 hover:text-rose-700`}
+            className={`${actionBtn} hover:bg-rose-100 dark:hover:bg-rose-500/15 hover:text-rose-700 dark:hover:text-rose-300`}
             title={!perms.requisitions.delete ? "Requires Delete permission in Configuration" : "Close / cancel requisition"}
             aria-label={`Cancel ${row.requisitionNumber}`}
           >
@@ -647,7 +689,7 @@ export default function PurchaseRequisitionsPage() {
               setReverseModal(row);
               setReverseComment("");
             }}
-            className={`${actionBtn} hover:bg-amber-100 hover:text-amber-800`}
+            className={`${actionBtn} hover:bg-amber-100 dark:hover:bg-amber-500/15 hover:text-amber-800 dark:hover:text-amber-300`}
             title={!perms.requisitions.edit ? "Requires Edit permission in Configuration" : "Reverse to submitted"}
             aria-label={`Reverse ${row.requisitionNumber}`}
           >
@@ -659,7 +701,7 @@ export default function PurchaseRequisitionsPage() {
             type="button"
             disabled={!perms.requisitions.create}
             onClick={() => handleDuplicateAsNew(row)}
-            className={`${actionBtn} hover:bg-sky-100 hover:text-sky-700`}
+            className={`${actionBtn} hover:bg-sky-100 dark:hover:bg-sky-500/15 hover:text-sky-700 dark:hover:text-sky-300`}
             title={!perms.requisitions.create ? "Requires Create permission in Configuration" : "New PR (Duplicate from Template)"}
             aria-label={`New requisition from ${row.requisitionNumber}`}
           >
@@ -670,7 +712,7 @@ export default function PurchaseRequisitionsPage() {
           <button
             type="button"
             onClick={() => setViewReq(row)}
-            className={`${actionBtn} hover:bg-slate-200/80 hover:text-slate-950`}
+            className={`${actionBtn} hover:bg-hover/80 hover:text-ink`}
             title="View requisition details"
             aria-label={`View ${row.requisitionNumber}`}
           >
@@ -681,9 +723,9 @@ export default function PurchaseRequisitionsPage() {
     },
     {
       header: "Requisition Code",
-      className: "whitespace-nowrap font-mono font-semibold text-sky-700 text-left",
+      className: "whitespace-nowrap font-mono font-semibold text-sky-700 dark:text-sky-300 text-left",
       cell: (row: PurchaseRequisition) => (
-        <span className="font-semibold text-sky-700 font-mono">{row.requisitionNumber}</span>
+        <span className="font-semibold text-sky-700 dark:text-sky-300 font-mono">{row.requisitionNumber}</span>
       ),
     },
     {
@@ -744,7 +786,7 @@ export default function PurchaseRequisitionsPage() {
       header: "Budget",
       className: "text-right whitespace-nowrap font-mono font-semibold",
       cell: (row: PurchaseRequisition) => (
-        <span className="font-mono font-semibold text-slate-800">
+        <span className="font-mono font-semibold text-ink">
           {(row.totalEstimatedAmount || 0).toLocaleString("en-US", {
             minimumFractionDigits: 2,
             maximumFractionDigits: 2,
@@ -896,481 +938,485 @@ export default function PurchaseRequisitionsPage() {
   }, [requisitions]);
 
   return (
-    <div className="space-y-3">
+    <div className="flex flex-col md:h-[calc(100dvh-3.5rem)] md:overflow-hidden font-sans p-3 space-y-2.5">
       {/* 1. TOP HEADER (Exact Unified Box Layout) */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-3 rounded border border-slate-200/90 shadow-2xs">
-        <div>
-          <h1 className="text-xl font-bold text-slate-900 tracking-tight">
-            Purchase Requisition
-          </h1>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <div className="relative">
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search...."
-              className="w-56 sm:w-64 h-9 pl-3 pr-8 text-xs border border-slate-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 bg-white placeholder-slate-400"
-            />
-            <Search className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-          </div>
-
-          {perms.requisitions.create && (
-            <button
-              type="button"
-              onClick={() => router.push("/purchase/requisitions/create")}
-              className="h-9 px-4 bg-[#2563eb] hover:bg-blue-700 text-white font-semibold text-xs rounded flex items-center gap-1.5 shadow-xs transition"
-            >
-              <Plus className="w-4 h-4" />
-              <span>Requisition</span>
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* Navigation Tabs (PURCHASE REQUISITION | REQUISITION SUMMARY) */}
-      <div className="flex items-center gap-8 border-b border-slate-200 mb-3 bg-white px-2">
-        <button
-          type="button"
-          onClick={() => handleTabChange("PURCHASE_REQUISITION")}
-          className={`pb-2.5 text-xs font-bold tracking-wide transition-colors relative flex items-center gap-2 uppercase ${
-            activeTab === "PURCHASE_REQUISITION"
-              ? "text-blue-600 border-b-2 border-blue-600 -mb-[1px]"
-              : "text-slate-500 hover:text-slate-800"
-          }`}
-        >
-          <span>PURCHASE REQUISITION</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => handleTabChange("REQUISITION_SUMMARY")}
-          className={`pb-2.5 text-xs font-bold tracking-wide transition-colors relative flex items-center gap-2 uppercase ${
-            activeTab === "REQUISITION_SUMMARY"
-              ? "text-blue-600 border-b-2 border-blue-600 -mb-[1px]"
-              : "text-slate-500 hover:text-slate-800"
-          }`}
-        >
-          <span>REQUISITION SUMMARY</span>
-        </button>
-      </div>
-
-      {/* Enterprise Filter Card (Exact Managerium Layout per Active Tab) */}
-      {activeTab === "PURCHASE_REQUISITION" ? (
-      <div className="bg-white rounded border border-slate-200/90 p-4 shadow-2xs mb-4">
-        {/* Row 1: 5 Columns */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3.5 mb-3.5">
-          {/* 1. Office */}
+      <div className="shrink-0 space-y-2.5">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-surface p-3 rounded border border-line/90 shadow-2xs">
           <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-              Office
-            </label>
-            <select
-              value={selectedOffice}
-              onChange={(e) => setSelectedOffice(e.target.value)}
-              className="w-full h-9 border border-slate-300 rounded px-2.5 py-1.5 text-xs text-slate-700 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
-            >
-              <option value="ALL">Office</option>
-              {offices?.map((o) => (
-                <option key={o.id} value={o.id}>
-                  {o.name}
-                </option>
-              ))}
-            </select>
+            <h1 className="text-xl font-bold text-ink tracking-tight">
+              Purchase Requisition
+            </h1>
           </div>
 
-          {/* 2. Warehouse */}
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-              Warehouse
-            </label>
-            <select
-              value={selectedWarehouse}
-              onChange={(e) => setSelectedWarehouse(e.target.value)}
-              className="w-full h-9 border border-slate-300 rounded px-2.5 py-1.5 text-xs text-slate-700 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
-            >
-              <option value="ALL">Warehouse</option>
-              {warehouses?.map((w) => (
-                <option key={w.id} value={w.id}>
-                  {w.name}
-                </option>
-              ))}
-            </select>
-          </div>
+          <div className="flex items-center gap-2">
+            <div className="relative">
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search...."
+                className="w-56 sm:w-64 h-9 pl-3 pr-8 text-xs border border-line-strong rounded focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 bg-surface placeholder:text-ink-faint"
+              />
+              <Search className="w-3.5 h-3.5 text-ink-faint absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+            </div>
 
-          {/* 3. Request Type */}
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-              Request Type
-            </label>
-            <select
-              value={selectedRequestType}
-              onChange={(e) => setSelectedRequestType(e.target.value)}
-              className="w-full h-9 border border-slate-300 rounded px-2.5 py-1.5 text-xs text-slate-700 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
-            >
-              <option value="ALL">Request Type</option>
-              <option value="LOCAL">LOCAL</option>
-              <option value="IMPORT">IMPORT</option>
-              <option value="URGENT">URGENT</option>
-              <option value="INTER_BRANCH">INTER_BRANCH</option>
-            </select>
-          </div>
-
-          {/* 4. Section */}
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-              Section
-            </label>
-            <select
-              value={selectedSection}
-              onChange={(e) => setSelectedSection(e.target.value)}
-              className="w-full h-9 border border-slate-300 rounded px-2.5 py-1.5 text-xs text-slate-700 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
-            >
-              <option value="ALL">Section</option>
-              {sectionOptions.map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* 5. From Date */}
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-              From Date
-            </label>
-            <input
-              type="date"
-              value={fromDate}
-              onChange={(e) => setFromDate(e.target.value)}
-              className="w-full h-9 border border-slate-300 rounded px-2.5 py-1.5 text-xs text-slate-700 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
-            />
-          </div>
-        </div>
-
-        {/* Row 2: To Date | Status | Buyer Office | View & EXCEL */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3.5 items-end">
-          {/* 1. To Date */}
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-              To Date
-            </label>
-            <input
-              type="date"
-              value={toDate}
-              onChange={(e) => setToDate(e.target.value)}
-              className="w-full h-9 border border-slate-300 rounded px-2.5 py-1.5 text-xs text-slate-700 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
-            />
-          </div>
-
-          {/* 2. Status */}
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-              Status
-            </label>
-            <select
-              value={selectedStatus}
-              onChange={(e) => setSelectedStatus(e.target.value)}
-              className="w-full h-9 border border-slate-300 rounded px-2.5 py-1.5 text-xs text-slate-700 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
-            >
-              <option value="ALL">Status</option>
-              <option value="DRAFT">Draft</option>
-              <option value="SUBMITTED">Submitted</option>
-              <option value="PENDING_APPROVAL">Pending Approval</option>
-              <option value="APPROVED">Approved</option>
-              <option value="CONVERTED_TO_PO">Converted to PO</option>
-              <option value="REJECTED">Rejected</option>
-              <option value="CANCELLED">Cancelled</option>
-            </select>
-          </div>
-
-          {/* 3. Buyer Office */}
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-              Buyer Office
-            </label>
-            <select
-              value={selectedBuyerOffice}
-              onChange={(e) => {
-                setSelectedBuyerOffice(e.target.value);
-                setSelectedOffice(e.target.value);
-              }}
-              className="w-full h-9 border border-slate-300 rounded px-2.5 py-1.5 text-xs text-slate-700 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
-            >
-              <option value="ALL">Buyer Office</option>
-              {offices?.map((o) => (
-                <option key={o.id} value={o.id}>
-                  {o.name}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* 4. Action Buttons (View & EXCEL) */}
-          <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={() => refetch()}
-              disabled={isFetching}
-              className="h-9 px-6 bg-[#2563eb] hover:bg-blue-700 disabled:opacity-70 text-white font-bold text-xs uppercase rounded shadow-xs transition flex items-center justify-center gap-1.5 min-w-[70px]"
-            >
-              {isFetching && <Spinner className="size-3.5" />}
-              View
-            </button>
-            <button
-              type="button"
-              onClick={handleExport}
-              disabled={!perms.requisitions.export}
-              title={!perms.requisitions.export ? "Requires Export permission in Configuration" : "Export Excel (CSV)"}
-              className="h-9 px-5 border border-[#2563eb] text-[#2563eb] hover:bg-blue-50 disabled:opacity-40 disabled:pointer-events-none font-bold text-xs uppercase rounded shadow-xs transition flex items-center justify-center min-w-[75px]"
-            >
-              EXCEL
-            </button>
-            {(selectedOffice !== "ALL" ||
-              selectedWarehouse !== "ALL" ||
-              selectedRequestType !== "ALL" ||
-              selectedSection !== "ALL" ||
-              selectedStatus !== "ALL" ||
-              fromDate !== "" ||
-              toDate !== "" ||
-              search !== "") && (
+            {perms.requisitions.create && (
               <button
                 type="button"
-                onClick={() => {
-                  setSelectedOffice("ALL");
-                  setSelectedWarehouse("ALL");
-                  setSelectedRequestType("ALL");
-                  setSelectedSection("ALL");
-                  setSelectedStatus("ALL");
-                  setSelectedBuyerOffice("ALL");
-                  setFromDate("");
-                  setToDate("");
-                  setSearch("");
-                }}
-                className="h-9 px-2 text-xs text-slate-500 hover:text-slate-800 underline transition"
-                title="Reset Filters"
+                onClick={() => router.push("/purchase/requisitions/create")}
+                className="h-9 px-4 bg-[#2563eb] hover:bg-blue-700 text-white font-semibold text-xs rounded flex items-center gap-1.5 shadow-xs transition"
               >
-                Clear
+                <Plus className="w-4 h-4" />
+                <span>Requisition</span>
               </button>
             )}
           </div>
         </div>
-      </div>
-      ) : (
-      <div className="bg-white rounded border border-slate-200/90 p-4 shadow-2xs mb-4">
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3.5 mb-3.5">
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1.5">Office</label>
-            <select
-              value={selectedOffice}
-              onChange={(e) => setSelectedOffice(e.target.value)}
-              className="w-full h-9 border border-slate-300 rounded px-2.5 py-1.5 text-xs text-slate-700 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
-            >
-              <option value="ALL">All</option>
-              {offices?.map((o) => (
-                <option key={o.id} value={o.id}>
-                  {o.name}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1.5">Warehouse</label>
-            <select
-              value={selectedWarehouse}
-              onChange={(e) => setSelectedWarehouse(e.target.value)}
-              className="w-full h-9 border border-slate-300 rounded px-2.5 py-1.5 text-xs text-slate-700 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
-            >
-              <option value="ALL">All</option>
-              {warehouses?.map((w) => (
-                <option key={w.id} value={w.id}>
-                  {w.name}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1.5">From Date</label>
-            <input
-              type="date"
-              value={fromDate}
-              onChange={(e) => setFromDate(e.target.value)}
-              className="w-full h-9 border border-slate-300 rounded px-2.5 py-1.5 text-xs text-slate-700 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1.5">To Date</label>
-            <input
-              type="date"
-              value={toDate}
-              onChange={(e) => setToDate(e.target.value)}
-              className="w-full h-9 border border-slate-300 rounded px-2.5 py-1.5 text-xs text-slate-700 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1.5">Category</label>
-            <select
-              value={summaryCategory}
-              onChange={(e) => {
-                setSummaryCategory(e.target.value);
-                setSummarySubCategory("ALL");
-              }}
-              className="w-full h-9 border border-slate-300 rounded px-2.5 py-1.5 text-xs text-slate-700 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
-            >
-              <option value="ALL">All</option>
-              {Array.from(new Set((itemsCatalog ?? []).map((i) => i.category).filter(Boolean))).sort().map((cat) => (
-                <option key={cat} value={cat}>
-                  {cat}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3.5 items-end">
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1.5">Sub Category</label>
-            <select
-              value={summarySubCategory}
-              onChange={(e) => setSummarySubCategory(e.target.value)}
-              className="w-full h-9 border border-slate-300 rounded px-2.5 py-1.5 text-xs text-slate-700 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
-            >
-              <option value="ALL">All</option>
-              {Array.from(
-                new Set(
-                  (itemsCatalog ?? [])
-                    .filter((i) => summaryCategory === "ALL" || i.category === summaryCategory)
-                    .map((i) => i.subCategory || "")
-                    .filter(Boolean)
-                )
-              )
-                .sort()
-                .map((sub) => (
-                  <option key={sub} value={sub}>
-                    {sub}
+        {/* Navigation Tabs (PURCHASE REQUISITION | REQUISITION SUMMARY) */}
+        <div className="flex items-center gap-8 border-b border-line bg-surface px-3 pt-1 rounded border border-line/90 shadow-2xs">
+          <button
+            type="button"
+            onClick={() => handleTabChange("PURCHASE_REQUISITION")}
+            className={`pb-2.5 text-xs font-bold tracking-wide transition-colors relative flex items-center gap-2 uppercase ${activeTab === "PURCHASE_REQUISITION"
+              ? "text-blue-600 dark:text-blue-400 border-b-2 border-blue-600 -mb-[1px]"
+              : "text-ink-faint hover:text-ink"
+              }`}
+          >
+            <span>PURCHASE REQUISITION</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => handleTabChange("REQUISITION_SUMMARY")}
+            className={`pb-2.5 text-xs font-bold tracking-wide transition-colors relative flex items-center gap-2 uppercase ${activeTab === "REQUISITION_SUMMARY"
+              ? "text-blue-600 dark:text-blue-400 border-b-2 border-blue-600 -mb-[1px]"
+              : "text-ink-faint hover:text-ink"
+              }`}
+          >
+            <span>REQUISITION SUMMARY</span>
+          </button>
+        </div>
+      </div>
+
+      {/* TAB 1: PURCHASE REQUISITION */}
+      {activeTab === "PURCHASE_REQUISITION" && (
+        <div className="flex-1 min-h-0 flex flex-col space-y-2.5">
+          <div className="shrink-0 bg-surface rounded border border-line/90 p-4 shadow-2xs">
+          {/* Row 1: 5 Columns */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3.5 mb-3.5">
+            {/* 1. Office */}
+            <div>
+              <label className="block text-xs font-semibold text-ink-muted mb-1.5">
+                Office
+              </label>
+              <select
+                value={selectedOffice}
+                onChange={(e) => handleOfficeChange(e.target.value)}
+                className="w-full h-9 border border-line-strong rounded px-2.5 py-1.5 text-xs text-ink-muted bg-surface focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+              >
+                <option value="ALL">Office</option>
+                {offices?.map((o) => (
+                  <option key={o.id} value={o.id}>
+                    {o.name}
                   </option>
                 ))}
-            </select>
+              </select>
+            </div>
+
+            {/* 2. Warehouse */}
+            <div>
+              <label className="block text-xs font-semibold text-ink-muted mb-1.5">
+                Warehouse
+              </label>
+              <select
+                value={effectiveWarehouse}
+                onChange={(e) => setSelectedWarehouse(e.target.value)}
+                disabled={!isOfficeSelected}
+                className="w-full h-9 border border-line-strong rounded px-2.5 py-1.5 text-xs text-ink-muted bg-surface focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 disabled:bg-control disabled:text-ink-faint disabled:cursor-not-allowed disabled:border-line"
+              >
+                <option value="ALL">Warehouse</option>
+                {filteredWarehouses.map((w) => (
+                  <option key={w.id} value={w.id}>
+                    {w.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* 3. Request Type */}
+            <div>
+              <label className="block text-xs font-semibold text-ink-muted mb-1.5">
+                Request Type
+              </label>
+              <select
+                value={selectedRequestType}
+                onChange={(e) => setSelectedRequestType(e.target.value)}
+                className="w-full h-9 border border-line-strong rounded px-2.5 py-1.5 text-xs text-ink-muted bg-surface focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+              >
+                <option value="ALL">Request Type</option>
+                <option value="LOCAL">LOCAL</option>
+                <option value="IMPORT">IMPORT</option>
+                <option value="URGENT">URGENT</option>
+                <option value="INTER_BRANCH">INTER_BRANCH</option>
+              </select>
+            </div>
+
+            {/* 4. Section */}
+            <div>
+              <label className="block text-xs font-semibold text-ink-muted mb-1.5">
+                Section
+              </label>
+              <select
+                value={selectedSection}
+                onChange={(e) => setSelectedSection(e.target.value)}
+                className="w-full h-9 border border-line-strong rounded px-2.5 py-1.5 text-xs text-ink-muted bg-surface focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+              >
+                <option value="ALL">Section</option>
+                {sectionOptions.map((s) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* 5. From Date */}
+            <div>
+              <label className="block text-xs font-semibold text-ink-muted mb-1.5">
+                From Date
+              </label>
+              <input
+                type="date"
+                value={fromDate}
+                onChange={(e) => setFromDate(e.target.value)}
+                className="w-full h-9 border border-line-strong rounded px-2.5 py-1.5 text-xs text-ink-muted bg-surface focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+              />
+            </div>
           </div>
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1.5">Buyer Office</label>
-            <select
-              value={selectedBuyerOffice}
-              onChange={(e) => {
-                setSelectedBuyerOffice(e.target.value);
-                setSelectedOffice(e.target.value);
-              }}
-              className="w-full h-9 border border-slate-300 rounded px-2.5 py-1.5 text-xs text-slate-700 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
-            >
-              <option value="ALL">Buyer Office</option>
-              {offices?.map((o) => (
-                <option key={o.id} value={o.id}>
-                  {o.name}
-                </option>
-              ))}
-            </select>
-          </div>
-          <label className="flex h-9 cursor-pointer items-center gap-2 text-xs text-slate-700">
-            <input
-              type="checkbox"
-              checked={isRemainingDetails}
-              onChange={(e) => setIsRemainingDetails(e.target.checked)}
-              className="h-4 w-4 rounded border-slate-300 text-blue-600"
-            />
-            <span>Is Remaining Details</span>
-          </label>
-          <div className="flex items-center gap-3 lg:col-span-2">
-            <button
-              type="button"
-              onClick={() => refetch()}
-              disabled={isFetching}
-              className="h-9 px-6 bg-[#2563eb] hover:bg-blue-700 disabled:opacity-70 text-white font-bold text-xs uppercase rounded shadow-xs transition flex items-center justify-center gap-1.5 min-w-[70px]"
-            >
-              {isFetching && <Spinner className="size-3.5" />}
-              View
-            </button>
-            <button
-              type="button"
-              onClick={handleExport}
-              disabled={!perms.requisitions.export}
-              title={!perms.requisitions.export ? "Requires Export permission in Configuration" : "Export Excel (CSV)"}
-              className="h-9 px-5 border border-[#2563eb] text-[#2563eb] hover:bg-blue-50 disabled:opacity-40 disabled:pointer-events-none font-bold text-xs uppercase rounded shadow-xs transition flex items-center justify-center min-w-[75px]"
-            >
-              EXCEL
-            </button>
+
+          {/* Row 2: To Date | Status | Buyer Office | View & EXCEL */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3.5 items-end">
+            {/* 1. To Date */}
+            <div>
+              <label className="block text-xs font-semibold text-ink-muted mb-1.5">
+                To Date
+              </label>
+              <input
+                type="date"
+                value={toDate}
+                onChange={(e) => setToDate(e.target.value)}
+                className="w-full h-9 border border-line-strong rounded px-2.5 py-1.5 text-xs text-ink-muted bg-surface focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+              />
+            </div>
+
+            {/* 2. Status */}
+            <div>
+              <label className="block text-xs font-semibold text-ink-muted mb-1.5">
+                Status
+              </label>
+              <select
+                value={selectedStatus}
+                onChange={(e) => setSelectedStatus(e.target.value)}
+                className="w-full h-9 border border-line-strong rounded px-2.5 py-1.5 text-xs text-ink-muted bg-surface focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+              >
+                <option value="ALL">Status</option>
+                <option value="DRAFT">Draft</option>
+                <option value="SUBMITTED">Submitted</option>
+                <option value="PENDING_APPROVAL">Pending Approval</option>
+                <option value="APPROVED">Approved</option>
+                <option value="CONVERTED_TO_PO">Converted to PO</option>
+                <option value="REJECTED">Rejected</option>
+                <option value="CANCELLED">Cancelled</option>
+              </select>
+            </div>
+
+            {/* 3. Buyer Office */}
+            <div>
+              <label className="block text-xs font-semibold text-ink-muted mb-1.5">
+                Buyer Office
+              </label>
+              <select
+                value={selectedBuyerOffice}
+                onChange={(e) => {
+                  setSelectedBuyerOffice(e.target.value);
+                }}
+                className="w-full h-9 border border-line-strong rounded px-2.5 py-1.5 text-xs text-ink-muted bg-surface focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+              >
+                <option value="ALL">Buyer Office</option>
+                {offices?.map((o) => (
+                  <option key={o.id} value={o.id}>
+                    {o.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* 4. Action Buttons (View & EXCEL) */}
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => refetch()}
+                disabled={isFetching}
+                className="h-9 px-6 bg-[#2563eb] hover:bg-blue-700 disabled:opacity-70 text-white font-bold text-xs uppercase rounded shadow-xs transition flex items-center justify-center gap-1.5 min-w-[70px]"
+              >
+                {isFetching && <Spinner className="size-3.5" />}
+                View
+              </button>
+              <button
+                type="button"
+                onClick={handleExport}
+                disabled={!perms.requisitions.export}
+                title={!perms.requisitions.export ? "Requires Export permission in Configuration" : "Export Excel (CSV)"}
+                className="h-9 px-5 border border-[#2563eb] text-primary hover:bg-blue-50 dark:hover:bg-blue-500/10 disabled:opacity-40 disabled:pointer-events-none font-bold text-xs uppercase rounded shadow-xs transition flex items-center justify-center min-w-[75px]"
+              >
+                EXCEL
+              </button>
+              {(selectedOffice !== "ALL" ||
+                selectedWarehouse !== "ALL" ||
+                selectedRequestType !== "ALL" ||
+                selectedSection !== "ALL" ||
+                selectedStatus !== "ALL" ||
+                fromDate !== "" ||
+                toDate !== "" ||
+                search !== "") && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedOffice("ALL");
+                      setSelectedWarehouse("ALL");
+                      setSelectedRequestType("ALL");
+                      setSelectedSection("ALL");
+                      setSelectedStatus("ALL");
+                      setSelectedBuyerOffice("ALL");
+                      setFromDate("");
+                      setToDate("");
+                      setSearch("");
+                    }}
+                    className="h-9 px-2 text-xs text-ink-faint hover:text-ink underline transition"
+                    title="Reset Filters"
+                  >
+                    Clear
+                  </button>
+                )}
+            </div>
           </div>
         </div>
-      </div>
-      )}
 
-      {/* Content: Requisitions List or Summary Matrix */}
-      {activeTab === "PURCHASE_REQUISITION" ? (
-        /* Requisitions Data Table */
-        <DataTable
-          columns={columns}
-          data={requisitions || []}
-          loading={isLoading}
-          emptyMessage="No requisitions found matching the selected criteria."
-          compact
-        />
-      ) : (
-        /* Requisition Summary View */
-        <div className="space-y-4">
+        {/* Requisitions Data Table (Only Table Scrolls) */}
+        <div className="flex-1 min-h-0">
+          <DataTable
+            columns={columns}
+            data={requisitions || []}
+            loading={isLoading}
+            pageSize={50}
+            emptyMessage="No requisitions found matching the selected criteria."
+            compact
+          />
+        </div>
+      </div>
+    )}
+
+    {/* TAB 2: REQUISITION SUMMARY */}
+    {activeTab === "REQUISITION_SUMMARY" && (
+      <div className="flex-1 min-h-0 flex flex-col space-y-2.5">
+        <div className="shrink-0 bg-surface rounded border border-line/90 p-4 shadow-2xs">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3.5 mb-3.5">
+            <div>
+              <label className="block text-xs font-semibold text-ink-muted mb-1.5">Office</label>
+              <select
+                value={selectedOffice}
+                onChange={(e) => handleOfficeChange(e.target.value)}
+                className="w-full h-9 border border-line-strong rounded px-2.5 py-1.5 text-xs text-ink-muted bg-surface focus:outline-none focus:ring-1 focus:ring-blue-500"
+              >
+                <option value="ALL">All</option>
+                {offices?.map((o) => (
+                  <option key={o.id} value={o.id}>
+                    {o.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-ink-muted mb-1.5">Warehouse</label>
+              <select
+                value={effectiveWarehouse}
+                onChange={(e) => setSelectedWarehouse(e.target.value)}
+                disabled={!isOfficeSelected}
+                className="w-full h-9 border border-line-strong rounded px-2.5 py-1.5 text-xs text-ink-muted bg-surface focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:bg-control disabled:text-ink-faint disabled:cursor-not-allowed disabled:border-line"
+              >
+                <option value="ALL">All</option>
+                {filteredWarehouses.map((w) => (
+                  <option key={w.id} value={w.id}>
+                    {w.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-ink-muted mb-1.5">From Date</label>
+              <input
+                type="date"
+                value={fromDate}
+                onChange={(e) => setFromDate(e.target.value)}
+                className="w-full h-9 border border-line-strong rounded px-2.5 py-1.5 text-xs text-ink-muted bg-surface focus:outline-none focus:ring-1 focus:ring-blue-500"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-ink-muted mb-1.5">To Date</label>
+              <input
+                type="date"
+                value={toDate}
+                onChange={(e) => setToDate(e.target.value)}
+                className="w-full h-9 border border-line-strong rounded px-2.5 py-1.5 text-xs text-ink-muted bg-surface focus:outline-none focus:ring-1 focus:ring-blue-500"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-ink-muted mb-1.5">Category</label>
+              <select
+                value={summaryCategory}
+                onChange={(e) => {
+                  setSummaryCategory(e.target.value);
+                  setSummarySubCategory("ALL");
+                }}
+                className="w-full h-9 border border-line-strong rounded px-2.5 py-1.5 text-xs text-ink-muted bg-surface focus:outline-none focus:ring-1 focus:ring-blue-500"
+              >
+                <option value="ALL">All</option>
+                {Array.from(new Set((itemsCatalog ?? []).map((i) => i.category).filter(Boolean))).sort().map((cat) => (
+                  <option key={cat} value={cat}>
+                    {cat}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3.5 items-end">
+            <div>
+              <label className="block text-xs font-semibold text-ink-muted mb-1.5">Sub Category</label>
+              <select
+                value={summarySubCategory}
+                onChange={(e) => setSummarySubCategory(e.target.value)}
+                className="w-full h-9 border border-line-strong rounded px-2.5 py-1.5 text-xs text-ink-muted bg-surface focus:outline-none focus:ring-1 focus:ring-blue-500"
+              >
+                <option value="ALL">All</option>
+                {Array.from(
+                  new Set(
+                    (itemsCatalog ?? [])
+                      .filter((i) => summaryCategory === "ALL" || i.category === summaryCategory)
+                      .map((i) => i.subCategory || "")
+                      .filter(Boolean)
+                  )
+                )
+                  .sort()
+                  .map((sub) => (
+                    <option key={sub} value={sub}>
+                      {sub}
+                    </option>
+                  ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-ink-muted mb-1.5">Buyer Office</label>
+              <select
+                value={selectedBuyerOffice}
+                onChange={(e) => {
+                  setSelectedBuyerOffice(e.target.value);
+                }}
+                className="w-full h-9 border border-line-strong rounded px-2.5 py-1.5 text-xs text-ink-muted bg-surface focus:outline-none focus:ring-1 focus:ring-blue-500"
+              >
+                <option value="ALL">Buyer Office</option>
+                {offices?.map((o) => (
+                  <option key={o.id} value={o.id}>
+                    {o.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <label className="flex h-9 cursor-pointer items-center gap-2 text-xs text-ink-muted">
+              <input
+                type="checkbox"
+                checked={isRemainingDetails}
+                onChange={(e) => setIsRemainingDetails(e.target.checked)}
+                className="h-4 w-4 rounded border-line-strong text-blue-600 dark:text-blue-400"
+              />
+              <span>Is Remaining Details</span>
+            </label>
+            <div className="flex items-center gap-3 lg:col-span-2">
+              <button
+                type="button"
+                onClick={() => refetch()}
+                disabled={isFetching}
+                className="h-9 px-6 bg-[#2563eb] hover:bg-blue-700 disabled:opacity-70 text-white font-bold text-xs uppercase rounded shadow-xs transition flex items-center justify-center gap-1.5 min-w-[70px]"
+              >
+                {isFetching && <Spinner className="size-3.5" />}
+                View
+              </button>
+              <button
+                type="button"
+                onClick={handleExport}
+                disabled={!perms.requisitions.export}
+                title={!perms.requisitions.export ? "Requires Export permission in Configuration" : "Export Excel (CSV)"}
+                className="h-9 px-5 border border-[#2563eb] text-primary hover:bg-blue-50 dark:hover:bg-blue-500/10 disabled:opacity-40 disabled:pointer-events-none font-bold text-xs uppercase rounded shadow-xs transition flex items-center justify-center min-w-[75px]"
+              >
+                EXCEL
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Requisition Summary View (Scrollable) */}
+        <div className="flex-1 min-h-0 overflow-y-auto space-y-4">
           {/* KPI Stat Cards */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <div className="bg-white rounded border border-slate-200/90 p-4 shadow-2xs">
-              <span className="text-xs font-semibold text-slate-500 uppercase">Total Requisitions</span>
-              <p className="text-2xl font-bold font-mono text-slate-900 mt-1">{totalSummaryMetrics.count}</p>
-              <span className="text-[11px] text-slate-400">All matching filter criteria</span>
+            <div className="bg-surface rounded border border-line/90 p-4 shadow-2xs">
+              <span className="text-xs font-semibold text-ink-faint uppercase">Total Requisitions</span>
+              <p className="text-2xl font-bold font-mono text-ink mt-1">{totalSummaryMetrics.count}</p>
+              <span className="text-[11px] text-ink-faint">All matching filter criteria</span>
             </div>
 
-            <div className="bg-white rounded border border-slate-200/90 p-4 shadow-2xs">
-              <span className="text-xs font-semibold text-slate-500 uppercase">Estimated Budget</span>
-              <p className="text-2xl font-bold font-mono text-blue-700 mt-1">
+            <div className="bg-surface rounded border border-line/90 p-4 shadow-2xs">
+              <span className="text-xs font-semibold text-ink-faint uppercase">Estimated Budget</span>
+              <p className="text-2xl font-bold font-mono text-blue-700 dark:text-blue-300 mt-1">
                 {formatCurrency(totalSummaryMetrics.amount)}
               </p>
-              <span className="text-[11px] text-slate-400">Total estimated outlay</span>
+              <span className="text-[11px] text-ink-faint">Total estimated outlay</span>
             </div>
 
-            <div className="bg-white rounded border border-slate-200/90 p-4 shadow-2xs">
-              <span className="text-xs font-semibold text-amber-600 uppercase">Pending Approval</span>
-              <p className="text-2xl font-bold font-mono text-amber-600 mt-1">{totalSummaryMetrics.pending}</p>
-              <span className="text-[11px] text-slate-400">Awaiting management verification</span>
+            <div className="bg-surface rounded border border-line/90 p-4 shadow-2xs">
+              <span className="text-xs font-semibold text-amber-600 dark:text-amber-400 uppercase">Pending Approval</span>
+              <p className="text-2xl font-bold font-mono text-amber-600 dark:text-amber-400 mt-1">{totalSummaryMetrics.pending}</p>
+              <span className="text-[11px] text-ink-faint">Awaiting management verification</span>
             </div>
 
-            <div className="bg-white rounded border border-slate-200/90 p-4 shadow-2xs">
-              <span className="text-xs font-semibold text-emerald-600 uppercase">Approved / In-PO</span>
-              <p className="text-2xl font-bold font-mono text-emerald-600 mt-1">
+            <div className="bg-surface rounded border border-line/90 p-4 shadow-2xs">
+              <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 uppercase">Approved / In-PO</span>
+              <p className="text-2xl font-bold font-mono text-emerald-600 dark:text-emerald-400 mt-1">
                 {totalSummaryMetrics.approved + totalSummaryMetrics.converted}
               </p>
-              <span className="text-[11px] text-slate-400">Converted or cleared for PO</span>
+              <span className="text-[11px] text-ink-faint">Converted or cleared for PO</span>
             </div>
           </div>
 
           {/* View Mode Switcher */}
-          <div className="flex items-center gap-2 border-b border-slate-200 bg-white px-3 py-2 rounded-t-md">
+          <div className="flex items-center gap-2 border-b border-line bg-surface px-3 py-2 rounded-t-md">
             <button
               type="button"
               onClick={() => setSummaryViewMode("ITEM_WISE")}
-              className={`px-3 py-1.5 text-xs font-bold rounded transition ${
-                summaryViewMode === "ITEM_WISE"
-                  ? "bg-blue-600 text-white shadow-xs"
-                  : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-              }`}
+              className={`px-3 py-1.5 text-xs font-bold rounded transition ${summaryViewMode === "ITEM_WISE"
+                ? "bg-blue-600 text-white shadow-xs"
+                : "bg-control text-ink-muted hover:bg-hover"
+                }`}
             >
               Item-Wise Summary ({itemWiseSummary.length} Items)
             </button>
             <button
               type="button"
               onClick={() => setSummaryViewMode("DEPARTMENT_WISE")}
-              className={`px-3 py-1.5 text-xs font-bold rounded transition ${
-                summaryViewMode === "DEPARTMENT_WISE"
-                  ? "bg-blue-600 text-white shadow-xs"
-                  : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-              }`}
+              className={`px-3 py-1.5 text-xs font-bold rounded transition ${summaryViewMode === "DEPARTMENT_WISE"
+                ? "bg-blue-600 text-white shadow-xs"
+                : "bg-control text-ink-muted hover:bg-hover"
+                }`}
             >
               Department / Section Matrix ({departmentSummary.length} Departments)
             </button>
@@ -1378,15 +1424,15 @@ export default function PurchaseRequisitionsPage() {
 
           {summaryViewMode === "ITEM_WISE" ? (
             /* Item-Wise Requisition Summary Table */
-            <div className="bg-white rounded border border-slate-200/90 overflow-hidden shadow-2xs">
-              <div className="px-4 py-3 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
+            <div className="bg-surface rounded border border-line/90 overflow-hidden shadow-2xs">
+              <div className="px-4 py-3 border-b border-line bg-canvas flex items-center justify-between">
                 <div>
-                  <h3 className="font-bold text-slate-800 text-sm">Item-Wise Requisition Summary</h3>
-                  <p className="text-xs text-slate-500">
+                  <h3 className="font-bold text-ink text-sm">Item-Wise Requisition Summary</h3>
+                  <p className="text-xs text-ink-faint">
                     Aggregated material demand, approved quantities, PO converted volume, and remaining balances
                   </p>
                 </div>
-                <span className="text-xs font-semibold text-slate-600 font-mono">
+                <span className="text-xs font-semibold text-ink-muted font-mono">
                   {itemWiseSummary.length} Unique Items
                 </span>
               </div>
@@ -1412,35 +1458,35 @@ export default function PurchaseRequisitionsPage() {
                   <tbody>
                     {itemWiseSummary.length === 0 ? (
                       <tr>
-                        <td colSpan={12} className="text-center py-8 text-slate-400">
+                        <td colSpan={12} className="text-center py-8 text-ink-faint">
                           No requisition items found matching criteria.
                         </td>
                       </tr>
                     ) : (
                       itemWiseSummary.map((it, idx) => (
-                        <tr key={it.itemId || idx} className="hover:bg-slate-50 transition-colors">
-                          <td className="text-center font-mono text-slate-500">{idx + 1}</td>
-                          <td className="font-mono font-semibold text-blue-700">{it.itemCode}</td>
-                          <td className="font-semibold text-slate-800">{it.itemName}</td>
-                          <td className="text-xs text-slate-600 max-w-[140px] truncate" title={it.deptList}>
+                        <tr key={it.itemId || idx} className="hover:bg-canvas transition-colors">
+                          <td className="text-center font-mono text-ink-faint">{idx + 1}</td>
+                          <td className="font-mono font-semibold text-blue-700 dark:text-blue-300">{it.itemCode}</td>
+                          <td className="font-semibold text-ink">{it.itemName}</td>
+                          <td className="text-xs text-ink-muted max-w-[140px] truncate" title={it.deptList}>
                             {it.deptList}
                           </td>
-                          <td className="font-mono text-xs text-slate-500 max-w-[150px] truncate" title={it.reqList}>
+                          <td className="font-mono text-xs text-ink-faint max-w-[150px] truncate" title={it.reqList}>
                             {it.reqList}
                           </td>
-                          <td className="text-center text-slate-600 font-medium">{it.uom}</td>
-                          <td className="text-center font-mono font-bold text-slate-900">{it.totalReqQty}</td>
-                          <td className="text-center font-mono font-medium text-emerald-600">
+                          <td className="text-center text-ink-muted font-medium">{it.uom}</td>
+                          <td className="text-center font-mono font-bold text-ink">{it.totalReqQty}</td>
+                          <td className="text-center font-mono font-medium text-emerald-600 dark:text-emerald-400">
                             {it.totalApprovedQty}
                           </td>
-                          <td className="text-center font-mono font-medium text-blue-600">{it.totalPOQty}</td>
-                          <td className="text-center font-mono font-bold text-amber-600">
+                          <td className="text-center font-mono font-medium text-blue-600 dark:text-blue-400">{it.totalPOQty}</td>
+                          <td className="text-center font-mono font-bold text-amber-600 dark:text-amber-400">
                             {it.totalBalanceQty}
                           </td>
-                          <td className="text-right font-mono text-slate-700">
+                          <td className="text-right font-mono text-ink-muted">
                             {formatCurrency(it.unitPrice)}
                           </td>
-                          <td className="text-right font-mono font-bold text-slate-900">
+                          <td className="text-right font-mono font-bold text-ink">
                             {formatCurrency(it.totalAmount)}
                           </td>
                         </tr>
@@ -1452,13 +1498,13 @@ export default function PurchaseRequisitionsPage() {
             </div>
           ) : (
             /* Department / Section Summary Matrix Table */
-            <div className="bg-white rounded border border-slate-200/90 overflow-hidden shadow-2xs">
-              <div className="px-4 py-3 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
+            <div className="bg-surface rounded border border-line/90 overflow-hidden shadow-2xs">
+              <div className="px-4 py-3 border-b border-line bg-canvas flex items-center justify-between">
                 <div>
-                  <h3 className="font-bold text-slate-800 text-sm">Department / Section Requisition Summary</h3>
-                  <p className="text-xs text-slate-500">Breakdown of requests, total expenditure and approval status</p>
+                  <h3 className="font-bold text-ink text-sm">Department / Section Requisition Summary</h3>
+                  <p className="text-xs text-ink-faint">Breakdown of requests, total expenditure and approval status</p>
                 </div>
-                <span className="text-xs font-medium text-slate-500 font-mono">
+                <span className="text-xs font-medium text-ink-faint font-mono">
                   {departmentSummary.length} Departments Active
                 </span>
               </div>
@@ -1482,23 +1528,23 @@ export default function PurchaseRequisitionsPage() {
                   <tbody>
                     {departmentSummary.length === 0 ? (
                       <tr>
-                        <td colSpan={10} className="text-center py-8 text-slate-400">
+                        <td colSpan={10} className="text-center py-8 text-ink-faint">
                           No summary records found.
                         </td>
                       </tr>
                     ) : (
                       departmentSummary.map((d, idx) => (
-                        <tr key={d.department} className="hover:bg-slate-50 transition-colors">
-                          <td className="text-center font-mono text-slate-500">{idx + 1}</td>
-                          <td className="font-semibold text-slate-800">{d.department}</td>
+                        <tr key={d.department} className="hover:bg-canvas transition-colors">
+                          <td className="text-center font-mono text-ink-faint">{idx + 1}</td>
+                          <td className="font-semibold text-ink">{d.department}</td>
                           <td className="text-center font-mono font-medium">{d.totalCount}</td>
-                          <td className="text-right font-mono font-bold text-slate-900">
+                          <td className="text-right font-mono font-bold text-ink">
                             {formatCurrency(d.totalAmount)}
                           </td>
-                          <td className="text-center font-mono text-sky-600">{d.submitted}</td>
-                          <td className="text-center font-mono text-amber-600">{d.pending}</td>
-                          <td className="text-center font-mono text-emerald-600 font-semibold">{d.approved}</td>
-                          <td className="text-center font-mono text-blue-600 font-semibold">{d.converted}</td>
+                          <td className="text-center font-mono text-sky-600 dark:text-sky-400">{d.submitted}</td>
+                          <td className="text-center font-mono text-amber-600 dark:text-amber-400">{d.pending}</td>
+                          <td className="text-center font-mono text-emerald-600 dark:text-emerald-400 font-semibold">{d.approved}</td>
+                          <td className="text-center font-mono text-blue-600 dark:text-blue-400 font-semibold">{d.converted}</td>
                           <td className="text-center font-mono text-rose-500">{d.rejected}</td>
                           <td className="text-center">
                             <button
@@ -1507,7 +1553,7 @@ export default function PurchaseRequisitionsPage() {
                                 setSelectedSection(d.department);
                                 handleTabChange("PURCHASE_REQUISITION");
                               }}
-                              className="px-2.5 py-1 text-xs text-blue-600 hover:text-blue-800 hover:underline font-semibold"
+                              className="px-2.5 py-1 text-xs text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 hover:underline font-semibold"
                             >
                               View List &rarr;
                             </button>
@@ -1521,9 +1567,10 @@ export default function PurchaseRequisitionsPage() {
             </div>
           )}
         </div>
-      )}
+      </div>
+    )}
 
-      {/* CREATE REQUISITION MODAL */}
+    {/* CREATE REQUISITION MODAL */}
       <ModalDialog
         isOpen={isCreateOpen}
         onClose={() => setIsCreateOpen(false)}
@@ -1533,32 +1580,32 @@ export default function PurchaseRequisitionsPage() {
       >
         <form onSubmit={handleCreateSubmit} className="space-y-4">
           {templateNotification && (
-            <div className="flex items-center justify-between px-3 py-2 bg-sky-50 border border-sky-200 text-sky-800 rounded text-xs">
+            <div className="flex items-center justify-between px-3 py-2 bg-sky-50 dark:bg-sky-500/10 border border-sky-200 dark:border-sky-500/30 text-sky-800 dark:text-sky-300 rounded text-xs">
               <div className="flex items-center gap-1.5 font-medium">
-                <PlusCircle className="w-3.5 h-3.5 text-sky-600" />
+                <PlusCircle className="w-3.5 h-3.5 text-sky-600 dark:text-sky-400" />
                 <span>{templateNotification}</span>
               </div>
               <button
                 type="button"
                 onClick={() => setTemplateNotification(null)}
-                className="text-sky-500 hover:text-sky-700 font-bold"
+                className="text-sky-500 hover:text-sky-700 dark:hover:text-sky-300 font-bold"
               >
                 ✕
               </button>
             </div>
           )}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-slate-50 p-3 rounded border border-slate-200 text-xs">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-canvas p-3 rounded border border-line text-xs">
             <div>
-              <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+              <label className="block text-[11px] font-semibold text-ink-muted mb-1">
                 Office / Branch *
               </label>
               <select
-                value={formOfficeId}
+                value={activeFormOfficeId}
                 onChange={(e) => {
                   setFormOfficeId(e.target.value);
                   setFormWarehouseId(allWarehouses?.find((w) => w.officeId === e.target.value)?.id ?? "");
                 }}
-                className="w-full border border-slate-300 rounded px-2 py-1.5 bg-white text-xs"
+                className="w-full border border-line-strong rounded px-2 py-1.5 bg-surface text-xs"
                 required
               >
                 {offices?.map((o) => (
@@ -1570,17 +1617,24 @@ export default function PurchaseRequisitionsPage() {
             </div>
 
             <div>
-              <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+              <label className="block text-[11px] font-semibold text-ink-muted mb-1">
                 Authorized Delivery Warehouse *
               </label>
               <select
-                value={formWarehouseId}
+                value={activeFormWarehouseId}
                 onChange={(e) => setFormWarehouseId(e.target.value)}
-                className="w-full border border-slate-300 rounded px-2 py-1.5 bg-white text-xs"
+                disabled={!activeFormOfficeId}
+                className="w-full border border-line-strong rounded px-2 py-1.5 bg-surface text-xs disabled:bg-control disabled:text-ink-faint disabled:cursor-not-allowed"
                 required
               >
-                <option value="">Select warehouse</option>
-                {allWarehouses?.filter((w) => w.officeId === formOfficeId).map((w) => (
+                <option value="">
+                  {!activeFormOfficeId
+                    ? "Select Office first"
+                    : allWarehouses?.filter((w) => w.officeId === activeFormOfficeId).length === 0
+                      ? "No warehouse for this office"
+                      : "Select warehouse"}
+                </option>
+                {allWarehouses?.filter((w) => w.officeId === activeFormOfficeId).map((w) => (
                   <option key={w.id} value={w.id}>
                     {w.name}
                   </option>
@@ -1589,52 +1643,52 @@ export default function PurchaseRequisitionsPage() {
             </div>
 
             <div>
-              <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+              <label className="block text-[11px] font-semibold text-ink-muted mb-1">
                 Required Delivery Date *
               </label>
               <input
                 type="date"
                 value={formDeliveryDate}
                 onChange={(e) => setFormDeliveryDate(e.target.value)}
-                className="w-full border border-slate-300 rounded px-2 py-1.5 bg-white text-xs"
+                className="w-full border border-line-strong rounded px-2 py-1.5 bg-surface text-xs"
                 required
               />
             </div>
 
             <div>
-              <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+              <label className="block text-[11px] font-semibold text-ink-muted mb-1">
                 Requesting Department *
               </label>
               <input
                 type="text"
                 value={formDepartment}
                 onChange={(e) => setFormDepartment(e.target.value)}
-                className="w-full border border-slate-300 rounded px-2 py-1.5 bg-white text-xs"
+                className="w-full border border-line-strong rounded px-2 py-1.5 bg-surface text-xs"
                 required
               />
             </div>
 
             <div>
-              <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+              <label className="block text-[11px] font-semibold text-ink-muted mb-1">
                 Requester Name *
               </label>
               <input
                 type="text"
                 value={formRequester}
                 onChange={(e) => setFormRequester(e.target.value)}
-                className="w-full border border-slate-300 rounded px-2 py-1.5 bg-white text-xs"
+                className="w-full border border-line-strong rounded px-2 py-1.5 bg-surface text-xs"
                 required
               />
             </div>
 
             <div>
-              <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+              <label className="block text-[11px] font-semibold text-ink-muted mb-1">
                 Purchase Method
               </label>
               <select
                 value={formPurchaseMethod}
                 onChange={(e) => setFormPurchaseMethod(e.target.value as any)}
-                className="w-full border border-slate-300 rounded px-2 py-1.5 bg-white text-xs"
+                className="w-full border border-line-strong rounded px-2 py-1.5 bg-surface text-xs"
               >
                 <option value="DIRECT">Direct Purchase</option>
                 <option value="QUOTATION">Quotation / RFP</option>
@@ -1644,14 +1698,14 @@ export default function PurchaseRequisitionsPage() {
             </div>
 
             <div className="sm:col-span-3">
-              <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+              <label className="block text-[11px] font-semibold text-ink-muted mb-1">
                 Business Justification *
               </label>
               <textarea
                 value={formJustification}
                 onChange={(e) => setFormJustification(e.target.value)}
                 rows={2}
-                className="w-full border border-slate-300 rounded p-2 text-xs bg-white"
+                className="w-full border border-line-strong rounded p-2 text-xs bg-surface"
                 placeholder="Explain why this purchase is needed..."
                 required
               />
@@ -1661,22 +1715,22 @@ export default function PurchaseRequisitionsPage() {
           {/* Requested Items Table */}
           <div>
             <div className="flex items-center justify-between mb-2">
-              <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wide">
+              <h4 className="text-xs font-bold text-ink uppercase tracking-wide">
                 Requested Line Items
               </h4>
               <button
                 type="button"
                 onClick={handleAddItem}
-                className="flex items-center gap-1 text-xs text-sky-600 font-semibold hover:underline"
+                className="flex items-center gap-1 text-xs text-sky-600 dark:text-sky-400 font-semibold hover:underline"
               >
                 <Plus className="w-3.5 h-3.5" />
                 <span>Add Item</span>
               </button>
             </div>
 
-            <div className="border border-slate-200 rounded overflow-hidden">
+            <div className="border border-line rounded overflow-hidden">
               <table className="w-full text-left text-xs">
-                <thead className="bg-slate-100 text-slate-600 font-semibold text-[11px]">
+                <thead className="bg-control text-ink-muted font-semibold text-[11px]">
                   <tr>
                     <th className="p-2">Item</th>
                     <th className="p-2 w-20">UOM</th>
@@ -1686,14 +1740,14 @@ export default function PurchaseRequisitionsPage() {
                     <th className="p-2 w-10 text-center"></th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100">
+                <tbody className="divide-y divide-line">
                   {formLineItems.map((item, idx) => (
-                    <tr key={idx} className="hover:bg-slate-50">
+                    <tr key={idx} className="hover:bg-canvas">
                       <td className="p-2">
                         <select
                           value={item.itemId}
                           onChange={(e) => handleItemChange(idx, e.target.value)}
-                          className="w-full border border-slate-200 rounded p-1 text-xs"
+                          className="w-full border border-line rounded p-1 text-xs"
                         >
                           {itemsCatalog?.map((it) => (
                             <option key={it.id} value={it.id}>
@@ -1702,14 +1756,14 @@ export default function PurchaseRequisitionsPage() {
                           ))}
                         </select>
                       </td>
-                      <td className="p-2 text-slate-500 font-mono text-[11px]">{item.uom}</td>
+                      <td className="p-2 text-ink-faint font-mono text-[11px]">{item.uom}</td>
                       <td className="p-2">
                         <input
                           type="number"
                           min={1}
                           value={item.quantity}
                           onChange={(e) => handleQtyChange(idx, Number(e.target.value))}
-                          className="w-full border border-slate-200 rounded p-1 text-xs text-center font-mono"
+                          className="w-full border border-line rounded p-1 text-xs text-center font-mono"
                           required
                         />
                       </td>
@@ -1719,18 +1773,18 @@ export default function PurchaseRequisitionsPage() {
                           min={0}
                           value={item.estimatedUnitPrice}
                           onChange={(e) => handlePriceChange(idx, Number(e.target.value))}
-                          className="w-full border border-slate-200 rounded p-1 text-xs text-right font-mono"
+                          className="w-full border border-line rounded p-1 text-xs text-right font-mono"
                           required
                         />
                       </td>
-                      <td className="p-2 text-right font-mono font-bold text-slate-900">
+                      <td className="p-2 text-right font-mono font-bold text-ink">
                         {formatCurrency(item.lineTotal)}
                       </td>
                       <td className="p-2 text-center">
                         <button
                           type="button"
                           onClick={() => handleRemoveItem(idx)}
-                          className="text-slate-400 hover:text-rose-600 transition"
+                          className="text-ink-faint hover:text-rose-600 dark:hover:text-rose-400 transition"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
@@ -1738,12 +1792,12 @@ export default function PurchaseRequisitionsPage() {
                     </tr>
                   ))}
                 </tbody>
-                <tfoot className="bg-slate-50 font-bold border-t border-slate-200">
+                <tfoot className="bg-canvas font-bold border-t border-line">
                   <tr>
-                    <td colSpan={4} className="p-2 text-right text-slate-700">
+                    <td colSpan={4} className="p-2 text-right text-ink-muted">
                       Total Estimated Budget:
                     </td>
-                    <td className="p-2 text-right font-mono text-sm text-sky-700">
+                    <td className="p-2 text-right font-mono text-sm text-sky-700 dark:text-sky-300">
                       {formatCurrency(
                         formLineItems.reduce((acc, it) => acc + (it.lineTotal || 0), 0)
                       )}
@@ -1756,11 +1810,11 @@ export default function PurchaseRequisitionsPage() {
           </div>
 
           {/* Action buttons */}
-          <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-200">
+          <div className="flex items-center justify-end gap-2 pt-3 border-t border-line">
             <button
               type="button"
               onClick={() => setIsCreateOpen(false)}
-              className="px-3 py-1.5 border border-slate-200 rounded text-xs text-slate-600 hover:bg-slate-100"
+              className="px-3 py-1.5 border border-line rounded text-xs text-ink-muted hover:bg-control"
             >
               Cancel
             </button>
@@ -1785,37 +1839,37 @@ export default function PurchaseRequisitionsPage() {
       >
         {viewReq && (
           <div className="space-y-4 text-xs">
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 bg-slate-50 p-3 rounded border border-slate-200">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 bg-canvas p-3 rounded border border-line">
               <div>
-                <span className="text-slate-400 text-[11px] block">Status</span>
+                <span className="text-ink-faint text-[11px] block">Status</span>
                 <StatusBadge status={viewReq.status} />
               </div>
               <div>
-                <span className="text-slate-400 text-[11px] block">Department</span>
-                <span className="font-semibold text-slate-800">{viewReq.department}</span>
+                <span className="text-ink-faint text-[11px] block">Department</span>
+                <span className="font-semibold text-ink">{viewReq.department}</span>
               </div>
               <div>
-                <span className="text-slate-400 text-[11px] block">Delivery Due</span>
-                <span className="font-semibold text-slate-800">{viewReq.requiredDeliveryDate}</span>
+                <span className="text-ink-faint text-[11px] block">Delivery Due</span>
+                <span className="font-semibold text-ink">{viewReq.requiredDeliveryDate}</span>
               </div>
               <div>
-                <span className="text-slate-400 text-[11px] block">Total Amount</span>
-                <span className="font-bold text-sky-700 font-mono">
+                <span className="text-ink-faint text-[11px] block">Total Amount</span>
+                <span className="font-bold text-sky-700 dark:text-sky-300 font-mono">
                   {formatCurrency(viewReq.totalEstimatedAmount)}
                 </span>
               </div>
               <div className="col-span-2">
-                <span className="text-slate-400 text-[11px] block">Business Justification</span>
-                <span className="text-slate-700">{viewReq.businessJustification}</span>
+                <span className="text-ink-faint text-[11px] block">Business Justification</span>
+                <span className="text-ink-muted">{viewReq.businessJustification}</span>
               </div>
             </div>
 
             {/* Line items list */}
             <div>
-              <h4 className="font-bold text-slate-800 uppercase text-[11px] mb-2">Item Specifications</h4>
-              <div className="border border-slate-200 rounded overflow-hidden">
+              <h4 className="font-bold text-ink uppercase text-[11px] mb-2">Item Specifications</h4>
+              <div className="border border-line rounded overflow-hidden">
                 <table className="w-full text-left text-xs">
-                  <thead className="bg-slate-100 text-slate-600 font-semibold">
+                  <thead className="bg-control text-ink-muted font-semibold">
                     <tr>
                       <th className="p-2">Code</th>
                       <th className="p-2">Item Name</th>
@@ -1824,16 +1878,16 @@ export default function PurchaseRequisitionsPage() {
                       <th className="p-2 text-right">Line Total</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-100">
+                  <tbody className="divide-y divide-line">
                     {viewReq.items.map((it, idx) => (
                       <tr key={idx}>
-                        <td className="p-2 font-mono text-slate-500">{it.itemCode}</td>
-                        <td className="p-2 font-medium text-slate-800">{it.itemName}</td>
+                        <td className="p-2 font-mono text-ink-faint">{it.itemCode}</td>
+                        <td className="p-2 font-medium text-ink">{it.itemName}</td>
                         <td className="p-2 text-center font-mono">
                           {it.quantity} {it.uom}
                         </td>
                         <td className="p-2 text-right font-mono">{formatCurrency(it.estimatedUnitPrice)}</td>
-                        <td className="p-2 text-right font-mono font-bold text-slate-900">
+                        <td className="p-2 text-right font-mono font-bold text-ink">
                           {formatCurrency(it.lineTotal)}
                         </td>
                       </tr>
@@ -1845,32 +1899,32 @@ export default function PurchaseRequisitionsPage() {
 
             {/* Audit & Approval Timeline */}
             <div>
-              <div className="flex items-center gap-1.5 font-bold text-slate-800 uppercase text-[11px] mb-2">
-                <History className="w-3.5 h-3.5 text-slate-500" />
+              <div className="flex items-center gap-1.5 font-bold text-ink uppercase text-[11px] mb-2">
+                <History className="w-3.5 h-3.5 text-ink-faint" />
                 <span>Approval Audit History</span>
               </div>
-              <div className="space-y-2 border-l-2 border-slate-200 pl-3 ml-2">
+              <div className="space-y-2 border-l-2 border-line pl-3 ml-2">
                 {viewReq.approvalHistory.map((h, i) => (
                   <div key={i} className="text-xs">
                     <div className="flex items-center gap-2">
-                      <span className="font-semibold text-slate-800">{h.action.replace(/_/g, " ")}</span>
-                      <span className="text-[10px] text-slate-400">by {h.actorName}</span>
-                      <span className="text-[10px] text-slate-400">({new Date(h.timestamp).toLocaleString()})</span>
+                      <span className="font-semibold text-ink">{h.action.replace(/_/g, " ")}</span>
+                      <span className="text-[10px] text-ink-faint">by {h.actorName}</span>
+                      <span className="text-[10px] text-ink-faint">({new Date(h.timestamp).toLocaleString()})</span>
                     </div>
-                    {h.comments && <p className="text-slate-600 italic mt-0.5">{h.comments}</p>}
+                    {h.comments && <p className="text-ink-muted italic mt-0.5">{h.comments}</p>}
                   </div>
                 ))}
               </div>
             </div>
 
             {viewReq.referenceDocument && (
-              <p className="text-slate-600">
-                Purchase order: <span className="font-mono font-semibold text-sky-700">{viewReq.referenceDocument}</span>
+              <p className="text-ink-muted">
+                Purchase order: <span className="font-mono font-semibold text-sky-700 dark:text-sky-300">{viewReq.referenceDocument}</span>
               </p>
             )}
 
-            <div className="flex flex-wrap justify-end gap-2 pt-2 border-t border-slate-200 print:hidden">
-              <button type="button" onClick={() => setViewReq(null)} className="h-9 px-4 border border-slate-300 rounded text-slate-700 hover:bg-slate-50 font-semibold">
+            <div className="flex flex-wrap justify-end gap-2 pt-2 border-t border-line print:hidden">
+              <button type="button" onClick={() => setViewReq(null)} className="h-9 px-4 border border-line-strong rounded text-ink-muted hover:bg-canvas font-semibold">
                 Close
               </button>
               {can.approve(viewReq.status) && (
@@ -1905,21 +1959,21 @@ export default function PurchaseRequisitionsPage() {
         maxWidth="md"
       >
         <div className="space-y-3 text-xs">
-          <p className="text-slate-600">
+          <p className="text-ink-muted">
             Are you sure you want to <strong>{approvalModal?.action}</strong> requisition{" "}
             <strong>{approvalModal?.req.requisitionNumber}</strong> for amount{" "}
             <strong>{formatCurrency(approvalModal?.req.totalEstimatedAmount ?? 0)}</strong>?
           </p>
 
           <div>
-            <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+            <label className="block text-[11px] font-semibold text-ink-muted mb-1">
               Comments / Reason
             </label>
             <textarea
               value={approvalComment}
               onChange={(e) => setApprovalComment(e.target.value)}
               rows={2}
-              className="w-full border border-slate-300 rounded p-2 text-xs"
+              className="w-full border border-line-strong rounded p-2 text-xs"
               placeholder="Enter approval or rejection comments..."
             />
           </div>
@@ -1928,7 +1982,7 @@ export default function PurchaseRequisitionsPage() {
             <button
               type="button"
               onClick={() => setApprovalModal(null)}
-              className="px-3 py-1.5 border border-slate-200 rounded text-slate-600"
+              className="px-3 py-1.5 border border-line rounded text-ink-muted"
             >
               Cancel
             </button>
@@ -1947,11 +2001,10 @@ export default function PurchaseRequisitionsPage() {
                   comments: approvalComment,
                 });
               }}
-              className={`px-4 py-1.5 rounded text-white font-semibold inline-flex items-center gap-1.5 disabled:opacity-60 ${
-                approvalModal?.action === "APPROVE"
-                  ? "bg-emerald-600 hover:bg-emerald-700"
-                  : "bg-rose-600 hover:bg-rose-700"
-              }`}
+              className={`px-4 py-1.5 rounded text-white font-semibold inline-flex items-center gap-1.5 disabled:opacity-60 ${approvalModal?.action === "APPROVE"
+                ? "bg-emerald-600 hover:bg-emerald-700"
+                : "bg-rose-600 hover:bg-rose-700"
+                }`}
             >
               {approvalMutation.isPending && <Spinner className="size-3.5" />}
               Confirm {approvalModal?.action}
@@ -1970,9 +2023,9 @@ export default function PurchaseRequisitionsPage() {
       >
         {editReq && (
           <form onSubmit={handleSaveEdit} className="space-y-4">
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-slate-50 p-3 rounded border border-slate-200 text-xs">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-canvas p-3 rounded border border-line text-xs">
               <div>
-                <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                <label className="block text-[11px] font-semibold text-ink-muted mb-1">
                   Office / Branch *
                 </label>
                 <select
@@ -1982,7 +2035,7 @@ export default function PurchaseRequisitionsPage() {
                     // The warehouse must belong to the office.
                     setEditWarehouseId(allWarehouses?.find((w) => w.officeId === e.target.value)?.id ?? "");
                   }}
-                  className="w-full border border-slate-300 rounded px-2 py-1.5 bg-white text-xs"
+                  className="w-full border border-line-strong rounded px-2 py-1.5 bg-surface text-xs"
                   required
                 >
                   {offices?.map((o) => (
@@ -1994,16 +2047,23 @@ export default function PurchaseRequisitionsPage() {
               </div>
 
               <div>
-                <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                <label className="block text-[11px] font-semibold text-ink-muted mb-1">
                   Delivery Warehouse *
                 </label>
                 <select
                   value={editWarehouseId}
                   onChange={(e) => setEditWarehouseId(e.target.value)}
-                  className="w-full border border-slate-300 rounded px-2 py-1.5 bg-white text-xs"
+                  disabled={!editOfficeId}
+                  className="w-full border border-line-strong rounded px-2 py-1.5 bg-surface text-xs disabled:bg-control disabled:text-ink-faint disabled:cursor-not-allowed"
                   required
                 >
-                  <option value="">Select warehouse</option>
+                  <option value="">
+                    {!editOfficeId
+                      ? "Select Office first"
+                      : allWarehouses?.filter((w) => w.officeId === editOfficeId).length === 0
+                        ? "No warehouse for this office"
+                        : "Select warehouse"}
+                  </option>
                   {allWarehouses?.filter((w) => w.officeId === editOfficeId).map((w) => (
                     <option key={w.id} value={w.id}>
                       {w.name}
@@ -2013,13 +2073,13 @@ export default function PurchaseRequisitionsPage() {
               </div>
 
               <div>
-                <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                <label className="block text-[11px] font-semibold text-ink-muted mb-1">
                   Request Priority *
                 </label>
                 <select
                   value={editRequestType}
                   onChange={(e) => setEditRequestType(e.target.value as any)}
-                  className="w-full border border-slate-300 rounded px-2 py-1.5 bg-white text-xs"
+                  className="w-full border border-line-strong rounded px-2 py-1.5 bg-surface text-xs"
                 >
                   <option value="LOCAL">Local Purchase</option>
                   <option value="IMPORT">Import LC</option>
@@ -2029,40 +2089,40 @@ export default function PurchaseRequisitionsPage() {
               </div>
 
               <div>
-                <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                <label className="block text-[11px] font-semibold text-ink-muted mb-1">
                   Department *
                 </label>
                 <input
                   type="text"
                   value={editDepartment}
                   onChange={(e) => setEditDepartment(e.target.value)}
-                  className="w-full border border-slate-300 rounded px-2 py-1.5 bg-white text-xs"
+                  className="w-full border border-line-strong rounded px-2 py-1.5 bg-surface text-xs"
                   required
                 />
               </div>
 
               <div>
-                <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                <label className="block text-[11px] font-semibold text-ink-muted mb-1">
                   Buyer / Requester *
                 </label>
                 <input
                   type="text"
                   value={editRequester}
                   onChange={(e) => setEditRequester(e.target.value)}
-                  className="w-full border border-slate-300 rounded px-2 py-1.5 bg-white text-xs"
+                  className="w-full border border-line-strong rounded px-2 py-1.5 bg-surface text-xs"
                   required
                 />
               </div>
 
               <div>
-                <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                <label className="block text-[11px] font-semibold text-ink-muted mb-1">
                   Required Delivery Date *
                 </label>
                 <input
                   type="date"
                   value={editDeliveryDate}
                   onChange={(e) => setEditDeliveryDate(e.target.value)}
-                  className="w-full border border-slate-300 rounded px-2 py-1.5 bg-white text-xs"
+                  className="w-full border border-line-strong rounded px-2 py-1.5 bg-surface text-xs"
                   required
                 />
               </div>
@@ -2071,22 +2131,22 @@ export default function PurchaseRequisitionsPage() {
             {/* Edit Line Items */}
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-slate-700 uppercase">
+                <span className="text-xs font-bold text-ink-muted uppercase">
                   Requisition Items ({editLineItems.length})
                 </span>
                 <button
                   type="button"
                   onClick={handleEditAddItem}
-                  className="inline-flex items-center gap-1 text-xs px-2.5 py-1 bg-sky-50 text-sky-700 hover:bg-sky-100 rounded border border-sky-200 font-medium"
+                  className="inline-flex items-center gap-1 text-xs px-2.5 py-1 bg-sky-50 dark:bg-sky-500/10 text-sky-700 dark:text-sky-300 hover:bg-sky-100 dark:hover:bg-sky-500/15 rounded border border-sky-200 dark:border-sky-500/30 font-medium"
                 >
                   <Plus className="w-3.5 h-3.5" />
                   <span>Add Line Item</span>
                 </button>
               </div>
 
-              <div className="border border-slate-200 rounded overflow-hidden">
+              <div className="border border-line rounded overflow-hidden">
                 <table className="w-full text-left text-xs">
-                  <thead className="bg-slate-100 text-slate-700 font-semibold">
+                  <thead className="bg-control text-ink-muted font-semibold">
                     <tr>
                       <th className="p-2 w-10">SL</th>
                       <th className="p-2">Item Selection</th>
@@ -2097,15 +2157,15 @@ export default function PurchaseRequisitionsPage() {
                       <th className="p-2 w-12 text-center">Action</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-100">
+                  <tbody className="divide-y divide-line">
                     {editLineItems.map((item, index) => (
-                      <tr key={index} className="hover:bg-slate-50/50">
-                        <td className="p-2 text-slate-400 font-mono">{index + 1}</td>
+                      <tr key={index} className="hover:bg-canvas/50">
+                        <td className="p-2 text-ink-faint font-mono">{index + 1}</td>
                         <td className="p-2">
                           <select
                             value={item.itemId}
                             onChange={(e) => handleEditItemChange(index, e.target.value)}
-                            className="w-full border border-slate-300 rounded px-2 py-1 bg-white text-xs"
+                            className="w-full border border-line-strong rounded px-2 py-1 bg-surface text-xs"
                           >
                             {itemsCatalog?.map((it) => (
                               <option key={it.id} value={it.id}>
@@ -2114,7 +2174,7 @@ export default function PurchaseRequisitionsPage() {
                             ))}
                           </select>
                         </td>
-                        <td className="p-2 text-center text-slate-500 font-mono">{item.uom}</td>
+                        <td className="p-2 text-center text-ink-faint font-mono">{item.uom}</td>
                         <td className="p-2">
                           <input
                             type="number"
@@ -2123,7 +2183,7 @@ export default function PurchaseRequisitionsPage() {
                             onChange={(e) =>
                               handleEditQtyChange(index, Math.max(1, Number(e.target.value) || 1))
                             }
-                            className="w-full text-right border border-slate-300 rounded px-2 py-1 text-xs"
+                            className="w-full text-right border border-line-strong rounded px-2 py-1 text-xs"
                           />
                         </td>
                         <td className="p-2">
@@ -2135,10 +2195,10 @@ export default function PurchaseRequisitionsPage() {
                             onChange={(e) =>
                               handleEditPriceChange(index, Math.max(0, Number(e.target.value) || 0))
                             }
-                            className="w-full text-right border border-slate-300 rounded px-2 py-1 text-xs"
+                            className="w-full text-right border border-line-strong rounded px-2 py-1 text-xs"
                           />
                         </td>
-                        <td className="p-2 text-right font-mono font-semibold text-slate-800">
+                        <td className="p-2 text-right font-mono font-semibold text-ink">
                           {formatCurrency(item.lineTotal)}
                         </td>
                         <td className="p-2 text-center">
@@ -2146,7 +2206,7 @@ export default function PurchaseRequisitionsPage() {
                             type="button"
                             onClick={() => handleEditRemoveItem(index)}
                             disabled={editLineItems.length === 1}
-                            className="text-slate-400 hover:text-rose-600 disabled:opacity-30"
+                            className="text-ink-faint hover:text-rose-600 dark:hover:text-rose-400 disabled:opacity-30"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
@@ -2154,12 +2214,12 @@ export default function PurchaseRequisitionsPage() {
                       </tr>
                     ))}
                   </tbody>
-                  <tfoot className="bg-slate-50 font-semibold border-t border-slate-200">
+                  <tfoot className="bg-canvas font-semibold border-t border-line">
                     <tr>
-                      <td colSpan={5} className="p-2 text-right text-slate-600">
+                      <td colSpan={5} className="p-2 text-right text-ink-muted">
                         Total Estimated Amount:
                       </td>
-                      <td className="p-2 text-right font-mono text-sky-700 text-sm">
+                      <td className="p-2 text-right font-mono text-sky-700 dark:text-sky-300 text-sm">
                         {formatCurrency(
                           editLineItems.reduce((acc, curr) => acc + (curr.lineTotal || 0), 0)
                         )}
@@ -2173,34 +2233,34 @@ export default function PurchaseRequisitionsPage() {
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
               <div>
-                <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                <label className="block text-[11px] font-semibold text-ink-muted mb-1">
                   Business Justification
                 </label>
                 <textarea
                   value={editJustification}
                   onChange={(e) => setEditJustification(e.target.value)}
                   rows={2}
-                  className="w-full border border-slate-300 rounded p-2 text-xs"
+                  className="w-full border border-line-strong rounded p-2 text-xs"
                 />
               </div>
               <div>
-                <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                <label className="block text-[11px] font-semibold text-ink-muted mb-1">
                   Remarks / Special Instructions
                 </label>
                 <textarea
                   value={editRemarks}
                   onChange={(e) => setEditRemarks(e.target.value)}
                   rows={2}
-                  className="w-full border border-slate-300 rounded p-2 text-xs"
+                  className="w-full border border-line-strong rounded p-2 text-xs"
                 />
               </div>
             </div>
 
-            <div className="flex justify-end gap-2 pt-2 border-t border-slate-200">
+            <div className="flex justify-end gap-2 pt-2 border-t border-line">
               <button
                 type="button"
                 onClick={() => setEditReq(null)}
-                className="px-3 py-1.5 border border-slate-200 rounded text-slate-600 hover:bg-slate-50 text-xs"
+                className="px-3 py-1.5 border border-line rounded text-ink-muted hover:bg-canvas text-xs"
               >
                 Cancel
               </button>
@@ -2296,34 +2356,34 @@ export default function PurchaseRequisitionsPage() {
       >
         {closeModal && (
           <div className="space-y-3 text-xs">
-            <p className="text-slate-700">
+            <p className="text-ink-muted">
               Are you sure you want to <strong>Close / Cancel</strong> requisition{" "}
-              <strong className="text-rose-700 font-mono">{closeModal.requisitionNumber}</strong>?
+              <strong className="text-rose-700 dark:text-rose-300 font-mono">{closeModal.requisitionNumber}</strong>?
             </p>
-            <p className="text-[11px] text-slate-500">
+            <p className="text-[11px] text-ink-faint">
               This action terminates the approval process and stops any subsequent Purchase Order
               creation.
             </p>
 
             <div>
-              <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+              <label className="block text-[11px] font-semibold text-ink-muted mb-1">
                 Reason for Closure / Cancellation *
               </label>
               <textarea
                 value={closeComment}
                 onChange={(e) => setCloseComment(e.target.value)}
                 rows={2}
-                className="w-full border border-slate-300 rounded p-2 text-xs"
+                className="w-full border border-line-strong rounded p-2 text-xs"
                 placeholder="Enter cancellation reason..."
                 required
               />
             </div>
 
-            <div className="flex justify-end gap-2 pt-2 border-t border-slate-200">
+            <div className="flex justify-end gap-2 pt-2 border-t border-line">
               <button
                 type="button"
                 onClick={() => setCloseModal(null)}
-                className="px-3 py-1.5 border border-slate-200 rounded text-slate-600"
+                className="px-3 py-1.5 border border-line rounded text-ink-muted"
               >
                 Back
               </button>
@@ -2356,35 +2416,35 @@ export default function PurchaseRequisitionsPage() {
       >
         {reverseModal && (
           <div className="space-y-3 text-xs">
-            <p className="text-slate-700">
+            <p className="text-ink-muted">
               You are about to reverse requisition{" "}
-              <strong className="text-amber-700 font-mono">{reverseModal.requisitionNumber}</strong>{" "}
+              <strong className="text-amber-700 dark:text-amber-300 font-mono">{reverseModal.requisitionNumber}</strong>{" "}
               (Current Status: <strong>{reverseModal.status}</strong>).
             </p>
-            <p className="text-[11px] text-slate-500">
+            <p className="text-[11px] text-ink-faint">
               The status will be reset back to <strong>SUBMITTED</strong>, allowing procurement
               managers to re-evaluate prices, change item quantities, or request revisions.
             </p>
 
             <div>
-              <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+              <label className="block text-[11px] font-semibold text-ink-muted mb-1">
                 Revision / Reversal Comments *
               </label>
               <textarea
                 value={reverseComment}
                 onChange={(e) => setReverseComment(e.target.value)}
                 rows={2}
-                className="w-full border border-slate-300 rounded p-2 text-xs"
+                className="w-full border border-line-strong rounded p-2 text-xs"
                 placeholder="Enter reason for reverting status..."
                 required
               />
             </div>
 
-            <div className="flex justify-end gap-2 pt-2 border-t border-slate-200">
+            <div className="flex justify-end gap-2 pt-2 border-t border-line">
               <button
                 type="button"
                 onClick={() => setReverseModal(null)}
-                className="px-3 py-1.5 border border-slate-200 rounded text-slate-600"
+                className="px-3 py-1.5 border border-line rounded text-ink-muted"
               >
                 Back
               </button>

@@ -32,9 +32,7 @@ import { usePurchasePermissions } from "@/features/purchase/lib/usePurchasePermi
 import {
   PurchaseReturn,
   GoodsReceipt,
-  Supplier,
   Warehouse,
-  Item,
   Office,
 } from "@bridgeone/contracts";
 
@@ -117,7 +115,6 @@ export default function PurchaseReturnsPage() {
   // Modals state
   const [fullReturnTarget, setFullReturnTarget] = useState<ReceivedRow | null>(null);
   const [partialReturnTarget, setPartialReturnTarget] = useState<ReceivedRow | null>(null);
-  const [isReturnWithoutRefOpen, setIsReturnWithoutRefOpen] = useState(false);
   const [viewReturnTarget, setViewReturnTarget] = useState<ReturnRow | null>(null);
   const [printReturnTarget, setPrintReturnTarget] = useState<ReturnRow | null>(null);
   const [cancelReturnTarget, setCancelReturnTarget] = useState<ReturnRow | null>(null);
@@ -139,15 +136,6 @@ export default function PurchaseReturnsPage() {
     }>
   >([]);
 
-  // Return Without Ref Form State
-  const [noRefSupplierId, setNoRefSupplierId] = useState("");
-  const [noRefWarehouseId, setNoRefWarehouseId] = useState("");
-  const [noRefDate, setNoRefDate] = useState(localToday);
-  const [noRefItemId, setNoRefItemId] = useState("");
-  const [noRefUnitPrice, setNoRefUnitPrice] = useState(0);
-  const [noRefRemarks, setNoRefRemarks] = useState("");
-  const [noRefQty, setNoRefQty] = useState(1);
-
   // API Queries with TanStack
   const { data: context } = useQuery<PrintHeaderContext>({
     queryKey: ["context"],
@@ -166,9 +154,7 @@ export default function PurchaseReturnsPage() {
   });
 
   const { data: offices } = useQuery<Office[]>({ queryKey: ["offices"], queryFn: () => fetchApi("/master/offices") });
-  const { data: suppliers } = useQuery<Supplier[]>({ queryKey: ["suppliers"], queryFn: () => fetchApi("/master/suppliers") });
   const { data: warehouses } = useQuery<Warehouse[]>({ queryKey: ["warehouses"], queryFn: () => fetchApi("/master/warehouses") });
-  const { data: itemsCatalog } = useQuery<Item[]>({ queryKey: ["items"], queryFn: () => fetchApi("/master/items") });
 
   // Lists come from the server: receipts that can be returned, and posted returns.
   const receivedList = useMemo<ReceivedRow[]>(
@@ -236,7 +222,6 @@ export default function PurchaseReturnsPage() {
       for (const key of PURCHASE_QUERY_KEYS) queryClient.invalidateQueries({ queryKey: [key] });
       setFullReturnTarget(null);
       setPartialReturnTarget(null);
-      setIsReturnWithoutRefOpen(false);
       setActiveTab("RETURN_LIST");
       toast.success(`Return ${data.returnNumber} posted. Stock and supplier balance updated.`, { title: "Purchase Return Posted" });
     },
@@ -327,22 +312,6 @@ export default function PurchaseReturnsPage() {
     submitReturn(partialReturnTarget.grnId, today(), partialReturnItems);
   };
 
-  // Submit Return Without Ref: stock leaves the selected warehouse.
-  const handleConfirmReturnWithoutRef = (e: React.FormEvent) => {
-    e.preventDefault();
-    const item = itemsCatalog?.find((i) => i.id === noRefItemId);
-    if (!item) {
-      toast.error("Select the item being returned.", { title: "Purchase Return" });
-      return;
-    }
-    submitReturn(
-      "WITHOUT_REF",
-      noRefDate,
-      [{ itemId: item.id, itemCode: item.code, itemName: item.name, uom: item.uom, receivedQty: noRefQty, returnQty: noRefQty, unitPrice: noRefUnitPrice, reason: noRefRemarks }],
-      { supplierId: noRefSupplierId, warehouseId: noRefWarehouseId, remarks: noRefRemarks },
-    );
-  };
-
   // Filtered Received List
   const filteredReceived = useMemo(() => {
     return receivedList.filter((row) => {
@@ -410,13 +379,15 @@ export default function PurchaseReturnsPage() {
   };
 
   return (
-    <div className="space-y-3 p-1">
+    <div className="flex flex-col md:h-[calc(100dvh-3.5rem)] md:overflow-hidden font-sans p-3 space-y-2.5">
+      {/* Fixed Top Controls (header + tabs) */}
+      <div className="shrink-0 space-y-2.5">
       {/* ------------------------------------------------------------- */}
       {/* 1. TOP HEADER (Exact Unified Box Layout) */}
       {/* ------------------------------------------------------------- */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-3 rounded border border-slate-200/90 shadow-2xs">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-surface p-3 rounded border border-line/90 shadow-2xs">
         <div>
-          <h1 className="text-xl font-bold text-slate-900 tracking-tight">Purchase Return</h1>
+          <h1 className="text-xl font-bold text-ink tracking-tight">Purchase Return</h1>
         </div>
 
         <div className="flex items-center gap-2">
@@ -427,9 +398,9 @@ export default function PurchaseReturnsPage() {
               placeholder="Search...."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-56 sm:w-64 h-9 pl-3 pr-8 text-xs border border-slate-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 bg-white placeholder-slate-400"
+              className="w-56 sm:w-64 h-9 pl-3 pr-8 text-xs border border-line-strong rounded focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 bg-surface placeholder:text-ink-faint"
             />
-            <Search className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+            <Search className="w-3.5 h-3.5 text-ink-faint absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
           </div>
 
           {/* Export to CSV / Excel Button */}
@@ -462,14 +433,14 @@ export default function PurchaseReturnsPage() {
       {/* ------------------------------------------------------------- */}
       {/* 2. TABS NAVIGATION */}
       {/* ------------------------------------------------------------- */}
-      <div className="flex border-b border-slate-200 gap-8 text-xs font-bold uppercase tracking-wider">
+      <div className="flex border-b border-line gap-8 text-xs font-bold uppercase tracking-wider">
         <button
           type="button"
           onClick={() => setActiveTab("RECEIVED_LIST")}
           className={`pb-2 transition ${
             activeTab === "RECEIVED_LIST"
-              ? "border-b-2 border-blue-600 text-blue-600 font-extrabold"
-              : "text-slate-500 hover:text-slate-800"
+              ? "border-b-2 border-blue-600 text-blue-600 dark:text-blue-400 font-extrabold"
+              : "text-ink-faint hover:text-ink"
           }`}
         >
           RECEIVED LIST
@@ -480,38 +451,39 @@ export default function PurchaseReturnsPage() {
           onClick={() => setActiveTab("RETURN_LIST")}
           className={`pb-2 transition ${
             activeTab === "RETURN_LIST"
-              ? "border-b-2 border-blue-600 text-blue-600 font-extrabold"
-              : "text-slate-500 hover:text-slate-800"
+              ? "border-b-2 border-blue-600 text-blue-600 dark:text-blue-400 font-extrabold"
+              : "text-ink-faint hover:text-ink"
           }`}
         >
           RETURN LIST
         </button>
+      </div>
       </div>
 
       {/* ============================================================= */}
       {/* TAB 1: RECEIVED LIST (SCREENSHOT 1) */}
       {/* ============================================================= */}
       {activeTab === "RECEIVED_LIST" && (
-        <div className="space-y-2">
-          {/* Table Container with All Borders */}
-          <div className="border border-slate-300 bg-white rounded shadow-2xs overflow-x-auto">
+        <div className="flex-1 min-h-0 flex flex-col space-y-2">
+          {/* Table Container with All Borders (Only Table Scrolls) */}
+          <div className="flex-1 min-h-0 border border-line-strong bg-surface rounded shadow-2xs overflow-auto">
             <table className="erp-table erp-table-compact w-full text-left text-xs border-collapse">
-              <thead className="bg-[#e6f2fb] text-slate-800 font-semibold text-[11px] border-b border-slate-300 select-none">
+              <thead className="bg-grid-head text-ink font-semibold text-[11px] border-b border-line-strong select-none">
                 <tr>
-                  <th className="p-2 border border-slate-300 w-10 text-center">SL</th>
-                  <th className="p-2 border border-slate-300 w-24">Receive Date</th>
-                  <th className="p-2 border border-slate-300 w-36">PO No</th>
-                  <th className="p-2 border border-slate-300 w-44">Return Invoice No</th>
-                  <th className="p-2 border border-slate-300">Remarks</th>
-                  <th className="p-2 border border-slate-300">Supplier</th>
-                  <th className="p-2 border border-slate-300 w-28 text-right">Amount</th>
-                  <th className="p-2 border border-slate-300 w-24 text-center">Return</th>
+                  <th className="p-2 border border-line-strong w-10 text-center">SL</th>
+                  <th className="p-2 border border-line-strong w-24">Receive Date</th>
+                  <th className="p-2 border border-line-strong w-36">PO No</th>
+                  <th className="p-2 border border-line-strong w-44">Return Invoice No</th>
+                  <th className="p-2 border border-line-strong">Remarks</th>
+                  <th className="p-2 border border-line-strong">Supplier</th>
+                  <th className="p-2 border border-line-strong w-28 text-right">Amount</th>
+                  <th className="p-2 border border-line-strong w-24 text-center">Return</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-200 text-[11px] text-slate-800">
+              <tbody className="divide-y divide-line text-[11px] text-ink">
                 {filteredReceived.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="p-8 text-center text-slate-400">
+                    <td colSpan={8} className="p-8 text-center text-ink-faint">
                       No eligible receipts found for return.
                     </td>
                   </tr>
@@ -519,38 +491,38 @@ export default function PurchaseReturnsPage() {
                   paginatedReceived.map((row, idx) => {
                     const serialNo = (receivedPage - 1) * receivedRowsPerPage + idx + 1;
                     return (
-                      <tr key={row.sl || idx} className="hover:bg-slate-50/80 transition-colors">
-                        <td className="p-2 border border-slate-300 text-center font-mono text-slate-600">
+                      <tr key={row.sl || idx} className="hover:bg-canvas/80 transition-colors">
+                        <td className="p-2 border border-line-strong text-center font-mono text-ink-muted">
                           {serialNo}
                         </td>
-                        <td className="p-2 border border-slate-300 whitespace-nowrap text-slate-700">
+                        <td className="p-2 border border-line-strong whitespace-nowrap text-ink-muted">
                           {row.receiveDate}
                         </td>
-                        <td className="p-2 border border-slate-300 font-mono text-slate-800 whitespace-nowrap">
+                        <td className="p-2 border border-line-strong font-mono text-ink whitespace-nowrap">
                           {row.poNo}
                         </td>
-                        <td className="p-2 border border-slate-300 whitespace-nowrap">
-                          <span className="inline-flex items-center gap-1 font-mono text-slate-900 font-medium">
-                            <Truck className="w-3.5 h-3.5 text-emerald-600 inline shrink-0" />
+                        <td className="p-2 border border-line-strong whitespace-nowrap">
+                          <span className="inline-flex items-center gap-1 font-mono text-ink font-medium">
+                            <Truck className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 inline shrink-0" />
                             <span>{row.returnInvoiceNo}</span>
                           </span>
                         </td>
-                        <td className="p-2 border border-slate-300 text-slate-600 max-w-xs truncate" title={row.remarks}>
+                        <td className="p-2 border border-line-strong text-ink-muted max-w-xs truncate" title={row.remarks}>
                           {row.remarks}
                         </td>
-                        <td className="p-2 border border-slate-300 text-slate-900" title={row.supplier}>
+                        <td className="p-2 border border-line-strong text-ink" title={row.supplier}>
                           {row.supplier}
                         </td>
-                        <td className="p-2 border border-slate-300 text-right font-mono font-medium text-slate-900 whitespace-nowrap">
+                        <td className="p-2 border border-line-strong text-right font-mono font-medium text-ink whitespace-nowrap">
                           {formatCurrency(row.amount)}
                         </td>
-                        <td className="p-2 border border-slate-300 text-center whitespace-nowrap">
+                        <td className="p-2 border border-line-strong text-center whitespace-nowrap">
                           <div className="flex items-center justify-center gap-1.5 text-xs">
                             <button
                               type="button"
                               disabled={!perms.returns.create}
                               onClick={() => handleOpenFullReturn(row)}
-                              className="inline-flex items-center min-h-6 px-1 rounded text-blue-600 hover:underline font-medium hover:text-blue-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/20 disabled:opacity-40 disabled:pointer-events-none"
+                              className="inline-flex items-center min-h-6 px-1 rounded text-blue-600 dark:text-blue-400 hover:underline font-medium hover:text-blue-800 dark:hover:text-blue-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/20 disabled:opacity-40 disabled:pointer-events-none"
                               title={!perms.returns.create ? "Requires Create permission in Configuration" : "Return all items from this receipt"}
                             >
                               Full
@@ -560,7 +532,7 @@ export default function PurchaseReturnsPage() {
                               type="button"
                               disabled={!perms.returns.create}
                               onClick={() => handleOpenPartialReturn(row)}
-                              className="inline-flex items-center min-h-6 px-1 rounded text-blue-600 hover:underline font-medium hover:text-blue-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/20 disabled:opacity-40 disabled:pointer-events-none"
+                              className="inline-flex items-center min-h-6 px-1 rounded text-blue-600 dark:text-blue-400 hover:underline font-medium hover:text-blue-800 dark:hover:text-blue-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/20 disabled:opacity-40 disabled:pointer-events-none"
                               title={!perms.returns.create ? "Requires Create permission in Configuration" : "Select specific items and quantities to return"}
                             >
                               Partial
@@ -576,7 +548,7 @@ export default function PurchaseReturnsPage() {
           </div>
 
           {/* Pagination Footer matching Screenshot 1 */}
-          <div className="flex flex-col sm:flex-row items-center justify-end gap-6 text-xs text-slate-600 pt-1 pb-4">
+          <div className="shrink-0 flex flex-col sm:flex-row items-center justify-end gap-6 text-xs text-ink-muted pt-1">
             <div className="flex items-center gap-2">
               <span>Rows per page:</span>
               <select
@@ -585,8 +557,9 @@ export default function PurchaseReturnsPage() {
                   setReceivedRowsPerPage(Number(e.target.value));
                   setReceivedPage(1);
                 }}
-                className="border border-slate-300 rounded px-1.5 py-0.5 bg-white text-xs"
+                className="border border-line-strong rounded px-1.5 py-0.5 bg-surface text-xs"
               >
+                <option value={10}>10</option>
                 <option value={20}>20</option>
                 <option value={50}>50</option>
                 <option value={100}>100</option>
@@ -606,7 +579,7 @@ export default function PurchaseReturnsPage() {
                   type="button"
                   disabled={receivedPage <= 1}
                   onClick={() => setReceivedPage((p) => Math.max(1, p - 1))}
-                  className="p-1 border border-slate-200 rounded text-slate-400 hover:text-slate-700 disabled:opacity-40"
+                  className="p-1 border border-line rounded text-ink-faint hover:text-ink-muted disabled:opacity-40"
                 >
                   <ChevronLeft className="w-4 h-4" />
                 </button>
@@ -614,7 +587,7 @@ export default function PurchaseReturnsPage() {
                   type="button"
                   disabled={receivedPage >= totalReceivedPages}
                   onClick={() => setReceivedPage((p) => Math.min(totalReceivedPages, p + 1))}
-                  className="p-1 border border-slate-200 rounded text-slate-400 hover:text-slate-700 disabled:opacity-40"
+                  className="p-1 border border-line rounded text-ink-faint hover:text-ink-muted disabled:opacity-40"
                 >
                   <ChevronRight className="w-4 h-4" />
                 </button>
@@ -628,16 +601,16 @@ export default function PurchaseReturnsPage() {
       {/* TAB 2: RETURN LIST (SCREENSHOT 2) */}
       {/* ============================================================= */}
       {activeTab === "RETURN_LIST" && (
-        <div className="space-y-2">
+        <div className="flex-1 min-h-0 flex flex-col space-y-2">
           {/* Filter Card matching Screenshot 2 */}
-          <div className="bg-slate-50/60 p-3 rounded border border-slate-200 grid grid-cols-1 sm:grid-cols-5 gap-3 items-end text-xs">
+          <div className="shrink-0 bg-canvas/60 p-3 rounded border border-line grid grid-cols-1 sm:grid-cols-5 gap-3 items-end text-xs">
             {/* Office Filter */}
             <div>
-              <label className="block text-[11px] text-slate-600 mb-1 font-medium">Office</label>
+              <label className="block text-[11px] text-ink-muted mb-1 font-medium">Office</label>
               <select
                 value={filterOffice}
                 onChange={(e) => setFilterOffice(e.target.value)}
-                className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white text-xs focus:ring-1 focus:ring-blue-500"
+                className="w-full border border-line-strong rounded px-2.5 py-1.5 bg-surface text-xs focus:ring-1 focus:ring-blue-500"
               >
                 <option value="All">All</option>
                 {offices?.map((o) => (
@@ -650,11 +623,11 @@ export default function PurchaseReturnsPage() {
 
             {/* Status Filter */}
             <div>
-              <label className="block text-[11px] text-slate-600 mb-1 font-medium">Status</label>
+              <label className="block text-[11px] text-ink-muted mb-1 font-medium">Status</label>
               <select
                 value={filterStatus}
                 onChange={(e) => setFilterStatus(e.target.value)}
-                className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white text-xs focus:ring-1 focus:ring-blue-500"
+                className="w-full border border-line-strong rounded px-2.5 py-1.5 bg-surface text-xs focus:ring-1 focus:ring-blue-500"
               >
                 <option value="All">All</option>
                 <option value="Approved">Approved</option>
@@ -664,23 +637,23 @@ export default function PurchaseReturnsPage() {
 
             {/* From Date */}
             <div>
-              <label className="block text-[11px] text-slate-600 mb-1 font-medium">From Date</label>
+              <label className="block text-[11px] text-ink-muted mb-1 font-medium">From Date</label>
               <input
                 type="date"
                 value={filterFromDate}
                 onChange={(e) => setFilterFromDate(e.target.value)}
-                className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white text-xs focus:ring-1 focus:ring-blue-500"
+                className="w-full border border-line-strong rounded px-2.5 py-1.5 bg-surface text-xs focus:ring-1 focus:ring-blue-500"
               />
             </div>
 
             {/* To Date */}
             <div>
-              <label className="block text-[11px] text-slate-600 mb-1 font-medium">To Date</label>
+              <label className="block text-[11px] text-ink-muted mb-1 font-medium">To Date</label>
               <input
                 type="date"
                 value={filterToDate}
                 onChange={(e) => setFilterToDate(e.target.value)}
-                className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white text-xs focus:ring-1 focus:ring-blue-500"
+                className="w-full border border-line-strong rounded px-2.5 py-1.5 bg-surface text-xs focus:ring-1 focus:ring-blue-500"
               />
             </div>
 
@@ -698,28 +671,28 @@ export default function PurchaseReturnsPage() {
             </div>
           </div>
 
-          {/* Table Container with All Borders */}
-          <div className="border border-slate-300 bg-white rounded shadow-2xs overflow-x-auto">
+          {/* Table Container with All Borders (Only Table Scrolls) */}
+          <div className="flex-1 min-h-0 border border-line-strong bg-surface rounded shadow-2xs overflow-auto">
             <table className="erp-table erp-table-compact w-full text-left text-xs border-collapse">
-              <thead className="bg-[#e6f2fb] text-slate-800 font-semibold text-[11px] border-b border-slate-300 select-none">
+              <thead className="bg-grid-head text-ink font-semibold text-[11px] border-b border-line-strong select-none">
                 <tr>
-                  <th className="p-2 border border-slate-300 w-10 text-center">SL</th>
-                  <th className="p-2 border border-slate-300 w-24 text-center">Actions</th>
-                  <th className="p-2 border border-slate-300 w-36">Office Name</th>
-                  <th className="p-2 border border-slate-300 w-24">Return Date</th>
-                  <th className="p-2 border border-slate-300 w-24">PO No</th>
-                  <th className="p-2 border border-slate-300 w-44">Return No</th>
-                  <th className="p-2 border border-slate-300 w-36">Remarks</th>
-                  <th className="p-2 border border-slate-300">Supplier</th>
-                  <th className="p-2 border border-slate-300 w-28 text-right">Amount</th>
-                  <th className="p-2 border border-slate-300 w-24 text-center">Return Type</th>
-                  <th className="p-2 border border-slate-300 w-24 text-center">Status</th>
+                  <th className="p-2 border border-line-strong w-10 text-center">SL</th>
+                  <th className="p-2 border border-line-strong w-24 text-center">Actions</th>
+                  <th className="p-2 border border-line-strong w-36">Office Name</th>
+                  <th className="p-2 border border-line-strong w-24">Return Date</th>
+                  <th className="p-2 border border-line-strong w-24">PO No</th>
+                  <th className="p-2 border border-line-strong w-44">Return No</th>
+                  <th className="p-2 border border-line-strong w-36">Remarks</th>
+                  <th className="p-2 border border-line-strong">Supplier</th>
+                  <th className="p-2 border border-line-strong w-28 text-right">Amount</th>
+                  <th className="p-2 border border-line-strong w-24 text-center">Return Type</th>
+                  <th className="p-2 border border-line-strong w-24 text-center">Status</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-200 text-[11px] text-slate-800">
+              <tbody className="divide-y divide-line text-[11px] text-ink">
                 {filteredReturns.length === 0 ? (
                   <tr>
-                    <td colSpan={11} className="p-8 text-center text-slate-400">
+                    <td colSpan={11} className="p-8 text-center text-ink-faint">
                       No purchase return records found matching criteria.
                     </td>
                   </tr>
@@ -727,18 +700,18 @@ export default function PurchaseReturnsPage() {
                   paginatedReturns.map((row, idx) => {
                     const serialNo = (returnPage - 1) * returnRowsPerPage + idx + 1;
                     return (
-                      <tr key={row.sl || idx} className="hover:bg-slate-50/80 transition-colors">
-                        <td className="p-2 border border-slate-300 text-center font-mono text-slate-600">
+                      <tr key={row.sl || idx} className="hover:bg-canvas/80 transition-colors">
+                        <td className="p-2 border border-line-strong text-center font-mono text-ink-muted">
                           {serialNo}
                         </td>
 
                         {/* Actions: View, Print, Edit */}
-                        <td className="p-2 border border-slate-300 text-center whitespace-nowrap">
-                          <div className="flex items-center justify-center gap-2 text-slate-600">
+                        <td className="p-2 border border-line-strong text-center whitespace-nowrap">
+                          <div className="row-actions flex items-center justify-center gap-2 text-ink-muted">
                             <button
                               type="button"
                               onClick={() => setViewReturnTarget(row)}
-                              className="p-1 hover:text-blue-600 transition"
+                              className="p-1 hover:text-blue-600 dark:hover:text-blue-400 transition"
                               title="View Return Note"
                             >
                               <Eye className="w-3.5 h-3.5" />
@@ -746,7 +719,7 @@ export default function PurchaseReturnsPage() {
                             <button
                               type="button"
                               onClick={() => setPrintReturnTarget(row)}
-                              className="p-1 hover:text-blue-600 transition"
+                              className="p-1 hover:text-blue-600 dark:hover:text-blue-400 transition"
                               title="Print Debit Note / Return Voucher"
                             >
                               <Printer className="w-3.5 h-3.5" />
@@ -758,7 +731,7 @@ export default function PurchaseReturnsPage() {
                                 setCancelReason("");
                               }}
                               disabled={row.status === "Cancelled" || !perms.returns.delete}
-                              className="p-1 hover:text-rose-600 transition disabled:opacity-30 disabled:pointer-events-none"
+                              className="p-1 hover:text-rose-600 dark:hover:text-rose-400 transition disabled:opacity-30 disabled:pointer-events-none"
                               title={!perms.returns.delete ? "Requires Delete permission in Configuration" : "Cancel return (goods come back into stock)"}
                               aria-label={`Cancel return ${row.returnNo}`}
                             >
@@ -767,37 +740,37 @@ export default function PurchaseReturnsPage() {
                           </div>
                         </td>
 
-                        <td className="p-2 border border-slate-300 text-slate-700 whitespace-nowrap">
+                        <td className="p-2 border border-line-strong text-ink-muted whitespace-nowrap">
                           {row.officeName}
                         </td>
-                        <td className="p-2 border border-slate-300 whitespace-nowrap text-slate-700">
+                        <td className="p-2 border border-line-strong whitespace-nowrap text-ink-muted">
                           {row.returnDate}
                         </td>
-                        <td className="p-2 border border-slate-300 font-mono text-slate-800 whitespace-nowrap">
+                        <td className="p-2 border border-line-strong font-mono text-ink whitespace-nowrap">
                           {row.poNo}
                         </td>
-                        <td className="p-2 border border-slate-300 whitespace-nowrap">
-                          <span className="inline-flex items-center gap-1 font-mono text-slate-900 font-medium">
-                            <Truck className="w-3.5 h-3.5 text-emerald-600 inline shrink-0" />
+                        <td className="p-2 border border-line-strong whitespace-nowrap">
+                          <span className="inline-flex items-center gap-1 font-mono text-ink font-medium">
+                            <Truck className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 inline shrink-0" />
                             <span>{row.returnNo}</span>
                           </span>
                         </td>
-                        <td className="p-2 border border-slate-300 text-slate-600 max-w-xs truncate" title={row.remarks}>
+                        <td className="p-2 border border-line-strong text-ink-muted max-w-xs truncate" title={row.remarks}>
                           {row.remarks}
                         </td>
-                        <td className="p-2 border border-slate-300 text-slate-900" title={row.supplier}>
+                        <td className="p-2 border border-line-strong text-ink" title={row.supplier}>
                           {row.supplier}
                         </td>
-                        <td className="p-2 border border-slate-300 text-right font-mono font-medium text-slate-900 whitespace-nowrap">
+                        <td className="p-2 border border-line-strong text-right font-mono font-medium text-ink whitespace-nowrap">
                           {formatCurrency(row.amount)}
                         </td>
-                        <td className="p-2 border border-slate-300 text-center whitespace-nowrap">
-                          <span className="text-amber-700 font-medium">
+                        <td className="p-2 border border-line-strong text-center whitespace-nowrap">
+                          <span className="text-amber-700 dark:text-amber-300 font-medium">
                             {row.returnType}
                           </span>
                         </td>
-                        <td className="p-2 border border-slate-300 text-center whitespace-nowrap">
-                          <span className={row.status === "Cancelled" ? "text-rose-600 font-semibold" : "text-emerald-700 font-semibold"}>
+                        <td className="p-2 border border-line-strong text-center whitespace-nowrap">
+                          <span className={row.status === "Cancelled" ? "text-rose-600 dark:text-rose-400 font-semibold" : "text-emerald-700 dark:text-emerald-300 font-semibold"}>
                             {row.status}
                           </span>
                         </td>
@@ -810,7 +783,7 @@ export default function PurchaseReturnsPage() {
           </div>
 
           {/* Pagination Footer matching Screenshot 2 */}
-          <div className="flex flex-col sm:flex-row items-center justify-end gap-6 text-xs text-slate-600 pt-1 pb-4">
+          <div className="shrink-0 flex flex-col sm:flex-row items-center justify-end gap-6 text-xs text-ink-muted pt-1">
             <div className="flex items-center gap-2">
               <span>Rows per page:</span>
               <select
@@ -819,8 +792,9 @@ export default function PurchaseReturnsPage() {
                   setReturnRowsPerPage(Number(e.target.value));
                   setReturnPage(1);
                 }}
-                className="border border-slate-300 rounded px-1.5 py-0.5 bg-white text-xs"
+                className="border border-line-strong rounded px-1.5 py-0.5 bg-surface text-xs"
               >
+                <option value={10}>10</option>
                 <option value={20}>20</option>
                 <option value={50}>50</option>
                 <option value={100}>100</option>
@@ -840,7 +814,7 @@ export default function PurchaseReturnsPage() {
                   type="button"
                   disabled={returnPage <= 1}
                   onClick={() => setReturnPage((p) => Math.max(1, p - 1))}
-                  className="p-1 border border-slate-200 rounded text-slate-400 hover:text-slate-700 disabled:opacity-40"
+                  className="p-1 border border-line rounded text-ink-faint hover:text-ink-muted disabled:opacity-40"
                 >
                   <ChevronLeft className="w-4 h-4" />
                 </button>
@@ -848,7 +822,7 @@ export default function PurchaseReturnsPage() {
                   type="button"
                   disabled={returnPage >= totalReturnPages}
                   onClick={() => setReturnPage((p) => Math.min(totalReturnPages, p + 1))}
-                  className="p-1 border border-slate-200 rounded text-slate-400 hover:text-slate-700 disabled:opacity-40"
+                  className="p-1 border border-line rounded text-ink-faint hover:text-ink-muted disabled:opacity-40"
                 >
                   <ChevronRight className="w-4 h-4" />
                 </button>
@@ -870,42 +844,42 @@ export default function PurchaseReturnsPage() {
       >
         {fullReturnTarget && (
           <div className="space-y-4 text-xs">
-            <div className="p-3 bg-rose-50 border border-rose-200 rounded text-rose-800 space-y-1">
+            <div className="p-3 bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/30 rounded text-rose-800 dark:text-rose-300 space-y-1">
               <div className="font-bold flex items-center gap-1.5">
-                <AlertTriangle className="w-4 h-4 text-rose-600" />
+                <AlertTriangle className="w-4 h-4 text-rose-600 dark:text-rose-400" />
                 <span>Confirm Full Consignment Return</span>
               </div>
-              <p className="text-[11px] text-rose-700">
+              <p className="text-[11px] text-rose-700 dark:text-rose-300">
                 This action will reverse 100% of the received inventory from warehouse, generate a debit note voucher, and reduce supplier payables by <strong>BDT {formatCurrency(fullReturnTarget.amount)}</strong>.
               </p>
             </div>
 
-            <div className="grid grid-cols-2 gap-3 bg-slate-50 p-2.5 rounded border border-slate-200">
+            <div className="grid grid-cols-2 gap-3 bg-canvas p-2.5 rounded border border-line">
               <div>
-                <span className="text-[10px] text-slate-400 block font-bold uppercase">PO Reference</span>
-                <span className="font-semibold text-slate-800 font-mono">{fullReturnTarget.poNo}</span>
+                <span className="text-[10px] text-ink-faint block font-bold uppercase">PO Reference</span>
+                <span className="font-semibold text-ink font-mono">{fullReturnTarget.poNo}</span>
               </div>
               <div>
-                <span className="text-[10px] text-slate-400 block font-bold uppercase">Receive Date</span>
-                <span className="font-semibold text-slate-800">{fullReturnTarget.receiveDate}</span>
+                <span className="text-[10px] text-ink-faint block font-bold uppercase">Receive Date</span>
+                <span className="font-semibold text-ink">{fullReturnTarget.receiveDate}</span>
               </div>
               <div>
-                <span className="text-[10px] text-slate-400 block font-bold uppercase">Warehouse Office</span>
-                <span className="font-semibold text-slate-800">{fullReturnTarget.office}</span>
+                <span className="text-[10px] text-ink-faint block font-bold uppercase">Warehouse Office</span>
+                <span className="font-semibold text-ink">{fullReturnTarget.office}</span>
               </div>
               <div>
-                <span className="text-[10px] text-slate-400 block font-bold uppercase">Total Refund Amount</span>
-                <span className="font-bold text-rose-700 font-mono">{formatCurrency(fullReturnTarget.amount)}</span>
+                <span className="text-[10px] text-ink-faint block font-bold uppercase">Total Refund Amount</span>
+                <span className="font-bold text-rose-700 dark:text-rose-300 font-mono">{formatCurrency(fullReturnTarget.amount)}</span>
               </div>
             </div>
 
             <div>
-              <label className="block text-slate-700 font-semibold mb-1">Audit Reason for Full Return *</label>
+              <label className="block text-ink-muted font-semibold mb-1">Audit Reason for Full Return *</label>
               <textarea
                 value={fullReturnReason}
                 onChange={(e) => setFullReturnReason(e.target.value)}
                 rows={3}
-                className="w-full border border-slate-300 rounded p-2 text-xs bg-white"
+                className="w-full border border-line-strong rounded p-2 text-xs bg-surface"
                 required
               />
             </div>
@@ -914,7 +888,7 @@ export default function PurchaseReturnsPage() {
               <button
                 type="button"
                 onClick={() => setFullReturnTarget(null)}
-                className="px-4 py-1.5 border border-slate-200 rounded text-slate-600 font-medium"
+                className="px-4 py-1.5 border border-line rounded text-ink-muted font-medium"
               >
                 Cancel
               </button>
@@ -944,41 +918,41 @@ export default function PurchaseReturnsPage() {
       >
         {partialReturnTarget && (
           <div className="space-y-4 text-xs">
-            <div className="bg-slate-50 p-2.5 rounded border border-slate-200 flex justify-between items-center">
+            <div className="bg-canvas p-2.5 rounded border border-line flex justify-between items-center">
               <div>
-                <p className="font-bold text-slate-800">{partialReturnTarget.returnInvoiceNo}</p>
-                <p className="text-[11px] text-slate-500">PO: {partialReturnTarget.poNo} • {partialReturnTarget.supplier}</p>
+                <p className="font-bold text-ink">{partialReturnTarget.returnInvoiceNo}</p>
+                <p className="text-[11px] text-ink-faint">PO: {partialReturnTarget.poNo} • {partialReturnTarget.supplier}</p>
               </div>
               <div className="text-right">
-                <span className="text-[10px] text-slate-400 uppercase font-bold block">Consignment Total</span>
-                <span className="font-bold font-mono text-slate-900">{formatCurrency(partialReturnTarget.amount)}</span>
+                <span className="text-[10px] text-ink-faint uppercase font-bold block">Consignment Total</span>
+                <span className="font-bold font-mono text-ink">{formatCurrency(partialReturnTarget.amount)}</span>
               </div>
             </div>
 
             {/* Line Items Table */}
-            <div className="border border-slate-200 rounded overflow-hidden">
+            <div className="border border-line rounded overflow-hidden">
               <table className="w-full text-left text-xs border-collapse">
-                <thead className="bg-slate-100 text-slate-700 font-semibold text-[11px]">
+                <thead className="bg-control text-ink-muted font-semibold text-[11px]">
                   <tr>
                     <th className="p-2">Item Description</th>
                     <th className="p-2 text-center w-16">UoM</th>
                     <th className="p-2 text-center w-24">Recv Qty</th>
-                    <th className="p-2 w-28 text-center bg-rose-50 text-rose-800">Return Qty *</th>
+                    <th className="p-2 w-28 text-center bg-rose-50 dark:bg-rose-500/10 text-rose-800 dark:text-rose-300">Return Qty *</th>
                     <th className="p-2 w-36">Defect Condition</th>
                     <th className="p-2">Inspection Remarks</th>
                     <th className="p-2 text-right w-28">Debit Amount</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100">
+                <tbody className="divide-y divide-line">
                   {partialReturnItems.map((item, idx) => (
-                    <tr key={idx} className="hover:bg-slate-50">
+                    <tr key={idx} className="hover:bg-canvas">
                       <td className="p-2">
-                        <div className="font-semibold text-slate-900">{item.itemName}</div>
-                        <div className="font-mono text-[10px] text-slate-400">{item.itemCode}</div>
+                        <div className="font-semibold text-ink">{item.itemName}</div>
+                        <div className="font-mono text-[10px] text-ink-faint">{item.itemCode}</div>
                       </td>
-                      <td className="p-2 text-center font-mono text-slate-600">{item.uom}</td>
-                      <td className="p-2 text-center font-mono font-bold text-slate-700">{item.receivedQty}</td>
-                      <td className="p-2 bg-rose-50/50">
+                      <td className="p-2 text-center font-mono text-ink-muted">{item.uom}</td>
+                      <td className="p-2 text-center font-mono font-bold text-ink-muted">{item.receivedQty}</td>
+                      <td className="p-2 bg-rose-50/50 dark:bg-rose-500/10">
                         <input
                           type="number"
                           min={1}
@@ -990,7 +964,7 @@ export default function PurchaseReturnsPage() {
                             updated[idx].returnQty = val;
                             setPartialReturnItems(updated);
                           }}
-                          className="w-full border border-rose-300 rounded p-1 text-center font-bold text-rose-700 bg-white font-mono"
+                          className="w-full border border-rose-300 dark:border-rose-500/30 rounded p-1 text-center font-bold text-rose-700 dark:text-rose-300 bg-surface font-mono"
                           required
                         />
                       </td>
@@ -1002,7 +976,7 @@ export default function PurchaseReturnsPage() {
                             updated[idx].condition = e.target.value as any;
                             setPartialReturnItems(updated);
                           }}
-                          className="w-full border border-slate-300 rounded p-1 text-xs bg-white"
+                          className="w-full border border-line-strong rounded p-1 text-xs bg-surface"
                         >
                           <option value="DAMAGED">Transit Damaged</option>
                           <option value="DEFECTIVE">QC Defect</option>
@@ -1020,10 +994,10 @@ export default function PurchaseReturnsPage() {
                             updated[idx].reason = e.target.value;
                             setPartialReturnItems(updated);
                           }}
-                          className="w-full border border-slate-300 rounded p-1 text-xs bg-white"
+                          className="w-full border border-line-strong rounded p-1 text-xs bg-surface"
                         />
                       </td>
-                      <td className="p-2 text-right font-mono font-bold text-rose-700 whitespace-nowrap">
+                      <td className="p-2 text-right font-mono font-bold text-rose-700 dark:text-rose-300 whitespace-nowrap">
                         {formatCurrency(item.returnQty * item.unitPrice)}
                       </td>
                     </tr>
@@ -1032,9 +1006,9 @@ export default function PurchaseReturnsPage() {
               </table>
             </div>
 
-            <div className="flex justify-between items-center bg-slate-50 p-2.5 rounded border border-slate-200">
-              <span className="font-semibold text-slate-700">Total Return Credit Value:</span>
-              <span className="text-base font-bold font-mono text-rose-700">
+            <div className="flex justify-between items-center bg-canvas p-2.5 rounded border border-line">
+              <span className="font-semibold text-ink-muted">Total Return Credit Value:</span>
+              <span className="text-base font-bold font-mono text-rose-700 dark:text-rose-300">
                 {formatCurrency(partialReturnItems.reduce((acc, it) => acc + it.returnQty * it.unitPrice, 0))}
               </span>
             </div>
@@ -1043,7 +1017,7 @@ export default function PurchaseReturnsPage() {
               <button
                 type="button"
                 onClick={() => setPartialReturnTarget(null)}
-                className="px-4 py-1.5 border border-slate-200 rounded text-slate-600 font-medium"
+                className="px-4 py-1.5 border border-line rounded text-ink-muted font-medium"
               >
                 Cancel
               </button>
@@ -1062,141 +1036,6 @@ export default function PurchaseReturnsPage() {
       </ModalDialog>
 
       {/* ============================================================= */}
-      {/* 5. RETURN WITHOUT REF MODAL */}
-      {/* ============================================================= */}
-      <ModalDialog
-        isOpen={isReturnWithoutRefOpen}
-        onClose={() => setIsReturnWithoutRefOpen(false)}
-        title="Direct Purchase Return (Without GRN Ref)"
-        subtitle="Issue outward stock return & debit note without previous receiving reference"
-        maxWidth="2xl"
-      >
-        <form onSubmit={handleConfirmReturnWithoutRef} className="space-y-4 text-xs">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <div>
-              <label className="block text-slate-700 font-semibold mb-1">Supplier / Vendor *</label>
-              <select
-                value={noRefSupplierId}
-                onChange={(e) => setNoRefSupplierId(e.target.value)}
-                className="w-full border border-slate-300 rounded p-2 text-xs bg-white"
-                required
-              >
-                <option value="">Select supplier</option>
-                {suppliers?.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-slate-700 font-semibold mb-1">Return From Warehouse *</label>
-              <select
-                value={noRefWarehouseId}
-                onChange={(e) => setNoRefWarehouseId(e.target.value)}
-                className="w-full border border-slate-300 rounded p-2 text-xs bg-white"
-                required
-              >
-                <option value="">Select warehouse</option>
-                {warehouses?.map((w) => (
-                  <option key={w.id} value={w.id}>
-                    {w.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-slate-700 font-semibold mb-1">Return Date *</label>
-              <input
-                type="date"
-                value={noRefDate}
-                onChange={(e) => setNoRefDate(e.target.value)}
-                className="w-full border border-slate-300 rounded p-2 text-xs bg-white"
-                required
-              />
-            </div>
-
-            <div>
-              <label className="block text-slate-700 font-semibold mb-1">Unit Price (BDT) *</label>
-              <input
-                type="number"
-                min="0"
-                step="0.01"
-                value={noRefUnitPrice}
-                onChange={(e) => setNoRefUnitPrice(Number(e.target.value))}
-                className="w-full border border-slate-300 rounded p-2 text-xs bg-white font-mono font-bold"
-                required
-              />
-              <p className="mt-1 text-slate-500">Return value: {formatCurrency(noRefUnitPrice * noRefQty)}</p>
-            </div>
-
-            <div>
-              <label className="block text-slate-700 font-semibold mb-1">Item *</label>
-              <select
-                value={noRefItemId}
-                onChange={(e) => {
-                  setNoRefItemId(e.target.value);
-                  const picked = itemsCatalog?.find((i) => i.id === e.target.value);
-                  if (picked) setNoRefUnitPrice(picked.standardPrice);
-                }}
-                className="w-full border border-slate-300 rounded p-2 text-xs bg-white"
-                required
-              >
-                <option value="">Select item</option>
-                {itemsCatalog?.map((i) => (
-                  <option key={i.id} value={i.id}>
-                    {i.code} · {i.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-slate-700 font-semibold mb-1">Quantity</label>
-              <input
-                type="number"
-                min="1"
-                value={noRefQty}
-                onChange={(e) => setNoRefQty(Number(e.target.value))}
-                className="w-full border border-slate-300 rounded p-2 text-xs bg-white font-mono"
-                required
-              />
-            </div>
-
-            <div className="md:col-span-2">
-              <label className="block text-slate-700 font-semibold mb-1">Remarks / Rejection Grounds</label>
-              <input
-                type="text"
-                value={noRefRemarks}
-                onChange={(e) => setNoRefRemarks(e.target.value)}
-                className="w-full border border-slate-300 rounded p-2 text-xs bg-white"
-              />
-            </div>
-          </div>
-
-          <div className="flex justify-end gap-2 pt-2 border-t">
-            <button
-              type="button"
-              onClick={() => setIsReturnWithoutRefOpen(false)}
-              className="px-4 py-1.5 border border-slate-200 rounded font-medium text-slate-600"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={returnMutation.isPending}
-              className="px-5 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white rounded font-bold shadow-xs transition inline-flex items-center gap-1.5"
-            >
-              {returnMutation.isPending && <Spinner className="size-3.5" />}
-              Save Direct Return
-            </button>
-          </div>
-        </form>
-      </ModalDialog>
-
-      {/* ============================================================= */}
       {/* 6. VIEW RETURN DETAILS MODAL */}
       {/* ============================================================= */}
       <ModalDialog
@@ -1208,24 +1047,24 @@ export default function PurchaseReturnsPage() {
       >
         {viewReturnTarget && (
           <div className="space-y-4 text-xs">
-            <div className="grid grid-cols-2 gap-4 bg-slate-50 p-3 rounded border border-slate-200">
+            <div className="grid grid-cols-2 gap-4 bg-canvas p-3 rounded border border-line">
               <div>
-                <span className="text-[10px] text-slate-400 font-bold uppercase block">Voucher Ref</span>
-                <p className="font-bold text-slate-900 text-sm">{viewReturnTarget.returnNo}</p>
-                <p className="text-slate-600">PO Number: {viewReturnTarget.poNo}</p>
-                <p className="text-slate-600">Supplier: {viewReturnTarget.supplier}</p>
+                <span className="text-[10px] text-ink-faint font-bold uppercase block">Voucher Ref</span>
+                <p className="font-bold text-ink text-sm">{viewReturnTarget.returnNo}</p>
+                <p className="text-ink-muted">PO Number: {viewReturnTarget.poNo}</p>
+                <p className="text-ink-muted">Supplier: {viewReturnTarget.supplier}</p>
               </div>
               <div>
-                <span className="text-[10px] text-slate-400 font-bold uppercase block">Settlement Details</span>
-                <p className="font-bold text-slate-900 text-sm">{viewReturnTarget.returnType}</p>
-                <p className="text-slate-600">Status: <span className="font-bold text-emerald-600">{viewReturnTarget.status}</span></p>
-                <p className="text-slate-600">Remarks: {viewReturnTarget.remarks}</p>
+                <span className="text-[10px] text-ink-faint font-bold uppercase block">Settlement Details</span>
+                <p className="font-bold text-ink text-sm">{viewReturnTarget.returnType}</p>
+                <p className="text-ink-muted">Status: <span className="font-bold text-emerald-600 dark:text-emerald-400">{viewReturnTarget.status}</span></p>
+                <p className="text-ink-muted">Remarks: {viewReturnTarget.remarks}</p>
               </div>
             </div>
 
-            <div className="border border-slate-200 rounded overflow-hidden">
+            <div className="border border-line rounded overflow-hidden">
               <table className="w-full text-left text-xs">
-                <thead className="bg-slate-100 text-slate-700 font-semibold">
+                <thead className="bg-control text-ink-muted font-semibold">
                   <tr>
                     <th className="p-2">Item Description</th>
                     <th className="p-2 text-center">UoM</th>
@@ -1234,33 +1073,33 @@ export default function PurchaseReturnsPage() {
                     <th className="p-2 text-right">Debit Total</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100">
+                <tbody className="divide-y divide-line">
                   {viewReturnTarget.items?.map((it: any, i: number) => (
                     <tr key={i}>
                       <td className="p-2">
-                        <div className="font-bold text-slate-900">{it.itemName}</div>
-                        <div className="font-mono text-[10px] text-slate-400">{it.itemCode}</div>
+                        <div className="font-bold text-ink">{it.itemName}</div>
+                        <div className="font-mono text-[10px] text-ink-faint">{it.itemCode}</div>
                       </td>
                       <td className="p-2 text-center">{it.uom}</td>
-                      <td className="p-2 text-center font-mono font-bold text-rose-700">{it.quantity}</td>
+                      <td className="p-2 text-center font-mono font-bold text-rose-700 dark:text-rose-300">{it.quantity}</td>
                       <td className="p-2 text-right font-mono">{formatCurrency(it.unitPrice)}</td>
-                      <td className="p-2 text-right font-mono font-bold text-slate-900">{formatCurrency(it.lineTotal)}</td>
+                      <td className="p-2 text-right font-mono font-bold text-ink">{formatCurrency(it.lineTotal)}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
 
-            <div className="flex justify-between items-center bg-slate-50 p-3 rounded border border-slate-200">
-              <span className="text-xs font-semibold text-slate-700">Total Return Value:</span>
-              <span className="text-base font-bold font-mono text-rose-700">{formatCurrency(viewReturnTarget.amount)}</span>
+            <div className="flex justify-between items-center bg-canvas p-3 rounded border border-line">
+              <span className="text-xs font-semibold text-ink-muted">Total Return Value:</span>
+              <span className="text-base font-bold font-mono text-rose-700 dark:text-rose-300">{formatCurrency(viewReturnTarget.amount)}</span>
             </div>
 
             <div className="flex justify-end gap-2 pt-2">
               <button
                 type="button"
                 onClick={() => setViewReturnTarget(null)}
-                className="px-4 py-1.5 border border-slate-200 rounded text-slate-700 font-semibold"
+                className="px-4 py-1.5 border border-line rounded text-ink-muted font-semibold"
               >
                 Close
               </button>
@@ -1367,18 +1206,18 @@ export default function PurchaseReturnsPage() {
               cancelMutation.mutate({ id: cancelReturnTarget.id, comments: cancelReason });
             }}
           >
-            <p className="text-slate-600">
+            <p className="text-ink-muted">
               The returned goods come back into stock and {formatCurrency(cancelReturnTarget.amount)} is owed to {cancelReturnTarget.supplier} again.
             </p>
             <div>
-              <label htmlFor="cancel-return-reason" className="block text-slate-700 font-semibold mb-1">Reason *</label>
+              <label htmlFor="cancel-return-reason" className="block text-ink-muted font-semibold mb-1">Reason *</label>
               <textarea
                 id="cancel-return-reason"
                 required
                 maxLength={300}
                 value={cancelReason}
                 onChange={(e) => setCancelReason(e.target.value)}
-                className="w-full border border-slate-300 rounded p-2 text-xs h-20"
+                className="w-full border border-line-strong rounded p-2 text-xs h-20"
               />
             </div>
             <div className="flex justify-end gap-2 pt-2">
@@ -1386,7 +1225,7 @@ export default function PurchaseReturnsPage() {
                 type="button"
                 onClick={() => setCancelReturnTarget(null)}
                 disabled={cancelMutation.isPending}
-                className="h-9 px-4 border border-slate-200 rounded text-slate-600"
+                className="h-9 px-4 border border-line rounded text-ink-muted"
               >
                 Back
               </button>

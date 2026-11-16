@@ -174,7 +174,10 @@ async function issueNumber(
 function toDateStr(d: Date | string | null | undefined): string {
   if (!d) return new Date().toISOString().split("T")[0];
   if (typeof d === "string") return d.split("T")[0];
-  return d.toISOString().split("T")[0];
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
 }
 
 /** A yyyy-mm-dd date from the form, or today; invalid dates are rejected. */
@@ -765,7 +768,7 @@ class PurchaseDataStore {
           warehouse: true,
           purchaseOrders: { where: { status: { not: "CANCELLED" } }, select: { number: true }, orderBy: { createdAt: "asc" } },
         },
-        orderBy: { createdAt: "desc" },
+        orderBy: [{ requisitionDate: "desc" }, { createdAt: "desc" }],
       }),
       resolvePurchaseOrgScope(actor),
     ]);
@@ -1090,7 +1093,7 @@ class PurchaseDataStore {
           requisition: true,
           returns: { where: { status: { not: "CANCELLED" } }, include: { lines: true } },
         },
-        orderBy: { createdAt: "desc" },
+        orderBy: [{ orderDate: "desc" }, { createdAt: "desc" }],
       }),
       resolvePurchaseOrgScope(actor),
     ]);
@@ -1363,7 +1366,7 @@ class PurchaseDataStore {
           order: { include: { requisition: true } },
           returns: { where: { status: { not: "CANCELLED" } }, include: { lines: true } },
         },
-        orderBy: { createdAt: "desc" },
+        orderBy: [{ receiveDate: "desc" }, { createdAt: "desc" }],
       }),
       resolvePurchaseOrgScope(actor),
     ]);
@@ -1405,7 +1408,7 @@ class PurchaseDataStore {
           purchaseOrderId: g.orderId,
           grnNumber: g.number,
           receiptDate: toDateStr(g.receiveDate),
-          poNumber: g.order?.number || "DIRECT-PO",
+          poNumber: g.order?.number?.startsWith("DIR-") ? "DIRECT-PO" : (g.order?.number || "DIRECT-PO"),
           poDate: toDateStr(g.order?.orderDate || g.receiveDate),
           requisitionNumber: g.order?.requisition?.number || undefined,
           supplierId: g.supplierId,

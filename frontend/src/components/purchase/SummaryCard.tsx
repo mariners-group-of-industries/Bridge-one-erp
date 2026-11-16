@@ -21,24 +21,24 @@ export function SummaryCard({
   className,
   variant = "default",
 }: SummaryCardProps) {
-  let iconBg = "bg-slate-100 text-slate-700";
+  let iconBg = "bg-control text-ink-muted";
   let borderLeft = "border-l-sky-500";
 
   switch (variant) {
     case "success":
-      iconBg = "bg-emerald-100 text-emerald-700";
+      iconBg = "bg-emerald-100 dark:bg-emerald-500/15 text-emerald-700 dark:text-emerald-300";
       borderLeft = "border-l-emerald-500";
       break;
     case "warning":
-      iconBg = "bg-amber-100 text-amber-700";
+      iconBg = "bg-amber-100 dark:bg-amber-500/15 text-amber-700 dark:text-amber-300";
       borderLeft = "border-l-amber-500";
       break;
     case "danger":
-      iconBg = "bg-rose-100 text-rose-700";
+      iconBg = "bg-rose-100 dark:bg-rose-500/15 text-rose-700 dark:text-rose-300";
       borderLeft = "border-l-rose-500";
       break;
     case "info":
-      iconBg = "bg-sky-100 text-sky-700";
+      iconBg = "bg-sky-100 dark:bg-sky-500/15 text-sky-700 dark:text-sky-300";
       borderLeft = "border-l-sky-500";
       break;
   }
@@ -46,13 +46,13 @@ export function SummaryCard({
   return (
     <div
       className={cn(
-        "bg-white p-3.5 rounded border border-slate-200 shadow-xs border-l-4 transition-all hover:shadow-sm",
+        "bg-surface p-3.5 rounded border border-line shadow-xs border-l-4 transition-all hover:shadow-sm",
         borderLeft,
         className
       )}
     >
       <div className="flex items-center justify-between gap-2 mb-1.5">
-        <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider truncate">
+        <span className="text-[11px] font-semibold text-ink-faint uppercase tracking-wider truncate">
           {title}
         </span>
         {Icon && (
@@ -62,14 +62,14 @@ export function SummaryCard({
         )}
       </div>
       <div className="flex items-baseline justify-between gap-2">
-        <div className="text-xl font-bold text-slate-800 tracking-tight">{value}</div>
+        <div className="text-xl font-bold text-ink tracking-tight">{value}</div>
         {badge && (
-          <span className="text-[10px] font-medium bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded">
+          <span className="text-[10px] font-medium bg-control text-ink-muted px-1.5 py-0.5 rounded">
             {badge}
           </span>
         )}
       </div>
-      {subtitle && <p className="text-[11px] text-slate-400 mt-1 truncate">{subtitle}</p>}
+      {subtitle && <p className="text-[11px] text-ink-faint mt-1 truncate">{subtitle}</p>}
     </div>
   );
 }

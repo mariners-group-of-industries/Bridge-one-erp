@@ -692,13 +692,15 @@ export default function SupplierPaymentsPage() {
   };
 
   return (
-    <div className="space-y-2 p-1">
+    <div className="flex flex-col md:h-[calc(100dvh-3.5rem)] md:overflow-hidden font-sans p-3 space-y-2">
+      {/* Fixed Top Controls (header + tabs) */}
+      <div className="shrink-0 space-y-2">
       {/* ------------------------------------------------------------- */}
       {/* 1. TOP HEADER (Exact Unified Box Layout) */}
       {/* ------------------------------------------------------------- */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-3 rounded border border-slate-200/90 shadow-2xs">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-surface p-3 rounded border border-line/90 shadow-2xs">
         <div>
-          <h1 className="text-xl font-bold text-slate-900 tracking-tight">Supplier Payment</h1>
+          <h1 className="text-xl font-bold text-ink tracking-tight">Supplier Payment</h1>
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
@@ -709,9 +711,9 @@ export default function SupplierPaymentsPage() {
               placeholder="Search...."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-56 sm:w-64 h-9 pl-3 pr-8 text-xs border border-slate-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 bg-white placeholder-slate-400"
+              className="w-56 sm:w-64 h-9 pl-3 pr-8 text-xs border border-line-strong rounded focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 bg-surface placeholder:text-ink-faint"
             />
-            <Search className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+            <Search className="w-3.5 h-3.5 text-ink-faint absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
           </div>
 
           {perms.payments.create && (
@@ -753,14 +755,14 @@ export default function SupplierPaymentsPage() {
       {/* ------------------------------------------------------------- */}
       {/* 2. SIX TABS NAVIGATION MATCHING SCREENSHOTS */}
       {/* ------------------------------------------------------------- */}
-      <div className="flex border-b border-slate-200 gap-6 text-[11px] font-bold uppercase tracking-wider overflow-x-auto select-none">
+      <div className="flex border-b border-line gap-6 text-[11px] font-bold uppercase tracking-wider overflow-x-auto select-none">
         <button
           type="button"
           onClick={() => setActiveTab("DUE_LIST_LOCAL")}
           className={`pb-2 whitespace-nowrap transition ${
             activeTab === "DUE_LIST_LOCAL"
-              ? "border-b-2 border-blue-600 text-blue-600 font-extrabold"
-              : "text-slate-500 hover:text-slate-800"
+              ? "border-b-2 border-blue-600 text-blue-600 dark:text-blue-400 font-extrabold"
+              : "text-ink-faint hover:text-ink"
           }`}
         >
           DUE LIST(LOCAL)
@@ -771,8 +773,8 @@ export default function SupplierPaymentsPage() {
           onClick={() => setActiveTab("PENDING_BILLS")}
           className={`pb-2 whitespace-nowrap transition ${
             activeTab === "PENDING_BILLS"
-              ? "border-b-2 border-blue-600 text-blue-600 font-extrabold"
-              : "text-slate-500 hover:text-slate-800"
+              ? "border-b-2 border-blue-600 text-blue-600 dark:text-blue-400 font-extrabold"
+              : "text-ink-faint hover:text-ink"
           }`}
         >
           PENDING BILL(LOCAL/FOREIGN)
@@ -783,8 +785,8 @@ export default function SupplierPaymentsPage() {
           onClick={() => setActiveTab("PAID_GRN_BILL")}
           className={`pb-2 whitespace-nowrap transition ${
             activeTab === "PAID_GRN_BILL"
-              ? "border-b-2 border-blue-600 text-blue-600 font-extrabold"
-              : "text-slate-500 hover:text-slate-800"
+              ? "border-b-2 border-blue-600 text-blue-600 dark:text-blue-400 font-extrabold"
+              : "text-ink-faint hover:text-ink"
           }`}
         >
           PAID GRN/BILL
@@ -795,8 +797,8 @@ export default function SupplierPaymentsPage() {
           onClick={() => setActiveTab("DUE_INVOICES")}
           className={`pb-2 whitespace-nowrap transition ${
             activeTab === "DUE_INVOICES"
-              ? "border-b-2 border-blue-600 text-blue-600 font-extrabold"
-              : "text-slate-500 hover:text-slate-800"
+              ? "border-b-2 border-blue-600 text-blue-600 dark:text-blue-400 font-extrabold"
+              : "text-ink-faint hover:text-ink"
           }`}
         >
           DUE INVOICES
@@ -807,8 +809,8 @@ export default function SupplierPaymentsPage() {
           onClick={() => setActiveTab("PAYMENT_ADVANCE")}
           className={`pb-2 whitespace-nowrap transition ${
             activeTab === "PAYMENT_ADVANCE"
-              ? "border-b-2 border-blue-600 text-blue-600 font-extrabold"
-              : "text-slate-500 hover:text-slate-800"
+              ? "border-b-2 border-blue-600 text-blue-600 dark:text-blue-400 font-extrabold"
+              : "text-ink-faint hover:text-ink"
           }`}
         >
           PAYMENT ADVANCE
@@ -819,37 +821,38 @@ export default function SupplierPaymentsPage() {
           onClick={() => setActiveTab("SUPPLIER_PURCHASE_VS_LEDGER")}
           className={`pb-2 whitespace-nowrap transition ${
             activeTab === "SUPPLIER_PURCHASE_VS_LEDGER"
-              ? "border-b-2 border-blue-600 text-blue-600 font-extrabold"
-              : "text-slate-500 hover:text-slate-800"
+              ? "border-b-2 border-blue-600 text-blue-600 dark:text-blue-400 font-extrabold"
+              : "text-ink-faint hover:text-ink"
           }`}
         >
           SUPPLIER PURCHASE VS LEDGER BALANCE
         </button>
+      </div>
       </div>
 
       {/* ============================================================= */}
       {/* TAB 1: DUE LIST(LOCAL) (SCREENSHOT 1) */}
       {/* ============================================================= */}
       {activeTab === "DUE_LIST_LOCAL" && (
-        <div className="space-y-2">
+        <div className="flex-1 min-h-0 flex flex-col space-y-2">
           {/* Filter Bar */}
-          <div className="flex flex-wrap items-end gap-3 text-xs bg-slate-50/50 p-2 rounded border border-slate-200">
+          <div className="shrink-0 flex flex-wrap items-end gap-3 text-xs bg-canvas/50 p-2 rounded border border-line">
             <div>
-              <label className="block text-[11px] text-slate-500 mb-1">From Date</label>
+              <label className="block text-[11px] text-ink-faint mb-1">From Date</label>
               <input
                 type="date"
                 value={tab1FromDate}
                 onChange={(e) => setTab1FromDate(e.target.value)}
-                className="w-36 border border-slate-300 rounded px-2 py-1 bg-white text-xs"
+                className="w-36 border border-line-strong rounded px-2 py-1 bg-surface text-xs"
               />
             </div>
             <div>
-              <label className="block text-[11px] text-slate-500 mb-1">To Date</label>
+              <label className="block text-[11px] text-ink-faint mb-1">To Date</label>
               <input
                 type="date"
                 value={tab1ToDate}
                 onChange={(e) => setTab1ToDate(e.target.value)}
-                className="w-36 border border-slate-300 rounded px-2 py-1 bg-white text-xs"
+                className="w-36 border border-line-strong rounded px-2 py-1 bg-surface text-xs"
               />
             </div>
             <button
@@ -864,7 +867,7 @@ export default function SupplierPaymentsPage() {
                 <button
                   type="button"
                   onClick={handleExportCSV}
-                  className="px-4 py-1.5 border border-[#1976d2] text-[#1976d2] hover:bg-blue-50 font-bold rounded text-xs transition"
+                  className="px-4 py-1.5 border border-[#1976d2] text-primary hover:bg-blue-50 dark:hover:bg-blue-500/10 font-bold rounded text-xs transition"
                 >
                   Excel
                 </button>
@@ -886,77 +889,77 @@ export default function SupplierPaymentsPage() {
           </div>
 
           {/* Table Container with All Borders */}
-          <div className="border border-slate-300 bg-white rounded shadow-2xs overflow-x-auto">
+          <div className="flex-1 min-h-0 border border-line-strong bg-surface rounded shadow-2xs overflow-auto">
             <table className="erp-table erp-table-compact w-full text-left text-xs border-collapse">
-              <thead className="bg-[#e6f2fb] text-slate-800 font-semibold text-[11px] border-b border-slate-300 select-none">
+              <thead className="bg-grid-head text-ink font-semibold text-[11px] border-b border-line-strong select-none">
                 <tr>
-                  <th className="p-2 border border-slate-300 w-10 text-center">SL</th>
-                  <th className="p-2 border border-slate-300 w-12 text-center">Action</th>
-                  <th className="p-2 border border-slate-300 w-32">Supplier Code</th>
-                  <th className="p-2 border border-slate-300">Supplier Name</th>
-                  <th className="p-2 border border-slate-300 w-32">Mobile No.</th>
-                  <th className="p-2 border border-slate-300 w-28 text-right">Total Amount</th>
-                  <th className="p-2 border border-slate-300 w-24 text-right">Return Amount</th>
-                  <th className="p-2 border border-slate-300 w-28 text-right">Payment Amount</th>
-                  <th className="p-2 border border-slate-300 w-28 text-right">Due Amount</th>
+                  <th className="p-2 border border-line-strong w-10 text-center">SL</th>
+                  <th className="p-2 border border-line-strong w-12 text-center">Action</th>
+                  <th className="p-2 border border-line-strong w-32">Supplier Code</th>
+                  <th className="p-2 border border-line-strong">Supplier Name</th>
+                  <th className="p-2 border border-line-strong w-32">Mobile No.</th>
+                  <th className="p-2 border border-line-strong w-28 text-right">Total Amount</th>
+                  <th className="p-2 border border-line-strong w-24 text-right">Return Amount</th>
+                  <th className="p-2 border border-line-strong w-28 text-right">Payment Amount</th>
+                  <th className="p-2 border border-line-strong w-28 text-right">Due Amount</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-200 text-[11px] text-slate-800">
+              <tbody className="divide-y divide-line text-[11px] text-ink">
                 {filteredDueList.map((row) => (
-                  <tr key={row.sl} className="hover:bg-slate-50/80 transition-colors">
-                    <td className="p-2 border border-slate-300 text-center font-mono text-slate-600">
+                  <tr key={row.sl} className="hover:bg-canvas/80 transition-colors">
+                    <td className="p-2 border border-line-strong text-center font-mono text-ink-muted">
                       {row.sl}
                     </td>
-                    <td className="p-1 border border-slate-300 text-center">
+                    <td className="p-1 border border-line-strong text-center">
                       <button
                         type="button"
                         disabled={!perms.payments.create}
                         onClick={() => handleOpenQuickPay(row)}
-                        className="w-6 h-6 rounded bg-slate-100 hover:bg-emerald-100 text-slate-700 hover:text-emerald-700 disabled:opacity-40 disabled:pointer-events-none font-bold text-xs inline-flex items-center justify-center border border-slate-300 transition"
+                        className="w-6 h-6 rounded bg-control hover:bg-emerald-100 dark:hover:bg-emerald-500/15 text-ink-muted hover:text-emerald-700 dark:hover:text-emerald-300 disabled:opacity-40 disabled:pointer-events-none font-bold text-xs inline-flex items-center justify-center border border-line-strong transition"
                         title={!perms.payments.create ? "Requires Create permission in Configuration" : "Make Payment to Supplier"}
                       >
                         $
                       </button>
                     </td>
-                    <td className="p-2 border border-slate-300 font-mono text-slate-700 whitespace-nowrap">
+                    <td className="p-2 border border-line-strong font-mono text-ink-muted whitespace-nowrap">
                       {row.supplierCode}
                     </td>
-                    <td className="p-2 border border-slate-300 text-slate-900 font-medium">
+                    <td className="p-2 border border-line-strong text-ink font-medium">
                       {row.supplierName}
                     </td>
-                    <td className="p-2 border border-slate-300 font-mono text-slate-600 whitespace-nowrap">
+                    <td className="p-2 border border-line-strong font-mono text-ink-muted whitespace-nowrap">
                       {row.mobileNumber}
                     </td>
-                    <td className="p-2 border border-slate-300 text-right font-mono text-slate-800 whitespace-nowrap">
+                    <td className="p-2 border border-line-strong text-right font-mono text-ink whitespace-nowrap">
                       {formatCurrency(row.totalAmount)}
                     </td>
-                    <td className="p-2 border border-slate-300 text-right font-mono text-slate-500 whitespace-nowrap">
+                    <td className="p-2 border border-line-strong text-right font-mono text-ink-faint whitespace-nowrap">
                       {formatCurrency(row.returnAmount)}
                     </td>
-                    <td className="p-2 border border-slate-300 text-right font-mono text-slate-800 whitespace-nowrap">
+                    <td className="p-2 border border-line-strong text-right font-mono text-ink whitespace-nowrap">
                       {formatCurrency(row.paymentAmount)}
                     </td>
-                    <td className="p-2 border border-slate-300 text-right font-mono font-semibold text-slate-900 whitespace-nowrap">
+                    <td className="p-2 border border-line-strong text-right font-mono font-semibold text-ink whitespace-nowrap">
                       {formatCurrency(row.dueAmount)}
                     </td>
                   </tr>
                 ))}
               </tbody>
               <tfoot>
-                <tr className="bg-slate-50 font-bold text-xs border-t-2 border-slate-300 text-slate-900">
-                  <td colSpan={5} className="p-2 border border-slate-300 text-left">
+                <tr className="bg-canvas font-bold text-xs border-t-2 border-line-strong text-ink">
+                  <td colSpan={5} className="p-2 border border-line-strong text-left">
                     Total :
                   </td>
-                  <td className="p-2 border border-slate-300 text-right font-mono text-xs">
+                  <td className="p-2 border border-line-strong text-right font-mono text-xs">
                     {formatCurrency(filteredDueList.reduce((t, r) => t + r.totalAmount, 0))}
                   </td>
-                  <td className="p-2 border border-slate-300 text-right font-mono text-xs">
+                  <td className="p-2 border border-line-strong text-right font-mono text-xs">
                     {formatCurrency(filteredDueList.reduce((t, r) => t + r.returnAmount, 0))}
                   </td>
-                  <td className="p-2 border border-slate-300 text-right font-mono text-xs">
+                  <td className="p-2 border border-line-strong text-right font-mono text-xs">
                     {formatCurrency(filteredDueList.reduce((t, r) => t + r.paymentAmount, 0))}
                   </td>
-                  <td className="p-2 border border-slate-300 text-right font-mono text-xs font-bold text-sky-900">
+                  <td className="p-2 border border-line-strong text-right font-mono text-xs font-bold text-sky-900 dark:text-sky-300">
                     {formatCurrency(filteredDueList.reduce((t, r) => t + r.dueAmount, 0))}
                   </td>
                 </tr>
@@ -965,14 +968,16 @@ export default function SupplierPaymentsPage() {
           </div>
 
           {/* Pagination Footer */}
-          <div className="flex flex-col sm:flex-row items-center justify-end gap-6 text-xs text-slate-600 pt-1 pb-4">
+          <div className="shrink-0 flex flex-col sm:flex-row items-center justify-end gap-6 text-xs text-ink-muted pt-1">
             <div className="flex items-center gap-2">
               <span>Rows per page:</span>
               <select
                 value={rowsPerPage1}
                 onChange={(e) => setRowsPerPage1(Number(e.target.value))}
-                className="border border-slate-300 rounded px-1.5 py-0.5 bg-white text-xs"
+                className="border border-line-strong rounded px-1.5 py-0.5 bg-surface text-xs"
               >
+                <option value={10}>10</option>
+                <option value={20}>20</option>
                 <option value={50}>50</option>
                 <option value={100}>100</option>
               </select>
@@ -980,10 +985,10 @@ export default function SupplierPaymentsPage() {
             <div className="flex items-center gap-4">
               <span>1-{filteredDueList.length} of {filteredDueList.length}</span>
               <div className="flex items-center gap-1">
-                <button type="button" disabled className="p-1 border border-slate-200 rounded text-slate-300">
+                <button type="button" disabled className="p-1 border border-line rounded text-slate-300">
                   <ChevronLeft className="w-4 h-4" />
                 </button>
-                <button type="button" disabled className="p-1 border border-slate-200 rounded text-slate-300">
+                <button type="button" disabled className="p-1 border border-line rounded text-slate-300">
                   <ChevronRight className="w-4 h-4" />
                 </button>
               </div>
@@ -996,16 +1001,16 @@ export default function SupplierPaymentsPage() {
       {/* TAB 2: PENDING BILL(LOCAL/FOREIGN) (SCREENSHOT 2) */}
       {/* ============================================================= */}
       {activeTab === "PENDING_BILLS" && (
-        <div className="space-y-3">
+        <div className="flex-1 min-h-0 flex flex-col space-y-3">
           {/* Filter Bar & Quick Stats */}
-          <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-50/50 p-2.5 rounded border border-slate-200 text-xs">
+          <div className="shrink-0 flex flex-wrap items-center justify-between gap-3 bg-canvas/50 p-2.5 rounded border border-line text-xs">
             <div className="flex items-center gap-3">
               <div>
-                <label className="block text-[11px] font-semibold text-slate-600 mb-0.5">Filter By</label>
+                <label className="block text-[11px] font-semibold text-ink-muted mb-0.5">Filter By</label>
                 <select
                   value={pendingBillFilter}
                   onChange={(e) => setPendingBillFilter(e.target.value)}
-                  className="border border-blue-500 rounded px-2.5 py-1 text-xs bg-white text-blue-700 font-bold focus:outline-none"
+                  className="border border-blue-500 rounded px-2.5 py-1 text-xs bg-surface text-blue-700 dark:text-blue-300 font-bold focus:outline-none"
                 >
                   <option value="Pending">Pending ({pendingBills.filter((b) => b.status === "Pending").length})</option>
                   <option value="Approved">Approved ({pendingBills.filter((b) => b.status === "Approved").length})</option>
@@ -1015,16 +1020,16 @@ export default function SupplierPaymentsPage() {
                 </select>
               </div>
 
-              <div className="h-8 w-px bg-slate-200 hidden sm:block"></div>
+              <div className="h-8 w-px bg-hover hidden sm:block"></div>
 
               <div className="flex items-center gap-4 text-xs">
                 <div>
-                  <span className="text-[10px] text-slate-500 block">Payable Bills:</span>
-                  <span className="font-bold text-slate-800">{filteredPendingBills.length} Bills</span>
+                  <span className="text-[10px] text-ink-faint block">Payable Bills:</span>
+                  <span className="font-bold text-ink">{filteredPendingBills.length} Bills</span>
                 </div>
                 <div>
-                  <span className="text-[10px] text-slate-500 block">Net Payable Amount:</span>
-                  <span className="font-bold font-mono text-sky-700">
+                  <span className="text-[10px] text-ink-faint block">Net Payable Amount:</span>
+                  <span className="font-bold font-mono text-sky-700 dark:text-sky-300">
                     {formatCurrency(filteredPendingBills.reduce((acc, b) => acc + b.netPayable, 0))}
                   </span>
                 </div>
@@ -1055,82 +1060,82 @@ export default function SupplierPaymentsPage() {
 
           {/* Table or Empty State */}
           {filteredPendingBills.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-20 text-center bg-white rounded border border-slate-200">
-              <div className="text-xl font-black tracking-tight text-slate-900 mb-1 font-sans flex items-center justify-center gap-1.5">
+            <div className="flex flex-col items-center justify-center py-20 text-center bg-surface rounded border border-line">
+              <div className="text-xl font-black tracking-tight text-ink mb-1 font-sans flex items-center justify-center gap-1.5">
                 <span>Bridge</span>
-                <span className="text-[#0057b8]">One</span>
-                <span className="text-xs px-2 py-0.5 rounded bg-sky-100 text-sky-800 border border-sky-200 font-bold uppercase tracking-wider">ERP</span>
+                <span className="text-primary">One</span>
+                <span className="text-xs px-2 py-0.5 rounded bg-sky-100 dark:bg-sky-500/15 text-sky-800 dark:text-sky-300 border border-sky-200 dark:border-sky-500/30 font-bold uppercase tracking-wider">ERP</span>
               </div>
-              <p className="text-sm font-semibold text-slate-700">No Bills Found</p>
-              <p className="text-xs text-slate-400 mt-1 mb-3">There are no vendor bills currently matching the &ldquo;{pendingBillFilter}&rdquo; criteria.</p>
+              <p className="text-sm font-semibold text-ink-muted">No Bills Found</p>
+              <p className="text-xs text-ink-faint mt-1 mb-3">There are no vendor bills currently matching the &ldquo;{pendingBillFilter}&rdquo; criteria.</p>
               <button
                 type="button"
                 onClick={() => {
                   setPendingBillFilter("ALL");
                   setSearchTerm("");
                 }}
-                className="px-3 py-1 bg-sky-100 hover:bg-sky-200 text-sky-800 text-xs font-semibold rounded transition"
+                className="px-3 py-1 bg-sky-100 dark:bg-sky-500/15 hover:bg-sky-200 dark:hover:bg-sky-500/20 text-sky-800 dark:text-sky-300 text-xs font-semibold rounded transition"
               >
                 Show All Bills
               </button>
             </div>
           ) : (
-            <div className="bg-white rounded border border-slate-300 shadow-xs overflow-hidden">
-              <div className="overflow-x-auto">
+            <div className="flex-1 min-h-0 flex flex-col bg-surface rounded border border-line-strong shadow-xs overflow-hidden">
+              <div className="flex-1 min-h-0 overflow-auto">
                 <table className="erp-table erp-table-compact w-full text-xs text-left border-collapse">
                   <thead>
-                    <tr className="bg-slate-100 text-slate-800 font-bold border-b border-slate-300">
-                      <th className="p-2 border border-slate-300 text-center w-10">SL</th>
-                      <th className="p-2 border border-slate-300">Bill No</th>
-                      <th className="p-2 border border-slate-300">Date</th>
-                      <th className="p-2 border border-slate-300">Supplier Name</th>
-                      <th className="p-2 border border-slate-300">PO Ref</th>
-                      <th className="p-2 border border-slate-300">GRN Ref</th>
-                      <th className="p-2 border border-slate-300 text-center">Type</th>
-                      <th className="p-2 border border-slate-300 text-right">Gross (BDT)</th>
-                      <th className="p-2 border border-slate-300 text-right">Tax / VAT</th>
-                      <th className="p-2 border border-slate-300 text-right">Net Payable</th>
-                      <th className="p-2 border border-slate-300">Due Date</th>
-                      <th className="p-2 border border-slate-300 text-center">Status</th>
-                      <th className="p-2 border border-slate-300 text-center w-44">Actions</th>
+                    <tr className="bg-control text-ink font-bold border-b border-line-strong">
+                      <th className="p-2 border border-line-strong text-center w-10">SL</th>
+                      <th className="p-2 border border-line-strong">Bill No</th>
+                      <th className="p-2 border border-line-strong">Date</th>
+                      <th className="p-2 border border-line-strong">Supplier Name</th>
+                      <th className="p-2 border border-line-strong">PO Ref</th>
+                      <th className="p-2 border border-line-strong">GRN Ref</th>
+                      <th className="p-2 border border-line-strong text-center">Type</th>
+                      <th className="p-2 border border-line-strong text-right">Gross (BDT)</th>
+                      <th className="p-2 border border-line-strong text-right">Tax / VAT</th>
+                      <th className="p-2 border border-line-strong text-right">Net Payable</th>
+                      <th className="p-2 border border-line-strong">Due Date</th>
+                      <th className="p-2 border border-line-strong text-center">Status</th>
+                      <th className="p-2 border border-line-strong text-center w-44">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
                     {filteredPendingBills.map((bill, idx) => (
-                      <tr key={bill.billNo} className="hover:bg-sky-50/40 transition-colors border-b border-slate-200">
-                        <td className="p-2 border border-slate-200 text-center font-mono text-slate-500">{idx + 1}</td>
-                        <td className="p-2 border border-slate-200 font-mono font-bold text-sky-700">{bill.billNo}</td>
-                        <td className="p-2 border border-slate-200 font-mono text-slate-600">{bill.billDate}</td>
-                        <td className="p-2 border border-slate-200 font-medium text-slate-800">
+                      <tr key={bill.billNo} className="hover:bg-sky-50/40 dark:hover:bg-sky-500/10 transition-colors border-b border-line">
+                        <td className="p-2 border border-line text-center font-mono text-ink-faint">{idx + 1}</td>
+                        <td className="p-2 border border-line font-mono font-bold text-sky-700 dark:text-sky-300">{bill.billNo}</td>
+                        <td className="p-2 border border-line font-mono text-ink-muted">{bill.billDate}</td>
+                        <td className="p-2 border border-line font-medium text-ink">
                           <div>{bill.supplierName}</div>
-                          <div className="text-[10px] text-slate-400 font-mono">{bill.supplierCode}</div>
+                          <div className="text-[10px] text-ink-faint font-mono">{bill.supplierCode}</div>
                         </td>
-                        <td className="p-2 border border-slate-200 font-mono text-slate-600">{bill.poNumber}</td>
-                        <td className="p-2 border border-slate-200 font-mono text-slate-600">{bill.grnNumber}</td>
-                        <td className="p-2 border border-slate-200 text-center">
-                          <span className="px-1.5 py-0.5 rounded text-[10px] bg-slate-100 font-semibold text-slate-700">{bill.billType}</span>
+                        <td className="p-2 border border-line font-mono text-ink-muted">{bill.poNumber}</td>
+                        <td className="p-2 border border-line font-mono text-ink-muted">{bill.grnNumber}</td>
+                        <td className="p-2 border border-line text-center">
+                          <span className="px-1.5 py-0.5 rounded text-[10px] bg-control font-semibold text-ink-muted">{bill.billType}</span>
                         </td>
-                        <td className="p-2 border border-slate-200 text-right font-mono">{formatCurrency(bill.grossAmount)}</td>
-                        <td className="p-2 border border-slate-200 text-right font-mono text-slate-500">{formatCurrency(bill.taxVat)}</td>
-                        <td className="p-2 border border-slate-200 text-right font-mono font-bold text-slate-900">{formatCurrency(bill.netPayable)}</td>
-                        <td className="p-2 border border-slate-200 font-mono text-slate-600">{bill.dueDate}</td>
-                        <td className="p-2 border border-slate-200 text-center">
+                        <td className="p-2 border border-line text-right font-mono">{formatCurrency(bill.grossAmount)}</td>
+                        <td className="p-2 border border-line text-right font-mono text-ink-faint">{formatCurrency(bill.taxVat)}</td>
+                        <td className="p-2 border border-line text-right font-mono font-bold text-ink">{formatCurrency(bill.netPayable)}</td>
+                        <td className="p-2 border border-line font-mono text-ink-muted">{bill.dueDate}</td>
+                        <td className="p-2 border border-line text-center">
                           <span
                             className={`px-2 py-0.5 rounded text-[10px] font-bold ${
                               bill.status === "Approved"
-                                ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                                ? "bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-500/30"
                                 : bill.status === "Pending"
-                                ? "bg-amber-50 text-amber-700 border border-amber-200"
+                                ? "bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-500/30"
                                 : bill.status === "In_Review"
-                                ? "bg-blue-50 text-blue-700 border border-blue-200"
-                                : "bg-purple-50 text-purple-700 border border-purple-200"
+                                ? "bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-500/30"
+                                : "bg-purple-50 dark:bg-purple-500/10 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-500/30"
                             }`}
                           >
                             {bill.status}
                           </span>
                         </td>
-                        <td className="p-2 border border-slate-200 text-center">
-                          <div className="flex items-center justify-center gap-1.5">
+                        <td className="p-2 border border-line text-center">
+                          <div className="row-actions flex items-center justify-center gap-1.5">
                             {bill.status !== "Approved" && (
                               <button
                                 type="button"
@@ -1168,7 +1173,7 @@ export default function SupplierPaymentsPage() {
                                 setCancelBill(bill);
                                 setCancelBillReason("");
                               }}
-                              className="inline-flex items-center justify-center min-w-6 min-h-6 rounded text-slate-500 hover:text-rose-600 hover:bg-rose-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/20 disabled:opacity-30 disabled:pointer-events-none transition"
+                              className="inline-flex items-center justify-center min-w-6 min-h-6 rounded text-ink-faint hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-500/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/20 disabled:opacity-30 disabled:pointer-events-none transition"
                               title={!perms.payments.delete ? "Requires Delete permission in Configuration" : "Cancel bill"}
                               aria-label={`Cancel bill ${bill.billNo}`}
                             >
@@ -1180,20 +1185,20 @@ export default function SupplierPaymentsPage() {
                     ))}
                   </tbody>
                   <tfoot>
-                    <tr className="bg-slate-100 font-bold border-t-2 border-slate-300 text-slate-900">
-                      <td colSpan={7} className="p-2 border border-slate-300 text-center uppercase">
+                    <tr className="bg-control font-bold border-t-2 border-line-strong text-ink">
+                      <td colSpan={7} className="p-2 border border-line-strong text-center uppercase">
                         Total
                       </td>
-                      <td className="p-2 border border-slate-300 text-right font-mono text-xs">
+                      <td className="p-2 border border-line-strong text-right font-mono text-xs">
                         {formatCurrency(filteredPendingBills.reduce((acc, b) => acc + b.grossAmount, 0))}
                       </td>
-                      <td className="p-2 border border-slate-300 text-right font-mono text-xs text-slate-600">
+                      <td className="p-2 border border-line-strong text-right font-mono text-xs text-ink-muted">
                         {formatCurrency(filteredPendingBills.reduce((acc, b) => acc + b.taxVat, 0))}
                       </td>
-                      <td className="p-2 border border-slate-300 text-right font-mono text-xs font-bold text-sky-900">
+                      <td className="p-2 border border-line-strong text-right font-mono text-xs font-bold text-sky-900 dark:text-sky-300">
                         {formatCurrency(filteredPendingBills.reduce((acc, b) => acc + b.netPayable, 0))}
                       </td>
-                      <td colSpan={3} className="p-2 border border-slate-300 text-center text-slate-400">
+                      <td colSpan={3} className="p-2 border border-line-strong text-center text-ink-faint">
                         -
                       </td>
                     </tr>
@@ -1209,37 +1214,37 @@ export default function SupplierPaymentsPage() {
       {/* TAB 3: PAID GRN/BILL (SCREENSHOT 3) */}
       {/* ============================================================= */}
       {activeTab === "PAID_GRN_BILL" && (
-        <div className="space-y-2">
+        <div className="flex-1 min-h-0 flex flex-col space-y-2">
           {/* Filters */}
-          <div className="flex flex-wrap items-end gap-3 text-xs bg-slate-50/50 p-2 rounded border border-slate-200">
+          <div className="shrink-0 flex flex-wrap items-end gap-3 text-xs bg-canvas/50 p-2 rounded border border-line">
             <div>
-              <label className="block text-[11px] text-slate-500 mb-1">Supplier</label>
+              <label className="block text-[11px] text-ink-faint mb-1">Supplier</label>
               <input
                 type="text"
                 placeholder="Select/Search Supplier (min 3 letters)"
                 value={tab3Supplier}
                 onChange={(e) => setTab3Supplier(e.target.value)}
-                className="w-64 border border-slate-300 rounded px-2 py-1 bg-white text-xs placeholder-slate-400"
+                className="w-64 border border-line-strong rounded px-2 py-1 bg-surface text-xs placeholder:text-ink-faint"
               />
             </div>
             <div>
-              <label className="block text-[11px] text-slate-500 mb-1">From</label>
+              <label className="block text-[11px] text-ink-faint mb-1">From</label>
               <input
                 type="date"
                 aria-label="Paid from date"
                 value={tab3FromDate}
                 onChange={(e) => setTab3FromDate(e.target.value)}
-                className="w-32 border border-slate-300 rounded px-2 py-1 bg-white text-xs"
+                className="w-32 border border-line-strong rounded px-2 py-1 bg-surface text-xs"
               />
             </div>
             <div>
-              <label className="block text-[11px] text-slate-500 mb-1">To</label>
+              <label className="block text-[11px] text-ink-faint mb-1">To</label>
               <input
                 type="date"
                 aria-label="Paid to date"
                 value={tab3ToDate}
                 onChange={(e) => setTab3ToDate(e.target.value)}
-                className="w-32 border border-slate-300 rounded px-2 py-1 bg-white text-xs"
+                className="w-32 border border-line-strong rounded px-2 py-1 bg-surface text-xs"
               />
             </div>
             <button
@@ -1253,7 +1258,7 @@ export default function SupplierPaymentsPage() {
               <button
                 type="button"
                 onClick={handleExportCSV}
-                className="px-4 py-1.5 border border-[#1976d2] text-[#1976d2] hover:bg-blue-50 font-bold rounded text-xs transition"
+                className="px-4 py-1.5 border border-[#1976d2] text-primary hover:bg-blue-50 dark:hover:bg-blue-500/10 font-bold rounded text-xs transition"
               >
                 Excel
               </button>
@@ -1261,35 +1266,35 @@ export default function SupplierPaymentsPage() {
           </div>
 
           {/* Table Container with All Borders */}
-          <div className="border border-slate-300 bg-white rounded shadow-2xs overflow-x-auto">
+          <div className="flex-1 min-h-0 border border-line-strong bg-surface rounded shadow-2xs overflow-auto">
             <table className="erp-table erp-table-compact w-full text-left text-xs border-collapse">
-              <thead className="bg-[#e6f2fb] text-slate-800 font-semibold text-[11px] border-b border-slate-300 select-none">
+              <thead className="bg-grid-head text-ink font-semibold text-[11px] border-b border-line-strong select-none">
                 <tr>
-                  <th className="p-2 border border-slate-300 w-10 text-center">SL</th>
-                  <th className="p-2 border border-slate-300 w-24 text-center">Actions</th>
-                  <th className="p-2 border border-slate-300 w-24">Paid Date</th>
-                  <th className="p-2 border border-slate-300">Invoice No</th>
-                  <th className="p-2 border border-slate-300">Supplier</th>
-                  <th className="p-2 border border-slate-300 w-32">Money receipt No</th>
-                  <th className="p-2 border border-slate-300 w-28 text-right">Bank Amount</th>
-                  <th className="p-2 border border-slate-300 w-28 text-right">Cash Amount</th>
-                  <th className="p-2 border border-slate-300 w-28 text-right">Paid Amount</th>
+                  <th className="p-2 border border-line-strong w-10 text-center">SL</th>
+                  <th className="p-2 border border-line-strong w-24 text-center">Actions</th>
+                  <th className="p-2 border border-line-strong w-24">Paid Date</th>
+                  <th className="p-2 border border-line-strong">Invoice No</th>
+                  <th className="p-2 border border-line-strong">Supplier</th>
+                  <th className="p-2 border border-line-strong w-32">Money receipt No</th>
+                  <th className="p-2 border border-line-strong w-28 text-right">Bank Amount</th>
+                  <th className="p-2 border border-line-strong w-28 text-right">Cash Amount</th>
+                  <th className="p-2 border border-line-strong w-28 text-right">Paid Amount</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-200 text-[11px] text-slate-800">
+              <tbody className="divide-y divide-line text-[11px] text-ink">
                 {filteredPaidList.map((row) => (
-                  <tr key={row.sl} className="hover:bg-slate-50/80 transition-colors">
-                    <td className="p-2 border border-slate-300 text-center font-mono text-slate-600">
+                  <tr key={row.sl} className="hover:bg-canvas/80 transition-colors">
+                    <td className="p-2 border border-line-strong text-center font-mono text-ink-muted">
                       {row.sl}
                     </td>
 
                     {/* Actions: View, Receipt, Print */}
-                    <td className="p-2 border border-slate-300 text-center whitespace-nowrap">
-                      <div className="flex items-center justify-center gap-2 text-slate-600">
+                    <td className="p-2 border border-line-strong text-center whitespace-nowrap">
+                      <div className="row-actions flex items-center justify-center gap-2 text-ink-muted">
                         <button
                           type="button"
                           onClick={() => setViewPaidVoucher(row)}
-                          className="p-0.5 hover:text-blue-600 transition"
+                          className="p-0.5 hover:text-blue-600 dark:hover:text-blue-400 transition"
                           title="View Details"
                         >
                           <Eye className="w-3.5 h-3.5" />
@@ -1299,7 +1304,7 @@ export default function SupplierPaymentsPage() {
                           onClick={() => {
                             setPrintPaidVoucher(row);
                           }}
-                          className="p-0.5 hover:text-blue-600 transition"
+                          className="p-0.5 hover:text-blue-600 dark:hover:text-blue-400 transition"
                           title="Money Receipt"
                         >
                           <FileText className="w-3.5 h-3.5" />
@@ -1307,7 +1312,7 @@ export default function SupplierPaymentsPage() {
                         <button
                           type="button"
                           onClick={() => setPrintPaidVoucher(row)}
-                          className="p-0.5 hover:text-blue-600 transition"
+                          className="p-0.5 hover:text-blue-600 dark:hover:text-blue-400 transition"
                           title="Print Payment Voucher"
                         >
                           <Printer className="w-3.5 h-3.5" />
@@ -1319,7 +1324,7 @@ export default function SupplierPaymentsPage() {
                             setCancelPayment(row);
                             setCancelPaymentReason("");
                           }}
-                          className="p-0.5 hover:text-rose-600 disabled:opacity-30 disabled:pointer-events-none transition"
+                          className="p-0.5 hover:text-rose-600 dark:hover:text-rose-400 disabled:opacity-30 disabled:pointer-events-none transition"
                           title={!perms.payments.delete ? "Requires Delete permission in Configuration" : "Cancel payment"}
                           aria-label={`Cancel payment ${row.moneyReceiptNo}`}
                         >
@@ -1328,42 +1333,42 @@ export default function SupplierPaymentsPage() {
                       </div>
                     </td>
 
-                    <td className="p-2 border border-slate-300 text-slate-700 whitespace-nowrap">
+                    <td className="p-2 border border-line-strong text-ink-muted whitespace-nowrap">
                       {row.paidDate}
                     </td>
-                    <td className="p-2 border border-slate-300 font-mono text-slate-800 max-w-sm truncate" title={row.invoiceNo}>
+                    <td className="p-2 border border-line-strong font-mono text-ink max-w-sm truncate" title={row.invoiceNo}>
                       {row.invoiceNo}
                     </td>
-                    <td className="p-2 border border-slate-300 text-slate-900 font-medium">
+                    <td className="p-2 border border-line-strong text-ink font-medium">
                       {row.supplier}
                     </td>
-                    <td className="p-2 border border-slate-300 font-mono text-slate-600">
+                    <td className="p-2 border border-line-strong font-mono text-ink-muted">
                       {row.moneyReceiptNo}
                     </td>
-                    <td className="p-2 border border-slate-300 text-right font-mono text-slate-700 whitespace-nowrap">
+                    <td className="p-2 border border-line-strong text-right font-mono text-ink-muted whitespace-nowrap">
                       {formatCurrency(row.bankAmount)}
                     </td>
-                    <td className="p-2 border border-slate-300 text-right font-mono text-slate-700 whitespace-nowrap">
+                    <td className="p-2 border border-line-strong text-right font-mono text-ink-muted whitespace-nowrap">
                       {formatCurrency(row.cashAmount)}
                     </td>
-                    <td className="p-2 border border-slate-300 text-right font-mono font-bold text-slate-900 whitespace-nowrap">
+                    <td className="p-2 border border-line-strong text-right font-mono font-bold text-ink whitespace-nowrap">
                       {formatCurrency(row.paidAmount)}
                     </td>
                   </tr>
                 ))}
               </tbody>
               <tfoot>
-                <tr className="bg-slate-50 font-bold text-xs border-t-2 border-slate-300 text-slate-900">
-                  <td colSpan={6} className="p-2 border border-slate-300 text-left">
+                <tr className="bg-canvas font-bold text-xs border-t-2 border-line-strong text-ink">
+                  <td colSpan={6} className="p-2 border border-line-strong text-left">
                     Total :
                   </td>
-                  <td className="p-2 border border-slate-300 text-right font-mono text-xs">
+                  <td className="p-2 border border-line-strong text-right font-mono text-xs">
                     {formatCurrency(filteredPaidList.reduce((t, r) => t + r.bankAmount, 0))}
                   </td>
-                  <td className="p-2 border border-slate-300 text-right font-mono text-xs">
+                  <td className="p-2 border border-line-strong text-right font-mono text-xs">
                     {formatCurrency(filteredPaidList.reduce((t, r) => t + r.cashAmount, 0))}
                   </td>
-                  <td className="p-2 border border-slate-300 text-right font-mono text-xs font-bold text-sky-900">
+                  <td className="p-2 border border-line-strong text-right font-mono text-xs font-bold text-sky-900 dark:text-sky-300">
                     {formatCurrency(filteredPaidList.reduce((t, r) => t + r.paidAmount, 0))}
                   </td>
                 </tr>
@@ -1372,14 +1377,16 @@ export default function SupplierPaymentsPage() {
           </div>
 
           {/* Pagination */}
-          <div className="flex flex-col sm:flex-row items-center justify-end gap-6 text-xs text-slate-600 pt-1 pb-4">
+          <div className="shrink-0 flex flex-col sm:flex-row items-center justify-end gap-6 text-xs text-ink-muted pt-1">
             <div className="flex items-center gap-2">
               <span>Rows per page:</span>
               <select
                 value={rowsPerPage3}
                 onChange={(e) => setRowsPerPage3(Number(e.target.value))}
-                className="border border-slate-300 rounded px-1.5 py-0.5 bg-white text-xs"
+                className="border border-line-strong rounded px-1.5 py-0.5 bg-surface text-xs"
               >
+                <option value={10}>10</option>
+                <option value={20}>20</option>
                 <option value={50}>50</option>
                 <option value={100}>100</option>
               </select>
@@ -1387,10 +1394,10 @@ export default function SupplierPaymentsPage() {
             <div className="flex items-center gap-4">
               <span>1-{filteredPaidList.length} of {filteredPaidList.length}</span>
               <div className="flex items-center gap-1">
-                <button type="button" disabled className="p-1 border border-slate-200 rounded text-slate-300">
+                <button type="button" disabled className="p-1 border border-line rounded text-slate-300">
                   <ChevronLeft className="w-4 h-4" />
                 </button>
-                <button type="button" className="p-1 border border-slate-200 rounded text-slate-400 hover:text-slate-700">
+                <button type="button" className="p-1 border border-line rounded text-ink-faint hover:text-ink-muted">
                   <ChevronRight className="w-4 h-4" />
                 </button>
               </div>
@@ -1403,25 +1410,25 @@ export default function SupplierPaymentsPage() {
       {/* TAB 4: DUE INVOICES (SCREENSHOT 4) */}
       {/* ============================================================= */}
       {activeTab === "DUE_INVOICES" && (
-        <div className="space-y-2">
+        <div className="flex-1 min-h-0 flex flex-col space-y-2">
           {/* Filters */}
-          <div className="flex flex-wrap items-end gap-3 text-xs bg-slate-50/50 p-2 rounded border border-slate-200">
+          <div className="shrink-0 flex flex-wrap items-end gap-3 text-xs bg-canvas/50 p-2 rounded border border-line">
             <div>
-              <label className="block text-[11px] text-slate-500 mb-1">Rece. From Date</label>
+              <label className="block text-[11px] text-ink-faint mb-1">Rece. From Date</label>
               <input
                 type="date"
                 value={tab4FromDate}
                 onChange={(e) => setTab4FromDate(e.target.value)}
-                className="w-36 border border-slate-300 rounded px-2 py-1 bg-white text-xs"
+                className="w-36 border border-line-strong rounded px-2 py-1 bg-surface text-xs"
               />
             </div>
             <div>
-              <label className="block text-[11px] text-slate-500 mb-1">Rece. To Date</label>
+              <label className="block text-[11px] text-ink-faint mb-1">Rece. To Date</label>
               <input
                 type="date"
                 value={tab4ToDate}
                 onChange={(e) => setTab4ToDate(e.target.value)}
-                className="w-36 border border-slate-300 rounded px-2 py-1 bg-white text-xs"
+                className="w-36 border border-line-strong rounded px-2 py-1 bg-surface text-xs"
               />
             </div>
             <button
@@ -1434,52 +1441,52 @@ export default function SupplierPaymentsPage() {
           </div>
 
           {/* Table Container with All Borders */}
-          <div className="border border-slate-300 bg-white rounded shadow-2xs overflow-x-auto">
+          <div className="flex-1 min-h-0 border border-line-strong bg-surface rounded shadow-2xs overflow-auto">
             <table className="erp-table erp-table-compact w-full text-left text-xs border-collapse">
-              <thead className="bg-[#e6f2fb] text-slate-800 font-semibold text-[11px] border-b border-slate-300 select-none">
+              <thead className="bg-grid-head text-ink font-semibold text-[11px] border-b border-line-strong select-none">
                 <tr>
-                  <th className="p-2 border border-slate-300 w-10 text-center">SL</th>
-                  <th className="p-2 border border-slate-300 w-24">Rece. Date</th>
-                  <th className="p-2 border border-slate-300 w-40">Invoice</th>
-                  <th className="p-2 border border-slate-300">Supplier Name</th>
-                  <th className="p-2 border border-slate-300 w-20 text-center">Credit Days</th>
-                  <th className="p-2 border border-slate-300 w-28">Ex. Payment Date</th>
-                  <th className="p-2 border border-slate-300 w-28 text-right">Total Amount</th>
-                  <th className="p-2 border border-slate-300 w-28 text-right">Net Amount</th>
-                  <th className="p-2 border border-slate-300 w-28 text-right">Due Amount</th>
+                  <th className="p-2 border border-line-strong w-10 text-center">SL</th>
+                  <th className="p-2 border border-line-strong w-24">Rece. Date</th>
+                  <th className="p-2 border border-line-strong w-40">Invoice</th>
+                  <th className="p-2 border border-line-strong">Supplier Name</th>
+                  <th className="p-2 border border-line-strong w-20 text-center">Credit Days</th>
+                  <th className="p-2 border border-line-strong w-28">Ex. Payment Date</th>
+                  <th className="p-2 border border-line-strong w-28 text-right">Total Amount</th>
+                  <th className="p-2 border border-line-strong w-28 text-right">Net Amount</th>
+                  <th className="p-2 border border-line-strong w-28 text-right">Due Amount</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-200 text-[11px] text-slate-800">
+              <tbody className="divide-y divide-line text-[11px] text-ink">
                 {filteredDueInvoices.map((row) => (
-                  <tr key={row.sl} className="hover:bg-slate-50/80 transition-colors">
-                    <td className="p-2 border border-slate-300 text-center font-mono text-slate-600">
+                  <tr key={row.sl} className="hover:bg-canvas/80 transition-colors">
+                    <td className="p-2 border border-line-strong text-center font-mono text-ink-muted">
                       {row.sl}
                     </td>
-                    <td className="p-2 border border-slate-300 text-slate-700 whitespace-nowrap">
+                    <td className="p-2 border border-line-strong text-ink-muted whitespace-nowrap">
                       {row.receDate}
                     </td>
-                    <td className="p-2 border border-slate-300 font-mono text-slate-800 whitespace-nowrap">
+                    <td className="p-2 border border-line-strong font-mono text-ink whitespace-nowrap">
                       {row.invoice}
                     </td>
-                    <td className="p-2 border border-slate-300 text-slate-900 font-medium">
+                    <td className="p-2 border border-line-strong text-ink font-medium">
                       <span className="inline-flex items-center gap-1">
-                        <Truck className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                        <Truck className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
                         <span>{row.supplierName}</span>
                       </span>
                     </td>
-                    <td className="p-2 border border-slate-300 text-center font-mono text-slate-500">
+                    <td className="p-2 border border-line-strong text-center font-mono text-ink-faint">
                       {row.creditDays.toFixed(2)}
                     </td>
-                    <td className="p-2 border border-slate-300 text-slate-700 whitespace-nowrap">
+                    <td className="p-2 border border-line-strong text-ink-muted whitespace-nowrap">
                       {row.exPaymentDate}
                     </td>
-                    <td className="p-2 border border-slate-300 text-right font-mono text-slate-800 whitespace-nowrap">
+                    <td className="p-2 border border-line-strong text-right font-mono text-ink whitespace-nowrap">
                       {formatCurrency(row.totalAmount)}
                     </td>
-                    <td className="p-2 border border-slate-300 text-right font-mono text-slate-800 whitespace-nowrap">
+                    <td className="p-2 border border-line-strong text-right font-mono text-ink whitespace-nowrap">
                       {formatCurrency(row.netAmount)}
                     </td>
-                    <td className="p-2 border border-slate-300 text-right font-mono font-bold text-slate-900 whitespace-nowrap">
+                    <td className="p-2 border border-line-strong text-right font-mono font-bold text-ink whitespace-nowrap">
                       {formatCurrency(row.dueAmount)}
                     </td>
                   </tr>
@@ -1489,14 +1496,16 @@ export default function SupplierPaymentsPage() {
           </div>
 
           {/* Pagination */}
-          <div className="flex flex-col sm:flex-row items-center justify-end gap-6 text-xs text-slate-600 pt-1 pb-4">
+          <div className="shrink-0 flex flex-col sm:flex-row items-center justify-end gap-6 text-xs text-ink-muted pt-1">
             <div className="flex items-center gap-2">
               <span>Rows per page:</span>
               <select
                 value={rowsPerPage4}
                 onChange={(e) => setRowsPerPage4(Number(e.target.value))}
-                className="border border-slate-300 rounded px-1.5 py-0.5 bg-white text-xs"
+                className="border border-line-strong rounded px-1.5 py-0.5 bg-surface text-xs"
               >
+                <option value={10}>10</option>
+                <option value={20}>20</option>
                 <option value={50}>50</option>
                 <option value={100}>100</option>
               </select>
@@ -1504,10 +1513,10 @@ export default function SupplierPaymentsPage() {
             <div className="flex items-center gap-4">
               <span>1-{filteredDueInvoices.length} of {filteredDueInvoices.length}</span>
               <div className="flex items-center gap-1">
-                <button type="button" disabled className="p-1 border border-slate-200 rounded text-slate-300">
+                <button type="button" disabled className="p-1 border border-line rounded text-slate-300">
                   <ChevronLeft className="w-4 h-4" />
                 </button>
-                <button type="button" className="p-1 border border-slate-200 rounded text-slate-400 hover:text-slate-700">
+                <button type="button" className="p-1 border border-line rounded text-ink-faint hover:text-ink-muted">
                   <ChevronRight className="w-4 h-4" />
                 </button>
               </div>
@@ -1520,35 +1529,35 @@ export default function SupplierPaymentsPage() {
       {/* TAB 5: PAYMENT ADVANCE (SCREENSHOT 5) */}
       {/* ============================================================= */}
       {activeTab === "PAYMENT_ADVANCE" && (
-        <div className="space-y-2">
+        <div className="flex-1 min-h-0 flex flex-col space-y-2">
           {/* Filters */}
-          <div className="flex flex-wrap items-end gap-3 text-xs bg-slate-50/50 p-2 rounded border border-slate-200">
+          <div className="shrink-0 flex flex-wrap items-end gap-3 text-xs bg-canvas/50 p-2 rounded border border-line">
             <div>
-              <label className="block text-[11px] text-slate-500 mb-1">Supplier</label>
+              <label className="block text-[11px] text-ink-faint mb-1">Supplier</label>
               <input
                 type="text"
                 placeholder="Select/Search Supplier (min 3 letters)"
                 value={tab5Supplier}
                 onChange={(e) => setTab5Supplier(e.target.value)}
-                className="w-64 border border-slate-300 rounded px-2 py-1 bg-white text-xs placeholder-slate-400"
+                className="w-64 border border-line-strong rounded px-2 py-1 bg-surface text-xs placeholder:text-ink-faint"
               />
             </div>
             <div>
-              <label className="block text-[11px] text-slate-500 mb-1">From</label>
+              <label className="block text-[11px] text-ink-faint mb-1">From</label>
               <input
                 type="date"
                 value={tab5FromDate}
                 onChange={(e) => setTab5FromDate(e.target.value)}
-                className="w-36 border border-slate-300 rounded px-2 py-1 bg-white text-xs"
+                className="w-36 border border-line-strong rounded px-2 py-1 bg-surface text-xs"
               />
             </div>
             <div>
-              <label className="block text-[11px] text-slate-500 mb-1">To</label>
+              <label className="block text-[11px] text-ink-faint mb-1">To</label>
               <input
                 type="date"
                 value={tab5ToDate}
                 onChange={(e) => setTab5ToDate(e.target.value)}
-                className="w-36 border border-slate-300 rounded px-2 py-1 bg-white text-xs"
+                className="w-36 border border-line-strong rounded px-2 py-1 bg-surface text-xs"
               />
             </div>
             <div className="flex items-center gap-1.5 pb-1">
@@ -1557,9 +1566,9 @@ export default function SupplierPaymentsPage() {
                 id="detailsCheck"
                 checked={tab5DetailsCheck}
                 onChange={(e) => setTab5DetailsCheck(e.target.checked)}
-                className="rounded border-slate-300 text-blue-600"
+                className="rounded border-line-strong text-blue-600 dark:text-blue-400"
               />
-              <label htmlFor="detailsCheck" className="text-slate-700 text-xs">Details</label>
+              <label htmlFor="detailsCheck" className="text-ink-muted text-xs">Details</label>
             </div>
             <button
               type="button"
@@ -1571,47 +1580,47 @@ export default function SupplierPaymentsPage() {
           </div>
 
           {/* Table Container */}
-          <div className="border border-slate-300 bg-white rounded shadow-2xs overflow-x-auto">
+          <div className="flex-1 min-h-0 border border-line-strong bg-surface rounded shadow-2xs overflow-auto">
             {tab5DetailsCheck ? (
               <table className="erp-table erp-table-compact w-full text-left text-xs border-collapse">
-                <thead className="bg-[#e6f2fb] text-slate-800 font-semibold text-[11px] border-b border-slate-300 select-none">
+                <thead className="bg-grid-head text-ink font-semibold text-[11px] border-b border-line-strong select-none">
                   <tr>
-                    <th className="p-2 border border-slate-300 w-12 text-center">SL</th>
-                    <th className="p-2 border border-slate-300 w-32">Voucher No</th>
-                    <th className="p-2 border border-slate-300 w-24">Date</th>
-                    <th className="p-2 border border-slate-300">Supplier</th>
-                    <th className="p-2 border border-slate-300 w-28">PO No</th>
-                    <th className="p-2 border border-slate-300 w-24">Method</th>
-                    <th className="p-2 border border-slate-300 w-28">Ref / LC No</th>
-                    <th className="p-2 border border-slate-300">Narration</th>
-                    <th className="p-2 border border-slate-300 w-36 text-right">Amount</th>
+                    <th className="p-2 border border-line-strong w-12 text-center">SL</th>
+                    <th className="p-2 border border-line-strong w-32">Voucher No</th>
+                    <th className="p-2 border border-line-strong w-24">Date</th>
+                    <th className="p-2 border border-line-strong">Supplier</th>
+                    <th className="p-2 border border-line-strong w-28">PO No</th>
+                    <th className="p-2 border border-line-strong w-24">Method</th>
+                    <th className="p-2 border border-line-strong w-28">Ref / LC No</th>
+                    <th className="p-2 border border-line-strong">Narration</th>
+                    <th className="p-2 border border-line-strong w-36 text-right">Amount</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-200 text-[11px] text-slate-800">
+                <tbody className="divide-y divide-line text-[11px] text-ink">
                   {filteredAdvanceDetails.length === 0 ? (
                     <tr>
-                      <td colSpan={9} className="p-6 text-center text-slate-500">No advance payment vouchers found.</td>
+                      <td colSpan={9} className="p-6 text-center text-ink-faint">No advance payment vouchers found.</td>
                     </tr>
                   ) : (
                     filteredAdvanceDetails.map((row, idx) => (
-                      <tr key={row.id} className="hover:bg-slate-50/80 transition-colors">
-                        <td className="p-2 border border-slate-300 text-center font-mono text-slate-600">{idx + 1}</td>
-                        <td className="p-2 border border-slate-300 font-mono text-sky-700 font-semibold">{row.number}</td>
-                        <td className="p-2 border border-slate-300 font-mono text-slate-600">{row.paymentDate}</td>
-                        <td className="p-2 border border-slate-300 text-slate-900 font-medium">{row.supplierName}</td>
-                        <td className="p-2 border border-slate-300 font-mono text-slate-600">{row.orderNumber || "—"}</td>
-                        <td className="p-2 border border-slate-300">{row.method}</td>
-                        <td className="p-2 border border-slate-300 font-mono text-slate-600">{row.referenceNumber || "—"}</td>
-                        <td className="p-2 border border-slate-300 text-slate-600 max-w-xs truncate">{row.remarks || "—"}</td>
-                        <td className="p-2 border border-slate-300 text-right font-mono font-semibold text-slate-900">{formatCurrency(row.amount)}</td>
+                      <tr key={row.id} className="hover:bg-canvas/80 transition-colors">
+                        <td className="p-2 border border-line-strong text-center font-mono text-ink-muted">{idx + 1}</td>
+                        <td className="p-2 border border-line-strong font-mono text-sky-700 dark:text-sky-300 font-semibold">{row.number}</td>
+                        <td className="p-2 border border-line-strong font-mono text-ink-muted">{row.paymentDate}</td>
+                        <td className="p-2 border border-line-strong text-ink font-medium">{row.supplierName}</td>
+                        <td className="p-2 border border-line-strong font-mono text-ink-muted">{row.orderNumber || "—"}</td>
+                        <td className="p-2 border border-line-strong">{row.method}</td>
+                        <td className="p-2 border border-line-strong font-mono text-ink-muted">{row.referenceNumber || "—"}</td>
+                        <td className="p-2 border border-line-strong text-ink-muted max-w-xs truncate">{row.remarks || "—"}</td>
+                        <td className="p-2 border border-line-strong text-right font-mono font-semibold text-ink">{formatCurrency(row.amount)}</td>
                       </tr>
                     ))
                   )}
                 </tbody>
                 <tfoot>
-                  <tr className="bg-slate-50 font-bold text-xs border-t-2 border-slate-300 text-slate-900">
-                    <td colSpan={8} className="p-2 border border-slate-300 text-right font-bold">Total</td>
-                    <td className="p-2 border border-slate-300 text-right font-mono text-xs font-bold">
+                  <tr className="bg-canvas font-bold text-xs border-t-2 border-line-strong text-ink">
+                    <td colSpan={8} className="p-2 border border-line-strong text-right font-bold">Total</td>
+                    <td className="p-2 border border-line-strong text-right font-mono text-xs font-bold">
                       {formatCurrency(filteredAdvanceDetails.reduce((t, r) => t + r.amount, 0))}
                     </td>
                   </tr>
@@ -1619,48 +1628,48 @@ export default function SupplierPaymentsPage() {
               </table>
             ) : (
             <table className="erp-table erp-table-compact w-full text-left text-xs border-collapse">
-              <thead className="bg-[#e6f2fb] text-slate-800 font-semibold text-[11px] border-b border-slate-300 select-none">
+              <thead className="bg-grid-head text-ink font-semibold text-[11px] border-b border-line-strong select-none">
                 <tr>
-                  <th className="p-2 border border-slate-300 w-12 text-center">SL</th>
-                  <th className="p-2 border border-slate-300">Supplier Name</th>
-                  <th className="p-2 border border-slate-300 w-44 text-right">Advance Amount</th>
-                  <th className="p-2 border border-slate-300 w-44 text-right">Adjust Amount</th>
-                  <th className="p-2 border border-slate-300 w-44 text-right">Remaining Advance</th>
+                  <th className="p-2 border border-line-strong w-12 text-center">SL</th>
+                  <th className="p-2 border border-line-strong">Supplier Name</th>
+                  <th className="p-2 border border-line-strong w-44 text-right">Advance Amount</th>
+                  <th className="p-2 border border-line-strong w-44 text-right">Adjust Amount</th>
+                  <th className="p-2 border border-line-strong w-44 text-right">Remaining Advance</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-200 text-[11px] text-slate-800">
+              <tbody className="divide-y divide-line text-[11px] text-ink">
                 {filteredAdvanceList.map((row) => (
-                  <tr key={row.sl} className="hover:bg-slate-50/80 transition-colors">
-                    <td className="p-2 border border-slate-300 text-center font-mono text-slate-600">
+                  <tr key={row.sl} className="hover:bg-canvas/80 transition-colors">
+                    <td className="p-2 border border-line-strong text-center font-mono text-ink-muted">
                       {row.sl}
                     </td>
-                    <td className="p-2 border border-slate-300 text-slate-900 font-medium">
+                    <td className="p-2 border border-line-strong text-ink font-medium">
                       {row.supplierName}
                     </td>
-                    <td className="p-2 border border-slate-300 text-right font-mono text-slate-700">
+                    <td className="p-2 border border-line-strong text-right font-mono text-ink-muted">
                       {formatCurrency(row.advanceAmount)}
                     </td>
-                    <td className="p-2 border border-slate-300 text-right font-mono text-slate-800">
+                    <td className="p-2 border border-line-strong text-right font-mono text-ink">
                       {formatCurrency(row.adjustAmount)}
                     </td>
-                    <td className="p-2 border border-slate-300 text-right font-mono font-semibold text-rose-700">
+                    <td className="p-2 border border-line-strong text-right font-mono font-semibold text-rose-700 dark:text-rose-300">
                       {formatCurrency(row.remainingAdvance)}
                     </td>
                   </tr>
                 ))}
               </tbody>
               <tfoot>
-                <tr className="bg-slate-50 font-bold text-xs border-t-2 border-slate-300 text-slate-900">
-                  <td colSpan={2} className="p-2 border border-slate-300 text-right font-bold">
+                <tr className="bg-canvas font-bold text-xs border-t-2 border-line-strong text-ink">
+                  <td colSpan={2} className="p-2 border border-line-strong text-right font-bold">
                     Total
                   </td>
-                  <td className="p-2 border border-slate-300 text-right font-mono text-xs">
+                  <td className="p-2 border border-line-strong text-right font-mono text-xs">
                     {formatCurrency(filteredAdvanceList.reduce((t, r) => t + r.advanceAmount, 0))}
                   </td>
-                  <td className="p-2 border border-slate-300 text-right font-mono text-xs">
+                  <td className="p-2 border border-line-strong text-right font-mono text-xs">
                     {formatCurrency(filteredAdvanceList.reduce((t, r) => t + r.adjustAmount, 0))}
                   </td>
-                  <td className="p-2 border border-slate-300 text-right font-mono text-xs font-bold text-rose-700">
+                  <td className="p-2 border border-line-strong text-right font-mono text-xs font-bold text-rose-700 dark:text-rose-300">
                     {formatCurrency(filteredAdvanceList.reduce((t, r) => t + r.remainingAdvance, 0))}
                   </td>
                 </tr>
@@ -1675,25 +1684,25 @@ export default function SupplierPaymentsPage() {
       {/* TAB 6: SUPPLIER PURCHASE VS LEDGER BALANCE (SCREENSHOT 6) */}
       {/* ============================================================= */}
       {activeTab === "SUPPLIER_PURCHASE_VS_LEDGER" && (
-        <div className="space-y-2">
+        <div className="flex-1 min-h-0 flex flex-col space-y-2">
           {/* Filters Bar: From, To, View */}
-          <div className="flex flex-wrap items-end gap-3 text-xs p-2">
+          <div className="shrink-0 flex flex-wrap items-end gap-3 text-xs p-2">
             <div>
-              <label className="block text-[11px] text-slate-500 mb-1">From</label>
+              <label className="block text-[11px] text-ink-faint mb-1">From</label>
               <input
                 type="date"
                 value={tab6FromDate}
                 onChange={(e) => setTab6FromDate(e.target.value)}
-                className="w-36 border border-slate-300 rounded px-2 py-1 bg-white text-xs"
+                className="w-36 border border-line-strong rounded px-2 py-1 bg-surface text-xs"
               />
             </div>
             <div>
-              <label className="block text-[11px] text-slate-500 mb-1">To</label>
+              <label className="block text-[11px] text-ink-faint mb-1">To</label>
               <input
                 type="date"
                 value={tab6ToDate}
                 onChange={(e) => setTab6ToDate(e.target.value)}
-                className="w-36 border border-slate-300 rounded px-2 py-1 bg-white text-xs"
+                className="w-36 border border-line-strong rounded px-2 py-1 bg-surface text-xs"
               />
             </div>
             <button
@@ -1706,58 +1715,58 @@ export default function SupplierPaymentsPage() {
           </div>
 
           {/* Table Container with All Borders */}
-          <div className="border border-slate-300 bg-white rounded shadow-2xs overflow-x-auto">
+          <div className="flex-1 min-h-0 border border-line-strong bg-surface rounded shadow-2xs overflow-auto">
             <table className="erp-table erp-table-compact w-full text-left text-xs border-collapse">
-              <thead className="bg-[#e6f2fb] text-slate-800 font-semibold text-[11px] border-b border-slate-300 select-none">
+              <thead className="bg-grid-head text-ink font-semibold text-[11px] border-b border-line-strong select-none">
                 <tr>
-                  <th className="p-2 border border-slate-300 w-12 text-center">SL</th>
-                  <th className="p-2 border border-slate-300 w-36">Supplier Code</th>
-                  <th className="p-2 border border-slate-300">Supplier Name</th>
-                  <th className="p-2 border border-slate-300 w-36">Supplier Group</th>
-                  <th className="p-2 border border-slate-300 w-44 text-right">Purchase Payment (Due)</th>
-                  <th className="p-2 border border-slate-300 w-36 text-right">Ledger</th>
-                  <th className="p-2 border border-slate-300 w-36 text-right">Difference</th>
+                  <th className="p-2 border border-line-strong w-12 text-center">SL</th>
+                  <th className="p-2 border border-line-strong w-36">Supplier Code</th>
+                  <th className="p-2 border border-line-strong">Supplier Name</th>
+                  <th className="p-2 border border-line-strong w-36">Supplier Group</th>
+                  <th className="p-2 border border-line-strong w-44 text-right">Purchase Payment (Due)</th>
+                  <th className="p-2 border border-line-strong w-36 text-right">Ledger</th>
+                  <th className="p-2 border border-line-strong w-36 text-right">Difference</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-200 text-[11px] text-slate-800">
+              <tbody className="divide-y divide-line text-[11px] text-ink">
                 {filteredLedgerReconList.map((row) => (
-                  <tr key={row.sl} className="hover:bg-slate-50/80 transition-colors">
-                    <td className="p-2 border border-slate-300 text-center font-mono text-slate-600">
+                  <tr key={row.sl} className="hover:bg-canvas/80 transition-colors">
+                    <td className="p-2 border border-line-strong text-center font-mono text-ink-muted">
                       {row.sl}
                     </td>
-                    <td className="p-2 border border-slate-300 font-mono text-slate-800">
+                    <td className="p-2 border border-line-strong font-mono text-ink">
                       {row.supplierCode}
                     </td>
-                    <td className="p-2 border border-slate-300 text-slate-900 font-medium">
+                    <td className="p-2 border border-line-strong text-ink font-medium">
                       {row.supplierName}
                     </td>
-                    <td className="p-2 border border-slate-300 text-slate-600">
+                    <td className="p-2 border border-line-strong text-ink-muted">
                       {row.supplierGroup || ""}
                     </td>
-                    <td className="p-2 border border-slate-300 text-right font-mono text-slate-800">
+                    <td className="p-2 border border-line-strong text-right font-mono text-ink">
                       {formatNum(row.purchasePaymentDue)}
                     </td>
-                    <td className="p-2 border border-slate-300 text-right font-mono text-slate-800">
+                    <td className="p-2 border border-line-strong text-right font-mono text-ink">
                       {formatNum(row.ledger)}
                     </td>
-                    <td className="p-2 border border-slate-300 text-right font-mono text-slate-800">
+                    <td className="p-2 border border-line-strong text-right font-mono text-ink">
                       {formatNum(row.difference)}
                     </td>
                   </tr>
                 ))}
               </tbody>
               <tfoot>
-                <tr className="bg-white font-bold text-xs border-t-2 border-slate-300 text-slate-900">
-                  <td colSpan={4} className="p-2 border border-slate-300 text-center font-bold">
+                <tr className="bg-surface font-bold text-xs border-t-2 border-line-strong text-ink">
+                  <td colSpan={4} className="p-2 border border-line-strong text-center font-bold">
                     Total
                   </td>
-                  <td className="p-2 border border-slate-300 text-right font-mono text-xs">
+                  <td className="p-2 border border-line-strong text-right font-mono text-xs">
                     {totalLedgerRecon.due}
                   </td>
-                  <td className="p-2 border border-slate-300 text-right font-mono text-xs">
+                  <td className="p-2 border border-line-strong text-right font-mono text-xs">
                     {totalLedgerRecon.ledger}
                   </td>
-                  <td className="p-2 border border-slate-300 text-right font-mono text-xs">
+                  <td className="p-2 border border-line-strong text-right font-mono text-xs">
                     {totalLedgerRecon.diff}
                   </td>
                 </tr>
@@ -1766,16 +1775,18 @@ export default function SupplierPaymentsPage() {
           </div>
 
           {/* Pagination */}
-          <div className="flex items-center justify-end gap-6 text-xs text-slate-600 px-2 py-3">
+          <div className="shrink-0 flex items-center justify-end gap-6 text-xs text-ink-muted px-2 pt-1">
             <div className="flex items-center gap-2">
               <span>Rows per page:</span>
               <select
                 value={rowsPerPage6}
                 onChange={(e) => setRowsPerPage6(Number(e.target.value))}
-                className="border-0 bg-transparent font-medium text-slate-800 focus:ring-0 cursor-pointer text-xs"
+                className="border-0 bg-transparent font-medium text-ink focus:ring-0 cursor-pointer text-xs"
               >
                 <option value={10}>10</option>
                 <option value={25}>25</option>
+                <option value={10}>10</option>
+                <option value={20}>20</option>
                 <option value={50}>50</option>
                 <option value={100}>100</option>
               </select>
@@ -1786,14 +1797,14 @@ export default function SupplierPaymentsPage() {
             <div className="flex items-center gap-1">
               <button
                 type="button"
-                className="p-1 text-slate-400 hover:text-slate-700 disabled:opacity-50"
+                className="p-1 text-ink-faint hover:text-ink-muted disabled:opacity-50"
                 disabled
               >
                 <ChevronLeft className="w-4 h-4" />
               </button>
               <button
                 type="button"
-                className="p-1 text-slate-400 hover:text-slate-700 disabled:opacity-50"
+                className="p-1 text-ink-faint hover:text-ink-muted disabled:opacity-50"
                 disabled
               >
                 <ChevronRight className="w-4 h-4" />
@@ -1815,28 +1826,28 @@ export default function SupplierPaymentsPage() {
       >
         {quickPayTarget && (
           <form onSubmit={handleConfirmQuickPay} className="space-y-4 text-xs">
-            <div className="grid grid-cols-2 gap-3 bg-slate-50 p-3 rounded border border-slate-200">
+            <div className="grid grid-cols-2 gap-3 bg-canvas p-3 rounded border border-line">
               <div>
-                <span className="text-[10px] text-slate-400 block font-bold uppercase">Total Invoiced</span>
-                <span className="font-bold text-slate-800 font-mono">{formatCurrency(quickPayTarget.totalAmount)}</span>
+                <span className="text-[10px] text-ink-faint block font-bold uppercase">Total Invoiced</span>
+                <span className="font-bold text-ink font-mono">{formatCurrency(quickPayTarget.totalAmount)}</span>
               </div>
               <div>
-                <span className="text-[10px] text-slate-400 block font-bold uppercase">Previously Paid</span>
-                <span className="font-bold text-emerald-700 font-mono">{formatCurrency(quickPayTarget.paymentAmount)}</span>
+                <span className="text-[10px] text-ink-faint block font-bold uppercase">Previously Paid</span>
+                <span className="font-bold text-emerald-700 dark:text-emerald-300 font-mono">{formatCurrency(quickPayTarget.paymentAmount)}</span>
               </div>
               <div>
-                <span className="text-[10px] text-slate-400 block font-bold uppercase">Returns / Adjustments</span>
-                <span className="font-bold text-rose-600 font-mono">{formatCurrency(quickPayTarget.returnAmount)}</span>
+                <span className="text-[10px] text-ink-faint block font-bold uppercase">Returns / Adjustments</span>
+                <span className="font-bold text-rose-600 dark:text-rose-400 font-mono">{formatCurrency(quickPayTarget.returnAmount)}</span>
               </div>
               <div>
-                <span className="text-[10px] text-slate-400 block font-bold uppercase">Balance Due to Settle</span>
-                <span className="font-bold text-sky-800 font-mono text-sm">{formatCurrency(quickPayTarget.dueAmount)}</span>
+                <span className="text-[10px] text-ink-faint block font-bold uppercase">Balance Due to Settle</span>
+                <span className="font-bold text-sky-800 dark:text-sky-300 font-mono text-sm">{formatCurrency(quickPayTarget.dueAmount)}</span>
               </div>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
-                <label className="block text-slate-700 font-semibold mb-1">Payment Amount (BDT) *</label>
+                <label className="block text-ink-muted font-semibold mb-1">Payment Amount (BDT) *</label>
                 <input
                   type="number"
                   min="1"
@@ -1844,17 +1855,17 @@ export default function SupplierPaymentsPage() {
                   step="0.01"
                   value={quickPayAmount}
                   onChange={(e) => setQuickPayAmount(Number(e.target.value))}
-                  className="w-full border border-blue-400 rounded p-1.5 text-xs bg-white font-mono font-bold text-sky-900"
+                  className="w-full border border-blue-400 rounded p-1.5 text-xs bg-surface font-mono font-bold text-sky-900 dark:text-sky-300"
                   required
                 />
               </div>
 
               <div>
-                <label className="block text-slate-700 font-semibold mb-1">Disbursement Mode *</label>
+                <label className="block text-ink-muted font-semibold mb-1">Disbursement Mode *</label>
                 <select
                   value={quickPayMode}
                   onChange={(e) => setQuickPayMode(e.target.value as any)}
-                  className="w-full border border-slate-300 rounded p-1.5 text-xs bg-white"
+                  className="w-full border border-line-strong rounded p-1.5 text-xs bg-surface"
                 >
                   <option value="BANK_TRANSFER">Bank Online Transfer / BEFTN</option>
                   <option value="CASH">Petty Cash / Corporate Cash</option>
@@ -1864,23 +1875,23 @@ export default function SupplierPaymentsPage() {
               </div>
 
               <div>
-                <label className="block text-slate-700 font-semibold mb-1">Paying Bank / Account</label>
+                <label className="block text-ink-muted font-semibold mb-1">Paying Bank / Account</label>
                 <input
                   type="text"
                   value={quickPayBank}
                   onChange={(e) => setQuickPayBank(e.target.value)}
-                  className="w-full border border-slate-300 rounded p-1.5 text-xs bg-white"
+                  className="w-full border border-line-strong rounded p-1.5 text-xs bg-surface"
                 />
               </div>
 
               <div>
-                <label className="block text-slate-700 font-semibold mb-1">Cheque / Txn Reference No.</label>
+                <label className="block text-ink-muted font-semibold mb-1">Cheque / Txn Reference No.</label>
                 <input
                   type="text"
                   value={quickPayRef}
                   onChange={(e) => setQuickPayRef(e.target.value)}
                   placeholder="e.g. CQ-992140 / TXN-88123"
-                  className="w-full border border-slate-300 rounded p-1.5 text-xs bg-white font-mono"
+                  className="w-full border border-line-strong rounded p-1.5 text-xs bg-surface font-mono"
                   required
                 />
               </div>
@@ -1890,7 +1901,7 @@ export default function SupplierPaymentsPage() {
               <button
                 type="button"
                 onClick={() => setQuickPayTarget(null)}
-                className="px-4 py-1.5 border border-slate-200 rounded text-slate-600 font-medium"
+                className="px-4 py-1.5 border border-line rounded text-ink-muted font-medium"
               >
                 Cancel
               </button>
@@ -1920,14 +1931,14 @@ export default function SupplierPaymentsPage() {
         <div className="space-y-4 text-xs">
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-slate-700 font-semibold mb-1">Supplier / Vendor *</label>
+              <label className="block text-ink-muted font-semibold mb-1">Supplier / Vendor *</label>
               <select
                 value={grnPaySupplier}
                 onChange={(e) => {
                   setGrnPaySupplier(e.target.value);
                   setGrnPaySelected([]);
                 }}
-                className="w-full border border-slate-300 rounded p-1.5 text-xs bg-white"
+                className="w-full border border-line-strong rounded p-1.5 text-xs bg-surface"
               >
                 <option value="">Select supplier</option>
                 {dueList.filter((d) => d.dueAmount > 0).map((d) => (
@@ -1938,16 +1949,16 @@ export default function SupplierPaymentsPage() {
               </select>
             </div>
             <div>
-              <label className="block text-slate-700 font-semibold mb-1">Payment Date *</label>
-              <input type="date" value={grnPayDate} onChange={(e) => setGrnPayDate(e.target.value)} className="w-full border border-slate-300 rounded p-1.5 text-xs bg-white" />
+              <label className="block text-ink-muted font-semibold mb-1">Payment Date *</label>
+              <input type="date" value={grnPayDate} onChange={(e) => setGrnPayDate(e.target.value)} className="w-full border border-line-strong rounded p-1.5 text-xs bg-surface" />
             </div>
           </div>
 
           <div>
-            <label className="block text-slate-700 font-semibold mb-1">Select Outstanding Invoices to Settle</label>
-            <div className="border border-slate-200 rounded max-h-48 overflow-y-auto">
+            <label className="block text-ink-muted font-semibold mb-1">Select Outstanding Invoices to Settle</label>
+            <div className="border border-line rounded max-h-48 overflow-y-auto">
               <table className="w-full text-left text-xs">
-                <thead className="bg-slate-100 text-slate-700 sticky top-0 font-semibold">
+                <thead className="bg-control text-ink-muted sticky top-0 font-semibold">
                   <tr>
                     <th className="p-2 w-8 text-center">#</th>
                     <th className="p-2">Invoice / GRN</th>
@@ -1956,16 +1967,16 @@ export default function SupplierPaymentsPage() {
                     <th className="p-2 text-right">Due Balance</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100">
+                <tbody className="divide-y divide-line">
                   {grnPayInvoices.length === 0 && (
                     <tr>
-                      <td colSpan={5} className="p-3 text-center text-slate-500">
+                      <td colSpan={5} className="p-3 text-center text-ink-faint">
                         {grnPaySupplier ? "Nothing is due for this supplier." : "Select a supplier to see its open invoices."}
                       </td>
                     </tr>
                   )}
                   {grnPayInvoices.map((inv) => (
-                    <tr key={inv.id} className="hover:bg-slate-50">
+                    <tr key={inv.id} className="hover:bg-canvas">
                       <td className="p-2 text-center">
                         <input
                           type="checkbox"
@@ -1976,10 +1987,10 @@ export default function SupplierPaymentsPage() {
                           className="rounded"
                         />
                       </td>
-                      <td className="p-2 font-mono font-bold text-slate-800">{inv.invoiceNumber}</td>
-                      <td className="p-2 text-slate-600">{inv.invoiceDate}</td>
+                      <td className="p-2 font-mono font-bold text-ink">{inv.invoiceNumber}</td>
+                      <td className="p-2 text-ink-muted">{inv.invoiceDate}</td>
                       <td className="p-2 text-right font-mono">{formatCurrency(inv.totalAmount)}</td>
-                      <td className="p-2 text-right font-mono font-bold text-sky-800">{formatCurrency(inv.dueAmount)}</td>
+                      <td className="p-2 text-right font-mono font-bold text-sky-800 dark:text-sky-300">{formatCurrency(inv.dueAmount)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -1991,7 +2002,7 @@ export default function SupplierPaymentsPage() {
             <button
               type="button"
               onClick={() => setIsPaymentByGRNOpen(false)}
-              className="px-4 py-1.5 border border-slate-200 rounded text-slate-600 font-medium"
+              className="px-4 py-1.5 border border-line rounded text-ink-muted font-medium"
             >
               Cancel
             </button>
@@ -2029,14 +2040,14 @@ export default function SupplierPaymentsPage() {
         <div className="space-y-4 text-xs">
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-slate-700 font-semibold mb-1">Supplier *</label>
+              <label className="block text-ink-muted font-semibold mb-1">Supplier *</label>
               <select
                 value={billSupplier}
                 onChange={(e) => {
                   setBillSupplier(e.target.value);
                   setBillReceiptId("");
                 }}
-                className="w-full border border-slate-300 rounded p-1.5 text-xs bg-white"
+                className="w-full border border-line-strong rounded p-1.5 text-xs bg-surface"
               >
                 <option value="">Select supplier</option>
                 {(serverPayables ?? []).map((p) => (
@@ -2047,7 +2058,7 @@ export default function SupplierPaymentsPage() {
               </select>
             </div>
             <div>
-              <label className="block text-slate-700 font-semibold mb-1">Against Goods Receipt</label>
+              <label className="block text-ink-muted font-semibold mb-1">Against Goods Receipt</label>
               <select
                 value={billReceiptId}
                 onChange={(e) => {
@@ -2055,7 +2066,7 @@ export default function SupplierPaymentsPage() {
                   const receipt = billableReceipts.find((r) => r.receiptId === e.target.value);
                   if (receipt) setBillAmount(receipt.totalAmount);
                 }}
-                className="w-full border border-slate-300 rounded p-1.5 text-xs bg-white"
+                className="w-full border border-line-strong rounded p-1.5 text-xs bg-surface"
               >
                 <option value="">None (service / utility bill)</option>
                 {billableReceipts.map((r) => (
@@ -2066,41 +2077,41 @@ export default function SupplierPaymentsPage() {
               </select>
             </div>
             <div>
-              <label className="block text-slate-700 font-semibold mb-1">Bill Date *</label>
+              <label className="block text-ink-muted font-semibold mb-1">Bill Date *</label>
               <input
                 type="date"
                 value={billDate}
                 onChange={(e) => setBillDate(e.target.value)}
-                className="w-full border border-slate-300 rounded p-1.5 text-xs bg-white"
+                className="w-full border border-line-strong rounded p-1.5 text-xs bg-surface"
               />
             </div>
             <div>
-              <label className="block text-slate-700 font-semibold mb-1">Bill / Invoice No *</label>
+              <label className="block text-ink-muted font-semibold mb-1">Bill / Invoice No *</label>
               <input
                 type="text"
                 value={billInvoiceNo}
                 onChange={(e) => setBillInvoiceNo(e.target.value)}
-                className="w-full border border-slate-300 rounded p-1.5 text-xs bg-white font-mono"
+                className="w-full border border-line-strong rounded p-1.5 text-xs bg-surface font-mono"
               />
             </div>
             <div>
-              <label className="block text-slate-700 font-semibold mb-1">Bill Amount (BDT) *</label>
+              <label className="block text-ink-muted font-semibold mb-1">Bill Amount (BDT) *</label>
               <input
                 type="number"
                 value={billAmount}
                 disabled={Boolean(billReceiptId)}
                 title={billReceiptId ? "A bill against a goods receipt takes the receipt's value." : undefined}
                 onChange={(e) => setBillAmount(Number(e.target.value))}
-                className="w-full border border-slate-300 rounded p-1.5 text-xs bg-white font-mono font-bold disabled:bg-slate-100"
+                className="w-full border border-line-strong rounded p-1.5 text-xs bg-surface font-mono font-bold disabled:bg-control"
               />
             </div>
             <div>
-              <label className="block text-slate-700 font-semibold mb-1">Due Date *</label>
+              <label className="block text-ink-muted font-semibold mb-1">Due Date *</label>
               <input
                 type="date"
                 value={billDueDate}
                 onChange={(e) => setBillDueDate(e.target.value)}
-                className="w-full border border-slate-300 rounded p-1.5 text-xs bg-white"
+                className="w-full border border-line-strong rounded p-1.5 text-xs bg-surface"
               />
             </div>
           </div>
@@ -2109,7 +2120,7 @@ export default function SupplierPaymentsPage() {
             <button
               type="button"
               onClick={() => setIsCreateBillOpen(false)}
-              className="px-4 py-1.5 border border-slate-200 rounded text-slate-600 font-medium"
+              className="px-4 py-1.5 border border-line rounded text-ink-muted font-medium"
             >
               Cancel
             </button>
@@ -2208,30 +2219,30 @@ export default function SupplierPaymentsPage() {
       >
         {viewPaidVoucher && (
           <div className="space-y-3 text-xs">
-            <div className="bg-slate-50 p-3 rounded border border-slate-200 space-y-1.5">
+            <div className="bg-canvas p-3 rounded border border-line space-y-1.5">
               <div className="flex justify-between">
-                <span className="text-slate-500">Supplier:</span>
-                <span className="font-bold text-slate-900">{viewPaidVoucher.supplier}</span>
+                <span className="text-ink-faint">Supplier:</span>
+                <span className="font-bold text-ink">{viewPaidVoucher.supplier}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-slate-500">Invoices Cleared:</span>
-                <span className="font-mono text-slate-800">{viewPaidVoucher.invoiceNo}</span>
+                <span className="text-ink-faint">Invoices Cleared:</span>
+                <span className="font-mono text-ink">{viewPaidVoucher.invoiceNo}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-slate-500">Payment Date:</span>
-                <span className="text-slate-800">{viewPaidVoucher.paidDate}</span>
+                <span className="text-ink-faint">Payment Date:</span>
+                <span className="text-ink">{viewPaidVoucher.paidDate}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-slate-500">Bank Channel:</span>
+                <span className="text-ink-faint">Bank Channel:</span>
                 <span className="font-mono">{formatCurrency(viewPaidVoucher.bankAmount)}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-slate-500">Cash Channel:</span>
+                <span className="text-ink-faint">Cash Channel:</span>
                 <span className="font-mono">{formatCurrency(viewPaidVoucher.cashAmount)}</span>
               </div>
               <div className="flex justify-between pt-1 border-t text-sm font-bold">
-                <span className="text-slate-800">Total Settled:</span>
-                <span className="font-mono text-emerald-700">{formatCurrency(viewPaidVoucher.paidAmount)}</span>
+                <span className="text-ink">Total Settled:</span>
+                <span className="font-mono text-emerald-700 dark:text-emerald-300">{formatCurrency(viewPaidVoucher.paidAmount)}</span>
               </div>
             </div>
 
@@ -2239,7 +2250,7 @@ export default function SupplierPaymentsPage() {
               <button
                 type="button"
                 onClick={() => setViewPaidVoucher(null)}
-                className="px-4 py-1.5 border border-slate-200 rounded text-slate-600"
+                className="px-4 py-1.5 border border-line rounded text-ink-muted"
               >
                 Close
               </button>
@@ -2272,22 +2283,22 @@ export default function SupplierPaymentsPage() {
               cancelPaymentMutation.mutate({ id: cancelPayment.id, comments: cancelPaymentReason });
             }}
           >
-            <p className="text-slate-600">
+            <p className="text-ink-muted">
               {formatCurrency(cancelPayment.paidAmount)} paid on {cancelPayment.paidDate} is reversed and becomes due to {cancelPayment.supplier} again. The ledger posts a reversing voucher.
             </p>
             <div>
-              <label htmlFor="cancel-payment-reason" className="block text-slate-700 font-semibold mb-1">Reason *</label>
+              <label htmlFor="cancel-payment-reason" className="block text-ink-muted font-semibold mb-1">Reason *</label>
               <textarea
                 id="cancel-payment-reason"
                 required
                 maxLength={300}
                 value={cancelPaymentReason}
                 onChange={(e) => setCancelPaymentReason(e.target.value)}
-                className="w-full border border-slate-300 rounded p-2 text-xs h-20"
+                className="w-full border border-line-strong rounded p-2 text-xs h-20"
               />
             </div>
             <div className="flex justify-end gap-2">
-              <button type="button" onClick={() => setCancelPayment(null)} disabled={cancelPaymentMutation.isPending} className="h-9 px-4 border border-slate-200 rounded text-slate-600">
+              <button type="button" onClick={() => setCancelPayment(null)} disabled={cancelPaymentMutation.isPending} className="h-9 px-4 border border-line rounded text-ink-muted">
                 Back
               </button>
               <button type="submit" disabled={cancelPaymentMutation.isPending} className="h-9 px-4 bg-rose-600 hover:bg-rose-700 disabled:opacity-60 text-white rounded font-bold inline-flex items-center gap-1.5">
@@ -2313,25 +2324,25 @@ export default function SupplierPaymentsPage() {
               cancelBillMutation.mutate({ id: cancelBill.billId, comments: cancelBillReason });
             }}
           >
-            <p className="text-slate-600">
+            <p className="text-ink-muted">
               {cancelBill.receiptId
                 ? `The bill is removed from ${cancelBill.grnNumber}. The receipt stays payable and can be billed again or cancelled.`
                 : `${formatCurrency(cancelBill.grossAmount)} is no longer owed to ${cancelBill.supplierName}. The ledger posts a reversing voucher.`}{" "}
               A bill that payments were made against cannot be cancelled until those payments are cancelled.
             </p>
             <div>
-              <label htmlFor="cancel-bill-reason" className="block text-slate-700 font-semibold mb-1">Reason *</label>
+              <label htmlFor="cancel-bill-reason" className="block text-ink-muted font-semibold mb-1">Reason *</label>
               <textarea
                 id="cancel-bill-reason"
                 required
                 maxLength={300}
                 value={cancelBillReason}
                 onChange={(e) => setCancelBillReason(e.target.value)}
-                className="w-full border border-slate-300 rounded p-2 text-xs h-20"
+                className="w-full border border-line-strong rounded p-2 text-xs h-20"
               />
             </div>
             <div className="flex justify-end gap-2">
-              <button type="button" onClick={() => setCancelBill(null)} disabled={cancelBillMutation.isPending} className="h-9 px-4 border border-slate-200 rounded text-slate-600">
+              <button type="button" onClick={() => setCancelBill(null)} disabled={cancelBillMutation.isPending} className="h-9 px-4 border border-line rounded text-ink-muted">
                 Back
               </button>
               <button type="submit" disabled={cancelBillMutation.isPending} className="h-9 px-4 bg-rose-600 hover:bg-rose-700 disabled:opacity-60 text-white rounded font-bold inline-flex items-center gap-1.5">

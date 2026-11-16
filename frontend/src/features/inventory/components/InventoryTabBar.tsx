@@ -46,7 +46,7 @@ export function InventoryTabBar<T extends string>({
               onClick={() => onChange(tab.id)}
               className={cn(
                 "min-h-10 border-t-2 px-5 text-[13px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500/30 sm:px-7",
-                selected ? "border-blue-600 bg-surface font-semibold text-blue-600" : "border-transparent text-ink hover:text-blue-600",
+                selected ? "border-blue-600 bg-surface font-semibold text-blue-600 dark:text-blue-400" : "border-transparent text-ink hover:text-blue-600 dark:hover:text-blue-400",
               )}
             >
               {tab.label}

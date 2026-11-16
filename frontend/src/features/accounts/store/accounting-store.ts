@@ -82,63 +82,63 @@ export interface AccountingState {
   isHydrated: boolean;
 
   // Actions - COA
-  addAccount: (account: Omit<AccountItem, "id" | "currentBalance" | "createdAt" | "updatedAt">) => void;
+  addAccount: (account: Omit<AccountItem, "id" | "currentBalance" | "createdAt" | "updatedAt">) => Promise<boolean>;
   addAccountAsync: (account: Omit<AccountItem, "id" | "currentBalance" | "createdAt" | "updatedAt">) => Promise<{ success: boolean; error?: string }>;
-  updateAccount: (id: string, updates: Partial<AccountItem>) => void;
+  updateAccount: (id: string, updates: Partial<AccountItem>) => Promise<boolean>;
   updateAccountAsync: (id: string, updates: Partial<AccountItem>) => Promise<{ success: boolean; error?: string }>;
   deleteAccountAsync: (id: string) => Promise<{ success: boolean; error?: string }>;
-  toggleAccountStatus: (id: string) => void;
+  toggleAccountStatus: (id: string) => Promise<boolean>;
   seedStandardCoaAsync: () => Promise<{ success: boolean; error?: string }>;
   bulkUploadAccountsAsync: (items: Array<Partial<AccountItem>>) => Promise<{ success: boolean; error?: string }>;
 
   // Actions - COA Permissions
-  addCoaPermission: (perm: Omit<CoaPermissionItem, "id" | "createdAt">) => void;
+  addCoaPermission: (perm: Omit<CoaPermissionItem, "id" | "createdAt">) => Promise<boolean>;
   saveCoaPermissionsBatchAsync: (
     perms: Array<Omit<CoaPermissionItem, "id" | "createdAt"> & { employeeUuid?: string; accountId?: string }>
   ) => Promise<{ success: boolean; error?: string }>;
-  deleteCoaPermission: (id: string) => void;
-  toggleCoaPermission: (id: string) => void;
+  deleteCoaPermission: (id: string) => Promise<boolean>;
+  toggleCoaPermission: (id: string) => Promise<boolean>;
 
   // Actions - Vouchers
-  createVoucher: (voucher: Omit<JournalVoucher, "id" | "voucherNumber" | "totalDebit" | "totalCredit" | "createdAt">) => { success: boolean; message: string; voucher?: JournalVoucher };
-  postVoucher: (id: string) => { success: boolean; message: string };
-  reverseVoucher: (id: string, reason: string) => { success: boolean; message: string };
+  createVoucher: (voucher: Omit<JournalVoucher, "id" | "voucherNumber" | "totalDebit" | "totalCredit" | "createdAt">) => Promise<{ success: boolean; message: string; voucher?: JournalVoucher }>;
+  postVoucher: (id: string) => Promise<{ success: boolean; message: string }>;
+  reverseVoucher: (id: string, reason: string) => Promise<{ success: boolean; message: string }>;
 
   // Actions - Expenses & Advances
-  createExpense: (expense: Omit<ExpenseRecord, "id" | "expenseNumber" | "createdAt">) => void;
-  updateExpenseStatus: (id: string, status: ExpenseRecord["status"], approvedBy?: string) => void;
-  markExpensePaid: (id: string, paymentMethod: ExpenseRecord["paymentMethod"]) => void;
-  createAdvance: (advance: Omit<AdvanceRecord, "id" | "advanceNumber" | "disbursedAmount" | "settledAmount" | "remainingBalance" | "createdAt">) => void;
-  disburseAdvance: (id: string, amount: number) => void;
-  settleAdvance: (id: string, amount: number) => void;
-  createProvision: (provision: Omit<ProvisionRecord, "id" | "provisionNumber" | "createdAt">) => void;
+  createExpense: (expense: Omit<ExpenseRecord, "id" | "expenseNumber" | "createdAt">) => Promise<boolean>;
+  updateExpenseStatus: (id: string, status: ExpenseRecord["status"], approvedBy?: string) => Promise<boolean>;
+  markExpensePaid: (id: string, paymentMethod: ExpenseRecord["paymentMethod"]) => Promise<boolean>;
+  createAdvance: (advance: Omit<AdvanceRecord, "id" | "advanceNumber" | "disbursedAmount" | "settledAmount" | "remainingBalance" | "createdAt">) => Promise<boolean>;
+  disburseAdvance: (id: string, amount: number) => Promise<boolean>;
+  settleAdvance: (id: string, amount: number) => Promise<boolean>;
+  createProvision: (provision: Omit<ProvisionRecord, "id" | "provisionNumber" | "createdAt">) => Promise<boolean>;
 
   // Actions - Transfers
-  createTransfer: (transfer: Omit<FundTransferRecord, "id" | "transferNumber" | "requestCode" | "approvedAmount" | "transferredAmount" | "receivedAmount" | "createdAt">) => void;
-  approveTransfer: (id: string, approvedAmount: number) => void;
-  dispatchTransfer: (id: string) => void;
-  receiveTransfer: (id: string) => void;
-  returnTransfer: (id: string, reason: string) => void;
+  createTransfer: (transfer: Omit<FundTransferRecord, "id" | "transferNumber" | "requestCode" | "approvedAmount" | "transferredAmount" | "receivedAmount" | "createdAt">) => Promise<boolean>;
+  approveTransfer: (id: string, approvedAmount: number) => Promise<boolean>;
+  dispatchTransfer: (id: string) => Promise<boolean>;
+  receiveTransfer: (id: string) => Promise<boolean>;
+  returnTransfer: (id: string, reason: string) => Promise<boolean>;
 
   // Actions - Banking & Cheques
-  addBankAccount: (account: Omit<BankAccountItem, "id" | "currentBalance" | "createdAt">) => void;
-  addDeposit: (deposit: Omit<BankDepositItem, "id" | "depositNumber">) => void;
-  addLoan: (loan: Omit<BankLoanItem, "id" | "loanNumber">) => void;
-  addLoanPartner: (partner: Omit<LoanPartnerItem, "id" | "createdAt">) => void;
-  addChequeBook: (book: Omit<ChequeBookItem, "id" | "usedLeaves" | "remainingLeaves" | "createdAt" | "totalLeaves"> & { totalLeaves?: number }) => { success: boolean; message: string };
-  updateChequeBook: (id: string, updates: Partial<ChequeBookItem>) => { success: boolean; message: string };
-  issueCheque: (cheque: Omit<ChequeIssueItem, "id" | "transactionNumber" | "createdAt">) => { success: boolean; message: string };
-  updateChequeStatus: (id: string, status: ChequeIssueItem["status"], reason?: string) => void;
-  addReceivedCheque: (chq: Omit<ReceivedChequeItem, "id" | "createdAt">) => { success: boolean; message: string };
-  updateReceivedChequeStatus: (id: string, depositStatus: "DEPOSITED" | "NOT_DEPOSITED", depositDate?: string) => void;
+  addBankAccount: (account: Omit<BankAccountItem, "id" | "currentBalance" | "createdAt">) => Promise<boolean>;
+  addDeposit: (deposit: Omit<BankDepositItem, "id" | "depositNumber">) => Promise<boolean>;
+  addLoan: (loan: Omit<BankLoanItem, "id" | "loanNumber">) => Promise<boolean>;
+  addLoanPartner: (partner: Omit<LoanPartnerItem, "id" | "createdAt">) => Promise<boolean>;
+  addChequeBook: (book: Omit<ChequeBookItem, "id" | "usedLeaves" | "remainingLeaves" | "createdAt" | "totalLeaves"> & { totalLeaves?: number }) => Promise<{ success: boolean; message: string }>;
+  updateChequeBook: (id: string, updates: Partial<ChequeBookItem>) => Promise<{ success: boolean; message: string }>;
+  issueCheque: (cheque: Omit<ChequeIssueItem, "id" | "transactionNumber" | "createdAt">) => Promise<{ success: boolean; message: string }>;
+  updateChequeStatus: (id: string, status: ChequeIssueItem["status"], reason?: string) => Promise<boolean>;
+  addReceivedCheque: (chq: Omit<ReceivedChequeItem, "id" | "createdAt">) => Promise<{ success: boolean; message: string }>;
+  updateReceivedChequeStatus: (id: string, depositStatus: "DEPOSITED" | "NOT_DEPOSITED", depositDate?: string) => Promise<boolean>;
 
   // Actions - Budgets & Centers
-  createBudget: (budget: Partial<BudgetItem> & { budgetName: string; budgetYear: string; budgetType: string; allocatedAmount: number }) => void;
-  updateBudget: (id: string, updates: Partial<BudgetItem>) => void;
-  updateBudgetRevision: (id: string, revisedAmount: number) => void;
-  deleteBudget: (id: string) => void;
-  addCostCenter: (center: Omit<CostCenterItem, "id" | "createdAt">) => void;
-  updateCostCenter: (id: string, updates: Partial<Omit<CostCenterItem, "id" | "createdAt">>) => void;
+  createBudget: (budget: Partial<BudgetItem> & { budgetName: string; budgetYear: string; budgetType: string; allocatedAmount: number }) => Promise<boolean>;
+  updateBudget: (id: string, updates: Partial<BudgetItem>) => Promise<boolean>;
+  updateBudgetRevision: (id: string, revisedAmount: number) => Promise<boolean>;
+  deleteBudget: (id: string) => Promise<boolean>;
+  addCostCenter: (center: Omit<CostCenterItem, "id" | "createdAt">) => Promise<boolean>;
+  updateCostCenter: (id: string, updates: Partial<Omit<CostCenterItem, "id" | "createdAt">>) => Promise<boolean>;
 
   // Analytics & Reports Helpers
   getDashboardKPIs: () => AccountDashboardKPIs;
@@ -520,7 +520,7 @@ function getFullState(): AccountingState {
     },
 
     addAccount: (accountData) => {
-      void getFullState().addAccountAsync(accountData);
+      return getFullState().addAccountAsync(accountData).then((r) => r.success);
     },
 
     updateAccountAsync: async (id, updates) => {
@@ -539,11 +539,12 @@ function getFullState(): AccountingState {
           acc.id === id ? { ...acc, ...updates, updatedAt: toDateStr(new Date()) } : acc
         ),
       }));
-      void apiJson(`/api/accounts/chart-of-accounts/${id}`, {
+      return apiJson(`/api/accounts/chart-of-accounts/${id}`, {
         method: "PATCH",
         body: JSON.stringify(updates),
-      }).then((r) => {
-        if (r.success) void syncFromDatabase();
+      }).then(async (r) => {
+        if (r.success) await syncFromDatabase();
+        return r.success;
       });
     },
 
@@ -564,11 +565,12 @@ function getFullState(): AccountingState {
           acc.id === id ? { ...acc, status: nextStatus } : acc
         ),
       }));
-      void apiJson(`/api/accounts/chart-of-accounts/${id}`, {
+      return apiJson(`/api/accounts/chart-of-accounts/${id}`, {
         method: "PATCH",
         body: JSON.stringify({ status: nextStatus }),
-      }).then((r) => {
-        if (r.success) void syncFromDatabase();
+      }).then(async (r) => {
+        if (r.success) await syncFromDatabase();
+        return r.success;
       });
     },
 
@@ -600,7 +602,7 @@ function getFullState(): AccountingState {
     },
 
     addCoaPermission: (perm) => {
-      void getFullState().saveCoaPermissionsBatchAsync([perm]);
+      return getFullState().saveCoaPermissionsBatchAsync([perm]).then((r) => r.success);
     },
 
     deleteCoaPermission: (id) => {
@@ -608,8 +610,9 @@ function getFullState(): AccountingState {
         ...prev,
         coaPermissions: prev.coaPermissions.filter((p) => p.id !== id),
       }));
-      void apiJson(`/api/accounts/coa-permissions/${id}`, { method: "DELETE" }).then((r) => {
-        if (r.success) void syncFromDatabase();
+      return apiJson(`/api/accounts/coa-permissions/${id}`, { method: "DELETE" }).then(async (r) => {
+        if (r.success) await syncFromDatabase();
+        return r.success;
       });
     },
 
@@ -622,15 +625,16 @@ function getFullState(): AccountingState {
           p.id === id ? { ...p, status: nextStatus } : p
         ),
       }));
-      void apiJson(`/api/accounts/coa-permissions/${id}`, {
+      return apiJson(`/api/accounts/coa-permissions/${id}`, {
         method: "PATCH",
         body: JSON.stringify({ status: nextStatus }),
-      }).then((r) => {
-        if (r.success) void syncFromDatabase();
+      }).then(async (r) => {
+        if (r.success) await syncFromDatabase();
+        return r.success;
       });
     },
 
-    createVoucher: (voucherData) => {
+    createVoucher: async (voucherData) => {
       const totalDebit = voucherData.lines.reduce((sum, l) => sum + (Number(l.debit) || 0), 0);
       const totalCredit = voucherData.lines.reduce((sum, l) => sum + (Number(l.credit) || 0), 0);
 
@@ -653,75 +657,88 @@ function getFullState(): AccountingState {
         createdAt: toDateStr(new Date()),
       };
 
-      void apiJson("/api/accounts/journal", {
+      const saved = await apiJson("/api/accounts/journal", {
         method: "POST",
         body: JSON.stringify(voucherData),
-      }).then((r) => {
-        if (r.success) void syncFromDatabase();
-      });
+      }, true);
+
+      if (!saved.success) return { success: false, message: saved.error ?? "The change was not saved." };
+
+      await syncFromDatabase();
 
       return { success: true, message: "Journal voucher submitted to database.", voucher: optimisticVoucher };
     },
 
-    postVoucher: (id) => {
+    postVoucher: async (id) => {
       const v = internalData.vouchers.find((item) => item.id === id);
       if (!v) return { success: false, message: "Voucher not found." };
       if (v.status === "POSTED") return { success: false, message: "Voucher is already posted." };
 
-      void apiJson(`/api/accounts/journal/${id}`, {
+      const saved = await apiJson(`/api/accounts/journal/${id}`, {
         method: "PATCH",
         body: JSON.stringify({ action: "POST" }),
-      }).then((r) => {
-        if (r.success) void syncFromDatabase();
-      });
+      }, true);
 
+      if (!saved.success) return { success: false, message: saved.error ?? "The change was not saved." };
+
+      await syncFromDatabase();
+
+      // A multilayer pipeline (Configuration › Approval Setup) keeps it pending until the last stage approves.
+      if (saved.data?.status !== "POSTED") {
+        return { success: true, message: saved.data?.approvalNote ?? `Your approval of ${v.voucherNumber} is recorded; it waits for the next approver.` };
+      }
       return { success: true, message: `Voucher ${v.voucherNumber} posted to General Ledger.` };
     },
 
-    reverseVoucher: (id, reason) => {
+    reverseVoucher: async (id, reason) => {
       const original = internalData.vouchers.find((item) => item.id === id);
       if (!original) return { success: false, message: "Voucher not found." };
       if (original.status !== "POSTED") return { success: false, message: "Only posted vouchers can be reversed." };
 
-      void apiJson(`/api/accounts/journal/${id}`, {
+      const saved = await apiJson(`/api/accounts/journal/${id}`, {
         method: "PATCH",
         body: JSON.stringify({ action: "REVERSE", reason }),
-      }).then((r) => {
-        if (r.success) void syncFromDatabase();
-      });
+      }, true);
+
+      if (!saved.success) return { success: false, message: saved.error ?? "The change was not saved." };
+
+      await syncFromDatabase();
 
       return { success: true, message: `Reversal triggered for ${original.voucherNumber}.` };
     },
 
     createExpense: (expenseData) => {
-      void apiJson("/api/accounts/expenses", {
+      return apiJson("/api/accounts/expenses", {
         method: "POST",
         body: JSON.stringify({ ...expenseData, recordKind: "EXPENSE" }),
-      }).then((r) => {
-        if (r.success) void syncFromDatabase();
+      }).then(async (r) => {
+        if (r.success) await syncFromDatabase();
+        return r.success;
       });
     },
 
     updateExpenseStatus: (id, status, approvedBy) => {
-      void apiJson(`/api/accounts/expenses/${id}`, {
+      return apiJson(`/api/accounts/expenses/${id}`, {
         method: "PATCH",
         body: JSON.stringify({ status, approvedBy }),
-      }).then((r) => {
-        if (r.success) void syncFromDatabase();
+      }).then(async (r) => {
+        if (r.success) await syncFromDatabase();
+        return r.success;
       });
     },
 
     markExpensePaid: (id, paymentMethod) => {
-      void apiJson(`/api/accounts/expenses/${id}`, {
+      return apiJson(`/api/accounts/expenses/${id}`, {
         method: "PATCH",
         body: JSON.stringify({ action: "PAY", paymentMethod }),
-      }).then((r) => {
-        if (r.success) void syncFromDatabase();
+      }).then(async (r) => {
+        if (r.success) await syncFromDatabase();
+        return r.success;
       });
     },
 
     createAdvance: (advanceData) => {
-      void apiJson("/api/accounts/expenses", {
+      return apiJson("/api/accounts/expenses", {
         method: "POST",
         body: JSON.stringify({
           recordKind: "ADVANCE",
@@ -735,31 +752,34 @@ function getFullState(): AccountingState {
           description: advanceData.purpose,
           status: advanceData.status || "PENDING",
         }),
-      }).then((r) => {
-        if (r.success) void syncFromDatabase();
+      }).then(async (r) => {
+        if (r.success) await syncFromDatabase();
+        return r.success;
       });
     },
 
     disburseAdvance: (id, amount) => {
-      void apiJson(`/api/accounts/expenses/${id}`, {
+      return apiJson(`/api/accounts/expenses/${id}`, {
         method: "PATCH",
         body: JSON.stringify({ action: "DISBURSE", amount }),
-      }).then((r) => {
-        if (r.success) void syncFromDatabase();
+      }).then(async (r) => {
+        if (r.success) await syncFromDatabase();
+        return r.success;
       });
     },
 
     settleAdvance: (id, amount) => {
-      void apiJson(`/api/accounts/expenses/${id}`, {
+      return apiJson(`/api/accounts/expenses/${id}`, {
         method: "PATCH",
         body: JSON.stringify({ action: "SETTLE", settledAmount: amount }),
-      }).then((r) => {
-        if (r.success) void syncFromDatabase();
+      }).then(async (r) => {
+        if (r.success) await syncFromDatabase();
+        return r.success;
       });
     },
 
     createProvision: (provisionData) => {
-      void apiJson("/api/accounts/expenses", {
+      return apiJson("/api/accounts/expenses", {
         method: "POST",
         body: JSON.stringify({
           recordKind: "PROVISION",
@@ -774,212 +794,230 @@ function getFullState(): AccountingState {
           description: provisionData.description,
           status: provisionData.status || "ACTIVE",
         }),
-      }).then((r) => {
-        if (r.success) void syncFromDatabase();
+      }).then(async (r) => {
+        if (r.success) await syncFromDatabase();
+        return r.success;
       });
     },
 
     createTransfer: (transferData) => {
-      void apiJson("/api/accounts/fund-transfers", {
+      return apiJson("/api/accounts/fund-transfers", {
         method: "POST",
         body: JSON.stringify(transferData),
-      }).then((r) => {
-        if (r.success) void syncFromDatabase();
+      }).then(async (r) => {
+        if (r.success) await syncFromDatabase();
+        return r.success;
       });
     },
 
     approveTransfer: (id, approvedAmount) => {
-      void apiJson(`/api/accounts/fund-transfers/${id}`, {
+      return apiJson(`/api/accounts/fund-transfers/${id}`, {
         method: "PATCH",
         body: JSON.stringify({ action: "APPROVE", approvedAmount }),
-      }).then((r) => {
-        if (r.success) void syncFromDatabase();
+      }).then(async (r) => {
+        if (r.success) await syncFromDatabase();
+        return r.success;
       });
     },
 
     dispatchTransfer: (id) => {
-      void apiJson(`/api/accounts/fund-transfers/${id}`, {
+      return apiJson(`/api/accounts/fund-transfers/${id}`, {
         method: "PATCH",
         body: JSON.stringify({ action: "DISPATCH" }),
-      }).then((r) => {
-        if (r.success) void syncFromDatabase();
+      }).then(async (r) => {
+        if (r.success) await syncFromDatabase();
+        return r.success;
       });
     },
 
     receiveTransfer: (id) => {
-      void apiJson(`/api/accounts/fund-transfers/${id}`, {
+      return apiJson(`/api/accounts/fund-transfers/${id}`, {
         method: "PATCH",
         body: JSON.stringify({ action: "RECEIVE" }),
-      }).then((r) => {
-        if (r.success) void syncFromDatabase();
+      }).then(async (r) => {
+        if (r.success) await syncFromDatabase();
+        return r.success;
       });
     },
 
     returnTransfer: (id, reason) => {
-      void apiJson(`/api/accounts/fund-transfers/${id}`, {
+      return apiJson(`/api/accounts/fund-transfers/${id}`, {
         method: "PATCH",
         body: JSON.stringify({ action: "RETURN", reason }),
-      }).then((r) => {
-        if (r.success) void syncFromDatabase();
+      }).then(async (r) => {
+        if (r.success) await syncFromDatabase();
+        return r.success;
       });
     },
 
     addBankAccount: (bankData) => {
-      void apiJson("/api/accounts/banking", {
+      return apiJson("/api/accounts/banking", {
         method: "POST",
         body: JSON.stringify(bankData),
-      }).then((r) => {
-        if (r.success) void syncFromDatabase();
+      }).then(async (r) => {
+        if (r.success) await syncFromDatabase();
+        return r.success;
       });
     },
 
     addDeposit: (depositData) => {
-      void apiJson("/api/accounts/banking", {
+      return apiJson("/api/accounts/banking", {
         method: "POST",
         body: JSON.stringify({ ...depositData, entityType: "deposit" }),
-      }).then((r) => {
-        if (r.success) void syncFromDatabase();
+      }).then(async (r) => {
+        if (r.success) await syncFromDatabase();
+        return r.success;
       });
     },
 
     addLoan: (loanData) => {
-      void apiJson("/api/accounts/banking", {
+      return apiJson("/api/accounts/banking", {
         method: "POST",
         body: JSON.stringify({ ...loanData, entityType: "loan" }),
-      }).then((r) => {
-        if (r.success) void syncFromDatabase();
+      }).then(async (r) => {
+        if (r.success) await syncFromDatabase();
+        return r.success;
       });
     },
 
     addLoanPartner: (partnerData) => {
-      void apiJson("/api/accounts/banking", {
+      return apiJson("/api/accounts/banking", {
         method: "POST",
         body: JSON.stringify({ ...partnerData, entityType: "loanPartner" }),
-      }).then((r) => {
-        if (r.success) void syncFromDatabase();
+      }).then(async (r) => {
+        if (r.success) await syncFromDatabase();
+        return r.success;
       });
     },
 
-    addChequeBook: (bookData) => {
+    addChequeBook: async (bookData) => {
       const start = parseInt(bookData.startChequeNumber.replace(/\D/g, ""), 10) || 0;
       const end = parseInt(bookData.endChequeNumber.replace(/\D/g, ""), 10) || 0;
       if (start >= end) {
         return { success: false, message: "End cheque number must be strictly greater than start cheque number." };
       }
       const totalLeaves = end - start + 1;
-      void apiJson("/api/accounts/banking", {
+      const saved = await apiJson("/api/accounts/banking", {
         method: "POST",
         body: JSON.stringify({ ...bookData, totalLeaves, entityType: "chequeBook" }),
-      }).then((r) => {
-        if (r.success) void syncFromDatabase();
-      });
+      }, true);
+      if (!saved.success) return { success: false, message: saved.error ?? "The change was not saved." };
+      await syncFromDatabase();
       return { success: true, message: `Cheque book ${bookData.bookName} registered with ${totalLeaves} leaves.` };
     },
 
-    updateChequeBook: (id, updates) => {
-      void apiJson(`/api/accounts/banking/${id}`, {
+    updateChequeBook: async (id, updates) => {
+      const saved = await apiJson(`/api/accounts/banking/${id}`, {
         method: "PATCH",
         body: JSON.stringify({ ...updates, entityType: "chequeBook" }),
-      }).then((r) => {
-        if (r.success) void syncFromDatabase();
-      });
+      }, true);
+      if (!saved.success) return { success: false, message: saved.error ?? "The change was not saved." };
+      await syncFromDatabase();
       return { success: true, message: "Cheque book updated." };
     },
 
-    issueCheque: (chequeData) => {
+    issueCheque: async (chequeData) => {
       const exists = internalData.cheques.some(
         (c) => c.bankAccountId === chequeData.bankAccountId && c.chequeNumber === chequeData.chequeNumber
       );
       if (exists) {
         return { success: false, message: `Cheque number ${chequeData.chequeNumber} has already been issued for this bank account!` };
       }
-      void apiJson("/api/accounts/banking", {
+      const saved = await apiJson("/api/accounts/banking", {
         method: "POST",
         body: JSON.stringify({ ...chequeData, entityType: "chequeIssue" }),
-      }).then((r) => {
-        if (r.success) void syncFromDatabase();
-      });
+      }, true);
+      if (!saved.success) return { success: false, message: saved.error ?? "The change was not saved." };
+      await syncFromDatabase();
       return { success: true, message: `Cheque ${chequeData.chequeNumber} issued successfully to ${chequeData.payeeName}.` };
     },
 
     updateChequeStatus: (id, status, reason) => {
-      void apiJson(`/api/accounts/banking/${id}`, {
+      return apiJson(`/api/accounts/banking/${id}`, {
         method: "PATCH",
         body: JSON.stringify({ status, cancellationReason: reason, entityType: "chequeIssue" }),
-      }).then((r) => {
-        if (r.success) void syncFromDatabase();
+      }).then(async (r) => {
+        if (r.success) await syncFromDatabase();
+        return r.success;
       });
     },
 
-    addReceivedCheque: (chqData) => {
-      void apiJson("/api/accounts/banking", {
+    addReceivedCheque: async (chqData) => {
+      const saved = await apiJson("/api/accounts/banking", {
         method: "POST",
         body: JSON.stringify({ ...chqData, entityType: "receivedCheque" }),
-      }).then((r) => {
-        if (r.success) void syncFromDatabase();
-      });
+      }, true);
+      if (!saved.success) return { success: false, message: saved.error ?? "The change was not saved." };
+      await syncFromDatabase();
       return { success: true, message: `Cheque ${chqData.chequeNumber} recorded.` };
     },
 
     updateReceivedChequeStatus: (id, depositStatus, depositDate) => {
-      void apiJson(`/api/accounts/banking/${id}`, {
+      return apiJson(`/api/accounts/banking/${id}`, {
         method: "PATCH",
         body: JSON.stringify({ depositStatus, depositDate, entityType: "receivedCheque" }),
-      }).then((r) => {
-        if (r.success) void syncFromDatabase();
+      }).then(async (r) => {
+        if (r.success) await syncFromDatabase();
+        return r.success;
       });
     },
 
     createBudget: (budgetData) => {
-      void apiJson("/api/accounts/budget", {
+      return apiJson("/api/accounts/budget", {
         method: "POST",
         body: JSON.stringify(budgetData),
-      }).then((r) => {
-        if (r.success) void syncFromDatabase();
+      }).then(async (r) => {
+        if (r.success) await syncFromDatabase();
+        return r.success;
       });
     },
 
     updateBudget: (id, updates) => {
-      void apiJson(`/api/accounts/budget/${id}`, {
+      return apiJson(`/api/accounts/budget/${id}`, {
         method: "PUT",
         body: JSON.stringify(updates),
-      }).then((r) => {
-        if (r.success) void syncFromDatabase();
+      }).then(async (r) => {
+        if (r.success) await syncFromDatabase();
+        return r.success;
       });
     },
 
     updateBudgetRevision: (id, revisedAmount) => {
-      void apiJson(`/api/accounts/budget/${id}`, {
+      return apiJson(`/api/accounts/budget/${id}`, {
         method: "PUT",
         body: JSON.stringify({ revisedAmount }),
-      }).then((r) => {
-        if (r.success) void syncFromDatabase();
+      }).then(async (r) => {
+        if (r.success) await syncFromDatabase();
+        return r.success;
       });
     },
 
     deleteBudget: (id) => {
-      void apiJson(`/api/accounts/budget/${id}`, {
+      return apiJson(`/api/accounts/budget/${id}`, {
         method: "DELETE",
-      }).then((r) => {
-        if (r.success) void syncFromDatabase();
+      }).then(async (r) => {
+        if (r.success) await syncFromDatabase();
+        return r.success;
       });
     },
 
     addCostCenter: (centerData) => {
-      void apiJson("/api/accounts/cost-centers", {
+      return apiJson("/api/accounts/cost-centers", {
         method: "POST",
         body: JSON.stringify(centerData),
-      }).then((r) => {
-        if (r.success) void syncFromDatabase();
+      }).then(async (r) => {
+        if (r.success) await syncFromDatabase();
+        return r.success;
       });
     },
 
     updateCostCenter: (id, updates) => {
-      void apiJson(`/api/accounts/cost-centers/${id}`, {
+      return apiJson(`/api/accounts/cost-centers/${id}`, {
         method: "PATCH",
         body: JSON.stringify(updates),
-      }).then((r) => {
-        if (r.success) void syncFromDatabase();
+      }).then(async (r) => {
+        if (r.success) await syncFromDatabase();
+        return r.success;
       });
     },
 

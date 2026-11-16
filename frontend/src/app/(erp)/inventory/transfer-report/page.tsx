@@ -7,6 +7,7 @@ import { useResource } from "@/hooks/use-resource";
 import { InventoryTabBar, tabBarOutlineButton } from "@/features/inventory/components/InventoryTabBar";
 import type { InventoryDocument, InventoryDocumentLine } from "@/features/inventory/schemas/document.schema";
 import { dmy, inventoryApi, monthAgo, today, type ItemOption } from "@/features/inventory/services/inventory.api";
+import { useFeaturePermissions } from "@/lib/permissions/useFeaturePermissions";
 
 // iBOS Transfer Report: View By × Based On, with "Is Details" for one row per item line.
 const VIEWS = ["Transfer Out", "Transfer Received", "Transfer In Transit"] as const;
@@ -97,9 +98,10 @@ const blank = (): Filters => ({
 
 const field = "h-8 w-full rounded border border-line bg-surface px-2.5 text-xs text-ink focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:bg-control";
 const labelCls = "mb-1 block text-xs font-medium text-ink";
-const Req = () => <span className="mr-0.5 text-rose-600">*</span>;
+const Req = () => <span className="mr-0.5 text-rose-600 dark:text-rose-400">*</span>;
 
 export default function TransferReportPage() {
+  const perms = useFeaturePermissions("/inventory/transfer-report");
   const [form, setForm] = useState<Filters>(blank);
   const [applied, setApplied] = useState<Filters | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -249,7 +251,7 @@ export default function TransferReportPage() {
   const nestedCols = applied ? columnsFor(applied.view as View, "details") : [];
 
   return (
-    <div className="space-y-3 p-1 text-ink">
+    <div className="space-y-3 p-1 text-ink flex flex-col md:h-[calc(100dvh-3.5rem)] md:overflow-hidden print:block print:h-auto print:overflow-visible">
       <InventoryTabBar
         title="Transfer Report"
         tabs={[{ id: "REPORT", label: "Transfer Report" }]}
@@ -257,18 +259,18 @@ export default function TransferReportPage() {
         onChange={() => {}}
         actions={
           <>
-            <button type="button" className={tabBarOutlineButton} onClick={() => window.print()} disabled={!rows.length}>
+            {perms.export && (<button type="button" className={tabBarOutlineButton} onClick={() => window.print()} disabled={!rows.length}>
               <FileText /> PDF
-            </button>
-            <button type="button" className={tabBarOutlineButton} onClick={exportCsv} disabled={!rows.length}>
+            </button>)}
+            {perms.export && (<button type="button" className={tabBarOutlineButton} onClick={exportCsv} disabled={!rows.length}>
               <FileSpreadsheet /> Excel
-            </button>
+            </button>)}
           </>
         }
       />
 
       {/* Filters */}
-      <div className="grid grid-cols-1 items-end gap-3 rounded-lg border border-line bg-surface p-3 shadow-2xs sm:grid-cols-3 lg:grid-cols-6 print:hidden">
+      <div className="grid grid-cols-1 items-end gap-3 rounded-lg border border-line bg-surface p-3 shadow-2xs sm:grid-cols-3 lg:grid-cols-6 print:hidden shrink-0">
         <div>
           <label className={labelCls} htmlFor="tr-view"><Req />View By</label>
           <select id="tr-view" className={field} value={form.view} onChange={(e) => set("view", e.target.value as View)}>
@@ -331,9 +333,9 @@ export default function TransferReportPage() {
             </div>
             <div>
               <label className={labelCls} htmlFor="tr-fw">From Warehouse</label>
-              <select id="tr-fw" className={field} value={form.fromWarehouseId} onChange={(e) => set("fromWarehouseId", e.target.value)}>
-                <option value="">All Warehouses</option>
-                {warehouses.filter((w) => !form.fromOfficeId || w.officeId === form.fromOfficeId).map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
+              <select id="tr-fw" className={`${field} disabled:bg-control disabled:text-ink-faint disabled:cursor-not-allowed`} value={form.fromWarehouseId} onChange={(e) => set("fromWarehouseId", e.target.value)} disabled={!form.fromOfficeId}>
+                <option value="">{form.fromOfficeId ? "All Warehouses" : "Select From Office first"}</option>
+                {warehouses.filter((w) => !!form.fromOfficeId && w.officeId === form.fromOfficeId).map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
               </select>
             </div>
             <div>
@@ -345,9 +347,9 @@ export default function TransferReportPage() {
             </div>
             <div>
               <label className={labelCls} htmlFor="tr-tw">To Warehouse</label>
-              <select id="tr-tw" className={field} value={form.toWarehouseId} onChange={(e) => set("toWarehouseId", e.target.value)}>
-                <option value="">All Warehouses</option>
-                {warehouses.filter((w) => !form.toOfficeId || w.officeId === form.toOfficeId).map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
+              <select id="tr-tw" className={`${field} disabled:bg-control disabled:text-ink-faint disabled:cursor-not-allowed`} value={form.toWarehouseId} onChange={(e) => set("toWarehouseId", e.target.value)} disabled={!form.toOfficeId}>
+                <option value="">{form.toOfficeId ? "All Warehouses" : "Select To Office first"}</option>
+                {warehouses.filter((w) => !!form.toOfficeId && w.officeId === form.toOfficeId).map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
               </select>
             </div>
             <div>
@@ -383,16 +385,16 @@ export default function TransferReportPage() {
 
       {/* Report */}
       {!applied ? (
-        <p className="py-16 text-center text-sm text-ink-faint">Select View By and Based On, then View.</p>
+        <p className="py-16 text-center text-sm text-ink-faint shrink-0">Select View By and Based On, then View.</p>
       ) : loading ? (
-        <div className="py-16 text-center">
+        <div className="py-16 text-center shrink-0">
           <Spinner label="Loading report…" />
         </div>
       ) : (
-        <div className="space-y-3">
+        <div className="space-y-3 flex-1 min-h-0 flex flex-col print:block">
           <h2 className="hidden text-center text-lg font-bold print:block">Transfer Report — {applied.view}</h2>
           {applied.basedOn !== "Transfer" && (applied.fromOfficeId || applied.fromWarehouseId || applied.toOfficeId || applied.toWarehouseId) && (
-            <div className="grid gap-3 text-xs sm:grid-cols-2">
+            <div className="grid gap-3 text-xs sm:grid-cols-2 shrink-0">
               <dl className="rounded-lg border border-line bg-surface px-3 py-2">
                 <div className="flex gap-1"><dt className="font-semibold">Sending/Issue Office:</dt><dd>{officeName(applied.fromOfficeId) || "All"}</dd></div>
                 <div className="flex gap-1"><dt className="font-semibold">Sending/Issue Warehouse:</dt><dd>{warehouseName(applied.fromWarehouseId) || "All"}</dd></div>
@@ -403,10 +405,10 @@ export default function TransferReportPage() {
               </dl>
             </div>
           )}
-          <div className="overflow-x-auto rounded-lg border border-line bg-surface shadow-2xs">
+          <div className="rounded-lg border border-line bg-surface shadow-2xs flex-1 min-h-0 overflow-auto print:overflow-visible [&_thead]:sticky [&_thead]:top-0 [&_thead]:z-10">
             <table className="w-full border-collapse text-xs">
               <thead>
-                <tr className="bg-blue-100/70 text-left font-semibold text-slate-900 dark:bg-blue-500/15 dark:text-ink">
+                <tr className="bg-blue-100/70 text-left font-semibold text-ink dark:bg-blue-500/15 dark:text-ink">
                   <th className="border-b border-line px-2.5 py-2">SL</th>
                   {hasAction && <th className="border-b border-line px-2.5 py-2 text-center">Action</th>}
                   {columns.map((c) => (
@@ -434,7 +436,7 @@ export default function TransferReportPage() {
                               onClick={() => toggle(row._key)}
                               aria-expanded={open}
                               aria-label={`${open ? "Hide" : "Show"} lines of ${row.transferNo ?? row.itemName}`}
-                              className="inline-flex size-6 items-center justify-center rounded text-ink-muted hover:bg-control hover:text-blue-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/30"
+                              className="inline-flex size-6 items-center justify-center rounded text-ink-muted hover:bg-control hover:text-blue-600 dark:hover:text-blue-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/30"
                             >
                               {open ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />}
                             </button>

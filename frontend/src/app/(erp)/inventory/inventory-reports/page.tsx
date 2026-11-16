@@ -6,6 +6,9 @@ import { Spinner } from "@/components/ui/spinner";
 import { useResource } from "@/hooks/use-resource";
 import { dmy, inventoryApi, monthAgo, today } from "@/features/inventory/services/inventory.api";
 import type { InventoryReportRow, LedgerRow } from "@/features/inventory/server/overview.service";
+import { useFeaturePermissions } from "@/lib/permissions/useFeaturePermissions";
+// Item types are the ones Configuration › Item Profile saves items with.
+import { ITEM_TYPES } from "@/features/configuration/entity-master-data/item/schemas/item.schema";
 
 // ── Report views (iBOS "View By") ────────────────────────────────────────────
 
@@ -135,18 +138,6 @@ const VIEWS: Record<string, View> = {
 };
 const VIEW_NAMES = Object.keys(VIEWS);
 
-const ITEM_TYPES = [
-  "Finished/Trading Goods",
-  "Raw Material",
-  "Maintenance, Repair, and Operating Supplies",
-  "Marketing and Communication Material",
-  "Packaging Material",
-  "Production Tools and Resources",
-  "Semi Finished Goods",
-  "Stationery & Consumable Item",
-  "Construction Materials",
-];
-
 // ── Aggregation ──────────────────────────────────────────────────────────────
 
 const r3 = (n: number) => Math.round(n * 1000) / 1000;
@@ -230,9 +221,10 @@ const fmt = (v: Cell, format: Format = "text") => {
 const field = "h-9 w-full rounded-md border border-line bg-surface px-2.5 text-[13px] text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/20 disabled:bg-control disabled:text-ink-faint";
 const labelCls = "mb-1 block text-xs font-medium text-ink-muted";
 const iconBtn = "inline-flex size-8 items-center justify-center rounded-md border border-line bg-surface text-ink-muted hover:bg-control disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/20";
-const outlineBtn = "inline-flex h-9 items-center gap-1.5 rounded-md border border-blue-600 bg-surface px-3.5 text-xs font-semibold text-blue-600 hover:bg-blue-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/20 dark:hover:bg-blue-500/10";
+const outlineBtn = "inline-flex h-9 items-center gap-1.5 rounded-md border border-blue-600 bg-surface px-3.5 text-xs font-semibold text-blue-600 dark:text-blue-400 hover:bg-blue-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/20 dark:hover:bg-blue-500/10";
 
 export default function InventoryReportPage() {
+  const perms = useFeaturePermissions("/inventory/inventory-reports");
   const [viewBy, setViewBy] = useState("Inventory Report");
   const [search, setSearch] = useState("");
   // iBOS: Office, Warehouse and Item Type take several values (chips); none = All.
@@ -263,7 +255,7 @@ export default function InventoryReportPage() {
   // Filter choices.
   const warehouses = useMemo(() => masters.data?.warehouses ?? [], [masters.data]);
   const offices = useMemo(() => [...new Map(warehouses.map((w) => [w.officeId, w.officeName])).entries()].sort((a, b) => a[1].localeCompare(b[1])), [warehouses]);
-  const officeWarehouses = warehouses.filter((w) => !officeIds.length || officeIds.includes(w.officeId));
+  const officeWarehouses = officeIds.length ? warehouses.filter((w) => officeIds.includes(w.officeId)) : [];
   const items = useMemo(() => masters.data?.items ?? [], [masters.data]);
   const uniq = (values: (string | null)[]) => [...new Set(values.filter((v): v is string => !!v))].sort();
   const itemTypes = uniq([...ITEM_TYPES, ...items.map((i) => i.itemType)]);
@@ -379,8 +371,8 @@ export default function InventoryReportPage() {
   const isRight = (c: Col) => c.format === "qty" || c.format === "money" || c.format === "int";
 
   return (
-    <div className="space-y-3 p-1 text-ink">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between print:hidden">
+    <div className="space-y-3 p-1 text-ink flex flex-col md:h-[calc(100dvh-3.5rem)] md:overflow-hidden print:block print:h-auto print:overflow-visible">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between print:hidden shrink-0">
         <h1 className="text-xl font-bold tracking-tight sm:text-2xl">Inventory Report</h1>
         <div className="flex flex-wrap items-center gap-2">
           <label className="relative">
@@ -388,19 +380,19 @@ export default function InventoryReportPage() {
             <input value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }} placeholder="Search...." className={`${field} w-56 pr-8 sm:w-64`} />
             <Search className="pointer-events-none absolute right-2.5 top-1/2 size-3.5 -translate-y-1/2 text-ink-faint" aria-hidden />
           </label>
-          <button type="button" onClick={exportCsv} disabled={!rows.length} className={outlineBtn}>
+          {perms.export && (<button type="button" onClick={exportCsv} disabled={!rows.length} className={outlineBtn}>
             <Download className="size-3.5" aria-hidden /> EXCEL
-          </button>
-          <button type="button" onClick={() => window.print()} className={outlineBtn}>
+          </button>)}
+          {perms.export && (<button type="button" onClick={() => window.print()} className={outlineBtn}>
             <Printer className="size-3.5" aria-hidden /> PRINT/PDF
-          </button>
+          </button>)}
         </div>
       </div>
 
-      <div className="space-y-3 rounded-lg border border-line bg-surface p-3 shadow-2xs print:hidden">
+      <div className="space-y-3 rounded-lg border border-line bg-surface p-3 shadow-2xs print:hidden shrink-0">
         <div className="sm:w-1/2 lg:w-[34rem]">
           <label className={labelCls} htmlFor="view-by">
-            View By <span className="text-rose-600">*</span>
+            View By <span className="text-rose-600 dark:text-rose-400">*</span>
           </label>
           <select id="view-by" value={viewBy} onChange={(e) => setViewBy(e.target.value)} className={field}>
             {VIEW_NAMES.map((v) => (
@@ -417,10 +409,10 @@ export default function InventoryReportPage() {
             onChange={(v) => {
               setOfficeIds(v);
               // Keep only warehouses of the chosen offices.
-              setWarehouseIds((ws) => ws.filter((id) => !v.length || v.includes(warehouses.find((w) => w.id === id)?.officeId ?? "")));
+              setWarehouseIds((ws) => ws.filter((id) => v.includes(warehouses.find((w) => w.id === id)?.officeId ?? "")));
             }}
           />
-          <ChipSelect id="f-wh" label="Warehouse (Location)" options={officeWarehouses.map((w) => ({ value: w.id, label: w.name }))} value={warehouseIds} onChange={setWarehouseIds} />
+          <ChipSelect id="f-wh" label="Warehouse (Location)" options={officeWarehouses.map((w) => ({ value: w.id, label: w.name }))} value={warehouseIds} onChange={setWarehouseIds} disabled={!officeIds.length} disabledHint="Select Office first" />
           <ChipSelect
             id="f-type"
             label="Item Type"
@@ -517,11 +509,11 @@ export default function InventoryReportPage() {
         <p className="text-xs">From {dmy(applied.from)} to {dmy(applied.to)}</p>
       </div>
 
-      {view.note && <p className="rounded-md border border-line bg-control px-3 py-2 text-xs text-ink-muted print:hidden">{view.note}</p>}
-      {error && <p className="rounded-md border border-rose-200 bg-rose-500/10 px-3 py-2 text-xs text-rose-700">{error}</p>}
+      {view.note && <p className="rounded-md border border-line bg-control px-3 py-2 text-xs text-ink-muted print:hidden shrink-0">{view.note}</p>}
+      {error && <p className="rounded-md border border-rose-200 dark:border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-700 dark:text-rose-300 shrink-0">{error}</p>}
 
-      <div className="overflow-hidden rounded-lg border border-line bg-surface shadow-2xs">
-        <div className="overflow-x-auto">
+      <div className="overflow-hidden rounded-lg border border-line bg-surface shadow-2xs flex-1 min-h-0 flex flex-col print:block">
+        <div className="flex-1 min-h-0 overflow-auto print:overflow-visible [&_thead]:sticky [&_thead]:top-0 [&_thead]:z-10">
           <table className="w-full border-collapse text-[13px]">
             <thead>
               <tr className="bg-blue-50 text-left text-xs font-semibold text-ink dark:bg-blue-500/10">
@@ -585,7 +577,7 @@ export default function InventoryReportPage() {
             )}
           </table>
         </div>
-        <div className="flex flex-wrap items-center justify-end gap-4 border-t border-line px-3 py-2 text-xs text-ink-muted print:hidden">
+        <div className="flex flex-wrap items-center justify-end gap-4 border-t border-line px-3 py-2 text-xs text-ink-muted print:hidden shrink-0">
           <label className="flex items-center gap-2">
             Rows per page:
             <select value={perPage} onChange={(e) => { setPerPage(Number(e.target.value)); setPage(1); }} className="h-8 rounded-md border border-line bg-surface px-1.5 text-xs">
@@ -618,12 +610,16 @@ function ChipSelect({
   options,
   value,
   onChange,
+  disabled = false,
+  disabledHint,
 }: {
   id: string;
   label: string;
   options: { value: string; label: string }[];
   value: string[];
   onChange: (value: string[]) => void;
+  disabled?: boolean;
+  disabledHint?: string;
 }) {
   const nameOf = (v: string) => options.find((o) => o.value === v)?.label ?? v;
   const rest = options.filter((o) => !value.includes(o.value));
@@ -632,8 +628,8 @@ function ChipSelect({
       <label className={labelCls} htmlFor={id}>
         {label}
       </label>
-      <div className="flex min-h-9 flex-wrap items-center gap-1 rounded-md border border-line bg-surface px-1.5 py-1 focus-within:ring-2 focus-within:ring-blue-500/20">
-        {value.length === 0 && <span className="rounded bg-control px-1.5 py-0.5 text-[11px] text-ink-muted">All</span>}
+      <div className={`flex min-h-9 flex-wrap items-center gap-1 rounded-md border border-line px-1.5 py-1 focus-within:ring-2 focus-within:ring-blue-500/20 ${disabled ? "cursor-not-allowed bg-control opacity-60" : "bg-surface"}`}>
+        {value.length === 0 && !disabled && <span className="rounded bg-control px-1.5 py-0.5 text-[11px] text-ink-muted">All</span>}
         {value.map((v) => (
           <span key={v} className="inline-flex max-w-full items-center gap-0.5 rounded bg-control py-0.5 pl-1.5 text-[11px] text-ink">
             <span className="truncate">{nameOf(v)}</span>
@@ -642,8 +638,8 @@ function ChipSelect({
             </button>
           </span>
         ))}
-        <select id={id} value="" onChange={(e) => e.target.value && onChange([...value, e.target.value])} className="h-6 min-w-14 flex-1 bg-transparent text-xs text-ink focus:outline-none">
-          <option value="">{value.length ? "Add…" : "Select…"}</option>
+        <select id={id} value="" disabled={disabled} onChange={(e) => e.target.value && onChange([...value, e.target.value])} className="h-6 min-w-14 flex-1 bg-transparent text-xs text-ink focus:outline-none disabled:cursor-not-allowed">
+          <option value="">{disabled ? (disabledHint ?? "Select…") : value.length ? "Add…" : "Select…"}</option>
           {rest.map((o) => (
             <option key={o.value} value={o.value}>
               {o.label}

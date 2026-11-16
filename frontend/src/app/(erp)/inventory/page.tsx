@@ -71,7 +71,7 @@ export default function InventoryDashboardPage() {
           {overview.loading && <Spinner className="size-3.5" />} View
         </button>
       </div>
-      {overview.error && <p className="rounded-lg border border-rose-200 bg-rose-500/10 px-3 py-2 text-xs text-rose-700">{overview.error.message}</p>}
+      {overview.error && <p className="rounded-lg border border-rose-200 dark:border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-700 dark:text-rose-300">{overview.error.message}</p>}
 
       {/* Balance tiles */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -196,7 +196,7 @@ function Tile({ color, icon, value, label, loading }: { color: string; icon: Rea
     <div className={`relative flex items-center gap-4 overflow-hidden rounded-xl px-5 py-6 text-white shadow-xs ${color}`}>
       <span aria-hidden className="pointer-events-none absolute -right-8 -top-10 size-32 rounded-full bg-white/15" />
       <span aria-hidden className="pointer-events-none absolute -bottom-12 right-14 size-24 rounded-full bg-white/10" />
-      <span className="relative flex size-14 shrink-0 items-center justify-center rounded-full bg-white text-ink [&_svg]:size-6">{icon}</span>
+      <span className="relative flex size-14 shrink-0 items-center justify-center rounded-full bg-surface text-ink [&_svg]:size-6">{icon}</span>
       <div className="relative min-w-0">
         <p className="truncate text-xl font-bold tabular-nums">{loading ? "…" : taka(value)}</p>
         <p className="text-xs font-semibold uppercase tracking-wide text-white/90">{label}</p>

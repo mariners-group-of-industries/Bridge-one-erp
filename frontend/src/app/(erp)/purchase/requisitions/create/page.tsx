@@ -5,7 +5,7 @@ export const instant = false;
 
 export default function CreateRequisitionPage() {
   return (
-    <Suspense fallback={<div className="p-6 text-sm text-slate-500">Loading Requisition Form...</div>}>
+    <Suspense fallback={<div className="p-6 text-sm text-ink-faint">Loading Requisition Form...</div>}>
       <CreateRequisitionView />
     </Suspense>
   );

@@ -190,8 +190,8 @@ const SOURCES: readonly Source[] = [
     module: "Accounts",
     label: "Journal Voucher",
     href: "/accounts/journal",
-    // Accounts documents are approved in the Accounts workspace store, not through the server, so no pipeline applies yet.
-    pipelineFeature: null,
+    // Posting a voucher runs the "Journal Voucher" pipeline (app/api/accounts/journal/[id]).
+    pipelineFeature: "Journal Voucher",
     pending: ["PENDING"],
     approved: ["APPROVED", "POSTED"],
     rejected: ["REJECTED"],
@@ -217,7 +217,8 @@ const SOURCES: readonly Source[] = [
     module: "Accounts",
     label: "Fund Transfer",
     href: "/accounts/fund-transfers",
-    pipelineFeature: null,
+    // Approving runs the "Fund Transfer" pipeline (app/api/accounts/fund-transfers/[id]).
+    pipelineFeature: "Fund Transfer",
     pending: ["SUBMITTED", "PENDING_APPROVAL", "PENDING"],
     approved: ["APPROVED", "COMPLETED", "DISPATCHED", "IN_TRANSIT", "RECEIVED"],
     rejected: ["REJECTED"],

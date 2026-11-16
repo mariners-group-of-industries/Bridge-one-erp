@@ -3,6 +3,8 @@ import { db } from "@/lib/prisma/client";
 import { apiHandler } from "@/lib/api/handler";
 import { applyVoucherLinesToAccounts, createVoucherInTx } from "@/lib/accounting/accounts-service";
 import type { Actor } from "@/lib/auth/actor";
+import { denyUnless } from "@/lib/permissions/require";
+import { approvalNote, recordApproval } from "@/lib/approval/engine";
 
 async function handlePATCH(
   request: Request,
@@ -13,6 +15,11 @@ async function handlePATCH(
     const { id } = await params;
     const body = await request.json();
     const action = String(body?.action || "").toUpperCase();
+    // Posting a voucher is its approval.
+    if (action === "POST") {
+      const denied = denyUnless(actor, "/accounts/journal", "approve");
+      if (denied) return denied;
+    }
     const prisma = db();
 
     const voucher = await prisma.journalVoucher.findUnique({
@@ -32,6 +39,15 @@ async function handlePATCH(
       }
 
       const updated = await prisma.$transaction(async (tx) => {
+        // Configuration › Approval Setup ("Journal Voucher"): every stage approves before the voucher posts.
+        const office = voucher.officeId ? await tx.office.findUnique({ where: { id: voucher.officeId }, select: { businessUnitId: true } }) : null;
+        const gate = await recordApproval(tx, actor, {
+          feature: "Journal Voucher",
+          documentId: id,
+          businessUnitId: office?.businessUnitId ?? null,
+          amount: Number(voucher.totalDebit),
+        });
+        if (!gate.final) return { ...voucher, approvalNote: approvalNote(gate) };
         const res = await tx.journalVoucher.update({
           where: { id },
           data: {

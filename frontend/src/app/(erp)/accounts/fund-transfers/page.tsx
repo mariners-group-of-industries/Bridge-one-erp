@@ -1,21 +1,50 @@
 "use client";
 
+import { toast } from "@/components/purchase/Toast";
+import { Spinner } from "@/components/ui/spinner";
+import { usePending } from "@/hooks/use-pending";
 import React, { useMemo, useState } from "react";
 import {
+  ArrowLeft,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
+  ChevronUp,
   DollarSign,
   Eye,
-  Pencil,
   Search,
   X,
+  Check,
 } from "lucide-react";
 import { ModalDialog } from "@/components/purchase/ModalDialog";
+import { ConfirmDialog } from "@/components/ui/dialog";
 import { useAccountingStore } from "@/features/accounts/store/accounting-store";
 import { localDaysFromToday, localToday } from "@/features/purchase/lib/client";
 import type { FundTransferRecord } from "@/features/accounts/types";
+import { useFeaturePermissions, needsPermission } from "@/lib/permissions/useFeaturePermissions";
+
+/** What each stored status is called on screen (the server writes upper case). */
+const STATUS_TEXT: Record<string, { label: string; tone: string }> = {
+  DRAFT: { label: "Draft", tone: "text-ink-faint" },
+  SUBMITTED: { label: "Submitted", tone: "text-amber-600 dark:text-amber-400" },
+  PENDING_APPROVAL: { label: "Pending Approval", tone: "text-amber-600 dark:text-amber-400" },
+  APPROVED: { label: "Approved", tone: "text-emerald-600 dark:text-emerald-400" },
+  Approved: { label: "Approved", tone: "text-emerald-600 dark:text-emerald-400" },
+  DISPATCHED: { label: "Dispatched", tone: "text-blue-600 dark:text-blue-400" },
+  Completed: { label: "Completed", tone: "text-blue-600 dark:text-blue-400" },
+  IN_TRANSIT: { label: "In Transit", tone: "text-blue-600 dark:text-blue-400" },
+  RECEIVED: { label: "Received", tone: "text-emerald-600 dark:text-emerald-400" },
+  RETURNED: { label: "Returned", tone: "text-rose-600 dark:text-rose-400" },
+  CANCELLED: { label: "Cancelled", tone: "text-rose-600 dark:text-rose-400" },
+};
+const statusOf = (status: string) => STATUS_TEXT[status] ?? { label: status, tone: "text-ink-muted" };
+const isApproved = (status: string) => status === "APPROVED" || status === "Approved";
+const isAwaitingApproval = (status: string) => status === "PENDING_APPROVAL" || status === "SUBMITTED" || status === "DRAFT";
+const iconButton = "inline-flex size-6 items-center justify-center rounded transition";
 
 export default function FundTransferPage() {
+  const perms = useFeaturePermissions("/accounts/fund-transfers");
+  const { pending, run } = usePending();
   const transfers = useAccountingStore((s) => s.transfers);
   const dbOffices = useAccountingStore((s) => s.offices);
   const accounts = useAccountingStore((s) => s.accounts);
@@ -27,6 +56,12 @@ export default function FundTransferPage() {
   );
   const createTransfer = useAccountingStore((s) => s.createTransfer);
   const receiveTransfer = useAccountingStore((s) => s.receiveTransfer);
+  const approveTransfer = useAccountingStore((s) => s.approveTransfer);
+  const dispatchTransfer = useAccountingStore((s) => s.dispatchTransfer);
+  const returnTransfer = useAccountingStore((s) => s.returnTransfer);
+  // Approve a request, send (pay) an approved transfer, or cancel it — each confirmed first.
+  const [actionOn, setActionOn] = useState<{ kind: "approve" | "dispatch" | "cancel"; transfer: FundTransferRecord } | null>(null);
+  const [cancelReason, setCancelReason] = useState("");
 
   // Tabs: REQUEST | OUT | IN_TRANSIT | IN_RECEIVED | RETURN
   const [activeTab, setActiveTab] = useState<
@@ -47,7 +82,9 @@ export default function FundTransferPage() {
 
   // Modals
   const [isRequestModalOpen, setIsRequestModalOpen] = useState(false);
+  const [isReqHeaderCollapsed, setIsReqHeaderCollapsed] = useState(false);
   const [isDirectModalOpen, setIsDirectModalOpen] = useState(false);
+  const [isDirectHeaderCollapsed, setIsDirectHeaderCollapsed] = useState(false);
   const [viewingTransfer, setViewingTransfer] = useState<FundTransferRecord | null>(null);
   const [receiveTarget, setReceiveTarget] = useState<FundTransferRecord | null>(null);
 
@@ -112,13 +149,13 @@ export default function FundTransferPage() {
     return transfers.filter((t) => {
       // Tab 1: FUND TRANSFER REQUEST
       if (activeTab === "REQUEST") {
-        if (t.status !== "Approved" && t.status !== "PENDING_APPROVAL" && t.status !== "DRAFT" && t.status !== "SUBMITTED")
+        if (!isApproved(t.status) && !isAwaitingApproval(t.status))
           return false;
       }
       // Tab 2: FUND TRANSFER OUT
       else if (activeTab === "OUT") {
         // Dispatched or Completed or Approved out
-        if (t.status !== "Approved" && t.status !== "Completed" && t.status !== "DISPATCHED")
+        if (!isApproved(t.status) && t.status !== "Completed" && t.status !== "DISPATCHED")
           return false;
       }
       // Tab 3: FUND TRANSFER IN TRANSIT
@@ -166,8 +203,8 @@ export default function FundTransferPage() {
     return filteredTransfers.slice(start, start + rowsPerPage);
   }, [filteredTransfers, currentPage, rowsPerPage]);
 
-  const handleCreateRequestSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleCreateRequestSubmit = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
     if (form.requestedAmount <= 0) return setFormError("Enter the request amount.");
     // A request names only who asks for the money and where it goes; the sending office is chosen when it is sent out.
     const office = dbOffices.find((o) => o.name === form.toOfficeName) ?? dbOffices[0];
@@ -175,7 +212,7 @@ export default function FundTransferPage() {
     if (!office) return setFormError("No office is available.");
     if (!head) return setFormError(`Select the ${form.receiveType.toLowerCase()} the money is received in.`);
     if (form.expectedDate && form.expectedDate < form.requestDate) return setFormError("The expected date cannot be before the request date.");
-    createTransfer({
+    const ok = await run("request", () => createTransfer({
       ...form,
       fromOfficeId: "",
       fromOfficeName: "",
@@ -186,43 +223,397 @@ export default function FundTransferPage() {
       toAccountId: head.id,
       toAccountName: head.name,
       status: "SUBMITTED",
-    });
+    }));
+    if (!ok) return;
+    toast.success("Fund transfer request saved.");
     setIsRequestModalOpen(false);
     setForm(blankForm());
     setFormError("");
   };
 
-  const handleDirectTransferSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleDirectTransferSubmit = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
     if (form.requestedAmount <= 0) return;
     const resolved = resolveForm(true);
     if (!resolved.data) return setFormError(resolved.error);
     const count = transfers.length + 1;
     const outCode = `FTO-MG260500${(10 + count).toString()}`;
-    createTransfer({
+    const ok = await run("direct", () => createTransfer({
       ...resolved.data,
       status: "Completed",
       outCode,
-    });
+    }));
+    if (!ok) return;
+    toast.success("Fund transfer saved.");
     setIsDirectModalOpen(false);
     setForm(blankForm());
     setFormError("");
   };
 
-  const handleConfirmReceive = () => {
+  const handleConfirmReceive = async () => {
     if (!receiveTarget) return;
-    receiveTransfer(receiveTarget.id);
+    const ok = await run("receive", () => receiveTransfer(receiveTarget.id));
+    if (!ok) return;
+    toast.success("Transfer received.");
     setReceiveTarget(null);
   };
 
+  if (isRequestModalOpen) {
+    return (
+      <div className="space-y-3 font-sans pb-10">
+        {/* TOP HEADER BAR */}
+        <div className="bg-white border border-slate-200/90 rounded px-4 py-2.5 flex items-center justify-between shadow-2xs">
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => setIsRequestModalOpen(false)}
+              className="h-8 w-8 rounded border border-slate-300 flex items-center justify-center text-slate-600 hover:bg-slate-50 transition"
+              title="Back"
+            >
+              <ArrowLeft className="w-4 h-4" />
+            </button>
+            <h1 className="text-base font-bold text-slate-900 tracking-tight">Create Fund Transfer Request</h1>
+          </div>
+          <button
+            type="button"
+            disabled={pending === "request"}
+            onClick={() => handleCreateRequestSubmit()}
+            className="h-8 px-5 bg-[#2563eb] hover:bg-blue-700 disabled:opacity-60 text-white font-semibold text-xs rounded transition flex items-center gap-1.5 shadow-2xs"
+          >
+            {pending === "request" && <Spinner className="size-3.5" />}
+            Save
+          </button>
+        </div>
+
+        {formError && (
+          <p role="alert" className="rounded border border-rose-200 bg-rose-50 px-3 py-2 text-rose-700 text-xs">
+            {formError}
+          </p>
+        )}
+
+        {/* MAIN CARD */}
+        <div className="bg-white border border-slate-200/90 rounded shadow-2xs overflow-hidden">
+          {/* Card Tab Header */}
+          <div className="border-b border-slate-200 bg-white px-3 pt-2 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                className="px-4 py-2 text-xs font-semibold rounded-t bg-[#e6f2fb] text-blue-700 border-b-2 border-blue-600 transition"
+              >
+                Request
+              </button>
+            </div>
+            <button
+              type="button"
+              onClick={() => setIsReqHeaderCollapsed(!isReqHeaderCollapsed)}
+              className="text-slate-400 hover:text-slate-600 p-1"
+            >
+              {isReqHeaderCollapsed ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
+            </button>
+          </div>
+
+          {!isReqHeaderCollapsed && (
+            <div className="p-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 mb-3">
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                    <span className="text-red-500 font-bold mr-0.5">*</span> Request Date
+                  </label>
+                  <input
+                    type="date"
+                    value={form.requestDate}
+                    onChange={(e) => setForm({ ...form, requestDate: e.target.value })}
+                    className="h-8 w-full border border-slate-300 rounded px-2.5 text-xs text-slate-800 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                    <span className="text-red-500 font-bold mr-0.5">*</span> Req./Receiving Office
+                  </label>
+                  <select
+                    value={form.toOfficeName}
+                    onChange={(e) => setForm({ ...form, toOfficeName: e.target.value })}
+                    className="h-8 w-full border border-slate-300 rounded px-2.5 text-xs text-slate-800 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  >
+                    {officeList.filter((o) => o.id !== "ALL").map((o) => (
+                      <option key={o.id} value={o.name}>{o.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                    <span className="text-red-500 font-bold mr-0.5">*</span> Req./Receive Type
+                  </label>
+                  <select
+                    value={form.receiveType}
+                    onChange={(e) => setForm({ ...form, receiveType: e.target.value as "Cash" | "Bank", toAccountId: "" })}
+                    className="h-8 w-full border border-slate-300 rounded px-2.5 text-xs text-slate-800 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  >
+                    <option value="Cash">Cash</option>
+                    <option value="Bank">Bank</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                    <span className="text-red-500 font-bold mr-0.5">*</span> Select Cash/Bank
+                  </label>
+                  <select
+                    value={form.toAccountId}
+                    onChange={(e) => setForm({ ...form, toAccountId: e.target.value })}
+                    className="h-8 w-full border border-slate-300 rounded px-2.5 text-xs text-slate-800 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  >
+                    <option value="">{form.receiveType === "Bank" ? "Select bank" : "Select cash"}</option>
+                    {receiveHeads.map((a) => (
+                      <option key={a.id} value={a.id}>{a.code} - {a.name}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                    Responsible Person
+                  </label>
+                  <select
+                    value={form.responsiblePerson}
+                    onChange={(e) => setForm({ ...form, responsiblePerson: e.target.value })}
+                    className="h-8 w-full border border-slate-300 rounded px-2.5 text-xs text-slate-800 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  >
+                    <option value="">Responsible Person</option>
+                    {employees.map((emp) => (
+                      <option key={emp.id} value={emp.name}>{emp.name} ({emp.employeeCode})</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                    <span className="text-red-500 font-bold mr-0.5">*</span> Expected Date
+                  </label>
+                  <input
+                    type="date"
+                    value={form.expectedDate}
+                    onChange={(e) => setForm({ ...form, expectedDate: e.target.value })}
+                    className="h-8 w-full border border-slate-300 rounded px-2.5 text-xs text-slate-800 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                    <span className="text-red-500 font-bold mr-0.5">*</span> Request Amount
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    step="0.01"
+                    placeholder="Request Amount"
+                    value={form.requestedAmount || ""}
+                    onChange={(e) => setForm({ ...form, requestedAmount: parseFloat(e.target.value) || 0 })}
+                    className="h-8 w-full border border-slate-300 rounded px-2.5 text-xs text-slate-800 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 font-mono text-right"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                    Remarks
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Remarks"
+                    value={form.purpose}
+                    onChange={(e) => setForm({ ...form, purpose: e.target.value })}
+                    className="h-8 w-full border border-slate-300 rounded px-2.5 text-xs text-slate-800 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  if (isDirectModalOpen) {
+    return (
+      <div className="space-y-3 font-sans pb-10">
+        {/* TOP HEADER BAR */}
+        <div className="bg-white border border-slate-200/90 rounded px-4 py-2.5 flex items-center justify-between shadow-2xs">
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => setIsDirectModalOpen(false)}
+              className="h-8 w-8 rounded border border-slate-300 flex items-center justify-center text-slate-600 hover:bg-slate-50 transition"
+              title="Back"
+            >
+              <ArrowLeft className="w-4 h-4" />
+            </button>
+            <h1 className="text-base font-bold text-slate-900 tracking-tight">Direct Fund Transfer</h1>
+          </div>
+          <button
+            type="button"
+            disabled={pending === "direct"}
+            onClick={() => handleDirectTransferSubmit()}
+            className="h-8 px-5 bg-[#2563eb] hover:bg-blue-700 disabled:opacity-60 text-white font-semibold text-xs rounded transition flex items-center gap-1.5 shadow-2xs"
+          >
+            {pending === "direct" && <Spinner className="size-3.5" />}
+            Save
+          </button>
+        </div>
+
+        {formError && (
+          <p role="alert" className="rounded border border-rose-200 bg-rose-50 px-3 py-2 text-rose-700 text-xs">
+            {formError}
+          </p>
+        )}
+
+        {/* MAIN CARD */}
+        <div className="bg-white border border-slate-200/90 rounded shadow-2xs overflow-hidden">
+          {/* Card Tab Header */}
+          <div className="border-b border-slate-200 bg-white px-3 pt-2 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                className="px-4 py-2 text-xs font-semibold rounded-t bg-[#e6f2fb] text-blue-700 border-b-2 border-blue-600 transition"
+              >
+                Direct Transfer
+              </button>
+            </div>
+            <button
+              type="button"
+              onClick={() => setIsDirectHeaderCollapsed(!isDirectHeaderCollapsed)}
+              className="text-slate-400 hover:text-slate-600 p-1"
+            >
+              {isDirectHeaderCollapsed ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
+            </button>
+          </div>
+
+          {!isDirectHeaderCollapsed && (
+            <div className="p-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 mb-3">
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                    <span className="text-red-500 font-bold mr-0.5">*</span> Transfer Date
+                  </label>
+                  <input
+                    type="date"
+                    value={form.requestDate}
+                    onChange={(e) => setForm({ ...form, requestDate: e.target.value })}
+                    className="h-8 w-full border border-slate-300 rounded px-2.5 text-xs text-slate-800 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                    <span className="text-red-500 font-bold mr-0.5">*</span> Transfer Type
+                  </label>
+                  <select
+                    value="Office to Office"
+                    disabled
+                    className="h-8 w-full border border-slate-200 bg-slate-50 rounded px-2.5 text-xs text-slate-700 focus:outline-none cursor-not-allowed"
+                  >
+                    <option value="Office to Office">Office to Office</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                    <span className="text-red-500 font-bold mr-0.5">*</span> From Office
+                  </label>
+                  <select
+                    value={form.fromOfficeName}
+                    onChange={(e) => setForm({ ...form, fromOfficeName: e.target.value })}
+                    className="h-8 w-full border border-slate-300 rounded px-2.5 text-xs text-slate-800 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  >
+                    {officeList.filter((o) => o.id !== "ALL").map((o) => (
+                      <option key={o.id} value={o.name}>{o.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                    <span className="text-red-500 font-bold mr-0.5">*</span> From Cash/Bank Account
+                  </label>
+                  <select
+                    value={form.fromAccountId}
+                    onChange={(e) => setForm({ ...form, fromAccountId: e.target.value })}
+                    className="h-8 w-full border border-slate-300 rounded px-2.5 text-xs text-slate-800 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  >
+                    <option value="">Select source head</option>
+                    {cashBankAccounts.map((a) => (
+                      <option key={a.id} value={a.id}>{a.code} - {a.name}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                    <span className="text-red-500 font-bold mr-0.5">*</span> To Office
+                  </label>
+                  <select
+                    value={form.toOfficeName}
+                    onChange={(e) => setForm({ ...form, toOfficeName: e.target.value })}
+                    className="h-8 w-full border border-slate-300 rounded px-2.5 text-xs text-slate-800 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  >
+                    {officeList.filter((o) => o.id !== "ALL").map((o) => (
+                      <option key={o.id} value={o.name}>{o.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                    <span className="text-red-500 font-bold mr-0.5">*</span> To Cash/Bank Account
+                  </label>
+                  <select
+                    value={form.toAccountId}
+                    onChange={(e) => setForm({ ...form, toAccountId: e.target.value })}
+                    className="h-8 w-full border border-slate-300 rounded px-2.5 text-xs text-slate-800 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  >
+                    <option value="">Select destination head</option>
+                    {cashBankAccounts.map((a) => (
+                      <option key={a.id} value={a.id}>{a.code} - {a.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                    <span className="text-red-500 font-bold mr-0.5">*</span> Transfer Amount
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    step="0.01"
+                    placeholder="0.00"
+                    value={form.requestedAmount || ""}
+                    onChange={(e) => setForm({ ...form, requestedAmount: parseFloat(e.target.value) || 0 })}
+                    className="h-8 w-full border border-slate-300 rounded px-2.5 text-xs text-slate-800 bg-white font-mono focus:outline-none focus:ring-1 focus:ring-blue-500 text-right"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                    Remarks
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Remarks"
+                    value={form.purpose}
+                    onChange={(e) => setForm({ ...form, purpose: e.target.value })}
+                    className="h-8 w-full border border-slate-300 rounded px-2.5 text-xs text-slate-800 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="space-y-2.5 font-sans pb-12">
+    <div className="space-y-2.5 font-sans flex flex-col md:h-[calc(100dvh-3.5rem)] md:overflow-hidden print:block print:h-auto print:overflow-visible">
       {/* ------------------------------------------------------------- */}
       {/* 1. TOP HEADER: TITLE + SEARCH + CONTEXTUAL ACTIONS */}
       {/* ------------------------------------------------------------- */}
-      <div className="bg-white rounded border border-slate-200/90 shadow-2xs p-3">
+      <div className="bg-surface rounded border border-line/90 shadow-2xs p-3 shrink-0">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <h1 className="text-base font-semibold text-slate-800">Fund Transfer</h1>
+          <h1 className="text-base font-semibold text-ink">Fund Transfer</h1>
 
           <div className="flex items-center gap-2">
             {/* Search Box */}
@@ -232,28 +623,28 @@ export default function FundTransferPage() {
                 placeholder="Search...."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                className="w-full pr-8 pl-2.5 py-1 text-xs border border-slate-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
+                className="w-full pr-8 pl-2.5 py-1 text-xs border border-line-strong rounded focus:outline-none focus:ring-1 focus:ring-blue-500 bg-surface"
               />
-              <Search className="w-3.5 h-3.5 absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+              <Search className="w-3.5 h-3.5 absolute right-2.5 top-1/2 -translate-y-1/2 text-ink-faint" />
             </div>
 
             {/* Top Right Action Buttons */}
             {activeTab === "REQUEST" && (
-              <button
+              (perms.create ? (<button
                 onClick={() => setIsRequestModalOpen(true)}
-                className="px-3 py-1 bg-white hover:bg-blue-50 border border-blue-600 text-blue-600 rounded text-xs font-semibold transition-colors shadow-2xs"
+                className="px-3 py-1 bg-surface hover:bg-blue-50 dark:hover:bg-blue-500/10 border border-blue-600 text-blue-600 dark:text-blue-400 rounded text-xs font-semibold transition-colors shadow-2xs"
               >
                 CREATE FUND TRANSFER REQUEST
-              </button>
+              </button>) : null)
             )}
 
             {activeTab === "OUT" && (
-              <button
+              (perms.create && perms.approve ? (<button
                 onClick={() => setIsDirectModalOpen(true)}
-                className="px-3 py-1 bg-white hover:bg-blue-50 border border-blue-600 text-blue-600 rounded text-xs font-semibold transition-colors shadow-2xs"
+                className="px-3 py-1 bg-surface hover:bg-blue-50 dark:hover:bg-blue-500/10 border border-blue-600 text-blue-600 dark:text-blue-400 rounded text-xs font-semibold transition-colors shadow-2xs"
               >
                 DIRECT FUND TRANSFER
-              </button>
+              </button>) : null)
             )}
           </div>
         </div>
@@ -261,7 +652,7 @@ export default function FundTransferPage() {
         {/* ------------------------------------------------------------- */}
         {/* 2. MAIN 5 TABS: EXACT SCREENSHOT DESIGN */}
         {/* ------------------------------------------------------------- */}
-        <div className="flex items-center gap-6 border-b border-slate-200 mt-3 pt-1 text-xs font-medium overflow-x-auto">
+        <div className="flex items-center gap-6 border-b border-line mt-3 pt-1 text-xs font-medium overflow-x-auto">
           <button
             onClick={() => {
               setActiveTab("REQUEST");
@@ -269,8 +660,8 @@ export default function FundTransferPage() {
             }}
             className={`pb-2 tracking-wide uppercase transition-colors whitespace-nowrap ${
               activeTab === "REQUEST"
-                ? "text-blue-600 border-b-2 border-blue-600 font-semibold"
-                : "text-slate-600 hover:text-slate-900"
+                ? "text-blue-600 dark:text-blue-400 border-b-2 border-blue-600 font-semibold"
+                : "text-ink-muted hover:text-ink"
             }`}
           >
             FUND TRANSFER REQUEST
@@ -282,8 +673,8 @@ export default function FundTransferPage() {
             }}
             className={`pb-2 tracking-wide uppercase transition-colors whitespace-nowrap ${
               activeTab === "OUT"
-                ? "text-blue-600 border-b-2 border-blue-600 font-semibold"
-                : "text-slate-600 hover:text-slate-900"
+                ? "text-blue-600 dark:text-blue-400 border-b-2 border-blue-600 font-semibold"
+                : "text-ink-muted hover:text-ink"
             }`}
           >
             FUND TRANSFER OUT
@@ -295,8 +686,8 @@ export default function FundTransferPage() {
             }}
             className={`pb-2 tracking-wide uppercase transition-colors whitespace-nowrap ${
               activeTab === "IN_TRANSIT"
-                ? "text-blue-600 border-b-2 border-blue-600 font-semibold"
-                : "text-slate-600 hover:text-slate-900"
+                ? "text-blue-600 dark:text-blue-400 border-b-2 border-blue-600 font-semibold"
+                : "text-ink-muted hover:text-ink"
             }`}
           >
             FUND TRANSFER IN TRANSIT
@@ -308,8 +699,8 @@ export default function FundTransferPage() {
             }}
             className={`pb-2 tracking-wide uppercase transition-colors whitespace-nowrap ${
               activeTab === "IN_RECEIVED"
-                ? "text-blue-600 border-b-2 border-blue-600 font-semibold"
-                : "text-slate-600 hover:text-slate-900"
+                ? "text-blue-600 dark:text-blue-400 border-b-2 border-blue-600 font-semibold"
+                : "text-ink-muted hover:text-ink"
             }`}
           >
             FUND TRANSFER IN/RECEIVED
@@ -321,8 +712,8 @@ export default function FundTransferPage() {
             }}
             className={`pb-2 tracking-wide uppercase transition-colors whitespace-nowrap ${
               activeTab === "RETURN"
-                ? "text-blue-600 border-b-2 border-blue-600 font-semibold"
-                : "text-slate-600 hover:text-slate-900"
+                ? "text-blue-600 dark:text-blue-400 border-b-2 border-blue-600 font-semibold"
+                : "text-ink-muted hover:text-ink"
             }`}
           >
             FUND TRANSFER RETURN
@@ -337,11 +728,11 @@ export default function FundTransferPage() {
           {(activeTab === "REQUEST" || activeTab === "IN_TRANSIT" || activeTab === "RETURN") && (
             <div className="flex items-end gap-2.5 max-w-sm">
               <div className="flex-1">
-                <label className="block text-[11px] font-medium text-slate-500 mb-0.5">Req./Receive Office</label>
+                <label className="block text-[11px] font-medium text-ink-faint mb-0.5">Req./Receive Office</label>
                 <select
                   value={reqOfficeFilter}
                   onChange={(e) => setReqOfficeFilter(e.target.value)}
-                  className="w-full text-xs border border-slate-300 rounded px-2.5 py-1 focus:ring-1 focus:ring-blue-500 bg-white text-slate-700"
+                  className="w-full text-xs border border-line-strong rounded px-2.5 py-1 focus:ring-1 focus:ring-blue-500 bg-surface text-ink-muted"
                 >
                   <option value="ALL">Req./Receive Office</option>
                   {officeList.filter((o) => o.id !== "ALL").map((o) => (
@@ -365,11 +756,11 @@ export default function FundTransferPage() {
           {activeTab === "OUT" && (
             <div className="flex items-end gap-2.5 max-w-sm">
               <div className="flex-1">
-                <label className="block text-[11px] font-medium text-slate-500 mb-0.5">From/Sending Office</label>
+                <label className="block text-[11px] font-medium text-ink-faint mb-0.5">From/Sending Office</label>
                 <select
                   value={sendingOfficeFilter}
                   onChange={(e) => setSendingOfficeFilter(e.target.value)}
-                  className="w-full text-xs border border-slate-300 rounded px-2.5 py-1 focus:ring-1 focus:ring-blue-500 bg-white text-slate-700"
+                  className="w-full text-xs border border-line-strong rounded px-2.5 py-1 focus:ring-1 focus:ring-blue-500 bg-surface text-ink-muted"
                 >
                   <option value="ALL">From/Sending Office</option>
                   {officeList.filter((o) => o.id !== "ALL").map((o) => (
@@ -393,11 +784,11 @@ export default function FundTransferPage() {
           {activeTab === "IN_RECEIVED" && (
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-2.5 items-end">
               <div>
-                <label className="block text-[11px] font-medium text-slate-500 mb-0.5">From/Sending Office</label>
+                <label className="block text-[11px] font-medium text-ink-faint mb-0.5">From/Sending Office</label>
                 <select
                   value={sendingOfficeFilter}
                   onChange={(e) => setSendingOfficeFilter(e.target.value)}
-                  className="w-full text-xs border border-slate-300 rounded px-2.5 py-1 focus:ring-1 focus:ring-blue-500 bg-white text-slate-700"
+                  className="w-full text-xs border border-line-strong rounded px-2.5 py-1 focus:ring-1 focus:ring-blue-500 bg-surface text-ink-muted"
                 >
                   <option value="ALL">From/Sending Office</option>
                   {officeList.filter((o) => o.id !== "ALL").map((o) => (
@@ -408,11 +799,11 @@ export default function FundTransferPage() {
                 </select>
               </div>
               <div>
-                <label className="block text-[11px] font-medium text-slate-500 mb-0.5">Req./Receive Office</label>
+                <label className="block text-[11px] font-medium text-ink-faint mb-0.5">Req./Receive Office</label>
                 <select
                   value={reqOfficeFilter}
                   onChange={(e) => setReqOfficeFilter(e.target.value)}
-                  className="w-full text-xs border border-slate-300 rounded px-2.5 py-1 focus:ring-1 focus:ring-blue-500 bg-white text-slate-700"
+                  className="w-full text-xs border border-line-strong rounded px-2.5 py-1 focus:ring-1 focus:ring-blue-500 bg-surface text-ink-muted"
                 >
                   <option value="ALL">Req./Receive Office</option>
                   {officeList.filter((o) => o.id !== "ALL").map((o) => (
@@ -423,21 +814,21 @@ export default function FundTransferPage() {
                 </select>
               </div>
               <div>
-                <label className="block text-[11px] font-medium text-slate-500 mb-0.5">From Date</label>
+                <label className="block text-[11px] font-medium text-ink-faint mb-0.5">From Date</label>
                 <input
                   type="date"
                   value={fromDate}
                   onChange={(e) => setFromDate(e.target.value)}
-                  className="w-full text-xs border border-slate-300 rounded px-2.5 py-1 focus:ring-1 focus:ring-blue-500 bg-white text-slate-700"
+                  className="w-full text-xs border border-line-strong rounded px-2.5 py-1 focus:ring-1 focus:ring-blue-500 bg-surface text-ink-muted"
                 />
               </div>
               <div>
-                <label className="block text-[11px] font-medium text-slate-500 mb-0.5">To Date</label>
+                <label className="block text-[11px] font-medium text-ink-faint mb-0.5">To Date</label>
                 <input
                   type="date"
                   value={toDate}
                   onChange={(e) => setToDate(e.target.value)}
-                  className="w-full text-xs border border-slate-300 rounded px-2.5 py-1 focus:ring-1 focus:ring-blue-500 bg-white text-slate-700"
+                  className="w-full text-xs border border-line-strong rounded px-2.5 py-1 focus:ring-1 focus:ring-blue-500 bg-surface text-ink-muted"
                 />
               </div>
               <div>
@@ -457,13 +848,13 @@ export default function FundTransferPage() {
       {/* ------------------------------------------------------------- */}
       {/* 4. MAIN DATA TABLES PER TAB */}
       {/* ------------------------------------------------------------- */}
-      <div className="bg-white rounded border border-slate-200/90 shadow-2xs overflow-hidden">
-        <div className="overflow-x-auto">
+      <div className="bg-surface rounded border border-line/90 shadow-2xs overflow-hidden flex-1 min-h-0 flex flex-col print:block">
+        <div className="flex-1 min-h-0 overflow-auto print:overflow-visible [&_thead]:sticky [&_thead]:top-0 [&_thead]:z-10">
           {/* TAB 1: FUND TRANSFER REQUEST TABLE (Screenshot 1) */}
           {activeTab === "REQUEST" && (
             <table className="w-full text-left border-collapse text-xs">
               <thead>
-                <tr className="bg-[#f0f4f8] text-slate-700 font-semibold border-b border-slate-200 uppercase text-[11px] tracking-wider">
+                <tr className="bg-canvas text-ink-muted font-semibold border-b border-line uppercase text-[11px] tracking-wider">
                   <th className="py-2 px-3 w-10 text-center">SL</th>
                   <th className="py-2 px-3 w-24">Request Date</th>
                   <th className="py-2 px-3 w-24">Expect Date</th>
@@ -477,10 +868,10 @@ export default function FundTransferPage() {
                   <th className="py-2 px-3 text-center w-20">Action</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100 text-slate-700">
+              <tbody className="divide-y divide-line text-ink-muted">
                 {paginatedTransfers.length === 0 ? (
                   <tr>
-                    <td colSpan={11} className="py-8 text-center text-slate-400">
+                    <td colSpan={11} className="py-8 text-center text-ink-faint">
                       No fund transfer requests found.
                     </td>
                   </tr>
@@ -488,35 +879,45 @@ export default function FundTransferPage() {
                   paginatedTransfers.map((t, index) => {
                     const sl = (currentPage - 1) * rowsPerPage + index + 1;
                     return (
-                      <tr key={t.id} className="hover:bg-blue-50/40 transition-colors">
-                        <td className="py-2 px-3 text-center text-slate-500">{sl}</td>
-                        <td className="py-2 px-3 whitespace-nowrap text-slate-600">{t.requestDate}</td>
-                        <td className="py-2 px-3 whitespace-nowrap text-slate-600">{t.expectedDate}</td>
-                        <td className="py-2 px-3 font-mono text-slate-500">{t.reqCode || ""}</td>
-                        <td className="py-2 px-3 font-mono text-slate-700 whitespace-nowrap">{t.outCode || t.transferNumber}</td>
-                        <td className="py-2 px-3 whitespace-nowrap font-medium text-slate-800">{t.toOfficeName}</td>
-                        <td className="py-2 px-3 whitespace-nowrap text-slate-700">{t.responsiblePerson}</td>
-                        <td className="py-2 px-3 text-right font-mono text-slate-800 whitespace-nowrap">
+                      <tr key={t.id} className="hover:bg-blue-50/40 dark:hover:bg-blue-500/10 transition-colors">
+                        <td className="py-2 px-3 text-center text-ink-faint">{sl}</td>
+                        <td className="py-2 px-3 whitespace-nowrap text-ink-muted">{t.requestDate}</td>
+                        <td className="py-2 px-3 whitespace-nowrap text-ink-muted">{t.expectedDate}</td>
+                        <td className="py-2 px-3 font-mono text-ink-faint">{t.reqCode || ""}</td>
+                        <td className="py-2 px-3 font-mono text-ink-muted whitespace-nowrap">{t.outCode || t.transferNumber}</td>
+                        <td className="py-2 px-3 whitespace-nowrap font-medium text-ink">{t.toOfficeName}</td>
+                        <td className="py-2 px-3 whitespace-nowrap text-ink-muted">{t.responsiblePerson}</td>
+                        <td className="py-2 px-3 text-right font-mono text-ink whitespace-nowrap">
                           {t.requestedAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </td>
-                        <td className="py-2 px-3 text-right font-mono font-medium text-slate-900 whitespace-nowrap">
+                        <td className="py-2 px-3 text-right font-mono font-medium text-ink whitespace-nowrap">
                           {t.approvedAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </td>
                         <td className="py-2 px-3 text-center whitespace-nowrap">
-                          <span className="font-semibold text-emerald-600">Approved</span>
+                          <span className={`font-semibold ${statusOf(t.status).tone}`}>{statusOf(t.status).label}</span>
                         </td>
                         <td className="py-2 px-3 text-center">
-                          <div className="flex items-center justify-center gap-1.5 text-slate-400">
+                          <div className="row-actions flex items-center justify-center gap-1.5 text-ink-faint">
                             <button
+                              type="button"
                               onClick={() => setViewingTransfer(t)}
                               title="View"
-                              className="hover:text-blue-600 transition"
+                              aria-label={`View ${t.reqCode || t.transferNumber}`}
+                              className={`${iconButton} hover:text-blue-600 dark:hover:text-blue-400`}
                             >
                               <Eye className="w-3.5 h-3.5" />
                             </button>
-                            <button title="Edit" className="hover:text-blue-600 transition">
-                              <Pencil className="w-3.5 h-3.5" />
-                            </button>
+                            {isAwaitingApproval(t.status) && (
+                              <button disabled={!perms.approve}
+                                type="button"
+                                onClick={() => setActionOn({ kind: "approve", transfer: t })}
+                                title={!perms.approve ? needsPermission("approve") : "Approve"}
+                                aria-label={`Approve ${t.reqCode || t.transferNumber}`}
+                                className={`${iconButton} hover:text-emerald-600 dark:hover:text-emerald-400 disabled:opacity-40 disabled:cursor-not-allowed`}
+                              >
+                                <Check className="w-3.5 h-3.5" />
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -531,7 +932,7 @@ export default function FundTransferPage() {
           {activeTab === "OUT" && (
             <table className="w-full text-left border-collapse text-xs">
               <thead>
-                <tr className="bg-[#f0f4f8] text-slate-700 font-semibold border-b border-slate-200 uppercase text-[11px] tracking-wider">
+                <tr className="bg-canvas text-ink-muted font-semibold border-b border-line uppercase text-[11px] tracking-wider">
                   <th className="py-2 px-3 w-10 text-center">SL</th>
                   <th className="py-2 px-3 w-24">Date</th>
                   <th className="py-2 px-3 w-24">Req Code</th>
@@ -544,10 +945,10 @@ export default function FundTransferPage() {
                   <th className="py-2 px-3 text-center w-24">Action</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100 text-slate-700">
+              <tbody className="divide-y divide-line text-ink-muted">
                 {paginatedTransfers.length === 0 ? (
                   <tr>
-                    <td colSpan={10} className="py-8 text-center text-slate-400">
+                    <td colSpan={10} className="py-8 text-center text-ink-faint">
                       No fund transfer out records found.
                     </td>
                   </tr>
@@ -555,32 +956,51 @@ export default function FundTransferPage() {
                   paginatedTransfers.map((t, index) => {
                     const sl = (currentPage - 1) * rowsPerPage + index + 1;
                     return (
-                      <tr key={t.id} className="hover:bg-blue-50/40 transition-colors">
-                        <td className="py-2 px-3 text-center text-slate-500">{sl}</td>
-                        <td className="py-2 px-3 whitespace-nowrap text-slate-600">{t.date || t.requestDate}</td>
-                        <td className="py-2 px-3 font-mono text-slate-500">{t.reqCode || ""}</td>
-                        <td className="py-2 px-3 font-mono text-slate-700 whitespace-nowrap">{t.outCode || t.transferNumber}</td>
-                        <td className="py-2 px-3 whitespace-nowrap font-medium text-slate-800">{t.fromOfficeName}</td>
-                        <td className="py-2 px-3 whitespace-nowrap font-medium text-slate-800">{t.toOfficeName}</td>
-                        <td className="py-2 px-3 whitespace-nowrap text-slate-700">{t.responsiblePerson}</td>
-                        <td className="py-2 px-3 text-right font-mono font-medium text-slate-900 whitespace-nowrap">
+                      <tr key={t.id} className="hover:bg-blue-50/40 dark:hover:bg-blue-500/10 transition-colors">
+                        <td className="py-2 px-3 text-center text-ink-faint">{sl}</td>
+                        <td className="py-2 px-3 whitespace-nowrap text-ink-muted">{t.date || t.requestDate}</td>
+                        <td className="py-2 px-3 font-mono text-ink-faint">{t.reqCode || ""}</td>
+                        <td className="py-2 px-3 font-mono text-ink-muted whitespace-nowrap">{t.outCode || t.transferNumber}</td>
+                        <td className="py-2 px-3 whitespace-nowrap font-medium text-ink">{t.fromOfficeName}</td>
+                        <td className="py-2 px-3 whitespace-nowrap font-medium text-ink">{t.toOfficeName}</td>
+                        <td className="py-2 px-3 whitespace-nowrap text-ink-muted">{t.responsiblePerson}</td>
+                        <td className="py-2 px-3 text-right font-mono font-medium text-ink whitespace-nowrap">
                           {t.transferredAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </td>
                         <td className="py-2 px-3 text-center whitespace-nowrap">
-                          <span className="font-semibold text-blue-600">Completed</span>
+                          <span className={`font-semibold ${statusOf(t.status).tone}`}>{statusOf(t.status).label}</span>
                         </td>
                         <td className="py-2 px-3 text-center">
-                          <div className="flex items-center justify-center gap-1.5 text-slate-400">
-                            <button title="Payment" className="hover:text-emerald-600 transition">
-                              <DollarSign className="w-3.5 h-3.5" />
-                            </button>
-                            <button title="Cancel" className="hover:text-rose-600 transition">
-                              <X className="w-3.5 h-3.5" />
-                            </button>
+                          <div className="row-actions flex items-center justify-center gap-1.5 text-ink-faint">
+                            {isApproved(t.status) && (
+                              <>
+                                <button disabled={!perms.edit}
+                                  type="button"
+                                  onClick={() => setActionOn({ kind: "dispatch", transfer: t })}
+                                  title={!perms.edit ? needsPermission("edit") : "Payment"}
+                                  aria-label={`Send payment for ${t.outCode || t.transferNumber}`}
+                                  className={`${iconButton} hover:text-emerald-600 dark:hover:text-emerald-400 disabled:opacity-40 disabled:cursor-not-allowed`}
+                                >
+                                  <DollarSign className="w-3.5 h-3.5" />
+                                </button>
+                                <button disabled={!perms.edit}
+                                  type="button"
+                                  onClick={() => {
+                                    setCancelReason("");
+                                    setActionOn({ kind: "cancel", transfer: t });
+                                  }}
+                                  title={!perms.edit ? needsPermission("edit") : "Cancel"}
+                                  aria-label={`Cancel ${t.outCode || t.transferNumber}`}
+                                  className={`${iconButton} hover:text-rose-600 dark:hover:text-rose-400 disabled:opacity-40 disabled:cursor-not-allowed`}
+                                >
+                                  <X className="w-3.5 h-3.5" />
+                                </button>
+                              </>
+                            )}
                             <button
                               onClick={() => setViewingTransfer(t)}
                               title="View"
-                              className="hover:text-blue-600 transition"
+                              className="hover:text-blue-600 dark:hover:text-blue-400 transition"
                             >
                               <Eye className="w-3.5 h-3.5" />
                             </button>
@@ -598,7 +1018,7 @@ export default function FundTransferPage() {
           {activeTab === "IN_TRANSIT" && (
             <table className="w-full text-left border-collapse text-xs">
               <thead>
-                <tr className="bg-[#f0f4f8] text-slate-700 font-semibold border-b border-slate-200 uppercase text-[11px] tracking-wider">
+                <tr className="bg-canvas text-ink-muted font-semibold border-b border-line uppercase text-[11px] tracking-wider">
                   <th className="py-2 px-3 w-10 text-center">SL</th>
                   <th className="py-2 px-3 w-28">Pay Date</th>
                   <th className="py-2 px-3 w-24">Req Code</th>
@@ -612,10 +1032,10 @@ export default function FundTransferPage() {
                   <th className="py-2 px-3 text-center w-24">In/Receive</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100 text-slate-700">
+              <tbody className="divide-y divide-line text-ink-muted">
                 {paginatedTransfers.length === 0 ? (
                   <tr>
-                    <td colSpan={11} className="py-8 text-center text-slate-400">
+                    <td colSpan={11} className="py-8 text-center text-ink-faint">
                       No fund transfers currently in transit.
                     </td>
                   </tr>
@@ -623,28 +1043,28 @@ export default function FundTransferPage() {
                   paginatedTransfers.map((t, index) => {
                     const sl = (currentPage - 1) * rowsPerPage + index + 1;
                     return (
-                      <tr key={t.id} className="hover:bg-blue-50/40 transition-colors">
-                        <td className="py-2 px-3 text-center text-slate-500">{sl}</td>
-                        <td className="py-2 px-3 whitespace-nowrap text-slate-600">{t.payDate || t.requestDate}</td>
-                        <td className="py-2 px-3 font-mono text-slate-500">{t.reqCode || ""}</td>
-                        <td className="py-2 px-3 font-mono text-slate-700 whitespace-nowrap">{t.outCode}</td>
-                        <td className="py-2 px-3 whitespace-nowrap font-medium text-slate-800">{t.fromOfficeName}</td>
-                        <td className="py-2 px-3 whitespace-nowrap font-medium text-slate-800">{t.toOfficeName}</td>
-                        <td className="py-2 px-3 whitespace-nowrap text-slate-700">{t.responsiblePerson}</td>
-                        <td className="py-2 px-3 text-right font-mono font-medium text-slate-900 whitespace-nowrap">
+                      <tr key={t.id} className="hover:bg-blue-50/40 dark:hover:bg-blue-500/10 transition-colors">
+                        <td className="py-2 px-3 text-center text-ink-faint">{sl}</td>
+                        <td className="py-2 px-3 whitespace-nowrap text-ink-muted">{t.payDate || t.requestDate}</td>
+                        <td className="py-2 px-3 font-mono text-ink-faint">{t.reqCode || ""}</td>
+                        <td className="py-2 px-3 font-mono text-ink-muted whitespace-nowrap">{t.outCode}</td>
+                        <td className="py-2 px-3 whitespace-nowrap font-medium text-ink">{t.fromOfficeName}</td>
+                        <td className="py-2 px-3 whitespace-nowrap font-medium text-ink">{t.toOfficeName}</td>
+                        <td className="py-2 px-3 whitespace-nowrap text-ink-muted">{t.responsiblePerson}</td>
+                        <td className="py-2 px-3 text-right font-mono font-medium text-ink whitespace-nowrap">
                           {(t.sentAmount || t.transferredAmount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </td>
-                        <td className="py-2 px-3 text-right font-mono text-slate-500 whitespace-nowrap">
+                        <td className="py-2 px-3 text-right font-mono text-ink-faint whitespace-nowrap">
                           {t.receivedAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </td>
-                        <td className="py-2 px-3 text-right font-mono font-medium text-blue-600 whitespace-nowrap">
+                        <td className="py-2 px-3 text-right font-mono font-medium text-blue-600 dark:text-blue-400 whitespace-nowrap">
                           {(t.remainingAmount || t.transferredAmount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </td>
                         <td className="py-2 px-3 text-center">
-                          <button
+                          <button disabled={!perms.edit}
                             onClick={() => setReceiveTarget(t)}
-                            title="Receive Fund"
-                            className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-800 font-medium"
+                            title={!perms.edit ? needsPermission("edit") : "Receive Fund"}
+                            className="inline-flex items-center gap-1 text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 font-medium disabled:opacity-40 disabled:cursor-not-allowed"
                           >
                             <DollarSign className="w-3.5 h-3.5" />
                           </button>
@@ -661,7 +1081,7 @@ export default function FundTransferPage() {
           {activeTab === "IN_RECEIVED" && (
             <table className="w-full text-left border-collapse text-xs">
               <thead>
-                <tr className="bg-[#f0f4f8] text-slate-700 font-semibold border-b border-slate-200 uppercase text-[11px] tracking-wider">
+                <tr className="bg-canvas text-ink-muted font-semibold border-b border-line uppercase text-[11px] tracking-wider">
                   <th className="py-2 px-3 w-10 text-center">SL</th>
                   <th className="py-2 px-3 w-24">Receive Date</th>
                   <th className="py-2 px-3 w-20">Req Code</th>
@@ -676,10 +1096,10 @@ export default function FundTransferPage() {
                   <th className="py-2 px-3 text-center w-16">Action</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100 text-slate-700">
+              <tbody className="divide-y divide-line text-ink-muted">
                 {paginatedTransfers.length === 0 ? (
                   <tr>
-                    <td colSpan={12} className="py-8 text-center text-slate-400">
+                    <td colSpan={12} className="py-8 text-center text-ink-faint">
                       No received fund transfers found.
                     </td>
                   </tr>
@@ -687,25 +1107,25 @@ export default function FundTransferPage() {
                   paginatedTransfers.map((t, index) => {
                     const sl = (currentPage - 1) * rowsPerPage + index + 1;
                     return (
-                      <tr key={t.id} className="hover:bg-blue-50/40 transition-colors">
-                        <td className="py-2 px-3 text-center text-slate-500">{sl}</td>
-                        <td className="py-2 px-3 whitespace-nowrap text-slate-600">{t.receiveDate || "10/12/2026"}</td>
-                        <td className="py-2 px-3 font-mono text-slate-500">{t.reqCode || ""}</td>
-                        <td className="py-2 px-3 font-mono text-slate-700 whitespace-nowrap">{t.outCode}</td>
-                        <td className="py-2 px-3 font-mono text-blue-600 whitespace-nowrap">{t.receiveCode || "FTR-MG261000001"}</td>
-                        <td className="py-2 px-3 whitespace-nowrap font-medium text-slate-800">{t.fromOfficeName}</td>
-                        <td className="py-2 px-3 whitespace-nowrap font-medium text-slate-800">{t.toOfficeName}</td>
-                        <td className="py-2 px-3 whitespace-nowrap text-slate-700">{t.responsiblePerson}</td>
-                        <td className="py-2 px-3 whitespace-nowrap text-slate-700">{t.receivedPerson || "MD. Tofajjol Hossin"}</td>
-                        <td className="py-2 px-3 whitespace-nowrap text-slate-600">{t.transactionType || "Bank Transfer"}</td>
-                        <td className="py-2 px-3 text-right font-mono font-medium text-slate-900 whitespace-nowrap">
+                      <tr key={t.id} className="hover:bg-blue-50/40 dark:hover:bg-blue-500/10 transition-colors">
+                        <td className="py-2 px-3 text-center text-ink-faint">{sl}</td>
+                        <td className="py-2 px-3 whitespace-nowrap text-ink-muted">{t.receiveDate || "10/12/2026"}</td>
+                        <td className="py-2 px-3 font-mono text-ink-faint">{t.reqCode || ""}</td>
+                        <td className="py-2 px-3 font-mono text-ink-muted whitespace-nowrap">{t.outCode}</td>
+                        <td className="py-2 px-3 font-mono text-blue-600 dark:text-blue-400 whitespace-nowrap">{t.receiveCode || "FTR-MG261000001"}</td>
+                        <td className="py-2 px-3 whitespace-nowrap font-medium text-ink">{t.fromOfficeName}</td>
+                        <td className="py-2 px-3 whitespace-nowrap font-medium text-ink">{t.toOfficeName}</td>
+                        <td className="py-2 px-3 whitespace-nowrap text-ink-muted">{t.responsiblePerson}</td>
+                        <td className="py-2 px-3 whitespace-nowrap text-ink-muted">{t.receivedPerson || "MD. Tofajjol Hossin"}</td>
+                        <td className="py-2 px-3 whitespace-nowrap text-ink-muted">{t.transactionType || "Bank Transfer"}</td>
+                        <td className="py-2 px-3 text-right font-mono font-medium text-ink whitespace-nowrap">
                           {(t.receiveAmount || t.receivedAmount || t.transferredAmount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </td>
                         <td className="py-2 px-3 text-center">
                           <button
                             onClick={() => setViewingTransfer(t)}
                             title="View"
-                            className="text-slate-400 hover:text-blue-600 transition"
+                            className="text-ink-faint hover:text-blue-600 dark:hover:text-blue-400 transition"
                           >
                             <Eye className="w-3.5 h-3.5" />
                           </button>
@@ -722,7 +1142,7 @@ export default function FundTransferPage() {
           {activeTab === "RETURN" && (
             <table className="w-full text-left border-collapse text-xs">
               <thead>
-                <tr className="bg-[#f0f4f8] text-slate-700 font-semibold border-b border-slate-200 uppercase text-[11px] tracking-wider">
+                <tr className="bg-canvas text-ink-muted font-semibold border-b border-line uppercase text-[11px] tracking-wider">
                   <th className="py-2 px-3 w-10 text-center">SL</th>
                   <th className="py-2 px-3 w-28">Date</th>
                   <th className="py-2 px-3 w-32">Return Code</th>
@@ -734,10 +1154,10 @@ export default function FundTransferPage() {
                   <th className="py-2 px-3 text-right w-28">Amount</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100 text-slate-700">
+              <tbody className="divide-y divide-line text-ink-muted">
                 {paginatedTransfers.length === 0 ? (
                   <tr>
-                    <td colSpan={9} className="py-8 text-center text-slate-400">
+                    <td colSpan={9} className="py-8 text-center text-ink-faint">
                       No returned fund transfers recorded.
                     </td>
                   </tr>
@@ -745,16 +1165,16 @@ export default function FundTransferPage() {
                   paginatedTransfers.map((t, index) => {
                     const sl = (currentPage - 1) * rowsPerPage + index + 1;
                     return (
-                      <tr key={t.id} className="hover:bg-blue-50/40 transition-colors">
-                        <td className="py-2 px-3 text-center text-slate-500">{sl}</td>
-                        <td className="py-2 px-3 whitespace-nowrap text-slate-600">{t.date || t.requestDate}</td>
-                        <td className="py-2 px-3 font-mono text-rose-600 font-medium whitespace-nowrap">{t.returnCode || "RET-MG261000001"}</td>
-                        <td className="py-2 px-3 font-mono text-slate-500">{t.reqCode || ""}</td>
-                        <td className="py-2 px-3 font-mono text-slate-700 whitespace-nowrap">{t.outCode}</td>
-                        <td className="py-2 px-3 whitespace-nowrap font-medium text-slate-800">{t.fromOfficeName}</td>
-                        <td className="py-2 px-3 whitespace-nowrap font-medium text-slate-800">{t.toOfficeName}</td>
-                        <td className="py-2 px-3 whitespace-nowrap text-slate-700">{t.responsiblePerson}</td>
-                        <td className="py-2 px-3 text-right font-mono font-medium text-slate-900 whitespace-nowrap">
+                      <tr key={t.id} className="hover:bg-blue-50/40 dark:hover:bg-blue-500/10 transition-colors">
+                        <td className="py-2 px-3 text-center text-ink-faint">{sl}</td>
+                        <td className="py-2 px-3 whitespace-nowrap text-ink-muted">{t.date || t.requestDate}</td>
+                        <td className="py-2 px-3 font-mono text-rose-600 dark:text-rose-400 font-medium whitespace-nowrap">{t.returnCode || "RET-MG261000001"}</td>
+                        <td className="py-2 px-3 font-mono text-ink-faint">{t.reqCode || ""}</td>
+                        <td className="py-2 px-3 font-mono text-ink-muted whitespace-nowrap">{t.outCode}</td>
+                        <td className="py-2 px-3 whitespace-nowrap font-medium text-ink">{t.fromOfficeName}</td>
+                        <td className="py-2 px-3 whitespace-nowrap font-medium text-ink">{t.toOfficeName}</td>
+                        <td className="py-2 px-3 whitespace-nowrap text-ink-muted">{t.responsiblePerson}</td>
+                        <td className="py-2 px-3 text-right font-mono font-medium text-ink whitespace-nowrap">
                           {t.requestedAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </td>
                       </tr>
@@ -769,7 +1189,7 @@ export default function FundTransferPage() {
         {/* ------------------------------------------------------------- */}
         {/* 5. TABLE FOOTER / PAGINATION (Matches Screenshots) */}
         {/* ------------------------------------------------------------- */}
-        <div className="p-3 border-t border-slate-200 bg-slate-50/50 flex flex-col sm:flex-row items-center justify-end gap-4 text-xs text-slate-600">
+        <div className="p-3 border-t border-line bg-canvas/50 flex flex-col sm:flex-row items-center justify-end gap-4 text-xs text-ink-muted shrink-0">
           <div className="flex items-center gap-2">
             <span>Rows per page:</span>
             <select
@@ -778,7 +1198,7 @@ export default function FundTransferPage() {
                 setRowsPerPage(Number(e.target.value));
                 setCurrentPage(1);
               }}
-              className="text-xs border border-slate-300 rounded px-2 py-0.5 bg-white text-slate-700 focus:outline-none"
+              className="text-xs border border-line-strong rounded px-2 py-0.5 bg-surface text-ink-muted focus:outline-none"
             >
               <option value={10}>10</option>
               <option value={25}>25</option>
@@ -793,17 +1213,17 @@ export default function FundTransferPage() {
             </span>
 
             <div className="flex items-center gap-1">
-              <button
+              <button aria-label="Previous page"
                 onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
                 disabled={currentPage <= 1}
-                className="w-6 h-6 flex items-center justify-center rounded border border-slate-200 bg-white hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed text-slate-600 transition"
+                className="w-6 h-6 flex items-center justify-center rounded border border-line bg-surface hover:bg-control disabled:opacity-40 disabled:cursor-not-allowed text-ink-muted transition"
               >
                 <ChevronLeft className="w-3.5 h-3.5" />
               </button>
-              <button
+              <button aria-label="Next page"
                 onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
                 disabled={currentPage >= totalPages}
-                className="w-6 h-6 flex items-center justify-center rounded border border-slate-200 bg-white hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed text-slate-600 transition"
+                className="w-6 h-6 flex items-center justify-center rounded border border-line bg-surface hover:bg-control disabled:opacity-40 disabled:cursor-not-allowed text-ink-muted transition"
               >
                 <ChevronRight className="w-3.5 h-3.5" />
               </button>
@@ -812,239 +1232,7 @@ export default function FundTransferPage() {
         </div>
       </div>
 
-      {/* ------------------------------------------------------------- */}
-      {/* 6. MODAL: CREATE FUND TRANSFER REQUEST */}
-      {/* ------------------------------------------------------------- */}
-      <ModalDialog
-        isOpen={isRequestModalOpen}
-        onClose={() => setIsRequestModalOpen(false)}
-        title="Create Fund Transfer Request"
-        maxWidth="lg"
-      >
-        <form onSubmit={handleCreateRequestSubmit} className="space-y-3.5 text-xs">
-          {formError && (
-            <p role="alert" className="rounded border border-rose-200 bg-rose-50 px-3 py-2 text-rose-700">
-              {formError}
-            </p>
-          )}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <div>
-              <label htmlFor="ft-request-date" className="block font-medium text-slate-700 mb-1">Request Date *</label>
-              <input id="ft-request-date" type="date" required value={form.requestDate} onChange={(e) => setForm({ ...form, requestDate: e.target.value })} className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white focus:ring-1 focus:ring-blue-500" />
-            </div>
-            <div>
-              <label htmlFor="ft-office" className="block font-medium text-slate-700 mb-1">Req./Receiving Office *</label>
-              <select id="ft-office" value={form.toOfficeName} onChange={(e) => setForm({ ...form, toOfficeName: e.target.value })} className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white focus:ring-1 focus:ring-blue-500">
-                {officeList.filter((o) => o.id !== "ALL").map((o) => (
-                  <option key={o.id} value={o.name}>
-                    {o.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label htmlFor="ft-type" className="block font-medium text-slate-700 mb-1">Req./Receive Type *</label>
-              <select
-                id="ft-type"
-                value={form.receiveType}
-                onChange={(e) => setForm({ ...form, receiveType: e.target.value as "Cash" | "Bank", toAccountId: "" })}
-                className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white focus:ring-1 focus:ring-blue-500"
-              >
-                <option value="Cash">Cash</option>
-                <option value="Bank">Bank</option>
-              </select>
-            </div>
-            <div>
-              <label htmlFor="ft-head" className="block font-medium text-slate-700 mb-1">Select Cash/Bank *</label>
-              <select id="ft-head" required value={form.toAccountId} onChange={(e) => setForm({ ...form, toAccountId: e.target.value })} className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white focus:ring-1 focus:ring-blue-500">
-                <option value="">{form.receiveType === "Bank" ? "Select bank" : "Select cash"}</option>
-                {receiveHeads.map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.code} - {a.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label htmlFor="ft-person" className="block font-medium text-slate-700 mb-1">Responsible Person</label>
-              <select id="ft-person" value={form.responsiblePerson} onChange={(e) => setForm({ ...form, responsiblePerson: e.target.value })} className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white focus:ring-1 focus:ring-blue-500">
-                <option value="">Responsible Person</option>
-                {employees.map((emp) => (
-                  <option key={emp.id} value={emp.name}>
-                    {emp.name} ({emp.employeeCode})
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label htmlFor="ft-expected" className="block font-medium text-slate-700 mb-1">Expected Date *</label>
-              <input id="ft-expected" type="date" required value={form.expectedDate} onChange={(e) => setForm({ ...form, expectedDate: e.target.value })} className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white focus:ring-1 focus:ring-blue-500" />
-            </div>
-            <div>
-              <label htmlFor="ft-amount" className="block font-medium text-slate-700 mb-1">Request Amount (৳) *</label>
-              <input
-                id="ft-amount"
-                type="number"
-                required
-                min="1"
-                step="0.01"
-                placeholder="Request Amount"
-                value={form.requestedAmount || ""}
-                onChange={(e) => setForm({ ...form, requestedAmount: parseFloat(e.target.value) || 0 })}
-                className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white focus:ring-1 focus:ring-blue-500 font-mono text-right"
-              />
-            </div>
-            <div className="sm:col-span-2">
-              <label htmlFor="ft-remarks" className="block font-medium text-slate-700 mb-1">Remarks</label>
-              <input id="ft-remarks" type="text" placeholder="Remarks" value={form.purpose} onChange={(e) => setForm({ ...form, purpose: e.target.value })} className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white focus:ring-1 focus:ring-blue-500" />
-            </div>
-          </div>
-          <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
-            <button
-              type="button"
-              onClick={() => setIsRequestModalOpen(false)}
-              className="px-4 py-1.5 border border-slate-300 rounded text-xs font-medium text-slate-700 hover:bg-slate-50"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              className="px-5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-semibold shadow-2xs transition-colors"
-            >
-              Submit Request
-            </button>
-          </div>
-        </form>
-      </ModalDialog>
 
-      {/* ------------------------------------------------------------- */}
-      {/* 7. MODAL: DIRECT FUND TRANSFER */}
-      {/* ------------------------------------------------------------- */}
-      <ModalDialog
-        isOpen={isDirectModalOpen}
-        onClose={() => setIsDirectModalOpen(false)}
-        title="Direct Fund Transfer"
-        maxWidth="lg"
-      >
-        <form onSubmit={handleDirectTransferSubmit} className="space-y-3.5 text-xs">
-          {formError && (
-            <p role="alert" className="rounded border border-rose-200 bg-rose-50 px-3 py-2 text-rose-700">
-              {formError}
-            </p>
-          )}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label className="block font-medium text-slate-700 mb-1">Source Office *</label>
-              <select
-                value={form.fromOfficeName}
-                onChange={(e) => setForm({ ...form, fromOfficeName: e.target.value })}
-                className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white focus:ring-1 focus:ring-blue-500"
-              >
-                {officeList.filter((o) => o.id !== "ALL").map((o) => (
-                  <option key={o.id} value={o.name}>
-                    {o.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="block font-medium text-slate-700 mb-1">Destination Office *</label>
-              <select
-                value={form.toOfficeName}
-                onChange={(e) => setForm({ ...form, toOfficeName: e.target.value })}
-                className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white focus:ring-1 focus:ring-blue-500"
-              >
-                {officeList.filter((o) => o.id !== "ALL").map((o) => (
-                  <option key={o.id} value={o.name}>
-                    {o.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="block font-medium text-slate-700 mb-1">Source Bank/Cash Head *</label>
-              <select
-                value={form.fromAccountId}
-                onChange={(e) => setForm({ ...form, fromAccountId: e.target.value })}
-                required
-                className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white focus:ring-1 focus:ring-blue-500"
-              >
-                <option value="">Select source head</option>
-                {cashBankAccounts.map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.code} - {a.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="block font-medium text-slate-700 mb-1">Destination Head *</label>
-              <select
-                value={form.toAccountId}
-                onChange={(e) => setForm({ ...form, toAccountId: e.target.value })}
-                required
-                className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white focus:ring-1 focus:ring-blue-500"
-              >
-                <option value="">Select destination head</option>
-                {cashBankAccounts.map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.code} - {a.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="block font-medium text-slate-700 mb-1">Direct Transfer Amount (৳) *</label>
-              <input
-                type="number"
-                required
-                min="1"
-                step="0.01"
-                placeholder="0.00"
-                value={form.requestedAmount || ""}
-                onChange={(e) => setForm({ ...form, requestedAmount: parseFloat(e.target.value) || 0 })}
-                className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white font-mono focus:ring-1 focus:ring-blue-500"
-              />
-            </div>
-            <div>
-              <label className="block font-medium text-slate-700 mb-1">Responsible Officer *</label>
-              <input
-                type="text"
-                required
-                value={form.responsiblePerson}
-                onChange={(e) => setForm({ ...form, responsiblePerson: e.target.value })}
-                className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white focus:ring-1 focus:ring-blue-500"
-              />
-            </div>
-          </div>
-          <div>
-            <label className="block font-medium text-slate-700 mb-1">Transfer Remarks *</label>
-            <textarea
-              required
-              rows={2}
-              placeholder="Immediate inter-unit direct fund dispatch..."
-              value={form.purpose}
-              onChange={(e) => setForm({ ...form, purpose: e.target.value })}
-              className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white focus:ring-1 focus:ring-blue-500"
-            />
-          </div>
-          <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
-            <button
-              type="button"
-              onClick={() => setIsDirectModalOpen(false)}
-              className="px-4 py-1.5 border border-slate-300 rounded text-xs font-medium text-slate-700 hover:bg-slate-50"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              className="px-5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-semibold shadow-2xs transition-colors"
-            >
-              Execute Direct Transfer
-            </button>
-          </div>
-        </form>
-      </ModalDialog>
 
       {/* ------------------------------------------------------------- */}
       {/* 8. MODAL: VIEW TRANSFER DETAILS */}
@@ -1057,37 +1245,37 @@ export default function FundTransferPage() {
       >
         {viewingTransfer && (
           <div className="space-y-3 text-xs">
-            <div className="p-3 bg-slate-50 rounded border border-slate-200 space-y-1.5">
+            <div className="p-3 bg-canvas rounded border border-line space-y-1.5">
               <div className="flex justify-between">
-                <span className="text-slate-500">From Sending Office:</span>
-                <span className="font-semibold text-slate-800">{viewingTransfer.fromOfficeName}</span>
+                <span className="text-ink-faint">From Sending Office:</span>
+                <span className="font-semibold text-ink">{viewingTransfer.fromOfficeName}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-slate-500">To Receiving Office:</span>
-                <span className="font-semibold text-slate-800">{viewingTransfer.toOfficeName}</span>
+                <span className="text-ink-faint">To Receiving Office:</span>
+                <span className="font-semibold text-ink">{viewingTransfer.toOfficeName}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-slate-500">Date:</span>
-                <span className="font-medium text-slate-800">{viewingTransfer.date || viewingTransfer.requestDate}</span>
+                <span className="text-ink-faint">Date:</span>
+                <span className="font-medium text-ink">{viewingTransfer.date || viewingTransfer.requestDate}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-slate-500">Responsible Person:</span>
-                <span className="font-medium text-slate-800">{viewingTransfer.responsiblePerson}</span>
+                <span className="text-ink-faint">Responsible Person:</span>
+                <span className="font-medium text-ink">{viewingTransfer.responsiblePerson}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-slate-500">Status:</span>
-                <span className="font-semibold text-blue-600">{viewingTransfer.status}</span>
+                <span className="text-ink-faint">Status:</span>
+                <span className="font-semibold text-blue-600 dark:text-blue-400">{viewingTransfer.status}</span>
               </div>
-              <div className="flex justify-between border-t border-slate-200 pt-1.5">
-                <span className="font-semibold text-slate-700">Amount:</span>
-                <span className="font-mono font-bold text-slate-900 text-sm">
+              <div className="flex justify-between border-t border-line pt-1.5">
+                <span className="font-semibold text-ink-muted">Amount:</span>
+                <span className="font-mono font-bold text-ink text-sm">
                   ৳{(viewingTransfer.transferredAmount || viewingTransfer.requestedAmount).toLocaleString()}
                 </span>
               </div>
             </div>
             <div>
-              <span className="font-semibold text-slate-700 block mb-0.5">Remarks / Purpose:</span>
-              <p className="p-2 bg-white rounded border border-slate-200 text-slate-600">
+              <span className="font-semibold text-ink-muted block mb-0.5">Remarks / Purpose:</span>
+              <p className="p-2 bg-surface rounded border border-line text-ink-muted">
                 {viewingTransfer.purpose}
               </p>
             </div>
@@ -1095,7 +1283,7 @@ export default function FundTransferPage() {
               <button
                 type="button"
                 onClick={() => setViewingTransfer(null)}
-                className="px-4 py-1.5 border border-slate-300 rounded text-xs font-medium text-slate-700 hover:bg-slate-50"
+                className="px-4 py-1.5 border border-line-strong rounded text-xs font-medium text-ink-muted hover:bg-canvas"
               >
                 Close
               </button>
@@ -1115,29 +1303,80 @@ export default function FundTransferPage() {
       >
         {receiveTarget && (
           <div className="space-y-3 text-xs">
-            <p className="text-slate-700">
+            <p className="text-ink-muted">
               Confirm receiving <strong>৳{(receiveTarget.remainingAmount || receiveTarget.transferredAmount).toLocaleString()}</strong> dispatched from{" "}
               <strong>{receiveTarget.fromOfficeName}</strong>?
             </p>
-            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+            <div className="flex justify-end gap-2 pt-2 border-t border-line">
               <button
                 type="button"
                 onClick={() => setReceiveTarget(null)}
-                className="px-4 py-1.5 border border-slate-300 rounded text-xs font-medium text-slate-700 hover:bg-slate-50"
+                className="px-4 py-1.5 border border-line-strong rounded text-xs font-medium text-ink-muted hover:bg-canvas"
               >
                 Cancel
               </button>
-              <button
+              <button disabled={pending === "receive"}
                 type="button"
                 onClick={handleConfirmReceive}
-                className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-xs font-semibold shadow-2xs transition"
-              >
+                className="inline-flex items-center justify-center gap-1.5 disabled:opacity-60 px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-xs font-semibold shadow-2xs transition"
+              >{pending === "receive" && <Spinner className="size-3.5" />}
                 Confirm Receive
               </button>
             </div>
           </div>
         )}
       </ModalDialog>
+
+      <ConfirmDialog
+        open={actionOn !== null}
+        title={actionOn?.kind === "approve" ? "Approve fund transfer?" : actionOn?.kind === "dispatch" ? "Send this payment?" : "Cancel fund transfer?"}
+        confirmLabel={actionOn?.kind === "approve" ? "Approve" : actionOn?.kind === "dispatch" ? "Send Payment" : "Cancel Transfer"}
+        busy={pending === "transfer-action"}
+        message={
+          actionOn && (
+            <div className="space-y-3">
+              <p>
+                {actionOn.kind === "approve"
+                  ? `Approve ${actionOn.transfer.requestedAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })} for ${actionOn.transfer.toOfficeName}.`
+                  : actionOn.kind === "dispatch"
+                    ? `${(actionOn.transfer.approvedAmount || actionOn.transfer.requestedAmount).toLocaleString(undefined, { minimumFractionDigits: 2 })} will be posted from ${actionOn.transfer.fromOfficeName} and shown as in transit to ${actionOn.transfer.toOfficeName}.`
+                    : `${actionOn.transfer.outCode || actionOn.transfer.transferNumber} will be marked as returned.`}
+              </p>
+              {actionOn.kind === "cancel" && (
+                <label className="block text-xs font-medium text-ink">
+                  Reason <span className="text-rose-600 dark:text-rose-400">*</span>
+                  <textarea
+                    value={cancelReason}
+                    onChange={(e) => setCancelReason(e.target.value)}
+                    rows={2}
+                    maxLength={300}
+                    className="mt-1 w-full rounded border border-line bg-surface px-2.5 py-1.5 text-xs text-ink focus:border-blue-500 focus:outline-none"
+                  />
+                </label>
+              )}
+            </div>
+          )
+        }
+        onClose={() => setActionOn(null)}
+        onConfirm={async () => {
+          if (!actionOn) return;
+          if (actionOn.kind === "cancel" && !cancelReason.trim()) {
+            toast.error("Enter why the transfer is cancelled.", { title: "Reason needed" });
+            return;
+          }
+          const t = actionOn.transfer;
+          const ok = await run("transfer-action", () =>
+            actionOn.kind === "approve"
+              ? approveTransfer(t.id, t.requestedAmount)
+              : actionOn.kind === "dispatch"
+                ? dispatchTransfer(t.id)
+                : returnTransfer(t.id, cancelReason.trim()),
+          );
+          if (!ok) return;
+          toast.success(actionOn.kind === "approve" ? "Transfer approved." : actionOn.kind === "dispatch" ? "Payment sent; the transfer is in transit." : "Transfer cancelled.");
+          setActionOn(null);
+        }}
+      />
     </div>
   );
 }

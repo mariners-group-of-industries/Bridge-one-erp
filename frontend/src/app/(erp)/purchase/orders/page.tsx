@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import React, { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, Download, Eye, Pencil, Plus, Printer, RotateCcw, Search, Trash2, X } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Download, Eye, Pencil, Plus, Printer, RotateCcw, Search, Trash2, X } from "lucide-react";
 import { ModalDialog } from "@/components/purchase/ModalDialog";
 import {
   PrintablePurchaseDoc,
@@ -87,11 +87,11 @@ const newLine = (partial: Partial<FormLine> = {}): FormLine => ({
 });
 
 const inputCls =
-  "w-full h-8 border border-slate-300 rounded px-2 text-xs text-slate-700 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500";
+  "w-full h-8 border border-line-strong rounded px-2 text-xs text-ink-muted bg-surface focus:outline-none focus:ring-1 focus:ring-blue-500";
 const btnPrimary =
   "h-9 px-4 bg-[#2563eb] hover:bg-blue-700 disabled:opacity-60 text-white font-semibold text-xs rounded inline-flex items-center justify-center gap-1.5 shadow-xs transition";
-const btnGhost = "h-9 px-4 border border-slate-300 rounded text-slate-700 hover:bg-slate-50 text-xs font-semibold";
-const iconBtn = "inline-flex items-center justify-center size-6 rounded hover:bg-slate-200 text-slate-700 transition disabled:opacity-30 disabled:hover:bg-transparent";
+const btnGhost = "h-9 px-4 border border-line-strong rounded text-ink-muted hover:bg-canvas text-xs font-semibold";
+const iconBtn = "inline-flex items-center justify-center size-6 rounded hover:bg-hover text-ink-muted transition disabled:opacity-30 disabled:hover:bg-transparent";
 
 function formatEta(dateStr?: string) {
   if (!dateStr) return "—";
@@ -101,20 +101,20 @@ function formatEta(dateStr?: string) {
 }
 
 function statusLabel(po: Order) {
-  if (po.isClosed) return { text: "Closed", cls: "text-slate-600" };
+  if (po.isClosed) return { text: "Closed", cls: "text-ink-muted" };
   switch (po.status) {
     case "PENDING_APPROVAL":
-      return { text: "Pending Approval", cls: "text-amber-600" };
+      return { text: "Pending Approval", cls: "text-amber-600 dark:text-amber-400" };
     case "APPROVED":
-      return { text: "Approved", cls: "text-sky-700" };
+      return { text: "Approved", cls: "text-sky-700 dark:text-sky-300" };
     case "PARTIALLY_RECEIVED":
-      return { text: "Partially Received", cls: "text-purple-700" };
+      return { text: "Partially Received", cls: "text-purple-700 dark:text-purple-300" };
     case "COMPLETED":
-      return { text: "Received", cls: "text-emerald-700" };
+      return { text: "Received", cls: "text-emerald-700 dark:text-emerald-300" };
     case "CANCELLED":
-      return { text: "Cancelled", cls: "text-rose-600" };
+      return { text: "Cancelled", cls: "text-rose-600 dark:text-rose-400" };
     default:
-      return { text: po.status, cls: "text-slate-600" };
+      return { text: po.status, cls: "text-ink-muted" };
   }
 }
 
@@ -125,29 +125,75 @@ const canReverse = (po: Order) => Boolean(po.isClosed) || (po.status === "APPROV
 
 function Pager({ total, page, size, onPage, onSize }: { total: number; page: number; size: number; onPage: (p: number) => void; onSize: (s: number) => void }) {
   const pages = Math.max(1, Math.ceil(total / size));
-  const from = total ? (page - 1) * size + 1 : 0;
-  const to = Math.min(total, page * size);
+  const current = Math.min(page, pages);
+  const from = total ? (current - 1) * size + 1 : 0;
+  const to = Math.min(total, current * size);
   return (
-    <div className="px-3 py-2 border-t border-slate-200 bg-slate-50 flex items-center justify-end gap-6 text-xs text-slate-600">
-      <label className="flex items-center gap-1.5">
+    <div className="px-3 py-2 border-t border-line bg-canvas flex flex-wrap items-center justify-between gap-2 text-xs text-ink-faint">
+      <div className="flex items-center gap-2">
         <span>Rows per page:</span>
-        <select value={size} onChange={(e) => onSize(Number(e.target.value))} className="border border-slate-300 rounded px-1.5 py-0.5 text-xs bg-white">
-          {[25, 50, 100].map((n) => (
+        <select
+          value={size}
+          onChange={(e) => {
+            onSize(Number(e.target.value));
+            onPage(1);
+          }}
+          className="bg-surface border border-line-strong rounded px-1.5 py-0.5 text-xs text-ink-muted focus:outline-none"
+        >
+          {[10, 20, 50, 100].map((n) => (
             <option key={n} value={n}>
               {n}
             </option>
           ))}
         </select>
-      </label>
-      <span>
-        {from}-{to} of {total}
-      </span>
+        <span className="text-ink-faint">|</span>
+        <span>
+          Showing {from} to {to} of {total} records
+        </span>
+      </div>
       <div className="flex items-center gap-1">
-        <button type="button" aria-label="Previous page" disabled={page <= 1} onClick={() => onPage(page - 1)} className={iconBtn}>
-          &lt;
+        <button
+          type="button"
+          disabled={current <= 1}
+          onClick={() => onPage(1)}
+          className="inline-flex size-6 items-center justify-center rounded hover:bg-hover disabled:opacity-40 disabled:hover:bg-transparent"
+          title="First Page"
+          aria-label="First Page"
+        >
+          <ChevronsLeft className="w-3.5 h-3.5" />
         </button>
-        <button type="button" aria-label="Next page" disabled={page >= pages} onClick={() => onPage(page + 1)} className={iconBtn}>
-          &gt;
+        <button
+          type="button"
+          disabled={current <= 1}
+          onClick={() => onPage(Math.max(1, current - 1))}
+          className="inline-flex size-6 items-center justify-center rounded hover:bg-hover disabled:opacity-40 disabled:hover:bg-transparent"
+          title="Previous Page"
+          aria-label="Previous Page"
+        >
+          <ChevronLeft className="w-3.5 h-3.5" />
+        </button>
+        <span className="px-2 font-medium text-ink-muted">
+          Page {current} of {pages}
+        </span>
+        <button
+          type="button"
+          disabled={current >= pages}
+          onClick={() => onPage(Math.min(pages, current + 1))}
+          className="inline-flex size-6 items-center justify-center rounded hover:bg-hover disabled:opacity-40 disabled:hover:bg-transparent"
+          title="Next Page"
+          aria-label="Next Page"
+        >
+          <ChevronRight className="w-3.5 h-3.5" />
+        </button>
+        <button
+          type="button"
+          disabled={current >= pages}
+          onClick={() => onPage(pages)}
+          className="inline-flex size-6 items-center justify-center rounded hover:bg-hover disabled:opacity-40 disabled:hover:bg-transparent"
+          title="Last Page"
+          aria-label="Last Page"
+        >
+          <ChevronsRight className="w-3.5 h-3.5" />
         </button>
       </div>
     </div>
@@ -477,62 +523,66 @@ export default function PurchaseOrdersPage() {
   ];
 
   return (
-    <div className="space-y-3 font-sans pb-12">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-3 rounded border border-slate-200/90 shadow-2xs">
-        <h1 className="text-xl font-bold text-slate-900 tracking-tight">Purchase Order</h1>
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="relative">
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search...."
-              aria-label="Search"
-              className="w-56 sm:w-64 h-9 pl-3 pr-8 text-xs border border-slate-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white placeholder-slate-400"
-            />
-            <Search className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+    <div className="flex flex-col md:h-[calc(100dvh-3.5rem)] md:overflow-hidden font-sans p-3 space-y-2.5">
+      {/* Fixed Top Controls: Header & Tabs */}
+      <div className="shrink-0 space-y-2.5">
+        {/* Header */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-surface p-3 rounded border border-line/90 shadow-2xs">
+          <h1 className="text-xl font-bold text-ink tracking-tight">Purchase Order</h1>
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="relative">
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search...."
+                aria-label="Search"
+                className="w-56 sm:w-64 h-9 pl-3 pr-8 text-xs border border-line-strong rounded focus:outline-none focus:ring-1 focus:ring-blue-500 bg-surface placeholder:text-ink-faint"
+              />
+              <Search className="w-3.5 h-3.5 text-ink-faint absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+            </div>
+            {perms.orders.export && (
+              <button type="button" onClick={handleExport} className={btnPrimary} title="Download Excel (CSV)">
+                <Download className="w-3.5 h-3.5" />
+                <span>Excel</span>
+              </button>
+            )}
+            {activeTab === "LOCAL_PO" && perms.orders.create && (
+              <button type="button" onClick={() => openCreate()} className={btnPrimary}>
+                <Plus className="w-4 h-4" />
+                <span>Create Local Order</span>
+              </button>
+            )}
           </div>
-          {perms.orders.export && (
-            <button type="button" onClick={handleExport} className={btnPrimary} title="Download Excel (CSV)">
-              <Download className="w-3.5 h-3.5" />
-              <span>Excel</span>
-            </button>
-          )}
-          {activeTab === "LOCAL_PO" && perms.orders.create && (
-            <button type="button" onClick={() => openCreate()} className={btnPrimary}>
-              <Plus className="w-4 h-4" />
-              <span>Create Local Order</span>
-            </button>
-          )}
         </div>
-      </div>
 
-      {/* Tabs */}
-      <div role="tablist" className="flex items-center gap-8 border-b border-slate-200 bg-white px-3 pt-1 overflow-x-auto">
-        {tabs.map((t) => (
-          <button
-            key={t.id}
-            type="button"
-            role="tab"
-            aria-selected={activeTab === t.id}
-            onClick={() => setActiveTab(t.id)}
-            className={`pb-2.5 pt-2 text-xs font-bold tracking-wide border-b-2 whitespace-nowrap transition ${
-              activeTab === t.id ? "border-[#2563eb] text-[#2563eb]" : "border-transparent text-slate-500 hover:text-slate-800"
-            }`}
-          >
-            {t.label}
-          </button>
-        ))}
+        {/* Tabs */}
+        <div role="tablist" className="flex items-center gap-8 border-b border-line bg-surface px-3 pt-1 overflow-x-auto rounded border border-line/90 shadow-2xs">
+          {tabs.map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              role="tab"
+              aria-selected={activeTab === t.id}
+              onClick={() => setActiveTab(t.id)}
+              className={`pb-2.5 pt-2 text-xs font-bold tracking-wide border-b-2 whitespace-nowrap transition ${
+                activeTab === t.id ? "border-[#2563eb] text-primary" : "border-transparent text-ink-faint hover:text-ink"
+              }`}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* TAB 1: LOCAL PO */}
       {activeTab === "LOCAL_PO" && (
-        <div className="space-y-3">
-          <div className="bg-white rounded border border-slate-200/90 p-3.5 shadow-2xs">
+        <div className="flex-1 min-h-0 flex flex-col space-y-2.5">
+          {/* Filters (Fixed) */}
+          <div className="shrink-0 bg-surface rounded border border-line/90 p-3.5 shadow-2xs">
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-3">
               <label className="block">
-                <span className="block text-[11px] font-semibold text-slate-700 mb-1">Office</span>
+                <span className="block text-[11px] font-semibold text-ink-muted mb-1">Office</span>
                 <select value={officeFilter} onChange={(e) => setOfficeFilter(e.target.value)} className={inputCls}>
                   <option value="ALL">All Offices</option>
                   {offices.map((o) => (
@@ -543,7 +593,7 @@ export default function PurchaseOrdersPage() {
                 </select>
               </label>
               <label className="block">
-                <span className="block text-[11px] font-semibold text-slate-700 mb-1">Filter By</span>
+                <span className="block text-[11px] font-semibold text-ink-muted mb-1">Filter By</span>
                 <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className={inputCls}>
                   <option value="ALL">All Statuses</option>
                   <option value="PENDING_APPROVAL">Pending Approval</option>
@@ -555,7 +605,7 @@ export default function PurchaseOrdersPage() {
                 </select>
               </label>
               <label className="block">
-                <span className="block text-[11px] font-semibold text-slate-700 mb-1">Created By</span>
+                <span className="block text-[11px] font-semibold text-ink-muted mb-1">Created By</span>
                 <select value={createdByFilter} onChange={(e) => setCreatedByFilter(e.target.value)} className={inputCls}>
                   <option value="ALL">Anyone</option>
                   {creators.map((c) => (
@@ -566,7 +616,7 @@ export default function PurchaseOrdersPage() {
                 </select>
               </label>
               <label className="block">
-                <span className="block text-[11px] font-semibold text-slate-700 mb-1">Select Supplier</span>
+                <span className="block text-[11px] font-semibold text-ink-muted mb-1">Select Supplier</span>
                 <select value={supplierFilter} onChange={(e) => setSupplierFilter(e.target.value)} className={inputCls}>
                   <option value="ALL">Select/Search Supplier (All)</option>
                   {suppliers.map((s) => (
@@ -577,11 +627,11 @@ export default function PurchaseOrdersPage() {
                 </select>
               </label>
               <label className="block">
-                <span className="block text-[11px] font-semibold text-slate-700 mb-1">From Date</span>
+                <span className="block text-[11px] font-semibold text-ink-muted mb-1">From Date</span>
                 <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} className={inputCls} />
               </label>
               <label className="block">
-                <span className="block text-[11px] font-semibold text-slate-700 mb-1">To Date</span>
+                <span className="block text-[11px] font-semibold text-ink-muted mb-1">To Date</span>
                 <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} className={inputCls} />
               </label>
             </div>
@@ -602,7 +652,7 @@ export default function PurchaseOrdersPage() {
                     setToDate("");
                     setSearch("");
                   }}
-                  className="h-9 px-2 text-xs text-slate-500 hover:text-slate-800 underline"
+                  className="h-9 px-2 text-xs text-ink-faint hover:text-ink underline"
                 >
                   Clear Filters
                 </button>
@@ -610,8 +660,9 @@ export default function PurchaseOrdersPage() {
             </div>
           </div>
 
-          <div className="bg-white rounded border border-slate-200/90 shadow-2xs overflow-hidden">
-            <div className="erp-table-container">
+          {/* Table Card (Only Table Scrolls) */}
+          <div className="flex-1 min-h-0 bg-surface rounded border border-line/90 shadow-2xs overflow-hidden flex flex-col">
+            <div className="erp-table-container flex-1 min-h-0 overflow-auto">
               <table className="erp-table erp-table-compact">
                 <thead>
                   <tr>
@@ -634,7 +685,7 @@ export default function PurchaseOrdersPage() {
                 <tbody>
                   {ordersPage.slice.length === 0 ? (
                     <tr>
-                      <td colSpan={14} className="text-center py-10 text-slate-400">
+                      <td colSpan={14} className="text-center py-10 text-ink-faint">
                         {ordersLoading ? "Loading purchase orders…" : "No purchase orders match the filters."}
                       </td>
                     </tr>
@@ -644,9 +695,9 @@ export default function PurchaseOrdersPage() {
                       const reviewComment = row.approvalHistory?.[row.approvalHistory.length - 1]?.comments;
                       return (
                         <tr key={row.id}>
-                          <td className="text-center font-mono text-[11px] text-slate-500">{ordersPage.offset + idx + 1}</td>
+                          <td className="text-center font-mono text-[11px] text-ink-faint">{ordersPage.offset + idx + 1}</td>
                           <td className="text-center whitespace-nowrap">
-                            <div className="flex items-center justify-center gap-0.5">
+                            <div className="row-actions flex items-center justify-center gap-0.5">
                               <button
                                 type="button"
                                 disabled={!canEdit(row) || !perms.orders.edit}
@@ -671,7 +722,7 @@ export default function PurchaseOrdersPage() {
                                     setActionPO({ po: row, action: "approve" });
                                     setActionComment("");
                                   }}
-                                  className={`${iconBtn} hover:bg-emerald-100 hover:text-emerald-700`}
+                                  className={`${iconBtn} hover:bg-emerald-100 dark:hover:bg-emerald-500/15 hover:text-emerald-700 dark:hover:text-emerald-300`}
                                   title={
                                     !perms.canApproveOrder(row.officeId, row.totalAmount)
                                       ? "Requires Approve permission & Approval Setup eligibility in Configuration"
@@ -689,7 +740,7 @@ export default function PurchaseOrdersPage() {
                                   setActionPO({ po: row, action: anyReceived(row) ? "close" : "cancel" });
                                   setActionComment("");
                                 }}
-                                className={`${iconBtn} hover:bg-rose-100 hover:text-rose-700`}
+                                className={`${iconBtn} hover:bg-rose-100 dark:hover:bg-rose-500/15 hover:text-rose-700 dark:hover:text-rose-300`}
                                 title={
                                   anyReceived(row)
                                     ? !perms.orders.edit
@@ -710,7 +761,7 @@ export default function PurchaseOrdersPage() {
                                   setActionPO({ po: row, action: "reverse" });
                                   setActionComment("");
                                 }}
-                                className={`${iconBtn} hover:bg-amber-100 hover:text-amber-800`}
+                                className={`${iconBtn} hover:bg-amber-100 dark:hover:bg-amber-500/15 hover:text-amber-800 dark:hover:text-amber-300`}
                                 title={!perms.orders.edit ? "Requires Edit permission in Configuration" : "Reverse status"}
                                 aria-label="Reverse purchase order status"
                               >
@@ -720,20 +771,20 @@ export default function PurchaseOrdersPage() {
                           </td>
                           <td className="whitespace-nowrap font-mono text-[11px] text-center">{row.orderDate}</td>
                           <td className="whitespace-nowrap font-mono text-[11px] text-center">{row.expectedDeliveryDate}</td>
-                          <td className="text-slate-500 font-mono text-[11px] text-center">{row.referenceNumber || "—"}</td>
+                          <td className="text-ink-faint font-mono text-[11px] text-center">{row.referenceNumber || "—"}</td>
                           <td className="whitespace-nowrap">
-                            <button type="button" onClick={() => setViewPO(row)} className="font-mono text-sky-700 font-semibold hover:underline">
+                            <button type="button" onClick={() => setViewPO(row)} className="font-mono text-sky-700 dark:text-sky-300 font-semibold hover:underline">
                               {row.poNumber}
                             </button>
                           </td>
                           <td className="leading-tight">{row.officeName}</td>
-                          <td className="text-slate-500 text-[11px]">{row.projectCostCenter || "—"}</td>
-                          <td className="font-medium text-slate-900 leading-tight">{row.supplierName}</td>
-                          <td className="text-slate-700 text-[11px] leading-tight">{row.createdBy}</td>
-                          <td className="text-right font-mono font-semibold text-slate-900 whitespace-nowrap">{formatCurrency(row.totalAmount)}</td>
-                          <td className="text-slate-600 text-[11px] text-center whitespace-nowrap">{formatEta(row.expectedDeliveryDate)}</td>
+                          <td className="text-ink-faint text-[11px]">{row.projectCostCenter || "—"}</td>
+                          <td className="font-medium text-ink leading-tight">{row.supplierName}</td>
+                          <td className="text-ink-muted text-[11px] leading-tight">{row.createdBy}</td>
+                          <td className="text-right font-mono font-semibold text-ink whitespace-nowrap">{formatCurrency(row.totalAmount)}</td>
+                          <td className="text-ink-muted text-[11px] text-center whitespace-nowrap">{formatEta(row.expectedDeliveryDate)}</td>
                           <td className={`text-center text-[11px] font-semibold whitespace-nowrap ${st.cls}`}>{st.text}</td>
-                          <td className="text-slate-500 text-[11px] max-w-[120px] truncate" title={reviewComment || ""}>{reviewComment || "—"}</td>
+                          <td className="text-ink-faint text-[11px] max-w-[120px] truncate" title={reviewComment || ""}>{reviewComment || "—"}</td>
                         </tr>
                       );
                     })
@@ -741,19 +792,19 @@ export default function PurchaseOrdersPage() {
                 </tbody>
               </table>
             </div>
-            {ordersPage.pager}
+            <div className="shrink-0">{ordersPage.pager}</div>
           </div>
         </div>
       )}
 
       {/* TAB 2: REQUISITION SUMMARY */}
       {activeTab === "REQUISITION_SUMMARY" && (
-        <div className="space-y-3">
-          <div className="bg-white rounded border border-slate-200/90 p-3.5 shadow-2xs">
-            <p className="text-[11px] text-slate-500 mb-2">Items on approved requisitions that are not ordered yet, with the current stock.</p>
+        <div className="flex-1 min-h-0 flex flex-col space-y-2.5">
+          <div className="shrink-0 bg-surface rounded border border-line/90 p-3.5 shadow-2xs">
+            <p className="text-[11px] text-ink-faint mb-2">Items on approved requisitions that are not ordered yet, with the current stock.</p>
             <div className="flex flex-wrap items-end gap-3.5">
               <label className="block w-48">
-                <span className="block text-[11px] font-semibold text-slate-700 mb-1">Office</span>
+                <span className="block text-[11px] font-semibold text-ink-muted mb-1">Office</span>
                 <select value={sumOffice} onChange={(e) => setSumOffice(e.target.value)} className={inputCls}>
                   <option value="ALL">All Offices</option>
                   {offices.map((o) => (
@@ -764,11 +815,11 @@ export default function PurchaseOrdersPage() {
                 </select>
               </label>
               <label className="block w-44">
-                <span className="block text-[11px] font-semibold text-slate-700 mb-1">From Date</span>
+                <span className="block text-[11px] font-semibold text-ink-muted mb-1">From Date</span>
                 <input type="date" value={sumFrom} onChange={(e) => setSumFrom(e.target.value)} className={inputCls} />
               </label>
               <label className="block w-44">
-                <span className="block text-[11px] font-semibold text-slate-700 mb-1">To Date</span>
+                <span className="block text-[11px] font-semibold text-ink-muted mb-1">To Date</span>
                 <input type="date" value={sumTo} onChange={(e) => setSumTo(e.target.value)} className={inputCls} />
               </label>
               <button type="button" onClick={() => queryClient.invalidateQueries({ queryKey: ["requisitionSummary"] })} disabled={summaryLoading} className={btnPrimary}>
@@ -777,8 +828,9 @@ export default function PurchaseOrdersPage() {
               </button>
             </div>
           </div>
-          <div className="bg-white rounded border border-slate-200/90 shadow-2xs overflow-hidden">
-            <div className="erp-table-container">
+          {/* Table Card (Only Table Scrolls) */}
+          <div className="flex-1 min-h-0 bg-surface rounded border border-line/90 shadow-2xs overflow-hidden flex flex-col">
+            <div className="erp-table-container flex-1 min-h-0 overflow-auto">
               <table className="erp-table erp-table-compact">
                 <thead>
                   <tr>
@@ -795,21 +847,21 @@ export default function PurchaseOrdersPage() {
                 <tbody>
                   {summaryPage.slice.length === 0 ? (
                     <tr>
-                      <td colSpan={8} className="text-center py-10 text-slate-400">
+                      <td colSpan={8} className="text-center py-10 text-ink-faint">
                         {summaryLoading ? "Loading…" : "No approved requisition items are waiting for an order."}
                       </td>
                     </tr>
                   ) : (
                     summaryPage.slice.map((row, idx) => (
                       <tr key={`${row.itemId}-${row.itemCode}`}>
-                        <td className="text-center font-mono text-slate-600">{summaryPage.offset + idx + 1}</td>
-                        <td className="font-mono text-blue-700 font-semibold">{row.itemCode}</td>
-                        <td className="font-semibold text-slate-800">{row.itemName}</td>
+                        <td className="text-center font-mono text-ink-muted">{summaryPage.offset + idx + 1}</td>
+                        <td className="font-mono text-blue-700 dark:text-blue-300 font-semibold">{row.itemCode}</td>
+                        <td className="font-semibold text-ink">{row.itemName}</td>
                         <td>{row.category}</td>
-                        <td className="text-slate-500">{row.subCategory || "—"}</td>
+                        <td className="text-ink-faint">{row.subCategory || "—"}</td>
                         <td className="text-center">{row.uom}</td>
-                        <td className="text-right font-mono font-bold text-slate-900">{row.quantity.toLocaleString("en-US", { maximumFractionDigits: 3 })}</td>
-                        <td className={`text-right font-mono font-semibold ${row.currentStock < row.quantity ? "text-rose-600" : "text-slate-700"}`}>
+                        <td className="text-right font-mono font-bold text-ink">{row.quantity.toLocaleString("en-US", { maximumFractionDigits: 3 })}</td>
+                        <td className={`text-right font-mono font-semibold ${row.currentStock < row.quantity ? "text-rose-600 dark:text-rose-400" : "text-ink-muted"}`}>
                           {row.currentStock.toLocaleString("en-US", { maximumFractionDigits: 3 })}
                         </td>
                       </tr>
@@ -818,18 +870,18 @@ export default function PurchaseOrdersPage() {
                 </tbody>
               </table>
             </div>
-            {summaryPage.pager}
+            <div className="shrink-0">{summaryPage.pager}</div>
           </div>
         </div>
       )}
 
       {/* TAB 3: PURCHASE METHOD */}
       {activeTab === "PURCHASE_METHOD" && (
-        <div className="space-y-3">
-          <div className="bg-white rounded border border-slate-200/90 p-3.5 shadow-2xs">
+        <div className="flex-1 min-h-0 flex flex-col space-y-2.5">
+          <div className="shrink-0 bg-surface rounded border border-line/90 p-3.5 shadow-2xs">
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-3">
               <label className="block">
-                <span className="block text-[11px] font-semibold text-slate-700 mb-1">Office</span>
+                <span className="block text-[11px] font-semibold text-ink-muted mb-1">Office</span>
                 <select
                   value={pmOffice}
                   onChange={(e) => {
@@ -847,11 +899,16 @@ export default function PurchaseOrdersPage() {
                 </select>
               </label>
               <label className="block">
-                <span className="block text-[11px] font-semibold text-slate-700 mb-1">Warehouse</span>
-                <select value={pmWarehouse} onChange={(e) => setPmWarehouse(e.target.value)} className={inputCls}>
-                  <option value="ALL">All Warehouses</option>
+                <span className="block text-[11px] font-semibold text-ink-muted mb-1">Warehouse</span>
+                <select
+                  value={pmWarehouse}
+                  onChange={(e) => setPmWarehouse(e.target.value)}
+                  disabled={pmOffice === "ALL"}
+                  className={`${inputCls} disabled:bg-control disabled:text-ink-faint disabled:cursor-not-allowed disabled:border-line`}
+                >
+                  <option value="ALL">{pmOffice === "ALL" ? "Select Office first" : "All Warehouses"}</option>
                   {warehouses
-                    .filter((w) => pmOffice === "ALL" || w.officeId === pmOffice)
+                    .filter((w) => pmOffice !== "ALL" && w.officeId === pmOffice)
                     .map((w) => (
                       <option key={w.id} value={w.id}>
                         {w.name}
@@ -860,7 +917,7 @@ export default function PurchaseOrdersPage() {
                 </select>
               </label>
               <label className="block">
-                <span className="block text-[11px] font-semibold text-slate-700 mb-1">Buyer Name</span>
+                <span className="block text-[11px] font-semibold text-ink-muted mb-1">Buyer Name</span>
                 <input
                   type="text"
                   value={pmBuyerName}
@@ -870,7 +927,7 @@ export default function PurchaseOrdersPage() {
                 />
               </label>
               <label className="block">
-                <span className="block text-[11px] font-semibold text-slate-700 mb-1">Buyer Office</span>
+                <span className="block text-[11px] font-semibold text-ink-muted mb-1">Buyer Office</span>
                 <select value={pmBuyerOffice} onChange={(e) => setPmBuyerOffice(e.target.value)} className={inputCls}>
                   <option value="ALL">All Buyer Offices</option>
                   {offices.map((o) => (
@@ -881,7 +938,7 @@ export default function PurchaseOrdersPage() {
                 </select>
               </label>
               <label className="block">
-                <span className="block text-[11px] font-semibold text-slate-700 mb-1">Req Type</span>
+                <span className="block text-[11px] font-semibold text-ink-muted mb-1">Req Type</span>
                 <select value={pmReqType} onChange={(e) => setPmReqType(e.target.value)} className={inputCls}>
                   <option value="ALL">All Types</option>
                   <option value="LOCAL">Local</option>
@@ -891,11 +948,11 @@ export default function PurchaseOrdersPage() {
                 </select>
               </label>
               <label className="block">
-                <span className="block text-[11px] font-semibold text-slate-700 mb-1">From Date</span>
+                <span className="block text-[11px] font-semibold text-ink-muted mb-1">From Date</span>
                 <input type="date" value={pmFrom} onChange={(e) => setPmFrom(e.target.value)} className={inputCls} />
               </label>
               <label className="block">
-                <span className="block text-[11px] font-semibold text-slate-700 mb-1">To Date</span>
+                <span className="block text-[11px] font-semibold text-ink-muted mb-1">To Date</span>
                 <input type="date" value={pmTo} onChange={(e) => setPmTo(e.target.value)} className={inputCls} />
               </label>
             </div>
@@ -921,15 +978,16 @@ export default function PurchaseOrdersPage() {
                     setPmFrom("");
                     setPmTo("");
                   }}
-                  className="h-9 px-2 text-xs text-slate-500 hover:text-slate-800 underline"
+                  className="h-9 px-2 text-xs text-ink-faint hover:text-ink underline"
                 >
                   Clear Filters
                 </button>
               )}
             </div>
           </div>
-          <div className="bg-white rounded border border-slate-200/90 shadow-2xs overflow-hidden">
-            <div className="erp-table-container">
+          {/* Table Card (Only Table Scrolls) */}
+          <div className="flex-1 min-h-0 bg-surface rounded border border-line/90 shadow-2xs overflow-hidden flex flex-col">
+            <div className="erp-table-container flex-1 min-h-0 overflow-auto">
               <table className="erp-table erp-table-compact">
                 <thead>
                   <tr>
@@ -951,16 +1009,16 @@ export default function PurchaseOrdersPage() {
                 <tbody>
                   {methodPage.slice.length === 0 ? (
                     <tr>
-                      <td colSpan={13} className="text-center py-10 text-slate-400">
+                      <td colSpan={13} className="text-center py-10 text-ink-faint">
                         No approved requisitions are waiting for a purchase order.
                       </td>
                     </tr>
                   ) : (
                     methodPage.slice.map((row, idx) => (
                       <tr key={row.id}>
-                        <td className="text-center font-mono text-slate-600">{methodPage.offset + idx + 1}</td>
+                        <td className="text-center font-mono text-ink-muted">{methodPage.offset + idx + 1}</td>
                         <td className="text-center">
-                          <div className="flex items-center justify-center gap-0.5">
+                          <div className="row-actions flex items-center justify-center gap-0.5">
                             <button type="button" onClick={() => setViewReq(row)} className={iconBtn} title="View requisition" aria-label="View requisition">
                               <Eye className="w-3.5 h-3.5" />
                             </button>
@@ -968,7 +1026,7 @@ export default function PurchaseOrdersPage() {
                               type="button"
                               disabled={!perms.orders.create}
                               onClick={() => openCreate(row)}
-                              className={`${iconBtn} hover:bg-emerald-100 hover:text-emerald-700`}
+                              className={`${iconBtn} hover:bg-emerald-100 dark:hover:bg-emerald-500/15 hover:text-emerald-700 dark:hover:text-emerald-300`}
                               title={!perms.orders.create ? "Requires Create permission in Configuration" : "Create purchase order"}
                               aria-label="Create purchase order from requisition"
                             >
@@ -976,10 +1034,10 @@ export default function PurchaseOrdersPage() {
                             </button>
                           </div>
                         </td>
-                        <td className="font-mono text-sky-700 font-semibold">{row.requisitionNumber}</td>
+                        <td className="font-mono text-sky-700 dark:text-sky-300 font-semibold">{row.requisitionNumber}</td>
                         <td>{row.requestDate}</td>
-                        <td className="text-slate-600">{row.department ? "Department" : "Employee"}</td>
-                        <td className="font-medium text-slate-800">{row.department || row.requesterName}</td>
+                        <td className="text-ink-muted">{row.department ? "Department" : "Employee"}</td>
+                        <td className="font-medium text-ink">{row.department || row.requesterName}</td>
                         <td>{row.requesterName || "N/A"}</td>
                         <td>{officeName(row.officeId) || "N/A"}</td>
                         <td>
@@ -989,7 +1047,7 @@ export default function PurchaseOrdersPage() {
                             onChange={(e) => methodMutation.mutate({ id: row.id, method: e.target.value })}
                             aria-label={`Purchase method for ${row.requisitionNumber}`}
                             title={!perms.requisitions.edit ? "Requires Requisition Edit permission in Configuration" : undefined}
-                            className="h-7 border border-slate-300 rounded px-2 text-xs bg-white text-slate-700 disabled:opacity-50 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                            className="h-7 border border-line-strong rounded px-2 text-xs bg-surface text-ink-muted disabled:opacity-50 focus:outline-none focus:ring-1 focus:ring-blue-500"
                           >
                             {Object.entries(METHOD_LABEL).map(([v, label]) => (
                               <option key={v} value={v}>
@@ -998,17 +1056,17 @@ export default function PurchaseOrdersPage() {
                             ))}
                           </select>
                         </td>
-                        <td className="text-right font-mono font-bold text-slate-900">{formatCurrency(row.totalEstimatedAmount)}</td>
+                        <td className="text-right font-mono font-bold text-ink">{formatCurrency(row.totalEstimatedAmount)}</td>
                         <td>{row.createdBy}</td>
-                        <td className="text-slate-600">{row.remarks || "—"}</td>
-                        <td className="text-center text-[11px] font-semibold text-emerald-700">{row.status === "APPROVED" ? "Approved" : row.status}</td>
+                        <td className="text-ink-muted">{row.remarks || "—"}</td>
+                        <td className="text-center text-[11px] font-semibold text-emerald-700 dark:text-emerald-300">{row.status === "APPROVED" ? "Approved" : row.status}</td>
                       </tr>
                     ))
                   )}
                 </tbody>
               </table>
             </div>
-            {methodPage.pager}
+            <div className="shrink-0">{methodPage.pager}</div>
           </div>
         </div>
       )}
@@ -1024,9 +1082,9 @@ export default function PurchaseOrdersPage() {
         {form && (
           <form onSubmit={submitForm} className="space-y-4 text-xs">
             {!form.editId && (
-              <label className="p-2.5 bg-sky-50/70 border border-sky-200 rounded flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                <span className="font-semibold text-sky-900">Link an approved requisition (optional)</span>
-                <select value={form.requisitionId} onChange={(e) => selectRequisition(e.target.value)} className="h-8 border border-sky-300 rounded px-2 bg-white text-xs sm:max-w-xs w-full">
+              <label className="p-2.5 bg-sky-50/70 dark:bg-sky-500/10 border border-sky-200 dark:border-sky-500/30 rounded flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <span className="font-semibold text-sky-900 dark:text-sky-300">Link an approved requisition (optional)</span>
+                <select value={form.requisitionId} onChange={(e) => selectRequisition(e.target.value)} className="h-8 border border-sky-300 dark:border-sky-500/30 rounded px-2 bg-surface text-xs sm:max-w-xs w-full">
                   <option value="">— Direct PO (no requisition) —</option>
                   {approvedReqs.map((r) => (
                     <option key={r.id} value={r.id}>
@@ -1039,7 +1097,7 @@ export default function PurchaseOrdersPage() {
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
               <label className="block">
-                <span className="block text-slate-600 font-medium mb-1">Supplier *</span>
+                <span className="block text-ink-muted font-medium mb-1">Supplier *</span>
                 <select value={form.supplierId} onChange={(e) => patchForm({ supplierId: e.target.value })} className={inputCls} required>
                   <option value="">Select supplier</option>
                   {suppliers.map((s) => (
@@ -1050,7 +1108,7 @@ export default function PurchaseOrdersPage() {
                 </select>
               </label>
               <label className="block">
-                <span className="block text-slate-600 font-medium mb-1">Office *</span>
+                <span className="block text-ink-muted font-medium mb-1">Office *</span>
                 <select
                   value={form.officeId}
                   onChange={(e) => patchForm({ officeId: e.target.value, warehouseId: warehouses.find((w) => w.officeId === e.target.value)?.id ?? "" })}
@@ -1067,9 +1125,15 @@ export default function PurchaseOrdersPage() {
                 </select>
               </label>
               <label className="block">
-                <span className="block text-slate-600 font-medium mb-1">Receiving Warehouse *</span>
-                <select value={form.warehouseId} onChange={(e) => patchForm({ warehouseId: e.target.value })} className={inputCls} required>
-                  <option value="">Select warehouse</option>
+                <span className="block text-ink-muted font-medium mb-1">Receiving Warehouse *</span>
+                <select
+                  value={form.warehouseId}
+                  onChange={(e) => patchForm({ warehouseId: e.target.value })}
+                  disabled={!form.officeId}
+                  className={`${inputCls} disabled:bg-control disabled:text-ink-faint disabled:cursor-not-allowed`}
+                  required
+                >
+                  <option value="">{form.officeId ? "Select warehouse" : "Select office first"}</option>
                   {formWarehouses.map((w) => (
                     <option key={w.id} value={w.id}>
                       {w.name}
@@ -1078,41 +1142,41 @@ export default function PurchaseOrdersPage() {
                 </select>
               </label>
               <label className="block">
-                <span className="block text-slate-600 font-medium mb-1">Order Date *</span>
+                <span className="block text-ink-muted font-medium mb-1">Order Date *</span>
                 <input type="date" value={form.orderDate} onChange={(e) => patchForm({ orderDate: e.target.value })} className={inputCls} required />
               </label>
               <label className="block">
-                <span className="block text-slate-600 font-medium mb-1">Expected Delivery *</span>
+                <span className="block text-ink-muted font-medium mb-1">Expected Delivery *</span>
                 <input type="date" min={form.orderDate} value={form.expectedDeliveryDate} onChange={(e) => patchForm({ expectedDeliveryDate: e.target.value })} className={inputCls} required />
               </label>
               <label className="block">
-                <span className="block text-slate-600 font-medium mb-1">Supplier Ref / Quotation No</span>
+                <span className="block text-ink-muted font-medium mb-1">Supplier Ref / Quotation No</span>
                 <input type="text" maxLength={100} value={form.referenceNumber} onChange={(e) => patchForm({ referenceNumber: e.target.value })} className={inputCls} />
               </label>
               <label className="block">
-                <span className="block text-slate-600 font-medium mb-1">Project / Cost Center</span>
+                <span className="block text-ink-muted font-medium mb-1">Project / Cost Center</span>
                 <input type="text" maxLength={100} value={form.projectCostCenter} onChange={(e) => patchForm({ projectCostCenter: e.target.value })} className={inputCls} />
               </label>
               <label className="block">
-                <span className="block text-slate-600 font-medium mb-1">Payment Terms</span>
+                <span className="block text-ink-muted font-medium mb-1">Payment Terms</span>
                 <input type="text" value={form.paymentTerms} onChange={(e) => patchForm({ paymentTerms: e.target.value })} className={inputCls} />
               </label>
               <label className="block">
-                <span className="block text-slate-600 font-medium mb-1">Delivery Terms</span>
+                <span className="block text-ink-muted font-medium mb-1">Delivery Terms</span>
                 <input type="text" value={form.deliveryTerms} onChange={(e) => patchForm({ deliveryTerms: e.target.value })} className={inputCls} />
               </label>
             </div>
 
             <div>
               <div className="flex items-center justify-between mb-1.5">
-                <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wide">Line Items</h4>
-                <button type="button" onClick={() => patchForm({ lines: [...form.lines, newLine()] })} className="h-8 px-3 border border-blue-300 text-blue-700 rounded hover:bg-blue-50 font-semibold inline-flex items-center gap-1">
+                <h4 className="text-xs font-bold text-ink uppercase tracking-wide">Line Items</h4>
+                <button type="button" onClick={() => patchForm({ lines: [...form.lines, newLine()] })} className="h-8 px-3 border border-blue-300 dark:border-blue-500/30 text-blue-700 dark:text-blue-300 rounded hover:bg-blue-50 dark:hover:bg-blue-500/10 font-semibold inline-flex items-center gap-1">
                   <Plus className="w-3.5 h-3.5" /> Add Item
                 </button>
               </div>
-              <div className="border border-slate-200 rounded overflow-x-auto">
+              <div className="border border-line rounded overflow-x-auto">
                 <table className="w-full min-w-[760px] text-left text-xs">
-                  <thead className="bg-slate-100 text-slate-600 font-semibold text-[11px]">
+                  <thead className="bg-control text-ink-muted font-semibold text-[11px]">
                     <tr>
                       <th className="p-2">Item *</th>
                       <th className="p-2 w-14">UoM</th>
@@ -1124,7 +1188,7 @@ export default function PurchaseOrdersPage() {
                       <th className="p-2 w-10" />
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-100">
+                  <tbody className="divide-y divide-line">
                     {form.lines.map((line, idx) => (
                       <tr key={line.key}>
                         <td className="p-2">
@@ -1145,7 +1209,7 @@ export default function PurchaseOrdersPage() {
                             ))}
                           </select>
                         </td>
-                        <td className="p-2 text-slate-600 font-mono">{line.uom || "—"}</td>
+                        <td className="p-2 text-ink-muted font-mono">{line.uom || "—"}</td>
                         <td className="p-2">
                           <input type="number" min="0.001" step="any" aria-label={`Quantity for line ${idx + 1}`} value={line.orderedQuantity} onChange={(e) => patchLine(line.key, { orderedQuantity: Number(e.target.value) })} className={`${inputCls} font-mono`} />
                         </td>
@@ -1158,13 +1222,13 @@ export default function PurchaseOrdersPage() {
                         <td className="p-2">
                           <input type="number" min="0" max="100" step="any" aria-label={`VAT for line ${idx + 1}`} value={line.taxPercentage} onChange={(e) => patchLine(line.key, { taxPercentage: Number(e.target.value) })} className={`${inputCls} font-mono`} />
                         </td>
-                        <td className="p-2 text-right font-mono font-bold text-slate-800">{formatCurrency(pricedLines[idx]?.lineTotal ?? 0)}</td>
+                        <td className="p-2 text-right font-mono font-bold text-ink">{formatCurrency(pricedLines[idx]?.lineTotal ?? 0)}</td>
                         <td className="p-2 text-center">
                           <button
                             type="button"
                             disabled={form.lines.length === 1}
                             onClick={() => patchForm({ lines: form.lines.filter((l) => l.key !== line.key) })}
-                            className={`${iconBtn} hover:bg-rose-100 hover:text-rose-700`}
+                            className={`${iconBtn} hover:bg-rose-100 dark:hover:bg-rose-500/15 hover:text-rose-700 dark:hover:text-rose-300`}
                             aria-label={`Remove line ${idx + 1}`}
                             title="Remove line"
                           >
@@ -1180,18 +1244,18 @@ export default function PurchaseOrdersPage() {
 
             <div className="flex flex-col md:flex-row gap-3 justify-between">
               <label className="block flex-1">
-                <span className="block text-slate-600 font-medium mb-1">Notes to Supplier</span>
-                <textarea value={form.notes} maxLength={600} onChange={(e) => patchForm({ notes: e.target.value })} className="w-full border border-slate-300 rounded p-2 text-xs h-20" />
+                <span className="block text-ink-muted font-medium mb-1">Notes to Supplier</span>
+                <textarea value={form.notes} maxLength={600} onChange={(e) => patchForm({ notes: e.target.value })} className="w-full border border-line-strong rounded p-2 text-xs h-20" />
               </label>
-              <div className="md:w-72 space-y-1.5 bg-slate-50 p-3 rounded border border-slate-200">
-                <div className="flex justify-between"><span className="text-slate-600">Subtotal</span><span className="font-mono">{formatCurrency(totals.subtotal)}</span></div>
-                <div className="flex justify-between"><span className="text-slate-600">Discount</span><span className="font-mono text-rose-600">− {formatCurrency(totals.totalDiscount)}</span></div>
-                <div className="flex justify-between"><span className="text-slate-600">VAT</span><span className="font-mono">{formatCurrency(totals.totalTax)}</span></div>
+              <div className="md:w-72 space-y-1.5 bg-canvas p-3 rounded border border-line">
+                <div className="flex justify-between"><span className="text-ink-muted">Subtotal</span><span className="font-mono">{formatCurrency(totals.subtotal)}</span></div>
+                <div className="flex justify-between"><span className="text-ink-muted">Discount</span><span className="font-mono text-rose-600 dark:text-rose-400">− {formatCurrency(totals.totalDiscount)}</span></div>
+                <div className="flex justify-between"><span className="text-ink-muted">VAT</span><span className="font-mono">{formatCurrency(totals.totalTax)}</span></div>
                 <label className="flex justify-between items-center gap-2">
-                  <span className="text-slate-600">Shipping</span>
-                  <input type="number" min="0" step="any" value={form.shippingFee} onChange={(e) => patchForm({ shippingFee: Number(e.target.value) })} className="w-28 h-7 border border-slate-300 rounded px-2 text-right font-mono text-xs bg-white" />
+                  <span className="text-ink-muted">Shipping</span>
+                  <input type="number" min="0" step="any" value={form.shippingFee} onChange={(e) => patchForm({ shippingFee: Number(e.target.value) })} className="w-28 h-7 border border-line-strong rounded px-2 text-right font-mono text-xs bg-surface" />
                 </label>
-                <div className="flex justify-between pt-1.5 border-t border-slate-300 font-bold text-slate-900 text-sm"><span>Total</span><span className="font-mono text-sky-800">{formatCurrency(totals.totalAmount)}</span></div>
+                <div className="flex justify-between pt-1.5 border-t border-line-strong font-bold text-ink text-sm"><span>Total</span><span className="font-mono text-sky-800 dark:text-sky-300">{formatCurrency(totals.totalAmount)}</span></div>
               </div>
             </div>
 
@@ -1212,27 +1276,27 @@ export default function PurchaseOrdersPage() {
       <ModalDialog isOpen={Boolean(viewPO)} onClose={() => setViewPO(null)} title={`Purchase Order ${viewPO?.poNumber ?? ""}`} subtitle={`${viewPO?.supplierName ?? ""} · ${viewPO?.orderDate ?? ""}`} maxWidth="4xl">
         {viewPO && (
           <div className="space-y-4 text-xs">
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-slate-50 p-3 rounded border border-slate-200">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-canvas p-3 rounded border border-line">
               <div>
-                <span className="text-[10px] text-slate-500 font-bold uppercase block">Supplier</span>
-                <p className="font-bold text-slate-900 text-sm">{viewPO.supplierName}</p>
-                <p className="text-slate-600">Reference: {viewPO.referenceNumber || "—"}</p>
-                <p className="text-slate-600">Terms: {viewPO.paymentTerms || "—"} · {viewPO.deliveryTerms || "—"}</p>
+                <span className="text-[10px] text-ink-faint font-bold uppercase block">Supplier</span>
+                <p className="font-bold text-ink text-sm">{viewPO.supplierName}</p>
+                <p className="text-ink-muted">Reference: {viewPO.referenceNumber || "—"}</p>
+                <p className="text-ink-muted">Terms: {viewPO.paymentTerms || "—"} · {viewPO.deliveryTerms || "—"}</p>
               </div>
               <div>
-                <span className="text-[10px] text-slate-500 font-bold uppercase block">Deliver To</span>
-                <p className="font-bold text-slate-900 text-sm">{viewPO.warehouseName}</p>
-                <p className="text-slate-600">{viewPO.officeName} · by {viewPO.expectedDeliveryDate}</p>
+                <span className="text-[10px] text-ink-faint font-bold uppercase block">Deliver To</span>
+                <p className="font-bold text-ink text-sm">{viewPO.warehouseName}</p>
+                <p className="text-ink-muted">{viewPO.officeName} · by {viewPO.expectedDeliveryDate}</p>
               </div>
               <div>
-                <span className="text-[10px] text-slate-500 font-bold uppercase block">Status</span>
+                <span className="text-[10px] text-ink-faint font-bold uppercase block">Status</span>
                 <p className={`font-bold text-sm ${statusLabel(viewPO).cls}`}>{statusLabel(viewPO).text}</p>
-                <p className="text-slate-600">Requisition: {viewPO.requisitionNumber || "—"}</p>
+                <p className="text-ink-muted">Requisition: {viewPO.requisitionNumber || "—"}</p>
               </div>
             </div>
-            <div className="border border-slate-200 rounded overflow-x-auto">
+            <div className="border border-line rounded overflow-x-auto">
               <table className="w-full min-w-[640px] text-left text-xs">
-                <thead className="bg-slate-100 text-slate-700 font-semibold">
+                <thead className="bg-control text-ink-muted font-semibold">
                   <tr>
                     <th className="p-2">Item</th>
                     <th className="p-2 text-right">Ordered</th>
@@ -1244,19 +1308,19 @@ export default function PurchaseOrdersPage() {
                     <th className="p-2 text-right">Line Total</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100">
+                <tbody className="divide-y divide-line">
                   {viewPO.items.map((it) => (
                     <tr key={it.id}>
                       <td className="p-2">
-                        <div className="font-semibold text-slate-900">{it.itemName}</div>
-                        <div className="text-[10px] text-slate-400 font-mono">{it.itemCode} · {it.uom}</div>
+                        <div className="font-semibold text-ink">{it.itemName}</div>
+                        <div className="text-[10px] text-ink-faint font-mono">{it.itemCode} · {it.uom}</div>
                       </td>
                       <td className="p-2 text-right font-mono">{it.orderedQuantity}</td>
-                      <td className="p-2 text-right font-mono text-emerald-700">{it.receivedQuantity}</td>
-                      <td className="p-2 text-right font-mono text-amber-700">{it.outstandingQuantity}</td>
-                      <td className="p-2 text-right font-mono text-rose-600">{it.returnedQuantity}</td>
+                      <td className="p-2 text-right font-mono text-emerald-700 dark:text-emerald-300">{it.receivedQuantity}</td>
+                      <td className="p-2 text-right font-mono text-amber-700 dark:text-amber-300">{it.outstandingQuantity}</td>
+                      <td className="p-2 text-right font-mono text-rose-600 dark:text-rose-400">{it.returnedQuantity}</td>
                       <td className="p-2 text-right font-mono">{formatCurrency(it.unitPrice)}</td>
-                      <td className="p-2 text-right font-mono text-slate-500">{it.discountPercentage}% / {it.taxPercentage}%</td>
+                      <td className="p-2 text-right font-mono text-ink-faint">{it.discountPercentage}% / {it.taxPercentage}%</td>
                       <td className="p-2 text-right font-mono font-bold">{formatCurrency(it.lineTotal)}</td>
                     </tr>
                   ))}
@@ -1264,28 +1328,28 @@ export default function PurchaseOrdersPage() {
               </table>
             </div>
             <div className="flex flex-col sm:flex-row justify-between gap-3">
-              <div className="flex-1 bg-white border border-slate-200 rounded p-3">
-                <span className="text-[10px] text-slate-500 font-bold uppercase block mb-1">History</span>
+              <div className="flex-1 bg-surface border border-line rounded p-3">
+                <span className="text-[10px] text-ink-faint font-bold uppercase block mb-1">History</span>
                 {viewPO.approvalHistory.length === 0 ? (
-                  <p className="text-slate-400">No history recorded.</p>
+                  <p className="text-ink-faint">No history recorded.</p>
                 ) : (
                   <ul className="space-y-1">
                     {viewPO.approvalHistory.map((h) => (
                       <li key={h.id}>
-                        <span className="font-semibold text-slate-800">{h.action.replace(/_/g, " ")}</span> by {h.actorName}
-                        <span className="text-slate-400"> · {new Date(h.timestamp).toLocaleString()}</span>
-                        {h.comments && <span className="text-slate-600"> — {h.comments}</span>}
+                        <span className="font-semibold text-ink">{h.action.replace(/_/g, " ")}</span> by {h.actorName}
+                        <span className="text-ink-faint"> · {new Date(h.timestamp).toLocaleString()}</span>
+                        {h.comments && <span className="text-ink-muted"> — {h.comments}</span>}
                       </li>
                     ))}
                   </ul>
                 )}
               </div>
-              <div className="sm:w-64 space-y-1 bg-slate-50 p-3 rounded border border-slate-200">
+              <div className="sm:w-64 space-y-1 bg-canvas p-3 rounded border border-line">
                 <div className="flex justify-between"><span>Subtotal</span><span className="font-mono">{formatCurrency(viewPO.subtotal)}</span></div>
                 <div className="flex justify-between"><span>Discount</span><span className="font-mono">− {formatCurrency(viewPO.totalDiscount)}</span></div>
                 <div className="flex justify-between"><span>VAT</span><span className="font-mono">{formatCurrency(viewPO.totalTax)}</span></div>
                 <div className="flex justify-between"><span>Shipping</span><span className="font-mono">{formatCurrency(viewPO.shippingFee)}</span></div>
-                <div className="flex justify-between pt-1 border-t border-slate-300 font-bold text-sm"><span>Total</span><span className="font-mono text-sky-800">{formatCurrency(viewPO.totalAmount)}</span></div>
+                <div className="flex justify-between pt-1 border-t border-line-strong font-bold text-sm"><span>Total</span><span className="font-mono text-sky-800 dark:text-sky-300">{formatCurrency(viewPO.totalAmount)}</span></div>
               </div>
             </div>
             <div className="flex justify-end gap-2">
@@ -1394,20 +1458,20 @@ export default function PurchaseOrdersPage() {
               actionMutation.mutate({ id: actionPO.po.id, action: actionPO.action, comments: actionComment });
             }}
           >
-            <p className="text-slate-600">
+            <p className="text-ink-muted">
               {actionPO.action === "approve" && "The order becomes available for goods receiving."}
               {actionPO.action === "close" && "Goods have already been received. Closing stops further receiving; the outstanding quantity is dropped."}
               {actionPO.action === "cancel" && "Nothing has been received yet. Cancelling voids the order and frees its requisition for a new order."}
               {actionPO.action === "reverse" && (actionPO.po.isClosed ? "Re-opens the closed order for receiving." : "Moves the order back to pending approval.")}
             </p>
             <label className="block">
-              <span className="block text-slate-700 font-semibold mb-1">Comment {actionPO.action !== "approve" && "*"}</span>
+              <span className="block text-ink-muted font-semibold mb-1">Comment {actionPO.action !== "approve" && "*"}</span>
               <textarea
                 value={actionComment}
                 onChange={(e) => setActionComment(e.target.value)}
                 required={actionPO.action !== "approve"}
                 maxLength={300}
-                className="w-full border border-slate-300 rounded p-2 text-xs h-20"
+                className="w-full border border-line-strong rounded p-2 text-xs h-20"
               />
             </label>
             <div className="flex justify-end gap-2 pt-2">
@@ -1433,20 +1497,20 @@ export default function PurchaseOrdersPage() {
       <ModalDialog isOpen={Boolean(viewReq)} onClose={() => setViewReq(null)} title={`Requisition ${viewReq?.requisitionNumber ?? ""}`} subtitle={viewReq?.department} maxWidth="2xl">
         {viewReq && (
           <div className="space-y-3 text-xs">
-            <div className="grid grid-cols-2 gap-3 bg-slate-50 p-3 rounded border border-slate-200">
+            <div className="grid grid-cols-2 gap-3 bg-canvas p-3 rounded border border-line">
               <div>
-                <span className="text-[10px] text-slate-400 font-bold block uppercase">Requested By</span>
-                <p className="font-bold text-slate-900 text-sm">{viewReq.requesterName}</p>
-                <p className="text-slate-600">{officeName(viewReq.officeId)} · {warehouseName(viewReq.warehouseId)}</p>
+                <span className="text-[10px] text-ink-faint font-bold block uppercase">Requested By</span>
+                <p className="font-bold text-ink text-sm">{viewReq.requesterName}</p>
+                <p className="text-ink-muted">{officeName(viewReq.officeId)} · {warehouseName(viewReq.warehouseId)}</p>
               </div>
               <div>
-                <span className="text-[10px] text-slate-400 font-bold block uppercase">Dates & Budget</span>
-                <p className="text-slate-700">{viewReq.requestDate} → needed by {viewReq.requiredDeliveryDate}</p>
-                <p className="font-bold font-mono text-emerald-700">{formatCurrency(viewReq.totalEstimatedAmount)}</p>
+                <span className="text-[10px] text-ink-faint font-bold block uppercase">Dates & Budget</span>
+                <p className="text-ink-muted">{viewReq.requestDate} → needed by {viewReq.requiredDeliveryDate}</p>
+                <p className="font-bold font-mono text-emerald-700 dark:text-emerald-300">{formatCurrency(viewReq.totalEstimatedAmount)}</p>
               </div>
             </div>
-            <table className="w-full text-left border border-slate-200">
-              <thead className="bg-slate-100 font-semibold">
+            <table className="w-full text-left border border-line">
+              <thead className="bg-control font-semibold">
                 <tr>
                   <th className="p-2">Item</th>
                   <th className="p-2 text-right">Qty</th>
@@ -1454,7 +1518,7 @@ export default function PurchaseOrdersPage() {
                   <th className="p-2 text-right">Total</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody className="divide-y divide-line">
                 {viewReq.items.map((i) => (
                   <tr key={i.id}>
                     <td className="p-2">{i.itemCode} — {i.itemName}</td>
@@ -1465,7 +1529,7 @@ export default function PurchaseOrdersPage() {
                 ))}
               </tbody>
             </table>
-            <p className="text-slate-600">Justification: {viewReq.businessJustification}</p>
+            <p className="text-ink-muted">Justification: {viewReq.businessJustification}</p>
             <div className="flex justify-end gap-2 pt-2">
               <button type="button" onClick={() => setViewReq(null)} className={btnGhost}>
                 Close

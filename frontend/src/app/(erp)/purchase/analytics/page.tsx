@@ -45,15 +45,15 @@ function quickRanges() {
   ];
 }
 
-function KpiCard({ label, value, sub, icon, tone = "text-slate-900" }: { label: string; value: string; sub: React.ReactNode; icon: React.ReactNode; tone?: string }) {
+function KpiCard({ label, value, sub, icon, tone = "text-ink" }: { label: string; value: string; sub: React.ReactNode; icon: React.ReactNode; tone?: string }) {
   return (
-    <div className="bg-white p-3 rounded border border-slate-200 shadow-2xs min-w-0">
-      <div className="flex items-center justify-between gap-2 text-slate-500 text-[11px]">
+    <div className="bg-surface p-3 rounded border border-line shadow-2xs min-w-0">
+      <div className="flex items-center justify-between gap-2 text-ink-faint text-[11px]">
         <span className="truncate">{label}</span>
-        <div className="p-1.5 bg-slate-50 text-slate-600 rounded shrink-0">{icon}</div>
+        <div className="p-1.5 bg-canvas text-ink-muted rounded shrink-0">{icon}</div>
       </div>
       <div className={`text-base font-bold mt-1 font-mono truncate ${tone}`}>{value}</div>
-      <div className="text-[10px] text-slate-500 mt-1">{sub}</div>
+      <div className="text-[10px] text-ink-faint mt-1">{sub}</div>
     </div>
   );
 }
@@ -127,10 +127,10 @@ export default function PurchaseAnalyticsPage() {
   return (
     <div className="space-y-4">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-3 rounded border border-slate-200/90 shadow-2xs">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-surface p-3 rounded border border-line/90 shadow-2xs">
         <div>
-          <h1 className="text-xl font-bold text-slate-900 tracking-tight">Purchase Analytics</h1>
-          <p className="text-[11px] text-slate-500">
+          <h1 className="text-xl font-bold text-ink tracking-tight">Purchase Analytics</h1>
+          <p className="text-[11px] text-ink-faint">
             {fromDate || "Start"} to {toDate || "today"} · {selectedOffice === "ALL" ? "All offices" : offices?.find((o) => o.id === selectedOffice)?.name}
           </p>
         </div>
@@ -149,7 +149,7 @@ export default function PurchaseAnalyticsPage() {
           <button
             type="button"
             onClick={() => window.print()}
-            className="h-9 px-3.5 border border-slate-300 hover:bg-slate-50 text-slate-700 font-semibold text-xs rounded flex items-center gap-1.5 shadow-xs transition"
+            className="h-9 px-3.5 border border-line-strong hover:bg-canvas text-ink-muted font-semibold text-xs rounded flex items-center gap-1.5 shadow-xs transition"
           >
             <Printer className="w-3.5 h-3.5" />
             <span>Print</span>
@@ -158,14 +158,14 @@ export default function PurchaseAnalyticsPage() {
       </div>
 
       {/* Filters */}
-      <div className="bg-white p-3 rounded border border-slate-200 shadow-2xs space-y-2.5 print:hidden">
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-2">
-          <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-700">
-            <Filter className="w-3.5 h-3.5 text-blue-600" />
+      <div className="bg-surface p-3 rounded border border-line shadow-2xs space-y-2.5 print:hidden">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line pb-2">
+          <div className="flex items-center gap-1.5 text-xs font-semibold text-ink-muted">
+            <Filter className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
             <span>Filters</span>
           </div>
           <div className="flex flex-wrap items-center gap-1 text-[11px]">
-            <span className="text-slate-400">Quick range:</span>
+            <span className="text-ink-faint">Quick range:</span>
             {ranges.map((r) => (
               <button
                 key={r.label}
@@ -174,7 +174,7 @@ export default function PurchaseAnalyticsPage() {
                   setFromDate(r.from);
                   setToDate(r.to);
                 }}
-                className={`min-h-6 px-2 py-0.5 rounded font-medium transition ${fromDate === r.from && toDate === r.to ? "bg-blue-600 text-white" : "bg-slate-100 hover:bg-slate-200 text-slate-700"}`}
+                className={`min-h-6 px-2 py-0.5 rounded font-medium transition ${fromDate === r.from && toDate === r.to ? "bg-blue-600 text-white" : "bg-control hover:bg-hover text-ink-muted"}`}
               >
                 {r.label}
               </button>
@@ -184,16 +184,16 @@ export default function PurchaseAnalyticsPage() {
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 text-xs">
           <label className="block">
-            <span className="block text-[11px] text-slate-500 mb-1">From Date</span>
-            <input type="date" value={fromDate} max={toDate || undefined} onChange={(e) => setFromDate(e.target.value)} className="w-full border border-slate-300 rounded px-2 py-1.5 bg-white text-xs" />
+            <span className="block text-[11px] text-ink-faint mb-1">From Date</span>
+            <input type="date" value={fromDate} max={toDate || undefined} onChange={(e) => setFromDate(e.target.value)} className="w-full border border-line-strong rounded px-2 py-1.5 bg-surface text-xs" />
           </label>
           <label className="block">
-            <span className="block text-[11px] text-slate-500 mb-1">To Date</span>
-            <input type="date" value={toDate} min={fromDate || undefined} onChange={(e) => setToDate(e.target.value)} className="w-full border border-slate-300 rounded px-2 py-1.5 bg-white text-xs" />
+            <span className="block text-[11px] text-ink-faint mb-1">To Date</span>
+            <input type="date" value={toDate} min={fromDate || undefined} onChange={(e) => setToDate(e.target.value)} className="w-full border border-line-strong rounded px-2 py-1.5 bg-surface text-xs" />
           </label>
           <label className="block">
-            <span className="block text-[11px] text-slate-500 mb-1">Office</span>
-            <select value={selectedOffice} onChange={(e) => setSelectedOffice(e.target.value)} className="w-full border border-slate-300 rounded px-2 py-1.5 bg-white text-xs font-medium text-slate-800">
+            <span className="block text-[11px] text-ink-faint mb-1">Office</span>
+            <select value={selectedOffice} onChange={(e) => setSelectedOffice(e.target.value)} className="w-full border border-line-strong rounded px-2 py-1.5 bg-surface text-xs font-medium text-ink">
               <option value="ALL">All Offices</option>
               {offices?.map((o) => (
                 <option key={o.id} value={o.id}>
@@ -203,8 +203,8 @@ export default function PurchaseAnalyticsPage() {
             </select>
           </label>
           <label className="block">
-            <span className="block text-[11px] text-slate-500 mb-1">Category (order register)</span>
-            <select value={selectedCategory} onChange={(e) => setSelectedCategory(e.target.value)} className="w-full border border-slate-300 rounded px-2 py-1.5 bg-white text-xs font-medium text-slate-800">
+            <span className="block text-[11px] text-ink-faint mb-1">Category (order register)</span>
+            <select value={selectedCategory} onChange={(e) => setSelectedCategory(e.target.value)} className="w-full border border-line-strong rounded px-2 py-1.5 bg-surface text-xs font-medium text-ink">
               <option value="ALL">All Categories</option>
               {(insights?.categories ?? []).map((c) => (
                 <option key={c} value={c}>
@@ -223,7 +223,7 @@ export default function PurchaseAnalyticsPage() {
               {isFetching && <Spinner className="size-3.5" />}
               Refresh
             </button>
-            <button type="button" onClick={resetFilters} className="h-8 px-3 border border-slate-300 hover:bg-slate-50 text-slate-600 font-bold rounded text-xs transition inline-flex items-center gap-1">
+            <button type="button" onClick={resetFilters} className="h-8 px-3 border border-line-strong hover:bg-canvas text-ink-muted font-bold rounded text-xs transition inline-flex items-center gap-1">
               <RotateCcw className="w-3 h-3" /> Reset
             </button>
           </div>
@@ -240,7 +240,7 @@ export default function PurchaseAnalyticsPage() {
             change === null ? (
               <span>{previous === null ? "Pick a date range to compare" : "No spend in the previous period"}</span>
             ) : (
-              <span className={`inline-flex items-center gap-0.5 font-semibold ${change >= 0 ? "text-rose-600" : "text-emerald-600"}`}>
+              <span className={`inline-flex items-center gap-0.5 font-semibold ${change >= 0 ? "text-rose-600 dark:text-rose-400" : "text-emerald-600 dark:text-emerald-400"}`}>
                 {change >= 0 ? <ArrowUpRight className="w-3 h-3" /> : <ArrowDownRight className="w-3 h-3" />}
                 {change >= 0 ? "+" : ""}
                 {change.toFixed(1)}% vs previous period
@@ -275,7 +275,7 @@ export default function PurchaseAnalyticsPage() {
         <KpiCard
           label="Supplier Dues"
           value={formatCurrency(data?.kpis.totalOutstandingAmount ?? 0)}
-          tone="text-rose-700"
+          tone="text-rose-700 dark:text-rose-300"
           icon={<Clock className="w-3.5 h-3.5" />}
           sub={insights ? `${insights.payments.overdue} invoices overdue · on time ${pct(insights.payments.onTimeRate)}` : "—"}
         />
@@ -283,10 +283,10 @@ export default function PurchaseAnalyticsPage() {
 
       {/* Charts row 1 */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <div className="lg:col-span-2 bg-white p-4 rounded border border-slate-200 shadow-2xs min-w-0">
-          <div className="mb-3 border-b border-slate-100 pb-2">
-            <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wide">Monthly Purchase Spend</h3>
-            <p className="text-[11px] text-slate-400">Purchase order value per month (BDT), cancelled orders excluded</p>
+        <div className="lg:col-span-2 bg-surface p-4 rounded border border-line shadow-2xs min-w-0">
+          <div className="mb-3 border-b border-line pb-2">
+            <h3 className="text-xs font-bold text-ink uppercase tracking-wide">Monthly Purchase Spend</h3>
+            <p className="text-[11px] text-ink-faint">Purchase order value per month (BDT), cancelled orders excluded</p>
           </div>
           <div className="h-64">
             {(data?.monthlyExpenditure ?? []).length ? (
@@ -306,15 +306,15 @@ export default function PurchaseAnalyticsPage() {
                 </AreaChart>
               </ResponsiveContainer>
             ) : (
-              <p className="h-full flex items-center justify-center text-xs text-slate-400">No purchase orders in this period.</p>
+              <p className="h-full flex items-center justify-center text-xs text-ink-faint">No purchase orders in this period.</p>
             )}
           </div>
         </div>
 
-        <div className="bg-white p-4 rounded border border-slate-200 shadow-2xs flex flex-col min-w-0">
-          <div className="mb-3 border-b border-slate-100 pb-2">
-            <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wide">Spend by Category</h3>
-            <p className="text-[11px] text-slate-400">Item category of the order lines</p>
+        <div className="bg-surface p-4 rounded border border-line shadow-2xs flex flex-col min-w-0">
+          <div className="mb-3 border-b border-line pb-2">
+            <h3 className="text-xs font-bold text-ink uppercase tracking-wide">Spend by Category</h3>
+            <p className="text-[11px] text-ink-faint">Item category of the order lines</p>
           </div>
           <div className="h-44 flex-1">
             {categoryData.length ? (
@@ -329,17 +329,17 @@ export default function PurchaseAnalyticsPage() {
                 </PieChart>
               </ResponsiveContainer>
             ) : (
-              <p className="h-full flex items-center justify-center text-xs text-slate-400">No data</p>
+              <p className="h-full flex items-center justify-center text-xs text-ink-faint">No data</p>
             )}
           </div>
-          <div className="mt-2 space-y-1 text-[11px] border-t border-slate-100 pt-2">
+          <div className="mt-2 space-y-1 text-[11px] border-t border-line pt-2">
             {categoryData.slice(0, 5).map((c, i) => (
               <div key={c.name} className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-1.5 min-w-0">
                   <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: COLORS[i % COLORS.length] }} />
-                  <span className="text-slate-700 truncate">{c.name}</span>
+                  <span className="text-ink-muted truncate">{c.name}</span>
                 </div>
-                <span className="font-mono font-semibold text-slate-900">{c.percent}</span>
+                <span className="font-mono font-semibold text-ink">{c.percent}</span>
               </div>
             ))}
           </div>
@@ -348,10 +348,10 @@ export default function PurchaseAnalyticsPage() {
 
       {/* Charts row 2 */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <div className="bg-white p-4 rounded border border-slate-200 shadow-2xs min-w-0">
-          <div className="mb-3 border-b border-slate-100 pb-2">
-            <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wide">Top Suppliers by Spend</h3>
-            <p className="text-[11px] text-slate-400">Purchase order value per supplier (BDT)</p>
+        <div className="bg-surface p-4 rounded border border-line shadow-2xs min-w-0">
+          <div className="mb-3 border-b border-line pb-2">
+            <h3 className="text-xs font-bold text-ink uppercase tracking-wide">Top Suppliers by Spend</h3>
+            <p className="text-[11px] text-ink-faint">Purchase order value per supplier (BDT)</p>
           </div>
           <div className="h-64">
             {(data?.topSuppliers ?? []).length ? (
@@ -365,15 +365,15 @@ export default function PurchaseAnalyticsPage() {
                 </BarChart>
               </ResponsiveContainer>
             ) : (
-              <p className="h-full flex items-center justify-center text-xs text-slate-400">No data</p>
+              <p className="h-full flex items-center justify-center text-xs text-ink-faint">No data</p>
             )}
           </div>
         </div>
 
-        <div className="bg-white p-4 rounded border border-slate-200 shadow-2xs min-w-0">
-          <div className="mb-3 border-b border-slate-100 pb-2">
-            <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wide">Spend by Receiving Warehouse</h3>
-            <p className="text-[11px] text-slate-400">Purchase order value per warehouse (BDT)</p>
+        <div className="bg-surface p-4 rounded border border-line shadow-2xs min-w-0">
+          <div className="mb-3 border-b border-line pb-2">
+            <h3 className="text-xs font-bold text-ink uppercase tracking-wide">Spend by Receiving Warehouse</h3>
+            <p className="text-[11px] text-ink-faint">Purchase order value per warehouse (BDT)</p>
           </div>
           <div className="h-64">
             {(data?.warehouseWisePurchase ?? []).length ? (
@@ -387,29 +387,29 @@ export default function PurchaseAnalyticsPage() {
                 </BarChart>
               </ResponsiveContainer>
             ) : (
-              <p className="h-full flex items-center justify-center text-xs text-slate-400">No data</p>
+              <p className="h-full flex items-center justify-center text-xs text-ink-faint">No data</p>
             )}
           </div>
         </div>
       </div>
 
       {/* Cycle stages */}
-      <div className="bg-white p-4 rounded border border-slate-200 shadow-2xs space-y-3">
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-2">
+      <div className="bg-surface p-4 rounded border border-line shadow-2xs space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line pb-2">
           <div>
-            <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wide">Purchase Cycle Time</h3>
-            <p className="text-[11px] text-slate-400">Average days per stage, measured from the documents of the period</p>
+            <h3 className="text-xs font-bold text-ink uppercase tracking-wide">Purchase Cycle Time</h3>
+            <p className="text-[11px] text-ink-faint">Average days per stage, measured from the documents of the period</p>
           </div>
-          <span className="text-[11px] font-bold text-sky-800 bg-sky-50 px-2 py-0.5 rounded border border-sky-200">
+          <span className="text-[11px] font-bold text-sky-800 dark:text-sky-300 bg-sky-50 dark:bg-sky-500/10 px-2 py-0.5 rounded border border-sky-200 dark:border-sky-500/30">
             Measured stages total: {daysText(totalCycle)}
           </span>
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 text-xs">
           {stages.map((s) => (
-            <div key={s.label} className="p-3 bg-slate-50 rounded border border-slate-200">
-              <div className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">{s.label}</div>
-              <div className="text-sm font-bold text-slate-800 mt-1 font-mono">{s.value}</div>
-              <p className="text-[11px] text-slate-500 mt-0.5">{s.note}</p>
+            <div key={s.label} className="p-3 bg-canvas rounded border border-line">
+              <div className="text-[10px] text-ink-faint font-bold uppercase tracking-wider">{s.label}</div>
+              <div className="text-sm font-bold text-ink mt-1 font-mono">{s.value}</div>
+              <p className="text-[11px] text-ink-faint mt-0.5">{s.note}</p>
             </div>
           ))}
         </div>
@@ -418,10 +418,10 @@ export default function PurchaseAnalyticsPage() {
       {/* Order register */}
       <div className="space-y-2">
         <div>
-          <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wide">Largest Purchase Orders ({register.length})</h3>
-          <p className="text-[11px] text-slate-400">The period&apos;s 50 largest orders, with delivery and payment progress</p>
+          <h3 className="text-xs font-bold text-ink uppercase tracking-wide">Largest Purchase Orders ({register.length})</h3>
+          <p className="text-[11px] text-ink-faint">The period&apos;s 50 largest orders, with delivery and payment progress</p>
         </div>
-        <div className="border border-slate-300 bg-white rounded shadow-2xs overflow-x-auto">
+        <div className="border border-line-strong bg-surface rounded shadow-2xs overflow-x-auto">
           <table className="erp-table w-full text-left text-xs">
             <thead>
               <tr>
@@ -440,36 +440,36 @@ export default function PurchaseAnalyticsPage() {
             <tbody>
               {register.length === 0 ? (
                 <tr>
-                  <td colSpan={10} className="text-center py-10 text-slate-400">
+                  <td colSpan={10} className="text-center py-10 text-ink-faint">
                     {isFetching ? "Loading…" : "No purchase orders match the filters."}
                   </td>
                 </tr>
               ) : (
                 register.map((row, i) => (
                   <tr key={row.id}>
-                    <td className="text-center font-mono text-slate-600">{i + 1}</td>
-                    <td className="font-mono font-semibold text-blue-700">{row.poNumber}</td>
+                    <td className="text-center font-mono text-ink-muted">{i + 1}</td>
+                    <td className="font-mono font-semibold text-blue-700 dark:text-blue-300">{row.poNumber}</td>
                     <td>{row.orderDate}</td>
-                    <td className="font-medium text-slate-900">{row.supplierName}</td>
-                    <td className="text-slate-700">
+                    <td className="font-medium text-ink">{row.supplierName}</td>
+                    <td className="text-ink-muted">
                       {row.officeName} · {row.warehouseName}
                     </td>
                     <td>
-                      <span className="bg-slate-100 text-slate-700 px-2 py-0.5 rounded text-[10px] font-medium">{row.category}</span>
+                      <span className="bg-control text-ink-muted px-2 py-0.5 rounded text-[10px] font-medium">{row.category}</span>
                     </td>
-                    <td className="text-right font-mono font-bold text-slate-900">{formatCurrency(row.amount)}</td>
-                    <td className="text-center text-[11px] font-semibold text-slate-700">{STATUS_LABEL[row.status] ?? row.status}</td>
+                    <td className="text-right font-mono font-bold text-ink">{formatCurrency(row.amount)}</td>
+                    <td className="text-center text-[11px] font-semibold text-ink-muted">{STATUS_LABEL[row.status] ?? row.status}</td>
                     <td className="text-right font-mono">{row.receivedPercent}%</td>
                     <td className="text-center">
                       <span
                         className={`text-[10px] font-bold px-2 py-0.5 rounded border ${
                           row.paymentStatus === "PAID"
-                            ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                            ? "bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-500/30"
                             : row.paymentStatus === "PARTIALLY_PAID"
-                              ? "bg-amber-50 text-amber-700 border-amber-200"
+                              ? "bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-500/30"
                               : row.paymentStatus === "UNPAID"
-                                ? "bg-rose-50 text-rose-700 border-rose-200"
-                                : "bg-slate-50 text-slate-600 border-slate-200"
+                                ? "bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-500/30"
+                                : "bg-canvas text-ink-muted border-line"
                         }`}
                       >
                         {PAYMENT_LABEL[row.paymentStatus]}
@@ -481,12 +481,12 @@ export default function PurchaseAnalyticsPage() {
             </tbody>
             {register.length > 0 && (
               <tfoot>
-                <tr className="bg-slate-50 font-bold">
+                <tr className="bg-canvas font-bold">
                   <td colSpan={6} className="text-right">
                     Total
                   </td>
-                  <td className="text-right font-mono text-[#0057b8]">{formatCurrency(register.reduce((s, r) => s + r.amount, 0))}</td>
-                  <td colSpan={3} className="text-center text-slate-500 font-normal">
+                  <td className="text-right font-mono text-primary">{formatCurrency(register.reduce((s, r) => s + r.amount, 0))}</td>
+                  <td colSpan={3} className="text-center text-ink-faint font-normal">
                     {register.length} orders
                   </td>
                 </tr>
