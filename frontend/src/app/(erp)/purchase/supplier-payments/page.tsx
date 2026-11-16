@@ -1130,7 +1130,7 @@ export default function SupplierPaymentsPage() {
                           </span>
                         </td>
                         <td className="p-2 border border-slate-200 text-center">
-                          <div className="flex items-center justify-center gap-1.5">
+                          <div className="row-actions flex items-center justify-center gap-1.5">
                             {bill.status !== "Approved" && (
                               <button
                                 type="button"
@@ -1285,7 +1285,7 @@ export default function SupplierPaymentsPage() {
 
                     {/* Actions: View, Receipt, Print */}
                     <td className="p-2 border border-slate-300 text-center whitespace-nowrap">
-                      <div className="flex items-center justify-center gap-2 text-slate-600">
+                      <div className="row-actions flex items-center justify-center gap-2 text-slate-600">
                         <button
                           type="button"
                           onClick={() => setViewPaidVoucher(row)}

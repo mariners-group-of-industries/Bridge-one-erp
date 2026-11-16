@@ -550,7 +550,7 @@ export default function PurchaseReceivePage() {
                         <tr key={po.id}>
                           <td className="text-center font-mono text-[11px] text-slate-500">{idx + 1}</td>
                           <td className="text-center whitespace-nowrap">
-                            <div className="flex items-center justify-center gap-0.5">
+                            <div className="row-actions flex items-center justify-center gap-0.5">
                               <button
                                 type="button"
                                 disabled={po.status !== "PARTIALLY_RECEIVED" || !perms.orders.edit}
@@ -734,7 +734,7 @@ export default function PurchaseReceivePage() {
                         <tr key={g.id}>
                           <td className="text-center font-mono text-[11px] text-slate-500">{idx + 1}</td>
                           <td className="text-center whitespace-nowrap">
-                            <div className="flex items-center justify-center gap-0.5">
+                            <div className="row-actions flex items-center justify-center gap-0.5">
                               <button type="button" onClick={() => setViewGRN(g)} className={iconBtn} title="View" aria-label={`View ${g.grnNumber}`}>
                                 <Eye className="w-3.5 h-3.5" />
                               </button>

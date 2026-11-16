@@ -734,7 +734,7 @@ export default function PurchaseReturnsPage() {
 
                         {/* Actions: View, Print, Edit */}
                         <td className="p-2 border border-slate-300 text-center whitespace-nowrap">
-                          <div className="flex items-center justify-center gap-2 text-slate-600">
+                          <div className="row-actions flex items-center justify-center gap-2 text-slate-600">
                             <button
                               type="button"
                               onClick={() => setViewReturnTarget(row)}

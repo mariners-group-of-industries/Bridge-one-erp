@@ -292,7 +292,7 @@ export default function StoreIssuePage() {
                         </span>
                       </td>
                       <td className="px-2.5 py-2 border-b border-slate-200 text-center">
-                        <div className="flex items-center justify-center gap-1.5">
+                        <div className="row-actions flex items-center justify-center gap-1.5">
                           <button
                             type="button"
                             onClick={() => setActiveRequisitionForIssue(row)}
@@ -467,7 +467,7 @@ export default function StoreIssuePage() {
                         {row.remarks}
                       </td>
                       <td className="px-2.5 py-2 border-b border-slate-200 text-center">
-                        <div className="flex items-center justify-center gap-1.5 text-slate-600">
+                        <div className="row-actions flex items-center justify-center gap-1.5 text-slate-600">
                           {row.attachment && (
                             <a
                               href={`/api/inventory/store-issue/attachments/${row.attachment.id}`}

@@ -411,7 +411,7 @@ export default function BudgetManagementPage() {
 
                           {/* 3. Action Icons */}
                           <td className="px-3 py-2 border-r border-slate-200/80">
-                            <div className="flex items-center justify-center gap-1.5 text-slate-500">
+                            <div className="row-actions flex items-center justify-center gap-1.5 text-slate-500">
                               {/* Edit Pencil */}
                               <button
                                 type="button"

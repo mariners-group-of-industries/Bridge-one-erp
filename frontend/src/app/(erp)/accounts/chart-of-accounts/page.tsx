@@ -1065,7 +1065,7 @@ export default function ChartOfAccountsPage() {
                         </td>
 
                         <td className="px-3 py-2 text-center print:hidden">
-                          <div className="flex items-center justify-center gap-2">
+                          <div className="row-actions flex items-center justify-center gap-2">
                             {(isGroup || isClass || isCategory) && (
                               <button
                                 type="button"
@@ -1325,7 +1325,7 @@ export default function ChartOfAccountsPage() {
                         {perm.accountHeadName}
                       </td>
                       <td className="px-3 py-2 text-center">
-                        <div className="flex items-center justify-center gap-2">
+                        <div className="row-actions flex items-center justify-center gap-2">
                           <button
                             type="button"
                             onClick={() => toggleCoaPermission(perm.id)}

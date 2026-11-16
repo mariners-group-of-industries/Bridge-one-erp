@@ -816,7 +816,7 @@ export default function ChequeSetupPage() {
                           {(currentPage - 1) * rowsPerPage + idx + 1}
                         </td>
                         <td className="px-3 py-2 text-center">
-                          <div className="flex items-center justify-center gap-1.5 text-slate-400">
+                          <div className="row-actions flex items-center justify-center gap-1.5 text-slate-400">
                             <button
                               type="button"
                               onClick={() => setViewBook(b)}

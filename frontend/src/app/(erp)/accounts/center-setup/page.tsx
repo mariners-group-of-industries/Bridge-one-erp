@@ -323,7 +323,7 @@ export default function CenterSetupPage() {
                           {sl}
                         </td>
                         <td className="px-3 py-2.5 border-r border-slate-200/80">
-                          <div className="flex items-center justify-center gap-1.5 text-slate-500">
+                          <div className="row-actions flex items-center justify-center gap-1.5 text-slate-500">
                             <button
                               type="button"
                               onClick={() => openEdit(c)}

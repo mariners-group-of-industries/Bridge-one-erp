@@ -604,7 +604,7 @@ export default function AccountingJournalPage() {
                       <tr key={v.id} className="hover:bg-blue-50/40 transition-colors">
                         <td className="py-2 px-3 text-center text-slate-500">{sl}</td>
                         <td className="py-2 px-3 text-center">
-                          <div className="flex items-center justify-center gap-1.5">
+                          <div className="row-actions flex items-center justify-center gap-1.5">
                             <button
                               onClick={() => setViewingVoucher(v)}
                               title="View Voucher"
@@ -677,7 +677,7 @@ export default function AccountingJournalPage() {
                       <tr key={v.id} className="hover:bg-blue-50/40 transition-colors">
                         <td className="py-2 px-3 text-center text-slate-500">{sl}</td>
                         <td className="py-2 px-3 text-center">
-                          <div className="flex items-center justify-center gap-1.5">
+                          <div className="row-actions flex items-center justify-center gap-1.5">
                             <button
                               onClick={() => setViewingVoucher(v)}
                               title="Edit / Review Voucher"
@@ -761,7 +761,7 @@ export default function AccountingJournalPage() {
                       <tr key={v.id} className="hover:bg-blue-50/40 transition-colors">
                         <td className="py-2 px-3 text-center text-slate-500">{sl}</td>
                         <td className="py-2 px-3 text-center">
-                          <div className="flex items-center justify-center gap-1.5">
+                          <div className="row-actions flex items-center justify-center gap-1.5">
                             <button
                               onClick={() => setViewingVoucher(v)}
                               title="View Voucher"

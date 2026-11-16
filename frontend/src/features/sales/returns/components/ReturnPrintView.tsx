@@ -3,10 +3,10 @@
 import { ArrowLeft, Printer } from "lucide-react";
 import Link from "next/link";
 import { Button, buttonClasses } from "@/components/ui/button";
+import { PrintFrame, PrintPageFooter } from "@/components/ui/print-frame";
 import { ErrorState, LoadingState } from "@/components/ui/section";
 import { useResource } from "@/hooks/use-resource";
 import { errorMessage } from "@/lib/api/client";
-import { formatDateTime } from "@/lib/format";
 import { formatAmount, formatQty } from "../../dashboard/lib/format";
 import { amountInWords } from "../../lib/amount-in-words";
 import { formatDay } from "../../lib/use-today";
@@ -52,6 +52,7 @@ function Row({ label, value }: { label: string; value: string | null | undefined
 function ReturnDocument({ record }: { record: ReturnDetail }) {
   const market = record.kind === "MARKET";
   return (
+    <PrintFrame>
     <article className="mx-auto flex max-w-[210mm] flex-col gap-4 px-6 pb-10 text-[11px] leading-snug print:px-0 print:pb-0">
       <header className="flex items-start justify-between gap-4 border-b border-line-strong pb-3">
         <div>
@@ -167,10 +168,8 @@ function ReturnDocument({ record }: { record: ReturnDetail }) {
           </p>
         ))}
       </footer>
-      <div className="mt-6 flex items-center justify-between border-t border-line pt-2 text-[9px] text-ink-muted">
-        <span className="font-semibold">Made by BridgeOne</span>
-        <span>Printed {formatDateTime(new Date())}</span>
-      </div>
+      <PrintPageFooter />
     </article>
+    </PrintFrame>
   );
 }

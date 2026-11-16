@@ -909,7 +909,7 @@ export default function ExpenseAdvancePage() {
                         )}
                       </td>
                       <td className="py-2 px-3 text-center">
-                        <div className="flex items-center justify-center gap-1">
+                        <div className="row-actions flex items-center justify-center gap-1">
                           <button
                             onClick={() => setViewingRecord(e)}
                             title="View Details"
@@ -995,7 +995,7 @@ export default function ExpenseAdvancePage() {
                         )}
                       </td>
                       <td className="py-2 px-3 text-center">
-                        <div className="flex items-center justify-center gap-1">
+                        <div className="row-actions flex items-center justify-center gap-1">
                           <button
                             onClick={() => setViewingRecord(a)}
                             title="View Details"
@@ -1098,7 +1098,7 @@ export default function ExpenseAdvancePage() {
                         )}
                       </td>
                       <td className="py-2 px-3 text-center">
-                        <div className="flex items-center justify-center gap-1">
+                        <div className="row-actions flex items-center justify-center gap-1">
                           <button
                             onClick={() => setViewingRecord(p)}
                             title="View Details"
@@ -1176,7 +1176,7 @@ export default function ExpenseAdvancePage() {
                         </span>
                       </td>
                       <td className="py-2 px-3 text-center">
-                        <div className="flex items-center justify-center gap-1">
+                        <div className="row-actions flex items-center justify-center gap-1">
                           <button
                             onClick={() => setViewingRecord(p)}
                             title="View Details"

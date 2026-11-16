@@ -377,7 +377,7 @@ export default function StockUpdatePage() {
                     {row.sl}
                   </td>
                   <td className="px-2.5 py-2 border-b border-slate-200 text-center">
-                    <div className="flex items-center justify-center gap-1.5 text-slate-600">
+                    <div className="row-actions flex items-center justify-center gap-1.5 text-slate-600">
                       {(row.status === "Pending" || row.status === "In Review") && (
                         <>
                           <button

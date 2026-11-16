@@ -971,11 +971,10 @@ export default function PurchaseRequisitionsPage() {
         <button
           type="button"
           onClick={() => handleTabChange("PURCHASE_REQUISITION")}
-          className={`pb-2.5 text-xs font-bold tracking-wide transition-colors relative flex items-center gap-2 uppercase ${
-            activeTab === "PURCHASE_REQUISITION"
-              ? "text-blue-600 border-b-2 border-blue-600 -mb-[1px]"
-              : "text-slate-500 hover:text-slate-800"
-          }`}
+          className={`pb-2.5 text-xs font-bold tracking-wide transition-colors relative flex items-center gap-2 uppercase ${activeTab === "PURCHASE_REQUISITION"
+            ? "text-blue-600 border-b-2 border-blue-600 -mb-[1px]"
+            : "text-slate-500 hover:text-slate-800"
+            }`}
         >
           <span>PURCHASE REQUISITION</span>
         </button>
@@ -983,11 +982,10 @@ export default function PurchaseRequisitionsPage() {
         <button
           type="button"
           onClick={() => handleTabChange("REQUISITION_SUMMARY")}
-          className={`pb-2.5 text-xs font-bold tracking-wide transition-colors relative flex items-center gap-2 uppercase ${
-            activeTab === "REQUISITION_SUMMARY"
-              ? "text-blue-600 border-b-2 border-blue-600 -mb-[1px]"
-              : "text-slate-500 hover:text-slate-800"
-          }`}
+          className={`pb-2.5 text-xs font-bold tracking-wide transition-colors relative flex items-center gap-2 uppercase ${activeTab === "REQUISITION_SUMMARY"
+            ? "text-blue-600 border-b-2 border-blue-600 -mb-[1px]"
+            : "text-slate-500 hover:text-slate-800"
+            }`}
         >
           <span>REQUISITION SUMMARY</span>
         </button>
@@ -995,351 +993,351 @@ export default function PurchaseRequisitionsPage() {
 
       {/* Enterprise Filter Card (Exact Managerium Layout per Active Tab) */}
       {activeTab === "PURCHASE_REQUISITION" ? (
-      <div className="bg-white rounded border border-slate-200/90 p-4 shadow-2xs mb-4">
-        {/* Row 1: 5 Columns */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3.5 mb-3.5">
-          {/* 1. Office */}
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-              Office
-            </label>
-            <select
-              value={selectedOffice}
-              onChange={(e) => handleOfficeChange(e.target.value)}
-              className="w-full h-9 border border-slate-300 rounded px-2.5 py-1.5 text-xs text-slate-700 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
-            >
-              <option value="ALL">Office</option>
-              {offices?.map((o) => (
-                <option key={o.id} value={o.id}>
-                  {o.name}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* 2. Warehouse */}
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-              Warehouse
-            </label>
-            <select
-              value={effectiveWarehouse}
-              onChange={(e) => setSelectedWarehouse(e.target.value)}
-              disabled={!isOfficeSelected}
-              className="w-full h-9 border border-slate-300 rounded px-2.5 py-1.5 text-xs text-slate-700 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed disabled:border-slate-200"
-            >
-              <option value="ALL">Warehouse</option>
-              {filteredWarehouses.map((w) => (
-                <option key={w.id} value={w.id}>
-                  {w.name}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* 3. Request Type */}
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-              Request Type
-            </label>
-            <select
-              value={selectedRequestType}
-              onChange={(e) => setSelectedRequestType(e.target.value)}
-              className="w-full h-9 border border-slate-300 rounded px-2.5 py-1.5 text-xs text-slate-700 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
-            >
-              <option value="ALL">Request Type</option>
-              <option value="LOCAL">LOCAL</option>
-              <option value="IMPORT">IMPORT</option>
-              <option value="URGENT">URGENT</option>
-              <option value="INTER_BRANCH">INTER_BRANCH</option>
-            </select>
-          </div>
-
-          {/* 4. Section */}
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-              Section
-            </label>
-            <select
-              value={selectedSection}
-              onChange={(e) => setSelectedSection(e.target.value)}
-              className="w-full h-9 border border-slate-300 rounded px-2.5 py-1.5 text-xs text-slate-700 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
-            >
-              <option value="ALL">Section</option>
-              {sectionOptions.map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* 5. From Date */}
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-              From Date
-            </label>
-            <input
-              type="date"
-              value={fromDate}
-              onChange={(e) => setFromDate(e.target.value)}
-              className="w-full h-9 border border-slate-300 rounded px-2.5 py-1.5 text-xs text-slate-700 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
-            />
-          </div>
-        </div>
-
-        {/* Row 2: To Date | Status | Buyer Office | View & EXCEL */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3.5 items-end">
-          {/* 1. To Date */}
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-              To Date
-            </label>
-            <input
-              type="date"
-              value={toDate}
-              onChange={(e) => setToDate(e.target.value)}
-              className="w-full h-9 border border-slate-300 rounded px-2.5 py-1.5 text-xs text-slate-700 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
-            />
-          </div>
-
-          {/* 2. Status */}
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-              Status
-            </label>
-            <select
-              value={selectedStatus}
-              onChange={(e) => setSelectedStatus(e.target.value)}
-              className="w-full h-9 border border-slate-300 rounded px-2.5 py-1.5 text-xs text-slate-700 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
-            >
-              <option value="ALL">Status</option>
-              <option value="DRAFT">Draft</option>
-              <option value="SUBMITTED">Submitted</option>
-              <option value="PENDING_APPROVAL">Pending Approval</option>
-              <option value="APPROVED">Approved</option>
-              <option value="CONVERTED_TO_PO">Converted to PO</option>
-              <option value="REJECTED">Rejected</option>
-              <option value="CANCELLED">Cancelled</option>
-            </select>
-          </div>
-
-          {/* 3. Buyer Office */}
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-              Buyer Office
-            </label>
-            <select
-              value={selectedBuyerOffice}
-              onChange={(e) => {
-                setSelectedBuyerOffice(e.target.value);
-              }}
-              className="w-full h-9 border border-slate-300 rounded px-2.5 py-1.5 text-xs text-slate-700 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
-            >
-              <option value="ALL">Buyer Office</option>
-              {offices?.map((o) => (
-                <option key={o.id} value={o.id}>
-                  {o.name}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* 4. Action Buttons (View & EXCEL) */}
-          <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={() => refetch()}
-              disabled={isFetching}
-              className="h-9 px-6 bg-[#2563eb] hover:bg-blue-700 disabled:opacity-70 text-white font-bold text-xs uppercase rounded shadow-xs transition flex items-center justify-center gap-1.5 min-w-[70px]"
-            >
-              {isFetching && <Spinner className="size-3.5" />}
-              View
-            </button>
-            <button
-              type="button"
-              onClick={handleExport}
-              disabled={!perms.requisitions.export}
-              title={!perms.requisitions.export ? "Requires Export permission in Configuration" : "Export Excel (CSV)"}
-              className="h-9 px-5 border border-[#2563eb] text-[#2563eb] hover:bg-blue-50 disabled:opacity-40 disabled:pointer-events-none font-bold text-xs uppercase rounded shadow-xs transition flex items-center justify-center min-w-[75px]"
-            >
-              EXCEL
-            </button>
-            {(selectedOffice !== "ALL" ||
-              selectedWarehouse !== "ALL" ||
-              selectedRequestType !== "ALL" ||
-              selectedSection !== "ALL" ||
-              selectedStatus !== "ALL" ||
-              fromDate !== "" ||
-              toDate !== "" ||
-              search !== "") && (
-              <button
-                type="button"
-                onClick={() => {
-                  setSelectedOffice("ALL");
-                  setSelectedWarehouse("ALL");
-                  setSelectedRequestType("ALL");
-                  setSelectedSection("ALL");
-                  setSelectedStatus("ALL");
-                  setSelectedBuyerOffice("ALL");
-                  setFromDate("");
-                  setToDate("");
-                  setSearch("");
-                }}
-                className="h-9 px-2 text-xs text-slate-500 hover:text-slate-800 underline transition"
-                title="Reset Filters"
+        <div className="bg-white rounded border border-slate-200/90 p-4 shadow-2xs mb-4">
+          {/* Row 1: 5 Columns */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3.5 mb-3.5">
+            {/* 1. Office */}
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                Office
+              </label>
+              <select
+                value={selectedOffice}
+                onChange={(e) => handleOfficeChange(e.target.value)}
+                className="w-full h-9 border border-slate-300 rounded px-2.5 py-1.5 text-xs text-slate-700 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
               >
-                Clear
-              </button>
-            )}
-          </div>
-        </div>
-      </div>
-      ) : (
-      <div className="bg-white rounded border border-slate-200/90 p-4 shadow-2xs mb-4">
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3.5 mb-3.5">
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1.5">Office</label>
-            <select
-              value={selectedOffice}
-              onChange={(e) => handleOfficeChange(e.target.value)}
-              className="w-full h-9 border border-slate-300 rounded px-2.5 py-1.5 text-xs text-slate-700 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
-            >
-              <option value="ALL">All</option>
-              {offices?.map((o) => (
-                <option key={o.id} value={o.id}>
-                  {o.name}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1.5">Warehouse</label>
-            <select
-              value={effectiveWarehouse}
-              onChange={(e) => setSelectedWarehouse(e.target.value)}
-              disabled={!isOfficeSelected}
-              className="w-full h-9 border border-slate-300 rounded px-2.5 py-1.5 text-xs text-slate-700 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed disabled:border-slate-200"
-            >
-              <option value="ALL">All</option>
-              {filteredWarehouses.map((w) => (
-                <option key={w.id} value={w.id}>
-                  {w.name}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1.5">From Date</label>
-            <input
-              type="date"
-              value={fromDate}
-              onChange={(e) => setFromDate(e.target.value)}
-              className="w-full h-9 border border-slate-300 rounded px-2.5 py-1.5 text-xs text-slate-700 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1.5">To Date</label>
-            <input
-              type="date"
-              value={toDate}
-              onChange={(e) => setToDate(e.target.value)}
-              className="w-full h-9 border border-slate-300 rounded px-2.5 py-1.5 text-xs text-slate-700 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1.5">Category</label>
-            <select
-              value={summaryCategory}
-              onChange={(e) => {
-                setSummaryCategory(e.target.value);
-                setSummarySubCategory("ALL");
-              }}
-              className="w-full h-9 border border-slate-300 rounded px-2.5 py-1.5 text-xs text-slate-700 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
-            >
-              <option value="ALL">All</option>
-              {Array.from(new Set((itemsCatalog ?? []).map((i) => i.category).filter(Boolean))).sort().map((cat) => (
-                <option key={cat} value={cat}>
-                  {cat}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3.5 items-end">
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1.5">Sub Category</label>
-            <select
-              value={summarySubCategory}
-              onChange={(e) => setSummarySubCategory(e.target.value)}
-              className="w-full h-9 border border-slate-300 rounded px-2.5 py-1.5 text-xs text-slate-700 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
-            >
-              <option value="ALL">All</option>
-              {Array.from(
-                new Set(
-                  (itemsCatalog ?? [])
-                    .filter((i) => summaryCategory === "ALL" || i.category === summaryCategory)
-                    .map((i) => i.subCategory || "")
-                    .filter(Boolean)
-                )
-              )
-                .sort()
-                .map((sub) => (
-                  <option key={sub} value={sub}>
-                    {sub}
+                <option value="ALL">Office</option>
+                {offices?.map((o) => (
+                  <option key={o.id} value={o.id}>
+                    {o.name}
                   </option>
                 ))}
-            </select>
+              </select>
+            </div>
+
+            {/* 2. Warehouse */}
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                Warehouse
+              </label>
+              <select
+                value={effectiveWarehouse}
+                onChange={(e) => setSelectedWarehouse(e.target.value)}
+                disabled={!isOfficeSelected}
+                className="w-full h-9 border border-slate-300 rounded px-2.5 py-1.5 text-xs text-slate-700 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed disabled:border-slate-200"
+              >
+                <option value="ALL">Warehouse</option>
+                {filteredWarehouses.map((w) => (
+                  <option key={w.id} value={w.id}>
+                    {w.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* 3. Request Type */}
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                Request Type
+              </label>
+              <select
+                value={selectedRequestType}
+                onChange={(e) => setSelectedRequestType(e.target.value)}
+                className="w-full h-9 border border-slate-300 rounded px-2.5 py-1.5 text-xs text-slate-700 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+              >
+                <option value="ALL">Request Type</option>
+                <option value="LOCAL">LOCAL</option>
+                <option value="IMPORT">IMPORT</option>
+                <option value="URGENT">URGENT</option>
+                <option value="INTER_BRANCH">INTER_BRANCH</option>
+              </select>
+            </div>
+
+            {/* 4. Section */}
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                Section
+              </label>
+              <select
+                value={selectedSection}
+                onChange={(e) => setSelectedSection(e.target.value)}
+                className="w-full h-9 border border-slate-300 rounded px-2.5 py-1.5 text-xs text-slate-700 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+              >
+                <option value="ALL">Section</option>
+                {sectionOptions.map((s) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* 5. From Date */}
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                From Date
+              </label>
+              <input
+                type="date"
+                value={fromDate}
+                onChange={(e) => setFromDate(e.target.value)}
+                className="w-full h-9 border border-slate-300 rounded px-2.5 py-1.5 text-xs text-slate-700 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+              />
+            </div>
           </div>
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1.5">Buyer Office</label>
-            <select
-              value={selectedBuyerOffice}
-              onChange={(e) => {
-                setSelectedBuyerOffice(e.target.value);
-              }}
-              className="w-full h-9 border border-slate-300 rounded px-2.5 py-1.5 text-xs text-slate-700 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
-            >
-              <option value="ALL">Buyer Office</option>
-              {offices?.map((o) => (
-                <option key={o.id} value={o.id}>
-                  {o.name}
-                </option>
-              ))}
-            </select>
-          </div>
-          <label className="flex h-9 cursor-pointer items-center gap-2 text-xs text-slate-700">
-            <input
-              type="checkbox"
-              checked={isRemainingDetails}
-              onChange={(e) => setIsRemainingDetails(e.target.checked)}
-              className="h-4 w-4 rounded border-slate-300 text-blue-600"
-            />
-            <span>Is Remaining Details</span>
-          </label>
-          <div className="flex items-center gap-3 lg:col-span-2">
-            <button
-              type="button"
-              onClick={() => refetch()}
-              disabled={isFetching}
-              className="h-9 px-6 bg-[#2563eb] hover:bg-blue-700 disabled:opacity-70 text-white font-bold text-xs uppercase rounded shadow-xs transition flex items-center justify-center gap-1.5 min-w-[70px]"
-            >
-              {isFetching && <Spinner className="size-3.5" />}
-              View
-            </button>
-            <button
-              type="button"
-              onClick={handleExport}
-              disabled={!perms.requisitions.export}
-              title={!perms.requisitions.export ? "Requires Export permission in Configuration" : "Export Excel (CSV)"}
-              className="h-9 px-5 border border-[#2563eb] text-[#2563eb] hover:bg-blue-50 disabled:opacity-40 disabled:pointer-events-none font-bold text-xs uppercase rounded shadow-xs transition flex items-center justify-center min-w-[75px]"
-            >
-              EXCEL
-            </button>
+
+          {/* Row 2: To Date | Status | Buyer Office | View & EXCEL */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3.5 items-end">
+            {/* 1. To Date */}
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                To Date
+              </label>
+              <input
+                type="date"
+                value={toDate}
+                onChange={(e) => setToDate(e.target.value)}
+                className="w-full h-9 border border-slate-300 rounded px-2.5 py-1.5 text-xs text-slate-700 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+              />
+            </div>
+
+            {/* 2. Status */}
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                Status
+              </label>
+              <select
+                value={selectedStatus}
+                onChange={(e) => setSelectedStatus(e.target.value)}
+                className="w-full h-9 border border-slate-300 rounded px-2.5 py-1.5 text-xs text-slate-700 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+              >
+                <option value="ALL">Status</option>
+                <option value="DRAFT">Draft</option>
+                <option value="SUBMITTED">Submitted</option>
+                <option value="PENDING_APPROVAL">Pending Approval</option>
+                <option value="APPROVED">Approved</option>
+                <option value="CONVERTED_TO_PO">Converted to PO</option>
+                <option value="REJECTED">Rejected</option>
+                <option value="CANCELLED">Cancelled</option>
+              </select>
+            </div>
+
+            {/* 3. Buyer Office */}
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                Buyer Office
+              </label>
+              <select
+                value={selectedBuyerOffice}
+                onChange={(e) => {
+                  setSelectedBuyerOffice(e.target.value);
+                }}
+                className="w-full h-9 border border-slate-300 rounded px-2.5 py-1.5 text-xs text-slate-700 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+              >
+                <option value="ALL">Buyer Office</option>
+                {offices?.map((o) => (
+                  <option key={o.id} value={o.id}>
+                    {o.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* 4. Action Buttons (View & EXCEL) */}
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => refetch()}
+                disabled={isFetching}
+                className="h-9 px-6 bg-[#2563eb] hover:bg-blue-700 disabled:opacity-70 text-white font-bold text-xs uppercase rounded shadow-xs transition flex items-center justify-center gap-1.5 min-w-[70px]"
+              >
+                {isFetching && <Spinner className="size-3.5" />}
+                View
+              </button>
+              <button
+                type="button"
+                onClick={handleExport}
+                disabled={!perms.requisitions.export}
+                title={!perms.requisitions.export ? "Requires Export permission in Configuration" : "Export Excel (CSV)"}
+                className="h-9 px-5 border border-[#2563eb] text-[#2563eb] hover:bg-blue-50 disabled:opacity-40 disabled:pointer-events-none font-bold text-xs uppercase rounded shadow-xs transition flex items-center justify-center min-w-[75px]"
+              >
+                EXCEL
+              </button>
+              {(selectedOffice !== "ALL" ||
+                selectedWarehouse !== "ALL" ||
+                selectedRequestType !== "ALL" ||
+                selectedSection !== "ALL" ||
+                selectedStatus !== "ALL" ||
+                fromDate !== "" ||
+                toDate !== "" ||
+                search !== "") && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedOffice("ALL");
+                      setSelectedWarehouse("ALL");
+                      setSelectedRequestType("ALL");
+                      setSelectedSection("ALL");
+                      setSelectedStatus("ALL");
+                      setSelectedBuyerOffice("ALL");
+                      setFromDate("");
+                      setToDate("");
+                      setSearch("");
+                    }}
+                    className="h-9 px-2 text-xs text-slate-500 hover:text-slate-800 underline transition"
+                    title="Reset Filters"
+                  >
+                    Clear
+                  </button>
+                )}
+            </div>
           </div>
         </div>
-      </div>
+      ) : (
+        <div className="bg-white rounded border border-slate-200/90 p-4 shadow-2xs mb-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3.5 mb-3.5">
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1.5">Office</label>
+              <select
+                value={selectedOffice}
+                onChange={(e) => handleOfficeChange(e.target.value)}
+                className="w-full h-9 border border-slate-300 rounded px-2.5 py-1.5 text-xs text-slate-700 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+              >
+                <option value="ALL">All</option>
+                {offices?.map((o) => (
+                  <option key={o.id} value={o.id}>
+                    {o.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1.5">Warehouse</label>
+              <select
+                value={effectiveWarehouse}
+                onChange={(e) => setSelectedWarehouse(e.target.value)}
+                disabled={!isOfficeSelected}
+                className="w-full h-9 border border-slate-300 rounded px-2.5 py-1.5 text-xs text-slate-700 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed disabled:border-slate-200"
+              >
+                <option value="ALL">All</option>
+                {filteredWarehouses.map((w) => (
+                  <option key={w.id} value={w.id}>
+                    {w.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1.5">From Date</label>
+              <input
+                type="date"
+                value={fromDate}
+                onChange={(e) => setFromDate(e.target.value)}
+                className="w-full h-9 border border-slate-300 rounded px-2.5 py-1.5 text-xs text-slate-700 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1.5">To Date</label>
+              <input
+                type="date"
+                value={toDate}
+                onChange={(e) => setToDate(e.target.value)}
+                className="w-full h-9 border border-slate-300 rounded px-2.5 py-1.5 text-xs text-slate-700 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1.5">Category</label>
+              <select
+                value={summaryCategory}
+                onChange={(e) => {
+                  setSummaryCategory(e.target.value);
+                  setSummarySubCategory("ALL");
+                }}
+                className="w-full h-9 border border-slate-300 rounded px-2.5 py-1.5 text-xs text-slate-700 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+              >
+                <option value="ALL">All</option>
+                {Array.from(new Set((itemsCatalog ?? []).map((i) => i.category).filter(Boolean))).sort().map((cat) => (
+                  <option key={cat} value={cat}>
+                    {cat}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3.5 items-end">
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1.5">Sub Category</label>
+              <select
+                value={summarySubCategory}
+                onChange={(e) => setSummarySubCategory(e.target.value)}
+                className="w-full h-9 border border-slate-300 rounded px-2.5 py-1.5 text-xs text-slate-700 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+              >
+                <option value="ALL">All</option>
+                {Array.from(
+                  new Set(
+                    (itemsCatalog ?? [])
+                      .filter((i) => summaryCategory === "ALL" || i.category === summaryCategory)
+                      .map((i) => i.subCategory || "")
+                      .filter(Boolean)
+                  )
+                )
+                  .sort()
+                  .map((sub) => (
+                    <option key={sub} value={sub}>
+                      {sub}
+                    </option>
+                  ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1.5">Buyer Office</label>
+              <select
+                value={selectedBuyerOffice}
+                onChange={(e) => {
+                  setSelectedBuyerOffice(e.target.value);
+                }}
+                className="w-full h-9 border border-slate-300 rounded px-2.5 py-1.5 text-xs text-slate-700 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+              >
+                <option value="ALL">Buyer Office</option>
+                {offices?.map((o) => (
+                  <option key={o.id} value={o.id}>
+                    {o.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <label className="flex h-9 cursor-pointer items-center gap-2 text-xs text-slate-700">
+              <input
+                type="checkbox"
+                checked={isRemainingDetails}
+                onChange={(e) => setIsRemainingDetails(e.target.checked)}
+                className="h-4 w-4 rounded border-slate-300 text-blue-600"
+              />
+              <span>Is Remaining Details</span>
+            </label>
+            <div className="flex items-center gap-3 lg:col-span-2">
+              <button
+                type="button"
+                onClick={() => refetch()}
+                disabled={isFetching}
+                className="h-9 px-6 bg-[#2563eb] hover:bg-blue-700 disabled:opacity-70 text-white font-bold text-xs uppercase rounded shadow-xs transition flex items-center justify-center gap-1.5 min-w-[70px]"
+              >
+                {isFetching && <Spinner className="size-3.5" />}
+                View
+              </button>
+              <button
+                type="button"
+                onClick={handleExport}
+                disabled={!perms.requisitions.export}
+                title={!perms.requisitions.export ? "Requires Export permission in Configuration" : "Export Excel (CSV)"}
+                className="h-9 px-5 border border-[#2563eb] text-[#2563eb] hover:bg-blue-50 disabled:opacity-40 disabled:pointer-events-none font-bold text-xs uppercase rounded shadow-xs transition flex items-center justify-center min-w-[75px]"
+              >
+                EXCEL
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Content: Requisitions List or Summary Matrix */}
@@ -1392,22 +1390,20 @@ export default function PurchaseRequisitionsPage() {
             <button
               type="button"
               onClick={() => setSummaryViewMode("ITEM_WISE")}
-              className={`px-3 py-1.5 text-xs font-bold rounded transition ${
-                summaryViewMode === "ITEM_WISE"
-                  ? "bg-blue-600 text-white shadow-xs"
-                  : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-              }`}
+              className={`px-3 py-1.5 text-xs font-bold rounded transition ${summaryViewMode === "ITEM_WISE"
+                ? "bg-blue-600 text-white shadow-xs"
+                : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                }`}
             >
               Item-Wise Summary ({itemWiseSummary.length} Items)
             </button>
             <button
               type="button"
               onClick={() => setSummaryViewMode("DEPARTMENT_WISE")}
-              className={`px-3 py-1.5 text-xs font-bold rounded transition ${
-                summaryViewMode === "DEPARTMENT_WISE"
-                  ? "bg-blue-600 text-white shadow-xs"
-                  : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-              }`}
+              className={`px-3 py-1.5 text-xs font-bold rounded transition ${summaryViewMode === "DEPARTMENT_WISE"
+                ? "bg-blue-600 text-white shadow-xs"
+                : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                }`}
             >
               Department / Section Matrix ({departmentSummary.length} Departments)
             </button>
@@ -1621,8 +1617,8 @@ export default function PurchaseRequisitionsPage() {
                   {!activeFormOfficeId
                     ? "Select Office first"
                     : allWarehouses?.filter((w) => w.officeId === activeFormOfficeId).length === 0
-                    ? "No warehouse for this office"
-                    : "Select warehouse"}
+                      ? "No warehouse for this office"
+                      : "Select warehouse"}
                 </option>
                 {allWarehouses?.filter((w) => w.officeId === activeFormOfficeId).map((w) => (
                   <option key={w.id} value={w.id}>
@@ -1991,11 +1987,10 @@ export default function PurchaseRequisitionsPage() {
                   comments: approvalComment,
                 });
               }}
-              className={`px-4 py-1.5 rounded text-white font-semibold inline-flex items-center gap-1.5 disabled:opacity-60 ${
-                approvalModal?.action === "APPROVE"
-                  ? "bg-emerald-600 hover:bg-emerald-700"
-                  : "bg-rose-600 hover:bg-rose-700"
-              }`}
+              className={`px-4 py-1.5 rounded text-white font-semibold inline-flex items-center gap-1.5 disabled:opacity-60 ${approvalModal?.action === "APPROVE"
+                ? "bg-emerald-600 hover:bg-emerald-700"
+                : "bg-rose-600 hover:bg-rose-700"
+                }`}
             >
               {approvalMutation.isPending && <Spinner className="size-3.5" />}
               Confirm {approvalModal?.action}
@@ -2052,8 +2047,8 @@ export default function PurchaseRequisitionsPage() {
                     {!editOfficeId
                       ? "Select Office first"
                       : allWarehouses?.filter((w) => w.officeId === editOfficeId).length === 0
-                      ? "No warehouse for this office"
-                      : "Select warehouse"}
+                        ? "No warehouse for this office"
+                        : "Select warehouse"}
                   </option>
                   {allWarehouses?.filter((w) => w.officeId === editOfficeId).map((w) => (
                     <option key={w.id} value={w.id}>

@@ -1093,7 +1093,7 @@ class PurchaseDataStore {
           requisition: true,
           returns: { where: { status: { not: "CANCELLED" } }, include: { lines: true } },
         },
-        orderBy: { createdAt: "desc" },
+        orderBy: [{ orderDate: "desc" }, { createdAt: "desc" }],
       }),
       resolvePurchaseOrgScope(actor),
     ]);

@@ -367,7 +367,7 @@ export default function GateInOutPage() {
                       </span>
                     </td>
                     <td className="px-2.5 py-2 border-b border-slate-200 text-center">
-                      <div className="flex items-center justify-center gap-1.5 text-slate-600">
+                      <div className="row-actions flex items-center justify-center gap-1.5 text-slate-600">
                         <button type="button" className="p-1 hover:text-blue-600" title="View">
                           <Eye className="w-3.5 h-3.5" />
                         </button>
@@ -453,7 +453,7 @@ export default function GateInOutPage() {
                       </span>
                     </td>
                     <td className="px-2.5 py-2 border-b border-slate-200 text-center">
-                      <div className="flex items-center justify-center gap-1.5 text-slate-600">
+                      <div className="row-actions flex items-center justify-center gap-1.5 text-slate-600">
                         <button type="button" className="p-1 hover:text-blue-600" title="View">
                           <Eye className="w-3.5 h-3.5" />
                         </button>
@@ -552,7 +552,7 @@ export default function GateInOutPage() {
                       </span>
                     </td>
                     <td className="px-2.5 py-2 border-b border-slate-200 text-center">
-                      <div className="flex items-center justify-center gap-1.5 text-slate-600">
+                      <div className="row-actions flex items-center justify-center gap-1.5 text-slate-600">
                         {row.status === "Inside" && (
                           <button
                             type="button"

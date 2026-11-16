@@ -646,7 +646,7 @@ export default function PurchaseOrdersPage() {
                         <tr key={row.id}>
                           <td className="text-center font-mono text-[11px] text-slate-500">{ordersPage.offset + idx + 1}</td>
                           <td className="text-center whitespace-nowrap">
-                            <div className="flex items-center justify-center gap-0.5">
+                            <div className="row-actions flex items-center justify-center gap-0.5">
                               <button
                                 type="button"
                                 disabled={!canEdit(row) || !perms.orders.edit}
@@ -965,7 +965,7 @@ export default function PurchaseOrdersPage() {
                       <tr key={row.id}>
                         <td className="text-center font-mono text-slate-600">{methodPage.offset + idx + 1}</td>
                         <td className="text-center">
-                          <div className="flex items-center justify-center gap-0.5">
+                          <div className="row-actions flex items-center justify-center gap-0.5">
                             <button type="button" onClick={() => setViewReq(row)} className={iconBtn} title="View requisition" aria-label="View requisition">
                               <Eye className="w-3.5 h-3.5" />
                             </button>

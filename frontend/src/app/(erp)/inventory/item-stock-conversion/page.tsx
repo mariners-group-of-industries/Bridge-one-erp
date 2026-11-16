@@ -654,7 +654,7 @@ export default function ItemStockConversionPage() {
                           )}
                         </td>
                         <td className="py-2 px-3 text-center whitespace-nowrap">
-                          <div className="flex items-center justify-center gap-1.5">
+                          <div className="row-actions flex items-center justify-center gap-1.5">
                             <button
                               type="button"
                               onClick={() => setViewRecord(row)}

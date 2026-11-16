@@ -731,7 +731,7 @@ export default function TransferPage() {
                       {row.inTransitQty.toFixed(2)}
                     </td>
                     <td className="px-2.5 py-2 border-b border-slate-200 text-center">
-                      <div className="flex items-center justify-center gap-1.5 text-slate-600">
+                      <div className="row-actions flex items-center justify-center gap-1.5 text-slate-600">
                         <button type="button" className="p-0.5 hover:text-blue-600" title="Print">
                           <Printer className="w-3.5 h-3.5" />
                         </button>
@@ -927,7 +927,7 @@ export default function TransferPage() {
                       {row.inTransitQty.toFixed(2)}
                     </td>
                     <td className="px-2.5 py-2 border-b border-slate-200 text-center">
-                      <div className="flex items-center justify-center gap-1.5 text-slate-600">
+                      <div className="row-actions flex items-center justify-center gap-1.5 text-slate-600">
                         <button
                           type="button"
                           onClick={() => setReceiveTarget(docs.find((d) => d.id === row.id) ?? null)}
@@ -1195,7 +1195,7 @@ export default function TransferPage() {
                       {row.chillingTemp}
                     </td>
                     <td className="px-2.5 py-2 border-b border-slate-200 text-center">
-                      <div className="flex items-center justify-center gap-1.5 text-slate-600">
+                      <div className="row-actions flex items-center justify-center gap-1.5 text-slate-600">
                         <button type="button" className="p-0.5 hover:text-blue-600" title="Print">
                           <Printer className="w-3.5 h-3.5" />
                         </button>

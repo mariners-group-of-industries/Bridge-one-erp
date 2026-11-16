@@ -611,11 +611,12 @@ export default function BrgConnectChatPage() {
 
     const globalChannel = pusher.subscribe("connect-global");
 
-    globalChannel.bind("new-conversation", () => {
+    const handleNewConversation = () => {
       onLoadConversations();
-    });
+    };
+    globalChannel.bind("new-conversation", handleNewConversation);
 
-    globalChannel.bind("user-presence", (data: { userId?: string; employeeId?: string; status: "online" | "offline" }) => {
+    const handleUserPresence = (data: { userId?: string; employeeId?: string; status: "online" | "offline" }) => {
       setOnlineUserIds((prev) => {
         const next = new Set(prev);
         if (data.status === "online") {
@@ -627,7 +628,8 @@ export default function BrgConnectChatPage() {
         }
         return next;
       });
-    });
+    };
+    globalChannel.bind("user-presence", handleUserPresence);
 
     const handleGlobalMessagesSeen = (data: { conversationId: string; readerId: string }) => {
       setMessagesMap((prev) => {
@@ -655,7 +657,7 @@ export default function BrgConnectChatPage() {
 
     globalChannel.bind("messages-seen", handleGlobalMessagesSeen);
 
-    globalChannel.bind("new-message", (msg: ConnectMessage) => {
+    const handleGlobalNewMessage = (msg: ConnectMessage) => {
       // If currently open and sent by someone else, auto mark read immediately
       if (activeConvIdRef.current === msg.conversationId && msg.senderId !== authUserRef.current?.id) {
         fetch(`/api/connect/conversations/${msg.conversationId}/read`, { method: "POST" }).catch(() => {});
@@ -705,12 +707,11 @@ export default function BrgConnectChatPage() {
         const others = prev.filter((c) => c.id !== msg.conversationId);
         return [updatedTarget, ...others];
       });
-    });
+    };
+    globalChannel.bind("new-message", handleGlobalNewMessage);
 
     // Realtime WebRTC call signaling via Pusher
-    globalChannel.bind(
-      "call-signal",
-      async (signal: {
+    const handleGlobalCallSignal = async (signal: {
         conversationId: string;
         senderId: string;
         senderName: string;
@@ -859,12 +860,17 @@ export default function BrgConnectChatPage() {
             break;
           }
         }
-      }
-    );
+      };
+    globalChannel.bind("call-signal", handleGlobalCallSignal);
 
     return () => {
-      globalChannel.unbind_all();
-      pusher.unsubscribe("connect-global");
+      // "connect-global" is shared with the app-wide ConnectGlobalNotifier: unbind only this page's
+      // handlers and keep the subscription, or the floating messenger goes deaf after leaving /connect.
+      globalChannel.unbind("new-conversation", handleNewConversation);
+      globalChannel.unbind("user-presence", handleUserPresence);
+      globalChannel.unbind("messages-seen", handleGlobalMessagesSeen);
+      globalChannel.unbind("new-message", handleGlobalNewMessage);
+      globalChannel.unbind("call-signal", handleGlobalCallSignal);
     };
   }, [authUser?.id]);
 

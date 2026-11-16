@@ -156,11 +156,83 @@
  * content: the page behind it, the overlay and the dialog chrome are left out,
  * and the scroll box is released so long documents print on every page.
  */
+/* Default paper: A4 portrait. Margin 0 keeps the browser from printing its own URL/date
+   header and footer; per-page margins come from .print-frame below. Top level (not nested
+   in @media print) so every print path picks it up. */
+@page {
+  size: A4 portrait;
+  margin: 0;
+}
+
+/* Print frame (components/ui/print-frame.tsx): a plain block on screen; when printed, its
+   thead/tfoot spacers repeat on every page so each A4 page gets a top margin and room at the
+   bottom for the pinned "Made by BridgeOne" footer. */
+.print-frame,
+.print-frame > tbody,
+.print-frame > tbody > tr,
+.print-frame > tbody > tr > td {
+  display: block;
+  width: 100%;
+}
+.print-frame > thead,
+.print-frame > tfoot {
+  display: none;
+}
+
 @media print {
-  @page {
-    size: A4 portrait;
-    margin: 0;
+  .print-frame {
+    display: table;
+    width: 100%;
+    border-collapse: collapse;
   }
+  .print-frame > thead {
+    display: table-header-group;
+  }
+  .print-frame > tfoot {
+    display: table-footer-group;
+  }
+  .print-frame > tbody {
+    display: table-row-group;
+  }
+  .print-frame > * > tr {
+    display: table-row;
+  }
+  .print-frame > * > tr > td {
+    display: table-cell;
+    padding: 0 14mm;
+  }
+  .print-frame-top {
+    height: 10mm;
+  }
+  .print-frame-bottom {
+    height: 18mm;
+  }
+  /* Fixed elements are printed on every page, at the same spot: the very bottom. */
+  .print-page-footer {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    margin: 0 !important;
+    padding: 2mm 14mm 7mm !important;
+    border-top: 0 !important;
+    background: #ffffff;
+  }
+  .print-page-footer::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 14mm;
+    right: 14mm;
+    border-top: 1px solid #cbd5e1;
+  }
+  /* The frame owns the page margins inside print dialogs. */
+  body:has([data-print-modal]) [data-print-sheet]:has(.print-frame) {
+    padding: 0 !important;
+  }
+}
+
+@media print {
   * {
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
@@ -461,4 +533,30 @@
   float: left;
   height: 0;
   pointer-events: none;
+}
+
+/* Compact row actions: the Action column of list tables (accounts, purchase, inventory).
+   Icon-only buttons are 20px boxes painting an 18px chip with an 11px icon, packed edge to edge.
+   NOTE: 20px is below the CLAUDE.md 24px hit-target minimum; the user chose this density
+   explicitly for these dense ERP tables (2026-11-16). Text buttons (px-*) keep their own size.
+   Deliberately unlayered so it overrides the per-page utility sizes (p-1, w-6, w-3.5…). */
+.row-actions {
+  gap: 0;
+}
+.row-actions > :is(button, a):not([class*="px-"]):not(.hidden) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  padding: 1px;
+  background-clip: content-box;
+}
+.row-actions > :is(button, a):not([class*="px-"]) > svg {
+  width: 11px;
+  height: 11px;
+}
+.row-actions > :is(button, a)[class*="px-"] {
+  margin-inline: 1px;
 }

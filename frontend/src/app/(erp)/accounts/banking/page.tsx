@@ -695,7 +695,7 @@ export default function FinanceBankingPage() {
                       <td className="px-3.5 py-2.5 text-slate-600">{b.accountType}</td>
                       <td className="px-3.5 py-2.5 font-mono font-medium text-slate-900">{b.accountNumber}</td>
                       <td className="px-3.5 py-2.5 text-center">
-                        <div className="flex items-center justify-center gap-2 text-slate-400">
+                        <div className="row-actions flex items-center justify-center gap-2 text-slate-400">
                           <button
                             type="button"
                             onClick={() => setViewBankDetails(b)}

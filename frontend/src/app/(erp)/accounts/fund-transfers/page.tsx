@@ -542,7 +542,7 @@ export default function FundTransferPage() {
                           <span className={`font-semibold ${statusOf(t.status).tone}`}>{statusOf(t.status).label}</span>
                         </td>
                         <td className="py-2 px-3 text-center">
-                          <div className="flex items-center justify-center gap-1.5 text-slate-400">
+                          <div className="row-actions flex items-center justify-center gap-1.5 text-slate-400">
                             <button
                               type="button"
                               onClick={() => setViewingTransfer(t)}
@@ -616,7 +616,7 @@ export default function FundTransferPage() {
                           <span className={`font-semibold ${statusOf(t.status).tone}`}>{statusOf(t.status).label}</span>
                         </td>
                         <td className="py-2 px-3 text-center">
-                          <div className="flex items-center justify-center gap-1.5 text-slate-400">
+                          <div className="row-actions flex items-center justify-center gap-1.5 text-slate-400">
                             {isApproved(t.status) && (
                               <>
                                 <button
