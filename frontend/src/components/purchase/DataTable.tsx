@@ -28,7 +28,7 @@ export function DataTable<T extends Record<string, any>>({
   data,
   loading = false,
   emptyMessage = "No records found matching the active filters.",
-  pageSize = 10,
+  pageSize = 50,
   compact = false,
   tableClassName,
   containerClassName,
@@ -103,10 +103,10 @@ export function DataTable<T extends Record<string, any>>({
               }}
               className="bg-white border border-slate-200 rounded px-1.5 py-0.5 text-xs text-slate-700 focus:outline-none"
             >
-              <option value={5}>5</option>
               <option value={10}>10</option>
               <option value={20}>20</option>
               <option value={50}>50</option>
+              <option value={100}>100</option>
             </select>
             <span className="text-slate-400">|</span>
             <span>

@@ -1349,6 +1349,7 @@ export default function PurchaseRequisitionsPage() {
           columns={columns}
           data={requisitions || []}
           loading={isLoading}
+          pageSize={50}
           emptyMessage="No requisitions found matching the selected criteria."
           compact
         />
