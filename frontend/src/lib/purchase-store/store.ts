@@ -174,7 +174,10 @@ async function issueNumber(
 function toDateStr(d: Date | string | null | undefined): string {
   if (!d) return new Date().toISOString().split("T")[0];
   if (typeof d === "string") return d.split("T")[0];
-  return d.toISOString().split("T")[0];
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
 }
 
 /** A yyyy-mm-dd date from the form, or today; invalid dates are rejected. */
@@ -765,7 +768,7 @@ class PurchaseDataStore {
           warehouse: true,
           purchaseOrders: { where: { status: { not: "CANCELLED" } }, select: { number: true }, orderBy: { createdAt: "asc" } },
         },
-        orderBy: { createdAt: "desc" },
+        orderBy: [{ requisitionDate: "desc" }, { createdAt: "desc" }],
       }),
       resolvePurchaseOrgScope(actor),
     ]);
