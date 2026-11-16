@@ -5,7 +5,7 @@ export const instant = false;
 
 export default function DirectReceivePage() {
   return (
-    <Suspense fallback={<div className="p-6 text-sm text-slate-500">Loading Direct Receive Form...</div>}>
+    <Suspense fallback={<div className="p-6 text-sm text-ink-faint">Loading Direct Receive Form...</div>}>
       <DirectReceiveView />
     </Suspense>
   );

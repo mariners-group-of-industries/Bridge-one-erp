@@ -1,6 +1,7 @@
 import { scopedBusinessUnitIds } from "@/features/sales/lib/scope";
 import { apiHandler, ok } from "@/lib/api/handler";
 import { db } from "@/lib/prisma/client";
+import { isPlaceInOrgScope, resolvePurchaseOrgScope } from "@/lib/purchase-store/governance";
 
 const num = (v: unknown) => (v === null || v === undefined ? null : Number(v));
 
@@ -11,7 +12,8 @@ const num = (v: unknown) => (v === null || v === undefined ? null : Number(v));
  * heads ("Issue For") and the company for report headers, all limited to the user's business units.
  */
 export const GET = apiHandler("purchase:read", async (_request, _context, actor) => {
-  const unitIds = await scopedBusinessUnitIds(actor);
+  // Configuration › Employee › Org Access: only the business units, offices and warehouses the user may use.
+  const [unitIds, orgScope] = await Promise.all([scopedBusinessUnitIds(actor), resolvePurchaseOrgScope(actor)]);
   const prisma = db();
   const [warehouses, items, categories, employees, salesOrders, suppliers, projects, expenseHeads, unit, received, gatePasses] = await Promise.all([
     prisma.warehouse.findMany({
@@ -92,7 +94,9 @@ export const GET = apiHandler("purchase:read", async (_request, _context, actor)
   };
 
   return ok({
-    warehouses: warehouses.map((w) => ({ id: w.id, name: w.name, officeId: w.officeId, officeName: w.office.name, businessUnitId: w.office.businessUnitId })),
+    warehouses: warehouses
+      .filter((w) => isPlaceInOrgScope(orgScope, { warehouseId: w.id, officeId: w.officeId, businessUnitId: w.office.businessUnitId }))
+      .map((w) => ({ id: w.id, name: w.name, officeId: w.officeId, officeName: w.office.name, businessUnitId: w.office.businessUnitId })),
     items: items.map((i) => ({
       id: i.id,
       code: i.code,

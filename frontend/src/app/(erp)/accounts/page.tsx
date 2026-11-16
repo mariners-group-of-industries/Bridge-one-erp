@@ -133,20 +133,20 @@ export default function AccountsDashboardPage() {
   const chartData = data?.monthlyStatistics ?? [];
 
   return (
-    <div className="min-h-screen bg-[#f4f7fb] p-4 space-y-4">
+    <div className="min-h-screen bg-canvas p-4 space-y-4">
       {/* Top Filter Row */}
       <form
         onSubmit={handleViewClick}
         className="flex flex-wrap items-end gap-3"
       >
         <div className="w-56">
-          <label className="block text-[11px] text-slate-500 font-medium mb-1">
+          <label className="block text-[11px] text-ink-faint font-medium mb-1">
             Office
           </label>
           <select
             value={officeId}
             onChange={(e) => setOfficeId(e.target.value)}
-            className="w-full h-9 px-3 rounded border border-slate-300 bg-white text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            className="w-full h-9 px-3 rounded border border-line-strong bg-surface text-xs text-ink focus:outline-none focus:ring-1 focus:ring-blue-500"
           >
             <option value="ALL">All</option>
             {offices.map((o) => (
@@ -158,26 +158,26 @@ export default function AccountsDashboardPage() {
         </div>
 
         <div className="w-44">
-          <label className="block text-[11px] text-slate-500 font-medium mb-1">
+          <label className="block text-[11px] text-ink-faint font-medium mb-1">
             From Date
           </label>
           <input
             type="date"
             value={fromDate}
             onChange={(e) => setFromDate(e.target.value)}
-            className="w-full h-9 px-3 rounded border border-slate-300 bg-white text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            className="w-full h-9 px-3 rounded border border-line-strong bg-surface text-xs text-ink focus:outline-none focus:ring-1 focus:ring-blue-500"
           />
         </div>
 
         <div className="w-44">
-          <label className="block text-[11px] text-slate-500 font-medium mb-1">
+          <label className="block text-[11px] text-ink-faint font-medium mb-1">
             To Date
           </label>
           <input
             type="date"
             value={toDate}
             onChange={(e) => setToDate(e.target.value)}
-            className="w-full h-9 px-3 rounded border border-slate-300 bg-white text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            className="w-full h-9 px-3 rounded border border-line-strong bg-surface text-xs text-ink focus:outline-none focus:ring-1 focus:ring-blue-500"
           />
         </div>
 
@@ -193,33 +193,33 @@ export default function AccountsDashboardPage() {
       {/* Row 1: Account Balance + Income & Expense */}
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
         {/* Account Balance Card */}
-        <div className="bg-white rounded-md border border-slate-200 border-t-[3px] border-t-[#3b82f6] p-4 shadow-2xs">
+        <div className="bg-surface rounded-md border border-line border-t-[3px] border-t-[#3b82f6] p-4 shadow-2xs">
           <div className="flex items-center gap-3 mb-4">
-            <div className="w-9 h-9 rounded-md bg-blue-100 text-blue-600 flex items-center justify-center shrink-0">
+            <div className="w-9 h-9 rounded-md bg-blue-100 dark:bg-blue-500/15 text-blue-600 dark:text-blue-400 flex items-center justify-center shrink-0">
               <Wallet className="w-4 h-4" />
             </div>
             <div>
-              <h2 className="text-sm font-semibold text-slate-900 leading-tight">
+              <h2 className="text-sm font-semibold text-ink leading-tight">
                 Account Balance
               </h2>
-              <p className="text-[11px] text-slate-400">As on Till Date</p>
+              <p className="text-[11px] text-ink-faint">As on Till Date</p>
             </div>
           </div>
 
           <div className="grid grid-cols-2 gap-3">
-            <div className="bg-[#f8fafc] rounded-md px-4 py-3.5">
-              <div className="text-sm font-bold text-slate-900 tabular-nums">
+            <div className="bg-canvas rounded-md px-4 py-3.5">
+              <div className="text-sm font-bold text-ink tabular-nums">
                 {fmtMoney(data?.accountBalance.accountsPayable)}
               </div>
-              <div className="text-[11px] text-slate-400 mt-1">
+              <div className="text-[11px] text-ink-faint mt-1">
                 Accounts Payable
               </div>
             </div>
-            <div className="bg-[#f8fafc] rounded-md px-4 py-3.5">
-              <div className="text-sm font-bold text-slate-900 tabular-nums">
+            <div className="bg-canvas rounded-md px-4 py-3.5">
+              <div className="text-sm font-bold text-ink tabular-nums">
                 {fmtMoney(data?.accountBalance.accountsReceivable)}
               </div>
-              <div className="text-[11px] text-slate-400 mt-1">
+              <div className="text-[11px] text-ink-faint mt-1">
                 Accounts Receivable
               </div>
             </div>
@@ -227,45 +227,45 @@ export default function AccountsDashboardPage() {
         </div>
 
         {/* Income & Expense Card */}
-        <div className="bg-white rounded-md border border-slate-200 border-t-[3px] border-t-[#10b981] p-4 shadow-2xs">
+        <div className="bg-surface rounded-md border border-line border-t-[3px] border-t-[#10b981] p-4 shadow-2xs">
           <div className="flex items-center gap-3 mb-4">
-            <div className="w-9 h-9 rounded-md bg-emerald-100 text-emerald-600 flex items-center justify-center shrink-0">
+            <div className="w-9 h-9 rounded-md bg-emerald-100 dark:bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
               <CircleDollarSign className="w-4 h-4" />
             </div>
             <div>
-              <h2 className="text-sm font-semibold text-slate-900 leading-tight">
+              <h2 className="text-sm font-semibold text-ink leading-tight">
                 Income &amp; Expense
               </h2>
-              <p className="text-[11px] text-slate-400">
+              <p className="text-[11px] text-ink-faint">
                 {data?.filters.fromDate || fromDate} to {data?.filters.toDate || toDate}
               </p>
             </div>
           </div>
 
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <div className="bg-[#f8fafc] rounded-md px-3.5 py-3.5">
-              <div className="text-sm font-bold text-slate-900 tabular-nums">
+            <div className="bg-canvas rounded-md px-3.5 py-3.5">
+              <div className="text-sm font-bold text-ink tabular-nums">
                 {fmtMoney(data?.incomeAndExpense.cashInHand)}
               </div>
-              <div className="text-[11px] text-slate-400 mt-1">Cash In Hand</div>
+              <div className="text-[11px] text-ink-faint mt-1">Cash In Hand</div>
             </div>
-            <div className="bg-[#f8fafc] rounded-md px-3.5 py-3.5">
-              <div className="text-sm font-bold text-slate-900 tabular-nums">
+            <div className="bg-canvas rounded-md px-3.5 py-3.5">
+              <div className="text-sm font-bold text-ink tabular-nums">
                 {fmtMoney(data?.incomeAndExpense.income)}
               </div>
-              <div className="text-[11px] text-slate-400 mt-1">Income</div>
+              <div className="text-[11px] text-ink-faint mt-1">Income</div>
             </div>
-            <div className="bg-[#f8fafc] rounded-md px-3.5 py-3.5">
-              <div className="text-sm font-bold text-slate-900 tabular-nums">
+            <div className="bg-canvas rounded-md px-3.5 py-3.5">
+              <div className="text-sm font-bold text-ink tabular-nums">
                 {fmtMoney(data?.incomeAndExpense.cashAtBank)}
               </div>
-              <div className="text-[11px] text-slate-400 mt-1">Cash At Bank</div>
+              <div className="text-[11px] text-ink-faint mt-1">Cash At Bank</div>
             </div>
-            <div className="bg-[#f8fafc] rounded-md px-3.5 py-3.5">
-              <div className="text-sm font-bold text-slate-900 tabular-nums">
+            <div className="bg-canvas rounded-md px-3.5 py-3.5">
+              <div className="text-sm font-bold text-ink tabular-nums">
                 {fmtMoney(data?.incomeAndExpense.totalExpense)}
               </div>
-              <div className="text-[11px] text-slate-400 mt-1">Total Expense</div>
+              <div className="text-[11px] text-ink-faint mt-1">Total Expense</div>
             </div>
           </div>
         </div>
@@ -274,75 +274,75 @@ export default function AccountsDashboardPage() {
       {/* Row 2: Cash & Equivalent + Cashflow */}
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
         {/* Cash & Equivalent Card */}
-        <div className="bg-white rounded-md border border-slate-200 border-t-[3px] border-t-[#f59e0b] p-4 shadow-2xs">
+        <div className="bg-surface rounded-md border border-line border-t-[3px] border-t-[#f59e0b] p-4 shadow-2xs">
           <div className="flex items-center gap-3 mb-4">
-            <div className="w-9 h-9 rounded-md bg-amber-100 text-amber-600 flex items-center justify-center shrink-0">
+            <div className="w-9 h-9 rounded-md bg-amber-100 dark:bg-amber-500/15 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0">
               <Landmark className="w-4 h-4" />
             </div>
             <div>
-              <h2 className="text-sm font-semibold text-slate-900 leading-tight">
+              <h2 className="text-sm font-semibold text-ink leading-tight">
                 Cash &amp; Equivalent
               </h2>
-              <p className="text-[11px] text-slate-400">As on Till Date</p>
+              <p className="text-[11px] text-ink-faint">As on Till Date</p>
             </div>
           </div>
 
           <div className="grid grid-cols-2 gap-3">
-            <div className="bg-[#f8fafc] rounded-md px-4 py-3.5">
-              <div className="text-sm font-bold text-slate-900 tabular-nums">
+            <div className="bg-canvas rounded-md px-4 py-3.5">
+              <div className="text-sm font-bold text-ink tabular-nums">
                 {fmtMoney(data?.cashAndEquivalent.cashInHand)}
               </div>
-              <div className="text-[11px] text-slate-400 mt-1">Cash In Hand</div>
+              <div className="text-[11px] text-ink-faint mt-1">Cash In Hand</div>
             </div>
-            <div className="bg-[#f8fafc] rounded-md px-4 py-3.5">
-              <div className="text-sm font-bold text-slate-900 tabular-nums">
+            <div className="bg-canvas rounded-md px-4 py-3.5">
+              <div className="text-sm font-bold text-ink tabular-nums">
                 {fmtMoney(data?.cashAndEquivalent.cashAtBank)}
               </div>
-              <div className="text-[11px] text-slate-400 mt-1">Cash At Bank</div>
+              <div className="text-[11px] text-ink-faint mt-1">Cash At Bank</div>
             </div>
           </div>
         </div>
 
         {/* Cashflow Card */}
-        <div className="bg-white rounded-md border border-slate-200 border-t-[3px] border-t-[#3b82f6] p-4 shadow-2xs">
+        <div className="bg-surface rounded-md border border-line border-t-[3px] border-t-[#3b82f6] p-4 shadow-2xs">
           <div className="flex items-center gap-3 mb-4">
-            <div className="w-9 h-9 rounded-md bg-blue-100 text-blue-600 flex items-center justify-center shrink-0">
+            <div className="w-9 h-9 rounded-md bg-blue-100 dark:bg-blue-500/15 text-blue-600 dark:text-blue-400 flex items-center justify-center shrink-0">
               <ArrowLeftRight className="w-4 h-4" />
             </div>
             <div>
-              <h2 className="text-sm font-semibold text-slate-900 leading-tight">
+              <h2 className="text-sm font-semibold text-ink leading-tight">
                 Cashflow
               </h2>
-              <p className="text-[11px] text-slate-400">
+              <p className="text-[11px] text-ink-faint">
                 {data?.filters.fromDate || fromDate} to {data?.filters.toDate || toDate}
               </p>
             </div>
           </div>
 
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <div className="bg-[#f8fafc] rounded-md px-3.5 py-3.5">
-              <div className="text-sm font-bold text-slate-900 tabular-nums">
+            <div className="bg-canvas rounded-md px-3.5 py-3.5">
+              <div className="text-sm font-bold text-ink tabular-nums">
                 {fmtMoney(data?.cashflow.opening)}
               </div>
-              <div className="text-[11px] text-slate-400 mt-1">Opening</div>
+              <div className="text-[11px] text-ink-faint mt-1">Opening</div>
             </div>
-            <div className="bg-[#f8fafc] rounded-md px-3.5 py-3.5">
-              <div className="text-sm font-bold text-slate-900 tabular-nums">
+            <div className="bg-canvas rounded-md px-3.5 py-3.5">
+              <div className="text-sm font-bold text-ink tabular-nums">
                 {fmtMoney(data?.cashflow.closing)}
               </div>
-              <div className="text-[11px] text-slate-400 mt-1">Closing</div>
+              <div className="text-[11px] text-ink-faint mt-1">Closing</div>
             </div>
-            <div className="bg-[#f8fafc] rounded-md px-3.5 py-3.5">
-              <div className="text-sm font-bold text-slate-900 tabular-nums">
+            <div className="bg-canvas rounded-md px-3.5 py-3.5">
+              <div className="text-sm font-bold text-ink tabular-nums">
                 {fmtMoney(data?.cashflow.receive)}
               </div>
-              <div className="text-[11px] text-slate-400 mt-1">Receive</div>
+              <div className="text-[11px] text-ink-faint mt-1">Receive</div>
             </div>
-            <div className="bg-[#f8fafc] rounded-md px-3.5 py-3.5">
-              <div className="text-sm font-bold text-slate-900 tabular-nums">
+            <div className="bg-canvas rounded-md px-3.5 py-3.5">
+              <div className="text-sm font-bold text-ink tabular-nums">
                 {fmtMoney(data?.cashflow.payments)}
               </div>
-              <div className="text-[11px] text-slate-400 mt-1">Payments</div>
+              <div className="text-[11px] text-ink-faint mt-1">Payments</div>
             </div>
           </div>
         </div>
@@ -351,51 +351,51 @@ export default function AccountsDashboardPage() {
       {/* Row 3: Financial Ratio Analysis + Monthly Statistics */}
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
         {/* Financial Ratio Analysis */}
-        <div className="bg-white rounded-md border border-slate-200 border-t-[3px] border-t-[#f59e0b] p-4 shadow-2xs">
+        <div className="bg-surface rounded-md border border-line border-t-[3px] border-t-[#f59e0b] p-4 shadow-2xs">
           <div className="flex items-center gap-3 mb-3">
-            <div className="w-9 h-9 rounded-md bg-amber-100 text-amber-600 flex items-center justify-center shrink-0">
+            <div className="w-9 h-9 rounded-md bg-amber-100 dark:bg-amber-500/15 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0">
               <Scale className="w-4 h-4" />
             </div>
             <div>
-              <h2 className="text-sm font-semibold text-slate-900 leading-tight">
+              <h2 className="text-sm font-semibold text-ink leading-tight">
                 Financial Ratio Analysis
               </h2>
-              <p className="text-[11px] text-slate-400">{fmtDmy(toDate)}</p>
+              <p className="text-[11px] text-ink-faint">{fmtDmy(toDate)}</p>
             </div>
           </div>
 
-          <div className="border border-slate-200 rounded overflow-hidden">
+          <div className="border border-line rounded overflow-hidden">
             <div className="max-h-[340px] overflow-y-auto">
               <table className="w-full text-left border-collapse text-xs">
-                <thead className="sticky top-0 bg-[#d8ebfc] text-slate-800 text-[11px] font-bold border-b border-slate-200">
+                <thead className="sticky top-0 bg-grid-head text-ink text-[11px] font-bold border-b border-line">
                   <tr>
-                    <th className="px-2.5 py-2 w-14 border-r border-slate-200/80">SL</th>
-                    <th className="px-2.5 py-2 border-r border-slate-200/80">Ratio Name</th>
-                    <th className="px-2.5 py-2 w-24 border-r border-slate-200/80">Std Ratio</th>
-                    <th className="px-2.5 py-2 w-24 border-r border-slate-200/80">Act Ratio</th>
+                    <th className="px-2.5 py-2 w-14 border-r border-line/80">SL</th>
+                    <th className="px-2.5 py-2 border-r border-line/80">Ratio Name</th>
+                    <th className="px-2.5 py-2 w-24 border-r border-line/80">Std Ratio</th>
+                    <th className="px-2.5 py-2 w-24 border-r border-line/80">Act Ratio</th>
                     <th className="px-2.5 py-2 w-20">Matric</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100">
+                <tbody className="divide-y divide-line">
                   {(data?.ratios ?? []).map((row) => (
                     <tr
                       key={row.sl}
                       className={
                         row.isSectionHeader
-                          ? "bg-slate-50/70 font-medium text-slate-800"
-                          : "hover:bg-slate-50 text-slate-700"
+                          ? "bg-canvas/70 font-medium text-ink"
+                          : "hover:bg-canvas text-ink-muted"
                       }
                     >
-                      <td className="px-2.5 py-1.5 border-r border-slate-100 tabular-nums">
+                      <td className="px-2.5 py-1.5 border-r border-line tabular-nums">
                         {row.sl}
                       </td>
-                      <td className="px-2.5 py-1.5 border-r border-slate-100">
+                      <td className="px-2.5 py-1.5 border-r border-line">
                         {row.ratioName}
                       </td>
-                      <td className="px-2.5 py-1.5 border-r border-slate-100 tabular-nums">
+                      <td className="px-2.5 py-1.5 border-r border-line tabular-nums">
                         {row.stdRatio}
                       </td>
-                      <td className="px-2.5 py-1.5 border-r border-slate-100 tabular-nums">
+                      <td className="px-2.5 py-1.5 border-r border-line tabular-nums">
                         {row.actRatio}
                       </td>
                       <td className="px-2.5 py-1.5">{row.metric}</td>
@@ -408,13 +408,13 @@ export default function AccountsDashboardPage() {
         </div>
 
         {/* Monthly Statistics */}
-        <div className="bg-white rounded-md border border-slate-200 p-4 shadow-2xs flex flex-col">
+        <div className="bg-surface rounded-md border border-line p-4 shadow-2xs flex flex-col">
           <div className="flex items-center justify-between gap-3 mb-3">
             <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-md bg-blue-100 text-blue-600 flex items-center justify-center shrink-0">
+              <div className="w-9 h-9 rounded-md bg-blue-100 dark:bg-blue-500/15 text-blue-600 dark:text-blue-400 flex items-center justify-center shrink-0">
                 <BarChart2 className="w-4 h-4" />
               </div>
-              <h2 className="text-sm font-semibold text-slate-900">
+              <h2 className="text-sm font-semibold text-ink">
                 Monthly Statistics
               </h2>
             </div>
@@ -426,7 +426,7 @@ export default function AccountsDashboardPage() {
                 setChartYear(y);
                 void loadDashboard({ office: officeId, from: fromDate, to: toDate, year: y });
               }}
-              className="h-8 w-24 px-2 rounded border border-slate-300 bg-white text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              className="h-8 w-24 px-2 rounded border border-line-strong bg-surface text-xs text-ink focus:outline-none focus:ring-1 focus:ring-blue-500"
             >
               {yearOptions.map((y) => (
                 <option key={y} value={y}>
@@ -485,7 +485,7 @@ export default function AccountsDashboardPage() {
             </ResponsiveContainer>
           </div>
 
-          <div className="flex items-center justify-center gap-6 pt-2 text-[11px] text-slate-500">
+          <div className="flex items-center justify-center gap-6 pt-2 text-[11px] text-ink-faint">
             <div className="flex items-center gap-1.5">
               <span className="w-3 h-2.5 rounded-2xs inline-block bg-[#f48fb1]" />
               <span>Income</span>

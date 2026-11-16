@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { useAccountingStore } from "@/features/accounts/store/accounting-store";
 import { localToday } from "@/features/purchase/lib/client";
+import { useFeaturePermissions } from "@/lib/permissions/useFeaturePermissions";
 
 /** The first day of the current month, yyyy-mm-dd. */
 const monthStart = () => `${localToday().slice(0, 8)}01`;
@@ -62,6 +63,7 @@ const isCashOrBank = (a: { accountType: string; isGroup: boolean; name: string; 
   a.accountType === "ASSET" && !a.isGroup && /cash|bank/i.test(`${a.name} ${a.accountSubtype}`);
 
 export default function FinancialReportsPage() {
+  const perms = useFeaturePermissions("/accounts/financial-reports");
   const accounts = useAccountingStore((s) => s.accounts);
   const getTrialBalance = useAccountingStore((s) => s.getTrialBalance);
   const getProfitAndLoss = useAccountingStore((s) => s.getProfitAndLoss);
@@ -382,13 +384,13 @@ export default function FinancialReportsPage() {
   };
 
   return (
-    <div className="min-h-screen bg-[#f8fafc] text-slate-800 font-sans pb-16">
+    <div className="bg-canvas text-ink font-sans flex flex-col md:h-[calc(100dvh-3.5rem)] md:overflow-hidden print:block print:h-auto print:overflow-visible">
       {/* ------------------------------------------------------------- */}
       {/* 1. TOP TAB BAR */}
       {/* ------------------------------------------------------------- */}
-      <div className="bg-white border-b border-slate-200">
+      <div className="bg-surface border-b border-line shrink-0">
         <div className="px-4 flex items-center">
-          <div className="relative pb-2.5 pt-2 px-4 text-[13px] font-semibold text-[#2563eb] cursor-pointer">
+          <div className="relative pb-2.5 pt-2 px-4 text-[13px] font-semibold text-primary cursor-pointer">
             Financial Report
             <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-[#2563eb]" />
           </div>
@@ -398,19 +400,19 @@ export default function FinancialReportsPage() {
       {/* ------------------------------------------------------------- */}
       {/* 2. FILTER BAR (Matching Screenshot 3) */}
       {/* ------------------------------------------------------------- */}
-      <div className="px-4 py-3 bg-white border-b border-slate-200/90 shadow-2xs space-y-2.5">
+      <div className="px-4 py-3 bg-surface border-b border-line/90 shadow-2xs space-y-2.5 shrink-0">
         {/* Top Dropdowns Row */}
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-6 gap-2.5 text-xs">
           {/* Report Type */}
           <div>
-            <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+            <label className="block text-[11px] font-semibold text-ink-muted mb-1">
               Report Type
             </label>
             <div className="relative">
               <select
                 value={reportType}
                 onChange={(e) => setReportType(e.target.value)}
-                className="w-full h-8 px-2.5 pr-7 border border-slate-300 rounded text-xs bg-white text-slate-800 appearance-none focus:outline-none focus:ring-1 focus:ring-[#2563eb]"
+                className="w-full h-8 px-2.5 pr-7 border border-line-strong rounded text-xs bg-surface text-ink appearance-none focus:outline-none focus:ring-1 focus:ring-[#2563eb]"
               >
                 {REPORT_TYPES.map((t) => (
                   <option key={t} value={t}>
@@ -418,18 +420,18 @@ export default function FinancialReportsPage() {
                   </option>
                 ))}
               </select>
-              <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <ChevronDown className="w-3.5 h-3.5 text-ink-faint absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none" />
             </div>
           </div>
 
           {/* Office */}
           <div>
-            <label className="block text-[11px] font-semibold text-slate-700 mb-1">Office</label>
+            <label className="block text-[11px] font-semibold text-ink-muted mb-1">Office</label>
             <div className="relative">
               <select
                 value={selectedOffice}
                 onChange={(e) => setSelectedOffice(e.target.value)}
-                className="w-full h-8 px-2.5 pr-7 border border-slate-300 rounded text-xs bg-white text-slate-800 appearance-none focus:outline-none focus:ring-1 focus:ring-[#2563eb]"
+                className="w-full h-8 px-2.5 pr-7 border border-line-strong rounded text-xs bg-surface text-ink appearance-none focus:outline-none focus:ring-1 focus:ring-[#2563eb]"
               >
                 <option value="ALL">ALL</option>
                 {offices.map((o) => (
@@ -438,13 +440,13 @@ export default function FinancialReportsPage() {
                   </option>
                 ))}
               </select>
-              <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <ChevronDown className="w-3.5 h-3.5 text-ink-faint absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none" />
             </div>
           </div>
 
           {/* Ledger Type with Red Asterisk */}
           <div>
-            <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+            <label className="block text-[11px] font-semibold text-ink-muted mb-1">
               <span className="text-rose-500 font-bold">* </span>Ledger Type
             </label>
             <div className="relative">
@@ -454,7 +456,7 @@ export default function FinancialReportsPage() {
                   setLedgerType(e.target.value);
                   setSelectedAccountId("");
                 }}
-                className="w-full h-8 px-2.5 pr-7 border border-slate-300 rounded text-xs bg-white text-slate-800 appearance-none focus:outline-none focus:ring-1 focus:ring-[#2563eb]"
+                className="w-full h-8 px-2.5 pr-7 border border-line-strong rounded text-xs bg-surface text-ink appearance-none focus:outline-none focus:ring-1 focus:ring-[#2563eb]"
               >
                 {LEDGER_TYPES.map((t) => (
                   <option key={t} value={t}>
@@ -462,13 +464,13 @@ export default function FinancialReportsPage() {
                   </option>
                 ))}
               </select>
-              <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <ChevronDown className="w-3.5 h-3.5 text-ink-faint absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none" />
             </div>
           </div>
 
           {/* Chart Of Account */}
           <div>
-            <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+            <label className="block text-[11px] font-semibold text-ink-muted mb-1">
               Chart Of Account
             </label>
             <div className="relative">
@@ -476,7 +478,7 @@ export default function FinancialReportsPage() {
                 value={selectedAccountId}
                 onChange={(e) => setSelectedAccountId(e.target.value)}
                 disabled={UNRECORDED_LEDGERS.has(ledgerType) || reportType !== "Ledger"}
-                className="w-full h-8 px-2.5 pr-7 border border-slate-300 rounded text-xs bg-white text-slate-800 appearance-none disabled:bg-slate-50 disabled:text-slate-400 focus:outline-none focus:ring-1 focus:ring-[#2563eb]"
+                className="w-full h-8 px-2.5 pr-7 border border-line-strong rounded text-xs bg-surface text-ink appearance-none disabled:bg-canvas disabled:text-ink-faint focus:outline-none focus:ring-1 focus:ring-[#2563eb]"
               >
                 <option value="">{choicePlaceholder}</option>
                 {choiceOptions.map((o) => (
@@ -485,51 +487,51 @@ export default function FinancialReportsPage() {
                   </option>
                 ))}
               </select>
-              <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <ChevronDown className="w-3.5 h-3.5 text-ink-faint absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none" />
             </div>
           </div>
 
           {/* From Date */}
           <div>
-            <label className="block text-[11px] font-semibold text-slate-700 mb-1">From Date</label>
+            <label className="block text-[11px] font-semibold text-ink-muted mb-1">From Date</label>
             <input
               type="date"
               value={fromDate}
               onChange={(e) => setFromDate(e.target.value)}
-              className="w-full h-8 px-2.5 border border-slate-300 rounded text-xs bg-white text-slate-800 focus:outline-none focus:ring-1 focus:ring-[#2563eb]"
+              className="w-full h-8 px-2.5 border border-line-strong rounded text-xs bg-surface text-ink focus:outline-none focus:ring-1 focus:ring-[#2563eb]"
             />
           </div>
 
           {/* To Date */}
           <div>
-            <label className="block text-[11px] font-semibold text-slate-700 mb-1">To Date</label>
+            <label className="block text-[11px] font-semibold text-ink-muted mb-1">To Date</label>
             <input
               type="date"
               value={toDate}
               onChange={(e) => setToDate(e.target.value)}
-              className="w-full h-8 px-2.5 border border-slate-300 rounded text-xs bg-white text-slate-800 focus:outline-none focus:ring-1 focus:ring-[#2563eb]"
+              className="w-full h-8 px-2.5 border border-line-strong rounded text-xs bg-surface text-ink focus:outline-none focus:ring-1 focus:ring-[#2563eb]"
             />
           </div>
         </div>
 
         {/* Checkboxes & View Button Row */}
         <div className="flex items-center gap-6 pt-1 text-xs">
-          <label className="flex items-center gap-2 cursor-pointer select-none text-slate-700">
+          <label className="flex items-center gap-2 cursor-pointer select-none text-ink-muted">
             <input
               type="checkbox"
               checked={officeWise}
               onChange={(e) => setOfficeWise(e.target.checked)}
-              className="w-3.5 h-3.5 rounded border-slate-300 text-[#2563eb] focus:ring-[#2563eb]"
+              className="w-3.5 h-3.5 rounded border-line-strong text-primary focus:ring-[#2563eb]"
             />
             <span>Office Wise</span>
           </label>
 
-          <label className="flex items-center gap-2 cursor-pointer select-none text-slate-700">
+          <label className="flex items-center gap-2 cursor-pointer select-none text-ink-muted">
             <input
               type="checkbox"
               checked={withoutDecimal}
               onChange={(e) => setWithoutDecimal(e.target.checked)}
-              className="w-3.5 h-3.5 rounded border-slate-300 text-[#2563eb] focus:ring-[#2563eb]"
+              className="w-3.5 h-3.5 rounded border-line-strong text-primary focus:ring-[#2563eb]"
             />
             <span>Without Decimal</span>
           </label>
@@ -547,11 +549,11 @@ export default function FinancialReportsPage() {
       {/* ------------------------------------------------------------- */}
       {/* 3. REPORT OUTPUT VIEW */}
       {/* ------------------------------------------------------------- */}
-      <div className="px-4 mt-3">
+      <div className="px-4 mt-3 flex-1 min-h-0 flex flex-col print:block">
         {hasViewed && (
-          <div className="bg-white border border-slate-200 rounded shadow-2xs p-4 space-y-4">
+          <div className="bg-surface border border-line rounded shadow-2xs p-4 space-y-4 flex-1 min-h-0 flex flex-col print:block">
             {/* Report Header */}
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between border-b border-slate-200 pb-3 gap-3">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between border-b border-line gap-3 shrink-0">
               <div className="flex items-center gap-3">
                 <div className="relative w-28 h-8">
                   <Image
@@ -563,14 +565,14 @@ export default function FinancialReportsPage() {
                   />
                 </div>
                 <div>
-                  <h3 className="text-sm font-bold text-slate-900 uppercase tracking-tight">
+                  <h3 className="text-sm font-bold text-ink uppercase tracking-tight">
                     {activeReport.reportType === "Ledger" ? `Ledger — ${activeReport.ledgerType}` : activeReport.reportType}
                   </h3>
-                  <p className="text-[11px] text-slate-500">
-                    Period: <span className="font-medium text-slate-700">{activeReport.fromDate} to {activeReport.toDate}</span> • Office:{" "}
-                    <span className="font-medium text-slate-700">{activeReport.office}</span>
+                  <p className="text-[11px] text-ink-faint">
+                    Period: <span className="font-medium text-ink-muted">{activeReport.fromDate} to {activeReport.toDate}</span> • Office:{" "}
+                    <span className="font-medium text-ink-muted">{activeReport.office}</span>
                     {activeReport.reportType === "Ledger" && (currentAccount || choiceLabel) && (
-                      <span> • <span className="font-semibold text-blue-600">{currentAccount ? `${currentAccount.code} - ${currentAccount.name}` : choiceLabel}</span></span>
+                      <span> • <span className="font-semibold text-blue-600 dark:text-blue-400">{currentAccount ? `${currentAccount.code} - ${currentAccount.name}` : choiceLabel}</span></span>
                     )}
                   </p>
                 </div>
@@ -578,14 +580,14 @@ export default function FinancialReportsPage() {
 
               {/* Action Buttons */}
               <div className="flex items-center gap-2">
-                <button
+                {perms.export && (<button
                   type="button"
                   onClick={handleExportCSV}
-                  className="h-8 px-3 border border-slate-300 hover:bg-slate-50 text-slate-700 text-xs rounded flex items-center gap-1.5 transition"
+                  className="h-8 px-3 border border-line-strong hover:bg-canvas text-ink-muted text-xs rounded flex items-center gap-1.5 transition"
                 >
                   <Download className="w-3.5 h-3.5" />
                   <span>Excel</span>
-                </button>
+                </button>)}
                 <button
                   type="button"
                   onClick={() => window.print()}
@@ -599,66 +601,66 @@ export default function FinancialReportsPage() {
 
             {/* A. LEDGER TABLE */}
             {activeReport.reportType === "Ledger" && (
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs border border-slate-200">
-                  <thead className="bg-[#f8fafc] border-b border-slate-200 text-[11px] font-semibold text-slate-700">
+              <div className="flex-1 min-h-0 overflow-auto print:overflow-visible [&_thead]:sticky [&_thead]:top-0 [&_thead]:z-10">
+                <table className="w-full text-left text-xs border border-line">
+                  <thead className="bg-canvas border-b border-line text-[11px] font-semibold text-ink-muted">
                     <tr>
-                      <th className="px-2.5 py-2 text-center w-12 border-r border-slate-200">SL</th>
-                      <th className="px-3 py-2 border-r border-slate-200 w-24">Date</th>
-                      <th className="px-3 py-2 border-r border-slate-200 w-32">Voucher No</th>
-                      <th className="px-3 py-2 border-r border-slate-200">Particulars / Narration</th>
+                      <th className="px-2.5 py-2 text-center w-12 border-r border-line">SL</th>
+                      <th className="px-3 py-2 border-r border-line w-24">Date</th>
+                      <th className="px-3 py-2 border-r border-line w-32">Voucher No</th>
+                      <th className="px-3 py-2 border-r border-line">Particulars / Narration</th>
                       {activeReport.officeWise && (
-                        <th className="px-3 py-2 border-r border-slate-200 w-32">Office</th>
+                        <th className="px-3 py-2 border-r border-line w-32">Office</th>
                       )}
-                      <th className="px-3 py-2 text-right border-r border-slate-200 w-28">Debit (৳)</th>
-                      <th className="px-3 py-2 text-right border-r border-slate-200 w-28">Credit (৳)</th>
+                      <th className="px-3 py-2 text-right border-r border-line w-28">Debit (৳)</th>
+                      <th className="px-3 py-2 text-right border-r border-line w-28">Credit (৳)</th>
                       <th className="px-3 py-2 text-right w-32">Balance (৳)</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-100">
+                  <tbody className="divide-y divide-line">
                     {partyLedger && partyLedger.opening !== 0 && (
-                      <tr className="bg-slate-50/70">
-                        <td colSpan={activeReport.officeWise ? 7 : 6} className="px-3 py-2 text-right text-[11px] font-semibold uppercase text-slate-600">
+                      <tr className="bg-canvas/70">
+                        <td colSpan={activeReport.officeWise ? 7 : 6} className="px-3 py-2 text-right text-[11px] font-semibold uppercase text-ink-muted">
                           Opening balance
                         </td>
-                        <td className="px-3 py-2 text-right font-bold text-slate-900 whitespace-nowrap">{formatAmount(partyLedger.opening)}</td>
+                        <td className="px-3 py-2 text-right font-bold text-ink whitespace-nowrap">{formatAmount(partyLedger.opening)}</td>
                       </tr>
                     )}
                     {ledgerEntries.length === 0 ? (
                       <tr>
-                        <td colSpan={activeReport.officeWise ? 8 : 7} className="py-16 text-center text-slate-400">
+                        <td colSpan={activeReport.officeWise ? 8 : 7} className="py-16 text-center text-ink-faint">
                           <Inbox className="w-6 h-6 mx-auto mb-1 stroke-[1.5] text-slate-300" />
                           <span>{ledgerNote ?? "No transaction records found for the selected period."}</span>
                         </td>
                       </tr>
                     ) : (
                       ledgerEntries.map((entry, idx) => (
-                        <tr key={idx} className="hover:bg-slate-50/70">
-                          <td className="px-2.5 py-2 text-center text-slate-500 border-r border-slate-200/70">
+                        <tr key={idx} className="hover:bg-canvas/70">
+                          <td className="px-2.5 py-2 text-center text-ink-faint border-r border-line/70">
                             {idx + 1}
                           </td>
-                          <td className="px-3 py-2 text-slate-700 border-r border-slate-200/70 whitespace-nowrap">
+                          <td className="px-3 py-2 text-ink-muted border-r border-line/70 whitespace-nowrap">
                             {entry.date}
                           </td>
-                          <td className="px-3 py-2 font-mono font-medium text-blue-600 border-r border-slate-200/70 whitespace-nowrap">
+                          <td className="px-3 py-2 font-mono font-medium text-blue-600 dark:text-blue-400 border-r border-line/70 whitespace-nowrap">
                             {entry.voucherNumber}
                           </td>
-                          <td className="px-3 py-2 border-r border-slate-200/70">
-                            <div className="font-medium text-slate-800">{entry.particulars}</div>
-                            {entry.detail && <div className="text-[10px] text-slate-400 font-mono">{entry.detail}</div>}
+                          <td className="px-3 py-2 border-r border-line/70">
+                            <div className="font-medium text-ink">{entry.particulars}</div>
+                            {entry.detail && <div className="text-[10px] text-ink-faint font-mono">{entry.detail}</div>}
                           </td>
                           {activeReport.officeWise && (
-                            <td className="px-3 py-2 text-slate-600 border-r border-slate-200/70 text-[11px]">
+                            <td className="px-3 py-2 text-ink-muted border-r border-line/70 text-[11px]">
                               {entry.officeName}
                             </td>
                           )}
-                          <td className="px-3 py-2 text-right font-medium text-slate-900 border-r border-slate-200/70 whitespace-nowrap">
+                          <td className="px-3 py-2 text-right font-medium text-ink border-r border-line/70 whitespace-nowrap">
                             {entry.debit > 0 ? formatAmount(entry.debit) : "—"}
                           </td>
-                          <td className="px-3 py-2 text-right font-medium text-slate-900 border-r border-slate-200/70 whitespace-nowrap">
+                          <td className="px-3 py-2 text-right font-medium text-ink border-r border-line/70 whitespace-nowrap">
                             {entry.credit > 0 ? formatAmount(entry.credit) : "—"}
                           </td>
-                          <td className="px-3 py-2 text-right font-bold text-slate-900 whitespace-nowrap">
+                          <td className="px-3 py-2 text-right font-bold text-ink whitespace-nowrap">
                             {formatAmount(entry.balance)}
                           </td>
                         </tr>
@@ -667,20 +669,20 @@ export default function FinancialReportsPage() {
                   </tbody>
                   {ledgerEntries.length > 0 && (
                     <tfoot>
-                      <tr className="bg-slate-50 font-bold border-t-2 border-slate-300 text-slate-900">
+                      <tr className="bg-canvas font-bold border-t-2 border-line-strong text-ink">
                         <td
                           colSpan={activeReport.officeWise ? 5 : 4}
                           className="px-3 py-2.5 text-right uppercase text-[11px] tracking-wider"
                         >
                           Period Totals:
                         </td>
-                        <td className="px-3 py-2.5 text-right border-r border-slate-200">
+                        <td className="px-3 py-2.5 text-right border-r border-line">
                           ৳{formatAmount(totalDebit)}
                         </td>
-                        <td className="px-3 py-2.5 text-right border-r border-slate-200">
+                        <td className="px-3 py-2.5 text-right border-r border-line">
                           ৳{formatAmount(totalCredit)}
                         </td>
-                        <td className="px-3 py-2.5 text-right text-blue-700">
+                        <td className="px-3 py-2.5 text-right text-blue-700 dark:text-blue-300">
                           ৳{formatAmount(totalDebit - totalCredit)}
                         </td>
                       </tr>
@@ -692,44 +694,44 @@ export default function FinancialReportsPage() {
 
             {/* B. TRIAL BALANCE TABLE */}
             {activeReport.reportType === "Trial Balance" && (
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs border border-slate-200">
-                  <thead className="bg-[#f8fafc] border-b border-slate-200 text-[11px] font-semibold text-slate-700">
+              <div className="flex-1 min-h-0 overflow-auto print:overflow-visible [&_thead]:sticky [&_thead]:top-0 [&_thead]:z-10">
+                <table className="w-full text-left text-xs border border-line">
+                  <thead className="bg-canvas border-b border-line text-[11px] font-semibold text-ink-muted">
                     <tr>
-                      <th className="px-3 py-2 w-28 border-r border-slate-200">Account Code</th>
-                      <th className="px-3 py-2 border-r border-slate-200">Account Head</th>
-                      <th className="px-3 py-2 border-r border-slate-200 w-32">Classification</th>
-                      <th className="px-3 py-2 text-right border-r border-slate-200 w-36">Debit (৳)</th>
+                      <th className="px-3 py-2 w-28 border-r border-line">Account Code</th>
+                      <th className="px-3 py-2 border-r border-line">Account Head</th>
+                      <th className="px-3 py-2 border-r border-line w-32">Classification</th>
+                      <th className="px-3 py-2 text-right border-r border-line w-36">Debit (৳)</th>
                       <th className="px-3 py-2 text-right w-36">Credit (৳)</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-100">
+                  <tbody className="divide-y divide-line">
                     {tbData.rows.map((row) => (
-                      <tr key={row.code} className="hover:bg-slate-50/70">
-                        <td className="px-3 py-2 font-mono text-blue-600 font-semibold border-r border-slate-200/70">
+                      <tr key={row.code} className="hover:bg-canvas/70">
+                        <td className="px-3 py-2 font-mono text-blue-600 dark:text-blue-400 font-semibold border-r border-line/70">
                           {row.code}
                         </td>
-                        <td className="px-3 py-2 font-medium text-slate-800 border-r border-slate-200/70">
+                        <td className="px-3 py-2 font-medium text-ink border-r border-line/70">
                           {row.name}
                         </td>
-                        <td className="px-3 py-2 text-slate-500 border-r border-slate-200/70 text-[11px]">
+                        <td className="px-3 py-2 text-ink-faint border-r border-line/70 text-[11px]">
                           {row.type}
                         </td>
-                        <td className="px-3 py-2 text-right font-medium text-slate-900 border-r border-slate-200/70">
+                        <td className="px-3 py-2 text-right font-medium text-ink border-r border-line/70">
                           {row.debit > 0 ? formatAmount(row.debit) : "—"}
                         </td>
-                        <td className="px-3 py-2 text-right font-medium text-slate-900">
+                        <td className="px-3 py-2 text-right font-medium text-ink">
                           {row.credit > 0 ? formatAmount(row.credit) : "—"}
                         </td>
                       </tr>
                     ))}
                   </tbody>
                   <tfoot>
-                    <tr className="bg-slate-50 font-bold border-t-2 border-slate-300 text-slate-900">
+                    <tr className="bg-canvas font-bold border-t-2 border-line-strong text-ink">
                       <td colSpan={3} className="px-3 py-2.5 text-right uppercase text-[11px]">
                         Total:
                       </td>
-                      <td className="px-3 py-2.5 text-right border-r border-slate-200">
+                      <td className="px-3 py-2.5 text-right border-r border-line">
                         ৳{formatAmount(tbData.totalDebit)}
                       </td>
                       <td className="px-3 py-2.5 text-right">
@@ -743,33 +745,33 @@ export default function FinancialReportsPage() {
 
             {/* C. PROFIT & LOSS / BALANCE SHEET */}
             {(activeReport.reportType === "Income Statement" || activeReport.reportType === "Balance Sheet") && (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="border border-slate-200 rounded p-3 bg-slate-50/50">
-                  <h4 className="font-bold text-xs text-slate-800 border-b border-slate-200 pb-2 mb-2">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 shrink-0">
+                <div className="border border-line rounded p-3 bg-canvas/50">
+                  <h4 className="font-bold text-xs text-ink border-b border-line pb-2 mb-2">
                     {activeReport.reportType === "Income Statement" ? "Operating Revenues" : "Assets"}
                   </h4>
                   <div className="space-y-1.5 text-xs">
                     {(activeReport.reportType === "Income Statement" ? plData.revenues : bsData.assets).map(
                       (item, i) => (
-                        <div key={i} className="flex justify-between py-1 border-b border-slate-100">
-                          <span className="text-slate-700">{item.name}</span>
-                          <span className="font-semibold text-slate-900">৳{formatAmount(item.amount)}</span>
+                        <div key={i} className="flex justify-between py-1 border-b border-line">
+                          <span className="text-ink-muted">{item.name}</span>
+                          <span className="font-semibold text-ink">৳{formatAmount(item.amount)}</span>
                         </div>
                       ),
                     )}
                   </div>
                 </div>
 
-                <div className="border border-slate-200 rounded p-3 bg-slate-50/50">
-                  <h4 className="font-bold text-xs text-slate-800 border-b border-slate-200 pb-2 mb-2">
+                <div className="border border-line rounded p-3 bg-canvas/50">
+                  <h4 className="font-bold text-xs text-ink border-b border-line pb-2 mb-2">
                     {activeReport.reportType === "Income Statement" ? "Operating Expenses" : "Liabilities & Equity"}
                   </h4>
                   <div className="space-y-1.5 text-xs">
                     {(activeReport.reportType === "Income Statement" ? plData.expenses : [...bsData.liabilities, ...bsData.equity]).map(
                       (item, i) => (
-                        <div key={i} className="flex justify-between py-1 border-b border-slate-100">
-                          <span className="text-slate-700">{item.name}</span>
-                          <span className="font-semibold text-slate-900">৳{formatAmount(item.amount)}</span>
+                        <div key={i} className="flex justify-between py-1 border-b border-line">
+                          <span className="text-ink-muted">{item.name}</span>
+                          <span className="font-semibold text-ink">৳{formatAmount(item.amount)}</span>
                         </div>
                       ),
                     )}
@@ -779,31 +781,31 @@ export default function FinancialReportsPage() {
             )}
             {/* D. CASH FLOW */}
             {activeReport.reportType === "Cash Flow" && (
-              <div className="border border-slate-200 rounded p-3 bg-slate-50/50 text-xs space-y-3">
-                <div className="flex justify-between font-semibold text-slate-800 border-b border-slate-200 pb-2">
+              <div className="border border-line rounded p-3 bg-canvas/50 text-xs space-y-3 shrink-0">
+                <div className="flex justify-between font-semibold text-ink border-b border-line pb-2">
                   <span>Opening cash &amp; bank balance</span>
                   <span>৳{formatAmount(cashFlow.opening)}</span>
                 </div>
                 {cashFlow.sections.map((sec) => (
                   <div key={sec.title}>
-                    <h4 className="font-bold text-slate-800 mb-1">{sec.title}</h4>
+                    <h4 className="font-bold text-ink mb-1">{sec.title}</h4>
                     {sec.items.length === 0 ? (
-                      <p className="py-1 text-slate-400">No movements.</p>
+                      <p className="py-1 text-ink-faint">No movements.</p>
                     ) : (
                       sec.items.map((i) => (
-                        <div key={i.name} className="flex justify-between py-1 border-b border-slate-100">
-                          <span className="text-slate-700">{i.name}</span>
-                          <span className={`font-semibold ${i.amount < 0 ? "text-rose-600" : "text-slate-900"}`}>৳{formatAmount(i.amount)}</span>
+                        <div key={i.name} className="flex justify-between py-1 border-b border-line">
+                          <span className="text-ink-muted">{i.name}</span>
+                          <span className={`font-semibold ${i.amount < 0 ? "text-rose-600 dark:text-rose-400" : "text-ink"}`}>৳{formatAmount(i.amount)}</span>
                         </div>
                       ))
                     )}
-                    <div className="flex justify-between py-1 font-semibold text-slate-800">
+                    <div className="flex justify-between py-1 font-semibold text-ink">
                       <span>Net {sec.title.toLowerCase()}</span>
                       <span>৳{formatAmount(sec.total)}</span>
                     </div>
                   </div>
                 ))}
-                <div className="flex justify-between font-bold text-slate-900 border-t-2 border-slate-300 pt-2">
+                <div className="flex justify-between font-bold text-ink border-t-2 border-line-strong pt-2">
                   <span>Closing cash &amp; bank balance</span>
                   <span>৳{formatAmount(cashFlow.closing)}</span>
                 </div>

@@ -18,6 +18,7 @@ import {
   Printer,
   FileSpreadsheet,
 } from "lucide-react";
+import { useFeaturePermissions, needsPermission } from "@/lib/permissions/useFeaturePermissions";
 
 // ============================================================================
 // TYPES
@@ -158,16 +159,16 @@ function getDefaultTo() {
 
 function statusBadge(status: TransferRequestRow["status"]) {
   const map: Record<string, string> = {
-    Pending: "bg-amber-50 text-amber-700 border-amber-200",
-    Approved: "bg-emerald-50 text-emerald-700 border-emerald-200",
-    "In Progress": "bg-blue-50 text-blue-700 border-blue-200",
-    Review: "bg-amber-50 text-amber-700 border-amber-200",
-    Closed: "bg-slate-100 text-slate-700 border-slate-200",
-    Rejected: "bg-red-50 text-red-700 border-red-200",
+    Pending: "bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-500/30",
+    Approved: "bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-500/30",
+    "In Progress": "bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-500/30",
+    Review: "bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-500/30",
+    Closed: "bg-control text-ink-muted border-line",
+    Rejected: "bg-red-50 dark:bg-red-500/10 text-red-700 dark:text-red-300 border-red-200 dark:border-red-500/30",
   };
   return (
     <span
-      className={`inline-block px-2 py-0.5 text-[10px] font-semibold rounded border ${map[status] || "bg-slate-50 text-slate-600 border-slate-200"}`}
+      className={`inline-block px-2 py-0.5 text-[10px] font-semibold rounded border ${map[status] || "bg-canvas text-ink-muted border-line"}`}
     >
       {status}
     </span>
@@ -178,6 +179,7 @@ function statusBadge(status: TransferRequestRow["status"]) {
 // MAIN PAGE COMPONENT
 // ============================================================================
 export default function TransferRequestPage() {
+  const perms = useFeaturePermissions("/inventory/transfer-request");
   const toast = useToast();
   const [activeTab, setActiveTab] = useState<TabId>("REQUEST_LIST");
   const [searchTerm, setSearchTerm] = useState("");
@@ -236,13 +238,25 @@ export default function TransferRequestPage() {
     () => toDetailRows(detailDocs.data ?? [], detailQuery.office, detailQuery.warehouse, detailQuery.expFrom, detailQuery.expTo),
     [detailDocs.data, detailQuery],
   );
+  // Offices and warehouses come from Configuration (Business Units › Offices / Warehouses).
+  const masters = useResource("inventory-masters", inventoryApi.masters);
+  const configuredWarehouses = useMemo(() => masters.data?.warehouses ?? [], [masters.data]);
   const OFFICE_OPTIONS = useMemo(
-    () => [{ value: "", label: "Office" }, ...[...new Set((detailDocs.data ?? []).map((d) => d.toWarehouse?.officeName ?? ""))].filter(Boolean).sort().map((o) => ({ value: o, label: o }))],
-    [detailDocs.data],
+    () => [{ value: "", label: "Office" }, ...[...new Set(configuredWarehouses.map((w) => w.officeName))].filter(Boolean).sort().map((o) => ({ value: o, label: o }))],
+    [configuredWarehouses],
   );
   const WAREHOUSE_OPTIONS = useMemo(
-    () => [{ value: "", label: "Warehouse" }, ...[...new Set((detailDocs.data ?? []).map((d) => d.toWarehouse?.name ?? ""))].filter(Boolean).sort().map((w) => ({ value: w, label: w }))],
-    [detailDocs.data],
+    () =>
+      detailOffice
+        ? [
+            { value: "", label: "Warehouse" },
+            ...[...new Set(configuredWarehouses.filter((w) => w.officeName === detailOffice).map((w) => w.name))]
+              .filter(Boolean)
+              .sort()
+              .map((w) => ({ value: w, label: w })),
+          ]
+        : [{ value: "", label: "Select Office first" }],
+    [configuredWarehouses, detailOffice],
   );
 
   // ── + Request modal ──
@@ -328,7 +342,7 @@ export default function TransferRequestPage() {
   ];
 
   return (
-    <div className="space-y-3 p-1">
+    <div className="space-y-3 p-1 flex flex-col md:h-[calc(100dvh-3.5rem)] md:overflow-hidden print:block print:h-auto print:overflow-visible">
       <InventoryTabBar
         title="Transfer Request"
         tabs={tabs}
@@ -339,13 +353,13 @@ export default function TransferRequestPage() {
         actions={
           <>
             {(activeTab === "REQUEST_SUMMARY" || activeTab === "REQUEST_DETAILS") && (
-              <button type="button" onClick={handleExportCSV} className={tabBarButton}>
+              (perms.export ? (<button type="button" onClick={handleExportCSV} className={tabBarButton}>
                 <Download /> Excel
-              </button>
+              </button>) : null)
             )}
-            <button type="button" onClick={() => setIsNewRequestOpen(true)} className={tabBarButton}>
+            {perms.create && (<button type="button" onClick={() => setIsNewRequestOpen(true)} className={tabBarButton}>
               <Plus /> Request
-            </button>
+            </button>)}
           </>
         }
       />
@@ -354,45 +368,45 @@ export default function TransferRequestPage() {
       {/* TAB 1: REQUEST LIST                                            */}
       {/* ============================================================= */}
       {activeTab === "REQUEST_LIST" && (
-        <div className="space-y-2">
+        <div className="space-y-2 flex-1 min-h-0 flex flex-col print:block">
           {/* Filter Row */}
-          <div className="bg-slate-50/60 p-3 rounded border border-slate-200 grid grid-cols-2 sm:grid-cols-6 gap-3 items-end text-xs">
+          <div className="bg-canvas/60 p-3 rounded border border-line grid grid-cols-2 sm:grid-cols-6 gap-3 items-end text-xs shrink-0">
             {/* From Date */}
             <div>
-              <label className="block text-[11px] text-slate-600 mb-1 font-medium">
+              <label className="block text-[11px] text-ink-muted mb-1 font-medium">
                 From Date
               </label>
               <input
                 type="date"
                 value={listFromDate}
                 onChange={(e) => setListFromDate(e.target.value)}
-                className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white text-xs focus:ring-1 focus:ring-blue-500"
+                className="w-full border border-line-strong rounded px-2.5 py-1.5 bg-surface text-xs focus:ring-1 focus:ring-blue-500"
               />
             </div>
 
             {/* To Date */}
             <div>
-              <label className="block text-[11px] text-slate-600 mb-1 font-medium">
+              <label className="block text-[11px] text-ink-muted mb-1 font-medium">
                 To Date
               </label>
               <input
                 type="date"
                 value={listToDate}
                 onChange={(e) => setListToDate(e.target.value)}
-                className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white text-xs focus:ring-1 focus:ring-blue-500"
+                className="w-full border border-line-strong rounded px-2.5 py-1.5 bg-surface text-xs focus:ring-1 focus:ring-blue-500"
               />
             </div>
 
             {/* Status */}
             <div>
-              <label className="block text-[11px] text-slate-600 mb-1 font-medium">
+              <label className="block text-[11px] text-ink-muted mb-1 font-medium">
                 Status
               </label>
               <div className="relative">
                 <select
                   value={listStatus}
                   onChange={(e) => setListStatus(e.target.value)}
-                  className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white text-xs focus:ring-1 focus:ring-blue-500 appearance-none pr-7"
+                  className="w-full border border-line-strong rounded px-2.5 py-1.5 bg-surface text-xs focus:ring-1 focus:ring-blue-500 appearance-none pr-7"
                 >
                   {STATUS_OPTIONS.map((o) => (
                     <option key={o.value} value={o.value}>
@@ -404,7 +418,7 @@ export default function TransferRequestPage() {
                   <button
                     type="button"
                     onClick={() => setListStatus("")}
-                    className="absolute right-1.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700"
+                    className="absolute right-1.5 top-1/2 -translate-y-1/2 text-ink-faint hover:text-ink-muted"
                   >
                     <X className="w-3 h-3" />
                   </button>
@@ -414,14 +428,14 @@ export default function TransferRequestPage() {
 
             {/* Person */}
             <div className="col-span-2">
-              <label className="block text-[11px] text-slate-600 mb-1 font-medium">
+              <label className="block text-[11px] text-ink-muted mb-1 font-medium">
                 Requesting Person
               </label>
               <div className="relative">
                 <select
                   value={listPerson}
                   onChange={(e) => setListPerson(e.target.value)}
-                  className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white text-xs focus:ring-1 focus:ring-blue-500 appearance-none pr-7"
+                  className="w-full border border-line-strong rounded px-2.5 py-1.5 bg-surface text-xs focus:ring-1 focus:ring-blue-500 appearance-none pr-7"
                 >
                   {PERSON_OPTIONS.map((o) => (
                     <option key={o.value} value={o.value}>
@@ -433,7 +447,7 @@ export default function TransferRequestPage() {
                   <button
                     type="button"
                     onClick={() => setListPerson("")}
-                    className="absolute right-1.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700"
+                    className="absolute right-1.5 top-1/2 -translate-y-1/2 text-ink-faint hover:text-ink-muted"
                   >
                     <X className="w-3 h-3" />
                   </button>
@@ -454,31 +468,31 @@ export default function TransferRequestPage() {
           </div>
 
           {/* Table */}
-          <div className="border border-slate-300 bg-white rounded shadow-2xs overflow-x-auto">
+          <div className="border border-line-strong bg-surface rounded shadow-2xs flex-1 min-h-0 overflow-auto print:overflow-visible [&_thead]:sticky [&_thead]:top-0 [&_thead]:z-10">
             <table className="erp-table w-full text-left text-xs border-collapse">
-              <thead className="bg-blue-100/70 text-slate-900 font-semibold text-xs select-none">
+              <thead className="bg-blue-100/70 dark:bg-blue-500/15 text-ink font-semibold text-xs select-none">
                 <tr>
-                  <th className="px-2.5 py-2 border-b border-slate-200 w-10 text-center">SL</th>
-                  <th className="px-2.5 py-2 border-b border-slate-200 w-20 text-center">Action</th>
-                  <th className="px-2.5 py-2 border-b border-slate-200 w-24">Req. Date</th>
-                  <th className="px-2.5 py-2 border-b border-slate-200 w-24">Expt. Date</th>
-                  <th className="px-2.5 py-2 border-b border-slate-200 w-32">Req. Code</th>
-                  <th className="px-2.5 py-2 border-b border-slate-200 w-32">Sales Order No</th>
-                  <th className="px-2.5 py-2 border-b border-slate-200">Req. Office</th>
-                  <th className="px-2.5 py-2 border-b border-slate-200">Req. Warehouse</th>
-                  <th className="px-2.5 py-2 border-b border-slate-200 w-20 text-right">Req. Qty</th>
-                  <th className="px-2.5 py-2 border-b border-slate-200 w-20 text-right">Out Qty</th>
-                  <th className="px-2.5 py-2 border-b border-slate-200 w-20 text-right">In Qty</th>
-                  <th className="px-2.5 py-2 border-b border-slate-200 w-24 text-right">Remaining Qty</th>
-                  <th className="px-2.5 py-2 border-b border-slate-200 w-24 text-center">Status</th>
-                  <th className="px-2.5 py-2 border-b border-slate-200">Action By</th>
-                  <th className="px-2.5 py-2 border-b border-slate-200">Request To</th>
+                  <th className="px-2.5 py-2 border-b border-line w-10 text-center">SL</th>
+                  <th className="px-2.5 py-2 border-b border-line w-20 text-center">Action</th>
+                  <th className="px-2.5 py-2 border-b border-line w-24">Req. Date</th>
+                  <th className="px-2.5 py-2 border-b border-line w-24">Expt. Date</th>
+                  <th className="px-2.5 py-2 border-b border-line w-32">Req. Code</th>
+                  <th className="px-2.5 py-2 border-b border-line w-32">Sales Order No</th>
+                  <th className="px-2.5 py-2 border-b border-line">Req. Office</th>
+                  <th className="px-2.5 py-2 border-b border-line">Req. Warehouse</th>
+                  <th className="px-2.5 py-2 border-b border-line w-20 text-right">Req. Qty</th>
+                  <th className="px-2.5 py-2 border-b border-line w-20 text-right">Out Qty</th>
+                  <th className="px-2.5 py-2 border-b border-line w-20 text-right">In Qty</th>
+                  <th className="px-2.5 py-2 border-b border-line w-24 text-right">Remaining Qty</th>
+                  <th className="px-2.5 py-2 border-b border-line w-24 text-center">Status</th>
+                  <th className="px-2.5 py-2 border-b border-line">Action By</th>
+                  <th className="px-2.5 py-2 border-b border-line">Request To</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-200 text-[11px] text-slate-800">
+              <tbody className="divide-y divide-line text-[11px] text-ink">
                 {paginatedList.length === 0 ? (
                   <tr>
-                    <td colSpan={15} className="p-12 text-center text-slate-400">
+                    <td colSpan={15} className="p-12 text-center text-ink-faint">
                       <div className="flex flex-col items-center gap-2">
                         <FileSpreadsheet className="w-8 h-8 stroke-[1.5] text-slate-300" />
                         <span className="text-sm font-medium">No transfer requests found for the selected criteria.</span>
@@ -489,77 +503,77 @@ export default function TransferRequestPage() {
                   paginatedList.map((row, idx) => {
                     const serialNo = (listPage - 1) * listRowsPerPage + idx + 1;
                     return (
-                      <tr key={row.sl || idx} className="hover:bg-slate-50/80 transition-colors">
-                        <td className="px-2.5 py-2 border-b border-slate-200 text-center font-mono text-slate-600">
+                      <tr key={row.sl || idx} className="hover:bg-canvas/80 transition-colors">
+                        <td className="px-2.5 py-2 border-b border-line text-center font-mono text-ink-muted">
                           {serialNo}
                         </td>
-                        <td className="px-2.5 py-2 border-b border-slate-200 text-center">
-                          <div className="row-actions flex items-center justify-center gap-1.5 text-slate-600">
+                        <td className="px-2.5 py-2 border-b border-line text-center">
+                          <div className="row-actions flex items-center justify-center gap-1.5 text-ink-muted">
                             {(row.status === "Pending" || row.status === "Review") && (
                               <>
-                                <button
+                                <button title={!perms.approve ? needsPermission("approve") : undefined}
                                   type="button"
-                                  disabled={busyId === row.id}
+                                  disabled={(busyId === row.id) || !perms.approve}
                                   onClick={() => review(row, "approve")}
                                   className="px-1.5 py-0.5 rounded bg-emerald-600 text-white text-[10px] font-semibold disabled:opacity-50"
                                 >
                                   Approve
                                 </button>
-                                <button
+                                <button title={!perms.approve ? needsPermission("approve") : undefined}
                                   type="button"
-                                  disabled={busyId === row.id}
+                                  disabled={(busyId === row.id) || !perms.approve}
                                   onClick={() => review(row, "reject")}
-                                  className="px-1.5 py-0.5 rounded border border-red-300 text-red-600 text-[10px] font-semibold disabled:opacity-50"
+                                  className="px-1.5 py-0.5 rounded border border-red-300 dark:border-red-500/30 text-red-600 dark:text-red-400 text-[10px] font-semibold disabled:opacity-50"
                                 >
                                   Reject
                                 </button>
                               </>
                             )}
-                            <button type="button" className="p-0.5 hover:text-blue-600" title="View">
+                            <button type="button" className="p-0.5 hover:text-blue-600 dark:hover:text-blue-400" title="View">
                               <Eye className="w-3.5 h-3.5" />
                             </button>
-                            <button type="button" className="p-0.5 hover:text-blue-600" title="Print">
+                            <button type="button" className="p-0.5 hover:text-blue-600 dark:hover:text-blue-400" title="Print">
                               <Printer className="w-3.5 h-3.5" />
                             </button>
                           </div>
                         </td>
-                        <td className="px-2.5 py-2 border-b border-slate-200 whitespace-nowrap text-slate-700">
+                        <td className="px-2.5 py-2 border-b border-line whitespace-nowrap text-ink-muted">
                           {row.reqDate}
                         </td>
-                        <td className="px-2.5 py-2 border-b border-slate-200 whitespace-nowrap text-slate-700">
+                        <td className="px-2.5 py-2 border-b border-line whitespace-nowrap text-ink-muted">
                           {row.exptDate}
                         </td>
-                        <td className="px-2.5 py-2 border-b border-slate-200 font-mono text-slate-800 whitespace-nowrap font-medium">
+                        <td className="px-2.5 py-2 border-b border-line font-mono text-ink whitespace-nowrap font-medium">
                           {row.reqCode}
                         </td>
-                        <td className="px-2.5 py-2 border-b border-slate-200 font-mono text-slate-800 whitespace-nowrap">
+                        <td className="px-2.5 py-2 border-b border-line font-mono text-ink whitespace-nowrap">
                           {row.salesOrderNo}
                         </td>
-                        <td className="px-2.5 py-2 border-b border-slate-200 text-slate-700">
+                        <td className="px-2.5 py-2 border-b border-line text-ink-muted">
                           {row.reqOffice}
                         </td>
-                        <td className="px-2.5 py-2 border-b border-slate-200 text-slate-700">
+                        <td className="px-2.5 py-2 border-b border-line text-ink-muted">
                           {row.reqWarehouse}
                         </td>
-                        <td className="px-2.5 py-2 border-b border-slate-200 text-right font-mono">
+                        <td className="px-2.5 py-2 border-b border-line text-right font-mono">
                           {row.reqQty}
                         </td>
-                        <td className="px-2.5 py-2 border-b border-slate-200 text-right font-mono">
+                        <td className="px-2.5 py-2 border-b border-line text-right font-mono">
                           {row.outQty}
                         </td>
-                        <td className="px-2.5 py-2 border-b border-slate-200 text-right font-mono">
+                        <td className="px-2.5 py-2 border-b border-line text-right font-mono">
                           {row.inQty}
                         </td>
-                        <td className="px-2.5 py-2 border-b border-slate-200 text-right font-mono">
+                        <td className="px-2.5 py-2 border-b border-line text-right font-mono">
                           {row.remainingQty}
                         </td>
-                        <td className="px-2.5 py-2 border-b border-slate-200 text-center">
+                        <td className="px-2.5 py-2 border-b border-line text-center">
                           {statusBadge(row.status)}
                         </td>
-                        <td className="px-2.5 py-2 border-b border-slate-200 text-slate-700">
+                        <td className="px-2.5 py-2 border-b border-line text-ink-muted">
                           {row.actionBy}
                         </td>
-                        <td className="px-2.5 py-2 border-b border-slate-200 text-slate-700">
+                        <td className="px-2.5 py-2 border-b border-line text-ink-muted">
                           {row.requestTo}
                         </td>
                       </tr>
@@ -571,7 +585,7 @@ export default function TransferRequestPage() {
           </div>
 
           {/* Pagination */}
-          <div className="flex flex-col sm:flex-row items-center justify-end gap-6 text-xs text-slate-600 pt-1 pb-4">
+          <div className="flex flex-col sm:flex-row items-center justify-end gap-6 text-xs text-ink-muted pt-1 shrink-0">
             <div className="flex items-center gap-2">
               <span>Rows per page:</span>
               <select
@@ -580,7 +594,7 @@ export default function TransferRequestPage() {
                   setListRowsPerPage(Number(e.target.value));
                   setListPage(1);
                 }}
-                className="border border-slate-300 rounded px-1.5 py-0.5 bg-white text-xs"
+                className="border border-line-strong rounded px-1.5 py-0.5 bg-surface text-xs"
               >
                 <option value={20}>20</option>
                 <option value={50}>50</option>
@@ -598,7 +612,7 @@ export default function TransferRequestPage() {
                   type="button"
                   disabled={listPage <= 1}
                   onClick={() => setListPage((p) => Math.max(1, p - 1))}
-                  className="p-1 border border-slate-200 rounded text-slate-400 hover:text-slate-700 disabled:opacity-40"
+                  className="p-1 border border-line rounded text-ink-faint hover:text-ink-muted disabled:opacity-40"
                 >
                   <ChevronLeft className="w-4 h-4" />
                 </button>
@@ -606,7 +620,7 @@ export default function TransferRequestPage() {
                   type="button"
                   disabled={listPage >= totalListPages}
                   onClick={() => setListPage((p) => Math.min(totalListPages, p + 1))}
-                  className="p-1 border border-slate-200 rounded text-slate-400 hover:text-slate-700 disabled:opacity-40"
+                  className="p-1 border border-line rounded text-ink-faint hover:text-ink-muted disabled:opacity-40"
                 >
                   <ChevronRight className="w-4 h-4" />
                 </button>
@@ -620,32 +634,32 @@ export default function TransferRequestPage() {
       {/* TAB 2: REQUEST SUMMARY                                         */}
       {/* ============================================================= */}
       {activeTab === "REQUEST_SUMMARY" && (
-        <div className="space-y-2">
+        <div className="space-y-2 flex-1 min-h-0 flex flex-col print:block">
           {/* Filter Row */}
-          <div className="bg-slate-50/60 p-3 rounded border border-slate-200 grid grid-cols-2 sm:grid-cols-4 gap-3 items-end text-xs">
+          <div className="bg-canvas/60 p-3 rounded border border-line grid grid-cols-2 sm:grid-cols-4 gap-3 items-end text-xs shrink-0">
             {/* From Date */}
             <div>
-              <label className="block text-[11px] text-slate-600 mb-1 font-medium">
+              <label className="block text-[11px] text-ink-muted mb-1 font-medium">
                 From Date
               </label>
               <input
                 type="date"
                 value={summaryFromDate}
                 onChange={(e) => setSummaryFromDate(e.target.value)}
-                className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white text-xs focus:ring-1 focus:ring-blue-500"
+                className="w-full border border-line-strong rounded px-2.5 py-1.5 bg-surface text-xs focus:ring-1 focus:ring-blue-500"
               />
             </div>
 
             {/* To Date */}
             <div>
-              <label className="block text-[11px] text-slate-600 mb-1 font-medium">
+              <label className="block text-[11px] text-ink-muted mb-1 font-medium">
                 To Date
               </label>
               <input
                 type="date"
                 value={summaryToDate}
                 onChange={(e) => setSummaryToDate(e.target.value)}
-                className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white text-xs focus:ring-1 focus:ring-blue-500"
+                className="w-full border border-line-strong rounded px-2.5 py-1.5 bg-surface text-xs focus:ring-1 focus:ring-blue-500"
               />
             </div>
 
@@ -662,25 +676,25 @@ export default function TransferRequestPage() {
           </div>
 
           {/* Table */}
-          <div className="border border-slate-300 bg-white rounded shadow-2xs overflow-x-auto">
+          <div className="border border-line-strong bg-surface rounded shadow-2xs flex-1 min-h-0 overflow-auto print:overflow-visible [&_thead]:sticky [&_thead]:top-0 [&_thead]:z-10">
             <table className="erp-table w-full text-left text-xs border-collapse">
-              <thead className="bg-blue-100/70 text-slate-900 font-semibold text-xs select-none">
+              <thead className="bg-blue-100/70 dark:bg-blue-500/15 text-ink font-semibold text-xs select-none">
                 <tr>
-                  <th className="px-2.5 py-2 border-b border-slate-200 w-10 text-center">SL</th>
-                  <th className="px-2.5 py-2 border-b border-slate-200 w-28">Item Code</th>
-                  <th className="px-2.5 py-2 border-b border-slate-200 w-28">Item Type</th>
-                  <th className="px-2.5 py-2 border-b border-slate-200">Item Category</th>
-                  <th className="px-2.5 py-2 border-b border-slate-200">Item Name</th>
-                  <th className="px-2.5 py-2 border-b border-slate-200 w-20 text-center">UOM</th>
-                  <th className="px-2.5 py-2 border-b border-slate-200 w-28 text-right">Request Qty</th>
-                  <th className="px-2.5 py-2 border-b border-slate-200 w-28 text-right">Transferred Qty</th>
-                  <th className="px-2.5 py-2 border-b border-slate-200 w-20 text-center">Action</th>
+                  <th className="px-2.5 py-2 border-b border-line w-10 text-center">SL</th>
+                  <th className="px-2.5 py-2 border-b border-line w-28">Item Code</th>
+                  <th className="px-2.5 py-2 border-b border-line w-28">Item Type</th>
+                  <th className="px-2.5 py-2 border-b border-line">Item Category</th>
+                  <th className="px-2.5 py-2 border-b border-line">Item Name</th>
+                  <th className="px-2.5 py-2 border-b border-line w-20 text-center">UOM</th>
+                  <th className="px-2.5 py-2 border-b border-line w-28 text-right">Request Qty</th>
+                  <th className="px-2.5 py-2 border-b border-line w-28 text-right">Transferred Qty</th>
+                  <th className="px-2.5 py-2 border-b border-line w-20 text-center">Action</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-200 text-[11px] text-slate-800">
+              <tbody className="divide-y divide-line text-[11px] text-ink">
                 {paginatedSummary.length === 0 ? (
                   <tr>
-                    <td colSpan={9} className="p-12 text-center text-slate-400">
+                    <td colSpan={9} className="p-12 text-center text-ink-faint">
                       <div className="flex flex-col items-center gap-2">
                         <FileSpreadsheet className="w-8 h-8 stroke-[1.5] text-slate-300" />
                         <span className="text-sm font-medium">No summary data found for the selected date range.</span>
@@ -691,33 +705,33 @@ export default function TransferRequestPage() {
                   paginatedSummary.map((row, idx) => {
                     const serialNo = (summaryPage - 1) * summaryRowsPerPage + idx + 1;
                     return (
-                      <tr key={row.sl || idx} className="hover:bg-slate-50/80 transition-colors">
-                        <td className="px-2.5 py-2 border-b border-slate-200 text-center font-mono text-slate-600">
+                      <tr key={row.sl || idx} className="hover:bg-canvas/80 transition-colors">
+                        <td className="px-2.5 py-2 border-b border-line text-center font-mono text-ink-muted">
                           {serialNo}
                         </td>
-                        <td className="px-2.5 py-2 border-b border-slate-200 font-mono text-slate-800 font-medium">
+                        <td className="px-2.5 py-2 border-b border-line font-mono text-ink font-medium">
                           {row.itemCode}
                         </td>
-                        <td className="px-2.5 py-2 border-b border-slate-200 text-slate-700">
+                        <td className="px-2.5 py-2 border-b border-line text-ink-muted">
                           {row.itemType}
                         </td>
-                        <td className="px-2.5 py-2 border-b border-slate-200 text-slate-700">
+                        <td className="px-2.5 py-2 border-b border-line text-ink-muted">
                           {row.itemCategory}
                         </td>
-                        <td className="px-2.5 py-2 border-b border-slate-200 text-slate-900 font-medium">
+                        <td className="px-2.5 py-2 border-b border-line text-ink font-medium">
                           {row.itemName}
                         </td>
-                        <td className="px-2.5 py-2 border-b border-slate-200 text-center text-slate-700">
+                        <td className="px-2.5 py-2 border-b border-line text-center text-ink-muted">
                           {row.uom}
                         </td>
-                        <td className="px-2.5 py-2 border-b border-slate-200 text-right font-mono">
+                        <td className="px-2.5 py-2 border-b border-line text-right font-mono">
                           {row.requestQty}
                         </td>
-                        <td className="px-2.5 py-2 border-b border-slate-200 text-right font-mono">
+                        <td className="px-2.5 py-2 border-b border-line text-right font-mono">
                           {row.productionQty}
                         </td>
-                        <td className="px-2.5 py-2 border-b border-slate-200 text-center">
-                          <button type="button" className="p-0.5 hover:text-blue-600 text-slate-600" title="View">
+                        <td className="px-2.5 py-2 border-b border-line text-center">
+                          <button type="button" className="p-0.5 hover:text-blue-600 dark:hover:text-blue-400 text-ink-muted" title="View">
                             <Eye className="w-3.5 h-3.5" />
                           </button>
                         </td>
@@ -730,7 +744,7 @@ export default function TransferRequestPage() {
           </div>
 
           {/* Pagination */}
-          <div className="flex flex-col sm:flex-row items-center justify-end gap-6 text-xs text-slate-600 pt-1 pb-4">
+          <div className="flex flex-col sm:flex-row items-center justify-end gap-6 text-xs text-ink-muted pt-1 shrink-0">
             <div className="flex items-center gap-2">
               <span>Rows per page:</span>
               <select
@@ -739,7 +753,7 @@ export default function TransferRequestPage() {
                   setSummaryRowsPerPage(Number(e.target.value));
                   setSummaryPage(1);
                 }}
-                className="border border-slate-300 rounded px-1.5 py-0.5 bg-white text-xs"
+                className="border border-line-strong rounded px-1.5 py-0.5 bg-surface text-xs"
               >
                 <option value={20}>20</option>
                 <option value={50}>50</option>
@@ -757,7 +771,7 @@ export default function TransferRequestPage() {
                   type="button"
                   disabled={summaryPage <= 1}
                   onClick={() => setSummaryPage((p) => Math.max(1, p - 1))}
-                  className="p-1 border border-slate-200 rounded text-slate-400 hover:text-slate-700 disabled:opacity-40"
+                  className="p-1 border border-line rounded text-ink-faint hover:text-ink-muted disabled:opacity-40"
                 >
                   <ChevronLeft className="w-4 h-4" />
                 </button>
@@ -765,7 +779,7 @@ export default function TransferRequestPage() {
                   type="button"
                   disabled={summaryPage >= totalSummaryPages}
                   onClick={() => setSummaryPage((p) => Math.min(totalSummaryPages, p + 1))}
-                  className="p-1 border border-slate-200 rounded text-slate-400 hover:text-slate-700 disabled:opacity-40"
+                  className="p-1 border border-line rounded text-ink-faint hover:text-ink-muted disabled:opacity-40"
                 >
                   <ChevronRight className="w-4 h-4" />
                 </button>
@@ -779,18 +793,21 @@ export default function TransferRequestPage() {
       {/* TAB 3: REQUEST DETAILS                                         */}
       {/* ============================================================= */}
       {activeTab === "REQUEST_DETAILS" && (
-        <div className="space-y-2">
+        <div className="space-y-2 flex-1 min-h-0 flex flex-col print:block">
           {/* Filter Row */}
-          <div className="bg-slate-50/60 p-3 rounded border border-slate-200 grid grid-cols-2 sm:grid-cols-7 gap-3 items-end text-xs">
+          <div className="bg-canvas/60 p-3 rounded border border-line grid grid-cols-2 sm:grid-cols-7 gap-3 items-end text-xs shrink-0">
             {/* Office */}
             <div>
-              <label className="block text-[11px] text-slate-600 mb-1 font-medium">
+              <label className="block text-[11px] text-ink-muted mb-1 font-medium">
                 Office
               </label>
               <select
                 value={detailOffice}
-                onChange={(e) => setDetailOffice(e.target.value)}
-                className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white text-xs focus:ring-1 focus:ring-blue-500"
+                onChange={(e) => {
+                  setDetailOffice(e.target.value);
+                  setDetailWarehouse("");
+                }}
+                className="w-full border border-line-strong rounded px-2.5 py-1.5 bg-surface text-xs focus:ring-1 focus:ring-blue-500"
               >
                 {OFFICE_OPTIONS.map((o) => (
                   <option key={o.value} value={o.value}>
@@ -802,13 +819,14 @@ export default function TransferRequestPage() {
 
             {/* Warehouse */}
             <div>
-              <label className="block text-[11px] text-slate-600 mb-1 font-medium">
+              <label className="block text-[11px] text-ink-muted mb-1 font-medium">
                 Warehouse
               </label>
               <select
                 value={detailWarehouse}
                 onChange={(e) => setDetailWarehouse(e.target.value)}
-                className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white text-xs focus:ring-1 focus:ring-blue-500"
+                disabled={!detailOffice}
+                className="w-full border border-line-strong rounded px-2.5 py-1.5 bg-surface text-xs focus:ring-1 focus:ring-blue-500 disabled:bg-control disabled:text-ink-faint disabled:cursor-not-allowed"
               >
                 {WAREHOUSE_OPTIONS.map((o) => (
                   <option key={o.value} value={o.value}>
@@ -820,59 +838,59 @@ export default function TransferRequestPage() {
 
             {/* From Request Date */}
             <div>
-              <label className="block text-[11px] text-slate-600 mb-1 font-medium">
+              <label className="block text-[11px] text-ink-muted mb-1 font-medium">
                 From Request Date
               </label>
               <input
                 type="date"
                 value={detailFromReqDate}
                 onChange={(e) => setDetailFromReqDate(e.target.value)}
-                className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white text-xs focus:ring-1 focus:ring-blue-500"
+                className="w-full border border-line-strong rounded px-2.5 py-1.5 bg-surface text-xs focus:ring-1 focus:ring-blue-500"
               />
             </div>
 
             {/* To Request Date */}
             <div>
-              <label className="block text-[11px] text-slate-600 mb-1 font-medium">
+              <label className="block text-[11px] text-ink-muted mb-1 font-medium">
                 To Request Date
               </label>
               <input
                 type="date"
                 value={detailToReqDate}
                 onChange={(e) => setDetailToReqDate(e.target.value)}
-                className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white text-xs focus:ring-1 focus:ring-blue-500"
+                className="w-full border border-line-strong rounded px-2.5 py-1.5 bg-surface text-xs focus:ring-1 focus:ring-blue-500"
               />
             </div>
 
             {/* From Exp. Date */}
             <div>
-              <label className="block text-[11px] text-slate-600 mb-1 font-medium">
+              <label className="block text-[11px] text-ink-muted mb-1 font-medium">
                 From Exp. Date
               </label>
               <input
                 type="date"
                 value={detailFromExpDate}
                 onChange={(e) => setDetailFromExpDate(e.target.value)}
-                className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white text-xs focus:ring-1 focus:ring-blue-500"
+                className="w-full border border-line-strong rounded px-2.5 py-1.5 bg-surface text-xs focus:ring-1 focus:ring-blue-500"
               />
             </div>
 
             {/* To Exp. Date */}
             <div>
-              <label className="block text-[11px] text-slate-600 mb-1 font-medium">
+              <label className="block text-[11px] text-ink-muted mb-1 font-medium">
                 To Exp. Date
               </label>
               <input
                 type="date"
                 value={detailToExpDate}
                 onChange={(e) => setDetailToExpDate(e.target.value)}
-                className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white text-xs focus:ring-1 focus:ring-blue-500"
+                className="w-full border border-line-strong rounded px-2.5 py-1.5 bg-surface text-xs focus:ring-1 focus:ring-blue-500"
               />
             </div>
           </div>
 
           {/* View Button below filters */}
-          <div>
+          <div className="shrink-0">
             <button
               type="button"
               onClick={() => setDetailQuery({ from: detailFromReqDate, to: detailToReqDate, expFrom: detailFromExpDate, expTo: detailToExpDate, office: detailOffice, warehouse: detailWarehouse })}
@@ -883,30 +901,30 @@ export default function TransferRequestPage() {
           </div>
 
           {/* Item Request Details Section */}
-          <div className="pt-2">
-            <h3 className="text-sm font-bold text-slate-900 mb-2">
+          <div className="pt-2 flex-1 min-h-0 flex flex-col print:block">
+            <h3 className="text-sm font-bold text-ink mb-2 shrink-0">
               Item Request Details
             </h3>
-            <div className="border border-slate-300 bg-white rounded shadow-2xs overflow-x-auto">
+            <div className="border border-line-strong bg-surface rounded shadow-2xs flex-1 min-h-0 overflow-auto print:overflow-visible [&_thead]:sticky [&_thead]:top-0 [&_thead]:z-10">
               <table className="erp-table w-full text-left text-xs border-collapse">
-                <thead className="bg-blue-100/70 text-slate-900 font-semibold text-xs select-none">
+                <thead className="bg-blue-100/70 dark:bg-blue-500/15 text-ink font-semibold text-xs select-none">
                   <tr>
-                    <th className="px-2.5 py-2 border-b border-slate-200 w-28">Item Code</th>
-                    <th className="px-2.5 py-2 border-b border-slate-200">Item Category</th>
-                    <th className="px-2.5 py-2 border-b border-slate-200">Item Name</th>
-                    <th className="px-2.5 py-2 border-b border-slate-200 w-20 text-center">UOM</th>
-                    <th className="px-2.5 py-2 border-b border-slate-200 w-28 text-center">
+                    <th className="px-2.5 py-2 border-b border-line w-28">Item Code</th>
+                    <th className="px-2.5 py-2 border-b border-line">Item Category</th>
+                    <th className="px-2.5 py-2 border-b border-line">Item Name</th>
+                    <th className="px-2.5 py-2 border-b border-line w-20 text-center">UOM</th>
+                    <th className="px-2.5 py-2 border-b border-line w-28 text-center">
                       Total
                       <br />
                       Qty
                     </th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-200 text-[11px] text-slate-800">
+                <tbody className="divide-y divide-line text-[11px] text-ink">
                   {detailList.length === 0 ? (
                     <>
                       <tr>
-                        <td colSpan={5} className="p-8 text-center text-slate-400">
+                        <td colSpan={5} className="p-8 text-center text-ink-faint">
                           <div className="flex flex-col items-center gap-2">
                             <FileSpreadsheet className="w-8 h-8 stroke-[1.5] text-slate-300" />
                             <span className="text-sm font-medium">
@@ -915,45 +933,45 @@ export default function TransferRequestPage() {
                           </div>
                         </td>
                       </tr>
-                      <tr className="bg-slate-50">
-                        <td className="px-2.5 py-2 border-b border-slate-200 font-bold text-slate-700">
+                      <tr className="bg-canvas">
+                        <td className="px-2.5 py-2 border-b border-line font-bold text-ink-muted">
                           Total
                         </td>
-                        <td className="px-2.5 py-2 border-b border-slate-200" />
-                        <td className="px-2.5 py-2 border-b border-slate-200" />
-                        <td className="px-2.5 py-2 border-b border-slate-200" />
-                        <td className="px-2.5 py-2 border-b border-slate-200" />
+                        <td className="px-2.5 py-2 border-b border-line" />
+                        <td className="px-2.5 py-2 border-b border-line" />
+                        <td className="px-2.5 py-2 border-b border-line" />
+                        <td className="px-2.5 py-2 border-b border-line" />
                       </tr>
                     </>
                   ) : (
                     <>
                       {detailList.map((row, idx) => (
-                        <tr key={idx} className="hover:bg-slate-50/80 transition-colors">
-                          <td className="px-2.5 py-2 border-b border-slate-200 font-mono text-slate-800 font-medium">
+                        <tr key={idx} className="hover:bg-canvas/80 transition-colors">
+                          <td className="px-2.5 py-2 border-b border-line font-mono text-ink font-medium">
                             {row.itemCode}
                           </td>
-                          <td className="px-2.5 py-2 border-b border-slate-200 text-slate-700">
+                          <td className="px-2.5 py-2 border-b border-line text-ink-muted">
                             {row.itemCategory}
                           </td>
-                          <td className="px-2.5 py-2 border-b border-slate-200 text-slate-900 font-medium">
+                          <td className="px-2.5 py-2 border-b border-line text-ink font-medium">
                             {row.itemName}
                           </td>
-                          <td className="px-2.5 py-2 border-b border-slate-200 text-center text-slate-700">
+                          <td className="px-2.5 py-2 border-b border-line text-center text-ink-muted">
                             {row.uom}
                           </td>
-                          <td className="px-2.5 py-2 border-b border-slate-200 text-center font-mono">
+                          <td className="px-2.5 py-2 border-b border-line text-center font-mono">
                             {row.totalQty}
                           </td>
                         </tr>
                       ))}
-                      <tr className="bg-slate-50 font-bold">
-                        <td className="px-2.5 py-2 border-b border-slate-200 text-slate-700">
+                      <tr className="bg-canvas font-bold">
+                        <td className="px-2.5 py-2 border-b border-line text-ink-muted">
                           Total
                         </td>
-                        <td className="px-2.5 py-2 border-b border-slate-200" />
-                        <td className="px-2.5 py-2 border-b border-slate-200" />
-                        <td className="px-2.5 py-2 border-b border-slate-200" />
-                        <td className="px-2.5 py-2 border-b border-slate-200 text-center font-mono">
+                        <td className="px-2.5 py-2 border-b border-line" />
+                        <td className="px-2.5 py-2 border-b border-line" />
+                        <td className="px-2.5 py-2 border-b border-line" />
+                        <td className="px-2.5 py-2 border-b border-line text-center font-mono">
                           {detailList.reduce((sum, r) => sum + r.totalQty, 0)}
                         </td>
                       </tr>

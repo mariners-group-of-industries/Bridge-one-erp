@@ -5,7 +5,7 @@ export const instant = false;
 
 export default function PaymentByGrnPage() {
   return (
-    <Suspense fallback={<div className="p-6 text-sm text-slate-500">Loading Payment By GRN...</div>}>
+    <Suspense fallback={<div className="p-6 text-sm text-ink-faint">Loading Payment By GRN...</div>}>
       <PaymentByGrnView />
     </Suspense>
   );

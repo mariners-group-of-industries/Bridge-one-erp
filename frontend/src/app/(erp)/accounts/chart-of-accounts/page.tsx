@@ -30,6 +30,7 @@ import type {
   CoaPermissionItem,
   NormalBalance,
 } from "@/features/accounts/types";
+import { useFeaturePermissions, needsPermission } from "@/lib/permissions/useFeaturePermissions";
 
 type TierLevel = "Group" | "Class" | "Category" | "GL";
 
@@ -75,6 +76,7 @@ function inferAccountTypeFromCode(code: string): { accountType: AccountType; nor
 }
 
 export default function ChartOfAccountsPage() {
+  const perms = useFeaturePermissions("/accounts/chart-of-accounts");
   const accounts = useAccountingStore((s) => s.accounts);
   const coaPermissions = useAccountingStore((s) => s.coaPermissions);
   const employees = useAccountingStore((s) => s.employees);
@@ -366,8 +368,8 @@ export default function ChartOfAccountsPage() {
             }}
             className={`flex items-center gap-1.5 py-1 px-1.5 rounded cursor-pointer select-none transition ${
               isSelected
-                ? "bg-blue-50 text-blue-800 font-semibold"
-                : "hover:bg-slate-50 text-slate-800"
+                ? "bg-blue-50 dark:bg-blue-500/10 text-blue-800 dark:text-blue-300 font-semibold"
+                : "hover:bg-canvas text-ink"
             }`}
           >
             {children.length > 0 ? (
@@ -377,7 +379,7 @@ export default function ChartOfAccountsPage() {
                   e.stopPropagation();
                   toggleTreeNode(node.code);
                 }}
-                className="w-4 h-4 flex items-center justify-center text-slate-500 hover:text-blue-600 shrink-0"
+                className="w-4 h-4 flex items-center justify-center text-ink-faint hover:text-blue-600 dark:hover:text-blue-400 shrink-0"
               >
                 {isExpanded ? (
                   <MinusSquare className="w-3.5 h-3.5" />
@@ -394,7 +396,7 @@ export default function ChartOfAccountsPage() {
           </div>
 
           {isExpanded && children.length > 0 && (
-            <div className="ml-6 pl-2 border-l border-dashed border-slate-200">
+            <div className="ml-6 pl-2 border-l border-dashed border-line">
               {renderTreeNodes(node.code, depth + 1)}
             </div>
           )}
@@ -796,15 +798,15 @@ export default function ChartOfAccountsPage() {
   }, [ledgerAccount, vouchers]);
 
   return (
-    <div className="space-y-3 font-sans pb-12 bg-white min-h-screen">
+    <div className="space-y-3 font-sans bg-surface flex flex-col md:h-[calc(100dvh-3.5rem)] md:overflow-hidden print:block print:h-auto print:overflow-visible">
       {/* 1. TOP HEADER — Contextual buttons match Screenshots 2, 3, 4 */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-4 py-3 bg-white border-b border-slate-200 print:hidden">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-4 py-3 bg-surface border-b border-line print:hidden shrink-0">
         <div className="flex items-center gap-3">
-          <h1 className="text-xl font-bold text-slate-800 tracking-tight">
+          <h1 className="text-xl font-bold text-ink tracking-tight">
             Chart Of Accounts
           </h1>
           {!hasRootHierarchy && (
-            <button
+            (perms.create ? (<button
               type="button"
               onClick={async () => {
                 const res = await seedStandardCoaAsync();
@@ -815,17 +817,17 @@ export default function ChartOfAccountsPage() {
                   });
                 }
               }}
-              className="h-7 px-2.5 text-[11px] font-medium bg-amber-50 text-amber-700 border border-amber-200 rounded hover:bg-amber-100 transition cursor-pointer"
+              className="h-7 px-2.5 text-[11px] font-medium bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-500/30 rounded hover:bg-amber-100 dark:hover:bg-amber-500/15 transition cursor-pointer"
             >
               Initialize Standard Hierarchy
-            </button>
+            </button>) : null)
           )}
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
           {activeTab === "TABLE" && (
             <>
-              <button
+              {perms.create && (<button
                 type="button"
                 onClick={() => {
                   setEditingAccountId(null);
@@ -850,41 +852,41 @@ export default function ChartOfAccountsPage() {
                 className="h-8 px-3.5 bg-[#2563eb] hover:bg-blue-700 text-white font-medium text-xs rounded flex items-center gap-1.5 shadow-xs transition cursor-pointer"
               >
                 <span>Create Upload</span>
-              </button>
+              </button>)}
 
-              <button
+              {perms.export && (<button
                 type="button"
                 onClick={handleExportExcel}
-                className="h-8 px-3.5 bg-white hover:bg-slate-50 text-[#2563eb] border border-blue-300 font-semibold text-xs rounded flex items-center gap-1.5 shadow-2xs transition uppercase cursor-pointer"
+                className="h-8 px-3.5 bg-surface hover:bg-canvas text-primary border border-blue-300 dark:border-blue-500/30 font-semibold text-xs rounded flex items-center gap-1.5 shadow-2xs transition uppercase cursor-pointer"
               >
                 <Download className="w-3.5 h-3.5" />
                 <span>EXPORT EXCEL</span>
-              </button>
+              </button>)}
 
-              <button
+              {perms.export && (<button
                 type="button"
                 onClick={handlePrint}
-                className="h-8 px-3.5 bg-white hover:bg-slate-50 text-[#2563eb] border border-blue-300 font-semibold text-xs rounded flex items-center gap-1.5 shadow-2xs transition uppercase cursor-pointer"
+                className="h-8 px-3.5 bg-surface hover:bg-canvas text-primary border border-blue-300 dark:border-blue-500/30 font-semibold text-xs rounded flex items-center gap-1.5 shadow-2xs transition uppercase cursor-pointer"
               >
                 <Printer className="w-3.5 h-3.5" />
                 <span>PRINT/PDF</span>
-              </button>
+              </button>)}
             </>
           )}
 
           {activeTab === "TREE" && (
-            <button
+            (perms.export ? (<button
               type="button"
               onClick={handlePrint}
-              className="h-8 px-3.5 bg-white hover:bg-slate-50 text-[#2563eb] border border-blue-300 font-semibold text-xs rounded flex items-center gap-1.5 shadow-2xs transition uppercase cursor-pointer"
+              className="h-8 px-3.5 bg-surface hover:bg-canvas text-primary border border-blue-300 dark:border-blue-500/30 font-semibold text-xs rounded flex items-center gap-1.5 shadow-2xs transition uppercase cursor-pointer"
             >
               <Printer className="w-3.5 h-3.5" />
               <span>PRINT/PDF</span>
-            </button>
+            </button>) : null)
           )}
 
           {activeTab === "PERMISSION" && (
-            <button
+            (perms.create ? (<button
               type="button"
               onClick={() => {
                 setModalError("");
@@ -894,7 +896,7 @@ export default function ChartOfAccountsPage() {
               className="h-8 px-4 bg-[#2563eb] hover:bg-blue-700 text-white font-medium text-xs rounded shadow-xs transition cursor-pointer"
             >
               Create
-            </button>
+            </button>) : null)
           )}
         </div>
       </div>
@@ -902,10 +904,10 @@ export default function ChartOfAccountsPage() {
       {/* Feedback Banner */}
       {feedback && (
         <div
-          className={`mx-4 px-3 py-2 rounded border text-xs flex items-center justify-between print:hidden ${
+          className={`shrink-0 mx-4 px-3 py-2 rounded border text-xs flex items-center justify-between print:hidden ${
             feedback.type === "success"
-              ? "bg-emerald-50 border-emerald-200 text-emerald-800"
-              : "bg-rose-50 border-rose-200 text-rose-700"
+              ? "bg-emerald-50 dark:bg-emerald-500/10 border-emerald-200 dark:border-emerald-500/30 text-emerald-800 dark:text-emerald-300"
+              : "bg-rose-50 dark:bg-rose-500/10 border-rose-200 dark:border-rose-500/30 text-rose-700 dark:text-rose-300"
           }`}
         >
           <div className="flex items-center gap-2">
@@ -927,14 +929,14 @@ export default function ChartOfAccountsPage() {
       )}
 
       {/* 2. TABS BAR */}
-      <div className="px-4 border-b border-slate-200 flex items-center gap-6 text-xs font-semibold uppercase tracking-wider print:hidden">
+      <div className="px-4 border-b border-line flex items-center gap-6 text-xs font-semibold uppercase tracking-wider print:hidden shrink-0">
         <button
           type="button"
           onClick={() => setActiveTab("TABLE")}
           className={`py-2.5 transition border-b-2 -mb-[1px] cursor-pointer ${
             activeTab === "TABLE"
-              ? "text-[#2563eb] border-[#2563eb] font-bold"
-              : "text-slate-500 border-transparent hover:text-slate-800"
+              ? "text-primary border-[#2563eb] font-bold"
+              : "text-ink-faint border-transparent hover:text-ink"
           }`}
         >
           TABLE VIEW
@@ -945,8 +947,8 @@ export default function ChartOfAccountsPage() {
           onClick={() => setActiveTab("TREE")}
           className={`py-2.5 transition border-b-2 -mb-[1px] cursor-pointer ${
             activeTab === "TREE"
-              ? "text-[#2563eb] border-[#2563eb] font-bold"
-              : "text-slate-500 border-transparent hover:text-slate-800"
+              ? "text-primary border-[#2563eb] font-bold"
+              : "text-ink-faint border-transparent hover:text-ink"
           }`}
         >
           TREE VIEW
@@ -957,8 +959,8 @@ export default function ChartOfAccountsPage() {
           onClick={() => setActiveTab("PERMISSION")}
           className={`py-2.5 transition border-b-2 -mb-[1px] cursor-pointer ${
             activeTab === "PERMISSION"
-              ? "text-[#2563eb] border-[#2563eb] font-bold"
-              : "text-slate-500 border-transparent hover:text-slate-800"
+              ? "text-primary border-[#2563eb] font-bold"
+              : "text-ink-faint border-transparent hover:text-ink"
           }`}
         >
           COA PERMISSION
@@ -967,15 +969,15 @@ export default function ChartOfAccountsPage() {
 
       {/* 3. TAB 1: TABLE VIEW */}
       {activeTab === "TABLE" && (
-        <div className="px-4 space-y-3">
-          <div className="w-64 print:hidden">
-            <label className="block text-[11px] text-slate-500 font-medium mb-1">
+        <div className="px-4 space-y-3 flex-1 min-h-0 flex flex-col print:block">
+          <div className="w-64 print:hidden shrink-0">
+            <label className="block text-[11px] text-ink-faint font-medium mb-1">
               Status
             </label>
             <select
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value as "Active" | "Inactive" | "All")}
-              className="w-full h-9 px-2.5 border border-slate-300 rounded text-xs text-slate-800 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+              className="w-full h-9 px-2.5 border border-line-strong rounded text-xs text-ink bg-surface focus:outline-none focus:ring-1 focus:ring-blue-500"
             >
               <option value="Active">Active</option>
               <option value="Inactive">Inactive</option>
@@ -983,22 +985,22 @@ export default function ChartOfAccountsPage() {
             </select>
           </div>
 
-          <div className="overflow-x-auto border border-slate-200 rounded">
+          <div className="border border-line rounded flex-1 min-h-0 overflow-auto print:overflow-visible [&_thead]:sticky [&_thead]:top-0 [&_thead]:z-10">
             <table className="w-full text-left text-xs border-collapse">
-              <thead className="bg-[#d8ebfc] border-b border-slate-200 text-[11px] font-bold text-slate-800">
+              <thead className="bg-grid-head border-b border-line text-[11px] font-bold text-ink">
                 <tr>
-                  <th className="px-3 py-2 w-12 border-r border-slate-200 text-center">SL</th>
-                  <th className="px-3 py-2 w-28 border-r border-slate-200">Code</th>
-                  <th className="px-4 py-2 border-r border-slate-200">Description</th>
-                  <th className="px-3 py-2 w-36 border-r border-slate-200 text-right">Amount</th>
-                  <th className="px-3 py-2 w-32 border-r border-slate-200">Account Type</th>
+                  <th className="px-3 py-2 w-12 border-r border-line text-center">SL</th>
+                  <th className="px-3 py-2 w-28 border-r border-line">Code</th>
+                  <th className="px-4 py-2 border-r border-line">Description</th>
+                  <th className="px-3 py-2 w-36 border-r border-line text-right">Amount</th>
+                  <th className="px-3 py-2 w-32 border-r border-line">Account Type</th>
                   <th className="px-3 py-2 w-40 text-center print:hidden">Action</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody className="divide-y divide-line">
                 {hierarchicalAccounts.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="py-12 text-center text-slate-400">
+                    <td colSpan={6} className="py-12 text-center text-ink-faint">
                       No accounts found for the selected status.
                     </td>
                   </tr>
@@ -1021,37 +1023,37 @@ export default function ChartOfAccountsPage() {
                     return (
                       <tr
                         key={acc.id}
-                        className="hover:bg-blue-50/30 transition-colors"
+                        className="hover:bg-blue-50/30 dark:hover:bg-blue-500/10 transition-colors"
                       >
-                        <td className="px-3 py-2 text-center text-slate-500 border-r border-slate-100 text-[11px] tabular-nums">
+                        <td className="px-3 py-2 text-center text-ink-faint border-r border-line text-[11px] tabular-nums">
                           {index + 1}
                         </td>
 
-                        <td className="px-3 py-2 text-slate-800 border-r border-slate-100 text-xs tabular-nums">
+                        <td className="px-3 py-2 text-ink border-r border-line text-xs tabular-nums">
                           {acc.code}
                         </td>
 
-                        <td className={`py-2 pr-4 border-r border-slate-100 ${paddingLeft}`}>
+                        <td className={`py-2 pr-4 border-r border-line ${paddingLeft}`}>
                           <span
                             className={
                               isGroup
-                                ? "font-semibold text-slate-900"
+                                ? "font-semibold text-ink"
                                 : isClass || isCategory
-                                ? "font-medium text-slate-800"
-                                : "text-slate-700"
+                                ? "font-medium text-ink"
+                                : "text-ink-muted"
                             }
                           >
                             {acc.name}
                           </span>
                         </td>
 
-                        <td className="px-3 py-2 text-right text-slate-800 border-r border-slate-100 text-xs tabular-nums">
+                        <td className="px-3 py-2 text-right text-ink border-r border-line text-xs tabular-nums">
                           {isGL ? (
                             <button
                               type="button"
                               onClick={() => setLedgerAccount(acc)}
                               title="View General Ledger transactions"
-                              className="underline decoration-slate-500 hover:text-blue-600 cursor-pointer tabular-nums"
+                              className="underline decoration-ink-faint hover:text-blue-600 dark:hover:text-blue-400 cursor-pointer tabular-nums"
                             >
                               {fmtAmount(acc.rollupBalance)}
                             </button>
@@ -1060,18 +1062,18 @@ export default function ChartOfAccountsPage() {
                           )}
                         </td>
 
-                        <td className="px-3 py-2 text-slate-700 border-r border-slate-100 text-xs">
+                        <td className="px-3 py-2 text-ink-muted border-r border-line text-xs">
                           {acc.tier}
                         </td>
 
                         <td className="px-3 py-2 text-center print:hidden">
                           <div className="row-actions flex items-center justify-center gap-2">
                             {(isGroup || isClass || isCategory) && (
-                              <button
+                              <button disabled={!perms.create}
                                 type="button"
                                 onClick={() => handleAddChild(acc)}
-                                title={`Add Child under ${acc.name}`}
-                                className="w-5 h-5 rounded-full bg-[#2563eb] hover:bg-blue-700 text-white flex items-center justify-center transition cursor-pointer"
+                                title={!perms.create ? needsPermission("create") : (`Add Child under ${acc.name}`)}
+                                className="w-5 h-5 rounded-full bg-[#2563eb] hover:bg-blue-700 text-white flex items-center justify-center transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                               >
                                 <Plus className="w-3.5 h-3.5" />
                               </button>
@@ -1079,21 +1081,21 @@ export default function ChartOfAccountsPage() {
 
                             {isGL && (
                               <>
-                                <button
+                                <button disabled={!perms.edit}
                                   type="button"
                                   onClick={() => handleEdit(acc)}
-                                  title="Edit Account Head"
-                                  className="p-1 text-slate-500 hover:text-blue-600 transition cursor-pointer"
+                                  title={!perms.edit ? needsPermission("edit") : "Edit Account Head"}
+                                  className="p-1 text-ink-faint hover:text-blue-600 dark:hover:text-blue-400 transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                                 >
                                   <Pencil className="w-3.5 h-3.5" />
                                 </button>
 
-                                <button
+                                <button disabled={!perms.delete}
                                   type="button"
                                   onClick={() => setToDelete({ kind: "account", account: acc })}
-                                  title="Delete Account"
+                                  title={!perms.delete ? needsPermission("delete") : "Delete Account"}
                                   aria-label={`Delete account ${acc.code}`}
-                                  className="inline-flex size-6 items-center justify-center rounded text-slate-500 hover:text-rose-600 transition cursor-pointer"
+                                  className="inline-flex size-6 items-center justify-center rounded text-ink-faint hover:text-rose-600 dark:hover:text-rose-400 transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                                 >
                                   <Trash2 className="w-3.5 h-3.5" />
                                 </button>
@@ -1101,16 +1103,16 @@ export default function ChartOfAccountsPage() {
                             )}
 
                             {(isCategory || isGL) && (
-                              <button
+                              <button disabled={!perms.edit}
                                 type="button"
                                 onClick={() => toggleAccountStatus(acc.id)}
-                                title={acc.status === "ACTIVE" ? "Deactivate" : "Activate"}
+                                title={!perms.edit ? needsPermission("edit") : (acc.status === "ACTIVE" ? "Deactivate" : "Activate")}
                                 className={`w-8 h-4 rounded-full transition-colors relative flex items-center px-0.5 cursor-pointer ${
-                                  acc.status === "ACTIVE" ? "bg-[#2563eb]" : "bg-slate-300"
-                                }`}
+                                  acc.status === "ACTIVE" ? "bg-[#2563eb]" : "bg-line-strong"
+                                } disabled:opacity-40 disabled:cursor-not-allowed`}
                               >
                                 <span
-                                  className={`w-3 h-3 rounded-full bg-white transition-transform ${
+                                  className={`w-3 h-3 rounded-full bg-surface transition-transform ${
                                     acc.status === "ACTIVE" ? "translate-x-4" : "translate-x-0"
                                   }`}
                                 />
@@ -1118,7 +1120,7 @@ export default function ChartOfAccountsPage() {
                             )}
 
                             {isGL && (
-                              <button
+                              <button disabled={!perms.create}
                                 type="button"
                                 onClick={() => {
                                   setModalAccountCode(acc.code);
@@ -1126,8 +1128,8 @@ export default function ChartOfAccountsPage() {
                                   setStagedPermissions([]);
                                   setIsPermModalOpen(true);
                                 }}
-                                title="Assign Employee COA Permission"
-                                className="p-1 text-slate-600 hover:text-blue-600 transition cursor-pointer"
+                                title={!perms.create ? needsPermission("create") : "Assign Employee COA Permission"}
+                                className="p-1 text-ink-muted hover:text-blue-600 dark:hover:text-blue-400 transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                               >
                                 <User className="w-3.5 h-3.5" />
                               </button>
@@ -1146,27 +1148,27 @@ export default function ChartOfAccountsPage() {
 
       {/* 4. TAB 2: TREE VIEW */}
       {activeTab === "TREE" && (
-        <div className="px-4 space-y-2">
+        <div className="px-4 space-y-2 shrink-0">
           <div className="flex items-center gap-2 print:hidden">
             <button
               type="button"
               onClick={expandAll}
-              className="px-2.5 py-1 text-[11px] font-medium text-slate-600 hover:text-slate-900 bg-slate-100 rounded transition cursor-pointer"
+              className="px-2.5 py-1 text-[11px] font-medium text-ink-muted hover:text-ink bg-control rounded transition cursor-pointer"
             >
               Expand All
             </button>
             <button
               type="button"
               onClick={collapseAll}
-              className="px-2.5 py-1 text-[11px] font-medium text-slate-600 hover:text-slate-900 bg-slate-100 rounded transition cursor-pointer"
+              className="px-2.5 py-1 text-[11px] font-medium text-ink-muted hover:text-ink bg-control rounded transition cursor-pointer"
             >
               Collapse All
             </button>
           </div>
 
-          <div className="py-2 min-h-[460px] bg-white">
+          <div className="py-2 min-h-[460px] bg-surface">
             {rootNodes.length === 0 ? (
-              <div className="py-12 text-center text-xs text-slate-400">
+              <div className="py-12 text-center text-xs text-ink-faint">
                 No Chart of Accounts loaded yet.
               </div>
             ) : (
@@ -1178,12 +1180,12 @@ export default function ChartOfAccountsPage() {
 
       {/* 5. TAB 3: COA PERMISSION */}
       {activeTab === "PERMISSION" && (
-        <div className="px-4 space-y-3">
+        <div className="px-4 space-y-3 flex-1 min-h-0 flex flex-col print:block">
           {/* Filter Bar matching Screenshot 4 */}
-          <div className="flex flex-wrap items-end gap-3 text-xs">
+          <div className="flex flex-wrap items-end gap-3 text-xs shrink-0">
             {/* Employee Autocomplete Filter */}
             <div className="w-72 relative">
-              <label className="block text-[11px] text-slate-500 font-medium mb-1">
+              <label className="block text-[11px] text-ink-faint font-medium mb-1">
                 Employee
               </label>
               <div className="relative">
@@ -1197,13 +1199,13 @@ export default function ChartOfAccountsPage() {
                     setPermEmpSearch(e.target.value);
                     setShowFilterEmpDropdown(true);
                   }}
-                  className="w-full h-9 pl-3 pr-8 border border-slate-300 rounded text-xs bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  className="w-full h-9 pl-3 pr-8 border border-line-strong rounded text-xs bg-surface focus:outline-none focus:ring-1 focus:ring-blue-500"
                 />
-                <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-2.5 pointer-events-none" />
+                <ChevronDown className="w-3.5 h-3.5 text-ink-faint absolute right-2.5 top-2.5 pointer-events-none" />
               </div>
 
               {showFilterEmpDropdown && matchingFilterEmployees.length > 0 && (
-                <div className="absolute z-20 left-0 right-0 mt-1 max-h-52 overflow-y-auto bg-white border border-slate-200 rounded shadow-md">
+                <div className="absolute z-20 left-0 right-0 mt-1 max-h-52 overflow-y-auto bg-surface border border-line rounded shadow-md">
                   {matchingFilterEmployees.map((emp) => (
                     <button
                       key={emp.id}
@@ -1212,10 +1214,10 @@ export default function ChartOfAccountsPage() {
                         setPermEmpSearch(emp.name);
                         setShowFilterEmpDropdown(false);
                       }}
-                      className="w-full text-left px-3 py-1.5 text-xs hover:bg-blue-50 flex items-center justify-between cursor-pointer"
+                      className="w-full text-left px-3 py-1.5 text-xs hover:bg-blue-50 dark:hover:bg-blue-500/10 flex items-center justify-between cursor-pointer"
                     >
-                      <span className="font-medium text-slate-800">{emp.name}</span>
-                      <span className="text-[10px] text-slate-400 font-mono">
+                      <span className="font-medium text-ink">{emp.name}</span>
+                      <span className="text-[10px] text-ink-faint font-mono">
                         {emp.employeeCode}
                       </span>
                     </button>
@@ -1226,13 +1228,13 @@ export default function ChartOfAccountsPage() {
 
             {/* Voucher Type Filter */}
             <div className="w-60">
-              <label className="block text-[11px] text-slate-500 font-medium mb-1">
+              <label className="block text-[11px] text-ink-faint font-medium mb-1">
                 Voucher Type
               </label>
               <select
                 value={permVoucherFilter}
                 onChange={(e) => setPermVoucherFilter(e.target.value)}
-                className="w-full h-9 px-2.5 border border-slate-300 rounded text-xs bg-white text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                className="w-full h-9 px-2.5 border border-line-strong rounded text-xs bg-surface text-ink focus:outline-none focus:ring-1 focus:ring-blue-500"
               >
                 <option value="ALL">Voucher Type</option>
                 <option value="Payment">Payment</option>
@@ -1246,13 +1248,13 @@ export default function ChartOfAccountsPage() {
 
             {/* Account Head Filter */}
             <div className="w-64">
-              <label className="block text-[11px] text-slate-500 font-medium mb-1">
+              <label className="block text-[11px] text-ink-faint font-medium mb-1">
                 Account Head
               </label>
               <select
                 value={permAccountFilter}
                 onChange={(e) => setPermAccountFilter(e.target.value)}
-                className="w-full h-9 px-2.5 border border-slate-300 rounded text-xs bg-white text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                className="w-full h-9 px-2.5 border border-line-strong rounded text-xs bg-surface text-ink focus:outline-none focus:ring-1 focus:ring-blue-500"
               >
                 <option value="ALL">Account Head</option>
                 {glAndAllAccountOptions.map((acc) => (
@@ -1283,70 +1285,70 @@ export default function ChartOfAccountsPage() {
           </div>
 
           {/* Permissions Table matching Screenshot 4 */}
-          <div className="overflow-x-auto border border-slate-200 rounded">
+          <div className="border border-line rounded flex-1 min-h-0 overflow-auto print:overflow-visible [&_thead]:sticky [&_thead]:top-0 [&_thead]:z-10">
             <table className="w-full text-left text-xs border-collapse">
-              <thead className="bg-[#d8ebfc] border-b border-slate-200 text-[11px] font-bold text-slate-800">
+              <thead className="bg-grid-head border-b border-line text-[11px] font-bold text-ink">
                 <tr>
-                  <th className="px-3 py-2 w-16 border-r border-slate-200 text-center">SL</th>
-                  <th className="px-4 py-2 border-r border-slate-200">Employee Name</th>
-                  <th className="px-4 py-2 border-r border-slate-200">Voucher Type</th>
-                  <th className="px-4 py-2 border-r border-slate-200">Account Head</th>
+                  <th className="px-3 py-2 w-16 border-r border-line text-center">SL</th>
+                  <th className="px-4 py-2 border-r border-line">Employee Name</th>
+                  <th className="px-4 py-2 border-r border-line">Voucher Type</th>
+                  <th className="px-4 py-2 border-r border-line">Account Head</th>
                   <th className="px-3 py-2 w-32 text-center">Action</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody className="divide-y divide-line">
                 {displayedPermissions.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="py-10 text-center text-slate-400">
+                    <td colSpan={5} className="py-10 text-center text-ink-faint">
                       No COA permissions found. Click &quot;Create&quot; to assign access rights.
                     </td>
                   </tr>
                 ) : (
                   displayedPermissions.map((perm, index) => (
-                    <tr key={perm.id} className="hover:bg-slate-50/70 transition">
-                      <td className="px-3 py-2 text-center text-slate-500 border-r border-slate-100 tabular-nums">
+                    <tr key={perm.id} className="hover:bg-canvas/70 transition">
+                      <td className="px-3 py-2 text-center text-ink-faint border-r border-line tabular-nums">
                         {index + 1}
                       </td>
-                      <td className="px-4 py-2 font-medium text-slate-900 border-r border-slate-100">
+                      <td className="px-4 py-2 font-medium text-ink border-r border-line">
                         {perm.employeeName}
-                        <span className="text-[10px] text-slate-400 block font-mono">
+                        <span className="text-[10px] text-ink-faint block font-mono">
                           {perm.employeeId}
                         </span>
                       </td>
-                      <td className="px-4 py-2 text-slate-700 border-r border-slate-100">
-                        <span className="px-2 py-0.5 rounded bg-blue-50 text-blue-700 text-[11px] font-semibold">
+                      <td className="px-4 py-2 text-ink-muted border-r border-line">
+                        <span className="px-2 py-0.5 rounded bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-300 text-[11px] font-semibold">
                           {perm.voucherType}
                         </span>
                       </td>
-                      <td className="px-4 py-2 text-slate-800 border-r border-slate-100">
-                        <span className="font-mono text-blue-700 font-semibold mr-1.5">
+                      <td className="px-4 py-2 text-ink border-r border-line">
+                        <span className="font-mono text-blue-700 dark:text-blue-300 font-semibold mr-1.5">
                           {perm.accountHeadCode}
                         </span>
                         {perm.accountHeadName}
                       </td>
                       <td className="px-3 py-2 text-center">
                         <div className="row-actions flex items-center justify-center gap-2">
-                          <button
+                          <button disabled={!perms.edit}
                             type="button"
                             onClick={() => toggleCoaPermission(perm.id)}
-                            title={perm.status === "ACTIVE" ? "Revoke Permission" : "Restore Permission"}
+                            title={!perms.edit ? needsPermission("edit") : (perm.status === "ACTIVE" ? "Revoke Permission" : "Restore Permission")}
                             className={`w-8 h-4 rounded-full transition-colors relative flex items-center px-0.5 cursor-pointer ${
-                              perm.status === "ACTIVE" ? "bg-[#2563eb]" : "bg-slate-300"
-                            }`}
+                              perm.status === "ACTIVE" ? "bg-[#2563eb]" : "bg-line-strong"
+                            } disabled:opacity-40 disabled:cursor-not-allowed`}
                           >
                             <span
-                              className={`w-3 h-3 rounded-full bg-white transition-transform ${
+                              className={`w-3 h-3 rounded-full bg-surface transition-transform ${
                                 perm.status === "ACTIVE" ? "translate-x-4" : "translate-x-0"
                               }`}
                             />
                           </button>
 
-                          <button
+                          <button disabled={!perms.delete}
                             type="button"
                             onClick={() => setToDelete({ kind: "permission", permission: perm })}
-                            title="Delete Permission"
+                            title={!perms.delete ? needsPermission("delete") : "Delete Permission"}
                             aria-label={`Delete permission of ${perm.employeeName}`}
-                            className="inline-flex size-6 items-center justify-center rounded text-slate-400 hover:text-rose-600 transition cursor-pointer"
+                            className="inline-flex size-6 items-center justify-center rounded text-ink-faint hover:text-rose-600 dark:hover:text-rose-400 transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
@@ -1370,14 +1372,14 @@ export default function ChartOfAccountsPage() {
       >
         <div className="space-y-3 text-xs">
           {!editingAccountId && (
-            <div className="flex border-b border-slate-200 gap-4 mb-2">
+            <div className="flex border-b border-line gap-4 mb-2">
               <button
                 type="button"
                 onClick={() => setCreateUploadTab("CREATE")}
                 className={`pb-2 text-xs font-semibold uppercase tracking-wider border-b-2 -mb-[1px] cursor-pointer ${
                   createUploadTab === "CREATE"
-                    ? "text-[#2563eb] border-[#2563eb]"
-                    : "text-slate-500 border-transparent hover:text-slate-800"
+                    ? "text-primary border-[#2563eb]"
+                    : "text-ink-faint border-transparent hover:text-ink"
                 }`}
               >
                 Create Single Account
@@ -1387,8 +1389,8 @@ export default function ChartOfAccountsPage() {
                 onClick={() => setCreateUploadTab("UPLOAD")}
                 className={`pb-2 text-xs font-semibold uppercase tracking-wider border-b-2 -mb-[1px] cursor-pointer ${
                   createUploadTab === "UPLOAD"
-                    ? "text-[#2563eb] border-[#2563eb]"
-                    : "text-slate-500 border-transparent hover:text-slate-800"
+                    ? "text-primary border-[#2563eb]"
+                    : "text-ink-faint border-transparent hover:text-ink"
                 }`}
               >
                 Bulk Excel / CSV Upload
@@ -1397,7 +1399,7 @@ export default function ChartOfAccountsPage() {
           )}
 
           {modalError && (
-            <div className="flex items-center gap-2 rounded bg-rose-50 border border-rose-200 p-2 text-xs font-medium text-rose-700">
+            <div className="flex items-center gap-2 rounded bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/30 p-2 text-xs font-medium text-rose-700 dark:text-rose-300">
               <AlertCircle className="w-4 h-4 shrink-0" /> {modalError}
             </div>
           )}
@@ -1406,7 +1408,7 @@ export default function ChartOfAccountsPage() {
             <form onSubmit={handleSaveAccount} className="space-y-3">
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-[11px] font-semibold text-slate-700 uppercase tracking-wider mb-1">
+                  <label className="block text-[11px] font-semibold text-ink-muted uppercase tracking-wider mb-1">
                     Account Code *
                   </label>
                   <input
@@ -1415,12 +1417,12 @@ export default function ChartOfAccountsPage() {
                     placeholder="e.g. 10101016"
                     value={accountForm.code}
                     onChange={(e) => setAccountForm({ ...accountForm, code: e.target.value })}
-                    className="w-full h-8 px-2.5 border border-slate-300 rounded text-xs font-mono font-semibold focus:ring-1 focus:ring-blue-500"
+                    className="w-full h-8 px-2.5 border border-line-strong rounded text-xs font-mono font-semibold focus:ring-1 focus:ring-blue-500"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-[11px] font-semibold text-slate-700 uppercase tracking-wider mb-1">
+                  <label className="block text-[11px] font-semibold text-ink-muted uppercase tracking-wider mb-1">
                     Account Type *
                   </label>
                   <select
@@ -1434,7 +1436,7 @@ export default function ChartOfAccountsPage() {
                         isGroup: tier !== "GL",
                       });
                     }}
-                    className="w-full h-8 px-2.5 border border-slate-300 rounded text-xs focus:ring-1 focus:ring-blue-500"
+                    className="w-full h-8 px-2.5 border border-line-strong rounded text-xs focus:ring-1 focus:ring-blue-500"
                   >
                     <option value="Group">Group</option>
                     <option value="Class">Class</option>
@@ -1445,7 +1447,7 @@ export default function ChartOfAccountsPage() {
               </div>
 
               <div>
-                <label className="block text-[11px] font-semibold text-slate-700 uppercase tracking-wider mb-1">
+                <label className="block text-[11px] font-semibold text-ink-muted uppercase tracking-wider mb-1">
                   Description *
                 </label>
                 <input
@@ -1454,19 +1456,19 @@ export default function ChartOfAccountsPage() {
                   placeholder="e.g. Cash in Hand - Dhaka Desk"
                   value={accountForm.name}
                   onChange={(e) => setAccountForm({ ...accountForm, name: e.target.value })}
-                  className="w-full h-8 px-2.5 border border-slate-300 rounded text-xs focus:ring-1 focus:ring-blue-500"
+                  className="w-full h-8 px-2.5 border border-line-strong rounded text-xs focus:ring-1 focus:ring-blue-500"
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-[11px] font-semibold text-slate-700 uppercase tracking-wider mb-1">
+                  <label className="block text-[11px] font-semibold text-ink-muted uppercase tracking-wider mb-1">
                     Parent Account
                   </label>
                   <select
                     value={accountForm.parentCode}
                     onChange={(e) => setAccountForm({ ...accountForm, parentCode: e.target.value })}
-                    className="w-full h-8 px-2.5 border border-slate-300 rounded text-xs focus:ring-1 focus:ring-blue-500"
+                    className="w-full h-8 px-2.5 border border-line-strong rounded text-xs focus:ring-1 focus:ring-blue-500"
                   >
                     <option value="">None (Top Level Group)</option>
                     {accounts
@@ -1480,7 +1482,7 @@ export default function ChartOfAccountsPage() {
                 </div>
 
                 <div>
-                  <label className="block text-[11px] font-semibold text-slate-700 uppercase tracking-wider mb-1">
+                  <label className="block text-[11px] font-semibold text-ink-muted uppercase tracking-wider mb-1">
                     Classification Pillar *
                   </label>
                   <select
@@ -1488,7 +1490,7 @@ export default function ChartOfAccountsPage() {
                     onChange={(e) =>
                       setAccountForm({ ...accountForm, accountType: e.target.value as AccountType })
                     }
-                    className="w-full h-8 px-2.5 border border-slate-300 rounded text-xs focus:ring-1 focus:ring-blue-500"
+                    className="w-full h-8 px-2.5 border border-line-strong rounded text-xs focus:ring-1 focus:ring-blue-500"
                   >
                     <option value="ASSET">Asset</option>
                     <option value="LIABILITY">Liability</option>
@@ -1501,7 +1503,7 @@ export default function ChartOfAccountsPage() {
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-[11px] font-semibold text-slate-700 uppercase tracking-wider mb-1">
+                  <label className="block text-[11px] font-semibold text-ink-muted uppercase tracking-wider mb-1">
                     Opening Balance
                   </label>
                   <input
@@ -1511,12 +1513,12 @@ export default function ChartOfAccountsPage() {
                     onChange={(e) =>
                       setAccountForm({ ...accountForm, openingBalance: Number(e.target.value) || 0 })
                     }
-                    className="w-full h-8 px-2.5 border border-slate-300 rounded text-xs font-mono focus:ring-1 focus:ring-blue-500"
+                    className="w-full h-8 px-2.5 border border-line-strong rounded text-xs font-mono focus:ring-1 focus:ring-blue-500"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-[11px] font-semibold text-slate-700 uppercase tracking-wider mb-1">
+                  <label className="block text-[11px] font-semibold text-ink-muted uppercase tracking-wider mb-1">
                     Normal Balance
                   </label>
                   <select
@@ -1524,7 +1526,7 @@ export default function ChartOfAccountsPage() {
                     onChange={(e) =>
                       setAccountForm({ ...accountForm, normalBalance: e.target.value as NormalBalance })
                     }
-                    className="w-full h-8 px-2.5 border border-slate-300 rounded text-xs focus:ring-1 focus:ring-blue-500"
+                    className="w-full h-8 px-2.5 border border-line-strong rounded text-xs focus:ring-1 focus:ring-blue-500"
                   >
                     <option value="DEBIT">Debit</option>
                     <option value="CREDIT">Credit</option>
@@ -1532,11 +1534,11 @@ export default function ChartOfAccountsPage() {
                 </div>
               </div>
 
-              <div className="flex justify-end gap-2 pt-2 border-t border-slate-200">
+              <div className="flex justify-end gap-2 pt-2 border-t border-line">
                 <button
                   type="button"
                   onClick={() => setIsCreateUploadOpen(false)}
-                  className="px-3 py-1.5 text-xs text-slate-600 hover:text-slate-800 cursor-pointer"
+                  className="px-3 py-1.5 text-xs text-ink-muted hover:text-ink cursor-pointer"
                 >
                   Cancel
                 </button>
@@ -1560,21 +1562,21 @@ export default function ChartOfAccountsPage() {
               />
               <div
                 onClick={() => fileInputRef.current?.click()}
-                className="border-2 border-dashed border-slate-300 rounded-lg p-6 text-center hover:border-blue-500 transition cursor-pointer bg-slate-50/50"
+                className="border-2 border-dashed border-line-strong rounded-lg p-6 text-center hover:border-blue-500 transition cursor-pointer bg-canvas/50"
               >
-                <Upload className="w-8 h-8 text-blue-600 mx-auto mb-2" />
-                <p className="text-xs font-semibold text-slate-800">
+                <Upload className="w-8 h-8 text-blue-600 dark:text-blue-400 mx-auto mb-2" />
+                <p className="text-xs font-semibold text-ink">
                   {uploadFileName || "Click to choose Excel (.xlsx) or CSV file"}
                 </p>
-                <p className="text-[11px] text-slate-500 mt-1">
+                <p className="text-[11px] text-ink-faint mt-1">
                   Columns: Code, Description, Parent Code, Account Type (Group/Class/Category/GL), Opening Balance
                 </p>
               </div>
 
               {parsedUploadRows.length > 0 && (
-                <div className="border border-slate-200 rounded max-h-40 overflow-y-auto">
+                <div className="border border-line rounded max-h-40 overflow-y-auto">
                   <table className="w-full text-left text-[11px] border-collapse">
-                    <thead className="bg-slate-50 border-b border-slate-200 font-semibold">
+                    <thead className="bg-canvas border-b border-line font-semibold">
                       <tr>
                         <th className="px-2 py-1">Code</th>
                         <th className="px-2 py-1">Description</th>
@@ -1582,7 +1584,7 @@ export default function ChartOfAccountsPage() {
                         <th className="px-2 py-1">Type</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-100">
+                    <tbody className="divide-y divide-line">
                       {parsedUploadRows.slice(0, 20).map((r, i) => (
                         <tr key={`${r.code}-${i}`}>
                           <td className="px-2 py-1 font-mono">{r.code}</td>
@@ -1600,7 +1602,7 @@ export default function ChartOfAccountsPage() {
                 <button
                   type="button"
                   onClick={handleDownloadSampleTemplate}
-                  className="text-xs text-blue-600 hover:underline flex items-center gap-1 font-medium cursor-pointer"
+                  className="text-xs text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1 font-medium cursor-pointer"
                 >
                   <FileSpreadsheet className="w-3.5 h-3.5" />
                   <span>Download Sample COA Excel Template</span>
@@ -1610,7 +1612,7 @@ export default function ChartOfAccountsPage() {
                   <button
                     type="button"
                     onClick={() => setIsCreateUploadOpen(false)}
-                    className="px-3 py-1.5 text-xs text-slate-600 hover:text-slate-800 cursor-pointer"
+                    className="px-3 py-1.5 text-xs text-ink-muted hover:text-ink cursor-pointer"
                   >
                     Close
                   </button>
@@ -1638,7 +1640,7 @@ export default function ChartOfAccountsPage() {
       >
         <div className="space-y-4 text-xs">
           {modalError && (
-            <div className="flex items-center gap-2 rounded bg-rose-50 border border-rose-200 p-2 text-xs font-medium text-rose-700">
+            <div className="flex items-center gap-2 rounded bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/30 p-2 text-xs font-medium text-rose-700 dark:text-rose-300">
               <AlertCircle className="w-4 h-4 shrink-0" /> {modalError}
             </div>
           )}
@@ -1646,7 +1648,7 @@ export default function ChartOfAccountsPage() {
           {/* Single Horizontal Row: Employee* | Voucher Type* | Account Head* | Add */}
           <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-end">
             <div className="sm:col-span-4 relative">
-              <label className="block text-[11px] font-medium text-slate-700 mb-1">
+              <label className="block text-[11px] font-medium text-ink-muted mb-1">
                 Employee <span className="text-rose-500">*</span>
               </label>
               <div className="relative">
@@ -1661,13 +1663,13 @@ export default function ChartOfAccountsPage() {
                     setModalSelectedEmp(null);
                     setShowModalEmpDropdown(true);
                   }}
-                  className="w-full h-9 pl-2.5 pr-7 border border-slate-300 rounded text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  className="w-full h-9 pl-2.5 pr-7 border border-line-strong rounded text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
                 />
-                <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-2 top-2.5 pointer-events-none" />
+                <ChevronDown className="w-3.5 h-3.5 text-ink-faint absolute right-2 top-2.5 pointer-events-none" />
               </div>
 
               {showModalEmpDropdown && matchingModalEmployees.length > 0 && (
-                <div className="absolute z-30 left-0 right-0 mt-1 max-h-48 overflow-y-auto bg-white border border-slate-200 rounded shadow-lg">
+                <div className="absolute z-30 left-0 right-0 mt-1 max-h-48 overflow-y-auto bg-surface border border-line rounded shadow-lg">
                   {matchingModalEmployees.map((emp) => (
                     <button
                       key={emp.id}
@@ -1677,10 +1679,10 @@ export default function ChartOfAccountsPage() {
                         setModalEmpSearch(emp.name);
                         setShowModalEmpDropdown(false);
                       }}
-                      className="w-full text-left px-2.5 py-1.5 text-xs hover:bg-blue-50 flex items-center justify-between cursor-pointer"
+                      className="w-full text-left px-2.5 py-1.5 text-xs hover:bg-blue-50 dark:hover:bg-blue-500/10 flex items-center justify-between cursor-pointer"
                     >
-                      <span className="font-medium text-slate-800">{emp.name}</span>
-                      <span className="text-[10px] text-slate-400 font-mono">
+                      <span className="font-medium text-ink">{emp.name}</span>
+                      <span className="text-[10px] text-ink-faint font-mono">
                         {emp.employeeCode}
                       </span>
                     </button>
@@ -1690,13 +1692,13 @@ export default function ChartOfAccountsPage() {
             </div>
 
             <div className="sm:col-span-3">
-              <label className="block text-[11px] font-medium text-slate-700 mb-1">
+              <label className="block text-[11px] font-medium text-ink-muted mb-1">
                 Voucher Type <span className="text-rose-500">*</span>
               </label>
               <select
                 value={modalVoucherType}
                 onChange={(e) => setModalVoucherType(e.target.value)}
-                className="w-full h-9 px-2.5 border border-slate-300 rounded text-xs bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                className="w-full h-9 px-2.5 border border-line-strong rounded text-xs bg-surface focus:outline-none focus:ring-1 focus:ring-blue-500"
               >
                 <option value="">Voucher Type</option>
                 <option value="Payment">Payment</option>
@@ -1709,13 +1711,13 @@ export default function ChartOfAccountsPage() {
             </div>
 
             <div className="sm:col-span-4">
-              <label className="block text-[11px] font-medium text-slate-700 mb-1">
+              <label className="block text-[11px] font-medium text-ink-muted mb-1">
                 Account Head <span className="text-rose-500">*</span>
               </label>
               <select
                 value={modalAccountCode}
                 onChange={(e) => setModalAccountCode(e.target.value)}
-                className="w-full h-9 px-2.5 border border-slate-300 rounded text-xs bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                className="w-full h-9 px-2.5 border border-line-strong rounded text-xs bg-surface focus:outline-none focus:ring-1 focus:ring-blue-500"
               >
                 <option value="">Account Head</option>
                 {glAndAllAccountOptions.map((acc) => (
@@ -1737,28 +1739,28 @@ export default function ChartOfAccountsPage() {
             </div>
           </div>
 
-          <hr className="border-slate-200" />
+          <hr className="border-line" />
 
           {/* Staged Rows Preview */}
           {stagedPermissions.length > 0 && (
-            <div className="border border-slate-200 rounded overflow-hidden">
+            <div className="border border-line rounded overflow-hidden">
               <table className="w-full text-left text-xs border-collapse">
-                <thead className="bg-[#d8ebfc] text-[11px] font-bold text-slate-800">
+                <thead className="bg-grid-head text-[11px] font-bold text-ink">
                   <tr>
-                    <th className="px-3 py-1.5 w-12 text-center border-r border-slate-200">SL</th>
-                    <th className="px-3 py-1.5 border-r border-slate-200">Employee Name</th>
-                    <th className="px-3 py-1.5 border-r border-slate-200">Voucher Type</th>
-                    <th className="px-3 py-1.5 border-r border-slate-200">Account Head</th>
+                    <th className="px-3 py-1.5 w-12 text-center border-r border-line">SL</th>
+                    <th className="px-3 py-1.5 border-r border-line">Employee Name</th>
+                    <th className="px-3 py-1.5 border-r border-line">Voucher Type</th>
+                    <th className="px-3 py-1.5 border-r border-line">Account Head</th>
                     <th className="px-3 py-1.5 w-16 text-center">Remove</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100">
+                <tbody className="divide-y divide-line">
                   {stagedPermissions.map((row, idx) => (
                     <tr key={row.tempId}>
-                      <td className="px-3 py-1.5 text-center border-r border-slate-100">{idx + 1}</td>
-                      <td className="px-3 py-1.5 border-r border-slate-100">{row.employeeName}</td>
-                      <td className="px-3 py-1.5 border-r border-slate-100">{row.voucherType}</td>
-                      <td className="px-3 py-1.5 border-r border-slate-100">
+                      <td className="px-3 py-1.5 text-center border-r border-line">{idx + 1}</td>
+                      <td className="px-3 py-1.5 border-r border-line">{row.employeeName}</td>
+                      <td className="px-3 py-1.5 border-r border-line">{row.voucherType}</td>
+                      <td className="px-3 py-1.5 border-r border-line">
                         {row.accountHeadCode} - {row.accountHeadName}
                       </td>
                       <td className="px-3 py-1.5 text-center">
@@ -1767,7 +1769,7 @@ export default function ChartOfAccountsPage() {
                           onClick={() =>
                             setStagedPermissions((prev) => prev.filter((x) => x.tempId !== row.tempId))
                           }
-                          className="text-rose-500 hover:text-rose-700 cursor-pointer"
+                          className="text-rose-500 hover:text-rose-700 dark:hover:text-rose-300 cursor-pointer"
                         >
                           <Trash2 className="w-3.5 h-3.5 mx-auto" />
                         </button>
@@ -1783,7 +1785,7 @@ export default function ChartOfAccountsPage() {
             <button
               type="button"
               onClick={() => setIsPermModalOpen(false)}
-              className="px-3.5 py-1.5 text-xs text-slate-600 hover:text-slate-800 border border-slate-200 rounded cursor-pointer"
+              className="px-3.5 py-1.5 text-xs text-ink-muted hover:text-ink border border-line rounded cursor-pointer"
             >
               Cancel
             </button>
@@ -1812,54 +1814,54 @@ export default function ChartOfAccountsPage() {
       >
         {ledgerAccount && (
           <div className="space-y-3 text-xs">
-            <div className="flex flex-wrap justify-between gap-2 bg-slate-50 border border-slate-200 rounded p-2.5">
+            <div className="flex flex-wrap justify-between gap-2 bg-canvas border border-line rounded p-2.5">
               <div>
-                <span className="text-slate-500">Opening Balance:</span>{" "}
+                <span className="text-ink-faint">Opening Balance:</span>{" "}
                 <span className="font-semibold tabular-nums">
                   {fmtAmount(ledgerAccount.openingBalance)}
                 </span>
               </div>
               <div>
-                <span className="text-slate-500">Current Balance:</span>{" "}
-                <span className="font-bold text-blue-700 tabular-nums">
+                <span className="text-ink-faint">Current Balance:</span>{" "}
+                <span className="font-bold text-blue-700 dark:text-blue-300 tabular-nums">
                   {fmtAmount(ledgerAccount.currentBalance)}
                 </span>
               </div>
             </div>
 
-            <div className="border border-slate-200 rounded overflow-hidden max-h-80 overflow-y-auto">
+            <div className="border border-line rounded overflow-hidden max-h-80 overflow-y-auto">
               <table className="w-full text-left border-collapse text-xs">
-                <thead className="bg-[#d8ebfc] text-[11px] font-bold text-slate-800 sticky top-0">
+                <thead className="bg-grid-head text-[11px] font-bold text-ink sticky top-0">
                   <tr>
-                    <th className="px-2.5 py-1.5 border-r border-slate-200">Date</th>
-                    <th className="px-2.5 py-1.5 border-r border-slate-200">Voucher No</th>
-                    <th className="px-2.5 py-1.5 border-r border-slate-200">Narration</th>
-                    <th className="px-2.5 py-1.5 text-right border-r border-slate-200">Debit</th>
-                    <th className="px-2.5 py-1.5 text-right border-r border-slate-200">Credit</th>
+                    <th className="px-2.5 py-1.5 border-r border-line">Date</th>
+                    <th className="px-2.5 py-1.5 border-r border-line">Voucher No</th>
+                    <th className="px-2.5 py-1.5 border-r border-line">Narration</th>
+                    <th className="px-2.5 py-1.5 text-right border-r border-line">Debit</th>
+                    <th className="px-2.5 py-1.5 text-right border-r border-line">Credit</th>
                     <th className="px-2.5 py-1.5 text-right">Balance</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100">
+                <tbody className="divide-y divide-line">
                   {ledgerRows.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="py-8 text-center text-slate-400">
+                      <td colSpan={6} className="py-8 text-center text-ink-faint">
                         No posted journal entries yet for this GL account.
                       </td>
                     </tr>
                   ) : (
                     ledgerRows.map((r, i) => (
-                      <tr key={`${r.voucherNumber}-${i}`} className="hover:bg-slate-50">
-                        <td className="px-2.5 py-1.5 border-r border-slate-100 whitespace-nowrap">
+                      <tr key={`${r.voucherNumber}-${i}`} className="hover:bg-canvas">
+                        <td className="px-2.5 py-1.5 border-r border-line whitespace-nowrap">
                           {r.date}
                         </td>
-                        <td className="px-2.5 py-1.5 font-mono border-r border-slate-100">
+                        <td className="px-2.5 py-1.5 font-mono border-r border-line">
                           {r.voucherNumber}
                         </td>
-                        <td className="px-2.5 py-1.5 border-r border-slate-100">{r.narration}</td>
-                        <td className="px-2.5 py-1.5 text-right border-r border-slate-100 tabular-nums">
+                        <td className="px-2.5 py-1.5 border-r border-line">{r.narration}</td>
+                        <td className="px-2.5 py-1.5 text-right border-r border-line tabular-nums">
                           {r.debit ? fmtAmount(r.debit) : "-"}
                         </td>
-                        <td className="px-2.5 py-1.5 text-right border-r border-slate-100 tabular-nums">
+                        <td className="px-2.5 py-1.5 text-right border-r border-line tabular-nums">
                           {r.credit ? fmtAmount(r.credit) : "-"}
                         </td>
                         <td className="px-2.5 py-1.5 text-right font-semibold tabular-nums">

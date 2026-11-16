@@ -4,17 +4,24 @@ import { toast } from "@/components/purchase/Toast";
 import { usePending } from "@/hooks/use-pending";
 import React, { useMemo, useState } from "react";
 import {
+  ArrowLeft,
+  ChevronDown,
+  ChevronUp,
   Eye,
+  Paperclip,
   Plus,
   Search,
+  Trash2,
 } from "lucide-react";
 import { ModalDialog } from "@/components/purchase/ModalDialog";
 import { useAccountingStore } from "@/features/accounts/store/accounting-store";
 import { localToday } from "@/features/purchase/lib/client";
 import { Spinner } from "@/components/ui/spinner";
 import type { PaymentMethod } from "@/features/accounts/types";
+import { useFeaturePermissions, needsPermission } from "@/lib/permissions/useFeaturePermissions";
 
 export default function ExpenseAdvancePage() {
+  const perms = useFeaturePermissions("/accounts/expenses");
   const { pending, run } = usePending();
   const syncDatabase = useAccountingStore((s) => s.syncDatabase);
   // Main Tabs: "EXPENSE" | "ADVANCE" | "PROVISION" | "PAID"
@@ -54,7 +61,9 @@ export default function ExpenseAdvancePage() {
 
   // Modals
   const [isCreateExpenseOpen, setIsCreateExpenseOpen] = useState(false);
+  const [isExpenseHeaderCollapsed, setIsExpenseHeaderCollapsed] = useState(false);
   const [isCreateAdvanceOpen, setIsCreateAdvanceOpen] = useState(false);
+  const [isAdvanceHeaderCollapsed, setIsAdvanceHeaderCollapsed] = useState(false);
   const [isCreateProvisionOpen, setIsCreateProvisionOpen] = useState(false);
   const [viewingRecord, setViewingRecord] = useState<any | null>(null);
 
@@ -95,7 +104,7 @@ export default function ExpenseAdvancePage() {
   );
 
   // Expense categories (iBOS Expense › Expense Category); the list filter calls the partner one "Partner".
-  const expenseTypes = ["ALL", "Employee", "Partner/Supplier", "Project"];
+  const _expenseTypes = ["ALL", "Employee", "Partner/Supplier", "Project"];
   const expenseTypeFilterOptions = [
     { value: "Employee", label: "Employee" },
     { value: "Project", label: "Project" },
@@ -304,8 +313,8 @@ export default function ExpenseAdvancePage() {
     }
   };
 
-  const handleCreateExpenseSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleCreateExpenseSubmit = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
     setExpError("");
     const employee = employees.find((x) => x.id === expHeader.employeeId);
     const supplier = expSuppliers.find((x) => x.id === expHeader.supplierId);
@@ -343,8 +352,8 @@ export default function ExpenseAdvancePage() {
     setIsCreateExpenseOpen(false);
   };
 
-  const handleCreateAdvanceSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleCreateAdvanceSubmit = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
     const office = officeByName(advanceForm.officeName);
     if (advanceForm.requestedAmount <= 0 || !advanceForm.employeeName || !office) return;
     const count = advances.length + 1;
@@ -401,14 +410,479 @@ export default function ExpenseAdvancePage() {
     if (paid) toast.success(`${paid} expense${paid === 1 ? "" : "s"} marked as paid.`);
   };
 
+  if (isCreateExpenseOpen) {
+    return (
+      <div className="space-y-3 font-sans pb-10">
+        {/* TOP HEADER BAR */}
+        <div className="bg-white border border-slate-200/90 rounded px-4 py-2.5 flex items-center justify-between shadow-2xs">
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => setIsCreateExpenseOpen(false)}
+              className="h-8 w-8 rounded border border-slate-300 flex items-center justify-center text-slate-600 hover:bg-slate-50 transition"
+              title="Back"
+            >
+              <ArrowLeft className="w-4 h-4" />
+            </button>
+            <h1 className="text-base font-bold text-slate-900 tracking-tight">Create Expense</h1>
+          </div>
+          <button
+            type="button"
+            disabled={expAttachmentBusy || pending === "expense"}
+            onClick={() => handleCreateExpenseSubmit()}
+            className="h-8 px-5 bg-[#2563eb] hover:bg-blue-700 disabled:opacity-60 text-white font-semibold text-xs rounded transition flex items-center gap-1.5 shadow-2xs"
+          >
+            {pending === "expense" && <Spinner className="size-3.5" />}
+            Save
+          </button>
+        </div>
+
+        {expError && (
+          <p role="alert" className="rounded border border-rose-200 bg-rose-50 px-3 py-2 text-rose-700 text-xs">
+            {expError}
+          </p>
+        )}
+
+        {/* MAIN CARD */}
+        <div className="bg-white border border-slate-200/90 rounded shadow-2xs overflow-hidden">
+          {/* Card Tab Header */}
+          <div className="border-b border-slate-200 bg-white px-3 pt-2 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                className="px-4 py-2 text-xs font-semibold rounded-t bg-[#e6f2fb] text-blue-700 border-b-2 border-blue-600 transition"
+              >
+                Expense
+              </button>
+              <button
+                type="button"
+                className="px-4 py-2 text-xs font-semibold text-slate-500 hover:text-slate-800 transition"
+              >
+                Compensation and Incentive
+              </button>
+            </div>
+            <button
+              type="button"
+              onClick={() => setIsExpenseHeaderCollapsed(!isExpenseHeaderCollapsed)}
+              className="text-slate-400 hover:text-slate-600 p-1"
+            >
+              {isExpenseHeaderCollapsed ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
+            </button>
+          </div>
+
+          {!isExpenseHeaderCollapsed && (
+            <div className="p-3 border-b border-slate-100">
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-3">
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                    <span className="text-red-500 font-bold mr-0.5">*</span> Expense Category
+                  </label>
+                  <select
+                    value={expHeader.category}
+                    onChange={(e) => setExpHeader({ ...expHeader, category: e.target.value })}
+                    className="h-8 w-full border border-slate-300 rounded px-2.5 text-xs text-slate-800 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  >
+                    <option value="Employee">Employee</option>
+                    <option value="Partner/Supplier">Partner/Supplier</option>
+                    <option value="Project">Project</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                    Expense Date
+                  </label>
+                  <input
+                    type="date"
+                    value={expHeader.date}
+                    onChange={(e) => setExpHeader({ ...expHeader, date: e.target.value })}
+                    className="h-8 w-full border border-slate-300 rounded px-2.5 text-xs text-slate-800 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                    <span className="text-red-500 font-bold mr-0.5">*</span> Office
+                  </label>
+                  <select
+                    value={expHeader.officeId}
+                    onChange={(e) => setExpHeader({ ...expHeader, officeId: e.target.value })}
+                    className="h-8 w-full border border-slate-300 rounded px-2.5 text-xs text-slate-800 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  >
+                    <option value="">Office</option>
+                    {dbOffices.map((o) => (
+                      <option key={o.id} value={o.id}>{o.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                    <span className="text-red-500 font-bold mr-0.5">*</span> Employee
+                  </label>
+                  <select
+                    value={expHeader.employeeId}
+                    onChange={(e) => {
+                      const emp = employees.find((x) => x.id === e.target.value);
+                      setExpHeader({ ...expHeader, employeeId: e.target.value, department: emp?.department || expHeader.department });
+                    }}
+                    className="h-8 w-full border border-slate-300 rounded px-2.5 text-xs text-slate-800 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  >
+                    <option value="">Select/Search Employee</option>
+                    {employees.map((emp) => (
+                      <option key={emp.id} value={emp.id}>{emp.name} ({emp.employeeCode})</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                    Department
+                  </label>
+                  <select
+                    value={expHeader.department}
+                    onChange={(e) => setExpHeader({ ...expHeader, department: e.target.value })}
+                    className="h-8 w-full border border-slate-300 rounded px-2.5 text-xs text-slate-800 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  >
+                    <option value="">Select Department</option>
+                    {departments.map((d) => (
+                      <option key={d} value={d}>{d}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                    Sales Order No
+                  </label>
+                  <select
+                    value={expHeader.salesOrderId}
+                    onChange={(e) => setExpHeader({ ...expHeader, salesOrderId: e.target.value })}
+                    className="h-8 w-full border border-slate-300 rounded px-2.5 text-xs text-slate-800 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  >
+                    <option value="">Select Sales Order No</option>
+                    {expSalesOrders.map((so) => (
+                      <option key={so.id} value={so.id}>{so.code}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3">
+                <div className="lg:col-span-2">
+                  <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                    {expHeader.category === "Partner/Supplier" ? <span className="text-red-500 font-bold mr-0.5">*</span> : null} Supplier/Principle
+                  </label>
+                  <select
+                    value={expHeader.supplierId}
+                    onChange={(e) => setExpHeader({ ...expHeader, supplierId: e.target.value })}
+                    className="h-8 w-full border border-slate-300 rounded px-2.5 text-xs text-slate-800 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  >
+                    <option value="">Select/Search Supplier/Principle</option>
+                    {expSuppliers.map((sp) => (
+                      <option key={sp.id} value={sp.id}>{sp.code} - {sp.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="lg:col-span-3">
+                  <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                    Description
+                  </label>
+                  <input
+                    type="text"
+                    value={expHeader.description}
+                    onChange={(e) => setExpHeader({ ...expHeader, description: e.target.value })}
+                    placeholder="Description"
+                    className="h-8 w-full border border-slate-300 rounded px-2.5 text-xs text-slate-800 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  />
+                </div>
+                <div className="lg:col-span-1">
+                  <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                    Attachment
+                  </label>
+                  <div className="flex items-center gap-1.5">
+                    <label className="h-8 px-2.5 border border-slate-300 rounded text-slate-600 hover:bg-slate-50 flex items-center gap-1 cursor-pointer text-xs">
+                      <Paperclip className="w-3.5 h-3.5" />
+                      <span className="truncate max-w-[80px]">{expAttachment ? expAttachment.name : "Attach"}</span>
+                      <input
+                        type="file"
+                        className="hidden"
+                        accept="application/pdf,image/png,image/jpeg,image/webp"
+                        disabled={expAttachmentBusy}
+                        onChange={(e) => {
+                          void uploadExpAttachment(e.target.files?.[0]);
+                          e.target.value = "";
+                        }}
+                      />
+                    </label>
+                    {expAttachment && (
+                      <button
+                        type="button"
+                        onClick={() => setExpAttachment(null)}
+                        className="text-red-500 hover:text-red-700 text-sm font-bold"
+                      >
+                        ×
+                      </button>
+                    )}
+                    {expAttachmentBusy && <Spinner className="size-3.5" />}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Lines Table */}
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead>
+                <tr className="bg-[#e6f2fb] border-b border-slate-200 text-slate-800 font-semibold text-[11px]">
+                  <th className="py-2.5 px-3 w-12 text-center">SL</th>
+                  <th className="py-2.5 px-3 w-32">Date</th>
+                  <th className="py-2.5 px-3 min-w-[240px]">Accounts Name (GL)</th>
+                  <th className="py-2.5 px-3 w-36">Sub GL</th>
+                  <th className="py-2.5 px-3 min-w-[160px]">Remarks</th>
+                  <th className="py-2.5 px-3 w-32 text-right">Amount</th>
+                  <th className="py-2.5 px-3 w-16 text-center">Action</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {expLines.map((l, idx) => {
+                  const set = (patch: Partial<typeof l>) => setExpLines(expLines.map((x) => (x.key === l.key ? { ...x, ...patch } : x)));
+                  return (
+                    <tr key={l.key} className="hover:bg-slate-50/50">
+                      <td className="py-2 px-3 text-center">
+                        <span className="text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded font-mono">
+                          {idx === 0 ? "New" : idx + 1}
+                        </span>
+                      </td>
+                      <td className="py-2 px-3">
+                        <input
+                          type="date"
+                          value={l.date}
+                          onChange={(e) => set({ date: e.target.value })}
+                          className="h-8 w-full border border-slate-300 rounded px-2 text-xs text-slate-800 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                        />
+                      </td>
+                      <td className="py-2 px-3">
+                        <select
+                          value={l.accountId}
+                          onChange={(e) => set({ accountId: e.target.value })}
+                          className="h-8 w-full border border-slate-300 rounded px-2 text-xs text-slate-800 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                        >
+                          <option value="">Accounts Name (GL)</option>
+                          {expenseAccounts.map((a) => (
+                            <option key={a.id} value={a.id}>{a.code} - {a.name}</option>
+                          ))}
+                        </select>
+                      </td>
+                      <td className="py-2 px-3">
+                        <input
+                          value={l.subGl}
+                          onChange={(e) => set({ subGl: e.target.value })}
+                          placeholder="Sub GL"
+                          className="h-8 w-full border border-slate-300 rounded px-2 text-xs text-slate-800 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                        />
+                      </td>
+                      <td className="py-2 px-3">
+                        <input
+                          value={l.remarks}
+                          onChange={(e) => set({ remarks: e.target.value })}
+                          placeholder="Remarks"
+                          className="h-8 w-full border border-slate-300 rounded px-2 text-xs text-slate-800 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                        />
+                      </td>
+                      <td className="py-2 px-3">
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={l.amount || ""}
+                          onChange={(e) => set({ amount: parseFloat(e.target.value) || 0 })}
+                          placeholder="Amount"
+                          className="h-8 w-full border border-slate-300 rounded px-2 text-xs text-slate-800 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 text-right font-mono"
+                        />
+                      </td>
+                      <td className="py-2 px-3">
+                        <div className="flex items-center justify-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => setExpLines([...expLines.slice(0, idx + 1), blankExpLine(l.date), ...expLines.slice(idx + 1)])}
+                            className="text-emerald-600 hover:text-emerald-800 text-base font-bold"
+                            title="Add line"
+                          >
+                            +
+                          </button>
+                          {expLines.length > 1 && (
+                            <button
+                              type="button"
+                              onClick={() => setExpLines(expLines.filter((x) => x.key !== l.key))}
+                              className="text-slate-400 hover:text-rose-600"
+                              title="Delete line"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Table Footer / Total bar */}
+          <div className="bg-white border-t border-slate-200 px-6 py-2.5 flex items-center justify-end gap-3 text-xs">
+            <span className="font-bold text-slate-700">Total:</span>
+            <span className="font-bold font-mono text-slate-900 text-sm">
+              {expTotal.toFixed(2)}
+            </span>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (isCreateAdvanceOpen) {
+    return (
+      <div className="space-y-3 font-sans pb-10">
+        {/* TOP HEADER BAR */}
+        <div className="bg-white border border-slate-200/90 rounded px-4 py-2.5 flex items-center justify-between shadow-2xs">
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => setIsCreateAdvanceOpen(false)}
+              className="h-8 w-8 rounded border border-slate-300 flex items-center justify-center text-slate-600 hover:bg-slate-50 transition"
+              title="Back"
+            >
+              <ArrowLeft className="w-4 h-4" />
+            </button>
+            <h1 className="text-base font-bold text-slate-900 tracking-tight">Create Advance</h1>
+          </div>
+          <button
+            type="button"
+            disabled={pending === "advance"}
+            onClick={() => handleCreateAdvanceSubmit()}
+            className="h-8 px-5 bg-[#2563eb] hover:bg-blue-700 disabled:opacity-60 text-white font-semibold text-xs rounded transition flex items-center gap-1.5 shadow-2xs"
+          >
+            {pending === "advance" && <Spinner className="size-3.5" />}
+            Save
+          </button>
+        </div>
+
+        {/* MAIN CARD */}
+        <div className="bg-white border border-slate-200/90 rounded shadow-2xs overflow-hidden">
+          {/* Card Tab Header */}
+          <div className="border-b border-slate-200 bg-white px-3 pt-2 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                className="px-4 py-2 text-xs font-semibold rounded-t bg-[#e6f2fb] text-blue-700 border-b-2 border-blue-600 transition"
+              >
+                Advance
+              </button>
+            </div>
+            <button
+              type="button"
+              onClick={() => setIsAdvanceHeaderCollapsed(!isAdvanceHeaderCollapsed)}
+              className="text-slate-400 hover:text-slate-600 p-1"
+            >
+              {isAdvanceHeaderCollapsed ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
+            </button>
+          </div>
+
+          {!isAdvanceHeaderCollapsed && (
+            <div className="p-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                    <span className="text-red-500 font-bold mr-0.5">*</span> Advance Date
+                  </label>
+                  <input
+                    type="date"
+                    value={advanceForm.date}
+                    onChange={(e) => setAdvanceForm({ ...advanceForm, date: e.target.value })}
+                    className="h-8 w-full border border-slate-300 rounded px-2.5 text-xs text-slate-800 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                    <span className="text-red-500 font-bold mr-0.5">*</span> Employee
+                  </label>
+                  <select
+                    value={advanceForm.employeeName}
+                    onChange={(e) => setAdvanceForm({ ...advanceForm, employeeName: e.target.value })}
+                    className="h-8 w-full border border-slate-300 rounded px-2.5 text-xs text-slate-800 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  >
+                    <option value="">Select Employee</option>
+                    {employees.map((emp) => (
+                      <option key={emp.id} value={emp.name}>{emp.name} ({emp.employeeCode})</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                    <span className="text-red-500 font-bold mr-0.5">*</span> Office
+                  </label>
+                  <select
+                    value={advanceForm.officeName}
+                    onChange={(e) => setAdvanceForm({ ...advanceForm, officeName: e.target.value })}
+                    className="h-8 w-full border border-slate-300 rounded px-2.5 text-xs text-slate-800 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  >
+                    <option value="">Office</option>
+                    {officeList.filter((o) => o.id !== "ALL").map((o) => (
+                      <option key={o.id} value={o.name}>{o.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                    Chart Of Accounts
+                  </label>
+                  <input
+                    type="text"
+                    value={advanceForm.chartOfAccounts}
+                    readOnly
+                    className="h-8 w-full border border-slate-200 bg-slate-50 rounded px-2.5 text-xs text-slate-600 focus:outline-none cursor-not-allowed"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                    Remarks
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Remarks"
+                    value={advanceForm.purpose}
+                    onChange={(e) => setAdvanceForm({ ...advanceForm, purpose: e.target.value })}
+                    className="h-8 w-full border border-slate-300 rounded px-2.5 text-xs text-slate-800 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                    <span className="text-red-500 font-bold mr-0.5">*</span> Amount
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    step="0.01"
+                    placeholder="Amount"
+                    value={advanceForm.requestedAmount || ""}
+                    onChange={(e) => setAdvanceForm({ ...advanceForm, requestedAmount: parseFloat(e.target.value) || 0 })}
+                    className="h-8 w-full border border-slate-300 rounded px-2.5 text-xs text-slate-800 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 text-right font-mono"
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="space-y-2.5 font-sans pb-12">
+    <div className="space-y-2.5 font-sans flex flex-col md:h-[calc(100dvh-3.5rem)] md:overflow-hidden print:block print:h-auto print:overflow-visible">
       {/* ------------------------------------------------------------- */}
       {/* 1. TOP HEADER: TITLE + SEARCH + ACTION BUTTON */}
       {/* ------------------------------------------------------------- */}
-      <div className="bg-white rounded border border-slate-200/90 shadow-2xs p-3">
+      <div className="bg-surface rounded border border-line/90 shadow-2xs p-3 shrink-0">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <h1 className="text-base font-semibold text-slate-800">Expense/Advance</h1>
+          <h1 className="text-base font-semibold text-ink">Expense/Advance</h1>
 
           <div className="flex items-center gap-2">
             {/* Search Box */}
@@ -418,40 +892,40 @@ export default function ExpenseAdvancePage() {
                 placeholder="Search...."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                className="w-full pr-8 pl-2.5 py-1 text-xs border border-slate-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
+                className="w-full pr-8 pl-2.5 py-1 text-xs border border-line-strong rounded focus:outline-none focus:ring-1 focus:ring-blue-500 bg-surface"
               />
-              <Search className="w-3.5 h-3.5 absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+              <Search className="w-3.5 h-3.5 absolute right-2.5 top-1/2 -translate-y-1/2 text-ink-faint" />
             </div>
 
             {/* Contextual Action Button */}
             {activeTab === "EXPENSE" && (
-              <button
+              (perms.create ? (<button
                 onClick={openCreateExpense}
                 className="inline-flex items-center gap-1 px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-medium transition-colors shadow-2xs"
               >
                 <Plus className="w-3.5 h-3.5" />
                 <span>Create Expense</span>
-              </button>
+              </button>) : null)
             )}
 
             {activeTab === "ADVANCE" && (
-              <button
+              (perms.create ? (<button
                 onClick={() => setIsCreateAdvanceOpen(true)}
                 className="inline-flex items-center gap-1 px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-medium transition-colors shadow-2xs"
               >
                 <Plus className="w-3.5 h-3.5" />
                 <span>Create Advance</span>
-              </button>
+              </button>) : null)
             )}
 
             {activeTab === "PROVISION" && (
-              <button
+              (perms.create ? (<button
                 onClick={() => setIsCreateProvisionOpen(true)}
                 className="inline-flex items-center gap-1 px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-medium transition-colors shadow-2xs"
               >
                 <Plus className="w-3.5 h-3.5" />
                 <span>Create Advance</span>
-              </button>
+              </button>) : null)
             )}
           </div>
         </div>
@@ -459,13 +933,13 @@ export default function ExpenseAdvancePage() {
         {/* ------------------------------------------------------------- */}
         {/* 2. MAIN TABS: EXPENSE | ADVANCE | PROVISION | PAID */}
         {/* ------------------------------------------------------------- */}
-        <div className="flex items-center gap-6 border-b border-slate-200 mt-3 pt-1 text-xs font-medium">
+        <div className="flex items-center gap-6 border-b border-line mt-3 pt-1 text-xs font-medium">
           <button
             onClick={() => setActiveTab("EXPENSE")}
             className={`pb-2 tracking-wide uppercase transition-colors ${
               activeTab === "EXPENSE"
-                ? "text-blue-600 border-b-2 border-blue-600 font-semibold"
-                : "text-slate-600 hover:text-slate-900"
+                ? "text-blue-600 dark:text-blue-400 border-b-2 border-blue-600 font-semibold"
+                : "text-ink-muted hover:text-ink"
             }`}
           >
             EXPENSE
@@ -474,8 +948,8 @@ export default function ExpenseAdvancePage() {
             onClick={() => setActiveTab("ADVANCE")}
             className={`pb-2 tracking-wide uppercase transition-colors ${
               activeTab === "ADVANCE"
-                ? "text-blue-600 border-b-2 border-blue-600 font-semibold"
-                : "text-slate-600 hover:text-slate-900"
+                ? "text-blue-600 dark:text-blue-400 border-b-2 border-blue-600 font-semibold"
+                : "text-ink-muted hover:text-ink"
             }`}
           >
             ADVANCE
@@ -484,8 +958,8 @@ export default function ExpenseAdvancePage() {
             onClick={() => setActiveTab("PROVISION")}
             className={`pb-2 tracking-wide uppercase transition-colors ${
               activeTab === "PROVISION"
-                ? "text-blue-600 border-b-2 border-blue-600 font-semibold"
-                : "text-slate-600 hover:text-slate-900"
+                ? "text-blue-600 dark:text-blue-400 border-b-2 border-blue-600 font-semibold"
+                : "text-ink-muted hover:text-ink"
             }`}
           >
             PROVISION
@@ -494,8 +968,8 @@ export default function ExpenseAdvancePage() {
             onClick={() => setActiveTab("PAID")}
             className={`pb-2 tracking-wide uppercase transition-colors ${
               activeTab === "PAID"
-                ? "text-blue-600 border-b-2 border-blue-600 font-semibold"
-                : "text-slate-600 hover:text-slate-900"
+                ? "text-blue-600 dark:text-blue-400 border-b-2 border-blue-600 font-semibold"
+                : "text-ink-muted hover:text-ink"
             }`}
           >
             PAID
@@ -511,11 +985,11 @@ export default function ExpenseAdvancePage() {
             <div className="space-y-2">
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-2.5">
                 <div>
-                  <label className="block text-[11px] font-medium text-slate-500 mb-0.5">Office</label>
+                  <label className="block text-[11px] font-medium text-ink-faint mb-0.5">Office</label>
                   <select
                     value={selectedOffice}
                     onChange={(e) => setSelectedOffice(e.target.value)}
-                    className="w-full text-xs border border-slate-300 rounded px-2.5 py-1 focus:ring-1 focus:ring-blue-500 bg-white text-slate-700"
+                    className="w-full text-xs border border-line-strong rounded px-2.5 py-1 focus:ring-1 focus:ring-blue-500 bg-surface text-ink-muted"
                   >
                     {officeList.map((o) => (
                       <option key={o.id} value={o.id}>
@@ -525,29 +999,29 @@ export default function ExpenseAdvancePage() {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-[11px] font-medium text-slate-500 mb-0.5">From</label>
+                  <label className="block text-[11px] font-medium text-ink-faint mb-0.5">From</label>
                   <input
                     type="date"
                     value={fromDate}
                     onChange={(e) => setFromDate(e.target.value)}
-                    className="w-full text-xs border border-slate-300 rounded px-2.5 py-1 focus:ring-1 focus:ring-blue-500 bg-white text-slate-700"
+                    className="w-full text-xs border border-line-strong rounded px-2.5 py-1 focus:ring-1 focus:ring-blue-500 bg-surface text-ink-muted"
                   />
                 </div>
                 <div>
-                  <label className="block text-[11px] font-medium text-slate-500 mb-0.5">To</label>
+                  <label className="block text-[11px] font-medium text-ink-faint mb-0.5">To</label>
                   <input
                     type="date"
                     value={toDate}
                     onChange={(e) => setToDate(e.target.value)}
-                    className="w-full text-xs border border-slate-300 rounded px-2.5 py-1 focus:ring-1 focus:ring-blue-500 bg-white text-slate-700"
+                    className="w-full text-xs border border-line-strong rounded px-2.5 py-1 focus:ring-1 focus:ring-blue-500 bg-surface text-ink-muted"
                   />
                 </div>
                 <div>
-                  <label className="block text-[11px] font-medium text-slate-500 mb-0.5">Filter By</label>
+                  <label className="block text-[11px] font-medium text-ink-faint mb-0.5">Filter By</label>
                   <select
                     value={filterStatus}
                     onChange={(e) => setFilterStatus(e.target.value)}
-                    className="w-full text-xs border border-slate-300 rounded px-2.5 py-1 focus:ring-1 focus:ring-blue-500 bg-white text-slate-700"
+                    className="w-full text-xs border border-line-strong rounded px-2.5 py-1 focus:ring-1 focus:ring-blue-500 bg-surface text-ink-muted"
                   >
                     <option value="ALL">All</option>
                     <option value="APPROVED">Approved</option>
@@ -555,11 +1029,11 @@ export default function ExpenseAdvancePage() {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-[11px] font-medium text-slate-500 mb-0.5">Expense Type</label>
+                  <label className="block text-[11px] font-medium text-ink-faint mb-0.5">Expense Type</label>
                   <select
                     value={filterExpenseType}
                     onChange={(e) => setFilterExpenseType(e.target.value)}
-                    className="w-full text-xs border border-slate-300 rounded px-2.5 py-1 focus:ring-1 focus:ring-blue-500 bg-white text-slate-700 truncate"
+                    className="w-full text-xs border border-line-strong rounded px-2.5 py-1 focus:ring-1 focus:ring-blue-500 bg-surface text-ink-muted truncate"
                   >
                     <option value="ALL">All</option>
                     {expenseTypeFilterOptions.map((t) => (
@@ -574,11 +1048,11 @@ export default function ExpenseAdvancePage() {
               {/* Row 2 of Expense filter */}
               <div className="flex items-end gap-2.5 max-w-sm">
                 <div className="flex-1">
-                  <label className="block text-[11px] font-medium text-slate-500 mb-0.5">Accounts Head</label>
+                  <label className="block text-[11px] font-medium text-ink-faint mb-0.5">Accounts Head</label>
                   <select
                     value={filterAccountHead}
                     onChange={(e) => setFilterAccountHead(e.target.value)}
-                    className="w-full text-xs border border-slate-300 rounded px-2.5 py-1 focus:ring-1 focus:ring-blue-500 bg-white text-slate-700 truncate"
+                    className="w-full text-xs border border-line-strong rounded px-2.5 py-1 focus:ring-1 focus:ring-blue-500 bg-surface text-ink-muted truncate"
                   >
                     {accountsHeads.map((ah) => (
                       <option key={ah.id} value={ah.id}>
@@ -605,11 +1079,11 @@ export default function ExpenseAdvancePage() {
             <div className="space-y-3">
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-2.5 items-end">
                 <div>
-                  <label className="block text-[11px] font-medium text-slate-500 mb-0.5">Office</label>
+                  <label className="block text-[11px] font-medium text-ink-faint mb-0.5">Office</label>
                   <select
                     value={selectedOffice}
                     onChange={(e) => setSelectedOffice(e.target.value)}
-                    className="w-full text-xs border border-slate-300 rounded px-2.5 py-1 focus:ring-1 focus:ring-blue-500 bg-white text-slate-700"
+                    className="w-full text-xs border border-line-strong rounded px-2.5 py-1 focus:ring-1 focus:ring-blue-500 bg-surface text-ink-muted"
                   >
                     {officeList.map((o) => (
                       <option key={o.id} value={o.id}>
@@ -619,29 +1093,29 @@ export default function ExpenseAdvancePage() {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-[11px] font-medium text-slate-500 mb-0.5">From</label>
+                  <label className="block text-[11px] font-medium text-ink-faint mb-0.5">From</label>
                   <input
                     type="date"
                     value={fromDate}
                     onChange={(e) => setFromDate(e.target.value)}
-                    className="w-full text-xs border border-slate-300 rounded px-2.5 py-1 focus:ring-1 focus:ring-blue-500 bg-white text-slate-700"
+                    className="w-full text-xs border border-line-strong rounded px-2.5 py-1 focus:ring-1 focus:ring-blue-500 bg-surface text-ink-muted"
                   />
                 </div>
                 <div>
-                  <label className="block text-[11px] font-medium text-slate-500 mb-0.5">To</label>
+                  <label className="block text-[11px] font-medium text-ink-faint mb-0.5">To</label>
                   <input
                     type="date"
                     value={toDate}
                     onChange={(e) => setToDate(e.target.value)}
-                    className="w-full text-xs border border-slate-300 rounded px-2.5 py-1 focus:ring-1 focus:ring-blue-500 bg-white text-slate-700"
+                    className="w-full text-xs border border-line-strong rounded px-2.5 py-1 focus:ring-1 focus:ring-blue-500 bg-surface text-ink-muted"
                   />
                 </div>
                 <div>
-                  <label className="block text-[11px] font-medium text-slate-500 mb-0.5">Filter By</label>
+                  <label className="block text-[11px] font-medium text-ink-faint mb-0.5">Filter By</label>
                   <select
                     value={filterStatus}
                     onChange={(e) => setFilterStatus(e.target.value)}
-                    className="w-full text-xs border border-slate-300 rounded px-2.5 py-1 focus:ring-1 focus:ring-blue-500 bg-white text-slate-700"
+                    className="w-full text-xs border border-line-strong rounded px-2.5 py-1 focus:ring-1 focus:ring-blue-500 bg-surface text-ink-muted"
                   >
                     <option value="ALL">Status</option>
                     <option value="APPROVED">Approved</option>
@@ -663,13 +1137,13 @@ export default function ExpenseAdvancePage() {
               </div>
 
               {/* Sub Tabs: ADVANCE | INVOICE ADVANCE COLLECTION */}
-              <div className="flex items-center gap-6 border-b border-slate-200 pt-1 text-xs">
+              <div className="flex items-center gap-6 border-b border-line pt-1 text-xs">
                 <button
                   onClick={() => setAdvanceSubTab("ADVANCE")}
                   className={`pb-1.5 uppercase font-medium transition-colors ${
                     advanceSubTab === "ADVANCE"
-                      ? "text-blue-600 border-b-2 border-blue-600 font-semibold"
-                      : "text-slate-600 hover:text-slate-900"
+                      ? "text-blue-600 dark:text-blue-400 border-b-2 border-blue-600 font-semibold"
+                      : "text-ink-muted hover:text-ink"
                   }`}
                 >
                   ADVANCE
@@ -678,8 +1152,8 @@ export default function ExpenseAdvancePage() {
                   onClick={() => setAdvanceSubTab("INVOICE_ADVANCE_COLLECTION")}
                   className={`pb-1.5 uppercase font-medium transition-colors ${
                     advanceSubTab === "INVOICE_ADVANCE_COLLECTION"
-                      ? "text-blue-600 border-b-2 border-blue-600 font-semibold"
-                      : "text-slate-600 hover:text-slate-900"
+                      ? "text-blue-600 dark:text-blue-400 border-b-2 border-blue-600 font-semibold"
+                      : "text-ink-muted hover:text-ink"
                   }`}
                 >
                   INVOICE ADVANCE COLLECTION
@@ -692,11 +1166,11 @@ export default function ExpenseAdvancePage() {
           {activeTab === "PROVISION" && (
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2.5 items-end">
               <div>
-                <label className="block text-[11px] font-medium text-slate-500 mb-0.5">Office</label>
+                <label className="block text-[11px] font-medium text-ink-faint mb-0.5">Office</label>
                 <select
                   value={selectedOffice}
                   onChange={(e) => setSelectedOffice(e.target.value)}
-                  className="w-full text-xs border border-slate-300 rounded px-2.5 py-1 focus:ring-1 focus:ring-blue-500 bg-white text-slate-700"
+                  className="w-full text-xs border border-line-strong rounded px-2.5 py-1 focus:ring-1 focus:ring-blue-500 bg-surface text-ink-muted"
                 >
                   {officeList.map((o) => (
                     <option key={o.id} value={o.id}>
@@ -706,21 +1180,21 @@ export default function ExpenseAdvancePage() {
                 </select>
               </div>
               <div>
-                <label className="block text-[11px] font-medium text-slate-500 mb-0.5">From</label>
+                <label className="block text-[11px] font-medium text-ink-faint mb-0.5">From</label>
                 <input
                   type="date"
                   value={fromDate}
                   onChange={(e) => setFromDate(e.target.value)}
-                  className="w-full text-xs border border-slate-300 rounded px-2.5 py-1 focus:ring-1 focus:ring-blue-500 bg-white text-slate-700"
+                  className="w-full text-xs border border-line-strong rounded px-2.5 py-1 focus:ring-1 focus:ring-blue-500 bg-surface text-ink-muted"
                 />
               </div>
               <div>
-                <label className="block text-[11px] font-medium text-slate-500 mb-0.5">To</label>
+                <label className="block text-[11px] font-medium text-ink-faint mb-0.5">To</label>
                 <input
                   type="date"
                   value={toDate}
                   onChange={(e) => setToDate(e.target.value)}
-                  className="w-full text-xs border border-slate-300 rounded px-2.5 py-1 focus:ring-1 focus:ring-blue-500 bg-white text-slate-700"
+                  className="w-full text-xs border border-line-strong rounded px-2.5 py-1 focus:ring-1 focus:ring-blue-500 bg-surface text-ink-muted"
                 />
               </div>
               <div>
@@ -741,11 +1215,11 @@ export default function ExpenseAdvancePage() {
           {activeTab === "PAID" && (
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-2.5 items-end">
               <div>
-                <label className="block text-[11px] font-medium text-slate-500 mb-0.5">Office</label>
+                <label className="block text-[11px] font-medium text-ink-faint mb-0.5">Office</label>
                 <select
                   value={selectedOffice}
                   onChange={(e) => setSelectedOffice(e.target.value)}
-                  className="w-full text-xs border border-slate-300 rounded px-2.5 py-1 focus:ring-1 focus:ring-blue-500 bg-white text-slate-700"
+                  className="w-full text-xs border border-line-strong rounded px-2.5 py-1 focus:ring-1 focus:ring-blue-500 bg-surface text-ink-muted"
                 >
                   {officeList.map((o) => (
                     <option key={o.id} value={o.id}>
@@ -755,29 +1229,29 @@ export default function ExpenseAdvancePage() {
                 </select>
               </div>
               <div>
-                <label className="block text-[11px] font-medium text-slate-500 mb-0.5">From</label>
+                <label className="block text-[11px] font-medium text-ink-faint mb-0.5">From</label>
                 <input
                   type="date"
                   value={fromDate}
                   onChange={(e) => setFromDate(e.target.value)}
-                  className="w-full text-xs border border-slate-300 rounded px-2.5 py-1 focus:ring-1 focus:ring-blue-500 bg-white text-slate-700"
+                  className="w-full text-xs border border-line-strong rounded px-2.5 py-1 focus:ring-1 focus:ring-blue-500 bg-surface text-ink-muted"
                 />
               </div>
               <div>
-                <label className="block text-[11px] font-medium text-slate-500 mb-0.5">To</label>
+                <label className="block text-[11px] font-medium text-ink-faint mb-0.5">To</label>
                 <input
                   type="date"
                   value={toDate}
                   onChange={(e) => setToDate(e.target.value)}
-                  className="w-full text-xs border border-slate-300 rounded px-2.5 py-1 focus:ring-1 focus:ring-blue-500 bg-white text-slate-700"
+                  className="w-full text-xs border border-line-strong rounded px-2.5 py-1 focus:ring-1 focus:ring-blue-500 bg-surface text-ink-muted"
                 />
               </div>
               <div>
-                <label className="block text-[11px] font-medium text-slate-500 mb-0.5">Filter By</label>
+                <label className="block text-[11px] font-medium text-ink-faint mb-0.5">Filter By</label>
                 <select
                   value={filterStatus}
                   onChange={(e) => setFilterStatus(e.target.value)}
-                  className="w-full text-xs border border-slate-300 rounded px-2.5 py-1 focus:ring-1 focus:ring-blue-500 bg-white text-slate-700"
+                  className="w-full text-xs border border-line-strong rounded px-2.5 py-1 focus:ring-1 focus:ring-blue-500 bg-surface text-ink-muted"
                 >
                   <option value="ALL">Status</option>
                   <option value="PAID">Paid</option>
@@ -803,20 +1277,20 @@ export default function ExpenseAdvancePage() {
       {/* 4. TABLE ACTION BUTTONS (PROVISION & PAYMENT) */}
       {/* ------------------------------------------------------------- */}
       {(activeTab === "EXPENSE" || activeTab === "PROVISION") && (
-        <div className="flex items-center justify-end gap-2 pr-1">
+        <div className="flex items-center justify-end gap-2 pr-1 shrink-0">
           {activeTab === "EXPENSE" && (
-            <button
+            (perms.create ? (<button
               onClick={() => setIsCreateProvisionOpen(true)}
-              className="px-3 py-1 bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 rounded text-xs font-medium shadow-2xs transition-colors"
+              className="px-3 py-1 bg-surface hover:bg-canvas border border-line-strong text-ink-muted rounded text-xs font-medium shadow-2xs transition-colors"
             >
               Provision
-            </button>
+            </button>) : null)
           )}
-          <button
+          <button title={!perms.edit ? needsPermission("edit") : undefined}
             type="button"
             onClick={handleMarkSelectedPaid}
-            disabled={pending === "pay"}
-            className="inline-flex items-center gap-1.5 disabled:opacity-60 px-3 py-1 bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 rounded text-xs font-medium shadow-2xs transition-colors"
+            disabled={(pending === "pay") || !perms.edit}
+            className="inline-flex items-center gap-1.5 disabled:opacity-60 px-3 py-1 bg-surface hover:bg-canvas border border-line-strong text-ink-muted rounded text-xs font-medium shadow-2xs transition-colors"
           >
             {pending === "pay" && <Spinner className="size-3.5" />}
             Payment
@@ -827,13 +1301,13 @@ export default function ExpenseAdvancePage() {
       {/* ------------------------------------------------------------- */}
       {/* 5. DATA TABLES (Matches Screenshots 1, 2, 3, 4) */}
       {/* ------------------------------------------------------------- */}
-      <div className="bg-white rounded border border-slate-200/90 shadow-2xs overflow-hidden">
-        <div className="overflow-x-auto">
+      <div className="bg-surface rounded border border-line/90 shadow-2xs overflow-hidden flex-1 min-h-0 flex flex-col print:block">
+        <div className="flex-1 min-h-0 overflow-auto print:overflow-visible [&_thead]:sticky [&_thead]:top-0 [&_thead]:z-10">
           {/* TAB 1: EXPENSE TABLE */}
           {activeTab === "EXPENSE" && (
             <table className="w-full text-left border-collapse text-xs">
               <thead>
-                <tr className="bg-[#f0f4f8] text-slate-700 font-semibold border-b border-slate-200 uppercase text-[11px] tracking-wider">
+                <tr className="bg-canvas text-ink-muted font-semibold border-b border-line uppercase text-[11px] tracking-wider">
                   <th className="py-2 px-3 w-8 text-center">
                     <input
                       type="checkbox"
@@ -842,7 +1316,7 @@ export default function ExpenseAdvancePage() {
                         selectedExpenseIds.length === displayedExpenses.length
                       }
                       onChange={handleSelectAllExpenses}
-                      className="rounded border-slate-300 text-blue-600 focus:ring-0"
+                      className="rounded border-line-strong text-blue-600 dark:text-blue-400 focus:ring-0"
                     />
                   </th>
                   <th className="py-2 px-3 w-10 text-center">SL</th>
@@ -858,52 +1332,52 @@ export default function ExpenseAdvancePage() {
                   <th className="py-2 px-3 text-center w-20">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100 text-slate-700">
+              <tbody className="divide-y divide-line text-ink-muted">
                 {displayedExpenses.length === 0 ? (
                   <tr>
-                    <td colSpan={12} className="py-8 text-center text-slate-400">
+                    <td colSpan={12} className="py-8 text-center text-ink-faint">
                       No expense records found.
                     </td>
                   </tr>
                 ) : (
                   displayedExpenses.map((e, index) => (
-                    <tr key={e.id} className="hover:bg-blue-50/40 transition-colors">
+                    <tr key={e.id} className="hover:bg-blue-50/40 dark:hover:bg-blue-500/10 transition-colors">
                       <td className="py-2 px-3 text-center">
                         <input
                           type="checkbox"
                           checked={selectedExpenseIds.includes(e.id)}
                           onChange={() => handleToggleSelectExpense(e.id)}
-                          className="rounded border-slate-300 text-blue-600 focus:ring-0"
+                          className="rounded border-line-strong text-blue-600 dark:text-blue-400 focus:ring-0"
                         />
                       </td>
-                      <td className="py-2 px-3 text-center text-slate-500">{index + 1}</td>
-                      <td className="py-2 px-3 whitespace-nowrap text-slate-600">{e.date}</td>
-                      <td className="py-2 px-3 font-mono text-blue-600 font-medium whitespace-nowrap">
+                      <td className="py-2 px-3 text-center text-ink-faint">{index + 1}</td>
+                      <td className="py-2 px-3 whitespace-nowrap text-ink-muted">{e.date}</td>
+                      <td className="py-2 px-3 font-mono text-blue-600 dark:text-blue-400 font-medium whitespace-nowrap">
                         {e.code || e.expenseNumber}
                       </td>
-                      <td className="py-2 px-3 whitespace-nowrap font-medium text-slate-800">{e.officeName}</td>
-                      <td className="py-2 px-3 whitespace-nowrap text-slate-600">{e.expenseType}</td>
-                      <td className="py-2 px-3 whitespace-nowrap font-medium text-slate-800">{e.partnerPayee || e.payeeName}</td>
-                      <td className="py-2 px-3 whitespace-nowrap text-slate-600 truncate max-w-[180px]" title={e.chartOfAccount || e.accountName}>
+                      <td className="py-2 px-3 whitespace-nowrap font-medium text-ink">{e.officeName}</td>
+                      <td className="py-2 px-3 whitespace-nowrap text-ink-muted">{e.expenseType}</td>
+                      <td className="py-2 px-3 whitespace-nowrap font-medium text-ink">{e.partnerPayee || e.payeeName}</td>
+                      <td className="py-2 px-3 whitespace-nowrap text-ink-muted truncate max-w-[180px]" title={e.chartOfAccount || e.accountName}>
                         {e.chartOfAccount || e.accountName}
                       </td>
-                      <td className="py-2 px-3 text-slate-600 truncate max-w-[200px]" title={e.description}>
+                      <td className="py-2 px-3 text-ink-muted truncate max-w-[200px]" title={e.description}>
                         {e.description}
                       </td>
-                      <td className="py-2 px-3 text-right font-mono font-medium text-slate-900 whitespace-nowrap">
+                      <td className="py-2 px-3 text-right font-mono font-medium text-ink whitespace-nowrap">
                         {e.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </td>
                       <td className="py-2 px-3 text-center whitespace-nowrap">
                         {e.status === "APPROVED" ? (
-                          <span className="px-2 py-0.5 rounded text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                          <span className="px-2 py-0.5 rounded text-[11px] font-semibold bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-500/30">
                             Approved
                           </span>
                         ) : e.status === "PENDING" ? (
-                          <span className="px-2 py-0.5 rounded text-[11px] font-semibold bg-amber-50 text-amber-700 border border-amber-200">
+                          <span className="px-2 py-0.5 rounded text-[11px] font-semibold bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-500/30">
                             Pending
                           </span>
                         ) : (
-                          <span className="px-2 py-0.5 rounded text-[11px] font-semibold bg-blue-50 text-blue-700 border border-blue-200">
+                          <span className="px-2 py-0.5 rounded text-[11px] font-semibold bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-500/30">
                             Paid
                           </span>
                         )}
@@ -913,7 +1387,7 @@ export default function ExpenseAdvancePage() {
                           <button
                             onClick={() => setViewingRecord(e)}
                             title="View Details"
-                            className="w-6 h-6 rounded-full bg-slate-100 hover:bg-blue-100 text-slate-600 hover:text-blue-700 flex items-center justify-center transition-colors"
+                            className="w-6 h-6 rounded-full bg-control hover:bg-blue-100 dark:hover:bg-blue-500/15 text-ink-muted hover:text-blue-700 dark:hover:text-blue-300 flex items-center justify-center transition-colors"
                           >
                             <Eye className="w-3.5 h-3.5" />
                           </button>
@@ -924,10 +1398,10 @@ export default function ExpenseAdvancePage() {
                 )}
               </tbody>
               <tfoot>
-                <tr className="bg-slate-50 font-semibold border-t border-slate-200 text-slate-800">
+                <tr className="bg-canvas font-semibold border-t border-line text-ink">
                   <td colSpan={8} className="py-2 px-3"></td>
                   <td className="py-2 px-3 text-right">Total</td>
-                  <td className="py-2 px-3 text-right font-mono text-slate-900">
+                  <td className="py-2 px-3 text-right font-mono text-ink">
                     {totalExpenseAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </td>
                   <td colSpan={2} className="py-2 px-3"></td>
@@ -940,7 +1414,7 @@ export default function ExpenseAdvancePage() {
           {activeTab === "ADVANCE" && (
             <table className="w-full text-left border-collapse text-xs">
               <thead>
-                <tr className="bg-[#f0f4f8] text-slate-700 font-semibold border-b border-slate-200 uppercase text-[11px] tracking-wider">
+                <tr className="bg-canvas text-ink-muted font-semibold border-b border-line uppercase text-[11px] tracking-wider">
                   <th className="py-2 px-3 w-10 text-center">SL</th>
                   <th className="py-2 px-3 w-24">Date</th>
                   <th className="py-2 px-3 w-32">Code</th>
@@ -953,43 +1427,43 @@ export default function ExpenseAdvancePage() {
                   <th className="py-2 px-3 text-center w-20">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100 text-slate-700">
+              <tbody className="divide-y divide-line text-ink-muted">
                 {displayedAdvances.length === 0 ? (
                   <tr>
-                    <td colSpan={10} className="py-8 text-center text-slate-400">
+                    <td colSpan={10} className="py-8 text-center text-ink-faint">
                       No advance records found.
                     </td>
                   </tr>
                 ) : (
                   displayedAdvances.map((a, index) => (
-                    <tr key={a.id} className="hover:bg-blue-50/40 transition-colors">
-                      <td className="py-2 px-3 text-center text-slate-500">{index + 1}</td>
-                      <td className="py-2 px-3 whitespace-nowrap text-slate-600">{a.date}</td>
-                      <td className="py-2 px-3 font-mono text-blue-600 font-medium whitespace-nowrap">
+                    <tr key={a.id} className="hover:bg-blue-50/40 dark:hover:bg-blue-500/10 transition-colors">
+                      <td className="py-2 px-3 text-center text-ink-faint">{index + 1}</td>
+                      <td className="py-2 px-3 whitespace-nowrap text-ink-muted">{a.date}</td>
+                      <td className="py-2 px-3 font-mono text-blue-600 dark:text-blue-400 font-medium whitespace-nowrap">
                         {a.code || a.advanceNumber}
                       </td>
-                      <td className="py-2 px-3 whitespace-nowrap font-medium text-slate-800">{a.officeName}</td>
-                      <td className="py-2 px-3 whitespace-nowrap font-medium text-slate-800">{a.partnerPayee || a.employeeName}</td>
-                      <td className="py-2 px-3 whitespace-nowrap text-slate-600 truncate max-w-[200px]" title={a.chartOfAccounts}>
+                      <td className="py-2 px-3 whitespace-nowrap font-medium text-ink">{a.officeName}</td>
+                      <td className="py-2 px-3 whitespace-nowrap font-medium text-ink">{a.partnerPayee || a.employeeName}</td>
+                      <td className="py-2 px-3 whitespace-nowrap text-ink-muted truncate max-w-[200px]" title={a.chartOfAccounts}>
                         {a.chartOfAccounts || "105 - Advance, Deposits & Pre-Payments"}
                       </td>
-                      <td className="py-2 px-3 text-slate-600 truncate max-w-[220px]" title={a.purpose}>
+                      <td className="py-2 px-3 text-ink-muted truncate max-w-[220px]" title={a.purpose}>
                         {a.purpose}
                       </td>
-                      <td className="py-2 px-3 text-right font-mono font-medium text-slate-900 whitespace-nowrap">
+                      <td className="py-2 px-3 text-right font-mono font-medium text-ink whitespace-nowrap">
                         {(a.amount || a.approvedAmount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </td>
                       <td className="py-2 px-3 text-center whitespace-nowrap">
                         {a.status === "APPROVED" ? (
-                          <span className="px-2 py-0.5 rounded text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                          <span className="px-2 py-0.5 rounded text-[11px] font-semibold bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-500/30">
                             Approved
                           </span>
                         ) : a.status === "PENDING" ? (
-                          <span className="px-2 py-0.5 rounded text-[11px] font-semibold bg-amber-50 text-amber-700 border border-amber-200">
+                          <span className="px-2 py-0.5 rounded text-[11px] font-semibold bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-500/30">
                             Pending
                           </span>
                         ) : (
-                          <span className="px-2 py-0.5 rounded text-[11px] font-semibold bg-slate-100 text-slate-700 border border-slate-200">
+                          <span className="px-2 py-0.5 rounded text-[11px] font-semibold bg-control text-ink-muted border border-line">
                             Settled
                           </span>
                         )}
@@ -999,7 +1473,7 @@ export default function ExpenseAdvancePage() {
                           <button
                             onClick={() => setViewingRecord(a)}
                             title="View Details"
-                            className="w-6 h-6 rounded-full bg-slate-100 hover:bg-blue-100 text-slate-600 hover:text-blue-700 flex items-center justify-center transition-colors"
+                            className="w-6 h-6 rounded-full bg-control hover:bg-blue-100 dark:hover:bg-blue-500/15 text-ink-muted hover:text-blue-700 dark:hover:text-blue-300 flex items-center justify-center transition-colors"
                           >
                             <Eye className="w-3.5 h-3.5" />
                           </button>
@@ -1010,10 +1484,10 @@ export default function ExpenseAdvancePage() {
                 )}
               </tbody>
               <tfoot>
-                <tr className="bg-slate-50 font-semibold border-t border-slate-200 text-slate-800">
+                <tr className="bg-canvas font-semibold border-t border-line text-ink">
                   <td colSpan={6} className="py-2 px-3"></td>
                   <td className="py-2 px-3 text-right">Total</td>
-                  <td className="py-2 px-3 text-right font-mono text-slate-900">
+                  <td className="py-2 px-3 text-right font-mono text-ink">
                     {totalAdvanceAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </td>
                   <td colSpan={2} className="py-2 px-3"></td>
@@ -1026,7 +1500,7 @@ export default function ExpenseAdvancePage() {
           {activeTab === "PROVISION" && (
             <table className="w-full text-left border-collapse text-xs">
               <thead>
-                <tr className="bg-[#f0f4f8] text-slate-700 font-semibold border-b border-slate-200 uppercase text-[11px] tracking-wider">
+                <tr className="bg-canvas text-ink-muted font-semibold border-b border-line uppercase text-[11px] tracking-wider">
                   <th className="py-2 px-3 w-8 text-center">
                     <input
                       type="checkbox"
@@ -1035,7 +1509,7 @@ export default function ExpenseAdvancePage() {
                         selectedProvisionIds.length === displayedProvisions.length
                       }
                       onChange={handleSelectAllProvisions}
-                      className="rounded border-slate-300 text-blue-600 focus:ring-0"
+                      className="rounded border-line-strong text-blue-600 dark:text-blue-400 focus:ring-0"
                     />
                   </th>
                   <th className="py-2 px-3 w-10 text-center">SL</th>
@@ -1051,48 +1525,48 @@ export default function ExpenseAdvancePage() {
                   <th className="py-2 px-3 text-center w-20">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100 text-slate-700">
+              <tbody className="divide-y divide-line text-ink-muted">
                 {displayedProvisions.length === 0 ? (
                   <tr>
-                    <td colSpan={12} className="py-8 text-center text-slate-400">
+                    <td colSpan={12} className="py-8 text-center text-ink-faint">
                       No provision records found.
                     </td>
                   </tr>
                 ) : (
                   displayedProvisions.map((p, index) => (
-                    <tr key={p.id} className="hover:bg-blue-50/40 transition-colors">
+                    <tr key={p.id} className="hover:bg-blue-50/40 dark:hover:bg-blue-500/10 transition-colors">
                       <td className="py-2 px-3 text-center">
                         <input
                           type="checkbox"
                           checked={selectedProvisionIds.includes(p.id)}
                           onChange={() => handleToggleSelectProvision(p.id)}
-                          className="rounded border-slate-300 text-blue-600 focus:ring-0"
+                          className="rounded border-line-strong text-blue-600 dark:text-blue-400 focus:ring-0"
                         />
                       </td>
-                      <td className="py-2 px-3 text-center text-slate-500">{index + 1}</td>
-                      <td className="py-2 px-3 whitespace-nowrap text-slate-600">{p.date || "12/10/2026"}</td>
-                      <td className="py-2 px-3 font-mono text-blue-600 font-medium whitespace-nowrap">
+                      <td className="py-2 px-3 text-center text-ink-faint">{index + 1}</td>
+                      <td className="py-2 px-3 whitespace-nowrap text-ink-muted">{p.date || "12/10/2026"}</td>
+                      <td className="py-2 px-3 font-mono text-blue-600 dark:text-blue-400 font-medium whitespace-nowrap">
                         {p.code || p.provisionNumber}
                       </td>
-                      <td className="py-2 px-3 whitespace-nowrap font-medium text-slate-800">{p.officeName}</td>
-                      <td className="py-2 px-3 whitespace-nowrap text-slate-600">{p.expenseType || "Provision"}</td>
-                      <td className="py-2 px-3 whitespace-nowrap font-medium text-slate-800">{p.partnerPayee || "General Provision"}</td>
-                      <td className="py-2 px-3 whitespace-nowrap text-slate-600 truncate max-w-[180px]" title={p.chartOfAccount || p.accountName}>
+                      <td className="py-2 px-3 whitespace-nowrap font-medium text-ink">{p.officeName}</td>
+                      <td className="py-2 px-3 whitespace-nowrap text-ink-muted">{p.expenseType || "Provision"}</td>
+                      <td className="py-2 px-3 whitespace-nowrap font-medium text-ink">{p.partnerPayee || "General Provision"}</td>
+                      <td className="py-2 px-3 whitespace-nowrap text-ink-muted truncate max-w-[180px]" title={p.chartOfAccount || p.accountName}>
                         {p.chartOfAccount || p.accountName}
                       </td>
-                      <td className="py-2 px-3 text-slate-600 truncate max-w-[200px]" title={p.description}>
+                      <td className="py-2 px-3 text-ink-muted truncate max-w-[200px]" title={p.description}>
                         {p.description}
                       </td>
-                      <td className="py-2 px-3 text-right font-mono font-medium text-slate-900 whitespace-nowrap">
+                      <td className="py-2 px-3 text-right font-mono font-medium text-ink whitespace-nowrap">
                         {p.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </td>
                       <td className="py-2 px-3 text-center whitespace-nowrap">
                         {p.status === "POSTED" ? (
-                          <span className="px-2 py-0.5 rounded text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                          <span className="px-2 py-0.5 rounded text-[11px] font-semibold bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-500/30">
                             Posted
                           </span>
                         ) : (
-                          <span className="px-2 py-0.5 rounded text-[11px] font-semibold bg-amber-50 text-amber-700 border border-amber-200">
+                          <span className="px-2 py-0.5 rounded text-[11px] font-semibold bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-500/30">
                             Pending
                           </span>
                         )}
@@ -1102,7 +1576,7 @@ export default function ExpenseAdvancePage() {
                           <button
                             onClick={() => setViewingRecord(p)}
                             title="View Details"
-                            className="w-6 h-6 rounded-full bg-slate-100 hover:bg-blue-100 text-slate-600 hover:text-blue-700 flex items-center justify-center transition-colors"
+                            className="w-6 h-6 rounded-full bg-control hover:bg-blue-100 dark:hover:bg-blue-500/15 text-ink-muted hover:text-blue-700 dark:hover:text-blue-300 flex items-center justify-center transition-colors"
                           >
                             <Eye className="w-3.5 h-3.5" />
                           </button>
@@ -1113,10 +1587,10 @@ export default function ExpenseAdvancePage() {
                 )}
               </tbody>
               <tfoot>
-                <tr className="bg-slate-50 font-semibold border-t border-slate-200 text-slate-800">
+                <tr className="bg-canvas font-semibold border-t border-line text-ink">
                   <td colSpan={8} className="py-2 px-3"></td>
                   <td className="py-2 px-3 text-right">Total</td>
-                  <td className="py-2 px-3 text-right font-mono text-slate-900">
+                  <td className="py-2 px-3 text-right font-mono text-ink">
                     {totalProvisionAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </td>
                   <td colSpan={2} className="py-2 px-3"></td>
@@ -1129,7 +1603,7 @@ export default function ExpenseAdvancePage() {
           {activeTab === "PAID" && (
             <table className="w-full text-left border-collapse text-xs">
               <thead>
-                <tr className="bg-[#f0f4f8] text-slate-700 font-semibold border-b border-slate-200 uppercase text-[11px] tracking-wider">
+                <tr className="bg-canvas text-ink-muted font-semibold border-b border-line uppercase text-[11px] tracking-wider">
                   <th className="py-2 px-3 w-10 text-center">SL</th>
                   <th className="py-2 px-3 w-28">Registration Date</th>
                   <th className="py-2 px-3 w-28">Transaction Date</th>
@@ -1143,35 +1617,35 @@ export default function ExpenseAdvancePage() {
                   <th className="py-2 px-3 text-center w-20">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100 text-slate-700">
+              <tbody className="divide-y divide-line text-ink-muted">
                 {displayedPaid.length === 0 ? (
                   <tr>
-                    <td colSpan={11} className="py-8 text-center text-slate-400">
+                    <td colSpan={11} className="py-8 text-center text-ink-faint">
                       No paid transaction records found.
                     </td>
                   </tr>
                 ) : (
                   displayedPaid.map((p, index) => (
-                    <tr key={p.id} className="hover:bg-blue-50/40 transition-colors">
-                      <td className="py-2 px-3 text-center text-slate-500">{index + 1}</td>
-                      <td className="py-2 px-3 whitespace-nowrap text-slate-600">{p.registrationDate || p.date}</td>
-                      <td className="py-2 px-3 whitespace-nowrap text-slate-600">{p.transactionDate || p.date}</td>
-                      <td className="py-2 px-3 font-mono text-blue-600 font-medium whitespace-nowrap">
+                    <tr key={p.id} className="hover:bg-blue-50/40 dark:hover:bg-blue-500/10 transition-colors">
+                      <td className="py-2 px-3 text-center text-ink-faint">{index + 1}</td>
+                      <td className="py-2 px-3 whitespace-nowrap text-ink-muted">{p.registrationDate || p.date}</td>
+                      <td className="py-2 px-3 whitespace-nowrap text-ink-muted">{p.transactionDate || p.date}</td>
+                      <td className="py-2 px-3 font-mono text-blue-600 dark:text-blue-400 font-medium whitespace-nowrap">
                         {p.transactionNo || "TXN-EXP-0000"}
                       </td>
-                      <td className="py-2 px-3 font-mono text-slate-700 whitespace-nowrap">
+                      <td className="py-2 px-3 font-mono text-ink-muted whitespace-nowrap">
                         {p.registrationCode || p.code || p.expenseNumber}
                       </td>
-                      <td className="py-2 px-3 whitespace-nowrap font-medium text-slate-800">{p.officeName}</td>
-                      <td className="py-2 px-3 whitespace-nowrap font-medium text-slate-800">{p.partnerPayee || p.payeeName}</td>
-                      <td className="py-2 px-3 text-slate-600 truncate max-w-[240px]" title={p.description}>
+                      <td className="py-2 px-3 whitespace-nowrap font-medium text-ink">{p.officeName}</td>
+                      <td className="py-2 px-3 whitespace-nowrap font-medium text-ink">{p.partnerPayee || p.payeeName}</td>
+                      <td className="py-2 px-3 text-ink-muted truncate max-w-[240px]" title={p.description}>
                         {p.description}
                       </td>
-                      <td className="py-2 px-3 text-right font-mono font-medium text-slate-900 whitespace-nowrap">
+                      <td className="py-2 px-3 text-right font-mono font-medium text-ink whitespace-nowrap">
                         {p.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </td>
                       <td className="py-2 px-3 text-center whitespace-nowrap">
-                        <span className="px-2 py-0.5 rounded text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                        <span className="px-2 py-0.5 rounded text-[11px] font-semibold bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-500/30">
                           Paid
                         </span>
                       </td>
@@ -1180,7 +1654,7 @@ export default function ExpenseAdvancePage() {
                           <button
                             onClick={() => setViewingRecord(p)}
                             title="View Details"
-                            className="w-6 h-6 rounded-full bg-slate-100 hover:bg-blue-100 text-slate-600 hover:text-blue-700 flex items-center justify-center transition-colors"
+                            className="w-6 h-6 rounded-full bg-control hover:bg-blue-100 dark:hover:bg-blue-500/15 text-ink-muted hover:text-blue-700 dark:hover:text-blue-300 flex items-center justify-center transition-colors"
                           >
                             <Eye className="w-3.5 h-3.5" />
                           </button>
@@ -1191,10 +1665,10 @@ export default function ExpenseAdvancePage() {
                 )}
               </tbody>
               <tfoot>
-                <tr className="bg-slate-50 font-semibold border-t border-slate-200 text-slate-800">
+                <tr className="bg-canvas font-semibold border-t border-line text-ink">
                   <td colSpan={7} className="py-2 px-3"></td>
                   <td className="py-2 px-3 text-right">Total</td>
-                  <td className="py-2 px-3 text-right font-mono text-slate-900">
+                  <td className="py-2 px-3 text-right font-mono text-ink">
                     {totalPaidAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </td>
                   <td colSpan={2} className="py-2 px-3"></td>
@@ -1205,329 +1679,7 @@ export default function ExpenseAdvancePage() {
         </div>
       </div>
 
-      {/* ------------------------------------------------------------- */}
-      {/* 6. MODAL: CREATE EXPENSE */}
-      {/* ------------------------------------------------------------- */}
-      <ModalDialog
-        isOpen={isCreateExpenseOpen}
-        onClose={() => setIsCreateExpenseOpen(false)}
-        title="Create Expense"
-        maxWidth="4xl"
-      >
-        <form onSubmit={handleCreateExpenseSubmit} className="space-y-3.5 text-xs">
-          {expError && (
-            <p role="alert" className="rounded border border-rose-200 bg-rose-50 px-3 py-2 text-rose-700">
-              {expError}
-            </p>
-          )}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <div>
-              <label htmlFor="exp-category" className="block font-medium text-slate-700 mb-1">Expense Category *</label>
-              <select id="exp-category" value={expHeader.category} onChange={(e) => setExpHeader({ ...expHeader, category: e.target.value })} className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white focus:ring-1 focus:ring-blue-500">
-                {expenseTypes.filter((t) => t !== "ALL").map((t) => (
-                  <option key={t} value={t}>
-                    {t}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label htmlFor="exp-date" className="block font-medium text-slate-700 mb-1">Expense Date</label>
-              <input id="exp-date" type="date" value={expHeader.date} onChange={(e) => setExpHeader({ ...expHeader, date: e.target.value })} className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white focus:ring-1 focus:ring-blue-500" />
-            </div>
-            <div>
-              <label htmlFor="exp-office" className="block font-medium text-slate-700 mb-1">Office *</label>
-              <select id="exp-office" value={expOffice?.id ?? ""} onChange={(e) => setExpHeader({ ...expHeader, officeId: e.target.value })} className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white focus:ring-1 focus:ring-blue-500">
-                {dbOffices.map((o) => (
-                  <option key={o.id} value={o.id}>
-                    {o.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label htmlFor="exp-employee" className="block font-medium text-slate-700 mb-1">Employee {expHeader.category === "Employee" ? "*" : ""}</label>
-              <select
-                id="exp-employee"
-                value={expHeader.employeeId}
-                onChange={(e) => {
-                  const emp = employees.find((x) => x.id === e.target.value);
-                  setExpHeader({ ...expHeader, employeeId: e.target.value, department: emp?.department || expHeader.department });
-                }}
-                className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white focus:ring-1 focus:ring-blue-500"
-              >
-                <option value="">Select/Search Employee</option>
-                {employees.map((emp) => (
-                  <option key={emp.id} value={emp.id}>
-                    {emp.name} ({emp.employeeCode})
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label htmlFor="exp-department" className="block font-medium text-slate-700 mb-1">Department</label>
-              <select id="exp-department" value={expHeader.department} onChange={(e) => setExpHeader({ ...expHeader, department: e.target.value })} className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white focus:ring-1 focus:ring-blue-500">
-                <option value="">Select Department</option>
-                {departments.map((d) => (
-                  <option key={d} value={d}>
-                    {d}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label htmlFor="exp-so" className="block font-medium text-slate-700 mb-1">Sales Order No</label>
-              <select id="exp-so" value={expHeader.salesOrderId} onChange={(e) => setExpHeader({ ...expHeader, salesOrderId: e.target.value })} className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white focus:ring-1 focus:ring-blue-500">
-                <option value="">Select Sales Order No</option>
-                {expSalesOrders.map((so) => (
-                  <option key={so.id} value={so.id}>
-                    {so.code}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label htmlFor="exp-supplier" className="block font-medium text-slate-700 mb-1">Supplier/Principle {expHeader.category === "Partner/Supplier" ? "*" : ""}</label>
-              <select id="exp-supplier" value={expHeader.supplierId} onChange={(e) => setExpHeader({ ...expHeader, supplierId: e.target.value })} className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white focus:ring-1 focus:ring-blue-500">
-                <option value="">Select/Search Supplier/Principle</option>
-                {expSuppliers.map((sp) => (
-                  <option key={sp.id} value={sp.id}>
-                    {sp.code} - {sp.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label htmlFor="exp-method" className="block font-medium text-slate-700 mb-1">Payment Method</label>
-              <select id="exp-method" value={expHeader.paymentMethod} onChange={(e) => setExpHeader({ ...expHeader, paymentMethod: e.target.value as PaymentMethod })} className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white focus:ring-1 focus:ring-blue-500">
-                <option value="BANK">Bank Transfer</option>
-                <option value="CHEQUE">Cheque</option>
-                <option value="CASH">Cash in Hand</option>
-              </select>
-            </div>
-            <div>
-              <label htmlFor="exp-attachment" className="block font-medium text-slate-700 mb-1">Attachment</label>
-              <div className="flex items-center gap-2">
-                <input
-                  id="exp-attachment"
-                  type="file"
-                  accept="application/pdf,image/png,image/jpeg,image/webp"
-                  disabled={expAttachmentBusy}
-                  onChange={(e) => {
-                    void uploadExpAttachment(e.target.files?.[0]);
-                    e.target.value = "";
-                  }}
-                  className="min-w-0 text-xs file:mr-2 file:h-8 file:rounded file:border file:border-slate-300 file:bg-white file:px-3 file:text-xs file:font-medium file:text-slate-700 hover:file:bg-slate-50"
-                />
-                {expAttachmentBusy && <Spinner className="size-3.5" />}
-              </div>
-              {expAttachment && (
-                <span className="mt-1 inline-flex items-center gap-1 rounded bg-slate-100 px-2 py-1 text-[11px] text-slate-700">
-                  {expAttachment.name}
-                  <button type="button" onClick={() => setExpAttachment(null)} aria-label="Remove attachment" className="inline-flex size-6 items-center justify-center rounded hover:text-rose-600">
-                    ×
-                  </button>
-                </span>
-              )}
-            </div>
-            <div className="sm:col-span-3">
-              <label htmlFor="exp-description" className="block font-medium text-slate-700 mb-1">Description</label>
-              <textarea id="exp-description" rows={2} value={expHeader.description} onChange={(e) => setExpHeader({ ...expHeader, description: e.target.value })} placeholder="Description" className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white focus:ring-1 focus:ring-blue-500" />
-            </div>
-          </div>
 
-          {/* GL lines: the expense amount is their total. */}
-          <div className="border border-slate-200 rounded overflow-x-auto">
-            <table className="w-full text-left text-xs">
-              <thead>
-                <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold text-[11px]">
-                  <th className="p-2 w-10 text-center">SL</th>
-                  <th className="p-2 w-36">Date</th>
-                  <th className="p-2 min-w-[240px]">Accounts Name (GL)</th>
-                  <th className="p-2 w-40">Sub GL</th>
-                  <th className="p-2 min-w-[160px]">Remarks</th>
-                  <th className="p-2 w-32 text-right">Amount</th>
-                  <th className="p-2 w-20 text-center">Action</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {expLines.map((l, idx) => {
-                  const set = (patch: Partial<typeof l>) => setExpLines(expLines.map((x) => (x.key === l.key ? { ...x, ...patch } : x)));
-                  return (
-                    <tr key={l.key}>
-                      <td className="p-2 text-center text-slate-500">{idx + 1}</td>
-                      <td className="p-2">
-                        <input type="date" aria-label={`Line ${idx + 1} date`} value={l.date} onChange={(e) => set({ date: e.target.value })} className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white focus:ring-1 focus:ring-blue-500" />
-                      </td>
-                      <td className="p-2">
-                        <select aria-label={`Line ${idx + 1} account`} value={l.accountId} onChange={(e) => set({ accountId: e.target.value })} className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white focus:ring-1 focus:ring-blue-500">
-                          <option value="">Accounts Name (GL)</option>
-                          {expenseAccounts.map((a) => (
-                            <option key={a.id} value={a.id}>
-                              {a.code} - {a.name}
-                            </option>
-                          ))}
-                        </select>
-                      </td>
-                      <td className="p-2">
-                        <input aria-label={`Line ${idx + 1} sub GL`} value={l.subGl} onChange={(e) => set({ subGl: e.target.value })} placeholder="Sub GL" className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white focus:ring-1 focus:ring-blue-500" />
-                      </td>
-                      <td className="p-2">
-                        <input aria-label={`Line ${idx + 1} remarks`} value={l.remarks} onChange={(e) => set({ remarks: e.target.value })} placeholder="Remarks" className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white focus:ring-1 focus:ring-blue-500" />
-                      </td>
-                      <td className="p-2">
-                        <input
-                          type="number"
-                          min="0"
-                          step="0.01"
-                          aria-label={`Line ${idx + 1} amount`}
-                          value={l.amount || ""}
-                          onChange={(e) => set({ amount: parseFloat(e.target.value) || 0 })}
-                          placeholder="Amount"
-                          className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white focus:ring-1 focus:ring-blue-500 text-right font-mono"
-                        />
-                      </td>
-                      <td className="p-2">
-                        <div className="flex items-center justify-center gap-1">
-                          <button
-                            type="button"
-                            onClick={() => setExpLines([...expLines.slice(0, idx + 1), blankExpLine(l.date), ...expLines.slice(idx + 1)])}
-                            aria-label={`Add a line after line ${idx + 1}`}
-                            className="inline-flex size-6 items-center justify-center rounded text-slate-500 hover:bg-slate-100 hover:text-blue-600"
-                          >
-                            +
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setExpLines(expLines.filter((x) => x.key !== l.key))}
-                            disabled={expLines.length <= 1}
-                            aria-label={`Remove line ${idx + 1}`}
-                            className="inline-flex size-6 items-center justify-center rounded text-slate-500 hover:bg-slate-100 hover:text-rose-600 disabled:opacity-30"
-                          >
-                            ×
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-              <tfoot>
-                <tr className="bg-slate-50 font-semibold text-slate-800">
-                  <td colSpan={5} className="p-2 text-right">Total:</td>
-                  <td className="p-2 text-right font-mono">{expTotal.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                  <td />
-                </tr>
-              </tfoot>
-            </table>
-          </div>
-
-          <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
-            <button
-              type="button"
-              onClick={() => setIsCreateExpenseOpen(false)}
-              className="px-4 py-1.5 border border-slate-300 rounded text-xs font-medium text-slate-700 hover:bg-slate-50"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={expAttachmentBusy || pending === "expense"}
-              className="inline-flex items-center justify-center gap-1.5 px-5 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white rounded text-xs font-semibold shadow-2xs transition-colors"
-            >{pending === "expense" && <Spinner className="size-3.5" />}
-              Save
-            </button>
-          </div>
-        </form>
-      </ModalDialog>
-
-      {/* ------------------------------------------------------------- */}
-      {/* 7. MODAL: CREATE ADVANCE */}
-      {/* ------------------------------------------------------------- */}
-      <ModalDialog
-        isOpen={isCreateAdvanceOpen}
-        onClose={() => setIsCreateAdvanceOpen(false)}
-        title="Create Advance Request"
-        maxWidth="lg"
-      >
-        <form onSubmit={handleCreateAdvanceSubmit} className="space-y-3.5 text-xs">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label className="block font-medium text-slate-700 mb-1">Office / Branch *</label>
-              <select
-                value={advanceForm.officeName}
-                onChange={(e) => setAdvanceForm({ ...advanceForm, officeName: e.target.value })}
-                className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white focus:ring-1 focus:ring-blue-500"
-              >
-                {officeList.filter((o) => o.id !== "ALL").map((o) => (
-                  <option key={o.id} value={o.name}>
-                    {o.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="block font-medium text-slate-700 mb-1">Employee / Partner Name *</label>
-              <input
-                type="text"
-                required
-                placeholder="e.g. Md. Tofajjol Hossin"
-                value={advanceForm.employeeName}
-                onChange={(e) => setAdvanceForm({ ...advanceForm, employeeName: e.target.value })}
-                className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white focus:ring-1 focus:ring-blue-500"
-              />
-            </div>
-            <div>
-              <label className="block font-medium text-slate-700 mb-1">Requested Amount (৳) *</label>
-              <input
-                type="number"
-                required
-                min="1"
-                step="0.01"
-                placeholder="0.00"
-                value={advanceForm.requestedAmount || ""}
-                onChange={(e) => setAdvanceForm({ ...advanceForm, requestedAmount: parseFloat(e.target.value) || 0 })}
-                className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white font-mono focus:ring-1 focus:ring-blue-500"
-              />
-            </div>
-            <div>
-              <label className="block font-medium text-slate-700 mb-1">Chart of Accounts</label>
-              <input
-                type="text"
-                disabled
-                value={advanceForm.chartOfAccounts}
-                className="w-full border border-slate-200 rounded px-2.5 py-1.5 bg-slate-100 text-slate-500"
-              />
-            </div>
-          </div>
-          <div>
-            <label className="block font-medium text-slate-700 mb-1">Purpose / Description *</label>
-            <textarea
-              required
-              rows={2}
-              placeholder="State the purpose for this advance requisition..."
-              value={advanceForm.purpose}
-              onChange={(e) => setAdvanceForm({ ...advanceForm, purpose: e.target.value })}
-              className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white focus:ring-1 focus:ring-blue-500"
-            />
-          </div>
-          <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
-            <button
-              type="button"
-              onClick={() => setIsCreateAdvanceOpen(false)}
-              className="px-4 py-1.5 border border-slate-300 rounded text-xs font-medium text-slate-700 hover:bg-slate-50"
-            >
-              Cancel
-            </button>
-            <button disabled={pending === "advance"}
-              type="submit"
-              className="inline-flex items-center justify-center gap-1.5 disabled:opacity-60 px-5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-semibold shadow-2xs transition-colors"
-            >{pending === "advance" && <Spinner className="size-3.5" />}
-              Save Advance
-            </button>
-          </div>
-        </form>
-      </ModalDialog>
 
       {/* ------------------------------------------------------------- */}
       {/* 8. MODAL: CREATE PROVISION */}
@@ -1541,11 +1693,11 @@ export default function ExpenseAdvancePage() {
         <form onSubmit={handleCreateProvisionSubmit} className="space-y-3.5 text-xs">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <label className="block font-medium text-slate-700 mb-1">Office / Branch *</label>
+              <label className="block font-medium text-ink-muted mb-1">Office / Branch *</label>
               <select
                 value={provisionForm.officeName}
                 onChange={(e) => setProvisionForm({ ...provisionForm, officeName: e.target.value })}
-                className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white focus:ring-1 focus:ring-blue-500"
+                className="w-full border border-line-strong rounded px-2.5 py-1.5 bg-surface focus:ring-1 focus:ring-blue-500"
               >
                 {officeList.filter((o) => o.id !== "ALL").map((o) => (
                   <option key={o.id} value={o.name}>
@@ -1555,11 +1707,11 @@ export default function ExpenseAdvancePage() {
               </select>
             </div>
             <div>
-              <label className="block font-medium text-slate-700 mb-1">Expense Type *</label>
+              <label className="block font-medium text-ink-muted mb-1">Expense Type *</label>
               <select
                 value={provisionForm.expenseType}
                 onChange={(e) => setProvisionForm({ ...provisionForm, expenseType: e.target.value })}
-                className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white focus:ring-1 focus:ring-blue-500"
+                className="w-full border border-line-strong rounded px-2.5 py-1.5 bg-surface focus:ring-1 focus:ring-blue-500"
               >
                 <option value="Factory Wages Provision">Factory Wages Provision</option>
                 <option value="Office Lease Provision">Office Lease Provision</option>
@@ -1568,18 +1720,18 @@ export default function ExpenseAdvancePage() {
               </select>
             </div>
             <div>
-              <label className="block font-medium text-slate-700 mb-1">Partner / Payee *</label>
+              <label className="block font-medium text-ink-muted mb-1">Partner / Payee *</label>
               <input
                 type="text"
                 required
                 placeholder="e.g. Daily Contract Laborers"
                 value={provisionForm.partnerPayee}
                 onChange={(e) => setProvisionForm({ ...provisionForm, partnerPayee: e.target.value })}
-                className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white focus:ring-1 focus:ring-blue-500"
+                className="w-full border border-line-strong rounded px-2.5 py-1.5 bg-surface focus:ring-1 focus:ring-blue-500"
               />
             </div>
             <div>
-              <label className="block font-medium text-slate-700 mb-1">Provision Amount (৳) *</label>
+              <label className="block font-medium text-ink-muted mb-1">Provision Amount (৳) *</label>
               <input
                 type="number"
                 required
@@ -1588,26 +1740,26 @@ export default function ExpenseAdvancePage() {
                 placeholder="0.00"
                 value={provisionForm.amount || ""}
                 onChange={(e) => setProvisionForm({ ...provisionForm, amount: parseFloat(e.target.value) || 0 })}
-                className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white font-mono focus:ring-1 focus:ring-blue-500"
+                className="w-full border border-line-strong rounded px-2.5 py-1.5 bg-surface font-mono focus:ring-1 focus:ring-blue-500"
               />
             </div>
           </div>
           <div>
-            <label className="block font-medium text-slate-700 mb-1">Description *</label>
+            <label className="block font-medium text-ink-muted mb-1">Description *</label>
             <textarea
               required
               rows={2}
               placeholder="State details of the accrued liability provision..."
               value={provisionForm.description}
               onChange={(e) => setProvisionForm({ ...provisionForm, description: e.target.value })}
-              className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white focus:ring-1 focus:ring-blue-500"
+              className="w-full border border-line-strong rounded px-2.5 py-1.5 bg-surface focus:ring-1 focus:ring-blue-500"
             />
           </div>
-          <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+          <div className="flex items-center justify-end gap-2 pt-2 border-t border-line">
             <button
               type="button"
               onClick={() => setIsCreateProvisionOpen(false)}
-              className="px-4 py-1.5 border border-slate-300 rounded text-xs font-medium text-slate-700 hover:bg-slate-50"
+              className="px-4 py-1.5 border border-line-strong rounded text-xs font-medium text-ink-muted hover:bg-canvas"
             >
               Cancel
             </button>
@@ -1632,37 +1784,37 @@ export default function ExpenseAdvancePage() {
       >
         {viewingRecord && (
           <div className="space-y-3 text-xs">
-            <div className="p-3 bg-slate-50 rounded border border-slate-200 space-y-1.5">
+            <div className="p-3 bg-canvas rounded border border-line space-y-1.5">
               <div className="flex justify-between">
-                <span className="text-slate-500">Office:</span>
-                <span className="font-semibold text-slate-800">{viewingRecord.officeName}</span>
+                <span className="text-ink-faint">Office:</span>
+                <span className="font-semibold text-ink">{viewingRecord.officeName}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-slate-500">Date:</span>
-                <span className="font-medium text-slate-800">{viewingRecord.date || viewingRecord.registrationDate}</span>
+                <span className="text-ink-faint">Date:</span>
+                <span className="font-medium text-ink">{viewingRecord.date || viewingRecord.registrationDate}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-slate-500">Partner / Payee:</span>
-                <span className="font-medium text-slate-800">{viewingRecord.partnerPayee || viewingRecord.payeeName || viewingRecord.employeeName}</span>
+                <span className="text-ink-faint">Partner / Payee:</span>
+                <span className="font-medium text-ink">{viewingRecord.partnerPayee || viewingRecord.payeeName || viewingRecord.employeeName}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-slate-500">Account:</span>
-                <span className="text-slate-800">{viewingRecord.chartOfAccount || viewingRecord.chartOfAccounts || viewingRecord.accountName}</span>
+                <span className="text-ink-faint">Account:</span>
+                <span className="text-ink">{viewingRecord.chartOfAccount || viewingRecord.chartOfAccounts || viewingRecord.accountName}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-slate-500">Status:</span>
-                <span className="font-semibold text-blue-600">{viewingRecord.status}</span>
+                <span className="text-ink-faint">Status:</span>
+                <span className="font-semibold text-blue-600 dark:text-blue-400">{viewingRecord.status}</span>
               </div>
-              <div className="flex justify-between border-t border-slate-200 pt-1.5">
-                <span className="font-semibold text-slate-700">Amount:</span>
-                <span className="font-mono font-bold text-slate-900 text-sm">
+              <div className="flex justify-between border-t border-line pt-1.5">
+                <span className="font-semibold text-ink-muted">Amount:</span>
+                <span className="font-mono font-bold text-ink text-sm">
                   ৳{(viewingRecord.amount || viewingRecord.approvedAmount || 0).toLocaleString()}
                 </span>
               </div>
             </div>
             <div>
-              <span className="font-semibold text-slate-700 block mb-0.5">Description:</span>
-              <p className="p-2 bg-white rounded border border-slate-200 text-slate-600">
+              <span className="font-semibold text-ink-muted block mb-0.5">Description:</span>
+              <p className="p-2 bg-surface rounded border border-line text-ink-muted">
                 {viewingRecord.description || viewingRecord.purpose}
               </p>
             </div>
@@ -1670,7 +1822,7 @@ export default function ExpenseAdvancePage() {
               <button
                 type="button"
                 onClick={() => setViewingRecord(null)}
-                className="px-4 py-1.5 border border-slate-300 rounded text-xs font-medium text-slate-700 hover:bg-slate-50"
+                className="px-4 py-1.5 border border-line-strong rounded text-xs font-medium text-ink-muted hover:bg-canvas"
               >
                 Close
               </button>

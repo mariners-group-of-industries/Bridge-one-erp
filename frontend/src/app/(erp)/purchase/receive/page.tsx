@@ -92,24 +92,24 @@ function formatEta(dateStr?: string) {
 }
 
 const inputCls =
-  "w-full h-8 border border-slate-300 rounded px-2 text-xs text-slate-700 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500";
+  "w-full h-8 border border-line-strong rounded px-2 text-xs text-ink-muted bg-surface focus:outline-none focus:ring-1 focus:ring-blue-500";
 const btnPrimary =
   "h-9 px-4 bg-[#2563eb] hover:bg-blue-700 disabled:opacity-60 text-white font-semibold text-xs rounded inline-flex items-center justify-center gap-1.5 shadow-xs transition";
-const btnGhost = "h-9 px-4 border border-slate-300 rounded text-slate-700 hover:bg-slate-50 text-xs font-semibold";
-const iconBtn = "inline-flex items-center justify-center size-6 rounded hover:bg-slate-200 text-slate-700 transition disabled:opacity-30 disabled:hover:bg-transparent";
+const btnGhost = "h-9 px-4 border border-line-strong rounded text-ink-muted hover:bg-canvas text-xs font-semibold";
+const iconBtn = "inline-flex items-center justify-center size-6 rounded hover:bg-hover text-ink-muted transition disabled:opacity-30 disabled:hover:bg-transparent";
 
 const qtyFmt = (n: number) => n.toLocaleString("en-US", { maximumFractionDigits: 3 });
 
 function receiptStatus(g: Receipt) {
   switch (g.status) {
     case "CANCELLED":
-      return { text: "Cancelled", cls: "text-rose-600" };
+      return { text: "Cancelled", cls: "text-rose-600 dark:text-rose-400" };
     case "PARTIALLY_RETURNED":
-      return { text: "Partly Returned", cls: "text-amber-700" };
+      return { text: "Partly Returned", cls: "text-amber-700 dark:text-amber-300" };
     case "FULLY_RETURNED":
-      return { text: "Returned", cls: "text-slate-600" };
+      return { text: "Returned", cls: "text-ink-muted" };
     default:
-      return { text: "Received", cls: "text-emerald-700" };
+      return { text: "Received", cls: "text-emerald-700 dark:text-emerald-300" };
   }
 }
 
@@ -132,7 +132,7 @@ function Pager({
   const to = Math.min(total, current * size);
 
   return (
-    <div className="px-3 py-2 border-t border-slate-200 bg-slate-50 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
+    <div className="px-3 py-2 border-t border-line bg-canvas flex flex-wrap items-center justify-between gap-2 text-xs text-ink-faint">
       <div className="flex items-center gap-2">
         <span>Rows per page:</span>
         <select
@@ -141,7 +141,7 @@ function Pager({
             onSize(Number(e.target.value));
             onPage(1);
           }}
-          className="bg-white border border-slate-300 rounded px-1.5 py-0.5 text-xs text-slate-700 focus:outline-none"
+          className="bg-surface border border-line-strong rounded px-1.5 py-0.5 text-xs text-ink-muted focus:outline-none"
         >
           {[10, 20, 50, 100].map((n) => (
             <option key={n} value={n}>
@@ -149,7 +149,7 @@ function Pager({
             </option>
           ))}
         </select>
-        <span className="text-slate-400">|</span>
+        <span className="text-ink-faint">|</span>
         <span>
           Showing {from} to {to} of {total} records
         </span>
@@ -160,7 +160,7 @@ function Pager({
           type="button"
           disabled={current <= 1}
           onClick={() => onPage(1)}
-          className="inline-flex size-6 items-center justify-center rounded hover:bg-slate-200 disabled:opacity-40 disabled:hover:bg-transparent"
+          className="inline-flex size-6 items-center justify-center rounded hover:bg-hover disabled:opacity-40 disabled:hover:bg-transparent"
           title="First Page"
           aria-label="First Page"
         >
@@ -170,20 +170,20 @@ function Pager({
           type="button"
           disabled={current <= 1}
           onClick={() => onPage(Math.max(1, current - 1))}
-          className="inline-flex size-6 items-center justify-center rounded hover:bg-slate-200 disabled:opacity-40 disabled:hover:bg-transparent"
+          className="inline-flex size-6 items-center justify-center rounded hover:bg-hover disabled:opacity-40 disabled:hover:bg-transparent"
           title="Previous Page"
           aria-label="Previous Page"
         >
           <ChevronLeft className="w-3.5 h-3.5" />
         </button>
-        <span className="px-2 font-medium text-slate-700">
+        <span className="px-2 font-medium text-ink-muted">
           Page {current} of {pages}
         </span>
         <button
           type="button"
           disabled={current >= pages}
           onClick={() => onPage(Math.min(pages, current + 1))}
-          className="inline-flex size-6 items-center justify-center rounded hover:bg-slate-200 disabled:opacity-40 disabled:hover:bg-transparent"
+          className="inline-flex size-6 items-center justify-center rounded hover:bg-hover disabled:opacity-40 disabled:hover:bg-transparent"
           title="Next Page"
           aria-label="Next Page"
         >
@@ -193,7 +193,7 @@ function Pager({
           type="button"
           disabled={current >= pages}
           onClick={() => onPage(pages)}
-          className="inline-flex size-6 items-center justify-center rounded hover:bg-slate-200 disabled:opacity-40 disabled:hover:bg-transparent"
+          className="inline-flex size-6 items-center justify-center rounded hover:bg-hover disabled:opacity-40 disabled:hover:bg-transparent"
           title="Last Page"
           aria-label="Last Page"
         >
@@ -549,12 +549,12 @@ export default function PurchaseReceivePage() {
   const returnTotal = returnLines.reduce((s, l) => s + l.qty * l.unitPrice, 0);
 
   return (
-    <div className="flex flex-col h-[calc(100dvh-3.5rem)] overflow-hidden font-sans p-3 space-y-2.5">
+    <div className="flex flex-col md:h-[calc(100dvh-3.5rem)] md:overflow-hidden font-sans p-3 space-y-2.5">
       {/* Fixed Top Controls */}
       <div className="shrink-0 space-y-2.5">
         {/* Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-3 rounded border border-slate-200/90 shadow-2xs">
-          <h1 className="text-xl font-bold text-slate-900 tracking-tight">Purchase Receive</h1>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-surface p-3 rounded border border-line/90 shadow-2xs">
+          <h1 className="text-xl font-bold text-ink tracking-tight">Purchase Receive</h1>
           <div className="flex flex-wrap items-center gap-2">
             <div className="relative">
               <input
@@ -563,9 +563,9 @@ export default function PurchaseReceivePage() {
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search...."
                 aria-label="Search"
-                className="w-56 sm:w-64 h-9 pl-3 pr-8 text-xs border border-slate-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white placeholder-slate-400"
+                className="w-56 sm:w-64 h-9 pl-3 pr-8 text-xs border border-line-strong rounded focus:outline-none focus:ring-1 focus:ring-blue-500 bg-surface placeholder:text-ink-faint"
               />
-              <Search className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <Search className="w-3.5 h-3.5 text-ink-faint absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
             </div>
             {perms.receive.export && (
               <button type="button" onClick={handleExport} className={btnPrimary} title="Download Excel (CSV)">
@@ -581,7 +581,7 @@ export default function PurchaseReceivePage() {
         </div>
 
         {/* Tabs */}
-        <div role="tablist" className="flex items-center gap-8 border-b border-slate-200 bg-white px-3 pt-1 rounded border border-slate-200/90 shadow-2xs">
+        <div role="tablist" className="flex items-center gap-8 border-b border-line bg-surface px-3 pt-1 rounded border border-line/90 shadow-2xs">
           {(
             [
               ["APPROVED_PO", `APPROVED PO (${approvedPOs.length})`],
@@ -594,7 +594,7 @@ export default function PurchaseReceivePage() {
               role="tab"
               aria-selected={activeTab === id}
               onClick={() => setActiveTab(id)}
-              className={`pb-2.5 pt-2 text-xs font-bold tracking-wide border-b-2 transition ${activeTab === id ? "border-[#2563eb] text-[#2563eb]" : "border-transparent text-slate-500 hover:text-slate-800"}`}
+              className={`pb-2.5 pt-2 text-xs font-bold tracking-wide border-b-2 transition ${activeTab === id ? "border-[#2563eb] text-primary" : "border-transparent text-ink-faint hover:text-ink"}`}
             >
               {label}
             </button>
@@ -605,10 +605,10 @@ export default function PurchaseReceivePage() {
       {/* TAB 1: Approved POs waiting for goods */}
       {activeTab === "APPROVED_PO" && (
         <div className="flex-1 min-h-0 flex flex-col space-y-2.5">
-          <div className="shrink-0 bg-white rounded border border-slate-200/90 p-3.5 shadow-2xs">
+          <div className="shrink-0 bg-surface rounded border border-line/90 p-3.5 shadow-2xs">
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-2">
               <label className="block">
-                <span className="block text-[11px] font-semibold text-slate-700 mb-1">Office</span>
+                <span className="block text-[11px] font-semibold text-ink-muted mb-1">Office</span>
                 <select value={poOfficeFilter} onChange={(e) => setPoOfficeFilter(e.target.value)} className={inputCls}>
                   <option value="ALL">All Offices</option>
                   {offices.map((o) => (
@@ -619,7 +619,7 @@ export default function PurchaseReceivePage() {
                 </select>
               </label>
               <label className="block">
-                <span className="block text-[11px] font-semibold text-slate-700 mb-1">Supplier</span>
+                <span className="block text-[11px] font-semibold text-ink-muted mb-1">Supplier</span>
                 <select value={poSupplierFilter} onChange={(e) => setPoSupplierFilter(e.target.value)} className={inputCls}>
                   <option value="ALL">All Suppliers</option>
                   {suppliers.map((s) => (
@@ -630,7 +630,7 @@ export default function PurchaseReceivePage() {
                 </select>
               </label>
               <label className="block">
-                <span className="block text-[11px] font-semibold text-slate-700 mb-1">Status</span>
+                <span className="block text-[11px] font-semibold text-ink-muted mb-1">Status</span>
                 <select value={poStatusFilter} onChange={(e) => setPoStatusFilter(e.target.value)} className={inputCls}>
                   <option value="ALL">All Status</option>
                   <option value="APPROVED">Approved</option>
@@ -638,15 +638,15 @@ export default function PurchaseReceivePage() {
                 </select>
               </label>
               <label className="block">
-                <span className="block text-[11px] font-semibold text-slate-700 mb-1">From Date</span>
+                <span className="block text-[11px] font-semibold text-ink-muted mb-1">From Date</span>
                 <input type="date" value={poFromDate} onChange={(e) => setPoFromDate(e.target.value)} className={inputCls} />
               </label>
               <label className="block">
-                <span className="block text-[11px] font-semibold text-slate-700 mb-1">To Date</span>
+                <span className="block text-[11px] font-semibold text-ink-muted mb-1">To Date</span>
                 <input type="date" value={poToDate} onChange={(e) => setPoToDate(e.target.value)} className={inputCls} />
               </label>
               <label className="block">
-                <span className="block text-[11px] font-semibold text-slate-700 mb-1">Exp. Receive Date</span>
+                <span className="block text-[11px] font-semibold text-ink-muted mb-1">Exp. Receive Date</span>
                 <input type="date" value={poExpDate} onChange={(e) => setPoExpDate(e.target.value)} className={inputCls} />
               </label>
             </div>
@@ -666,7 +666,7 @@ export default function PurchaseReceivePage() {
                     setPoFromDate("");
                     setPoToDate("");
                   }}
-                  className="h-9 px-2 text-xs text-slate-500 hover:text-slate-800 underline"
+                  className="h-9 px-2 text-xs text-ink-faint hover:text-ink underline"
                 >
                   Clear Filters
                 </button>
@@ -675,7 +675,7 @@ export default function PurchaseReceivePage() {
           </div>
 
           {/* Table Card (Only Table Scrolls) */}
-          <div className="flex-1 min-h-0 bg-white rounded border border-slate-200/90 shadow-2xs overflow-hidden flex flex-col">
+          <div className="flex-1 min-h-0 bg-surface rounded border border-line/90 shadow-2xs overflow-hidden flex flex-col">
             <div className="erp-table-container flex-1 min-h-0 overflow-auto">
               <table className="erp-table erp-table-compact">
                 <thead>
@@ -701,7 +701,7 @@ export default function PurchaseReceivePage() {
                 <tbody>
                   {pendingPOs.length === 0 ? (
                     <tr>
-                      <td colSpan={16} className="text-center py-10 text-slate-400">
+                      <td colSpan={16} className="text-center py-10 text-ink-faint">
                         {posLoading ? "Loading…" : "No approved purchase orders are waiting for goods."}
                       </td>
                     </tr>
@@ -711,7 +711,7 @@ export default function PurchaseReceivePage() {
                       const docs = poDocFields(po);
                       return (
                         <tr key={po.id}>
-                          <td className="text-center font-mono text-[11px] text-slate-500">{pendingPOsPage.offset + idx + 1}</td>
+                          <td className="text-center font-mono text-[11px] text-ink-faint">{pendingPOsPage.offset + idx + 1}</td>
                           <td className="text-center whitespace-nowrap">
                             <div className="row-actions flex items-center justify-center gap-0.5">
                               <button
@@ -721,7 +721,7 @@ export default function PurchaseReceivePage() {
                                   setClosePO(po);
                                   setComment("");
                                 }}
-                                className={`${iconBtn} hover:bg-rose-100 hover:text-rose-700`}
+                                className={`${iconBtn} hover:bg-rose-100 dark:hover:bg-rose-500/15 hover:text-rose-700 dark:hover:text-rose-300`}
                                 title={
                                   !perms.orders.edit
                                     ? "Requires Purchase Order Edit permission in Configuration"
@@ -737,7 +737,7 @@ export default function PurchaseReceivePage() {
                                 type="button"
                                 disabled={!perms.receive.create}
                                 onClick={() => openReceive(po)}
-                                className={`${iconBtn} hover:bg-emerald-100 hover:text-emerald-700`}
+                                className={`${iconBtn} hover:bg-emerald-100 dark:hover:bg-emerald-500/15 hover:text-emerald-700 dark:hover:text-emerald-300`}
                                 title={!perms.receive.create ? "Requires Create permission in Configuration" : "Receive goods"}
                                 aria-label={`Receive goods for ${po.poNumber}`}
                               >
@@ -746,28 +746,28 @@ export default function PurchaseReceivePage() {
                             </div>
                           </td>
                           <td className="whitespace-nowrap font-mono text-[11px] text-center">{po.orderDate}</td>
-                          <td className={`whitespace-nowrap font-mono text-[11px] text-center ${overdue ? "text-rose-600 font-semibold" : ""}`}>{po.expectedDeliveryDate}</td>
-                          <td className="font-mono text-[11px] text-slate-500 text-center">{po.requisitionNumber || "—"}</td>
+                          <td className={`whitespace-nowrap font-mono text-[11px] text-center ${overdue ? "text-rose-600 dark:text-rose-400 font-semibold" : ""}`}>{po.expectedDeliveryDate}</td>
+                          <td className="font-mono text-[11px] text-ink-faint text-center">{po.requisitionNumber || "—"}</td>
                           <td className="whitespace-nowrap">
                             <button
                               type="button"
                               onClick={() => openReceive(po)}
-                              className="inline-flex items-center gap-1.5 font-mono text-sky-700 font-semibold hover:underline"
+                              className="inline-flex items-center gap-1.5 font-mono text-sky-700 dark:text-sky-300 font-semibold hover:underline"
                             >
-                              <Truck className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                              <Truck className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
                               <span>{po.poNumber}</span>
                             </button>
                           </td>
-                          <td className="font-medium text-slate-900 leading-tight">{po.supplierName}</td>
+                          <td className="font-medium text-ink leading-tight">{po.supplierName}</td>
                           <td className="leading-tight">{po.officeName}</td>
-                          <td className="text-slate-500 font-mono text-[11px] text-center">{docs.shipmentDocumentNumber || "—"}</td>
-                          <td className="text-slate-500 font-mono text-[11px] text-center">{docs.shipmentDocumentNumber || "—"}</td>
-                          <td className="text-slate-500 font-mono text-[11px] text-center">{docs.vatChallanNumber || "—"}</td>
-                          <td className="text-slate-500 font-mono text-[11px] text-center">{docs.supplierInvoiceNumber || "—"}</td>
-                          <td className="text-slate-500 font-mono text-[11px] text-center">{docs.deliveryNumber || "—"}</td>
-                          <td className="text-slate-700 text-[11px] leading-tight">{po.createdBy}</td>
-                          <td className="text-slate-600 text-[11px] text-center whitespace-nowrap">{formatEta(po.expectedDeliveryDate)}</td>
-                          <td className={`text-center text-[11px] font-semibold whitespace-nowrap ${po.status === "PARTIALLY_RECEIVED" ? "text-purple-700" : "text-sky-700"}`}>
+                          <td className="text-ink-faint font-mono text-[11px] text-center">{docs.shipmentDocumentNumber || "—"}</td>
+                          <td className="text-ink-faint font-mono text-[11px] text-center">{docs.shipmentDocumentNumber || "—"}</td>
+                          <td className="text-ink-faint font-mono text-[11px] text-center">{docs.vatChallanNumber || "—"}</td>
+                          <td className="text-ink-faint font-mono text-[11px] text-center">{docs.supplierInvoiceNumber || "—"}</td>
+                          <td className="text-ink-faint font-mono text-[11px] text-center">{docs.deliveryNumber || "—"}</td>
+                          <td className="text-ink-muted text-[11px] leading-tight">{po.createdBy}</td>
+                          <td className="text-ink-muted text-[11px] text-center whitespace-nowrap">{formatEta(po.expectedDeliveryDate)}</td>
+                          <td className={`text-center text-[11px] font-semibold whitespace-nowrap ${po.status === "PARTIALLY_RECEIVED" ? "text-purple-700 dark:text-purple-300" : "text-sky-700 dark:text-sky-300"}`}>
                             {po.status === "PARTIALLY_RECEIVED" ? "Partially Received" : "Approved"}
                           </td>
                         </tr>
@@ -785,10 +785,10 @@ export default function PurchaseReceivePage() {
       {/* TAB 2: Goods receipts */}
       {activeTab === "RECEIVED_PO" && (
         <div className="flex-1 min-h-0 flex flex-col space-y-2.5">
-          <div className="shrink-0 bg-white rounded border border-slate-200/90 p-3.5 shadow-2xs">
+          <div className="shrink-0 bg-surface rounded border border-line/90 p-3.5 shadow-2xs">
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-3">
               <label className="block">
-                <span className="block text-[11px] font-semibold text-slate-700 mb-1">Office</span>
+                <span className="block text-[11px] font-semibold text-ink-muted mb-1">Office</span>
                 <select value={recOfficeFilter} onChange={(e) => setRecOfficeFilter(e.target.value)} className={inputCls}>
                   <option value="ALL">All</option>
                   {offices.map((o) => (
@@ -799,7 +799,7 @@ export default function PurchaseReceivePage() {
                 </select>
               </label>
               <label className="block">
-                <span className="block text-[11px] font-semibold text-slate-700 mb-1">GRN Type</span>
+                <span className="block text-[11px] font-semibold text-ink-muted mb-1">GRN Type</span>
                 <select value={grnTypeFilter} onChange={(e) => setGrnTypeFilter(e.target.value)} className={inputCls}>
                   <option value="ALL">All</option>
                   <option value="PO">Local PO</option>
@@ -807,7 +807,7 @@ export default function PurchaseReceivePage() {
                 </select>
               </label>
               <label className="block">
-                <span className="block text-[11px] font-semibold text-slate-700 mb-1">LC NO</span>
+                <span className="block text-[11px] font-semibold text-ink-muted mb-1">LC NO</span>
                 <select value={lcNoFilter} onChange={(e) => setLcNoFilter(e.target.value)} className={inputCls}>
                   <option value="ALL">LC NO</option>
                   {lcNumbers.map((lc) => (
@@ -818,7 +818,7 @@ export default function PurchaseReceivePage() {
                 </select>
               </label>
               <label className="block">
-                <span className="block text-[11px] font-semibold text-slate-700 mb-1">Item type</span>
+                <span className="block text-[11px] font-semibold text-ink-muted mb-1">Item type</span>
                 <select value={itemTypeFilter} onChange={(e) => setItemTypeFilter(e.target.value)} className={inputCls}>
                   <option value="ALL">Select Item Type</option>
                   {itemTypes.map((t) => (
@@ -829,11 +829,11 @@ export default function PurchaseReceivePage() {
                 </select>
               </label>
               <label className="block">
-                <span className="block text-[11px] font-semibold text-slate-700 mb-1">From Date</span>
+                <span className="block text-[11px] font-semibold text-ink-muted mb-1">From Date</span>
                 <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} className={inputCls} />
               </label>
               <label className="block">
-                <span className="block text-[11px] font-semibold text-slate-700 mb-1">To Date</span>
+                <span className="block text-[11px] font-semibold text-ink-muted mb-1">To Date</span>
                 <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} className={inputCls} />
               </label>
             </div>
@@ -852,7 +852,7 @@ export default function PurchaseReceivePage() {
                     setFromDate("");
                     setToDate("");
                   }}
-                  className="h-9 px-2 text-xs text-slate-500 hover:text-slate-800 underline"
+                  className="h-9 px-2 text-xs text-ink-faint hover:text-ink underline"
                 >
                   Clear Filters
                 </button>
@@ -860,7 +860,7 @@ export default function PurchaseReceivePage() {
             </div>
           </div>
           {/* Table Card (Only Table Scrolls) */}
-          <div className="flex-1 min-h-0 bg-white rounded border border-slate-200/90 shadow-2xs overflow-hidden flex flex-col">
+          <div className="flex-1 min-h-0 bg-surface rounded border border-line/90 shadow-2xs overflow-hidden flex flex-col">
             <div className="erp-table-container flex-1 min-h-0 overflow-auto">
               <table className="erp-table erp-table-compact">
                 <thead>
@@ -887,7 +887,7 @@ export default function PurchaseReceivePage() {
                 <tbody>
                   {filteredGRNs.length === 0 ? (
                     <tr>
-                      <td colSpan={17} className="text-center py-10 text-slate-400">
+                      <td colSpan={17} className="text-center py-10 text-ink-faint">
                         {grnLoading ? "Loading…" : "No goods receipts match the filters."}
                       </td>
                     </tr>
@@ -897,7 +897,7 @@ export default function PurchaseReceivePage() {
                       const pendingAmt = pendingByGrnId.get(g.id) ?? (g.status === "CANCELLED" ? 0 : g.totalReceivedAmount);
                       return (
                         <tr key={g.id}>
-                          <td className="text-center font-mono text-[11px] text-slate-500">{filteredGRNsPage.offset + idx + 1}</td>
+                          <td className="text-center font-mono text-[11px] text-ink-faint">{filteredGRNsPage.offset + idx + 1}</td>
                           <td className="text-center whitespace-nowrap">
                             <div className="row-actions flex items-center justify-center gap-0.5">
                               <button type="button" onClick={() => setViewGRN(g)} className={iconBtn} title="View" aria-label={`View ${g.grnNumber}`}>
@@ -910,7 +910,7 @@ export default function PurchaseReceivePage() {
                                 type="button"
                                 disabled={!eligibleIds.has(g.id) || !perms.returns.create}
                                 onClick={() => openReturn(g)}
-                                className={`${iconBtn} hover:bg-amber-100 hover:text-amber-800`}
+                                className={`${iconBtn} hover:bg-amber-100 dark:hover:bg-amber-500/15 hover:text-amber-800 dark:hover:text-amber-300`}
                                 title={!perms.returns.create ? "Requires Purchase Return Create permission in Configuration" : "Return goods to supplier"}
                                 aria-label={`Return goods from ${g.grnNumber}`}
                               >
@@ -923,7 +923,7 @@ export default function PurchaseReceivePage() {
                                   setCancelGRN(g);
                                   setComment("");
                                 }}
-                                className={`${iconBtn} hover:bg-rose-100 hover:text-rose-700`}
+                                className={`${iconBtn} hover:bg-rose-100 dark:hover:bg-rose-500/15 hover:text-rose-700 dark:hover:text-rose-300`}
                                 title={!perms.receive.delete ? "Requires Delete permission in Configuration" : "Cancel receipt"}
                                 aria-label={`Cancel ${g.grnNumber}`}
                               >
@@ -935,22 +935,22 @@ export default function PurchaseReceivePage() {
                           <td className="leading-tight">{g.officeName}</td>
                           <td className="font-mono text-[11px] whitespace-nowrap">{g.poNumber === "DIRECT-PO" ? "Direct" : g.poNumber}</td>
                           <td className="whitespace-nowrap">
-                            <button type="button" onClick={() => setViewGRN(g)} className="inline-flex items-center gap-1.5 font-mono text-sky-700 font-semibold hover:underline">
-                              <Truck className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                            <button type="button" onClick={() => setViewGRN(g)} className="inline-flex items-center gap-1.5 font-mono text-sky-700 dark:text-sky-300 font-semibold hover:underline">
+                              <Truck className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
                               <span>{g.grnNumber}</span>
                             </button>
                           </td>
-                          <td className="font-mono text-[11px] whitespace-nowrap text-slate-700">{g.challanNumber || "—"}</td>
-                          <td className="font-mono text-[11px] text-slate-500 text-center">{g.shipmentDocumentNumber || "—"}</td>
-                          <td className="font-mono text-[11px] text-slate-500 text-center">{g.vatChallanNumber || "—"}</td>
-                          <td className="font-mono text-[11px] text-slate-500 text-center">{g.supplierInvoiceNumber || "—"}</td>
-                          <td className="font-mono text-[11px] text-slate-500 text-center">{g.gatePassNumber || "—"}</td>
+                          <td className="font-mono text-[11px] whitespace-nowrap text-ink-muted">{g.challanNumber || "—"}</td>
+                          <td className="font-mono text-[11px] text-ink-faint text-center">{g.shipmentDocumentNumber || "—"}</td>
+                          <td className="font-mono text-[11px] text-ink-faint text-center">{g.vatChallanNumber || "—"}</td>
+                          <td className="font-mono text-[11px] text-ink-faint text-center">{g.supplierInvoiceNumber || "—"}</td>
+                          <td className="font-mono text-[11px] text-ink-faint text-center">{g.gatePassNumber || "—"}</td>
                           <td className="leading-tight">{g.warehouseName}</td>
-                          <td className="font-medium text-slate-900 leading-tight">{g.supplierName}</td>
+                          <td className="font-medium text-ink leading-tight">{g.supplierName}</td>
                           <td className="text-right font-mono text-[11px] whitespace-nowrap">{qtyFmt(totalQty)}</td>
-                          <td className="text-right font-mono font-semibold text-slate-900 whitespace-nowrap">{formatCurrency(g.totalReceivedAmount)}</td>
-                          <td className="text-right font-mono font-semibold text-amber-700 whitespace-nowrap">{formatCurrency(pendingAmt)}</td>
-                          <td className="text-slate-700 text-[11px] leading-tight">{g.preparedBy}</td>
+                          <td className="text-right font-mono font-semibold text-ink whitespace-nowrap">{formatCurrency(g.totalReceivedAmount)}</td>
+                          <td className="text-right font-mono font-semibold text-amber-700 dark:text-amber-300 whitespace-nowrap">{formatCurrency(pendingAmt)}</td>
+                          <td className="text-ink-muted text-[11px] leading-tight">{g.preparedBy}</td>
                         </tr>
                       );
                     })
@@ -975,33 +975,33 @@ export default function PurchaseReceivePage() {
           <form onSubmit={submitReceive} className="space-y-4 text-xs">
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <label className="block">
-                <span className="block text-slate-600 font-medium mb-1">Receive Date *</span>
+                <span className="block text-ink-muted font-medium mb-1">Receive Date *</span>
                 <input type="date" required min={receiveForm.po.orderDate} value={receiveForm.receiptDate} onChange={(e) => setReceiveForm({ ...receiveForm, receiptDate: e.target.value })} className={inputCls} />
               </label>
               <label className="block">
-                <span className="block text-slate-600 font-medium mb-1">Supplier Challan No</span>
+                <span className="block text-ink-muted font-medium mb-1">Supplier Challan No</span>
                 <input type="text" maxLength={100} value={receiveForm.challanNumber} onChange={(e) => setReceiveForm({ ...receiveForm, challanNumber: e.target.value })} className={inputCls} />
               </label>
               <label className="block">
-                <span className="block text-slate-600 font-medium mb-1">Gate Pass / Delivery Note</span>
+                <span className="block text-ink-muted font-medium mb-1">Gate Pass / Delivery Note</span>
                 <input type="text" maxLength={100} value={receiveForm.gatePassNumber} onChange={(e) => setReceiveForm({ ...receiveForm, gatePassNumber: e.target.value })} className={inputCls} />
               </label>
               <label className="block">
-                <span className="block text-slate-600 font-medium mb-1">VAT Challan (Mushak) No</span>
+                <span className="block text-ink-muted font-medium mb-1">VAT Challan (Mushak) No</span>
                 <input type="text" maxLength={100} value={receiveForm.vatChallanNumber} onChange={(e) => setReceiveForm({ ...receiveForm, vatChallanNumber: e.target.value })} className={inputCls} />
               </label>
               <label className="block">
-                <span className="block text-slate-600 font-medium mb-1">Supplier Invoice No</span>
+                <span className="block text-ink-muted font-medium mb-1">Supplier Invoice No</span>
                 <input type="text" maxLength={100} value={receiveForm.supplierInvoiceNumber} onChange={(e) => setReceiveForm({ ...receiveForm, supplierInvoiceNumber: e.target.value })} className={inputCls} />
               </label>
               <label className="block">
-                <span className="block text-slate-600 font-medium mb-1">Remarks</span>
+                <span className="block text-ink-muted font-medium mb-1">Remarks</span>
                 <input type="text" maxLength={500} value={receiveForm.remarks} onChange={(e) => setReceiveForm({ ...receiveForm, remarks: e.target.value })} className={inputCls} />
               </label>
             </div>
-            <div className="border border-slate-200 rounded overflow-x-auto">
+            <div className="border border-line rounded overflow-x-auto">
               <table className="w-full min-w-[760px] text-left text-xs">
-                <thead className="bg-slate-100 text-slate-600 font-semibold text-[11px]">
+                <thead className="bg-control text-ink-muted font-semibold text-[11px]">
                   <tr>
                     <th className="p-2">Item</th>
                     <th className="p-2 text-right">Ordered</th>
@@ -1013,19 +1013,19 @@ export default function PurchaseReceivePage() {
                     <th className="p-2 text-right">Accepted Value</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100">
+                <tbody className="divide-y divide-line">
                   {receiveForm.lines.map((l, idx) => {
                     const err = lineError(l);
                     return (
-                      <tr key={l.poItemId || idx} className={err ? "bg-rose-50" : ""}>
+                      <tr key={l.poItemId || idx} className={err ? "bg-rose-50 dark:bg-rose-500/10" : ""}>
                         <td className="p-2">
-                          <div className="font-semibold text-slate-900">{l.itemName}</div>
-                          <div className="text-[10px] text-slate-400 font-mono">{l.itemCode} · {l.uom}</div>
-                          {err && <div className="text-[10px] text-rose-600 font-semibold">{err}</div>}
+                          <div className="font-semibold text-ink">{l.itemName}</div>
+                          <div className="text-[10px] text-ink-faint font-mono">{l.itemCode} · {l.uom}</div>
+                          {err && <div className="text-[10px] text-rose-600 dark:text-rose-400 font-semibold">{err}</div>}
                         </td>
                         <td className="p-2 text-right font-mono">{qtyFmt(l.orderedQuantity)}</td>
-                        <td className="p-2 text-right font-mono text-slate-500">{qtyFmt(l.previouslyReceivedQuantity)}</td>
-                        <td className="p-2 text-right font-mono font-bold text-amber-700">{qtyFmt(l.outstanding)}</td>
+                        <td className="p-2 text-right font-mono text-ink-faint">{qtyFmt(l.previouslyReceivedQuantity)}</td>
+                        <td className="p-2 text-right font-mono font-bold text-amber-700 dark:text-amber-300">{qtyFmt(l.outstanding)}</td>
                         <td className="p-2">
                           <input type="number" min="0" step="any" aria-label={`Receive quantity for ${l.itemName}`} value={l.received} onChange={(e) => patchReceiveLine(idx, { received: Number(e.target.value) })} className={`${inputCls} font-mono`} />
                         </td>
@@ -1040,10 +1040,10 @@ export default function PurchaseReceivePage() {
                 </tbody>
               </table>
             </div>
-            <p className="text-[11px] text-slate-500">Only accepted quantity (received − rejected) goes into stock and is owed to the supplier.</p>
+            <p className="text-[11px] text-ink-faint">Only accepted quantity (received − rejected) goes into stock and is owed to the supplier.</p>
             <div className="flex flex-col sm:flex-row justify-between items-center gap-3 pt-2 border-t">
-              <span className="font-semibold text-slate-700">
-                Accepted value: <span className="font-mono text-sky-800 text-sm">{formatCurrency(receiveTotal)}</span>
+              <span className="font-semibold text-ink-muted">
+                Accepted value: <span className="font-mono text-sky-800 dark:text-sky-300 text-sm">{formatCurrency(receiveTotal)}</span>
               </span>
               <div className="flex gap-2">
                 <button type="button" onClick={() => setReceiveForm(null)} disabled={receiveMutation.isPending} className={btnGhost}>
@@ -1062,24 +1062,24 @@ export default function PurchaseReceivePage() {
       <ModalDialog isOpen={Boolean(viewGRN)} onClose={() => setViewGRN(null)} title={`Goods Receipt ${viewGRN?.grnNumber ?? ""}`} subtitle={`${viewGRN?.supplierName ?? ""} · ${viewGRN?.receiptDate ?? ""}`} maxWidth="2xl">
         {viewGRN && (
           <div className="space-y-4 text-xs">
-            <div className="grid grid-cols-2 gap-3 bg-slate-50 p-3 rounded border border-slate-200">
+            <div className="grid grid-cols-2 gap-3 bg-canvas p-3 rounded border border-line">
               <div>
-                <span className="text-[10px] text-slate-500 font-bold uppercase block">Documents</span>
-                <p className="text-slate-700">PO: <span className="font-mono">{viewGRN.poNumber}</span></p>
-                <p className="text-slate-700">Challan: {viewGRN.challanNumber || "—"}</p>
-                <p className="text-slate-700">Gate pass: {viewGRN.gatePassNumber || "—"}</p>
-                <p className="text-slate-700">Supplier invoice: {viewGRN.supplierInvoiceNumber || "—"}</p>
-                <p className="text-slate-700">VAT challan: {viewGRN.vatChallanNumber || "—"}</p>
+                <span className="text-[10px] text-ink-faint font-bold uppercase block">Documents</span>
+                <p className="text-ink-muted">PO: <span className="font-mono">{viewGRN.poNumber}</span></p>
+                <p className="text-ink-muted">Challan: {viewGRN.challanNumber || "—"}</p>
+                <p className="text-ink-muted">Gate pass: {viewGRN.gatePassNumber || "—"}</p>
+                <p className="text-ink-muted">Supplier invoice: {viewGRN.supplierInvoiceNumber || "—"}</p>
+                <p className="text-ink-muted">VAT challan: {viewGRN.vatChallanNumber || "—"}</p>
               </div>
               <div>
-                <span className="text-[10px] text-slate-500 font-bold uppercase block">Received Into</span>
-                <p className="font-bold text-slate-900">{viewGRN.warehouseName}</p>
-                <p className="text-slate-600">{viewGRN.officeName} · by {viewGRN.preparedBy}</p>
+                <span className="text-[10px] text-ink-faint font-bold uppercase block">Received Into</span>
+                <p className="font-bold text-ink">{viewGRN.warehouseName}</p>
+                <p className="text-ink-muted">{viewGRN.officeName} · by {viewGRN.preparedBy}</p>
                 <p className={`font-semibold ${receiptStatus(viewGRN).cls}`}>{receiptStatus(viewGRN).text}</p>
               </div>
             </div>
-            <table className="w-full text-left border border-slate-200">
-              <thead className="bg-slate-100 font-semibold">
+            <table className="w-full text-left border border-line">
+              <thead className="bg-control font-semibold">
                 <tr>
                   <th className="p-2">Item</th>
                   <th className="p-2 text-right">Received</th>
@@ -1088,25 +1088,25 @@ export default function PurchaseReceivePage() {
                   <th className="p-2 text-right">Amount</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody className="divide-y divide-line">
                 {viewGRN.items.map((it) => (
                   <tr key={it.id}>
                     <td className="p-2">
                       <div className="font-semibold">{it.itemName}</div>
-                      <div className="text-[10px] text-slate-400 font-mono">{it.itemCode} · {it.uom}</div>
+                      <div className="text-[10px] text-ink-faint font-mono">{it.itemCode} · {it.uom}</div>
                     </td>
                     <td className="p-2 text-right font-mono">{qtyFmt(it.currentReceivedQuantity)}</td>
-                    <td className="p-2 text-right font-mono text-rose-600">{qtyFmt(it.rejectedDamagedQuantity)}</td>
+                    <td className="p-2 text-right font-mono text-rose-600 dark:text-rose-400">{qtyFmt(it.rejectedDamagedQuantity)}</td>
                     <td className="p-2 text-right font-mono">{formatCurrency(it.unitPrice)}</td>
                     <td className="p-2 text-right font-mono font-bold">{formatCurrency(it.lineTotal)}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
-            {viewGRN.remarks && <p className="text-slate-600 whitespace-pre-line">Remarks: {viewGRN.remarks}</p>}
-            <div className="flex justify-between items-center bg-slate-50 p-3 rounded border border-slate-200">
-              <span className="font-semibold text-slate-700">Total accepted value</span>
-              <span className="text-base font-bold font-mono text-sky-800">{formatCurrency(viewGRN.totalReceivedAmount)}</span>
+            {viewGRN.remarks && <p className="text-ink-muted whitespace-pre-line">Remarks: {viewGRN.remarks}</p>}
+            <div className="flex justify-between items-center bg-canvas p-3 rounded border border-line">
+              <span className="font-semibold text-ink-muted">Total accepted value</span>
+              <span className="text-base font-bold font-mono text-sky-800 dark:text-sky-300">{formatCurrency(viewGRN.totalReceivedAmount)}</span>
             </div>
             <div className="flex justify-end gap-2">
               <button type="button" onClick={() => setViewGRN(null)} className={btnGhost}>
@@ -1201,13 +1201,13 @@ export default function PurchaseReceivePage() {
               closeMutation.mutate({ id: closePO.id, comments: comment });
             }}
           >
-            <p className="text-slate-600">
+            <p className="text-ink-muted">
               Stop receiving against <span className="font-mono font-bold">{closePO.poNumber}</span>. The outstanding{" "}
               {qtyFmt(closePO.items.reduce((s, it) => s + it.outstandingQuantity, 0))} units will not be received.
             </p>
             <label className="block">
-              <span className="block text-slate-700 font-semibold mb-1">Reason *</span>
-              <textarea required maxLength={300} value={comment} onChange={(e) => setComment(e.target.value)} className="w-full border border-slate-300 rounded p-2 text-xs h-20" />
+              <span className="block text-ink-muted font-semibold mb-1">Reason *</span>
+              <textarea required maxLength={300} value={comment} onChange={(e) => setComment(e.target.value)} className="w-full border border-line-strong rounded p-2 text-xs h-20" />
             </label>
             <div className="flex justify-end gap-2">
               <button type="button" onClick={() => setClosePO(null)} disabled={closeMutation.isPending} className={btnGhost}>
@@ -1231,13 +1231,13 @@ export default function PurchaseReceivePage() {
               cancelMutation.mutate({ id: cancelGRN.id, comments: comment });
             }}
           >
-            <p className="text-slate-600">
+            <p className="text-ink-muted">
               The received goods leave {cancelGRN.warehouseName} again, the order is re-opened for receiving and {formatCurrency(cancelGRN.totalReceivedAmount)} is taken off the supplier balance. Not allowed if
               the stock was already used, or a return, bill or payment exists for this receipt.
             </p>
             <label className="block">
-              <span className="block text-slate-700 font-semibold mb-1">Reason *</span>
-              <textarea required maxLength={300} value={comment} onChange={(e) => setComment(e.target.value)} className="w-full border border-slate-300 rounded p-2 text-xs h-20" />
+              <span className="block text-ink-muted font-semibold mb-1">Reason *</span>
+              <textarea required maxLength={300} value={comment} onChange={(e) => setComment(e.target.value)} className="w-full border border-line-strong rounded p-2 text-xs h-20" />
             </label>
             <div className="flex justify-end gap-2">
               <button type="button" onClick={() => setCancelGRN(null)} disabled={cancelMutation.isPending} className={btnGhost}>
@@ -1257,16 +1257,16 @@ export default function PurchaseReceivePage() {
           <form onSubmit={submitReturn} className="space-y-3 text-xs">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <label className="block">
-                <span className="block text-slate-600 font-medium mb-1">Return Date *</span>
+                <span className="block text-ink-muted font-medium mb-1">Return Date *</span>
                 <input type="date" required min={returnGRN.receiptDate} value={returnDate} onChange={(e) => setReturnDate(e.target.value)} className={inputCls} />
               </label>
               <label className="block">
-                <span className="block text-slate-600 font-medium mb-1">Reason *</span>
+                <span className="block text-ink-muted font-medium mb-1">Reason *</span>
                 <input type="text" required maxLength={300} value={returnReason} onChange={(e) => setReturnReason(e.target.value)} placeholder="Damaged, wrong specification, expired…" className={inputCls} />
               </label>
             </div>
-            <table className="w-full text-left border border-slate-200">
-              <thead className="bg-slate-100 font-semibold">
+            <table className="w-full text-left border border-line">
+              <thead className="bg-control font-semibold">
                 <tr>
                   <th className="p-2">Item</th>
                   <th className="p-2 text-right">Returnable</th>
@@ -1274,9 +1274,9 @@ export default function PurchaseReceivePage() {
                   <th className="p-2 text-right">Amount</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody className="divide-y divide-line">
                 {returnLines.map((l, idx) => (
-                  <tr key={`${l.itemId}-${idx}`} className={l.qty > l.available + 1e-9 ? "bg-rose-50" : ""}>
+                  <tr key={`${l.itemId}-${idx}`} className={l.qty > l.available + 1e-9 ? "bg-rose-50 dark:bg-rose-500/10" : ""}>
                     <td className="p-2">{l.itemCode} — {l.itemName}</td>
                     <td className="p-2 text-right font-mono">{qtyFmt(l.available)} {l.uom}</td>
                     <td className="p-2">
@@ -1298,7 +1298,7 @@ export default function PurchaseReceivePage() {
             </table>
             <div className="flex flex-col sm:flex-row justify-between items-center gap-3 pt-2 border-t">
               <span className="font-semibold">
-                Credit: <span className="font-mono text-sky-800">{formatCurrency(returnTotal)}</span>
+                Credit: <span className="font-mono text-sky-800 dark:text-sky-300">{formatCurrency(returnTotal)}</span>
               </span>
               <div className="flex gap-2">
                 <button type="button" onClick={() => setReturnLines(returnLines.map((l) => ({ ...l, qty: l.available })))} className={btnGhost}>

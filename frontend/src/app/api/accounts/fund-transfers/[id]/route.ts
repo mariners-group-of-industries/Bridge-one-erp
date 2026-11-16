@@ -3,6 +3,8 @@ import { db } from "@/lib/prisma/client";
 import { apiHandler } from "@/lib/api/handler";
 import { createVoucherInTx } from "@/lib/accounting/accounts-service";
 import type { Actor } from "@/lib/auth/actor";
+import { denyUnless } from "@/lib/permissions/require";
+import { approvalNote, recordApproval } from "@/lib/approval/engine";
 
 async function handlePATCH(
   request: Request,
@@ -13,6 +15,10 @@ async function handlePATCH(
     const { id } = await params;
     const body = await request.json();
     const action = String(body?.action || "").toUpperCase();
+    if (action === "APPROVE") {
+      const denied = denyUnless(actor, "/accounts/fund-transfers", "approve");
+      if (denied) return denied;
+    }
     const prisma = db();
 
     const transfer = await prisma.fundTransfer.findUnique({ where: { id } });
@@ -22,6 +28,15 @@ async function handlePATCH(
 
     const updated = await prisma.$transaction(async (tx) => {
       if (action === "APPROVE") {
+        // Configuration › Approval Setup ("Fund Transfer"): every stage approves before the transfer is approved.
+        const office = transfer.fromOfficeId ? await tx.office.findUnique({ where: { id: transfer.fromOfficeId }, select: { businessUnitId: true } }) : null;
+        const gate = await recordApproval(tx, actor, {
+          feature: "Fund Transfer",
+          documentId: id,
+          businessUnitId: office?.businessUnitId ?? null,
+          amount: Number(body.approvedAmount ?? transfer.requestedAmount),
+        });
+        if (!gate.final) return { ...transfer, approvalNote: approvalNote(gate) };
         return tx.fundTransfer.update({
           where: { id },
           data: {

@@ -9,7 +9,14 @@
  * colours, so the theme and dark mode can change in one place.
  */
 
-@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+/* Dark styles apply on screen only: printing from dark mode still gives a white page. */
+@custom-variant dark {
+  @media screen {
+    &:where([data-theme="dark"], [data-theme="dark"] *) {
+      @slot;
+    }
+  }
+}
 
 :root,
 [data-theme="light"] {
@@ -42,6 +49,7 @@
   color-scheme: light;
 }
 
+@media screen {
 [data-theme="dark"] {
   --canvas: #020617;
   --surface: #0f172a;
@@ -69,6 +77,7 @@
   --grid-line: #334155;
   --grid-hover: #1e293b;
   color-scheme: dark;
+}
 }
 
 @theme inline {

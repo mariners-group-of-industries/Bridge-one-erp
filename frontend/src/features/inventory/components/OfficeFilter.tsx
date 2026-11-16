@@ -20,11 +20,11 @@ export function useInventoryOffices(): string[] {
 export function OfficeFilter({ value, onChange, offices }: { value: OfficeChoice; onChange: (value: OfficeChoice) => void; offices: string[] }) {
   return (
     <div>
-      <label className="mb-0.5 block text-[11px] font-medium text-slate-600">Office</label>
+      <label className="mb-0.5 block text-[11px] font-medium text-ink-muted">Office</label>
       <select
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="min-w-44 rounded border border-slate-300 bg-white px-2.5 py-1.5 text-xs focus:ring-1 focus:ring-blue-500"
+        className="min-w-44 rounded border border-line-strong bg-surface px-2.5 py-1.5 text-xs focus:ring-1 focus:ring-blue-500"
       >
         <option value="">All offices</option>
         {offices.map((name) => (

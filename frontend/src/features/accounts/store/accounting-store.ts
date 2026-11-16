@@ -683,6 +683,10 @@ function getFullState(): AccountingState {
 
       await syncFromDatabase();
 
+      // A multilayer pipeline (Configuration › Approval Setup) keeps it pending until the last stage approves.
+      if (saved.data?.status !== "POSTED") {
+        return { success: true, message: saved.data?.approvalNote ?? `Your approval of ${v.voucherNumber} is recorded; it waits for the next approver.` };
+      }
       return { success: true, message: `Voucher ${v.voucherNumber} posted to General Ledger.` };
     },
 

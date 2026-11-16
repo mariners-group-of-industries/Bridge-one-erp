@@ -3,6 +3,7 @@ import { db } from "@/lib/prisma/client";
 import { apiHandler } from "@/lib/api/handler";
 import type { Actor } from "@/lib/auth/actor";
 import { uuidOrNull } from "@/lib/accounting/ids";
+import { denyUnless } from "@/lib/permissions/require";
 
 async function handleGET() {
   try {
@@ -34,6 +35,10 @@ async function handlePOST(request: Request, _context: unknown, actor: Actor) {
     const prisma = db();
     // Recorded as "prepared by": the signed-in user, never a name sent by the browser.
     const actorName = actor.name ?? actor.id;
+    // Without the Approve permission a voucher is saved as Pending, for an approver to post.
+    const requested = String(body.status || "POSTED");
+    const finalised = ["POSTED", "APPROVED"].includes(requested.toUpperCase());
+    const status = finalised && denyUnless(actor, "/accounts/journal", "approve") ? "PENDING" : requested;
     if (!UUID.test(String(body.officeId ?? ""))) {
       return NextResponse.json({ success: false, error: "Select the office." }, { status: 400 });
     }
@@ -81,11 +86,11 @@ async function handlePOST(request: Request, _context: unknown, actor: Actor) {
           totalDebit,
           totalCredit,
           amount: totalDebit,
-          status: body.status || "POSTED",
+          status,
           createdBy: actorName,
           preparedBy: actorName,
-          approvedBy: body.status === "POSTED" ? actorName : null,
-          postedAt: body.status === "POSTED" ? new Date() : null,
+          approvedBy: status === "POSTED" ? actorName : null,
+          postedAt: status === "POSTED" ? new Date() : null,
           employeeId: uuidOrNull(body.employeeId),
           employeeName: uuidOrNull(body.employeeId) ? text(body.employeeName, 150) : null,
           projectId: uuidOrNull(body.projectId),
@@ -117,7 +122,7 @@ async function handlePOST(request: Request, _context: unknown, actor: Actor) {
       });
 
       // If status is POSTED, update account balances
-      if (body.status === "POSTED") {
+      if (status === "POSTED") {
         for (const l of lines) {
           if (l.accountId) {
             const acc = await tx.account.findUnique({ where: { id: l.accountId } });

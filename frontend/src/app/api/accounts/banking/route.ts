@@ -2,7 +2,9 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/prisma/client";
 import { apiHandler } from "@/lib/api/handler";
 import { uuidOrNull } from "@/lib/accounting/ids";
-
+import type { Actor } from "@/lib/auth/actor";
+import { denyUnless } from "@/lib/permissions/require";
+import { bankingFeatureOf } from "@/features/accounts/paths";
 
 async function handleGET() {
   try {
@@ -34,9 +36,11 @@ async function handleGET() {
   }
 }
 
-async function handlePOST(request: Request) {
+async function handlePOST(request: Request, _context: unknown, actor: Actor) {
   try {
     const body = await request.json();
+    const denied = denyUnless(actor, bankingFeatureOf(body?.entityType), "create");
+    if (denied) return denied;
     const prisma = db();
 
     if (body.entityType === "chequeBook") {

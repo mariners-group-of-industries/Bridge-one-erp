@@ -84,6 +84,7 @@ function CreatePurchaseOrderForm({
   const queryClient = useQueryClient();
   const perms = usePurchasePermissions();
   const canSaveOrder = editOrder ? perms.orders.edit : perms.orders.create;
+  const [isHeaderCollapsed, setIsHeaderCollapsed] = useState(false);
   const todayStr = useMemo(() => new Date().toISOString().split("T")[0], []);
   const defaultExpectedStr = useMemo(() => {
     const d = new Date();
@@ -531,19 +532,19 @@ function CreatePurchaseOrderForm({
     "h-8 w-full rounded border border-slate-300 bg-white px-2.5 text-xs text-slate-800 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none";
 
   return (
-    <div className="min-h-screen bg-[#f8fafc] pb-12">
+    <div className="min-h-screen bg-[#f8fafc] p-3 md:p-6 text-slate-800">
       {/* Top Sticky Action Bar */}
-      <div className="sticky top-0 z-30 flex items-center justify-between border-b border-slate-200 bg-white px-4 py-2.5 shadow-2xs">
-        <div className="flex items-center gap-2.5">
+      <div className="bg-white border border-slate-200/90 rounded px-4 py-2.5 flex items-center justify-between shadow-2xs mb-3">
+        <div className="flex items-center gap-3">
           <button
             type="button"
             onClick={() => router.push("/purchase/orders")}
-            className="rounded-full p-1 text-slate-600 transition hover:bg-slate-100"
+            className="h-8 w-8 rounded border border-slate-300 flex items-center justify-center text-slate-600 hover:bg-slate-50 transition"
             title="Back to Purchase Orders"
           >
-            <ArrowLeft className="h-4 w-4" />
+            <ArrowLeft className="w-4 h-4" />
           </button>
-          <h1 className="text-base font-semibold text-slate-900">
+          <h1 className="text-base font-bold text-slate-900 tracking-tight">
             {editOrder ? `Edit Purchase Order — ${editOrder.poNumber}` : "Create Purchase Order"}
           </h1>
         </div>
@@ -554,8 +555,9 @@ function CreatePurchaseOrderForm({
               disabled={saveMutation.isPending || !canSaveOrder}
               title={!canSaveOrder ? "Requires Create permission in Configuration" : undefined}
               onClick={() => saveMutation.mutate(true)}
-              className="h-8 rounded border border-blue-500 bg-white px-3.5 text-xs font-medium text-blue-600 transition hover:bg-blue-50 disabled:opacity-50"
+              className="h-8 px-4 border border-[#2563eb] text-[#2563eb] hover:bg-blue-50 font-semibold text-xs rounded transition flex items-center gap-1.5 disabled:opacity-50"
             >
+              {saveMutation.isPending && <Spinner className="size-3.5" />}
               Save & New
             </button>
           )}
@@ -564,17 +566,39 @@ function CreatePurchaseOrderForm({
             disabled={saveMutation.isPending || !canSaveOrder}
             title={!canSaveOrder ? "Requires Create/Edit permission in Configuration" : undefined}
             onClick={() => saveMutation.mutate(false)}
-            className="flex h-8 items-center gap-1.5 rounded bg-blue-600 px-4 text-xs font-semibold text-white transition hover:bg-blue-700 disabled:opacity-50"
+            className="h-8 px-5 bg-[#2563eb] hover:bg-blue-700 text-white font-semibold text-xs rounded transition flex items-center gap-1.5 shadow-2xs disabled:opacity-50"
           >
-            {saveMutation.isPending && <Spinner className="h-3.5 w-3.5" />}
+            {saveMutation.isPending && <Spinner className="size-3.5" />}
             SAVE
           </button>
         </div>
       </div>
 
-      <div className="space-y-3 p-3.5">
+      <div className="space-y-3">
         {/* Card 1: Top Header & Flags */}
-        <div className="rounded-md border border-slate-200 bg-white p-3.5 shadow-2xs">
+        <div className="bg-white border border-slate-200/90 rounded shadow-2xs overflow-hidden mb-3">
+          {/* Card Tab Header with Collapse Chevron */}
+          <div className="flex items-center justify-between border-b border-slate-200 bg-white px-3 pt-2">
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                className="px-4 py-2 text-xs font-semibold rounded-t bg-[#e6f2fb] text-blue-700 border-b-2 border-blue-600 transition"
+              >
+                Basic Information
+              </button>
+            </div>
+            <button
+              type="button"
+              onClick={() => setIsHeaderCollapsed(!isHeaderCollapsed)}
+              className="p-1.5 text-slate-400 hover:text-slate-600 rounded transition"
+              title={isHeaderCollapsed ? "Expand" : "Collapse"}
+            >
+              {isHeaderCollapsed ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
+            </button>
+          </div>
+
+          {!isHeaderCollapsed && (
+            <div className="p-4 space-y-3.5">
           {/* Top Checkboxes Row */}
           <div className="mb-3 flex flex-wrap items-center gap-5 border-b border-slate-100 pb-2.5 text-xs text-slate-700">
             <label className="flex cursor-pointer items-center gap-2">
@@ -679,64 +703,64 @@ function CreatePurchaseOrderForm({
 
           {/* Main 4-Col Header Grid */}
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <div>
-              <label className="mb-1 block text-[11px] font-semibold text-slate-700">
-                Create Date<span className="text-red-500">*</span>
-              </label>
-              <input type="date" value={orderDate} onChange={(e) => setOrderDate(e.target.value)} className={inputCls} />
-            </div>
-
-            <div>
-              <label className="mb-1 block text-[11px] font-semibold text-slate-700">
-                Office<span className="text-red-500">*</span>
-              </label>
-              <select
-                value={selectedOfficeId}
-                onChange={(e) => {
-                  const newOfficeId = e.target.value;
-                  setPickedOfficeId(newOfficeId);
-                  const matchingWh = warehouses.find((w) => w.officeId === newOfficeId);
-                  setPickedWarehouseId(matchingWh?.id || "");
-                }}
-                className={inputCls}
-              >
-                <option value="">Office</option>
-                {offices.map((o) => (
-                  <option key={o.id} value={o.id}>
-                    {o.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="mb-1 block text-[11px] font-semibold text-slate-700">
-                Inventory Type<span className="text-red-500">*</span>
-              </label>
-              <select value={inventoryType} onChange={(e) => setInventoryType(e.target.value)} className={inputCls}>
-                {INVENTORY_TYPE_OPTIONS.map((t) => (
-                  <option key={t} value={t}>
-                    {t}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <div className="mb-1 flex items-center justify-between">
-                <label className="text-[11px] font-semibold text-slate-700">
-                  Select Supplier<span className="text-red-500">*</span>
+              <div>
+                <label className="mb-1 block text-xs font-semibold text-slate-700">
+                  <span className="text-red-500 font-bold mr-0.5">*</span>Create Date
                 </label>
-                {perms.quickSupplierCreate && (
-                  <button
-                    type="button"
-                    onClick={() => setIsAddSupplierOpen(true)}
-                    className="inline-flex items-center gap-0.5 min-h-6 -my-0.5 text-[11px] font-semibold text-blue-600 hover:text-blue-700"
-                  >
-                    <Plus className="h-3 w-3" /> ADD NEW
-                  </button>
-                )}
+                <input type="date" value={orderDate} onChange={(e) => setOrderDate(e.target.value)} className={inputCls} />
               </div>
+
+              <div>
+                <label className="mb-1 block text-xs font-semibold text-slate-700">
+                  <span className="text-red-500 font-bold mr-0.5">*</span>Office
+                </label>
+                <select
+                  value={selectedOfficeId}
+                  onChange={(e) => {
+                    const newOfficeId = e.target.value;
+                    setPickedOfficeId(newOfficeId);
+                    const matchingWh = warehouses.find((w) => w.officeId === newOfficeId);
+                    setPickedWarehouseId(matchingWh?.id || "");
+                  }}
+                  className={inputCls}
+                >
+                  <option value="">Office</option>
+                  {offices.map((o) => (
+                    <option key={o.id} value={o.id}>
+                      {o.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="mb-1 block text-xs font-semibold text-slate-700">
+                  <span className="text-red-500 font-bold mr-0.5">*</span>Inventory Type
+                </label>
+                <select value={inventoryType} onChange={(e) => setInventoryType(e.target.value)} className={inputCls}>
+                  {INVENTORY_TYPE_OPTIONS.map((t) => (
+                    <option key={t} value={t}>
+                      {t}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <div className="mb-1 flex items-center justify-between">
+                  <label className="text-xs font-semibold text-slate-700">
+                    <span className="text-red-500 font-bold mr-0.5">*</span>Select Supplier
+                  </label>
+                  {perms.quickSupplierCreate && (
+                    <button
+                      type="button"
+                      onClick={() => setIsAddSupplierOpen(true)}
+                      className="inline-flex items-center gap-0.5 min-h-6 -my-0.5 text-[11px] font-semibold text-blue-600 hover:text-blue-700"
+                    >
+                      <Plus className="h-3 w-3" /> ADD NEW
+                    </button>
+                  )}
+                </div>
               <SearchableCombobox
                 value={supplierId}
                 onChange={setSupplierId}
@@ -897,8 +921,8 @@ function CreatePurchaseOrderForm({
                 </div>
 
                 <div>
-                  <label className="mb-1 block text-[11px] font-semibold text-slate-700">
-                    Receiving Warehouse<span className="text-red-500">*</span>
+                  <label className="mb-1 block text-xs font-semibold text-slate-700">
+                    <span className="text-red-500 font-bold mr-0.5">*</span>Receiving Warehouse
                   </label>
                   <select
                     value={selectedWarehouseId}
@@ -957,11 +981,24 @@ function CreatePurchaseOrderForm({
               {viewDetails ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
             </button>
           </div>
+            </div>
+          )}
         </div>
 
-        {/* Card 2: Line Item Builder */}
-        <div className="rounded-md border border-slate-200 bg-white p-3.5 shadow-2xs">
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        {/* Card 2: Order Items */}
+        <div className="bg-white border border-slate-200/90 rounded shadow-2xs overflow-hidden mb-3">
+          <div className="flex items-center justify-between border-b border-slate-200 bg-white px-3 pt-2">
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                className="px-4 py-2 text-xs font-semibold rounded-t bg-[#e6f2fb] text-blue-700 border-b-2 border-blue-600 transition"
+              >
+                Order Items
+              </button>
+            </div>
+          </div>
+          <div className="p-4 space-y-3.5">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <div>
               <label className="mb-1 block text-[11px] font-semibold text-slate-700">Category</label>
               <select
@@ -1029,8 +1066,8 @@ function CreatePurchaseOrderForm({
 
           <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-12">
             <div className="lg:col-span-4">
-              <label className="mb-1 block text-[11px] font-semibold text-slate-700">
-                Item<span className="text-red-500">*</span>
+              <label className="mb-1 block text-xs font-semibold text-slate-700">
+                <span className="text-red-500 font-bold mr-0.5">*</span>Item
               </label>
               <SearchableCombobox
                 value={selectedItemId}
@@ -1047,9 +1084,9 @@ function CreatePurchaseOrderForm({
             </div>
 
             <div className="lg:col-span-2">
-              <label className="mb-1 flex items-center justify-between text-[11px] font-semibold text-slate-700">
+              <label className="mb-1 flex items-center justify-between text-xs font-semibold text-slate-700">
                 <span>
-                  Quantity<span className="text-red-500">*</span>
+                  <span className="text-red-500 font-bold mr-0.5">*</span>Quantity
                 </span>
                 <Info className="h-3.5 w-3.5 text-slate-400" />
               </label>
@@ -1065,9 +1102,9 @@ function CreatePurchaseOrderForm({
             </div>
 
             <div className="lg:col-span-2">
-              <label className="mb-1 flex items-center justify-between text-[11px] font-semibold text-slate-700">
+              <label className="mb-1 flex items-center justify-between text-xs font-semibold text-slate-700">
                 <span>
-                  Rate (BDT)<span className="text-red-500">*</span>
+                  <span className="text-red-500 font-bold mr-0.5">*</span>Rate (BDT)
                 </span>
                 <Info className="h-3.5 w-3.5 text-slate-400" />
               </label>
@@ -1160,14 +1197,13 @@ function CreatePurchaseOrderForm({
               Add
             </button>
           </div>
-        </div>
 
-        {/* Added Lines Table */}
-        <div className="overflow-hidden rounded-md border border-slate-200 bg-white shadow-2xs">
-          <div className="overflow-x-auto">
-            <table className="w-full border-collapse text-left text-xs">
-              <thead>
-                <tr className="border-b border-slate-200 bg-slate-50 text-[11px] font-semibold text-slate-600">
+          {/* Added Lines Table */}
+          <div className="overflow-hidden rounded border border-slate-200 bg-white">
+              <div className="overflow-x-auto">
+                <table className="w-full border-collapse text-left text-xs">
+                  <thead>
+                    <tr className="border-b border-slate-200 bg-[#e6f2fb] text-[11px] font-semibold text-slate-800">
                   <th className="px-3 py-2">SL</th>
                   <th className="px-3 py-2">Item Code</th>
                   <th className="px-3 py-2">Item Name</th>
@@ -1237,6 +1273,8 @@ function CreatePurchaseOrderForm({
           )}
         </div>
       </div>
+    </div>
+  </div>
 
       <QuickAddSupplierModal
         isOpen={isAddSupplierOpen}
