@@ -216,7 +216,7 @@ export default function PurchaseReportsPage() {
   const columnCount = (reportData as any)?.columns?.length || 8;
 
   return (
-    <div className="space-y-4">
+    <div className="flex flex-col h-[calc(100dvh-3.5rem)] overflow-hidden p-3 space-y-3 print:block print:h-auto print:overflow-visible print:p-0">
       {/* Printable Corporate Letterhead (visible only on print) */}
       <div className="hidden print:block space-y-3 mb-3 text-black">
         {(() => {
@@ -542,8 +542,8 @@ export default function PurchaseReportsPage() {
       )}
 
       {/* Main Report Table (.erp-table all-borders styling) */}
-      <div className="bg-white rounded border border-slate-300 shadow-xs overflow-hidden">
-        <div className="overflow-x-auto">
+      <div className="flex-1 min-h-0 flex flex-col bg-white rounded border border-slate-300 shadow-xs overflow-hidden print:overflow-visible">
+        <div className="flex-1 min-h-0 overflow-auto print:overflow-visible">
           <table className="erp-table erp-table-compact w-full text-xs text-left border-collapse">
             <thead>
               <tr className="bg-slate-100 text-slate-800 font-bold border-b border-slate-300">
@@ -666,7 +666,7 @@ export default function PurchaseReportsPage() {
         </div>
 
         {/* Record count footer */}
-        <div className="p-2.5 bg-slate-50 border-t border-slate-300 flex items-center justify-between text-xs text-slate-500">
+        <div className="shrink-0 p-2.5 bg-slate-50 border-t border-slate-300 flex items-center justify-between text-xs text-slate-500">
           <span>
             Displaying <strong className="text-slate-800">{reportData?.rows?.length ?? 0}</strong> record(s) in this ledger view.
           </span>
