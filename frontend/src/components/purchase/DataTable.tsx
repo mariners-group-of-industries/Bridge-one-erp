@@ -41,8 +41,8 @@ export function DataTable<T extends Record<string, any>>({
   const paginatedData = data.slice(startIndex, startIndex + rowsPerPage);
 
   return (
-    <div className="bg-white rounded border border-slate-200/90 shadow-2xs overflow-hidden">
-      <div className={cn("erp-table-container min-h-[300px]", containerClassName)}>
+    <div className="bg-white rounded border border-slate-200/90 shadow-2xs overflow-hidden flex flex-col h-full">
+      <div className={cn("erp-table-container flex-1 min-h-0 overflow-auto", containerClassName)}>
         <table className={cn("erp-table", compact && "erp-table-compact", tableClassName)}>
           <thead>
             <tr>
@@ -92,7 +92,7 @@ export function DataTable<T extends Record<string, any>>({
 
       {/* Table Pagination */}
       {!loading && data.length > 0 && (
-        <div className="px-3 py-2 border-t border-slate-200 bg-slate-50 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
+        <div className="shrink-0 px-3 py-2 border-t border-slate-200 bg-slate-50 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
           <div className="flex items-center gap-2">
             <span>Rows per page:</span>
             <select

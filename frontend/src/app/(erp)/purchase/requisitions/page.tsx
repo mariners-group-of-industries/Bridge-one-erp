@@ -932,68 +932,71 @@ export default function PurchaseRequisitionsPage() {
   }, [requisitions]);
 
   return (
-    <div className="space-y-3">
+    <div className="flex flex-col h-[calc(100dvh-3.5rem)] overflow-hidden font-sans p-3 space-y-2.5">
       {/* 1. TOP HEADER (Exact Unified Box Layout) */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-3 rounded border border-slate-200/90 shadow-2xs">
-        <div>
-          <h1 className="text-xl font-bold text-slate-900 tracking-tight">
-            Purchase Requisition
-          </h1>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <div className="relative">
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search...."
-              className="w-56 sm:w-64 h-9 pl-3 pr-8 text-xs border border-slate-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 bg-white placeholder-slate-400"
-            />
-            <Search className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+      <div className="shrink-0 space-y-2.5">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-3 rounded border border-slate-200/90 shadow-2xs">
+          <div>
+            <h1 className="text-xl font-bold text-slate-900 tracking-tight">
+              Purchase Requisition
+            </h1>
           </div>
 
-          {perms.requisitions.create && (
-            <button
-              type="button"
-              onClick={() => router.push("/purchase/requisitions/create")}
-              className="h-9 px-4 bg-[#2563eb] hover:bg-blue-700 text-white font-semibold text-xs rounded flex items-center gap-1.5 shadow-xs transition"
-            >
-              <Plus className="w-4 h-4" />
-              <span>Requisition</span>
-            </button>
-          )}
+          <div className="flex items-center gap-2">
+            <div className="relative">
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search...."
+                className="w-56 sm:w-64 h-9 pl-3 pr-8 text-xs border border-slate-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 bg-white placeholder-slate-400"
+              />
+              <Search className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+            </div>
+
+            {perms.requisitions.create && (
+              <button
+                type="button"
+                onClick={() => router.push("/purchase/requisitions/create")}
+                className="h-9 px-4 bg-[#2563eb] hover:bg-blue-700 text-white font-semibold text-xs rounded flex items-center gap-1.5 shadow-xs transition"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Requisition</span>
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Navigation Tabs (PURCHASE REQUISITION | REQUISITION SUMMARY) */}
+        <div className="flex items-center gap-8 border-b border-slate-200 bg-white px-3 pt-1 rounded border border-slate-200/90 shadow-2xs">
+          <button
+            type="button"
+            onClick={() => handleTabChange("PURCHASE_REQUISITION")}
+            className={`pb-2.5 text-xs font-bold tracking-wide transition-colors relative flex items-center gap-2 uppercase ${activeTab === "PURCHASE_REQUISITION"
+              ? "text-blue-600 border-b-2 border-blue-600 -mb-[1px]"
+              : "text-slate-500 hover:text-slate-800"
+              }`}
+          >
+            <span>PURCHASE REQUISITION</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => handleTabChange("REQUISITION_SUMMARY")}
+            className={`pb-2.5 text-xs font-bold tracking-wide transition-colors relative flex items-center gap-2 uppercase ${activeTab === "REQUISITION_SUMMARY"
+              ? "text-blue-600 border-b-2 border-blue-600 -mb-[1px]"
+              : "text-slate-500 hover:text-slate-800"
+              }`}
+          >
+            <span>REQUISITION SUMMARY</span>
+          </button>
         </div>
       </div>
 
-      {/* Navigation Tabs (PURCHASE REQUISITION | REQUISITION SUMMARY) */}
-      <div className="flex items-center gap-8 border-b border-slate-200 mb-3 bg-white px-2">
-        <button
-          type="button"
-          onClick={() => handleTabChange("PURCHASE_REQUISITION")}
-          className={`pb-2.5 text-xs font-bold tracking-wide transition-colors relative flex items-center gap-2 uppercase ${activeTab === "PURCHASE_REQUISITION"
-            ? "text-blue-600 border-b-2 border-blue-600 -mb-[1px]"
-            : "text-slate-500 hover:text-slate-800"
-            }`}
-        >
-          <span>PURCHASE REQUISITION</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => handleTabChange("REQUISITION_SUMMARY")}
-          className={`pb-2.5 text-xs font-bold tracking-wide transition-colors relative flex items-center gap-2 uppercase ${activeTab === "REQUISITION_SUMMARY"
-            ? "text-blue-600 border-b-2 border-blue-600 -mb-[1px]"
-            : "text-slate-500 hover:text-slate-800"
-            }`}
-        >
-          <span>REQUISITION SUMMARY</span>
-        </button>
-      </div>
-
-      {/* Enterprise Filter Card (Exact Managerium Layout per Active Tab) */}
+      {/* Enterprise Filter Card & Content */}
       {activeTab === "PURCHASE_REQUISITION" ? (
-        <div className="bg-white rounded border border-slate-200/90 p-4 shadow-2xs mb-4">
+        <div className="flex-1 min-h-0 flex flex-col space-y-2.5">
+          <div className="shrink-0 bg-white rounded border border-slate-200/90 p-4 shadow-2xs">
           {/* Row 1: 5 Columns */}
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3.5 mb-3.5">
             {/* 1. Office */}
@@ -1338,22 +1341,22 @@ export default function PurchaseRequisitionsPage() {
             </div>
           </div>
         </div>
-      )}
 
-      {/* Content: Requisitions List or Summary Matrix */}
-      {activeTab === "PURCHASE_REQUISITION" ? (
-        /* Requisitions Data Table */
-        <DataTable
-          columns={columns}
-          data={requisitions || []}
-          loading={isLoading}
-          pageSize={50}
-          emptyMessage="No requisitions found matching the selected criteria."
-          compact
-        />
+        {/* Requisitions Data Table (Only Table Scrolls) */}
+          <div className="flex-1 min-h-0">
+            <DataTable
+              columns={columns}
+              data={requisitions || []}
+              loading={isLoading}
+              pageSize={50}
+              emptyMessage="No requisitions found matching the selected criteria."
+              compact
+            />
+          </div>
+        </div>
       ) : (
         /* Requisition Summary View */
-        <div className="space-y-4">
+        <div className="flex-1 min-h-0 overflow-y-auto space-y-4">
           {/* KPI Stat Cards */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             <div className="bg-white rounded border border-slate-200/90 p-4 shadow-2xs">

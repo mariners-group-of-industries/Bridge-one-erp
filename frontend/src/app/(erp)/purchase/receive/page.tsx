@@ -549,60 +549,63 @@ export default function PurchaseReceivePage() {
   const returnTotal = returnLines.reduce((s, l) => s + l.qty * l.unitPrice, 0);
 
   return (
-    <div className="space-y-3 font-sans pb-12">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-3 rounded border border-slate-200/90 shadow-2xs">
-        <h1 className="text-xl font-bold text-slate-900 tracking-tight">Purchase Receive</h1>
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="relative">
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search...."
-              aria-label="Search"
-              className="w-56 sm:w-64 h-9 pl-3 pr-8 text-xs border border-slate-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white placeholder-slate-400"
-            />
-            <Search className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+    <div className="flex flex-col h-[calc(100dvh-3.5rem)] overflow-hidden font-sans p-3 space-y-2.5">
+      {/* Fixed Top Controls */}
+      <div className="shrink-0 space-y-2.5">
+        {/* Header */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-3 rounded border border-slate-200/90 shadow-2xs">
+          <h1 className="text-xl font-bold text-slate-900 tracking-tight">Purchase Receive</h1>
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="relative">
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search...."
+                aria-label="Search"
+                className="w-56 sm:w-64 h-9 pl-3 pr-8 text-xs border border-slate-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white placeholder-slate-400"
+              />
+              <Search className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+            </div>
+            {perms.receive.export && (
+              <button type="button" onClick={handleExport} className={btnPrimary} title="Download Excel (CSV)">
+                <Download className="w-3.5 h-3.5" /> Excel
+              </button>
+            )}
+            {perms.receive.create && (
+              <button type="button" onClick={() => router.push("/purchase/receive/create")} className={btnPrimary}>
+                <Plus className="w-4 h-4" /> Direct Receive
+              </button>
+            )}
           </div>
-          {perms.receive.export && (
-            <button type="button" onClick={handleExport} className={btnPrimary} title="Download Excel (CSV)">
-              <Download className="w-3.5 h-3.5" /> Excel
-            </button>
-          )}
-          {perms.receive.create && (
-            <button type="button" onClick={() => router.push("/purchase/receive/create")} className={btnPrimary}>
-              <Plus className="w-4 h-4" /> Direct Receive
-            </button>
-          )}
         </div>
-      </div>
 
-      {/* Tabs */}
-      <div role="tablist" className="flex items-center gap-8 border-b border-slate-200 bg-white px-3 pt-1">
-        {(
-          [
-            ["APPROVED_PO", `APPROVED PO (${approvedPOs.length})`],
-            ["RECEIVED_PO", "RECEIVED PO"],
-          ] as const
-        ).map(([id, label]) => (
-          <button
-            key={id}
-            type="button"
-            role="tab"
-            aria-selected={activeTab === id}
-            onClick={() => setActiveTab(id)}
-            className={`pb-2.5 pt-2 text-xs font-bold tracking-wide border-b-2 transition ${activeTab === id ? "border-[#2563eb] text-[#2563eb]" : "border-transparent text-slate-500 hover:text-slate-800"}`}
-          >
-            {label}
-          </button>
-        ))}
+        {/* Tabs */}
+        <div role="tablist" className="flex items-center gap-8 border-b border-slate-200 bg-white px-3 pt-1 rounded border border-slate-200/90 shadow-2xs">
+          {(
+            [
+              ["APPROVED_PO", `APPROVED PO (${approvedPOs.length})`],
+              ["RECEIVED_PO", "RECEIVED PO"],
+            ] as const
+          ).map(([id, label]) => (
+            <button
+              key={id}
+              type="button"
+              role="tab"
+              aria-selected={activeTab === id}
+              onClick={() => setActiveTab(id)}
+              className={`pb-2.5 pt-2 text-xs font-bold tracking-wide border-b-2 transition ${activeTab === id ? "border-[#2563eb] text-[#2563eb]" : "border-transparent text-slate-500 hover:text-slate-800"}`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* TAB 1: Approved POs waiting for goods */}
       {activeTab === "APPROVED_PO" && (
-        <div className="space-y-3">
-          <div className="bg-white rounded border border-slate-200/90 p-3.5 shadow-2xs">
+        <div className="flex-1 min-h-0 flex flex-col space-y-2.5">
+          <div className="shrink-0 bg-white rounded border border-slate-200/90 p-3.5 shadow-2xs">
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-2">
               <label className="block">
                 <span className="block text-[11px] font-semibold text-slate-700 mb-1">Office</span>
@@ -671,8 +674,9 @@ export default function PurchaseReceivePage() {
             </div>
           </div>
 
-          <div className="bg-white rounded border border-slate-200/90 shadow-2xs overflow-hidden">
-            <div className="erp-table-container">
+          {/* Table Card (Only Table Scrolls) */}
+          <div className="flex-1 min-h-0 bg-white rounded border border-slate-200/90 shadow-2xs overflow-hidden flex flex-col">
+            <div className="erp-table-container flex-1 min-h-0 overflow-auto">
               <table className="erp-table erp-table-compact">
                 <thead>
                   <tr>
@@ -773,15 +777,15 @@ export default function PurchaseReceivePage() {
                 </tbody>
               </table>
             </div>
-            {pendingPOsPage.pager}
+            <div className="shrink-0">{pendingPOsPage.pager}</div>
           </div>
         </div>
       )}
 
       {/* TAB 2: Goods receipts */}
       {activeTab === "RECEIVED_PO" && (
-        <div className="space-y-3">
-          <div className="bg-white rounded border border-slate-200/90 p-3.5 shadow-2xs">
+        <div className="flex-1 min-h-0 flex flex-col space-y-2.5">
+          <div className="shrink-0 bg-white rounded border border-slate-200/90 p-3.5 shadow-2xs">
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-3">
               <label className="block">
                 <span className="block text-[11px] font-semibold text-slate-700 mb-1">Office</span>
@@ -855,8 +859,9 @@ export default function PurchaseReceivePage() {
               )}
             </div>
           </div>
-          <div className="bg-white rounded border border-slate-200/90 shadow-2xs overflow-hidden">
-            <div className="erp-table-container">
+          {/* Table Card (Only Table Scrolls) */}
+          <div className="flex-1 min-h-0 bg-white rounded border border-slate-200/90 shadow-2xs overflow-hidden flex flex-col">
+            <div className="erp-table-container flex-1 min-h-0 overflow-auto">
               <table className="erp-table erp-table-compact">
                 <thead>
                   <tr>
@@ -953,7 +958,7 @@ export default function PurchaseReceivePage() {
                 </tbody>
               </table>
             </div>
-            {filteredGRNsPage.pager}
+            <div className="shrink-0">{filteredGRNsPage.pager}</div>
           </div>
         </div>
       )}
