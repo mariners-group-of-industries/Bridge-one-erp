@@ -1,5 +1,7 @@
 "use client";
 
+import { toast } from "@/components/purchase/Toast";
+import { usePending } from "@/hooks/use-pending";
 import React, { useMemo, useState } from "react";
 import {
   AlertCircle,
@@ -43,6 +45,7 @@ function fiscalYearOf(day: string) {
 }
 
 export default function AccountingJournalPage() {
+  const { pending, run } = usePending();
   const vouchers = useAccountingStore((s) => s.vouchers);
   const accounts = useAccountingStore((s) => s.accounts);
   const dbOffices = useAccountingStore((s) => s.offices);
@@ -239,7 +242,7 @@ export default function AccountingJournalPage() {
     );
   };
 
-  const handleSubmitVoucher = (e: React.FormEvent) => {
+  const handleSubmitVoucher = async (e: React.FormEvent) => {
     e.preventDefault();
     setFormError("");
     setFormSuccess("");
@@ -277,7 +280,7 @@ export default function AccountingJournalPage() {
     }
 
     const preparedBy = user?.name ?? "";
-    const res = createVoucher({
+    const res = await run("voucher", () => createVoucher({
       ...newVoucherHeader,
       officeId: voucherOffice.id,
       officeName: voucherOffice.name,
@@ -292,7 +295,7 @@ export default function AccountingJournalPage() {
       projectId: voucherProjectId || null,
       projectName: costCenters.find((c) => c.id === voucherProjectId)?.name ?? null,
       attachmentId: attachment?.id ?? null,
-    });
+    }));
 
     if (!res.success) {
       setFormError(res.message);
@@ -316,9 +319,15 @@ export default function AccountingJournalPage() {
     setApproveConfirmTarget(voucher);
   };
 
-  const confirmApproval = () => {
+  const confirmApproval = async () => {
     if (!approveConfirmTarget) return;
-    postVoucher(approveConfirmTarget.id);
+    const res = await run("approve", () => postVoucher(approveConfirmTarget.id));
+    // Keep the dialog open when the server refuses, so the user sees why.
+    if (!res.success) {
+      toast.error(res.message, { title: "Not posted" });
+      return;
+    }
+    toast.success(res.message);
     setApproveConfirmTarget(null);
   };
 
@@ -840,7 +849,7 @@ export default function AccountingJournalPage() {
           </div>
 
           <div className="flex items-center gap-1">
-            <button
+            <button aria-label="Previous page"
               onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
               disabled={currentPage <= 1}
               className="w-7 h-7 flex items-center justify-center rounded border border-slate-200 bg-white hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed text-slate-600 transition-colors"
@@ -863,7 +872,7 @@ export default function AccountingJournalPage() {
                 </button>
               );
             })}
-            <button
+            <button aria-label="Next page"
               onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
               disabled={currentPage >= totalPages}
               className="w-7 h-7 flex items-center justify-center rounded border border-slate-200 bg-white hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed text-slate-600 transition-colors"
@@ -1200,9 +1209,9 @@ export default function AccountingJournalPage() {
             </button>
             <button
               type="submit"
-              disabled={!isBalanced}
-              className="px-5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-semibold disabled:opacity-40 disabled:cursor-not-allowed transition-colors shadow-2xs"
-            >
+              disabled={!isBalanced || pending === "voucher"}
+              className="inline-flex items-center justify-center gap-1.5 px-5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-semibold disabled:opacity-40 disabled:cursor-not-allowed transition-colors shadow-2xs"
+            >{pending === "voucher" && <Spinner className="size-3.5" />}
               Post Voucher
             </button>
           </div>
@@ -1350,11 +1359,11 @@ export default function AccountingJournalPage() {
               >
                 Cancel
               </button>
-              <button
+              <button disabled={pending === "approve"}
                 type="button"
                 onClick={confirmApproval}
-                className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-xs font-semibold shadow-2xs"
-              >
+                className="inline-flex items-center justify-center gap-1.5 disabled:opacity-60 px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-xs font-semibold shadow-2xs"
+              >{pending === "approve" && <Spinner className="size-3.5" />}
                 Confirm Approval
               </button>
             </div>

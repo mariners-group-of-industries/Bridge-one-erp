@@ -1,5 +1,8 @@
 "use client";
 
+import { toast } from "@/components/purchase/Toast";
+import { Spinner } from "@/components/ui/spinner";
+import { usePending } from "@/hooks/use-pending";
 import React, { useMemo, useState } from "react";
 import {
   ChevronDown,
@@ -17,6 +20,7 @@ import type { CostCenterItem } from "@/features/accounts/types";
 import { localToday } from "@/features/purchase/lib/client";
 
 export default function CenterSetupPage() {
+  const { pending, run } = usePending();
   const costCenters = useAccountingStore((s) => s.costCenters);
   const addCostCenter = useAccountingStore((s) => s.addCostCenter);
   const updateCostCenter = useAccountingStore((s) => s.updateCostCenter);
@@ -103,7 +107,7 @@ export default function CenterSetupPage() {
 
   const totalPages = Math.max(1, Math.ceil(filteredCenters.length / rowsPerPage));
 
-  const handleSaveCenter = (e: React.FormEvent) => {
+  const handleSaveCenter = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!createForm.code.trim() || !createForm.name.trim() || !formOffice) return;
 
@@ -116,8 +120,10 @@ export default function CenterSetupPage() {
       description: createForm.description,
       effectiveDate: createForm.effectiveDate,
     };
-    if (editingId) updateCostCenter(editingId, { ...values, status: createForm.status });
-    else addCostCenter({ ...values, status: "ACTIVE" });
+    const save = () => (editingId ? updateCostCenter(editingId, { ...values, status: createForm.status }) : addCostCenter({ ...values, status: "ACTIVE" }));
+    const ok = await run("center", () => save());
+    if (!ok) return;
+    toast.success("Center saved.");
 
     setIsCreateOpen(false);
     setEditingId(null);
@@ -403,7 +409,7 @@ export default function CenterSetupPage() {
 
             {/* Pagination buttons */}
             <div className="flex items-center gap-1">
-              <button
+              <button aria-label="Previous page"
                 type="button"
                 onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
                 disabled={currentPage <= 1}
@@ -431,7 +437,7 @@ export default function CenterSetupPage() {
                 );
               })}
 
-              <button
+              <button aria-label="Next page"
                 type="button"
                 onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
                 disabled={currentPage >= totalPages}
@@ -572,10 +578,10 @@ export default function CenterSetupPage() {
             >
               Cancel
             </button>
-            <button
+            <button disabled={pending === "center"}
               type="submit"
-              className="px-4 py-1.5 bg-[#2563eb] hover:bg-blue-700 text-white font-semibold text-xs rounded transition shadow-2xs"
-            >
+              className="inline-flex items-center justify-center gap-1.5 disabled:opacity-60 px-4 py-1.5 bg-[#2563eb] hover:bg-blue-700 text-white font-semibold text-xs rounded transition shadow-2xs"
+            >{pending === "center" && <Spinner className="size-3.5" />}
               {editingId ? "Update Center Setup" : "Save Center Setup"}
             </button>
           </div>

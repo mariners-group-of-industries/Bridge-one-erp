@@ -1,5 +1,8 @@
 "use client";
 
+import { toast } from "@/components/purchase/Toast";
+import { Spinner } from "@/components/ui/spinner";
+import { usePending } from "@/hooks/use-pending";
 import Image from "next/image";
 import React, { useMemo, useState } from "react";
 import {
@@ -37,6 +40,8 @@ function BridgeOneEmptyState() {
 }
 
 export default function ChequeSetupPage() {
+  const { pending, run } = usePending();
+  const syncDatabase = useAccountingStore((s) => s.syncDatabase);
   const chequeBooks = useAccountingStore((s) => s.chequeBooks);
   const cheques = useAccountingStore((s) => s.cheques);
   const rawReceivedCheques = useAccountingStore((s) => s.receivedCheques);
@@ -245,7 +250,7 @@ export default function ChequeSetupPage() {
   };
 
   // Save new cheque book
-  const handleSaveBook = (e: React.FormEvent) => {
+  const handleSaveBook = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage("");
     setSuccessMessage("");
@@ -264,14 +269,14 @@ export default function ChequeSetupPage() {
       setErrorMessage("Add a bank account under Finance & Banking first.");
       return;
     }
-    const res = addChequeBook({
+    const res = await run("book", () => addChequeBook({
       ...bookForm,
       bankAccountId: bank.id,
       bankName: bank.bankName,
       branchName: bank.branchName || "",
       accountNumber: bank.accountNumber,
       totalLeaves,
-    });
+    }));
     if (!res.success) {
       setErrorMessage(res.message);
       return;
@@ -285,7 +290,7 @@ export default function ChequeSetupPage() {
   };
 
   // Issue cheque
-  const handleSaveIssue = (e: React.FormEvent) => {
+  const handleSaveIssue = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage("");
     setSuccessMessage("");
@@ -302,13 +307,13 @@ export default function ChequeSetupPage() {
     }
     // The running cheque book of that bank account.
     const book = chequeBooks.find((b) => b.bankAccountId === bank.id && b.status !== "EXHAUSTED" && b.status !== "CANCELLED");
-    const res = issueCheque({
+    const res = await run("issue", () => issueCheque({
       ...issueForm,
       bankAccountId: bank.id,
       bankName: bank.bankName,
       chequeBookId: book?.id ?? "",
       status: issueForm.chequeDate > localToday() ? "POST_DATED" : "ISSUED",
-    });
+    }));
 
     if (!res.success) {
       setErrorMessage(res.message);
@@ -323,7 +328,7 @@ export default function ChequeSetupPage() {
   };
 
   // Save received cheque
-  const handleSaveReceivedCheque = (e: React.FormEvent) => {
+  const handleSaveReceivedCheque = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage("");
     setSuccessMessage("");
@@ -333,7 +338,11 @@ export default function ChequeSetupPage() {
       return;
     }
 
-    const res = addReceivedCheque(receiveForm);
+    const res = await run("received", () => addReceivedCheque(receiveForm));
+    if (!res.success) {
+      setErrorMessage(res.message);
+      return;
+    }
     setSuccessMessage(res.message);
     setTimeout(() => {
       setIsReceiveModalOpen(false);
@@ -353,14 +362,19 @@ export default function ChequeSetupPage() {
   };
 
   // Save edited book
-  const handleSaveEditBook = (e: React.FormEvent) => {
+  const handleSaveEditBook = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editBook) return;
-    updateChequeBook(editBook.id, {
+    const res = await run("editBook", () => updateChequeBook(editBook.id, {
       bookName: editBook.bookName,
       branchName: editBook.branchName,
       status: editBook.status,
-    });
+    }));
+    if (!res.success) {
+      toast.error(res.message, { title: "Not saved" });
+      return;
+    }
+    toast.success(res.message);
     setEditBook(null);
   };
 
@@ -620,9 +634,12 @@ export default function ChequeSetupPage() {
             <div className="flex items-end self-end">
               <button
                 type="button"
-                className="h-8 px-4 bg-[#2563eb] hover:bg-blue-700 text-white font-semibold text-xs rounded transition shadow-xs"
-              >
-                View
+                className="inline-flex items-center justify-center gap-1.5 disabled:opacity-60 h-8 px-4 bg-[#2563eb] hover:bg-blue-700 text-white font-semibold text-xs rounded transition shadow-xs"
+              
+ onClick={() => void run("view", () => syncDatabase())}
+ disabled={pending === "view"}
+>
+                {pending === "view" && <Spinner className="size-3.5" />}View
               </button>
             </div>
           </>
@@ -688,9 +705,12 @@ export default function ChequeSetupPage() {
             <div className="flex items-end self-end">
               <button
                 type="button"
-                className="h-8 px-4 bg-[#2563eb] hover:bg-blue-700 text-white font-semibold text-xs rounded transition shadow-xs"
-              >
-                View
+                className="inline-flex items-center justify-center gap-1.5 disabled:opacity-60 h-8 px-4 bg-[#2563eb] hover:bg-blue-700 text-white font-semibold text-xs rounded transition shadow-xs"
+              
+ onClick={() => void run("view", () => syncDatabase())}
+ disabled={pending === "view"}
+>
+                {pending === "view" && <Spinner className="size-3.5" />}View
               </button>
             </div>
           </>
@@ -867,7 +887,7 @@ export default function ChequeSetupPage() {
               </div>
 
               <div className="flex items-center gap-1">
-                <button
+                <button aria-label="Previous page"
                   type="button"
                   onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
                   disabled={currentPage <= 1}
@@ -878,7 +898,7 @@ export default function ChequeSetupPage() {
                 <span className="w-6 h-6 flex items-center justify-center rounded bg-blue-600 text-white font-bold text-xs">
                   {currentPage}
                 </span>
-                <button
+                <button aria-label="Next page"
                   type="button"
                   onClick={() => setCurrentPage((p) => p + 1)}
                   disabled={currentPage * rowsPerPage >= filteredRegisterBooks.length}
@@ -1180,10 +1200,10 @@ export default function ChequeSetupPage() {
                 >
                   Cancel
                 </button>
-                <button
+                <button disabled={pending === "book"}
                   type="submit"
-                  className="px-4 py-1.5 bg-[#2563eb] hover:bg-blue-700 text-white rounded text-xs font-semibold shadow-xs"
-                >
+                  className="inline-flex items-center justify-center gap-1.5 disabled:opacity-60 px-4 py-1.5 bg-[#2563eb] hover:bg-blue-700 text-white rounded text-xs font-semibold shadow-xs"
+                >{pending === "book" && <Spinner className="size-3.5" />}
                   Register Cheque Book
                 </button>
               </div>
@@ -1290,10 +1310,10 @@ export default function ChequeSetupPage() {
                 >
                   Cancel
                 </button>
-                <button
+                <button disabled={pending === "issue"}
                   type="submit"
-                  className="px-4 py-1.5 bg-[#2563eb] hover:bg-blue-700 text-white rounded text-xs font-semibold shadow-xs"
-                >
+                  className="inline-flex items-center justify-center gap-1.5 disabled:opacity-60 px-4 py-1.5 bg-[#2563eb] hover:bg-blue-700 text-white rounded text-xs font-semibold shadow-xs"
+                >{pending === "issue" && <Spinner className="size-3.5" />}
                   Issue Cheque
                 </button>
               </div>
@@ -1424,10 +1444,10 @@ export default function ChequeSetupPage() {
             >
               Cancel
             </button>
-            <button
+            <button disabled={pending === "received"}
               type="submit"
-              className="px-4 py-1.5 bg-[#2563eb] hover:bg-blue-700 text-white rounded text-xs font-semibold shadow-xs"
-            >
+              className="inline-flex items-center justify-center gap-1.5 disabled:opacity-60 px-4 py-1.5 bg-[#2563eb] hover:bg-blue-700 text-white rounded text-xs font-semibold shadow-xs"
+            >{pending === "received" && <Spinner className="size-3.5" />}
               Confirm Received Cheque
             </button>
           </div>
@@ -1559,10 +1579,10 @@ export default function ChequeSetupPage() {
               >
                 Cancel
               </button>
-              <button
+              <button disabled={pending === "editBook"}
                 type="submit"
-                className="px-4 py-1.5 bg-[#2563eb] hover:bg-blue-700 text-white rounded text-xs font-semibold"
-              >
+                className="inline-flex items-center justify-center gap-1.5 disabled:opacity-60 px-4 py-1.5 bg-[#2563eb] hover:bg-blue-700 text-white rounded text-xs font-semibold"
+              >{pending === "editBook" && <Spinner className="size-3.5" />}
                 Save Changes
               </button>
             </div>

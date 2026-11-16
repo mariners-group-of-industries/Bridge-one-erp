@@ -18,6 +18,7 @@ import {
   User,
 } from "lucide-react";
 import { ModalDialog } from "@/components/purchase/ModalDialog";
+import { ConfirmDialog } from "@/components/ui/dialog";
 import { parseCoaWorksheet } from "@/lib/accounting/coa-import";
 import {
   useAccountingStore,
@@ -95,6 +96,9 @@ export default function ChartOfAccountsPage() {
 
   // Feedback Banner
   const [feedback, setFeedback] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  // Deletes ask first: an account head or an employee's posting permission.
+  const [toDelete, setToDelete] = useState<{ kind: "account"; account: AccountItem } | { kind: "permission"; permission: CoaPermissionItem } | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   // Table View Filters
   const [statusFilter, setStatusFilter] = useState<"Active" | "Inactive" | "All">("Active");
@@ -1086,9 +1090,10 @@ export default function ChartOfAccountsPage() {
 
                                 <button
                                   type="button"
-                                  onClick={() => void handleDeleteAccount(acc)}
+                                  onClick={() => setToDelete({ kind: "account", account: acc })}
                                   title="Delete Account"
-                                  className="p-1 text-slate-500 hover:text-rose-600 transition cursor-pointer"
+                                  aria-label={`Delete account ${acc.code}`}
+                                  className="inline-flex size-6 items-center justify-center rounded text-slate-500 hover:text-rose-600 transition cursor-pointer"
                                 >
                                   <Trash2 className="w-3.5 h-3.5" />
                                 </button>
@@ -1338,9 +1343,10 @@ export default function ChartOfAccountsPage() {
 
                           <button
                             type="button"
-                            onClick={() => deleteCoaPermission(perm.id)}
+                            onClick={() => setToDelete({ kind: "permission", permission: perm })}
                             title="Delete Permission"
-                            className="p-1 text-slate-400 hover:text-rose-600 transition cursor-pointer"
+                            aria-label={`Delete permission of ${perm.employeeName}`}
+                            className="inline-flex size-6 items-center justify-center rounded text-slate-400 hover:text-rose-600 transition cursor-pointer"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
@@ -1868,6 +1874,31 @@ export default function ChartOfAccountsPage() {
           </div>
         )}
       </ModalDialog>
+
+      <ConfirmDialog
+        open={toDelete !== null}
+        title={toDelete?.kind === "account" ? "Delete account?" : "Delete permission?"}
+        message={
+          toDelete?.kind === "account"
+            ? `${toDelete.account.code} - ${toDelete.account.name} will be removed from the chart of accounts. This cannot be undone.`
+            : toDelete
+              ? `${toDelete.permission.employeeName} will no longer be able to post ${toDelete.permission.voucherType} vouchers to ${toDelete.permission.accountHeadCode} - ${toDelete.permission.accountHeadName}.`
+              : ""
+        }
+        busy={deleting}
+        onClose={() => setToDelete(null)}
+        onConfirm={async () => {
+          if (!toDelete) return;
+          setDeleting(true);
+          try {
+            if (toDelete.kind === "account") await handleDeleteAccount(toDelete.account);
+            else await deleteCoaPermission(toDelete.permission.id);
+          } finally {
+            setDeleting(false);
+            setToDelete(null);
+          }
+        }}
+      />
     </div>
   );
 }

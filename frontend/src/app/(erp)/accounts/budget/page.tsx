@@ -1,5 +1,8 @@
 "use client";
 
+import { toast } from "@/components/purchase/Toast";
+import { Spinner } from "@/components/ui/spinner";
+import { usePending } from "@/hooks/use-pending";
 import React, { useMemo, useState } from "react";
 import Image from "next/image";
 import {
@@ -66,6 +69,7 @@ function numberToWords(num: number): string {
 }
 
 export default function BudgetManagementPage() {
+  const { pending, run } = usePending();
   const budgets = useAccountingStore((s) => s.budgets);
   const accounts = useAccountingStore((s) => s.accounts);
   const offices = useAccountingStore((s) => s.offices);
@@ -218,7 +222,7 @@ export default function BudgetManagementPage() {
   const totalPages = Math.max(1, Math.ceil(filteredBudgets.length / rowsPerPage));
 
   // Handle Save Create
-  const handleSaveBudget = (e: React.FormEvent) => {
+  const handleSaveBudget = async (e: React.FormEvent) => {
     e.preventDefault();
     setCreateError("");
     if (!createOffice) return setCreateError("Select the office.");
@@ -227,7 +231,7 @@ export default function BudgetManagementPage() {
     if (createForm.items.length === 0) return setCreateError("Add at least one budget line.");
     const fmt = (day: string) => new Date(`${day}T00:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 
-    createBudget({
+    const ok = await run("budget", () => createBudget({
       budgetName: createForm.budgetName.trim(),
       budgetYear: `${fmt(createForm.fromPeriod)} - ${fmt(createForm.toPeriod)}`,
       createDate: createForm.createDate.split("-").reverse().join("-"),
@@ -242,25 +246,31 @@ export default function BudgetManagementPage() {
       approvalStatus: "Approved",
       status: "Approved",
       items: createForm.items,
-    });
+    }));
+    if (!ok) return;
+    toast.success("Budget saved.");
 
     setIsCreateOpen(false);
     setCreateForm(blankCreateForm());
   };
 
   // Handle Save Edit
-  const handleSaveEdit = (e: React.FormEvent) => {
+  const handleSaveEdit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editTarget) return;
 
-    updateBudget(editTarget.id, editForm);
+    const ok = await run("edit", () => updateBudget(editTarget.id, editForm));
+    if (!ok) return;
+    toast.success("Budget updated.");
     setEditTarget(null);
   };
 
   // Handle Save Revision
-  const handleSaveRevision = () => {
+  const handleSaveRevision = async () => {
     if (!revisionTarget || newRevisionAmount <= 0) return;
-    updateBudgetRevision(revisionTarget.id, newRevisionAmount);
+    const ok = await run("revision", () => updateBudgetRevision(revisionTarget.id, newRevisionAmount));
+    if (!ok) return;
+    toast.success("Budget revised.");
     setRevisionTarget(null);
     setRevisionReason("");
   };
@@ -640,7 +650,7 @@ export default function BudgetManagementPage() {
 
             {/* Pagination Controls */}
             <div className="flex items-center gap-1">
-              <button
+              <button aria-label="Previous page"
                 type="button"
                 onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
                 disabled={currentPage <= 1}
@@ -668,7 +678,7 @@ export default function BudgetManagementPage() {
                 );
               })}
 
-              <button
+              <button aria-label="Next page"
                 type="button"
                 onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
                 disabled={currentPage >= totalPages}
@@ -874,10 +884,10 @@ export default function BudgetManagementPage() {
             >
               Cancel
             </button>
-            <button
+            <button disabled={pending === "budget"}
               type="submit"
-              className="px-4 py-1.5 bg-[#2563eb] hover:bg-blue-700 text-white font-semibold text-xs rounded transition shadow-2xs"
-            >
+              className="inline-flex items-center justify-center gap-1.5 disabled:opacity-60 px-4 py-1.5 bg-[#2563eb] hover:bg-blue-700 text-white font-semibold text-xs rounded transition shadow-2xs"
+            >{pending === "budget" && <Spinner className="size-3.5" />}
               Save & Create Budget
             </button>
           </div>
@@ -964,10 +974,10 @@ export default function BudgetManagementPage() {
               >
                 Cancel
               </button>
-              <button
+              <button disabled={pending === "edit"}
                 type="submit"
-                className="px-4 py-1.5 bg-[#2563eb] hover:bg-blue-700 text-white font-semibold text-xs rounded transition"
-              >
+                className="inline-flex items-center justify-center gap-1.5 disabled:opacity-60 px-4 py-1.5 bg-[#2563eb] hover:bg-blue-700 text-white font-semibold text-xs rounded transition"
+              >{pending === "edit" && <Spinner className="size-3.5" />}
                 Update Budget
               </button>
             </div>
@@ -1220,11 +1230,11 @@ export default function BudgetManagementPage() {
               >
                 Cancel
               </button>
-              <button
+              <button disabled={pending === "revision"}
                 type="button"
                 onClick={handleSaveRevision}
-                className="px-4 py-1.5 bg-[#2563eb] hover:bg-blue-700 text-white font-semibold text-xs rounded transition"
-              >
+                className="inline-flex items-center justify-center gap-1.5 disabled:opacity-60 px-4 py-1.5 bg-[#2563eb] hover:bg-blue-700 text-white font-semibold text-xs rounded transition"
+              >{pending === "revision" && <Spinner className="size-3.5" />}
                 Apply Revision
               </button>
             </div>

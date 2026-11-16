@@ -1,21 +1,45 @@
 "use client";
 
+import { toast } from "@/components/purchase/Toast";
+import { Spinner } from "@/components/ui/spinner";
+import { usePending } from "@/hooks/use-pending";
 import React, { useMemo, useState } from "react";
 import {
   ChevronLeft,
   ChevronRight,
   DollarSign,
   Eye,
-  Pencil,
   Search,
   X,
+  Check,
 } from "lucide-react";
 import { ModalDialog } from "@/components/purchase/ModalDialog";
+import { ConfirmDialog } from "@/components/ui/dialog";
 import { useAccountingStore } from "@/features/accounts/store/accounting-store";
 import { localDaysFromToday, localToday } from "@/features/purchase/lib/client";
 import type { FundTransferRecord } from "@/features/accounts/types";
 
+/** What each stored status is called on screen (the server writes upper case). */
+const STATUS_TEXT: Record<string, { label: string; tone: string }> = {
+  DRAFT: { label: "Draft", tone: "text-slate-500" },
+  SUBMITTED: { label: "Submitted", tone: "text-amber-600" },
+  PENDING_APPROVAL: { label: "Pending Approval", tone: "text-amber-600" },
+  APPROVED: { label: "Approved", tone: "text-emerald-600" },
+  Approved: { label: "Approved", tone: "text-emerald-600" },
+  DISPATCHED: { label: "Dispatched", tone: "text-blue-600" },
+  Completed: { label: "Completed", tone: "text-blue-600" },
+  IN_TRANSIT: { label: "In Transit", tone: "text-blue-600" },
+  RECEIVED: { label: "Received", tone: "text-emerald-600" },
+  RETURNED: { label: "Returned", tone: "text-rose-600" },
+  CANCELLED: { label: "Cancelled", tone: "text-rose-600" },
+};
+const statusOf = (status: string) => STATUS_TEXT[status] ?? { label: status, tone: "text-slate-600" };
+const isApproved = (status: string) => status === "APPROVED" || status === "Approved";
+const isAwaitingApproval = (status: string) => status === "PENDING_APPROVAL" || status === "SUBMITTED" || status === "DRAFT";
+const iconButton = "inline-flex size-6 items-center justify-center rounded transition";
+
 export default function FundTransferPage() {
+  const { pending, run } = usePending();
   const transfers = useAccountingStore((s) => s.transfers);
   const dbOffices = useAccountingStore((s) => s.offices);
   const accounts = useAccountingStore((s) => s.accounts);
@@ -27,6 +51,12 @@ export default function FundTransferPage() {
   );
   const createTransfer = useAccountingStore((s) => s.createTransfer);
   const receiveTransfer = useAccountingStore((s) => s.receiveTransfer);
+  const approveTransfer = useAccountingStore((s) => s.approveTransfer);
+  const dispatchTransfer = useAccountingStore((s) => s.dispatchTransfer);
+  const returnTransfer = useAccountingStore((s) => s.returnTransfer);
+  // Approve a request, send (pay) an approved transfer, or cancel it — each confirmed first.
+  const [actionOn, setActionOn] = useState<{ kind: "approve" | "dispatch" | "cancel"; transfer: FundTransferRecord } | null>(null);
+  const [cancelReason, setCancelReason] = useState("");
 
   // Tabs: REQUEST | OUT | IN_TRANSIT | IN_RECEIVED | RETURN
   const [activeTab, setActiveTab] = useState<
@@ -112,13 +142,13 @@ export default function FundTransferPage() {
     return transfers.filter((t) => {
       // Tab 1: FUND TRANSFER REQUEST
       if (activeTab === "REQUEST") {
-        if (t.status !== "Approved" && t.status !== "PENDING_APPROVAL" && t.status !== "DRAFT" && t.status !== "SUBMITTED")
+        if (!isApproved(t.status) && !isAwaitingApproval(t.status))
           return false;
       }
       // Tab 2: FUND TRANSFER OUT
       else if (activeTab === "OUT") {
         // Dispatched or Completed or Approved out
-        if (t.status !== "Approved" && t.status !== "Completed" && t.status !== "DISPATCHED")
+        if (!isApproved(t.status) && t.status !== "Completed" && t.status !== "DISPATCHED")
           return false;
       }
       // Tab 3: FUND TRANSFER IN TRANSIT
@@ -166,7 +196,7 @@ export default function FundTransferPage() {
     return filteredTransfers.slice(start, start + rowsPerPage);
   }, [filteredTransfers, currentPage, rowsPerPage]);
 
-  const handleCreateRequestSubmit = (e: React.FormEvent) => {
+  const handleCreateRequestSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (form.requestedAmount <= 0) return setFormError("Enter the request amount.");
     // A request names only who asks for the money and where it goes; the sending office is chosen when it is sent out.
@@ -175,7 +205,7 @@ export default function FundTransferPage() {
     if (!office) return setFormError("No office is available.");
     if (!head) return setFormError(`Select the ${form.receiveType.toLowerCase()} the money is received in.`);
     if (form.expectedDate && form.expectedDate < form.requestDate) return setFormError("The expected date cannot be before the request date.");
-    createTransfer({
+    const ok = await run("request", () => createTransfer({
       ...form,
       fromOfficeId: "",
       fromOfficeName: "",
@@ -186,32 +216,38 @@ export default function FundTransferPage() {
       toAccountId: head.id,
       toAccountName: head.name,
       status: "SUBMITTED",
-    });
+    }));
+    if (!ok) return;
+    toast.success("Fund transfer request saved.");
     setIsRequestModalOpen(false);
     setForm(blankForm());
     setFormError("");
   };
 
-  const handleDirectTransferSubmit = (e: React.FormEvent) => {
+  const handleDirectTransferSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (form.requestedAmount <= 0) return;
     const resolved = resolveForm(true);
     if (!resolved.data) return setFormError(resolved.error);
     const count = transfers.length + 1;
     const outCode = `FTO-MG260500${(10 + count).toString()}`;
-    createTransfer({
+    const ok = await run("direct", () => createTransfer({
       ...resolved.data,
       status: "Completed",
       outCode,
-    });
+    }));
+    if (!ok) return;
+    toast.success("Fund transfer saved.");
     setIsDirectModalOpen(false);
     setForm(blankForm());
     setFormError("");
   };
 
-  const handleConfirmReceive = () => {
+  const handleConfirmReceive = async () => {
     if (!receiveTarget) return;
-    receiveTransfer(receiveTarget.id);
+    const ok = await run("receive", () => receiveTransfer(receiveTarget.id));
+    if (!ok) return;
+    toast.success("Transfer received.");
     setReceiveTarget(null);
   };
 
@@ -503,20 +539,30 @@ export default function FundTransferPage() {
                           {t.approvedAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </td>
                         <td className="py-2 px-3 text-center whitespace-nowrap">
-                          <span className="font-semibold text-emerald-600">Approved</span>
+                          <span className={`font-semibold ${statusOf(t.status).tone}`}>{statusOf(t.status).label}</span>
                         </td>
                         <td className="py-2 px-3 text-center">
                           <div className="flex items-center justify-center gap-1.5 text-slate-400">
                             <button
+                              type="button"
                               onClick={() => setViewingTransfer(t)}
                               title="View"
-                              className="hover:text-blue-600 transition"
+                              aria-label={`View ${t.reqCode || t.transferNumber}`}
+                              className={`${iconButton} hover:text-blue-600`}
                             >
                               <Eye className="w-3.5 h-3.5" />
                             </button>
-                            <button title="Edit" className="hover:text-blue-600 transition">
-                              <Pencil className="w-3.5 h-3.5" />
-                            </button>
+                            {isAwaitingApproval(t.status) && (
+                              <button
+                                type="button"
+                                onClick={() => setActionOn({ kind: "approve", transfer: t })}
+                                title="Approve"
+                                aria-label={`Approve ${t.reqCode || t.transferNumber}`}
+                                className={`${iconButton} hover:text-emerald-600`}
+                              >
+                                <Check className="w-3.5 h-3.5" />
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -567,16 +613,35 @@ export default function FundTransferPage() {
                           {t.transferredAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </td>
                         <td className="py-2 px-3 text-center whitespace-nowrap">
-                          <span className="font-semibold text-blue-600">Completed</span>
+                          <span className={`font-semibold ${statusOf(t.status).tone}`}>{statusOf(t.status).label}</span>
                         </td>
                         <td className="py-2 px-3 text-center">
                           <div className="flex items-center justify-center gap-1.5 text-slate-400">
-                            <button title="Payment" className="hover:text-emerald-600 transition">
-                              <DollarSign className="w-3.5 h-3.5" />
-                            </button>
-                            <button title="Cancel" className="hover:text-rose-600 transition">
-                              <X className="w-3.5 h-3.5" />
-                            </button>
+                            {isApproved(t.status) && (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => setActionOn({ kind: "dispatch", transfer: t })}
+                                  title="Payment"
+                                  aria-label={`Send payment for ${t.outCode || t.transferNumber}`}
+                                  className={`${iconButton} hover:text-emerald-600`}
+                                >
+                                  <DollarSign className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setCancelReason("");
+                                    setActionOn({ kind: "cancel", transfer: t });
+                                  }}
+                                  title="Cancel"
+                                  aria-label={`Cancel ${t.outCode || t.transferNumber}`}
+                                  className={`${iconButton} hover:text-rose-600`}
+                                >
+                                  <X className="w-3.5 h-3.5" />
+                                </button>
+                              </>
+                            )}
                             <button
                               onClick={() => setViewingTransfer(t)}
                               title="View"
@@ -793,14 +858,14 @@ export default function FundTransferPage() {
             </span>
 
             <div className="flex items-center gap-1">
-              <button
+              <button aria-label="Previous page"
                 onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
                 disabled={currentPage <= 1}
                 className="w-6 h-6 flex items-center justify-center rounded border border-slate-200 bg-white hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed text-slate-600 transition"
               >
                 <ChevronLeft className="w-3.5 h-3.5" />
               </button>
-              <button
+              <button aria-label="Next page"
                 onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
                 disabled={currentPage >= totalPages}
                 className="w-6 h-6 flex items-center justify-center rounded border border-slate-200 bg-white hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed text-slate-600 transition"
@@ -907,10 +972,10 @@ export default function FundTransferPage() {
             >
               Cancel
             </button>
-            <button
+            <button disabled={pending === "request"}
               type="submit"
-              className="px-5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-semibold shadow-2xs transition-colors"
-            >
+              className="inline-flex items-center justify-center gap-1.5 disabled:opacity-60 px-5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-semibold shadow-2xs transition-colors"
+            >{pending === "request" && <Spinner className="size-3.5" />}
               Submit Request
             </button>
           </div>
@@ -1036,10 +1101,10 @@ export default function FundTransferPage() {
             >
               Cancel
             </button>
-            <button
+            <button disabled={pending === "direct"}
               type="submit"
-              className="px-5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-semibold shadow-2xs transition-colors"
-            >
+              className="inline-flex items-center justify-center gap-1.5 disabled:opacity-60 px-5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-semibold shadow-2xs transition-colors"
+            >{pending === "direct" && <Spinner className="size-3.5" />}
               Execute Direct Transfer
             </button>
           </div>
@@ -1127,17 +1192,68 @@ export default function FundTransferPage() {
               >
                 Cancel
               </button>
-              <button
+              <button disabled={pending === "receive"}
                 type="button"
                 onClick={handleConfirmReceive}
-                className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-xs font-semibold shadow-2xs transition"
-              >
+                className="inline-flex items-center justify-center gap-1.5 disabled:opacity-60 px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-xs font-semibold shadow-2xs transition"
+              >{pending === "receive" && <Spinner className="size-3.5" />}
                 Confirm Receive
               </button>
             </div>
           </div>
         )}
       </ModalDialog>
+
+      <ConfirmDialog
+        open={actionOn !== null}
+        title={actionOn?.kind === "approve" ? "Approve fund transfer?" : actionOn?.kind === "dispatch" ? "Send this payment?" : "Cancel fund transfer?"}
+        confirmLabel={actionOn?.kind === "approve" ? "Approve" : actionOn?.kind === "dispatch" ? "Send Payment" : "Cancel Transfer"}
+        busy={pending === "transfer-action"}
+        message={
+          actionOn && (
+            <div className="space-y-3">
+              <p>
+                {actionOn.kind === "approve"
+                  ? `Approve ${actionOn.transfer.requestedAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })} for ${actionOn.transfer.toOfficeName}.`
+                  : actionOn.kind === "dispatch"
+                    ? `${(actionOn.transfer.approvedAmount || actionOn.transfer.requestedAmount).toLocaleString(undefined, { minimumFractionDigits: 2 })} will be posted from ${actionOn.transfer.fromOfficeName} and shown as in transit to ${actionOn.transfer.toOfficeName}.`
+                    : `${actionOn.transfer.outCode || actionOn.transfer.transferNumber} will be marked as returned.`}
+              </p>
+              {actionOn.kind === "cancel" && (
+                <label className="block text-xs font-medium text-ink">
+                  Reason <span className="text-rose-600">*</span>
+                  <textarea
+                    value={cancelReason}
+                    onChange={(e) => setCancelReason(e.target.value)}
+                    rows={2}
+                    maxLength={300}
+                    className="mt-1 w-full rounded border border-line bg-surface px-2.5 py-1.5 text-xs text-ink focus:border-blue-500 focus:outline-none"
+                  />
+                </label>
+              )}
+            </div>
+          )
+        }
+        onClose={() => setActionOn(null)}
+        onConfirm={async () => {
+          if (!actionOn) return;
+          if (actionOn.kind === "cancel" && !cancelReason.trim()) {
+            toast.error("Enter why the transfer is cancelled.", { title: "Reason needed" });
+            return;
+          }
+          const t = actionOn.transfer;
+          const ok = await run("transfer-action", () =>
+            actionOn.kind === "approve"
+              ? approveTransfer(t.id, t.requestedAmount)
+              : actionOn.kind === "dispatch"
+                ? dispatchTransfer(t.id)
+                : returnTransfer(t.id, cancelReason.trim()),
+          );
+          if (!ok) return;
+          toast.success(actionOn.kind === "approve" ? "Transfer approved." : actionOn.kind === "dispatch" ? "Payment sent; the transfer is in transit." : "Transfer cancelled.");
+          setActionOn(null);
+        }}
+      />
     </div>
   );
 }

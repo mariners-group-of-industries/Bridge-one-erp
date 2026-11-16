@@ -1,5 +1,7 @@
 "use client";
 
+import { toast } from "@/components/purchase/Toast";
+import { usePending } from "@/hooks/use-pending";
 import React, { useMemo, useState } from "react";
 import {
   Eye,
@@ -13,6 +15,8 @@ import { Spinner } from "@/components/ui/spinner";
 import type { PaymentMethod } from "@/features/accounts/types";
 
 export default function ExpenseAdvancePage() {
+  const { pending, run } = usePending();
+  const syncDatabase = useAccountingStore((s) => s.syncDatabase);
   // Main Tabs: "EXPENSE" | "ADVANCE" | "PROVISION" | "PAID"
   const [activeTab, setActiveTab] = useState<"EXPENSE" | "ADVANCE" | "PROVISION" | "PAID">("EXPENSE");
 
@@ -300,7 +304,7 @@ export default function ExpenseAdvancePage() {
     }
   };
 
-  const handleCreateExpenseSubmit = (e: React.FormEvent) => {
+  const handleCreateExpenseSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setExpError("");
     const employee = employees.find((x) => x.id === expHeader.employeeId);
@@ -312,7 +316,7 @@ export default function ExpenseAdvancePage() {
     const bad = expLines.findIndex((l) => !l.accountId || !(Number(l.amount) > 0));
     if (bad >= 0) return setExpError(`Line ${bad + 1}: select the account (GL) and enter an amount.`);
     const first = expenseAccounts.find((a) => a.id === expLines[0].accountId);
-    createExpense({
+    const ok = await run("expense", () => createExpense({
       officeId: expOffice.id,
       officeName: expOffice.name,
       expenseType: expHeader.category,
@@ -333,17 +337,19 @@ export default function ExpenseAdvancePage() {
       supplierName: supplier?.name ?? null,
       attachmentId: expAttachment?.id ?? null,
       lines: expLines.map((l) => ({ date: l.date, accountId: l.accountId, subGl: l.subGl || null, remarks: l.remarks || null, amount: Number(l.amount) })),
-    });
+    }));
+    if (!ok) return;
+    toast.success("Expense saved.");
     setIsCreateExpenseOpen(false);
   };
 
-  const handleCreateAdvanceSubmit = (e: React.FormEvent) => {
+  const handleCreateAdvanceSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const office = officeByName(advanceForm.officeName);
     if (advanceForm.requestedAmount <= 0 || !advanceForm.employeeName || !office) return;
     const count = advances.length + 1;
     const code = `ADV-MG261000${(40 + count).toString()}`;
-    createAdvance({
+    const ok = await run("advance", () => createAdvance({
       ...advanceForm,
       officeId: office.id,
       officeName: office.name,
@@ -353,38 +359,46 @@ export default function ExpenseAdvancePage() {
       amount: advanceForm.requestedAmount,
       approvedAmount: advanceForm.requestedAmount,
       status: "APPROVED",
-    });
+    }));
+    if (!ok) return;
+    toast.success("Advance saved.");
     setIsCreateAdvanceOpen(false);
   };
 
-  const handleCreateProvisionSubmit = (e: React.FormEvent) => {
+  const handleCreateProvisionSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const office = officeByName(provisionForm.officeName);
     if (provisionForm.amount <= 0 || !provisionForm.partnerPayee || !office) return;
     const count = provisions.length + 1;
     const code = `PRV-MG261000${(10 + count).toString()}`;
-    createProvision({
+    const ok = await run("provision", () => createProvision({
       ...provisionForm,
       officeId: office.id,
       officeName: office.name,
       code,
       chartOfAccount: "303 - Payables, Provision And Accruals",
       status: "POSTED",
-    });
+    }));
+    if (!ok) return;
+    toast.success("Provision saved.");
     setIsCreateProvisionOpen(false);
   };
 
   // Convert selected to paid
-  const handleMarkSelectedPaid = () => {
+  const handleMarkSelectedPaid = async () => {
     if (selectedExpenseIds.length === 0) {
-      alert("Please select at least one expense record to process payment.");
+      toast.error("Select at least one expense to pay.", { title: "Nothing selected" });
       return;
     }
-    selectedExpenseIds.forEach((id) => {
-      markExpensePaid(id, "BANK");
+    // Pay one by one and report what the server accepted.
+    const results = await run("pay", async () => {
+      const done: boolean[] = [];
+      for (const id of selectedExpenseIds) done.push(await markExpensePaid(id, "BANK"));
+      return done;
     });
-    setSelectedExpenseIds([]);
-    alert("Selected expenses marked as paid.");
+    const paid = results.filter(Boolean).length;
+    setSelectedExpenseIds(selectedExpenseIds.filter((_, i) => !results[i]));
+    if (paid) toast.success(`${paid} expense${paid === 1 ? "" : "s"} marked as paid.`);
   };
 
   return (
@@ -575,9 +589,12 @@ export default function ExpenseAdvancePage() {
                 </div>
                 <button
                   type="button"
-                  className="px-5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-semibold shadow-2xs transition-colors"
-                >
-                  View
+                  className="inline-flex items-center justify-center gap-1.5 disabled:opacity-60 px-5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-semibold shadow-2xs transition-colors"
+                
+ onClick={() => void run("view", () => syncDatabase())}
+ disabled={pending === "view"}
+>
+                  {pending === "view" && <Spinner className="size-3.5" />}View
                 </button>
               </div>
             </div>
@@ -635,9 +652,12 @@ export default function ExpenseAdvancePage() {
                 <div>
                   <button
                     type="button"
-                    className="px-5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-semibold shadow-2xs transition-colors"
-                  >
-                    View
+                    className="inline-flex items-center justify-center gap-1.5 disabled:opacity-60 px-5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-semibold shadow-2xs transition-colors"
+                  
+ onClick={() => void run("view", () => syncDatabase())}
+ disabled={pending === "view"}
+>
+                    {pending === "view" && <Spinner className="size-3.5" />}View
                   </button>
                 </div>
               </div>
@@ -706,9 +726,12 @@ export default function ExpenseAdvancePage() {
               <div>
                 <button
                   type="button"
-                  className="px-5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-semibold shadow-2xs transition-colors"
-                >
-                  View
+                  className="inline-flex items-center justify-center gap-1.5 disabled:opacity-60 px-5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-semibold shadow-2xs transition-colors"
+                
+ onClick={() => void run("view", () => syncDatabase())}
+ disabled={pending === "view"}
+>
+                  {pending === "view" && <Spinner className="size-3.5" />}View
                 </button>
               </div>
             </div>
@@ -763,9 +786,12 @@ export default function ExpenseAdvancePage() {
               <div>
                 <button
                   type="button"
-                  className="px-5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-semibold shadow-2xs transition-colors"
-                >
-                  View
+                  className="inline-flex items-center justify-center gap-1.5 disabled:opacity-60 px-5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-semibold shadow-2xs transition-colors"
+                
+ onClick={() => void run("view", () => syncDatabase())}
+ disabled={pending === "view"}
+>
+                  {pending === "view" && <Spinner className="size-3.5" />}View
                 </button>
               </div>
             </div>
@@ -787,9 +813,12 @@ export default function ExpenseAdvancePage() {
             </button>
           )}
           <button
+            type="button"
             onClick={handleMarkSelectedPaid}
-            className="px-3 py-1 bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 rounded text-xs font-medium shadow-2xs transition-colors"
+            disabled={pending === "pay"}
+            className="inline-flex items-center gap-1.5 disabled:opacity-60 px-3 py-1 bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 rounded text-xs font-medium shadow-2xs transition-colors"
           >
+            {pending === "pay" && <Spinner className="size-3.5" />}
             Payment
           </button>
         </div>
@@ -1403,9 +1432,9 @@ export default function ExpenseAdvancePage() {
             </button>
             <button
               type="submit"
-              disabled={expAttachmentBusy}
-              className="px-5 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white rounded text-xs font-semibold shadow-2xs transition-colors"
-            >
+              disabled={expAttachmentBusy || pending === "expense"}
+              className="inline-flex items-center justify-center gap-1.5 px-5 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white rounded text-xs font-semibold shadow-2xs transition-colors"
+            >{pending === "expense" && <Spinner className="size-3.5" />}
               Save
             </button>
           </div>
@@ -1490,10 +1519,10 @@ export default function ExpenseAdvancePage() {
             >
               Cancel
             </button>
-            <button
+            <button disabled={pending === "advance"}
               type="submit"
-              className="px-5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-semibold shadow-2xs transition-colors"
-            >
+              className="inline-flex items-center justify-center gap-1.5 disabled:opacity-60 px-5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-semibold shadow-2xs transition-colors"
+            >{pending === "advance" && <Spinner className="size-3.5" />}
               Save Advance
             </button>
           </div>
@@ -1582,10 +1611,10 @@ export default function ExpenseAdvancePage() {
             >
               Cancel
             </button>
-            <button
+            <button disabled={pending === "provision"}
               type="submit"
-              className="px-5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-semibold shadow-2xs transition-colors"
-            >
+              className="inline-flex items-center justify-center gap-1.5 disabled:opacity-60 px-5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-semibold shadow-2xs transition-colors"
+            >{pending === "provision" && <Spinner className="size-3.5" />}
               Save Provision
             </button>
           </div>

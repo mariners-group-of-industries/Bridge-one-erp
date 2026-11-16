@@ -1,5 +1,8 @@
 "use client";
 
+import { toast } from "@/components/purchase/Toast";
+import { Spinner } from "@/components/ui/spinner";
+import { usePending } from "@/hooks/use-pending";
 import React, { useMemo, useState } from "react";
 import {
   ChevronLeft,
@@ -28,6 +31,7 @@ function nextLeaf(book: { startChequeNumber: string; usedLeaves: number } | unde
 import type { ChequeIssueItem, ChequeStatus } from "@/features/accounts/types";
 
 export default function ChequeIssuePage() {
+  const { pending, run } = usePending();
   const cheques = useAccountingStore((s) => s.cheques);
   const chequeBooks = useAccountingStore((s) => s.chequeBooks);
   const bankAccounts = useAccountingStore((s) => s.bankAccounts);
@@ -124,7 +128,7 @@ export default function ChequeIssuePage() {
     });
   };
 
-  const handleCreateCheque = (e: React.FormEvent) => {
+  const handleCreateCheque = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage("");
 
@@ -149,7 +153,7 @@ export default function ChequeIssuePage() {
       return;
     }
 
-    const res = issueCheque({
+    const res = await run("cheque", () => issueCheque({
       bankAccountId: bank.id,
       bankName: bank.bankName,
       chequeBookId: book?.id ?? "",
@@ -161,7 +165,7 @@ export default function ChequeIssuePage() {
       purpose: form.purpose,
       referenceVoucher: form.referenceVoucher,
       status: form.chequeDate > localToday() ? "POST_DATED" : form.status,
-    });
+    }));
     if (!res.success) {
       setErrorMessage(res.message);
       return;
@@ -171,9 +175,11 @@ export default function ChequeIssuePage() {
     setForm(blankForm());
   };
 
-  const handleConfirmCancel = () => {
+  const handleConfirmCancel = async () => {
     if (!cancelTarget || !cancelReason.trim()) return;
-    updateChequeStatus(cancelTarget.id, "CANCELLED", cancelReason);
+    const ok = await run("cancel", () => updateChequeStatus(cancelTarget.id, "CANCELLED", cancelReason));
+    if (!ok) return;
+    toast.success("Cheque cancelled.");
     setCancelTarget(null);
     setCancelReason("");
   };
@@ -430,7 +436,7 @@ export default function ChequeIssuePage() {
           </div>
 
           <div className="flex items-center gap-1">
-            <button
+            <button aria-label="Previous page"
               type="button"
               onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
               disabled={currentPage <= 1}
@@ -441,7 +447,7 @@ export default function ChequeIssuePage() {
             <span className="w-6 h-6 flex items-center justify-center rounded bg-blue-600 text-white font-bold text-xs">
               {currentPage}
             </span>
-            <button
+            <button aria-label="Next page"
               type="button"
               onClick={() => setCurrentPage((p) => p + 1)}
               disabled={currentPage * rowsPerPage >= filteredCheques.length}
@@ -573,10 +579,10 @@ export default function ChequeIssuePage() {
             >
               Cancel
             </button>
-            <button
+            <button disabled={pending === "cheque"}
               type="submit"
-              className="px-4 py-2 bg-[#2563eb] hover:bg-blue-700 text-white text-xs font-semibold rounded"
-            >
+              className="inline-flex items-center justify-center gap-1.5 disabled:opacity-60 px-4 py-2 bg-[#2563eb] hover:bg-blue-700 text-white text-xs font-semibold rounded"
+            >{pending === "cheque" && <Spinner className="size-3.5" />}
               Issue Cheque
             </button>
           </div>
@@ -704,9 +710,9 @@ export default function ChequeIssuePage() {
               <button
                 type="button"
                 onClick={handleConfirmCancel}
-                disabled={!cancelReason.trim()}
-                className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold rounded disabled:opacity-50"
-              >
+                disabled={!cancelReason.trim() || pending === "cancel"}
+                className="inline-flex items-center justify-center gap-1.5 px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold rounded disabled:opacity-50"
+              >{pending === "cancel" && <Spinner className="size-3.5" />}
                 Confirm Cancel
               </button>
             </div>

@@ -1,5 +1,8 @@
 "use client";
 
+import { toast } from "@/components/purchase/Toast";
+import { Spinner } from "@/components/ui/spinner";
+import { usePending } from "@/hooks/use-pending";
 import React, { useMemo, useState } from "react";
 import {
   Check,
@@ -38,6 +41,7 @@ import type {
 } from "@/features/accounts/types";
 
 export default function FinanceBankingPage() {
+  const { pending, run } = usePending();
   const bankAccounts = useAccountingStore((s) => s.bankAccounts);
   const deposits = useAccountingStore((s) => s.deposits);
   const loans = useAccountingStore((s) => s.loans);
@@ -76,6 +80,11 @@ export default function FinanceBankingPage() {
 
   // Pagination states
   const [rowsPerPage, setRowsPerPage] = useState<number>(50);
+  const [page, setPage] = useState(1);
+  /** The page shown for a list of n rows (kept in range when filters shrink the list). */
+  const pageFor = (n: number) => Math.min(page, Math.max(1, Math.ceil(n / rowsPerPage)));
+  const pageRows = <T,>(rows: T[]) => rows.slice((pageFor(rows.length) - 1) * rowsPerPage, pageFor(rows.length) * rowsPerPage);
+  const rangeText = (n: number) => (n ? `${(pageFor(n) - 1) * rowsPerPage + 1}–${Math.min(pageFor(n) * rowsPerPage, n)} of ${n}` : "0 of 0");
 
   // -------------------------------------------------------------
   // TAB 1: REGULAR BANKING FILTER STATES
@@ -354,10 +363,12 @@ export default function FinanceBankingPage() {
   // -------------------------------------------------------------
   // SAVE HANDLERS
   // -------------------------------------------------------------
-  const handleSaveBank = (e: React.FormEvent) => {
+  const handleSaveBank = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newBankForm.bankName || !newBankForm.accountNumber) return;
-    addBankAccount(newBankForm);
+    const ok = await run("bank", () => addBankAccount(newBankForm));
+    if (!ok) return;
+    toast.success("Bank account saved.");
     setIsNewBankOpen(false);
     setNewBankForm({
       bankName: "",
@@ -376,29 +387,35 @@ export default function FinanceBankingPage() {
     });
   };
 
-  const handleSaveDeposit = (e: React.FormEvent) => {
+  const handleSaveDeposit = async (e: React.FormEvent) => {
     e.preventDefault();
     const office = officeOf(newDepositForm.officeId);
     if (newDepositForm.principalAmount <= 0 || !office) return;
-    addDeposit({ ...newDepositForm, officeId: office.id, officeName: office.name });
+    const ok = await run("deposit", () => addDeposit({ ...newDepositForm, officeId: office.id, officeName: office.name }));
+    if (!ok) return;
+    toast.success("Deposit saved.");
     setIsNewDepositOpen(false);
     setNewDepositForm(blankDepositForm());
   };
 
-  const handleSaveLoan = (e: React.FormEvent) => {
+  const handleSaveLoan = async (e: React.FormEvent) => {
     e.preventDefault();
     const office = officeOf(newLoanForm.officeId);
     if (newLoanForm.principalAmount <= 0 || !office) return;
-    addLoan({ ...newLoanForm, officeId: office.id, officeName: office.name, outstandingPrincipal: newLoanForm.principalAmount });
+    const ok = await run("loan", () => addLoan({ ...newLoanForm, officeId: office.id, officeName: office.name, outstandingPrincipal: newLoanForm.principalAmount }));
+    if (!ok) return;
+    toast.success("Loan saved.");
     setIsNewLoanOpen(false);
     setNewLoanForm(blankLoanForm());
   };
 
-  const handleSaveLoanPartner = (e: React.FormEvent) => {
+  const handleSaveLoanPartner = async (e: React.FormEvent) => {
     e.preventDefault();
     const office = officeOf(newPartnerForm.officeId);
     if (!newPartnerForm.partnerName || !office) return;
-    addLoanPartner({ ...newPartnerForm, officeId: office.id, officeName: office.name, outstanding: newPartnerForm.principalFacility });
+    const ok = await run("partner", () => addLoanPartner({ ...newPartnerForm, officeId: office.id, officeName: office.name, outstanding: newPartnerForm.principalFacility }));
+    if (!ok) return;
+    toast.success("Loan partner saved.");
     setIsNewLoanPartnerOpen(false);
     setNewPartnerForm(blankPartnerForm());
   };
@@ -669,9 +686,9 @@ export default function FinanceBankingPage() {
                     <td colSpan={7}>{renderBridgeOneEmptyState("No Bank Accounts Found")}</td>
                   </tr>
                 ) : (
-                  filteredBankAccounts.map((b, idx) => (
+                  pageRows(filteredBankAccounts).map((b, idx) => (
                     <tr key={b.id} className="hover:bg-blue-50/40 transition-colors">
-                      <td className="px-3.5 py-2.5 text-center text-slate-500 font-medium">{idx + 1}</td>
+                      <td className="px-3.5 py-2.5 text-center text-slate-500 font-medium">{(pageFor(filteredBankAccounts.length) - 1) * rowsPerPage + idx + 1}</td>
                       <td className="px-3.5 py-2.5 font-semibold text-slate-900">{b.bankName}</td>
                       <td className="px-3.5 py-2.5 text-slate-600">{b.branchName}</td>
                       <td className="px-3.5 py-2.5 text-slate-700 font-medium">{b.accountHolder}</td>
@@ -718,7 +735,10 @@ export default function FinanceBankingPage() {
               <span>Rows per page:</span>
               <select
                 value={rowsPerPage}
-                onChange={(e) => setRowsPerPage(Number(e.target.value))}
+                onChange={(e) => {
+                  setRowsPerPage(Number(e.target.value));
+                  setPage(1);
+                }}
                 className="border border-slate-200 rounded px-1.5 py-0.5 text-xs bg-white focus:outline-none"
               >
                 <option value={10}>10</option>
@@ -728,22 +748,26 @@ export default function FinanceBankingPage() {
               </select>
             </div>
             <span>
-              1–{filteredBankAccounts.length} of {filteredBankAccounts.length}
+              {rangeText(filteredBankAccounts.length)}
             </span>
             <div className="flex items-center gap-1">
               <button
                 type="button"
-                className="p-1 rounded hover:bg-slate-100 disabled:opacity-40"
-                disabled
+                aria-label="Previous page"
+                onClick={() => setPage(pageFor(filteredBankAccounts.length) - 1)}
+                disabled={pageFor(filteredBankAccounts.length) <= 1}
+                className="inline-flex size-7 items-center justify-center rounded hover:bg-slate-100 disabled:opacity-40"
               >
-                <ChevronLeft className="w-4 h-4 text-slate-400" />
+                <ChevronLeft className="w-4 h-4 text-slate-500" />
               </button>
               <button
                 type="button"
-                className="p-1 rounded hover:bg-slate-100 disabled:opacity-40"
-                disabled
+                aria-label="Next page"
+                onClick={() => setPage(pageFor(filteredBankAccounts.length) + 1)}
+                disabled={pageFor(filteredBankAccounts.length) * rowsPerPage >= filteredBankAccounts.length}
+                className="inline-flex size-7 items-center justify-center rounded hover:bg-slate-100 disabled:opacity-40"
               >
-                <ChevronRight className="w-4 h-4 text-slate-400" />
+                <ChevronRight className="w-4 h-4 text-slate-500" />
               </button>
             </div>
           </div>
@@ -1133,9 +1157,9 @@ export default function FinanceBankingPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-slate-700">
-                  {filteredFactoring.map((f, idx) => (
+                  {pageRows(filteredFactoring).map((f, idx) => (
                     <tr key={f.id} className="hover:bg-blue-50/40 transition-colors">
-                      <td className="px-3.5 py-2.5 text-center text-slate-500 font-medium">{idx + 1}</td>
+                      <td className="px-3.5 py-2.5 text-center text-slate-500 font-medium">{(pageFor(filteredFactoring.length) - 1) * rowsPerPage + idx + 1}</td>
                       <td className="px-3.5 py-2.5 font-mono font-bold text-blue-600">
                         {f.billNumber || f.invoiceReference}
                       </td>
@@ -1178,7 +1202,10 @@ export default function FinanceBankingPage() {
               <span>Rows per page:</span>
               <select
                 value={rowsPerPage}
-                onChange={(e) => setRowsPerPage(Number(e.target.value))}
+                onChange={(e) => {
+                  setRowsPerPage(Number(e.target.value));
+                  setPage(1);
+                }}
                 className="border border-slate-200 rounded px-1.5 py-0.5 text-xs bg-white focus:outline-none"
               >
                 <option value={10}>10</option>
@@ -1187,22 +1214,26 @@ export default function FinanceBankingPage() {
               </select>
             </div>
             <span>
-              1–{filteredFactoring.length} of {filteredFactoring.length}
+              {rangeText(filteredFactoring.length)}
             </span>
             <div className="flex items-center gap-1">
               <button
                 type="button"
-                className="p-1 rounded hover:bg-slate-100 disabled:opacity-40"
-                disabled
+                aria-label="Previous page"
+                onClick={() => setPage(pageFor(filteredFactoring.length) - 1)}
+                disabled={pageFor(filteredFactoring.length) <= 1}
+                className="inline-flex size-7 items-center justify-center rounded hover:bg-slate-100 disabled:opacity-40"
               >
-                <ChevronLeft className="w-4 h-4 text-slate-400" />
+                <ChevronLeft className="w-4 h-4 text-slate-500" />
               </button>
               <button
                 type="button"
-                className="p-1 rounded hover:bg-slate-100 disabled:opacity-40"
-                disabled
+                aria-label="Next page"
+                onClick={() => setPage(pageFor(filteredFactoring.length) + 1)}
+                disabled={pageFor(filteredFactoring.length) * rowsPerPage >= filteredFactoring.length}
+                className="inline-flex size-7 items-center justify-center rounded hover:bg-slate-100 disabled:opacity-40"
               >
-                <ChevronRight className="w-4 h-4 text-slate-400" />
+                <ChevronRight className="w-4 h-4 text-slate-500" />
               </button>
             </div>
           </div>
@@ -1502,8 +1533,9 @@ export default function FinanceBankingPage() {
             </button>
             <button
               type="submit"
-              className="px-4 py-2 bg-[#2563eb] hover:bg-blue-700 text-white text-xs font-semibold rounded"
-            >
+ disabled={pending === "bank"}
+              className="inline-flex items-center justify-center gap-1.5 disabled:opacity-60 px-4 py-2 bg-[#2563eb] hover:bg-blue-700 text-white text-xs font-semibold rounded"
+            >{pending === "bank" && <Spinner className="size-3.5" />}
               Save Account
             </button>
           </div>
@@ -1594,8 +1626,9 @@ export default function FinanceBankingPage() {
             </button>
             <button
               type="submit"
-              className="px-4 py-2 bg-[#2563eb] hover:bg-blue-700 text-white text-xs font-semibold rounded"
-            >
+ disabled={pending === "deposit"}
+              className="inline-flex items-center justify-center gap-1.5 disabled:opacity-60 px-4 py-2 bg-[#2563eb] hover:bg-blue-700 text-white text-xs font-semibold rounded"
+            >{pending === "deposit" && <Spinner className="size-3.5" />}
               Save Deposit
             </button>
           </div>
@@ -1708,8 +1741,9 @@ export default function FinanceBankingPage() {
             </button>
             <button
               type="submit"
-              className="px-4 py-2 bg-[#2563eb] hover:bg-blue-700 text-white text-xs font-semibold rounded"
-            >
+ disabled={pending === "loan"}
+              className="inline-flex items-center justify-center gap-1.5 disabled:opacity-60 px-4 py-2 bg-[#2563eb] hover:bg-blue-700 text-white text-xs font-semibold rounded"
+            >{pending === "loan" && <Spinner className="size-3.5" />}
               Save Loan
             </button>
           </div>
@@ -1801,8 +1835,9 @@ export default function FinanceBankingPage() {
             </button>
             <button
               type="submit"
-              className="px-4 py-2 bg-[#2563eb] hover:bg-blue-700 text-white text-xs font-semibold rounded"
-            >
+ disabled={pending === "partner"}
+              className="inline-flex items-center justify-center gap-1.5 disabled:opacity-60 px-4 py-2 bg-[#2563eb] hover:bg-blue-700 text-white text-xs font-semibold rounded"
+            >{pending === "partner" && <Spinner className="size-3.5" />}
               Save Partner
             </button>
           </div>
