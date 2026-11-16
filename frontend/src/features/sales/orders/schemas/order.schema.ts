@@ -19,9 +19,25 @@ export const ORDER_STATUS_LABELS: Record<OrderStatus, string> = {
 /** Rows per page of the order list, as in Managerium. */
 export const ORDER_PAGE_SIZES = [25, 50, 100, 200] as const;
 
-export const ORDER_TYPES = ["SALES", "SAMPLE", "EXPORT"] as const;
-export type OrderType = (typeof ORDER_TYPES)[number];
-export const ORDER_TYPE_LABELS: Record<OrderType, string> = { SALES: "Sales", SAMPLE: "Sample", EXPORT: "Export" };
+/** "Type" offered on the order and delivery forms, as in Managerium. */
+export const ORDER_TYPES = ["SALES", "SAMPLE", "GIFT", "RND", "WARRANTY", "REPLACEMENT", "SERVICE", "MOCK_UP", "OPENING", "PROJECT"] as const;
+/** EXPORT is no longer offered but old records may carry it. */
+export type OrderType = (typeof ORDER_TYPES)[number] | "EXPORT";
+/** Every stored type, for validation (an old EXPORT order can still be saved). */
+export const ALL_ORDER_TYPES = [...ORDER_TYPES, "EXPORT"] as const;
+export const ORDER_TYPE_LABELS: Record<OrderType, string> = {
+  SALES: "Sales",
+  SAMPLE: "Sample",
+  GIFT: "Gift",
+  RND: "R&D",
+  WARRANTY: "Warranty",
+  REPLACEMENT: "Replacement",
+  SERVICE: "Service",
+  MOCK_UP: "Mock Up",
+  OPENING: "Opening",
+  PROJECT: "Project",
+  EXPORT: "Export",
+};
 
 export const PAYMENT_METHODS = ["CASH", "CREDIT", "BANK", "CHEQUE", "MOBILE_BANKING"] as const;
 export type PaymentMethod = (typeof PAYMENT_METHODS)[number];
@@ -81,7 +97,7 @@ export const orderInputSchema = z
     /** Custom Offer: apply only this offer; every applicable offer when empty. */
     offerId: optionalId,
     shipToAddressId: optionalId,
-    orderType: z.enum(ORDER_TYPES),
+    orderType: z.enum(ALL_ORDER_TYPES),
     paymentMethod: z.enum(PAYMENT_METHODS),
     orderDate: isoDate("Create date"),
     expectedDeliveryDate: isoDate("Exp. delivery date"),
@@ -154,7 +170,7 @@ export const orderListQuerySchema = z
     /** "Order By": the user who entered the order. */
     createdBy: z.string().trim().min(1).max(100).optional(),
     paymentMethod: z.enum(PAYMENT_METHODS).optional(),
-    orderType: z.enum(ORDER_TYPES).optional(),
+    orderType: z.enum(ALL_ORDER_TYPES).optional(),
     customerId: optionalUuid,
     /** SO no, customer name / code, customer PO or project/outlet. */
     search: z.string().trim().max(100).optional(),

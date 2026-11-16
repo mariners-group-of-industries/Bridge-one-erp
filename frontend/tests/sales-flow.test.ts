@@ -90,7 +90,7 @@ describe("sales modules work together", () => {
       salesPersonId,
       quotationDate: "2026-10-02",
       validTill: "2026-10-20",
-      quotationType: "Quotation",
+      quotationType: "Special Price",
       includingVat: true,
       lines: [{ itemId, qty: 50, rate: 100 }],
     });
