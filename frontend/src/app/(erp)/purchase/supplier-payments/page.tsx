@@ -692,7 +692,9 @@ export default function SupplierPaymentsPage() {
   };
 
   return (
-    <div className="space-y-2 p-1">
+    <div className="flex flex-col h-[calc(100dvh-3.5rem)] overflow-hidden font-sans p-3 space-y-2">
+      {/* Fixed Top Controls (header + tabs) */}
+      <div className="shrink-0 space-y-2">
       {/* ------------------------------------------------------------- */}
       {/* 1. TOP HEADER (Exact Unified Box Layout) */}
       {/* ------------------------------------------------------------- */}
@@ -826,14 +828,15 @@ export default function SupplierPaymentsPage() {
           SUPPLIER PURCHASE VS LEDGER BALANCE
         </button>
       </div>
+      </div>
 
       {/* ============================================================= */}
       {/* TAB 1: DUE LIST(LOCAL) (SCREENSHOT 1) */}
       {/* ============================================================= */}
       {activeTab === "DUE_LIST_LOCAL" && (
-        <div className="space-y-2">
+        <div className="flex-1 min-h-0 flex flex-col space-y-2">
           {/* Filter Bar */}
-          <div className="flex flex-wrap items-end gap-3 text-xs bg-slate-50/50 p-2 rounded border border-slate-200">
+          <div className="shrink-0 flex flex-wrap items-end gap-3 text-xs bg-slate-50/50 p-2 rounded border border-slate-200">
             <div>
               <label className="block text-[11px] text-slate-500 mb-1">From Date</label>
               <input
@@ -886,7 +889,7 @@ export default function SupplierPaymentsPage() {
           </div>
 
           {/* Table Container with All Borders */}
-          <div className="border border-slate-300 bg-white rounded shadow-2xs overflow-x-auto">
+          <div className="flex-1 min-h-0 border border-slate-300 bg-white rounded shadow-2xs overflow-auto">
             <table className="erp-table erp-table-compact w-full text-left text-xs border-collapse">
               <thead className="bg-[#e6f2fb] text-slate-800 font-semibold text-[11px] border-b border-slate-300 select-none">
                 <tr>
@@ -965,7 +968,7 @@ export default function SupplierPaymentsPage() {
           </div>
 
           {/* Pagination Footer */}
-          <div className="flex flex-col sm:flex-row items-center justify-end gap-6 text-xs text-slate-600 pt-1 pb-4">
+          <div className="shrink-0 flex flex-col sm:flex-row items-center justify-end gap-6 text-xs text-slate-600 pt-1">
             <div className="flex items-center gap-2">
               <span>Rows per page:</span>
               <select
@@ -998,9 +1001,9 @@ export default function SupplierPaymentsPage() {
       {/* TAB 2: PENDING BILL(LOCAL/FOREIGN) (SCREENSHOT 2) */}
       {/* ============================================================= */}
       {activeTab === "PENDING_BILLS" && (
-        <div className="space-y-3">
+        <div className="flex-1 min-h-0 flex flex-col space-y-3">
           {/* Filter Bar & Quick Stats */}
-          <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-50/50 p-2.5 rounded border border-slate-200 text-xs">
+          <div className="shrink-0 flex flex-wrap items-center justify-between gap-3 bg-slate-50/50 p-2.5 rounded border border-slate-200 text-xs">
             <div className="flex items-center gap-3">
               <div>
                 <label className="block text-[11px] font-semibold text-slate-600 mb-0.5">Filter By</label>
@@ -1077,8 +1080,8 @@ export default function SupplierPaymentsPage() {
               </button>
             </div>
           ) : (
-            <div className="bg-white rounded border border-slate-300 shadow-xs overflow-hidden">
-              <div className="overflow-x-auto">
+            <div className="flex-1 min-h-0 flex flex-col bg-white rounded border border-slate-300 shadow-xs overflow-hidden">
+              <div className="flex-1 min-h-0 overflow-auto">
                 <table className="erp-table erp-table-compact w-full text-xs text-left border-collapse">
                   <thead>
                     <tr className="bg-slate-100 text-slate-800 font-bold border-b border-slate-300">
@@ -1211,9 +1214,9 @@ export default function SupplierPaymentsPage() {
       {/* TAB 3: PAID GRN/BILL (SCREENSHOT 3) */}
       {/* ============================================================= */}
       {activeTab === "PAID_GRN_BILL" && (
-        <div className="space-y-2">
+        <div className="flex-1 min-h-0 flex flex-col space-y-2">
           {/* Filters */}
-          <div className="flex flex-wrap items-end gap-3 text-xs bg-slate-50/50 p-2 rounded border border-slate-200">
+          <div className="shrink-0 flex flex-wrap items-end gap-3 text-xs bg-slate-50/50 p-2 rounded border border-slate-200">
             <div>
               <label className="block text-[11px] text-slate-500 mb-1">Supplier</label>
               <input
@@ -1263,7 +1266,7 @@ export default function SupplierPaymentsPage() {
           </div>
 
           {/* Table Container with All Borders */}
-          <div className="border border-slate-300 bg-white rounded shadow-2xs overflow-x-auto">
+          <div className="flex-1 min-h-0 border border-slate-300 bg-white rounded shadow-2xs overflow-auto">
             <table className="erp-table erp-table-compact w-full text-left text-xs border-collapse">
               <thead className="bg-[#e6f2fb] text-slate-800 font-semibold text-[11px] border-b border-slate-300 select-none">
                 <tr>
@@ -1374,7 +1377,7 @@ export default function SupplierPaymentsPage() {
           </div>
 
           {/* Pagination */}
-          <div className="flex flex-col sm:flex-row items-center justify-end gap-6 text-xs text-slate-600 pt-1 pb-4">
+          <div className="shrink-0 flex flex-col sm:flex-row items-center justify-end gap-6 text-xs text-slate-600 pt-1">
             <div className="flex items-center gap-2">
               <span>Rows per page:</span>
               <select
@@ -1407,9 +1410,9 @@ export default function SupplierPaymentsPage() {
       {/* TAB 4: DUE INVOICES (SCREENSHOT 4) */}
       {/* ============================================================= */}
       {activeTab === "DUE_INVOICES" && (
-        <div className="space-y-2">
+        <div className="flex-1 min-h-0 flex flex-col space-y-2">
           {/* Filters */}
-          <div className="flex flex-wrap items-end gap-3 text-xs bg-slate-50/50 p-2 rounded border border-slate-200">
+          <div className="shrink-0 flex flex-wrap items-end gap-3 text-xs bg-slate-50/50 p-2 rounded border border-slate-200">
             <div>
               <label className="block text-[11px] text-slate-500 mb-1">Rece. From Date</label>
               <input
@@ -1438,7 +1441,7 @@ export default function SupplierPaymentsPage() {
           </div>
 
           {/* Table Container with All Borders */}
-          <div className="border border-slate-300 bg-white rounded shadow-2xs overflow-x-auto">
+          <div className="flex-1 min-h-0 border border-slate-300 bg-white rounded shadow-2xs overflow-auto">
             <table className="erp-table erp-table-compact w-full text-left text-xs border-collapse">
               <thead className="bg-[#e6f2fb] text-slate-800 font-semibold text-[11px] border-b border-slate-300 select-none">
                 <tr>
@@ -1493,7 +1496,7 @@ export default function SupplierPaymentsPage() {
           </div>
 
           {/* Pagination */}
-          <div className="flex flex-col sm:flex-row items-center justify-end gap-6 text-xs text-slate-600 pt-1 pb-4">
+          <div className="shrink-0 flex flex-col sm:flex-row items-center justify-end gap-6 text-xs text-slate-600 pt-1">
             <div className="flex items-center gap-2">
               <span>Rows per page:</span>
               <select
@@ -1526,9 +1529,9 @@ export default function SupplierPaymentsPage() {
       {/* TAB 5: PAYMENT ADVANCE (SCREENSHOT 5) */}
       {/* ============================================================= */}
       {activeTab === "PAYMENT_ADVANCE" && (
-        <div className="space-y-2">
+        <div className="flex-1 min-h-0 flex flex-col space-y-2">
           {/* Filters */}
-          <div className="flex flex-wrap items-end gap-3 text-xs bg-slate-50/50 p-2 rounded border border-slate-200">
+          <div className="shrink-0 flex flex-wrap items-end gap-3 text-xs bg-slate-50/50 p-2 rounded border border-slate-200">
             <div>
               <label className="block text-[11px] text-slate-500 mb-1">Supplier</label>
               <input
@@ -1577,7 +1580,7 @@ export default function SupplierPaymentsPage() {
           </div>
 
           {/* Table Container */}
-          <div className="border border-slate-300 bg-white rounded shadow-2xs overflow-x-auto">
+          <div className="flex-1 min-h-0 border border-slate-300 bg-white rounded shadow-2xs overflow-auto">
             {tab5DetailsCheck ? (
               <table className="erp-table erp-table-compact w-full text-left text-xs border-collapse">
                 <thead className="bg-[#e6f2fb] text-slate-800 font-semibold text-[11px] border-b border-slate-300 select-none">
@@ -1681,9 +1684,9 @@ export default function SupplierPaymentsPage() {
       {/* TAB 6: SUPPLIER PURCHASE VS LEDGER BALANCE (SCREENSHOT 6) */}
       {/* ============================================================= */}
       {activeTab === "SUPPLIER_PURCHASE_VS_LEDGER" && (
-        <div className="space-y-2">
+        <div className="flex-1 min-h-0 flex flex-col space-y-2">
           {/* Filters Bar: From, To, View */}
-          <div className="flex flex-wrap items-end gap-3 text-xs p-2">
+          <div className="shrink-0 flex flex-wrap items-end gap-3 text-xs p-2">
             <div>
               <label className="block text-[11px] text-slate-500 mb-1">From</label>
               <input
@@ -1712,7 +1715,7 @@ export default function SupplierPaymentsPage() {
           </div>
 
           {/* Table Container with All Borders */}
-          <div className="border border-slate-300 bg-white rounded shadow-2xs overflow-x-auto">
+          <div className="flex-1 min-h-0 border border-slate-300 bg-white rounded shadow-2xs overflow-auto">
             <table className="erp-table erp-table-compact w-full text-left text-xs border-collapse">
               <thead className="bg-[#e6f2fb] text-slate-800 font-semibold text-[11px] border-b border-slate-300 select-none">
                 <tr>
@@ -1772,7 +1775,7 @@ export default function SupplierPaymentsPage() {
           </div>
 
           {/* Pagination */}
-          <div className="flex items-center justify-end gap-6 text-xs text-slate-600 px-2 py-3">
+          <div className="shrink-0 flex items-center justify-end gap-6 text-xs text-slate-600 px-2 pt-1">
             <div className="flex items-center gap-2">
               <span>Rows per page:</span>
               <select

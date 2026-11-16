@@ -993,8 +993,8 @@ export default function PurchaseRequisitionsPage() {
         </div>
       </div>
 
-      {/* Enterprise Filter Card & Content */}
-      {activeTab === "PURCHASE_REQUISITION" ? (
+      {/* TAB 1: PURCHASE REQUISITION */}
+      {activeTab === "PURCHASE_REQUISITION" && (
         <div className="flex-1 min-h-0 flex flex-col space-y-2.5">
           <div className="shrink-0 bg-white rounded border border-slate-200/90 p-4 shadow-2xs">
           {/* Row 1: 5 Columns */}
@@ -1196,8 +1196,25 @@ export default function PurchaseRequisitionsPage() {
             </div>
           </div>
         </div>
-      ) : (
-        <div className="bg-white rounded border border-slate-200/90 p-4 shadow-2xs mb-4">
+
+        {/* Requisitions Data Table (Only Table Scrolls) */}
+        <div className="flex-1 min-h-0">
+          <DataTable
+            columns={columns}
+            data={requisitions || []}
+            loading={isLoading}
+            pageSize={50}
+            emptyMessage="No requisitions found matching the selected criteria."
+            compact
+          />
+        </div>
+      </div>
+    )}
+
+    {/* TAB 2: REQUISITION SUMMARY */}
+    {activeTab === "REQUISITION_SUMMARY" && (
+      <div className="flex-1 min-h-0 flex flex-col space-y-2.5">
+        <div className="shrink-0 bg-white rounded border border-slate-200/90 p-4 shadow-2xs">
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3.5 mb-3.5">
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1.5">Office</label>
@@ -1342,20 +1359,7 @@ export default function PurchaseRequisitionsPage() {
           </div>
         </div>
 
-        {/* Requisitions Data Table (Only Table Scrolls) */}
-          <div className="flex-1 min-h-0">
-            <DataTable
-              columns={columns}
-              data={requisitions || []}
-              loading={isLoading}
-              pageSize={50}
-              emptyMessage="No requisitions found matching the selected criteria."
-              compact
-            />
-          </div>
-        </div>
-      ) : (
-        /* Requisition Summary View */
+        {/* Requisition Summary View (Scrollable) */}
         <div className="flex-1 min-h-0 overflow-y-auto space-y-4">
           {/* KPI Stat Cards */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -1557,9 +1561,10 @@ export default function PurchaseRequisitionsPage() {
             </div>
           )}
         </div>
-      )}
+      </div>
+    )}
 
-      {/* CREATE REQUISITION MODAL */}
+    {/* CREATE REQUISITION MODAL */}
       <ModalDialog
         isOpen={isCreateOpen}
         onClose={() => setIsCreateOpen(false)}

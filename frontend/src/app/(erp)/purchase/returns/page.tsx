@@ -410,7 +410,9 @@ export default function PurchaseReturnsPage() {
   };
 
   return (
-    <div className="space-y-3 p-1">
+    <div className="flex flex-col h-[calc(100dvh-3.5rem)] overflow-hidden font-sans p-3 space-y-2.5">
+      {/* Fixed Top Controls (header + tabs) */}
+      <div className="shrink-0 space-y-2.5">
       {/* ------------------------------------------------------------- */}
       {/* 1. TOP HEADER (Exact Unified Box Layout) */}
       {/* ------------------------------------------------------------- */}
@@ -487,14 +489,15 @@ export default function PurchaseReturnsPage() {
           RETURN LIST
         </button>
       </div>
+      </div>
 
       {/* ============================================================= */}
       {/* TAB 1: RECEIVED LIST (SCREENSHOT 1) */}
       {/* ============================================================= */}
       {activeTab === "RECEIVED_LIST" && (
-        <div className="space-y-2">
-          {/* Table Container with All Borders */}
-          <div className="border border-slate-300 bg-white rounded shadow-2xs overflow-x-auto">
+        <div className="flex-1 min-h-0 flex flex-col space-y-2">
+          {/* Table Container with All Borders (Only Table Scrolls) */}
+          <div className="flex-1 min-h-0 border border-slate-300 bg-white rounded shadow-2xs overflow-auto">
             <table className="erp-table erp-table-compact w-full text-left text-xs border-collapse">
               <thead className="bg-[#e6f2fb] text-slate-800 font-semibold text-[11px] border-b border-slate-300 select-none">
                 <tr>
@@ -576,7 +579,7 @@ export default function PurchaseReturnsPage() {
           </div>
 
           {/* Pagination Footer matching Screenshot 1 */}
-          <div className="flex flex-col sm:flex-row items-center justify-end gap-6 text-xs text-slate-600 pt-1 pb-4">
+          <div className="shrink-0 flex flex-col sm:flex-row items-center justify-end gap-6 text-xs text-slate-600 pt-1">
             <div className="flex items-center gap-2">
               <span>Rows per page:</span>
               <select
@@ -629,9 +632,9 @@ export default function PurchaseReturnsPage() {
       {/* TAB 2: RETURN LIST (SCREENSHOT 2) */}
       {/* ============================================================= */}
       {activeTab === "RETURN_LIST" && (
-        <div className="space-y-2">
+        <div className="flex-1 min-h-0 flex flex-col space-y-2">
           {/* Filter Card matching Screenshot 2 */}
-          <div className="bg-slate-50/60 p-3 rounded border border-slate-200 grid grid-cols-1 sm:grid-cols-5 gap-3 items-end text-xs">
+          <div className="shrink-0 bg-slate-50/60 p-3 rounded border border-slate-200 grid grid-cols-1 sm:grid-cols-5 gap-3 items-end text-xs">
             {/* Office Filter */}
             <div>
               <label className="block text-[11px] text-slate-600 mb-1 font-medium">Office</label>
@@ -699,8 +702,8 @@ export default function PurchaseReturnsPage() {
             </div>
           </div>
 
-          {/* Table Container with All Borders */}
-          <div className="border border-slate-300 bg-white rounded shadow-2xs overflow-x-auto">
+          {/* Table Container with All Borders (Only Table Scrolls) */}
+          <div className="flex-1 min-h-0 border border-slate-300 bg-white rounded shadow-2xs overflow-auto">
             <table className="erp-table erp-table-compact w-full text-left text-xs border-collapse">
               <thead className="bg-[#e6f2fb] text-slate-800 font-semibold text-[11px] border-b border-slate-300 select-none">
                 <tr>
@@ -811,7 +814,7 @@ export default function PurchaseReturnsPage() {
           </div>
 
           {/* Pagination Footer matching Screenshot 2 */}
-          <div className="flex flex-col sm:flex-row items-center justify-end gap-6 text-xs text-slate-600 pt-1 pb-4">
+          <div className="shrink-0 flex flex-col sm:flex-row items-center justify-end gap-6 text-xs text-slate-600 pt-1">
             <div className="flex items-center gap-2">
               <span>Rows per page:</span>
               <select
