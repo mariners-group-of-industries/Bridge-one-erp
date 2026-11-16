@@ -104,7 +104,7 @@ function CreateRequisitionForm({ templateReq }: { templateReq: PurchaseRequisiti
 
   const [createDate, setCreateDate] = useState(todayStr);
   const [expectedDate, setExpectedDate] = useState(templateReq?.requiredDeliveryDate || defaultDeliveryStr);
-  const [pickedOfficeId, setSelectedOfficeId] = useState<string>(templateReq?.officeId || "");
+  const [pickedOfficeId, setSelectedOfficeId] = useState<string | null>(templateReq?.officeId ?? null);
   const [pickedWarehouseId, setSelectedWarehouseId] = useState<string>(templateReq?.warehouseId || "");
   const [inventoryType, setInventoryType] = useState(templateReq?.requestType === "URGENT" ? "Asset" : "Inventory Item");
 
@@ -208,17 +208,17 @@ function CreateRequisitionForm({ templateReq }: { templateReq: PurchaseRequisiti
     return withWh?.id || offices[0]?.id || "";
   }, [templateReq, offices, allWarehouses]);
 
-  const selectedOfficeId = pickedOfficeId || defaultOfficeId;
+  const selectedOfficeId = pickedOfficeId !== null ? pickedOfficeId : defaultOfficeId;
 
   // Filter warehouses based on selected office
   const availableWarehouses = useMemo(() => {
-    if (!selectedOfficeId) return allWarehouses;
+    if (!selectedOfficeId) return [];
     // Only the office own warehouses: the server rejects a warehouse of another office.
     return allWarehouses.filter((w) => w.officeId === selectedOfficeId);
   }, [allWarehouses, selectedOfficeId]);
 
   // The picked warehouse while it belongs to the office, otherwise the office first warehouse.
-  const selectedWarehouseId = availableWarehouses.some((w) => w.id === pickedWarehouseId) ? pickedWarehouseId : (availableWarehouses[0]?.id ?? "");
+  const selectedWarehouseId = selectedOfficeId && availableWarehouses.some((w) => w.id === pickedWarehouseId) ? pickedWarehouseId : (availableWarehouses[0]?.id ?? "");
 
   // 3-Level Category Cascade from DB ItemCategory + item fallbacks
   const level1Categories = useMemo(() => {
@@ -892,6 +892,7 @@ function CreateRequisitionForm({ templateReq }: { templateReq: PurchaseRequisiti
               }}
               className="w-full h-8 text-xs border border-slate-300 dark:border-slate-700 rounded px-2.5 py-1 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-hidden focus:ring-1 focus:ring-blue-500"
             >
+              <option value="">Select Office</option>
               {offices.map((off) => (
                 <option key={off.id} value={off.id}>
                   {off.name}
@@ -908,9 +909,12 @@ function CreateRequisitionForm({ templateReq }: { templateReq: PurchaseRequisiti
             <select
               value={selectedWarehouseId}
               onChange={(e) => setSelectedWarehouseId(e.target.value)}
-              className="w-full h-8 text-xs border border-slate-300 dark:border-slate-700 rounded px-2.5 py-1 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-hidden focus:ring-1 focus:ring-blue-500"
+              disabled={!selectedOfficeId}
+              className="w-full h-8 text-xs border border-slate-300 dark:border-slate-700 rounded px-2.5 py-1 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-hidden focus:ring-1 focus:ring-blue-500 disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed dark:disabled:bg-slate-900 dark:disabled:text-slate-500"
             >
-              {availableWarehouses.length === 0 ? (
+              {!selectedOfficeId ? (
+                <option value="">Select Office first</option>
+              ) : availableWarehouses.length === 0 ? (
                 <option value="">No warehouse for this office</option>
               ) : (
                 availableWarehouses.map((wh) => (

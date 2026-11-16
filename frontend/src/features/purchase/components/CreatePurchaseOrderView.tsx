@@ -131,7 +131,7 @@ function CreatePurchaseOrderForm({
 
   // Header Fields
   const [orderDate, setOrderDate] = useState(editOrder?.orderDate || todayStr);
-  const [pickedOfficeId, setPickedOfficeId] = useState(editOrder?.officeId || initialReq?.officeId || "");
+  const [pickedOfficeId, setPickedOfficeId] = useState<string | null>(editOrder?.officeId || initialReq?.officeId || null);
   const [pickedWarehouseId, setPickedWarehouseId] = useState(editOrder?.warehouseId || initialReq?.warehouseId || "");
   const [inventoryType, setInventoryType] = useState("Inventory Item");
   const [supplierId, setSupplierId] = useState(editOrder?.supplierId || "");
@@ -217,12 +217,12 @@ function CreatePurchaseOrderForm({
     return withWh?.id || offices[0]?.id || "";
   }, [offices, warehouses]);
 
-  const selectedOfficeId = pickedOfficeId || defaultOfficeId;
+  const selectedOfficeId = pickedOfficeId !== null ? pickedOfficeId : defaultOfficeId;
   const availableWarehouses = useMemo(
-    () => (selectedOfficeId ? warehouses.filter((w) => w.officeId === selectedOfficeId) : warehouses),
+    () => (selectedOfficeId ? warehouses.filter((w) => w.officeId === selectedOfficeId) : []),
     [warehouses, selectedOfficeId]
   );
-  const selectedWarehouseId = availableWarehouses.some((w) => w.id === pickedWarehouseId)
+  const selectedWarehouseId = selectedOfficeId && availableWarehouses.some((w) => w.id === pickedWarehouseId)
     ? pickedWarehouseId
     : (availableWarehouses[0]?.id ?? "");
 
@@ -903,9 +903,12 @@ function CreatePurchaseOrderForm({
                   <select
                     value={selectedWarehouseId}
                     onChange={(e) => setPickedWarehouseId(e.target.value)}
-                    className={inputCls}
+                    disabled={!selectedOfficeId}
+                    className={`${inputCls} disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed`}
                   >
-                    {availableWarehouses.length === 0 ? (
+                    {!selectedOfficeId ? (
+                      <option value="">Select office first</option>
+                    ) : availableWarehouses.length === 0 ? (
                       <option value="">No warehouse for this office</option>
                     ) : (
                       availableWarehouses.map((w) => (

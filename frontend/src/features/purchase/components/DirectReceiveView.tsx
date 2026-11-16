@@ -78,7 +78,7 @@ export function DirectReceiveView() {
 
   // Header Fields
   const [receiveDate, setReceiveDate] = useState(todayStr);
-  const [pickedOfficeId, setPickedOfficeId] = useState("");
+  const [pickedOfficeId, setPickedOfficeId] = useState<string | null>(null);
   const [pickedWarehouseId, setPickedWarehouseId] = useState("");
   const [itemType, setItemType] = useState("Inventory Item");
   const [supplierId, setSupplierId] = useState("");
@@ -125,12 +125,12 @@ export function DirectReceiveView() {
     return withWh?.id || offices[0]?.id || "";
   }, [offices, allWarehouses]);
 
-  const selectedOfficeId = pickedOfficeId || defaultOfficeId;
+  const selectedOfficeId = pickedOfficeId !== null ? pickedOfficeId : defaultOfficeId;
   const availableWarehouses = useMemo(
-    () => (selectedOfficeId ? allWarehouses.filter((w) => w.officeId === selectedOfficeId) : allWarehouses),
+    () => (selectedOfficeId ? allWarehouses.filter((w) => w.officeId === selectedOfficeId) : []),
     [allWarehouses, selectedOfficeId]
   );
-  const selectedWarehouseId = availableWarehouses.some((w) => w.id === pickedWarehouseId)
+  const selectedWarehouseId = selectedOfficeId && availableWarehouses.some((w) => w.id === pickedWarehouseId)
     ? pickedWarehouseId
     : (availableWarehouses[0]?.id ?? "");
 
@@ -574,8 +574,15 @@ export function DirectReceiveView() {
               <label className="mb-1 block text-[11px] font-semibold text-slate-700">
                 Warehouse<span className="text-red-500">*</span>
               </label>
-              <select value={selectedWarehouseId} onChange={(e) => setPickedWarehouseId(e.target.value)} className={inputCls}>
-                {availableWarehouses.length === 0 ? (
+              <select
+                value={selectedWarehouseId}
+                onChange={(e) => setPickedWarehouseId(e.target.value)}
+                disabled={!selectedOfficeId}
+                className={`${inputCls} disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed`}
+              >
+                {!selectedOfficeId ? (
+                  <option value="">Select office first</option>
+                ) : availableWarehouses.length === 0 ? (
                   <option value="">No warehouse for this office</option>
                 ) : (
                   availableWarehouses.map((w) => (

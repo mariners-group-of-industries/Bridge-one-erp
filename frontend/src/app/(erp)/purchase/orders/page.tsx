@@ -848,10 +848,15 @@ export default function PurchaseOrdersPage() {
               </label>
               <label className="block">
                 <span className="block text-[11px] font-semibold text-slate-700 mb-1">Warehouse</span>
-                <select value={pmWarehouse} onChange={(e) => setPmWarehouse(e.target.value)} className={inputCls}>
-                  <option value="ALL">All Warehouses</option>
+                <select
+                  value={pmWarehouse}
+                  onChange={(e) => setPmWarehouse(e.target.value)}
+                  disabled={pmOffice === "ALL"}
+                  className={`${inputCls} disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed disabled:border-slate-200`}
+                >
+                  <option value="ALL">{pmOffice === "ALL" ? "Select Office first" : "All Warehouses"}</option>
                   {warehouses
-                    .filter((w) => pmOffice === "ALL" || w.officeId === pmOffice)
+                    .filter((w) => pmOffice !== "ALL" && w.officeId === pmOffice)
                     .map((w) => (
                       <option key={w.id} value={w.id}>
                         {w.name}
@@ -1068,8 +1073,14 @@ export default function PurchaseOrdersPage() {
               </label>
               <label className="block">
                 <span className="block text-slate-600 font-medium mb-1">Receiving Warehouse *</span>
-                <select value={form.warehouseId} onChange={(e) => patchForm({ warehouseId: e.target.value })} className={inputCls} required>
-                  <option value="">Select warehouse</option>
+                <select
+                  value={form.warehouseId}
+                  onChange={(e) => patchForm({ warehouseId: e.target.value })}
+                  disabled={!form.officeId}
+                  className={`${inputCls} disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed`}
+                  required
+                >
+                  <option value="">{form.officeId ? "Select warehouse" : "Select office first"}</option>
                   {formWarehouses.map((w) => (
                     <option key={w.id} value={w.id}>
                       {w.name}
