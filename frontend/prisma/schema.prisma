@@ -558,6 +558,7 @@ model BusinessUnit {
   inventoryDocuments   InventoryDocument[]
   posCounters          PosCounter[]
   posSales             PosSale[]
+  payrollBatches       PayrollBatch[]
   supplierGroups       SupplierGroup[]
   taxBrackets          TaxBracket[]
   itemDivisions        ItemDivision[]
@@ -638,6 +639,7 @@ model Office {
   salesWallets         SalesWallet[]
   attendanceDevices    AttendanceDevice[]
   payrollRuns          PayrollRun[]
+  payrollBatches       PayrollBatch[]
   bonusRuns            BonusRun[]
   hrPolicyRecords      HrPolicyRecord[]
   workCenters       ProductionWorkCenter[]
@@ -3653,9 +3655,11 @@ model Employee {
   movementApplications MovementApplication[]
   overtimeEntries      OvertimeEntry[]
   payrollRunLines      PayrollRunLine[]
+  payrollBatchLines    PayrollBatchLine[]
   bonusLines           BonusLine[]
   salaryIncrements     SalaryIncrement[]
   hrPolicyRecords      HrPolicyRecord[]
+  calendarDays         EmployeeCalendarDay[]
   workCenterOperators ProductionWorkCenterOperator[]
 
   rtmOrders            RtmOrder[]            @relation("RtmOrderSr")
@@ -4454,6 +4458,135 @@ model PayrollRunLine {
   @@map("payroll_run_lines")
 }
 
+/// HRM › Payroll › Salary Generate: one office's salary batch for a month and
+/// salary type. Draft → Under Processing (submitted; figures frozen) → Approved
+/// (last approval stage of the "Salary Sheet" pipeline), or Rejected / Cancelled.
+/// `periodKey` ("YYYY-MM|Monthly") is set while the batch is live and cleared when
+/// it is cancelled, so the unique keys allow one live batch per office and period.
+model PayrollBatch {
+  id                       String    @id @default(uuid()) @db.Uuid
+  reference                String    @unique @db.VarChar(30)
+  businessUnitId           String    @db.Uuid
+  officeId                 String    @db.Uuid
+  salaryType               String    @db.VarChar(30)
+  /// YYYY-MM
+  month                    String    @db.VarChar(7)
+  fromDate                 DateTime  @db.Date
+  toDate                   DateTime  @db.Date
+  payrollDate              DateTime  @db.Date
+  description              String?   @db.VarChar(500)
+  status                   String    @default("Draft") @db.VarChar(20)
+  periodKey                String?   @db.VarChar(40)
+  eligibleCount            Int       @default(0)
+  employeeCount            Int       @default(0)
+  totalGross               Decimal   @default(0) @db.Decimal(14, 2)
+  totalBasic               Decimal   @default(0) @db.Decimal(14, 2)
+  totalAllowances          Decimal   @default(0) @db.Decimal(14, 2)
+  totalEarned              Decimal   @default(0) @db.Decimal(14, 2)
+  totalAdditions           Decimal   @default(0) @db.Decimal(14, 2)
+  totalAttendanceDeduction Decimal   @default(0) @db.Decimal(14, 2)
+  totalOtherDeduction      Decimal   @default(0) @db.Decimal(14, 2)
+  totalNet                 Decimal   @default(0) @db.Decimal(14, 2)
+  warningCount             Int       @default(0)
+  errorCount               Int       @default(0)
+  /// Employees left out (no salary set …) with the reason, for reconciliation.
+  excluded                 Json      @default("[]")
+  /// Policy records (id, tab, updatedAt) the calculation used.
+  policySnapshot           Json      @default("[]")
+  /// Hash of every input of the calculation; a different hash later means the sources changed.
+  sourceHash               String    @db.VarChar(64)
+  calculatedAt             DateTime  @db.Timestamptz(3)
+  submittedAt              DateTime? @db.Timestamptz(3)
+  submittedByName          String?   @db.VarChar(150)
+  decidedAt                DateTime? @db.Timestamptz(3)
+  decidedByName            String?   @db.VarChar(150)
+  rejectionReason          String?   @db.VarChar(500)
+  cancelReason             String?   @db.VarChar(500)
+  createdById              String?   @db.VarChar(100)
+  createdByName            String?   @db.VarChar(150)
+  updatedByName            String?   @db.VarChar(150)
+  /// Bumped on every change; writes check it so concurrent edits do not overwrite each other.
+  version                  Int       @default(1)
+  createdAt                DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt                DateTime  @updatedAt @db.Timestamptz(3)
+
+  businessUnit BusinessUnit        @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  office       Office              @relation(fields: [officeId], references: [id], onDelete: Restrict)
+  lines        PayrollBatchLine[]
+  events       PayrollBatchEvent[]
+
+  @@unique([officeId, periodKey])
+  @@index([month, officeId])
+  @@index([status])
+  @@map("payroll_batches")
+}
+
+/// One employee's calculated salary in a batch: a snapshot, so later salary or
+/// attendance changes do not alter it until the batch is recalculated.
+model PayrollBatchLine {
+  id                  String   @id @default(uuid()) @db.Uuid
+  batchId             String   @db.Uuid
+  employeeId          String   @db.Uuid
+  /// The batch's period key while the batch is live: one live salary per employee and period.
+  periodKey           String?  @db.VarChar(40)
+  sl                  Int
+  employeeCode        String   @db.VarChar(50)
+  employeeName        String   @db.VarChar(150)
+  joiningDate         DateTime @db.Date
+  designation         String?  @db.VarChar(150)
+  department          String?  @db.VarChar(150)
+  grossSalary         Decimal  @db.Decimal(14, 2)
+  basic               Decimal? @db.Decimal(14, 2)
+  houseRent           Decimal? @db.Decimal(14, 2)
+  medical             Decimal? @db.Decimal(14, 2)
+  transport           Decimal? @db.Decimal(14, 2)
+  /// Allowance and deduction columns by code (MA, FA, EA, PFD, TAA, TDA, NPA …).
+  components          Json     @default("{}")
+  earnedGross         Decimal  @db.Decimal(14, 2)
+  additions           Decimal  @db.Decimal(14, 2)
+  attendanceDeduction Decimal  @db.Decimal(14, 2)
+  otherDeduction      Decimal  @db.Decimal(14, 2)
+  totalDeduction      Decimal  @db.Decimal(14, 2)
+  netPayable          Decimal  @db.Decimal(14, 2)
+  payMethod           String   @db.VarChar(20)
+  bankOrProvider      String?  @db.VarChar(150)
+  accountNo           String?  @db.VarChar(50)
+  /// Day counts: working, present, absent, leave by type, weekly off, holidays, lates …
+  attendance          Json     @default("{}")
+  /// Read-only steps showing how the net payable was reached.
+  trace               Json     @default("[]")
+  warnings            Json     @default("[]")
+  errors              Json     @default("[]")
+  sourceHash          String   @db.VarChar(64)
+
+  batch    PayrollBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  employee Employee     @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+
+  @@unique([employeeId, periodKey])
+  @@index([batchId, sl])
+  @@map("payroll_batch_lines")
+}
+
+/// Audit trail of a payroll batch: generation, recalculation, submission, each approval stage, rejection, cancellation.
+model PayrollBatchEvent {
+  id         String   @id @default(uuid()) @db.Uuid
+  batchId    String   @db.Uuid
+  action     String   @db.VarChar(30)
+  fromStatus String?  @db.VarChar(20)
+  toStatus   String   @db.VarChar(20)
+  stageNo    Int?
+  stageName  String?  @db.VarChar(150)
+  actorId    String?  @db.VarChar(100)
+  actorName  String   @db.VarChar(150)
+  remarks    String?  @db.VarChar(500)
+  createdAt  DateTime @default(now()) @db.Timestamptz(3)
+
+  batch PayrollBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+
+  @@index([batchId, createdAt])
+  @@map("payroll_batch_events")
+}
+
 /// HRM › Compensation Adjustments › Bonus: a bonus for one office (or all), as a percentage of gross salary.
 model BonusRun {
   id               String    @id @default(uuid()) @db.Uuid
@@ -4546,6 +4679,23 @@ model HrPolicyRecord {
   @@index([tab, effectiveFrom])
   @@index([employeeId])
   @@map("hr_policy_records")
+}
+
+/// HRM › Calendar Assign: the calendar (shift short code, e.g. "G", "A", "OFF")
+/// an employee works on one day. Daily Attendance shows it in the Calendar column.
+model EmployeeCalendarDay {
+  id            String   @id @default(uuid()) @db.Uuid
+  employeeId    String   @db.Uuid
+  date          DateTime @db.Date
+  shortCode     String   @db.VarChar(20)
+  updatedByName String?  @db.VarChar(150)
+  updatedAt     DateTime @updatedAt @db.Timestamptz(3)
+
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@unique([employeeId, date])
+  @@index([date])
+  @@map("employee_calendar_days")
 }
 
 

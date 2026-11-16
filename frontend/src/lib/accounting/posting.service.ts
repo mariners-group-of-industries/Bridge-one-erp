@@ -259,11 +259,17 @@ const SOURCES: SourceDef[] = [
   {
     type: "PAYROLL",
     label: "Processed payroll",
-    pending: async (posted) =>
-      (await db().payrollRun.findMany({ where: notIn(posted), select: { id: true, month: true, toDate: true, officeId: true, netAmount: true }, take: BATCH })).map((p) => ({
+    // Legacy processed runs, and salary batches once their last approval stage is done.
+    pending: async (posted) => [
+      ...(await db().payrollRun.findMany({ where: notIn(posted), select: { id: true, month: true, toDate: true, officeId: true, netAmount: true }, take: BATCH })).map((p) => ({
         id: p.id,
         journal: { date: p.toDate, number: `PAY-${p.month}`, narration: `Payroll ${p.month}`, officeId: p.officeId, lines: payrollLines(num(p.netAmount)) },
       })),
+      ...(await db().payrollBatch.findMany({ where: { status: "Approved", ...notIn(posted) }, select: { id: true, reference: true, month: true, payrollDate: true, officeId: true, totalNet: true }, take: BATCH })).map((p) => ({
+        id: p.id,
+        journal: { date: p.payrollDate, number: p.reference, narration: `Payroll ${p.month} (${p.reference})`, officeId: p.officeId, lines: payrollLines(num(p.totalNet)) },
+      })),
+    ],
   },
 ];
 

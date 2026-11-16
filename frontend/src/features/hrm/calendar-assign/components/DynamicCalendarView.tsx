@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef, useEffect } from "react";
 import {
   RefreshCw,
   SlidersHorizontal,
@@ -22,7 +22,15 @@ import type {
 } from "../types";
 import type { CalendarAssignMeta } from "../services/calendar-assign.service";
 
-const STORAGE_KEY = "bridgeone_dynamic_calendar_assignments_v1";
+/** Older builds kept assignments only in this browser key; they are offered for saving once. */
+const LEGACY_STORAGE_KEY = "bridgeone_dynamic_calendar_assignments_v1";
+
+interface CellChange {
+  employeeId: string;
+  date: string;
+  /** "" clears the day. */
+  shortCode: string;
+}
 
 interface DynamicCalendarViewProps {
   initialEmployees: EmployeeRosterItem[];
@@ -132,20 +140,68 @@ export function DynamicCalendarView({
     });
   }, [employees, filter]);
 
-  // Grid Data State
-  const [gridData, setGridData] = useState<RosterGridData>(() => {
-    if (typeof window !== "undefined") {
-      try {
-        const saved = localStorage.getItem(STORAGE_KEY);
-        if (saved) {
-          return JSON.parse(saved);
-        }
-      } catch (e) {
-        console.error("Failed to read from localStorage", e);
+  // Grid Data State (loaded from the server; unsaved edits are tracked in `pending`)
+  const [gridData, setGridData] = useState<RosterGridData>({});
+  const pending = useRef(new Map<string, CellChange>());
+
+  /** Applies cell edits to the grid and remembers them for Save. */
+  const applyCells = (cells: CellChange[]) => {
+    if (cells.length === 0) return;
+    for (const c of cells) pending.current.set(`${c.employeeId}|${c.date}`, c);
+    setGridData((prev) => {
+      const next = { ...prev };
+      for (const c of cells) {
+        const row = { ...(next[c.employeeId] || {}) };
+        if (c.shortCode) row[c.date] = c.shortCode;
+        else delete row[c.date];
+        next[c.employeeId] = row;
       }
+      return next;
+    });
+    setUnsavedChanges(pending.current.size);
+  };
+
+  /** Server assignments for loaded employees, with unsaved edits kept on top. */
+  const mergeServerAssignments = (assignments: RosterGridData | undefined, employeeIds: string[]) => {
+    setGridData((prev) => {
+      const next = { ...prev };
+      for (const id of employeeIds) next[id] = { ...(assignments?.[id] || {}) };
+      for (const c of pending.current.values()) {
+        if (!(c.employeeId in next)) continue;
+        if (c.shortCode) next[c.employeeId][c.date] = c.shortCode;
+        else delete next[c.employeeId][c.date];
+      }
+      return next;
+    });
+  };
+
+  // Assignments an older build left in this browser only: offer them for saving.
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(LEGACY_STORAGE_KEY);
+      if (!saved) return;
+      const legacy = JSON.parse(saved) as RosterGridData;
+      const cells: CellChange[] = [];
+      for (const [employeeId, days] of Object.entries(legacy || {})) {
+        if (!/^[0-9a-f-]{36}$/i.test(employeeId)) continue;
+        for (const [date, shortCode] of Object.entries(days || {})) {
+          if (shortCode && /^\d{4}-\d{2}-\d{2}$/.test(date)) cells.push({ employeeId, date, shortCode: String(shortCode).slice(0, 20) });
+        }
+      }
+      if (cells.length > 0) {
+        // After mount, so the first render matches the server's.
+        queueMicrotask(() => {
+          applyCells(cells);
+          toast.info(`${cells.length} calendar assignment(s) were only kept in this browser. Click Save to store them.`);
+        });
+      } else {
+        localStorage.removeItem(LEGACY_STORAGE_KEY);
+      }
+    } catch {
+      // Storage blocked or unreadable: nothing to migrate.
     }
-    return {};
-  });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Handle Fetch / Filter on View button click from DB
   const handleView = async () => {
@@ -160,11 +216,14 @@ export function DynamicCalendarView({
       if (filter.employeeId) searchParams.set("employeeId", filter.employeeId);
       searchParams.set("page", "1");
       searchParams.set("limit", "40");
+      searchParams.set("fromDate", filter.fromDate);
+      searchParams.set("toDate", filter.toDate);
 
       const res = await fetch(`/api/hrm/calendar-assign?${searchParams.toString()}`);
       const data = await res.json();
       if (data.success && Array.isArray(data.employees)) {
         setEmployees(data.employees);
+        mergeServerAssignments(data.assignments, data.employees.map((e: EmployeeRosterItem) => e.id));
         setHasMore(Boolean(data.pagination?.hasMore));
         setTotalCount(data.pagination?.total || data.employees.length);
         setHasFiltered(true);
@@ -203,6 +262,8 @@ export function DynamicCalendarView({
       if (filter.employeeId) searchParams.set("employeeId", filter.employeeId);
       searchParams.set("page", String(nextPage));
       searchParams.set("limit", "40");
+      searchParams.set("fromDate", filter.fromDate);
+      searchParams.set("toDate", filter.toDate);
 
       const res = await fetch(`/api/hrm/calendar-assign?${searchParams.toString()}`);
       const data = await res.json();
@@ -212,6 +273,7 @@ export function DynamicCalendarView({
           const newOnes = data.employees.filter((e: any) => !existingIds.has(e.id));
           return [...prev, ...newOnes];
         });
+        mergeServerAssignments(data.assignments, data.employees.map((e: EmployeeRosterItem) => e.id));
         setPage(nextPage);
         setHasMore(Boolean(data.pagination?.hasMore));
         setTotalCount(data.pagination?.total || 0);
@@ -226,14 +288,7 @@ export function DynamicCalendarView({
 
   // Handle cell change
   const handleCellChange = (employeeId: string, dateStr: string, newShiftCode: string) => {
-    setGridData((prev) => ({
-      ...prev,
-      [employeeId]: {
-        ...(prev[employeeId] || {}),
-        [dateStr]: newShiftCode,
-      },
-    }));
-    setUnsavedChanges((c) => c + 1);
+    applyCells([{ employeeId, date: dateStr, shortCode: newShiftCode }]);
   };
 
   // Bulk Apply Shift to real employees
@@ -251,39 +306,21 @@ export function DynamicCalendarView({
       return;
     }
 
-    setGridData((prev) => {
-      const next = { ...prev };
-      targetEmployees.forEach((emp) => {
-        next[emp.id] = { ...(next[emp.id] || {}) };
-        dates.forEach((d) => {
-          if (mode === "working_days" && d.isWeekend) {
-            return;
-          }
-          next[emp.id][d.dateStr] = shiftCode;
-        });
-      });
-      return next;
-    });
-
-    setUnsavedChanges((c) => c + 1);
+    applyCells(
+      targetEmployees.flatMap((emp) =>
+        dates
+          .filter((d) => !(mode === "working_days" && d.isWeekend))
+          .map((d) => ({ employeeId: emp.id, date: d.dateStr, shortCode: shiftCode })),
+      ),
+    );
     toast.success(
-      `Assigned shift [${shiftCode}] to ${targetEmployees.length} employees successfully.`,
+      `Assigned shift [${shiftCode}] to ${targetEmployees.length} employees. Click Save to keep it.`,
     );
   };
 
   // Column Bulk Assign (single date to all filtered employees)
   const handleColumnBulkAssign = (dateStr: string, shiftCode: string) => {
-    setGridData((prev) => {
-      const next = { ...prev };
-      filteredEmployees.forEach((emp) => {
-        next[emp.id] = {
-          ...(next[emp.id] || {}),
-          [dateStr]: shiftCode,
-        };
-      });
-      return next;
-    });
-    setUnsavedChanges((c) => c + 1);
+    applyCells(filteredEmployees.map((emp) => ({ employeeId: emp.id, date: dateStr, shortCode: shiftCode })));
     toast.success(`Assigned shift [${shiftCode}] for ${dateStr} across ${filteredEmployees.length} employees.`);
   };
 
@@ -292,16 +329,8 @@ export function DynamicCalendarView({
     const emp = filteredEmployees.find((e) => e.id === employeeId);
     const targetDates = dates.filter((d) => !(skipWeekends && d.isWeekend));
     if (!emp || targetDates.length === 0) return;
-    setGridData((prev) => {
-      const row = { ...(prev[employeeId] || {}) };
-      targetDates.forEach((d) => {
-        // "" clears the day.
-        if (shiftCode) row[d.dateStr] = shiftCode;
-        else delete row[d.dateStr];
-      });
-      return { ...prev, [employeeId]: row };
-    });
-    setUnsavedChanges((c) => c + 1);
+    // "" clears the day.
+    applyCells(targetDates.map((d) => ({ employeeId, date: d.dateStr, shortCode: shiftCode })));
     toast.success(
       shiftCode
         ? `Assigned shift [${shiftCode}] to ${emp.name} for ${targetDates.length} day(s).`
@@ -311,37 +340,24 @@ export function DynamicCalendarView({
 
   // Set Weekly Offs (e.g. Fridays)
   const handleSetWeeklyOffs = (dayOfWeek: number) => {
-    setGridData((prev) => {
-      const next = { ...prev };
-      filteredEmployees.forEach((emp) => {
-        next[emp.id] = { ...(next[emp.id] || {}) };
-        dates.forEach((d) => {
-          const dateObj = new Date(d.dateStr);
-          if (dateObj.getDay() === dayOfWeek) {
-            next[emp.id][d.dateStr] = "OFF";
-          }
-        });
-      });
-      return next;
-    });
-    setUnsavedChanges((c) => c + 1);
+    applyCells(
+      filteredEmployees.flatMap((emp) =>
+        dates
+          .filter((d) => new Date(d.dateStr).getDay() === dayOfWeek)
+          .map((d) => ({ employeeId: emp.id, date: d.dateStr, shortCode: "OFF" })),
+      ),
+    );
     toast.success("Fridays updated to Weekly Off (OFF).");
   };
 
   // Reset defaults
   const handleResetDefaults = () => {
-    setGridData((prev) => {
-      const next = { ...prev };
-      filteredEmployees.forEach((emp) => {
+    applyCells(
+      filteredEmployees.flatMap((emp) => {
         const defaultShift = getDefaultShiftForOffice(emp.officeName);
-        next[emp.id] = {};
-        dates.forEach((d) => {
-          next[emp.id][d.dateStr] = d.isWeekend ? "OFF" : defaultShift;
-        });
-      });
-      return next;
-    });
-    setUnsavedChanges((c) => c + 1);
+        return dates.map((d) => ({ employeeId: emp.id, date: d.dateStr, shortCode: d.isWeekend ? "OFF" : defaultShift }));
+      }),
+    );
     toast.success("Roster reset to default shift assignments.");
   };
 
@@ -372,26 +388,36 @@ export function DynamicCalendarView({
 
   // Save changes
   const handleSave = async () => {
+    const changes = [...pending.current.values()];
+    if (changes.length === 0) {
+      toast.info("No changes to save.");
+      return;
+    }
     setIsSaving(true);
     try {
-      if (typeof window !== "undefined") {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(gridData));
-      }
-
-      await fetch("/api/hrm/calendar-assign", {
+      const res = await fetch("/api/hrm/calendar-assign", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          assignments: gridData,
-          employeeCount: filteredEmployees.length,
-          savedAt: new Date().toISOString(),
-        }),
+        body: JSON.stringify({ changes }),
       });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) {
+        toast.error(data.error || "Failed to save calendar assignments.");
+        return;
+      }
 
-      setUnsavedChanges(0);
-      toast.success(
-        `Dynamic calendar assigned and saved successfully for ${filteredEmployees.length} employees!`,
-      );
+      // Only the cells that were sent are done; edits made while saving stay pending.
+      for (const c of changes) {
+        const key = `${c.employeeId}|${c.date}`;
+        if (pending.current.get(key) === c) pending.current.delete(key);
+      }
+      setUnsavedChanges(pending.current.size);
+      try {
+        localStorage.removeItem(LEGACY_STORAGE_KEY);
+      } catch {
+        // Storage blocked: nothing to clean up.
+      }
+      toast.success(`Saved ${changes.length} calendar assignment(s).`);
     } catch (e) {
       toast.error("Failed to save calendar assignments.");
       console.error(e);
@@ -439,7 +465,7 @@ export function DynamicCalendarView({
             <button
               type="button"
               onClick={handleSave}
-              disabled={isSaving || filteredEmployees.length === 0}
+              disabled={isSaving || unsavedChanges === 0}
               className="inline-flex items-center justify-center h-8 px-6 rounded font-semibold text-xs text-white bg-primary hover:bg-primary-hover active:bg-primary-hover shadow-xs transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
             >
               {isSaving ? (

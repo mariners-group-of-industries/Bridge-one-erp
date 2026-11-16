@@ -46,6 +46,10 @@ export function DailyAttendanceView({
     ...defaultRange(),
     viewBy: "Employee",
     employeeId: "ALL",
+    office: "ALL",
+    department: "ALL",
+    departmentSection: "ALL",
+    designation: "ALL",
     status: "ALL",
     pageSize: 50,
     page: 1,
@@ -94,6 +98,7 @@ export function DailyAttendanceView({
       searchParams.set("viewBy", filters.viewBy);
       searchParams.set("employeeId", filters.employeeId);
       searchParams.set("status", filters.status);
+      for (const key of ["office", "department", "departmentSection", "designation"] as const) searchParams.set(key, filters[key] || "ALL");
       searchParams.set("pageSize", String(filters.pageSize));
       searchParams.set("page", String(filters.page));
 
