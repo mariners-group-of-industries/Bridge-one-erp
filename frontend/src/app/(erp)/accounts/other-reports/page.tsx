@@ -5,6 +5,7 @@ import Image from "next/image";
 import { ChevronDown, Download, Inbox, Printer } from "lucide-react";
 import { useAccountingStore } from "@/features/accounts/store/accounting-store";
 import { downloadCsv, localToday } from "@/features/purchase/lib/client";
+import { useFeaturePermissions } from "@/lib/permissions/useFeaturePermissions";
 
 /** The report choices iBOS lists, in its order. */
 const REPORTS = [
@@ -76,6 +77,7 @@ const dayOf = (value: string | undefined) => (value ?? "").slice(0, 10);
 const money = (value: number) => value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 export default function OtherReportsPage() {
+  const perms = useFeaturePermissions("/accounts/other-reports");
   const vouchers = useAccountingStore((s) => s.vouchers);
   const accounts = useAccountingStore((s) => s.accounts);
   const expenses = useAccountingStore((s) => s.expenses);
@@ -355,37 +357,37 @@ export default function OtherReportsPage() {
     );
 
   return (
-    <div className="min-h-screen bg-[#f8fafc] text-slate-800 font-sans pb-16">
+    <div className="bg-canvas text-ink font-sans flex flex-col md:h-[calc(100dvh-3.5rem)] md:overflow-hidden print:block print:h-auto print:overflow-visible">
       {/* 1. Title and export buttons */}
-      <div className="bg-white border-b border-slate-200">
+      <div className="bg-surface border-b border-line shrink-0">
         <div className="px-4 py-2.5 flex items-center justify-between">
-          <h2 className="text-sm font-bold text-slate-800 tracking-tight">Other Reports</h2>
+          <h2 className="text-sm font-bold text-ink tracking-tight">Other Reports</h2>
           <div className="flex items-center gap-2">
-            <button
+            {perms.export && (<button
               type="button"
               onClick={() => window.print()}
-              className="h-7 px-3 border border-slate-300 hover:bg-slate-50 text-slate-700 text-xs font-semibold rounded flex items-center gap-1.5 transition shadow-2xs"
+              className="h-7 px-3 border border-line-strong hover:bg-canvas text-ink-muted text-xs font-semibold rounded flex items-center gap-1.5 transition shadow-2xs"
             >
-              <Printer className="w-3.5 h-3.5 text-slate-600" />
+              <Printer className="w-3.5 h-3.5 text-ink-muted" />
               <span>PDF</span>
-            </button>
-            <button
+            </button>)}
+            {perms.export && (<button
               type="button"
               onClick={handleExportCSV}
               disabled={report.rows.length === 0}
-              className="h-7 px-3 border border-slate-300 hover:bg-slate-50 disabled:opacity-40 text-slate-700 text-xs font-semibold rounded flex items-center gap-1.5 transition shadow-2xs"
+              className="h-7 px-3 border border-line-strong hover:bg-canvas disabled:opacity-40 text-ink-muted text-xs font-semibold rounded flex items-center gap-1.5 transition shadow-2xs"
             >
-              <Download className="w-3.5 h-3.5 text-slate-600" />
+              <Download className="w-3.5 h-3.5 text-ink-muted" />
               <span>EXCEL</span>
-            </button>
+            </button>)}
           </div>
         </div>
       </div>
 
       {/* 2. Filters */}
-      <div className="px-4 py-3 bg-white border-b border-slate-200/90 shadow-2xs space-y-3">
+      <div className="px-4 py-3 bg-surface border-b border-line/90 shadow-2xs space-y-3 shrink-0">
         <div>
-          <label htmlFor="report-view-by" className="block text-[11px] font-semibold text-slate-700 mb-1">
+          <label htmlFor="report-view-by" className="block text-[11px] font-semibold text-ink-muted mb-1">
             View By <span className="text-rose-500 font-bold">*</span>
           </label>
           <div className="relative w-80 max-w-full">
@@ -393,7 +395,7 @@ export default function OtherReportsPage() {
               id="report-view-by"
               value={viewBy}
               onChange={(e) => setViewBy(e.target.value as ReportName)}
-              className="w-full h-8 px-2.5 pr-8 border border-slate-300 rounded text-xs bg-white text-slate-800 appearance-none focus:outline-none focus:ring-1 focus:ring-[#2563eb]"
+              className="w-full h-8 px-2.5 pr-8 border border-line-strong rounded text-xs bg-surface text-ink appearance-none focus:outline-none focus:ring-1 focus:ring-[#2563eb]"
             >
               {REPORTS.map((r) => (
                 <option key={r} value={r}>
@@ -401,49 +403,49 @@ export default function OtherReportsPage() {
                 </option>
               ))}
             </select>
-            <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+            <ChevronDown className="w-3.5 h-3.5 text-ink-faint absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
           </div>
         </div>
 
         <div className="flex flex-wrap items-end gap-5 text-xs">
           <div className="w-40">
-            <label htmlFor="report-from" className="block text-[11px] font-semibold text-slate-700 mb-1">From Date</label>
+            <label htmlFor="report-from" className="block text-[11px] font-semibold text-ink-muted mb-1">From Date</label>
             <input
               id="report-from"
               type="date"
               value={fromDate}
               onChange={(e) => setFromDate(e.target.value)}
-              className="w-full h-8 px-2.5 border border-slate-300 rounded text-xs bg-white text-slate-800 focus:outline-none focus:ring-1 focus:ring-[#2563eb]"
+              className="w-full h-8 px-2.5 border border-line-strong rounded text-xs bg-surface text-ink focus:outline-none focus:ring-1 focus:ring-[#2563eb]"
             />
           </div>
           <div className="w-40">
-            <label htmlFor="report-to" className="block text-[11px] font-semibold text-slate-700 mb-1">To Date</label>
+            <label htmlFor="report-to" className="block text-[11px] font-semibold text-ink-muted mb-1">To Date</label>
             <input
               id="report-to"
               type="date"
               value={toDate}
               onChange={(e) => setToDate(e.target.value)}
-              className="w-full h-8 px-2.5 border border-slate-300 rounded text-xs bg-white text-slate-800 focus:outline-none focus:ring-1 focus:ring-[#2563eb]"
+              className="w-full h-8 px-2.5 border border-line-strong rounded text-xs bg-surface text-ink focus:outline-none focus:ring-1 focus:ring-[#2563eb]"
             />
           </div>
 
           {viewBy === "AIT and Tax Register Report" && (
             <div className="flex items-center gap-6 h-8">
-              <label className="flex items-center gap-2 cursor-pointer select-none text-slate-700">
+              <label className="flex items-center gap-2 cursor-pointer select-none text-ink-muted">
                 <input
                   type="checkbox"
                   checked={monthWise}
                   onChange={(e) => setMonthWise(e.target.checked)}
-                  className="w-3.5 h-3.5 rounded border-slate-300 text-[#2563eb] focus:ring-[#2563eb]"
+                  className="w-3.5 h-3.5 rounded border-line-strong text-primary focus:ring-[#2563eb]"
                 />
                 <span>AIT/TDS Month Wise</span>
               </label>
-              <label className="flex items-center gap-2 cursor-pointer select-none text-slate-700">
+              <label className="flex items-center gap-2 cursor-pointer select-none text-ink-muted">
                 <input
                   type="checkbox"
                   checked={showDetails}
                   onChange={(e) => setShowDetails(e.target.checked)}
-                  className="w-3.5 h-3.5 rounded border-slate-300 text-[#2563eb] focus:ring-[#2563eb]"
+                  className="w-3.5 h-3.5 rounded border-line-strong text-primary focus:ring-[#2563eb]"
                 />
                 <span>AIT/TDS Details</span>
               </label>
@@ -463,65 +465,65 @@ export default function OtherReportsPage() {
       </div>
 
       {/* 3. Report */}
-      <div className="px-4 mt-3">
-        <div className="bg-white border border-slate-200 rounded shadow-2xs p-4 space-y-4">
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between border-b border-slate-200 pb-3 gap-3">
+      <div className="px-4 mt-3 flex-1 min-h-0 flex flex-col print:block">
+        <div className="bg-surface border border-line rounded shadow-2xs p-4 space-y-4 flex-1 min-h-0 flex flex-col print:block">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between border-b border-line gap-3 shrink-0">
             <div className="flex items-center gap-3">
               <div className="relative w-28 h-8">
                 <Image src="/logo.png" alt="Bridge One ERP" fill className="object-contain" priority />
               </div>
               <div>
-                <h3 className="text-sm font-bold text-slate-900 uppercase tracking-tight">{active.viewBy}</h3>
-                <p className="text-[11px] text-slate-500">
+                <h3 className="text-sm font-bold text-ink uppercase tracking-tight">{active.viewBy}</h3>
+                <p className="text-[11px] text-ink-faint">
                   Period:{" "}
-                  <span className="font-semibold text-slate-700">
+                  <span className="font-semibold text-ink-muted">
                     {active.fromDate} to {active.toDate}
                   </span>
                 </p>
               </div>
             </div>
             {!report.note && (
-              <span className="px-2.5 py-1 rounded bg-slate-100 text-slate-700 font-medium text-xs">
-                Records: <strong className="text-slate-900">{report.rows.length}</strong>
+              <span className="px-2.5 py-1 rounded bg-control text-ink-muted font-medium text-xs">
+                Records: <strong className="text-ink">{report.rows.length}</strong>
               </span>
             )}
           </div>
 
           {report.note ? (
-            <div className="py-12 flex flex-col items-center gap-2 text-center">
+            <div className="py-12 flex flex-col items-center gap-2 text-center shrink-0">
               <Inbox className="w-6 h-6 text-slate-300" aria-hidden />
-              <p className="max-w-lg text-xs text-slate-500">{report.note}</p>
+              <p className="max-w-lg text-xs text-ink-faint">{report.note}</p>
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs border border-slate-200">
-                <thead className="bg-[#f8fafc] border-b border-slate-200 text-[11px] font-semibold text-slate-700">
+            <div className="flex-1 min-h-0 overflow-auto print:overflow-visible [&_thead]:sticky [&_thead]:top-0 [&_thead]:z-10">
+              <table className="w-full text-left text-xs border border-line">
+                <thead className="bg-canvas border-b border-line text-[11px] font-semibold text-ink-muted">
                   <tr>
-                    <th className="px-2.5 py-2 text-center w-12 border-r border-slate-200">SL</th>
+                    <th className="px-2.5 py-2 text-center w-12 border-r border-line">SL</th>
                     {report.columns.map((c) => (
-                      <th key={c.header} className={`px-3 py-2 border-r border-slate-200 last:border-r-0 whitespace-nowrap ${c.align === "right" ? "text-right" : c.align === "center" ? "text-center" : ""}`}>
+                      <th key={c.header} className={`px-3 py-2 border-r border-line last:border-r-0 whitespace-nowrap ${c.align === "right" ? "text-right" : c.align === "center" ? "text-center" : ""}`}>
                         {c.header}
                       </th>
                     ))}
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100">
+                <tbody className="divide-y divide-line">
                   {report.rows.length === 0 ? (
                     <tr>
-                      <td colSpan={report.columns.length + 1} className="py-12 text-center text-slate-400">
+                      <td colSpan={report.columns.length + 1} className="py-12 text-center text-ink-faint">
                         No records for the selected period.
                       </td>
                     </tr>
                   ) : (
                     report.rows.map((row, idx) => (
-                      <tr key={idx} className="hover:bg-slate-50/70">
-                        <td className="px-2.5 py-2 text-center text-slate-500 border-r border-slate-200/70">{idx + 1}</td>
+                      <tr key={idx} className="hover:bg-canvas/70">
+                        <td className="px-2.5 py-2 text-center text-ink-faint border-r border-line/70">{idx + 1}</td>
                         {row.map((cell, i) => {
                           const column = report.columns[i];
                           return (
                             <td
                               key={i}
-                              className={`px-3 py-2 border-r border-slate-200/70 last:border-r-0 ${typeof cell === "number" ? "whitespace-nowrap font-medium text-slate-900" : "text-slate-700"} ${column.align === "right" ? "text-right" : column.align === "center" ? "text-center" : ""}`}
+                              className={`px-3 py-2 border-r border-line/70 last:border-r-0 ${typeof cell === "number" ? "whitespace-nowrap font-medium text-ink" : "text-ink-muted"} ${column.align === "right" ? "text-right" : column.align === "center" ? "text-center" : ""}`}
                             >
                               {show(cell, column)}
                             </td>
@@ -533,14 +535,14 @@ export default function OtherReportsPage() {
                 </tbody>
                 {report.rows.length > 0 && firstTotal >= 0 && (
                   <tfoot>
-                    <tr className="bg-slate-50 font-bold border-t-2 border-slate-300 text-slate-900">
+                    <tr className="bg-canvas font-bold border-t-2 border-line-strong text-ink">
                       <td colSpan={firstTotal + 1} className="px-3 py-2.5 text-right uppercase text-[11px] tracking-wider">
                         Total:
                       </td>
                       {report.columns.slice(firstTotal).map((c, j) => {
                         const t = totals[firstTotal + j];
                         return (
-                          <td key={c.header} className={`px-3 py-2.5 border-r border-slate-200 last:border-r-0 whitespace-nowrap ${c.align === "right" ? "text-right" : ""}`}>
+                          <td key={c.header} className={`px-3 py-2.5 border-r border-line last:border-r-0 whitespace-nowrap ${c.align === "right" ? "text-right" : ""}`}>
                             {t === null ? "" : isCount(c.header) ? t : money(t)}
                           </td>
                         );

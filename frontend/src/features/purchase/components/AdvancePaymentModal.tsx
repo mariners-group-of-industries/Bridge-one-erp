@@ -202,7 +202,7 @@ export function AdvancePaymentModal({
   });
 
   const inputCls =
-    "h-8 w-full rounded border border-slate-300 bg-white px-2 text-xs text-slate-800 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none";
+    "h-8 w-full rounded border border-line-strong bg-surface px-2 text-xs text-ink placeholder:text-ink-faint focus:border-blue-500 focus:outline-none";
 
   return (
     <ModalDialog isOpen={isOpen} onClose={onClose} title="Advance Payment" maxWidth="4xl">
@@ -210,7 +210,7 @@ export function AdvancePaymentModal({
         {/* Top Metadata Grid Matching Screenshot #5 */}
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 lg:grid-cols-6">
           <div>
-            <label className="mb-1 block text-[11px] font-semibold text-slate-700">
+            <label className="mb-1 block text-[11px] font-semibold text-ink-muted">
               <span className="text-red-500">*</span> Employee
             </label>
             <SearchableCombobox
@@ -227,14 +227,14 @@ export function AdvancePaymentModal({
           </div>
 
           <div>
-            <label className="mb-1 block text-[11px] font-semibold text-slate-700">
+            <label className="mb-1 block text-[11px] font-semibold text-ink-muted">
               <span className="text-red-500">*</span> Date
             </label>
             <input type="date" value={paymentDate} onChange={(e) => setPaymentDate(e.target.value)} className={inputCls} />
           </div>
 
           <div>
-            <label className="mb-1 block text-[11px] font-semibold text-slate-700">
+            <label className="mb-1 block text-[11px] font-semibold text-ink-muted">
               <span className="text-red-500">*</span> Office
             </label>
             <select value={selectedOfficeId} onChange={(e) => setPickedOfficeId(e.target.value)} className={inputCls}>
@@ -248,7 +248,7 @@ export function AdvancePaymentModal({
           </div>
 
           <div>
-            <label className="mb-1 block text-[11px] font-semibold text-slate-700">Voucher Type</label>
+            <label className="mb-1 block text-[11px] font-semibold text-ink-muted">Voucher Type</label>
             <select
               value={voucherType}
               onChange={(e) => {
@@ -263,7 +263,7 @@ export function AdvancePaymentModal({
           </div>
 
           <div>
-            <label className="mb-1 block text-[11px] font-semibold text-slate-700">Project</label>
+            <label className="mb-1 block text-[11px] font-semibold text-ink-muted">Project</label>
             <select value={projectRef} onChange={(e) => setProjectRef(e.target.value)} className={inputCls}>
               <option value="">Project</option>
               {(formOptions?.projects ?? []).map((p) => (
@@ -275,7 +275,7 @@ export function AdvancePaymentModal({
           </div>
 
           <div>
-            <label className="mb-1 block text-[11px] font-semibold text-slate-700">Narration</label>
+            <label className="mb-1 block text-[11px] font-semibold text-ink-muted">Narration</label>
             <input
               type="text"
               value={narration}
@@ -288,7 +288,7 @@ export function AdvancePaymentModal({
 
         <div className="grid grid-cols-1 items-end gap-3 sm:grid-cols-6">
           <div>
-            <label className="mb-1 block text-[11px] font-semibold text-slate-700">Control Amount</label>
+            <label className="mb-1 block text-[11px] font-semibold text-ink-muted">Control Amount</label>
             <input
               type="number"
               step="0.01"
@@ -301,7 +301,7 @@ export function AdvancePaymentModal({
           </div>
 
           <div>
-            <label className="mb-1 block text-[11px] font-semibold text-slate-700">Attachment</label>
+            <label className="mb-1 block text-[11px] font-semibold text-ink-muted">Attachment</label>
             <input
               ref={fileInputRef}
               type="file"
@@ -314,7 +314,7 @@ export function AdvancePaymentModal({
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
-              className="inline-flex h-8 items-center gap-1.5 rounded border border-slate-300 px-2.5 text-xs text-slate-600 hover:bg-slate-50"
+              className="inline-flex h-8 items-center gap-1.5 rounded border border-line-strong px-2.5 text-xs text-ink-muted hover:bg-canvas"
             >
               <Paperclip className="h-3.5 w-3.5" />
               {attachedFiles.length > 0 ? `${attachedFiles.length} file(s)` : ""}
@@ -323,9 +323,9 @@ export function AdvancePaymentModal({
         </div>
 
         {/* Middle Row: Cash Account / Bank Account + Remarks */}
-        <div className="grid grid-cols-1 gap-3 border-t border-slate-200 pt-3 sm:grid-cols-2 lg:w-2/3 lg:ml-auto">
+        <div className="grid grid-cols-1 gap-3 border-t border-line pt-3 sm:grid-cols-2 lg:w-2/3 lg:ml-auto">
           <div>
-            <label className="mb-1 block text-[11px] font-semibold text-slate-700">
+            <label className="mb-1 block text-[11px] font-semibold text-ink-muted">
               {voucherType === "Cash Payment" ? "Cash Account" : "Bank Account"}
               <span className="text-red-500">*</span>
             </label>
@@ -350,7 +350,7 @@ export function AdvancePaymentModal({
           </div>
 
           <div>
-            <label className="mb-1 block text-[11px] font-semibold text-slate-700">
+            <label className="mb-1 block text-[11px] font-semibold text-ink-muted">
               {voucherType === "Cash Payment" ? "Cash Remarks" : "Bank Remarks"}
             </label>
             <input
@@ -364,10 +364,10 @@ export function AdvancePaymentModal({
         </div>
 
         {/* Bottom Editable Advance Voucher Grid */}
-        <div className="overflow-x-auto rounded border border-slate-200">
+        <div className="overflow-x-auto rounded border border-line">
           <table className="w-full border-collapse text-left text-xs">
             <thead>
-              <tr className="bg-[#d6e4f7] text-[11px] font-semibold text-slate-800">
+              <tr className="bg-grid-head text-[11px] font-semibold text-ink">
                 <th className="px-2.5 py-2 w-24">A/C Code</th>
                 <th className="px-2.5 py-2 min-w-[160px]">Accounts Head</th>
                 <th className="px-2.5 py-2 min-w-[180px]">Partner Name</th>
@@ -378,7 +378,7 @@ export function AdvancePaymentModal({
                 <th className="px-2.5 py-2 w-16 text-center">Action</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-200 bg-white">
+            <tbody className="divide-y divide-line bg-surface">
               {rows.map((row, idx) => {
                 const resolvedAccountId = row.accountHead || defaultPayableAccount?.id || "";
                 const resolvedAccountObj =
@@ -389,7 +389,7 @@ export function AdvancePaymentModal({
 
                 return (
                   <tr key={row.key}>
-                    <td className="px-2 py-1.5 font-mono text-[11px] text-slate-600">
+                    <td className="px-2 py-1.5 font-mono text-[11px] text-ink-muted">
                       {row.accountCode || resolvedAccountObj?.code || "-"}
                     </td>
                     <td className="px-2 py-1.5">
@@ -402,7 +402,7 @@ export function AdvancePaymentModal({
                             accountCode: found?.code || "",
                           });
                         }}
-                        className="h-8 w-full rounded border border-slate-300 bg-white px-2 text-xs focus:border-blue-500 focus:outline-none"
+                        className="h-8 w-full rounded border border-line-strong bg-surface px-2 text-xs focus:border-blue-500 focus:outline-none"
                       >
                         {(formOptions?.accounts ?? []).map((a) => (
                           <option key={a.id} value={a.id}>
@@ -437,7 +437,7 @@ export function AdvancePaymentModal({
                       <select
                         value={row.orderId}
                         onChange={(e) => updateRow(row.key, { orderId: e.target.value })}
-                        className="h-8 w-full rounded border border-slate-300 bg-white px-2 text-xs focus:border-blue-500 focus:outline-none"
+                        className="h-8 w-full rounded border border-line-strong bg-surface px-2 text-xs focus:border-blue-500 focus:outline-none"
                       >
                         <option value="">PO No</option>
                         {supplierOrders.map((po) => (
@@ -473,7 +473,7 @@ export function AdvancePaymentModal({
                           <button
                             type="button"
                             onClick={addEmptyRow}
-                            className="rounded p-1 text-slate-600 hover:bg-blue-50 hover:text-blue-600"
+                            className="rounded p-1 text-ink-muted hover:bg-blue-50 dark:hover:bg-blue-500/10 hover:text-blue-600 dark:hover:text-blue-400"
                             title="Add another advance row"
                           >
                             <Plus className="h-3.5 w-3.5" />
@@ -482,7 +482,7 @@ export function AdvancePaymentModal({
                           <button
                             type="button"
                             onClick={() => setRows((prev) => prev.filter((r) => r.key !== row.key))}
-                            className="rounded p-1 text-red-500 hover:bg-red-50"
+                            className="rounded p-1 text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10"
                             title="Remove row"
                           >
                             <Trash2 className="h-3.5 w-3.5" />
@@ -498,15 +498,15 @@ export function AdvancePaymentModal({
         </div>
 
         {/* Footer matching Screenshot #5: CLOSE (red) | SAVE (blue) */}
-        <div className="flex items-center justify-between border-t border-slate-200 pt-3">
-          <div className="text-xs text-slate-600">
-            Total Advance: <strong className="font-mono text-slate-900">{formatCurrency(totalEnteredAmount)}</strong>
+        <div className="flex items-center justify-between border-t border-line pt-3">
+          <div className="text-xs text-ink-muted">
+            Total Advance: <strong className="font-mono text-ink">{formatCurrency(totalEnteredAmount)}</strong>
           </div>
           <div className="flex items-center gap-4">
             <button
               type="button"
               onClick={onClose}
-              className="px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-red-500 hover:text-red-600"
+              className="px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-red-500 hover:text-red-600 dark:hover:text-red-400"
             >
               CLOSE
             </button>

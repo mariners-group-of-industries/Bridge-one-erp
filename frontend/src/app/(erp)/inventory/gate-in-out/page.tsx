@@ -14,6 +14,7 @@ import {
   Eye,
   FileSpreadsheet,
 } from "lucide-react";
+import { useFeaturePermissions, needsPermission } from "@/lib/permissions/useFeaturePermissions";
 
 // ============================================================================
 // TYPES
@@ -101,6 +102,7 @@ function toVisitorRow(d: InventoryDocument, i: number): VisitorRow {
 const GOODS = ["Gate In", "Gate Out"] as const;
 
 export default function GateInOutPage() {
+  const perms = useFeaturePermissions("/inventory/gate-in-out");
   const toast = useToast();
   const [activeTab, setActiveTab] = useState<GateTab>("GATE_IN");
   const docs = useResource("gate-in-out-all", () => inventoryApi.list("gate-in-out"));
@@ -198,7 +200,7 @@ export default function GateInOutPage() {
   }, [visitorRows, fromDate, toDate, searchTerm]);
 
   return (
-    <div className="space-y-3 p-1">
+    <div className="space-y-3 p-1 flex flex-col md:h-[calc(100dvh-3.5rem)] md:overflow-hidden print:block print:h-auto print:overflow-visible">
       <InventoryTabBar
         title="Gate In Out"
         tabs={tabs}
@@ -210,22 +212,22 @@ export default function GateInOutPage() {
         search={searchTerm}
         onSearch={setSearchTerm}
         actions={
-          <button type="button" onClick={() => setIsCreateOpen(true)} className={tabBarButton}>
+          (perms.create ? (<button type="button" onClick={() => setIsCreateOpen(true)} className={tabBarButton}>
             <Plus /> Create Get In Out
-          </button>
+          </button>) : null)
         }
       />
       {/* 3. FILTER BAR (Matches Screenshots)                */}
       {/* ─────────────────────────────────────────────────── */}
-      <div className="bg-slate-50/70 p-3 rounded border border-slate-200 flex flex-wrap items-end gap-4 text-xs">
+      <div className="bg-canvas/70 p-3 rounded border border-line flex flex-wrap items-end gap-4 text-xs shrink-0">
         {/* Reference Type (Shown for GATE IN & GATE OUT) */}
         {(activeTab === "GATE_IN" || activeTab === "GATE_OUT") && (
           <div className="min-w-[200px]">
-            <label className="block text-[11px] text-slate-600 mb-1 font-medium">Reference Type</label>
+            <label className="block text-[11px] text-ink-muted mb-1 font-medium">Reference Type</label>
             <select
               value={refType}
               onChange={(e) => setRefType(e.target.value)}
-              className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white text-xs focus:ring-1 focus:ring-blue-500 text-slate-700"
+              className="w-full border border-line-strong rounded px-2.5 py-1.5 bg-surface text-xs focus:ring-1 focus:ring-blue-500 text-ink-muted"
             >
               <option value="">Reference Type</option>
               {activeTab === "GATE_IN" ? (
@@ -248,23 +250,23 @@ export default function GateInOutPage() {
 
         {/* From Date */}
         <div>
-          <label className="block text-[11px] text-slate-600 mb-1 font-medium">From Date</label>
+          <label className="block text-[11px] text-ink-muted mb-1 font-medium">From Date</label>
           <input
             type="date"
             value={fromDate}
             onChange={(e) => setFromDate(e.target.value)}
-            className="border border-slate-300 rounded px-2.5 py-1.5 bg-white text-xs focus:ring-1 focus:ring-blue-500"
+            className="border border-line-strong rounded px-2.5 py-1.5 bg-surface text-xs focus:ring-1 focus:ring-blue-500"
           />
         </div>
 
         {/* To Date */}
         <div>
-          <label className="block text-[11px] text-slate-600 mb-1 font-medium">To Date</label>
+          <label className="block text-[11px] text-ink-muted mb-1 font-medium">To Date</label>
           <input
             type="date"
             value={toDate}
             onChange={(e) => setToDate(e.target.value)}
-            className="border border-slate-300 rounded px-2.5 py-1.5 bg-white text-xs focus:ring-1 focus:ring-blue-500"
+            className="border border-line-strong rounded px-2.5 py-1.5 bg-surface text-xs focus:ring-1 focus:ring-blue-500"
           />
         </div>
 
@@ -276,9 +278,9 @@ export default function GateInOutPage() {
               id="isDetails"
               checked={isDetails}
               onChange={(e) => setIsDetails(e.target.checked)}
-              className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+              className="rounded border-line-strong text-blue-600 dark:text-blue-400 focus:ring-blue-500"
             />
-            <label htmlFor="isDetails" className="text-slate-700 font-medium cursor-pointer">
+            <label htmlFor="isDetails" className="text-ink-muted font-medium cursor-pointer">
               Is Details
             </label>
           </div>
@@ -299,28 +301,28 @@ export default function GateInOutPage() {
       {/* 4. TAB CONTENT                                      */}
       {/* ─────────────────────────────────────────────────── */}
       {activeTab === "GATE_IN" && (
-        <div className="border border-slate-300 bg-white rounded shadow-2xs overflow-x-auto">
+        <div className="border border-line-strong bg-surface rounded shadow-2xs flex-1 min-h-0 overflow-auto print:overflow-visible [&_thead]:sticky [&_thead]:top-0 [&_thead]:z-10">
           <table className="erp-table w-full text-left text-xs border-collapse">
-            <thead className="bg-blue-100/70 text-slate-900 font-semibold text-xs select-none">
+            <thead className="bg-blue-100/70 dark:bg-blue-500/15 text-ink font-semibold text-xs select-none">
               <tr>
-                <th className="px-2.5 py-2 border-b border-slate-200 w-12 text-center">SL</th>
-                <th className="px-2.5 py-2 border-b border-slate-200 w-36">Gate Pass No</th>
-                <th className="px-2.5 py-2 border-b border-slate-200 w-28">Ref Type</th>
-                <th className="px-2.5 py-2 border-b border-slate-200 w-32">Ref No</th>
-                <th className="px-2.5 py-2 border-b border-slate-200 w-24">Date</th>
-                <th className="px-2.5 py-2 border-b border-slate-200 w-20">Time</th>
-                <th className="px-2.5 py-2 border-b border-slate-200 w-32">Vehicle No</th>
-                <th className="px-2.5 py-2 border-b border-slate-200">Driver & Phone</th>
-                <th className="px-2.5 py-2 border-b border-slate-200">Party / Supplier</th>
-                <th className="px-2.5 py-2 border-b border-slate-200">Purpose</th>
-                <th className="px-2.5 py-2 border-b border-slate-200 w-20 text-center">Status</th>
-                <th className="px-2.5 py-2 border-b border-slate-200 w-16 text-center">Action</th>
+                <th className="px-2.5 py-2 border-b border-line w-12 text-center">SL</th>
+                <th className="px-2.5 py-2 border-b border-line w-36">Gate Pass No</th>
+                <th className="px-2.5 py-2 border-b border-line w-28">Ref Type</th>
+                <th className="px-2.5 py-2 border-b border-line w-32">Ref No</th>
+                <th className="px-2.5 py-2 border-b border-line w-24">Date</th>
+                <th className="px-2.5 py-2 border-b border-line w-20">Time</th>
+                <th className="px-2.5 py-2 border-b border-line w-32">Vehicle No</th>
+                <th className="px-2.5 py-2 border-b border-line">Driver & Phone</th>
+                <th className="px-2.5 py-2 border-b border-line">Party / Supplier</th>
+                <th className="px-2.5 py-2 border-b border-line">Purpose</th>
+                <th className="px-2.5 py-2 border-b border-line w-20 text-center">Status</th>
+                <th className="px-2.5 py-2 border-b border-line w-16 text-center">Action</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-200 text-[11px] text-slate-800">
+            <tbody className="divide-y divide-line text-[11px] text-ink">
               {filteredGateIn.length === 0 ? (
                 <tr>
-                  <td colSpan={12} className="p-12 text-center text-slate-400">
+                  <td colSpan={12} className="p-12 text-center text-ink-faint">
                     <div className="flex flex-col items-center gap-2">
                       <FileSpreadsheet className="w-8 h-8 stroke-[1.5] text-slate-300" />
                       <span className="text-sm font-medium">No Gate In records found.</span>
@@ -329,49 +331,49 @@ export default function GateInOutPage() {
                 </tr>
               ) : (
                 filteredGateIn.map((row) => (
-                  <tr key={row.sl} className="hover:bg-slate-50/80 transition-colors">
-                    <td className="px-2.5 py-2 border-b border-slate-200 text-center font-mono text-slate-600">
+                  <tr key={row.sl} className="hover:bg-canvas/80 transition-colors">
+                    <td className="px-2.5 py-2 border-b border-line text-center font-mono text-ink-muted">
                       {row.sl}
                     </td>
-                    <td className="px-2.5 py-2 border-b border-slate-200 font-mono font-medium text-slate-900 whitespace-nowrap">
+                    <td className="px-2.5 py-2 border-b border-line font-mono font-medium text-ink whitespace-nowrap">
                       {row.gatePassNo}
                     </td>
-                    <td className="px-2.5 py-2 border-b border-slate-200 text-slate-700">
+                    <td className="px-2.5 py-2 border-b border-line text-ink-muted">
                       {row.refType}
                     </td>
-                    <td className="px-2.5 py-2 border-b border-slate-200 font-mono text-slate-800 whitespace-nowrap">
+                    <td className="px-2.5 py-2 border-b border-line font-mono text-ink whitespace-nowrap">
                       {row.refNo}
                     </td>
-                    <td className="px-2.5 py-2 border-b border-slate-200 whitespace-nowrap text-slate-700">
+                    <td className="px-2.5 py-2 border-b border-line whitespace-nowrap text-ink-muted">
                       {row.date}
                     </td>
-                    <td className="px-2.5 py-2 border-b border-slate-200 whitespace-nowrap text-slate-700">
+                    <td className="px-2.5 py-2 border-b border-line whitespace-nowrap text-ink-muted">
                       {row.time}
                     </td>
-                    <td className="px-2.5 py-2 border-b border-slate-200 font-mono text-slate-800">
+                    <td className="px-2.5 py-2 border-b border-line font-mono text-ink">
                       {row.vehicleNo}
                     </td>
-                    <td className="px-2.5 py-2 border-b border-slate-200 text-slate-700">
+                    <td className="px-2.5 py-2 border-b border-line text-ink-muted">
                       <div>{row.driverName}</div>
-                      <div className="text-[10px] text-slate-500 font-mono">{row.driverPhone}</div>
+                      <div className="text-[10px] text-ink-faint font-mono">{row.driverPhone}</div>
                     </td>
-                    <td className="px-2.5 py-2 border-b border-slate-200 text-slate-700">
+                    <td className="px-2.5 py-2 border-b border-line text-ink-muted">
                       {row.partyName}
                     </td>
-                    <td className="px-2.5 py-2 border-b border-slate-200 text-slate-700">
+                    <td className="px-2.5 py-2 border-b border-line text-ink-muted">
                       {row.purpose}
                     </td>
-                    <td className="px-2.5 py-2 border-b border-slate-200 text-center">
-                      <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                    <td className="px-2.5 py-2 border-b border-line text-center">
+                      <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-500/30">
                         {row.status}
                       </span>
                     </td>
-                    <td className="px-2.5 py-2 border-b border-slate-200 text-center">
-                      <div className="flex items-center justify-center gap-1.5 text-slate-600">
-                        <button type="button" className="p-1 hover:text-blue-600" title="View">
+                    <td className="px-2.5 py-2 border-b border-line text-center">
+                      <div className="row-actions flex items-center justify-center gap-1.5 text-ink-muted">
+                        <button type="button" className="p-1 hover:text-blue-600 dark:hover:text-blue-400" title="View">
                           <Eye className="w-3.5 h-3.5" />
                         </button>
-                        <button type="button" className="p-1 hover:text-blue-600" title="Print">
+                        <button type="button" className="p-1 hover:text-blue-600 dark:hover:text-blue-400" title="Print">
                           <Printer className="w-3.5 h-3.5" />
                         </button>
                       </div>
@@ -385,28 +387,28 @@ export default function GateInOutPage() {
       )}
 
       {activeTab === "GATE_OUT" && (
-        <div className="border border-slate-300 bg-white rounded shadow-2xs overflow-x-auto">
+        <div className="border border-line-strong bg-surface rounded shadow-2xs flex-1 min-h-0 overflow-auto print:overflow-visible [&_thead]:sticky [&_thead]:top-0 [&_thead]:z-10">
           <table className="erp-table w-full text-left text-xs border-collapse">
-            <thead className="bg-blue-100/70 text-slate-900 font-semibold text-xs select-none">
+            <thead className="bg-blue-100/70 dark:bg-blue-500/15 text-ink font-semibold text-xs select-none">
               <tr>
-                <th className="px-2.5 py-2 border-b border-slate-200 w-12 text-center">SL</th>
-                <th className="px-2.5 py-2 border-b border-slate-200 w-36">Gate Pass No</th>
-                <th className="px-2.5 py-2 border-b border-slate-200 w-28">Ref Type</th>
-                <th className="px-2.5 py-2 border-b border-slate-200 w-32">Ref No</th>
-                <th className="px-2.5 py-2 border-b border-slate-200 w-24">Date</th>
-                <th className="px-2.5 py-2 border-b border-slate-200 w-20">Time</th>
-                <th className="px-2.5 py-2 border-b border-slate-200 w-32">Vehicle No</th>
-                <th className="px-2.5 py-2 border-b border-slate-200">Driver & Phone</th>
-                <th className="px-2.5 py-2 border-b border-slate-200">Destination / Party</th>
-                <th className="px-2.5 py-2 border-b border-slate-200">Purpose</th>
-                <th className="px-2.5 py-2 border-b border-slate-200 w-20 text-center">Status</th>
-                <th className="px-2.5 py-2 border-b border-slate-200 w-16 text-center">Action</th>
+                <th className="px-2.5 py-2 border-b border-line w-12 text-center">SL</th>
+                <th className="px-2.5 py-2 border-b border-line w-36">Gate Pass No</th>
+                <th className="px-2.5 py-2 border-b border-line w-28">Ref Type</th>
+                <th className="px-2.5 py-2 border-b border-line w-32">Ref No</th>
+                <th className="px-2.5 py-2 border-b border-line w-24">Date</th>
+                <th className="px-2.5 py-2 border-b border-line w-20">Time</th>
+                <th className="px-2.5 py-2 border-b border-line w-32">Vehicle No</th>
+                <th className="px-2.5 py-2 border-b border-line">Driver & Phone</th>
+                <th className="px-2.5 py-2 border-b border-line">Destination / Party</th>
+                <th className="px-2.5 py-2 border-b border-line">Purpose</th>
+                <th className="px-2.5 py-2 border-b border-line w-20 text-center">Status</th>
+                <th className="px-2.5 py-2 border-b border-line w-16 text-center">Action</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-200 text-[11px] text-slate-800">
+            <tbody className="divide-y divide-line text-[11px] text-ink">
               {filteredGateOut.length === 0 ? (
                 <tr>
-                  <td colSpan={12} className="p-12 text-center text-slate-400">
+                  <td colSpan={12} className="p-12 text-center text-ink-faint">
                     <div className="flex flex-col items-center gap-2">
                       <FileSpreadsheet className="w-8 h-8 stroke-[1.5] text-slate-300" />
                       <span className="text-sm font-medium">No Gate Out records found.</span>
@@ -415,49 +417,49 @@ export default function GateInOutPage() {
                 </tr>
               ) : (
                 filteredGateOut.map((row) => (
-                  <tr key={row.sl} className="hover:bg-slate-50/80 transition-colors">
-                    <td className="px-2.5 py-2 border-b border-slate-200 text-center font-mono text-slate-600">
+                  <tr key={row.sl} className="hover:bg-canvas/80 transition-colors">
+                    <td className="px-2.5 py-2 border-b border-line text-center font-mono text-ink-muted">
                       {row.sl}
                     </td>
-                    <td className="px-2.5 py-2 border-b border-slate-200 font-mono font-medium text-slate-900 whitespace-nowrap">
+                    <td className="px-2.5 py-2 border-b border-line font-mono font-medium text-ink whitespace-nowrap">
                       {row.gatePassNo}
                     </td>
-                    <td className="px-2.5 py-2 border-b border-slate-200 text-slate-700">
+                    <td className="px-2.5 py-2 border-b border-line text-ink-muted">
                       {row.refType}
                     </td>
-                    <td className="px-2.5 py-2 border-b border-slate-200 font-mono text-slate-800 whitespace-nowrap">
+                    <td className="px-2.5 py-2 border-b border-line font-mono text-ink whitespace-nowrap">
                       {row.refNo}
                     </td>
-                    <td className="px-2.5 py-2 border-b border-slate-200 whitespace-nowrap text-slate-700">
+                    <td className="px-2.5 py-2 border-b border-line whitespace-nowrap text-ink-muted">
                       {row.date}
                     </td>
-                    <td className="px-2.5 py-2 border-b border-slate-200 whitespace-nowrap text-slate-700">
+                    <td className="px-2.5 py-2 border-b border-line whitespace-nowrap text-ink-muted">
                       {row.time}
                     </td>
-                    <td className="px-2.5 py-2 border-b border-slate-200 font-mono text-slate-800">
+                    <td className="px-2.5 py-2 border-b border-line font-mono text-ink">
                       {row.vehicleNo}
                     </td>
-                    <td className="px-2.5 py-2 border-b border-slate-200 text-slate-700">
+                    <td className="px-2.5 py-2 border-b border-line text-ink-muted">
                       <div>{row.driverName}</div>
-                      <div className="text-[10px] text-slate-500 font-mono">{row.driverPhone}</div>
+                      <div className="text-[10px] text-ink-faint font-mono">{row.driverPhone}</div>
                     </td>
-                    <td className="px-2.5 py-2 border-b border-slate-200 text-slate-700">
+                    <td className="px-2.5 py-2 border-b border-line text-ink-muted">
                       {row.partyName}
                     </td>
-                    <td className="px-2.5 py-2 border-b border-slate-200 text-slate-700">
+                    <td className="px-2.5 py-2 border-b border-line text-ink-muted">
                       {row.purpose}
                     </td>
-                    <td className="px-2.5 py-2 border-b border-slate-200 text-center">
-                      <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-blue-50 text-blue-700 border border-blue-200">
+                    <td className="px-2.5 py-2 border-b border-line text-center">
+                      <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-500/30">
                         {row.status}
                       </span>
                     </td>
-                    <td className="px-2.5 py-2 border-b border-slate-200 text-center">
-                      <div className="flex items-center justify-center gap-1.5 text-slate-600">
-                        <button type="button" className="p-1 hover:text-blue-600" title="View">
+                    <td className="px-2.5 py-2 border-b border-line text-center">
+                      <div className="row-actions flex items-center justify-center gap-1.5 text-ink-muted">
+                        <button type="button" className="p-1 hover:text-blue-600 dark:hover:text-blue-400" title="View">
                           <Eye className="w-3.5 h-3.5" />
                         </button>
-                        <button type="button" className="p-1 hover:text-blue-600" title="Print">
+                        <button type="button" className="p-1 hover:text-blue-600 dark:hover:text-blue-400" title="Print">
                           <Printer className="w-3.5 h-3.5" />
                         </button>
                       </div>
@@ -471,30 +473,30 @@ export default function GateInOutPage() {
       )}
 
       {activeTab === "VISITOR" && (
-        <div className="border border-slate-300 bg-white rounded shadow-2xs overflow-x-auto">
+        <div className="border border-line-strong bg-surface rounded shadow-2xs flex-1 min-h-0 overflow-auto print:overflow-visible [&_thead]:sticky [&_thead]:top-0 [&_thead]:z-10">
           <table className="erp-table w-full text-left text-xs border-collapse">
-            <thead className="bg-blue-100/70 text-slate-900 font-semibold text-xs select-none">
+            <thead className="bg-blue-100/70 dark:bg-blue-500/15 text-ink font-semibold text-xs select-none">
               <tr>
-                <th className="px-2.5 py-2 border-b border-slate-200 w-12 text-center">SL</th>
-                <th className="px-2.5 py-2 border-b border-slate-200 w-32">Pass No</th>
-                <th className="px-2.5 py-2 border-b border-slate-200 w-24">Date</th>
-                <th className="px-2.5 py-2 border-b border-slate-200 w-20">In Time</th>
-                <th className="px-2.5 py-2 border-b border-slate-200 w-20">Out Time</th>
-                <th className="px-2.5 py-2 border-b border-slate-200">Visitor Name</th>
-                <th className="px-2.5 py-2 border-b border-slate-200">Company</th>
-                <th className="px-2.5 py-2 border-b border-slate-200 w-28">Contact</th>
-                <th className="px-2.5 py-2 border-b border-slate-200">Person to Meet</th>
-                <th className="px-2.5 py-2 border-b border-slate-200">Department</th>
-                <th className="px-2.5 py-2 border-b border-slate-200">Purpose</th>
-                <th className="px-2.5 py-2 border-b border-slate-200 w-16 text-center">Badge</th>
-                <th className="px-2.5 py-2 border-b border-slate-200 w-20 text-center">Status</th>
-                <th className="px-2.5 py-2 border-b border-slate-200 w-16 text-center">Action</th>
+                <th className="px-2.5 py-2 border-b border-line w-12 text-center">SL</th>
+                <th className="px-2.5 py-2 border-b border-line w-32">Pass No</th>
+                <th className="px-2.5 py-2 border-b border-line w-24">Date</th>
+                <th className="px-2.5 py-2 border-b border-line w-20">In Time</th>
+                <th className="px-2.5 py-2 border-b border-line w-20">Out Time</th>
+                <th className="px-2.5 py-2 border-b border-line">Visitor Name</th>
+                <th className="px-2.5 py-2 border-b border-line">Company</th>
+                <th className="px-2.5 py-2 border-b border-line w-28">Contact</th>
+                <th className="px-2.5 py-2 border-b border-line">Person to Meet</th>
+                <th className="px-2.5 py-2 border-b border-line">Department</th>
+                <th className="px-2.5 py-2 border-b border-line">Purpose</th>
+                <th className="px-2.5 py-2 border-b border-line w-16 text-center">Badge</th>
+                <th className="px-2.5 py-2 border-b border-line w-20 text-center">Status</th>
+                <th className="px-2.5 py-2 border-b border-line w-16 text-center">Action</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-200 text-[11px] text-slate-800">
+            <tbody className="divide-y divide-line text-[11px] text-ink">
               {filteredVisitors.length === 0 ? (
                 <tr>
-                  <td colSpan={14} className="p-12 text-center text-slate-400">
+                  <td colSpan={14} className="p-12 text-center text-ink-faint">
                     <div className="flex flex-col items-center gap-2">
                       <FileSpreadsheet className="w-8 h-8 stroke-[1.5] text-slate-300" />
                       <span className="text-sm font-medium">No visitor records found.</span>
@@ -503,70 +505,70 @@ export default function GateInOutPage() {
                 </tr>
               ) : (
                 filteredVisitors.map((row) => (
-                  <tr key={row.sl} className="hover:bg-slate-50/80 transition-colors">
-                    <td className="px-2.5 py-2 border-b border-slate-200 text-center font-mono text-slate-600">
+                  <tr key={row.sl} className="hover:bg-canvas/80 transition-colors">
+                    <td className="px-2.5 py-2 border-b border-line text-center font-mono text-ink-muted">
                       {row.sl}
                     </td>
-                    <td className="px-2.5 py-2 border-b border-slate-200 font-mono font-medium text-slate-900 whitespace-nowrap">
+                    <td className="px-2.5 py-2 border-b border-line font-mono font-medium text-ink whitespace-nowrap">
                       {row.visitorPassNo}
                     </td>
-                    <td className="px-2.5 py-2 border-b border-slate-200 whitespace-nowrap text-slate-700">
+                    <td className="px-2.5 py-2 border-b border-line whitespace-nowrap text-ink-muted">
                       {row.date}
                     </td>
-                    <td className="px-2.5 py-2 border-b border-slate-200 whitespace-nowrap text-slate-700">
+                    <td className="px-2.5 py-2 border-b border-line whitespace-nowrap text-ink-muted">
                       {row.inTime}
                     </td>
-                    <td className="px-2.5 py-2 border-b border-slate-200 whitespace-nowrap text-slate-700">
+                    <td className="px-2.5 py-2 border-b border-line whitespace-nowrap text-ink-muted">
                       {row.outTime || "—"}
                     </td>
-                    <td className="px-2.5 py-2 border-b border-slate-200 font-medium text-slate-900">
+                    <td className="px-2.5 py-2 border-b border-line font-medium text-ink">
                       {row.visitorName}
                     </td>
-                    <td className="px-2.5 py-2 border-b border-slate-200 text-slate-700">
+                    <td className="px-2.5 py-2 border-b border-line text-ink-muted">
                       {row.companyName}
                     </td>
-                    <td className="px-2.5 py-2 border-b border-slate-200 font-mono text-slate-700">
+                    <td className="px-2.5 py-2 border-b border-line font-mono text-ink-muted">
                       {row.contactNo}
                     </td>
-                    <td className="px-2.5 py-2 border-b border-slate-200 text-slate-700">
+                    <td className="px-2.5 py-2 border-b border-line text-ink-muted">
                       {row.personToMeet}
                     </td>
-                    <td className="px-2.5 py-2 border-b border-slate-200 text-slate-700">
+                    <td className="px-2.5 py-2 border-b border-line text-ink-muted">
                       {row.department}
                     </td>
-                    <td className="px-2.5 py-2 border-b border-slate-200 text-slate-700">
+                    <td className="px-2.5 py-2 border-b border-line text-ink-muted">
                       {row.purpose}
                     </td>
-                    <td className="px-2.5 py-2 border-b border-slate-200 text-center font-mono font-bold text-slate-800">
+                    <td className="px-2.5 py-2 border-b border-line text-center font-mono font-bold text-ink">
                       {row.badgeNo}
                     </td>
-                    <td className="px-2.5 py-2 border-b border-slate-200 text-center">
+                    <td className="px-2.5 py-2 border-b border-line text-center">
                       <span
                         className={`px-2 py-0.5 rounded text-[10px] font-semibold border ${
                           row.status === "Inside"
-                            ? "bg-amber-50 text-amber-700 border-amber-200"
-                            : "bg-slate-50 text-slate-600 border-slate-200"
+                            ? "bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-500/30"
+                            : "bg-canvas text-ink-muted border-line"
                         }`}
                       >
                         {row.status}
                       </span>
                     </td>
-                    <td className="px-2.5 py-2 border-b border-slate-200 text-center">
-                      <div className="flex items-center justify-center gap-1.5 text-slate-600">
+                    <td className="px-2.5 py-2 border-b border-line text-center">
+                      <div className="row-actions flex items-center justify-center gap-1.5 text-ink-muted">
                         {row.status === "Inside" && (
-                          <button
+                          <button title={!perms.edit ? needsPermission("edit") : undefined}
                             type="button"
-                            disabled={exitingId === row.id}
+                            disabled={(exitingId === row.id) || !perms.edit}
                             onClick={() => markExit(row)}
                             className="px-1.5 py-0.5 rounded bg-slate-700 text-white text-[10px] font-semibold disabled:opacity-50"
                           >
                             Mark Exit
                           </button>
                         )}
-                        <button type="button" className="p-1 hover:text-blue-600" title="View">
+                        <button type="button" className="p-1 hover:text-blue-600 dark:hover:text-blue-400" title="View">
                           <Eye className="w-3.5 h-3.5" />
                         </button>
-                        <button type="button" className="p-1 hover:text-blue-600" title="Print">
+                        <button type="button" className="p-1 hover:text-blue-600 dark:hover:text-blue-400" title="Print">
                           <Printer className="w-3.5 h-3.5" />
                         </button>
                       </div>

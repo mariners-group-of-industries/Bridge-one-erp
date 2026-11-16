@@ -82,6 +82,7 @@ const FEATURE_ACTIONS: Record<string, readonly PermissionAction[]> = {
   "/rtm/outlet-tracking": REPORT,
   "/production/dashboard": REPORT,
   "/production/reports": REPORT,
+  "/purchase": REPORT,
   "/purchase/analytics": REPORT,
   "/purchase/reports": REPORT,
   "/sales/dashboard": REPORT,

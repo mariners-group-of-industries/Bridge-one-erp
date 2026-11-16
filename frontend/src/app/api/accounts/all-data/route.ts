@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/prisma/client";
 import { apiHandler } from "@/lib/api/handler";
 import { can, type Actor } from "@/lib/auth/actor";
+import { scopedBusinessUnitIds } from "@/features/sales/lib/scope";
+import { isPlaceInOrgScope, resolvePurchaseOrgScope } from "@/lib/purchase-store/governance";
 
 /** The accounts overview and reports read everything; other pages only their own data. */
 const REPORTS = ["/accounts", "/accounts/financial-reports", "/accounts/other-reports"];
@@ -55,13 +57,19 @@ async function handleGET(_request: Request, _context: unknown, actor: Actor) {
       may("receivedCheques") ? prisma.receivedCheque.findMany({ orderBy: { receivedDate: "desc" } }) : none,
       may("expenses") ? prisma.expenseRecord.findMany({ include: { lines: { orderBy: { lineNo: "asc" } } }, orderBy: [{ date: "desc" }, { createdAt: "desc" }] }) : none,
       may("fundTransfers") ? prisma.fundTransfer.findMany({ orderBy: [{ requestDate: "desc" }, { createdAt: "desc" }] }) : none,
-      prisma.office.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" } }),
+      prisma.office.findMany({ select: { id: true, name: true, businessUnitId: true }, orderBy: { name: "asc" } }),
       prisma.employee.findMany({
         where: { isActive: true },
         select: { id: true, employeeCode: true, name: true, designation: true, department: true, officeId: true },
         orderBy: { name: "asc" },
       }),
     ]);
+
+    // Offices from Configuration, limited to the user's companies and Org Access (as in Purchase and Inventory).
+    const [unitIds, orgScope] = await Promise.all([scopedBusinessUnitIds(actor), resolvePurchaseOrgScope(actor)]);
+    const allowedOffices = offices
+      .filter((o) => unitIds.includes(o.businessUnitId) && isPlaceInOrgScope(orgScope, { officeId: o.id, businessUnitId: o.businessUnitId }))
+      .map(({ id, name }) => ({ id, name }));
 
     return NextResponse.json({
       success: true,
@@ -78,7 +86,7 @@ async function handleGET(_request: Request, _context: unknown, actor: Actor) {
         receivedCheques,
         expenses,
         fundTransfers,
-        offices,
+        offices: allowedOffices,
         employees,
       },
     });

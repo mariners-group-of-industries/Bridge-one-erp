@@ -1,15 +1,21 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/prisma/client";
 import { apiHandler } from "@/lib/api/handler";
+import type { Actor } from "@/lib/auth/actor";
+import { denyUnless } from "@/lib/permissions/require";
+import { bankingFeatureOf } from "@/features/accounts/paths";
 
 async function handlePATCH(
   request: Request,
-  { params }: { params: Promise<{ id: string }> }
+  { params }: { params: Promise<{ id: string }> },
+  actor: Actor
 ) {
   try {
     const { id } = await params;
     const body = await request.json();
     const entityType = String(body?.entityType || "");
+    const denied = denyUnless(actor, bankingFeatureOf(entityType), "edit");
+    if (denied) return denied;
     const prisma = db();
 
     if (entityType === "chequeIssue") {

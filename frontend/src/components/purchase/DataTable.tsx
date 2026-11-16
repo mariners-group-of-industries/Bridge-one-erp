@@ -28,7 +28,7 @@ export function DataTable<T extends Record<string, any>>({
   data,
   loading = false,
   emptyMessage = "No records found matching the active filters.",
-  pageSize = 10,
+  pageSize = 50,
   compact = false,
   tableClassName,
   containerClassName,
@@ -41,8 +41,8 @@ export function DataTable<T extends Record<string, any>>({
   const paginatedData = data.slice(startIndex, startIndex + rowsPerPage);
 
   return (
-    <div className="bg-white rounded border border-slate-200/90 shadow-2xs overflow-hidden">
-      <div className={cn("erp-table-container min-h-[300px]", containerClassName)}>
+    <div className="bg-surface rounded border border-line/90 shadow-2xs overflow-hidden flex flex-col h-full">
+      <div className={cn("erp-table-container flex-1 min-h-0 overflow-auto", containerClassName)}>
         <table className={cn("erp-table", compact && "erp-table-compact", tableClassName)}>
           <thead>
             <tr>
@@ -56,7 +56,7 @@ export function DataTable<T extends Record<string, any>>({
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={columns.length} className="text-center py-12 text-slate-400">
+                <td colSpan={columns.length} className="text-center py-12 text-ink-faint">
                   <div className="inline-flex items-center gap-2">
                     <span className="w-4 h-4 border-2 border-sky-500 border-t-transparent rounded-full animate-spin"></span>
                     <span>Loading ERP records...</span>
@@ -65,15 +65,15 @@ export function DataTable<T extends Record<string, any>>({
               </tr>
             ) : paginatedData.length === 0 ? (
               <tr>
-                <td colSpan={columns.length} className="text-center py-12 text-slate-400">
+                <td colSpan={columns.length} className="text-center py-12 text-ink-faint">
                   <div className="max-w-xs mx-auto">
-                    <p className="text-xs font-medium text-slate-500">{emptyMessage}</p>
+                    <p className="text-xs font-medium text-ink-faint">{emptyMessage}</p>
                   </div>
                 </td>
               </tr>
             ) : (
               paginatedData.map((row, rIdx) => (
-                <tr key={row.id || rIdx} className="transition-colors hover:bg-slate-50/70">
+                <tr key={row.id || rIdx} className="transition-colors hover:bg-canvas/70">
                   {columns.map((col, cIdx) => (
                     <td key={cIdx} className={col.className}>
                       {col.cell
@@ -92,7 +92,7 @@ export function DataTable<T extends Record<string, any>>({
 
       {/* Table Pagination */}
       {!loading && data.length > 0 && (
-        <div className="px-3 py-2 border-t border-slate-200 bg-slate-50 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
+        <div className="shrink-0 px-3 py-2 border-t border-line bg-canvas flex flex-wrap items-center justify-between gap-2 text-xs text-ink-faint">
           <div className="flex items-center gap-2">
             <span>Rows per page:</span>
             <select
@@ -101,14 +101,14 @@ export function DataTable<T extends Record<string, any>>({
                 setRowsPerPage(Number(e.target.value));
                 setCurrentPage(1);
               }}
-              className="bg-white border border-slate-200 rounded px-1.5 py-0.5 text-xs text-slate-700 focus:outline-none"
+              className="bg-surface border border-line rounded px-1.5 py-0.5 text-xs text-ink-muted focus:outline-none"
             >
-              <option value={5}>5</option>
               <option value={10}>10</option>
               <option value={20}>20</option>
               <option value={50}>50</option>
+              <option value={100}>100</option>
             </select>
-            <span className="text-slate-400">|</span>
+            <span className="text-ink-faint">|</span>
             <span>
               Showing {data.length === 0 ? 0 : startIndex + 1} to{" "}
               {Math.min(startIndex + rowsPerPage, data.length)} of {data.length} records
@@ -120,7 +120,7 @@ export function DataTable<T extends Record<string, any>>({
               type="button"
               disabled={currentPage === 1}
               onClick={() => setCurrentPage(1)}
-              className="inline-flex size-6 items-center justify-center rounded hover:bg-slate-200 disabled:opacity-40 disabled:hover:bg-transparent"
+              className="inline-flex size-6 items-center justify-center rounded hover:bg-hover disabled:opacity-40 disabled:hover:bg-transparent"
               title="First Page"
               aria-label="First Page"
             >
@@ -130,20 +130,20 @@ export function DataTable<T extends Record<string, any>>({
               type="button"
               disabled={currentPage === 1}
               onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-              className="inline-flex size-6 items-center justify-center rounded hover:bg-slate-200 disabled:opacity-40 disabled:hover:bg-transparent"
+              className="inline-flex size-6 items-center justify-center rounded hover:bg-hover disabled:opacity-40 disabled:hover:bg-transparent"
               title="Previous Page"
               aria-label="Previous Page"
             >
               <ChevronLeft className="w-3.5 h-3.5" />
             </button>
-            <span className="px-2 font-medium text-slate-700">
+            <span className="px-2 font-medium text-ink-muted">
               Page {currentPage} of {totalPages}
             </span>
             <button
               type="button"
               disabled={currentPage === totalPages}
               onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-              className="inline-flex size-6 items-center justify-center rounded hover:bg-slate-200 disabled:opacity-40 disabled:hover:bg-transparent"
+              className="inline-flex size-6 items-center justify-center rounded hover:bg-hover disabled:opacity-40 disabled:hover:bg-transparent"
               title="Next Page"
               aria-label="Next Page"
             >
@@ -153,7 +153,7 @@ export function DataTable<T extends Record<string, any>>({
               type="button"
               disabled={currentPage === totalPages}
               onClick={() => setCurrentPage(totalPages)}
-              className="inline-flex size-6 items-center justify-center rounded hover:bg-slate-200 disabled:opacity-40 disabled:hover:bg-transparent"
+              className="inline-flex size-6 items-center justify-center rounded hover:bg-hover disabled:opacity-40 disabled:hover:bg-transparent"
               title="Last Page"
               aria-label="Last Page"
             >

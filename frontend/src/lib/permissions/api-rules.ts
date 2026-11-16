@@ -17,6 +17,11 @@ type ModuleId = "purchase" | "inventory" | "production" | "sales" | "account" | 
 export interface ApiRule {
   /** Page whose permission writes (and, unless `read` says otherwise, reads) need. */
   feature?: string;
+  /**
+   * Other pages whose permission also opens this API (one API serving several pages).
+   * The handler then checks the exact page of each record (lib/permissions/require.ts).
+   */
+  alsoFeatures?: readonly string[];
   /** Fixed action instead of the one derived from method and path. */
   action?: PermissionAction;
   /** Who may read (GET/HEAD): any ERP user, or anyone who can view a page of these modules. */
@@ -164,7 +169,13 @@ export const API_RULES: Record<string, ApiRule> = {
   "/api/accounts/chart-of-accounts": { feature: "/accounts/chart-of-accounts", read: { anyViewIn: ["account"] } },
   "/api/accounts/coa-permissions": { feature: "/accounts/chart-of-accounts", read: { anyViewIn: ["account"] } },
   "/api/accounts/cost-centers": { feature: "/accounts/center-setup", read: { anyViewIn: ["account"] } },
-  "/api/accounts/banking": { feature: "/accounts/banking", read: { anyViewIn: ["account"] } },
+  // Banking, cheque books / received cheques (Cheque Setup) and issued cheques (Cheque Issue)
+  // share one API; the handler checks the page of each record type.
+  "/api/accounts/banking": {
+    feature: "/accounts/banking",
+    alsoFeatures: ["/accounts/cheque-setup", "/accounts/cheque-issue"],
+    read: { anyViewIn: ["account"] },
+  },
 
   // ── Purchase (/api/v1) ──
   "/api/v1/master": { read: { anyViewIn: ["purchase", "inventory"] } },
@@ -274,5 +285,6 @@ export function checkApiAccess(grants: AccessGrants | undefined, method: string,
     return { allowed, required: { feature: rule.feature, action: "view" } };
   }
   if (!rule.feature) return { allowed: false, required: { action } };
-  return { allowed: grantsAllow(grants, rule.feature, action), required: { feature: rule.feature, action } };
+  const pages = [rule.feature, ...(rule.alsoFeatures ?? [])];
+  return { allowed: pages.some((page) => grantsAllow(grants, page, action)), required: { feature: rule.feature, action } };
 }

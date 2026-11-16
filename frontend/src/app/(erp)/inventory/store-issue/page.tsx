@@ -14,6 +14,7 @@ import {
   FileSpreadsheet,
   Paperclip,
 } from "lucide-react";
+import { useFeaturePermissions, needsPermission } from "@/lib/permissions/useFeaturePermissions";
 
 // ============================================================================
 // TYPES
@@ -75,6 +76,7 @@ const ISSUE_FORM: DocumentFormConfig = {
 };
 
 export default function StoreIssuePage() {
+  const perms = useFeaturePermissions("/inventory/store-issue");
   const [activeTab, setActiveTab] = useState<StoreIssueTab>("APPROVED_REQUISITION");
   const [searchTerm, setSearchTerm] = useState("");
 
@@ -181,7 +183,7 @@ export default function StoreIssuePage() {
   }, [filteredIssued, issuePage, issueRowsPerPage]);
 
   return (
-    <div className="space-y-3 p-1">
+    <div className="space-y-3 p-1 flex flex-col md:h-[calc(100dvh-3.5rem)] md:overflow-hidden print:block print:h-auto print:overflow-visible">
       <InventoryTabBar
         title="Store Issue"
         tabs={[
@@ -197,36 +199,36 @@ export default function StoreIssuePage() {
         search={searchTerm}
         onSearch={setSearchTerm}
         actions={
-          <button type="button" onClick={() => setIsDirectIssueOpen(true)} className={tabBarButton}>
+          (perms.create ? (<button type="button" onClick={() => setIsDirectIssueOpen(true)} className={tabBarButton}>
             <Plus /> Direct Store Issue
-          </button>
+          </button>) : null)
         }
       />
       {/* 3. TAB 1: APPROVED REQUISITION LIST                 */}
       {/* ─────────────────────────────────────────────────── */}
       {activeTab === "APPROVED_REQUISITION" && (
-        <div className="space-y-2">
+        <div className="space-y-2 flex-1 min-h-0 flex flex-col print:block">
           {/* Filters */}
-          <div className="flex flex-wrap items-end gap-3 text-xs bg-slate-50/70 p-3 rounded border border-slate-200">
+          <div className="flex flex-wrap items-end gap-3 text-xs bg-canvas/70 p-3 rounded border border-line shrink-0">
             <div>
-              <label className="block text-[11px] text-slate-600 mb-0.5 font-medium">From Date</label>
+              <label className="block text-[11px] text-ink-muted mb-0.5 font-medium">From Date</label>
               <input
                 type="date"
                 placeholder="mm/dd/yyyy"
                 value={reqFromDate}
                 onChange={(e) => setReqFromDate(e.target.value)}
-                className="border border-slate-300 rounded px-2.5 py-1.5 bg-white text-xs focus:ring-1 focus:ring-blue-500"
+                className="border border-line-strong rounded px-2.5 py-1.5 bg-surface text-xs focus:ring-1 focus:ring-blue-500"
               />
             </div>
 
             <div>
-              <label className="block text-[11px] text-slate-600 mb-0.5 font-medium">To Date</label>
+              <label className="block text-[11px] text-ink-muted mb-0.5 font-medium">To Date</label>
               <input
                 type="date"
                 placeholder="mm/dd/yyyy"
                 value={reqToDate}
                 onChange={(e) => setReqToDate(e.target.value)}
-                className="border border-slate-300 rounded px-2.5 py-1.5 bg-white text-xs focus:ring-1 focus:ring-blue-500"
+                className="border border-line-strong rounded px-2.5 py-1.5 bg-surface text-xs focus:ring-1 focus:ring-blue-500"
               />
             </div>
 
@@ -241,24 +243,24 @@ export default function StoreIssuePage() {
           </div>
 
           {/* Table */}
-          <div className="border border-slate-300 bg-white rounded shadow-2xs overflow-x-auto">
+          <div className="border border-line-strong bg-surface rounded shadow-2xs flex-1 min-h-0 overflow-auto print:overflow-visible [&_thead]:sticky [&_thead]:top-0 [&_thead]:z-10">
             <table className="erp-table w-full text-left text-xs border-collapse">
-              <thead className="bg-blue-100/70 text-slate-900 font-semibold text-xs select-none">
+              <thead className="bg-blue-100/70 dark:bg-blue-500/15 text-ink font-semibold text-xs select-none">
                 <tr>
-                  <th className="px-2.5 py-2 border-b border-slate-200 w-12 text-center">SL</th>
-                  <th className="px-2.5 py-2 border-b border-slate-200 w-36">Requisition Code</th>
-                  <th className="px-2.5 py-2 border-b border-slate-200 w-24">Date</th>
-                  <th className="px-2.5 py-2 border-b border-slate-200 w-24">User Type</th>
-                  <th className="px-2.5 py-2 border-b border-slate-200 w-24">User</th>
-                  <th className="px-2.5 py-2 border-b border-slate-200">Remarks</th>
-                  <th className="px-2.5 py-2 border-b border-slate-200 w-24 text-center">Status</th>
-                  <th className="px-2.5 py-2 border-b border-slate-200 w-28 text-center">Action</th>
+                  <th className="px-2.5 py-2 border-b border-line w-12 text-center">SL</th>
+                  <th className="px-2.5 py-2 border-b border-line w-36">Requisition Code</th>
+                  <th className="px-2.5 py-2 border-b border-line w-24">Date</th>
+                  <th className="px-2.5 py-2 border-b border-line w-24">User Type</th>
+                  <th className="px-2.5 py-2 border-b border-line w-24">User</th>
+                  <th className="px-2.5 py-2 border-b border-line">Remarks</th>
+                  <th className="px-2.5 py-2 border-b border-line w-24 text-center">Status</th>
+                  <th className="px-2.5 py-2 border-b border-line w-28 text-center">Action</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-200 text-[11px] text-slate-800">
+              <tbody className="divide-y divide-line text-[11px] text-ink">
                 {paginatedApproved.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="p-12 text-center text-slate-400">
+                    <td colSpan={8} className="p-12 text-center text-ink-faint">
                       <div className="flex flex-col items-center gap-2">
                         <FileSpreadsheet className="w-8 h-8 stroke-[1.5] text-slate-300" />
                         <span className="text-sm font-medium">No approved requisitions pending issue.</span>
@@ -267,43 +269,43 @@ export default function StoreIssuePage() {
                   </tr>
                 ) : (
                   paginatedApproved.map((row) => (
-                    <tr key={row.sl} className="hover:bg-slate-50/80 transition-colors">
-                      <td className="px-2.5 py-2 border-b border-slate-200 text-center font-mono text-slate-600">
+                    <tr key={row.sl} className="hover:bg-canvas/80 transition-colors">
+                      <td className="px-2.5 py-2 border-b border-line text-center font-mono text-ink-muted">
                         {row.sl}
                       </td>
-                      <td className="px-2.5 py-2 border-b border-slate-200 font-mono font-medium text-slate-900 whitespace-nowrap">
+                      <td className="px-2.5 py-2 border-b border-line font-mono font-medium text-ink whitespace-nowrap">
                         {row.reqCode}
                       </td>
-                      <td className="px-2.5 py-2 border-b border-slate-200 whitespace-nowrap text-slate-700">
+                      <td className="px-2.5 py-2 border-b border-line whitespace-nowrap text-ink-muted">
                         {row.date}
                       </td>
-                      <td className="px-2.5 py-2 border-b border-slate-200 text-slate-700">
+                      <td className="px-2.5 py-2 border-b border-line text-ink-muted">
                         {row.userType}
                       </td>
-                      <td className="px-2.5 py-2 border-b border-slate-200 text-slate-700">
+                      <td className="px-2.5 py-2 border-b border-line text-ink-muted">
                         {row.user}
                       </td>
-                      <td className="px-2.5 py-2 border-b border-slate-200 text-slate-800">
+                      <td className="px-2.5 py-2 border-b border-line text-ink">
                         {row.remarks}
                       </td>
-                      <td className="px-2.5 py-2 border-b border-slate-200 text-center">
-                        <span className="text-emerald-600 font-semibold text-[11px]">
+                      <td className="px-2.5 py-2 border-b border-line text-center">
+                        <span className="text-emerald-600 dark:text-emerald-400 font-semibold text-[11px]">
                           {row.status}
                         </span>
                       </td>
-                      <td className="px-2.5 py-2 border-b border-slate-200 text-center">
-                        <div className="flex items-center justify-center gap-1.5">
-                          <button
+                      <td className="px-2.5 py-2 border-b border-line text-center">
+                        <div className="row-actions flex items-center justify-center gap-1.5">
+                          <button title={!perms.create ? needsPermission("create") : undefined} disabled={!perms.create}
                             type="button"
                             onClick={() => setActiveRequisitionForIssue(row)}
-                            className="h-6 px-2.5 bg-[#2563eb] hover:bg-blue-700 text-white text-[11px] font-semibold rounded flex items-center gap-1 shadow-2xs transition"
+                            className="h-6 px-2.5 bg-[#2563eb] hover:bg-blue-700 text-white text-[11px] font-semibold rounded flex items-center gap-1 shadow-2xs transition disabled:opacity-40 disabled:cursor-not-allowed"
                           >
                             <Plus className="w-3 h-3" />
                             <span>Issue</span>
                           </button>
                           <button
                             type="button"
-                            className="p-1 hover:text-blue-600 text-slate-600"
+                            className="p-1 hover:text-blue-600 dark:hover:text-blue-400 text-ink-muted"
                             title="View"
                           >
                             <Eye className="w-3.5 h-3.5" />
@@ -318,7 +320,7 @@ export default function StoreIssuePage() {
           </div>
 
           {/* Pagination */}
-          <div className="flex flex-col sm:flex-row items-center justify-end gap-6 text-xs text-slate-600 pt-1 pb-4">
+          <div className="flex flex-col sm:flex-row items-center justify-end gap-6 text-xs text-ink-muted pt-1 shrink-0">
             <div className="flex items-center gap-2">
               <span>Rows per page:</span>
               <select
@@ -327,7 +329,7 @@ export default function StoreIssuePage() {
                   setReqRowsPerPage(Number(e.target.value));
                   setReqPage(1);
                 }}
-                className="border border-slate-300 rounded px-1.5 py-0.5 bg-white text-xs"
+                className="border border-line-strong rounded px-1.5 py-0.5 bg-surface text-xs"
               >
                 <option value={20}>20</option>
                 <option value={50}>50</option>
@@ -345,7 +347,7 @@ export default function StoreIssuePage() {
                   type="button"
                   disabled={reqPage <= 1}
                   onClick={() => setReqPage((p) => Math.max(1, p - 1))}
-                  className="p-1 border border-slate-200 rounded text-slate-400 hover:text-slate-700 disabled:opacity-40"
+                  className="p-1 border border-line rounded text-ink-faint hover:text-ink-muted disabled:opacity-40"
                 >
                   <ChevronLeft className="w-4 h-4" />
                 </button>
@@ -353,7 +355,7 @@ export default function StoreIssuePage() {
                   type="button"
                   disabled={reqPage >= totalReqPages}
                   onClick={() => setReqPage((p) => Math.min(totalReqPages, p + 1))}
-                  className="p-1 border border-slate-200 rounded text-slate-400 hover:text-slate-700 disabled:opacity-40"
+                  className="p-1 border border-line rounded text-ink-faint hover:text-ink-muted disabled:opacity-40"
                 >
                   <ChevronRight className="w-4 h-4" />
                 </button>
@@ -367,37 +369,37 @@ export default function StoreIssuePage() {
       {/* 4. TAB 2: ISSUED ITEM                               */}
       {/* ─────────────────────────────────────────────────── */}
       {activeTab === "ISSUED_ITEM" && (
-        <div className="space-y-2">
+        <div className="space-y-2 flex-1 min-h-0 flex flex-col print:block">
           {/* Filters */}
-          <div className="flex flex-wrap items-end gap-3 text-xs bg-slate-50/70 p-3 rounded border border-slate-200">
+          <div className="flex flex-wrap items-end gap-3 text-xs bg-canvas/70 p-3 rounded border border-line shrink-0">
             <div>
-              <label className="block text-[11px] text-slate-600 mb-0.5 font-medium">From Date</label>
+              <label className="block text-[11px] text-ink-muted mb-0.5 font-medium">From Date</label>
               <input
                 type="date"
                 placeholder="mm/dd/yyyy"
                 value={issueFromDate}
                 onChange={(e) => setIssueFromDate(e.target.value)}
-                className="border border-slate-300 rounded px-2.5 py-1.5 bg-white text-xs focus:ring-1 focus:ring-blue-500"
+                className="border border-line-strong rounded px-2.5 py-1.5 bg-surface text-xs focus:ring-1 focus:ring-blue-500"
               />
             </div>
 
             <div>
-              <label className="block text-[11px] text-slate-600 mb-0.5 font-medium">To Date</label>
+              <label className="block text-[11px] text-ink-muted mb-0.5 font-medium">To Date</label>
               <input
                 type="date"
                 placeholder="mm/dd/yyyy"
                 value={issueToDate}
                 onChange={(e) => setIssueToDate(e.target.value)}
-                className="border border-slate-300 rounded px-2.5 py-1.5 bg-white text-xs focus:ring-1 focus:ring-blue-500"
+                className="border border-line-strong rounded px-2.5 py-1.5 bg-surface text-xs focus:ring-1 focus:ring-blue-500"
               />
             </div>
 
             <div className="min-w-[160px]">
-              <label className="block text-[11px] text-slate-600 mb-0.5 font-medium">User Type</label>
+              <label className="block text-[11px] text-ink-muted mb-0.5 font-medium">User Type</label>
               <select
                 value={issueUserType}
                 onChange={(e) => setIssueUserType(e.target.value)}
-                className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white text-xs focus:ring-1 focus:ring-blue-500"
+                className="w-full border border-line-strong rounded px-2.5 py-1.5 bg-surface text-xs focus:ring-1 focus:ring-blue-500"
               >
                 {USER_TYPE_OPTIONS.map((o) => (
                   <option key={o.value} value={o.value}>
@@ -418,24 +420,24 @@ export default function StoreIssuePage() {
           </div>
 
           {/* Table */}
-          <div className="border border-slate-300 bg-white rounded shadow-2xs overflow-x-auto">
+          <div className="border border-line-strong bg-surface rounded shadow-2xs flex-1 min-h-0 overflow-auto print:overflow-visible [&_thead]:sticky [&_thead]:top-0 [&_thead]:z-10">
             <table className="erp-table w-full text-left text-xs border-collapse">
-              <thead className="bg-blue-100/70 text-slate-900 font-semibold text-xs select-none">
+              <thead className="bg-blue-100/70 dark:bg-blue-500/15 text-ink font-semibold text-xs select-none">
                 <tr>
-                  <th className="px-2.5 py-2 border-b border-slate-200 w-36">Issue Code</th>
-                  <th className="px-2.5 py-2 border-b border-slate-200 w-24">Issue Date</th>
-                  <th className="px-2.5 py-2 border-b border-slate-200 w-36">Requisition Code</th>
-                  <th className="px-2.5 py-2 border-b border-slate-200 w-36">Production Entry Code</th>
-                  <th className="px-2.5 py-2 border-b border-slate-200 w-24">User Type</th>
-                  <th className="px-2.5 py-2 border-b border-slate-200 w-24">User</th>
-                  <th className="px-2.5 py-2 border-b border-slate-200">Remarks</th>
-                  <th className="px-2.5 py-2 border-b border-slate-200 w-20 text-center">Action</th>
+                  <th className="px-2.5 py-2 border-b border-line w-36">Issue Code</th>
+                  <th className="px-2.5 py-2 border-b border-line w-24">Issue Date</th>
+                  <th className="px-2.5 py-2 border-b border-line w-36">Requisition Code</th>
+                  <th className="px-2.5 py-2 border-b border-line w-36">Production Entry Code</th>
+                  <th className="px-2.5 py-2 border-b border-line w-24">User Type</th>
+                  <th className="px-2.5 py-2 border-b border-line w-24">User</th>
+                  <th className="px-2.5 py-2 border-b border-line">Remarks</th>
+                  <th className="px-2.5 py-2 border-b border-line w-20 text-center">Action</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-200 text-[11px] text-slate-800">
+              <tbody className="divide-y divide-line text-[11px] text-ink">
                 {paginatedIssued.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="p-12 text-center text-slate-400">
+                    <td colSpan={8} className="p-12 text-center text-ink-faint">
                       <div className="flex flex-col items-center gap-2">
                         <FileSpreadsheet className="w-8 h-8 stroke-[1.5] text-slate-300" />
                         <span className="text-sm font-medium">No issued records found.</span>
@@ -444,34 +446,34 @@ export default function StoreIssuePage() {
                   </tr>
                 ) : (
                   paginatedIssued.map((row) => (
-                    <tr key={row.issueCode} className="hover:bg-slate-50/80 transition-colors">
-                      <td className="px-2.5 py-2 border-b border-slate-200 font-mono font-medium text-slate-900 whitespace-nowrap">
+                    <tr key={row.issueCode} className="hover:bg-canvas/80 transition-colors">
+                      <td className="px-2.5 py-2 border-b border-line font-mono font-medium text-ink whitespace-nowrap">
                         {row.issueCode}
                       </td>
-                      <td className="px-2.5 py-2 border-b border-slate-200 whitespace-nowrap text-slate-700">
+                      <td className="px-2.5 py-2 border-b border-line whitespace-nowrap text-ink-muted">
                         {row.issueDate}
                       </td>
-                      <td className="px-2.5 py-2 border-b border-slate-200 font-mono text-slate-800 whitespace-nowrap">
+                      <td className="px-2.5 py-2 border-b border-line font-mono text-ink whitespace-nowrap">
                         {row.requisitionCode}
                       </td>
-                      <td className="px-2.5 py-2 border-b border-slate-200 font-mono text-slate-800 whitespace-nowrap">
+                      <td className="px-2.5 py-2 border-b border-line font-mono text-ink whitespace-nowrap">
                         {row.productionEntryCode}
                       </td>
-                      <td className="px-2.5 py-2 border-b border-slate-200 text-slate-700">
+                      <td className="px-2.5 py-2 border-b border-line text-ink-muted">
                         {row.userType}
                       </td>
-                      <td className="px-2.5 py-2 border-b border-slate-200 text-slate-700">
+                      <td className="px-2.5 py-2 border-b border-line text-ink-muted">
                         {row.user}
                       </td>
-                      <td className="px-2.5 py-2 border-b border-slate-200 text-slate-700">
+                      <td className="px-2.5 py-2 border-b border-line text-ink-muted">
                         {row.remarks}
                       </td>
-                      <td className="px-2.5 py-2 border-b border-slate-200 text-center">
-                        <div className="flex items-center justify-center gap-1.5 text-slate-600">
+                      <td className="px-2.5 py-2 border-b border-line text-center">
+                        <div className="row-actions flex items-center justify-center gap-1.5 text-ink-muted">
                           {row.attachment && (
                             <a
                               href={`/api/inventory/store-issue/attachments/${row.attachment.id}`}
-                              className="inline-flex size-6 items-center justify-center rounded hover:text-blue-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/20"
+                              className="inline-flex size-6 items-center justify-center rounded hover:text-blue-600 dark:hover:text-blue-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/20"
                               title={row.attachment.name}
                               aria-label={`Download ${row.attachment.name}`}
                             >
@@ -480,14 +482,14 @@ export default function StoreIssuePage() {
                           )}
                           <button
                             type="button"
-                            className="p-1 hover:text-blue-600"
+                            className="p-1 hover:text-blue-600 dark:hover:text-blue-400"
                             title="Print"
                           >
                             <Printer className="w-3.5 h-3.5" />
                           </button>
                           <button
                             type="button"
-                            className="p-1 hover:text-blue-600"
+                            className="p-1 hover:text-blue-600 dark:hover:text-blue-400"
                             title="View"
                           >
                             <Eye className="w-3.5 h-3.5" />
@@ -502,7 +504,7 @@ export default function StoreIssuePage() {
           </div>
 
           {/* Pagination */}
-          <div className="flex flex-col sm:flex-row items-center justify-end gap-6 text-xs text-slate-600 pt-1 pb-4">
+          <div className="flex flex-col sm:flex-row items-center justify-end gap-6 text-xs text-ink-muted pt-1 shrink-0">
             <div className="flex items-center gap-2">
               <span>Rows per page:</span>
               <select
@@ -511,7 +513,7 @@ export default function StoreIssuePage() {
                   setIssueRowsPerPage(Number(e.target.value));
                   setIssuePage(1);
                 }}
-                className="border border-slate-300 rounded px-1.5 py-0.5 bg-white text-xs"
+                className="border border-line-strong rounded px-1.5 py-0.5 bg-surface text-xs"
               >
                 <option value={20}>20</option>
                 <option value={50}>50</option>
@@ -529,7 +531,7 @@ export default function StoreIssuePage() {
                   type="button"
                   disabled={issuePage <= 1}
                   onClick={() => setIssuePage((p) => Math.max(1, p - 1))}
-                  className="p-1 border border-slate-200 rounded text-slate-400 hover:text-slate-700 disabled:opacity-40"
+                  className="p-1 border border-line rounded text-ink-faint hover:text-ink-muted disabled:opacity-40"
                 >
                   <ChevronLeft className="w-4 h-4" />
                 </button>
@@ -537,7 +539,7 @@ export default function StoreIssuePage() {
                   type="button"
                   disabled={issuePage >= totalIssuePages}
                   onClick={() => setIssuePage((p) => Math.min(totalIssuePages, p + 1))}
-                  className="p-1 border border-slate-200 rounded text-slate-400 hover:text-slate-700 disabled:opacity-40"
+                  className="p-1 border border-line rounded text-ink-faint hover:text-ink-muted disabled:opacity-40"
                 >
                   <ChevronRight className="w-4 h-4" />
                 </button>

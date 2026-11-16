@@ -2,6 +2,7 @@
 
 import React from "react";
 import { Download, ExternalLink, Printer } from "lucide-react";
+import { PrintFrame, PrintPageFooter } from "@/components/ui/print-frame";
 
 export interface PrintHeaderContext {
   company?: {
@@ -98,6 +99,7 @@ export function PrintablePurchaseDoc({
     .join(" , ");
 
   return (
+    <PrintFrame>
     <div className="bg-white p-6 text-black space-y-3 border border-slate-300 rounded-none print:p-0 print:border-0 print:space-y-2.5 font-sans">
       {/* 1. Corporate Letterhead (Centered, Clean, No Misplaced Logos) */}
       <div className="text-center space-y-0.5 pb-0.5">
@@ -240,12 +242,10 @@ export function PrintablePurchaseDoc({
         ))}
       </div>
 
-      {/* 6. Document Footer: Made by BridgeOne */}
-      <div className="pt-4 mt-3 border-t border-slate-300 flex items-center justify-between text-[10px] text-slate-500 font-medium tracking-tight print:break-inside-avoid">
-        <span className="font-semibold text-slate-600">Made by BridgeOne</span>
-        <span>Page 1 of 1</span>
-      </div>
+      {/* 6. Document Footer: Made by BridgeOne, pinned to the bottom of every printed page */}
+      <PrintPageFooter className="pt-4 mt-3 border-slate-300 text-[10px] text-slate-500 font-medium tracking-tight" />
     </div>
+    </PrintFrame>
   );
 }
 

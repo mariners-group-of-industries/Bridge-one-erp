@@ -13,3 +13,10 @@ export const paths = {
   otherReports: "/accounts/other-reports",
   postingSetup: "/accounts/posting-setup",
 } as const;
+
+/** The page whose permission a banking API record needs: cheques have their own pages. */
+export function bankingFeatureOf(entityType: unknown): string {
+  if (entityType === "chequeBook" || entityType === "receivedCheque") return paths.chequeSetup;
+  if (entityType === "chequeIssue") return paths.chequeIssue;
+  return paths.banking;
+}

@@ -78,7 +78,7 @@ export function DirectReceiveView() {
 
   // Header Fields
   const [receiveDate, setReceiveDate] = useState(todayStr);
-  const [pickedOfficeId, setPickedOfficeId] = useState("");
+  const [pickedOfficeId, setPickedOfficeId] = useState<string | null>(null);
   const [pickedWarehouseId, setPickedWarehouseId] = useState("");
   const [itemType, setItemType] = useState("Inventory Item");
   const [supplierId, setSupplierId] = useState("");
@@ -95,6 +95,7 @@ export function DirectReceiveView() {
   const [deliveryNumber, setDeliveryNumber] = useState("");
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
   const [viewDetails, setViewDetails] = useState(true);
+  const [isHeaderCollapsed, setIsHeaderCollapsed] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Quick Add Modals
@@ -119,12 +120,18 @@ export function DirectReceiveView() {
 
   const [addedLines, setAddedLines] = useState<DirectDraftLine[]>([]);
 
-  const selectedOfficeId = pickedOfficeId || offices[0]?.id || "";
+  const defaultOfficeId = useMemo(() => {
+    if (!offices.length) return "";
+    const withWh = offices.find((o) => allWarehouses.some((w) => w.officeId === o.id));
+    return withWh?.id || offices[0]?.id || "";
+  }, [offices, allWarehouses]);
+
+  const selectedOfficeId = pickedOfficeId !== null ? pickedOfficeId : defaultOfficeId;
   const availableWarehouses = useMemo(
-    () => (selectedOfficeId ? allWarehouses.filter((w) => w.officeId === selectedOfficeId) : allWarehouses),
+    () => (selectedOfficeId ? allWarehouses.filter((w) => w.officeId === selectedOfficeId) : []),
     [allWarehouses, selectedOfficeId]
   );
-  const selectedWarehouseId = availableWarehouses.some((w) => w.id === pickedWarehouseId)
+  const selectedWarehouseId = selectedOfficeId && availableWarehouses.some((w) => w.id === pickedWarehouseId)
     ? pickedWarehouseId
     : (availableWarehouses[0]?.id ?? "");
 
@@ -427,642 +434,722 @@ export function DirectReceiveView() {
       {/* Sticky Top Action Bar */}
       <div className="sticky top-0 z-30 flex items-center justify-between border-b border-slate-200 bg-white px-4 py-2.5 shadow-2xs">
         <div className="flex items-center gap-2.5">
-          <button
-            type="button"
-            onClick={() => router.push("/purchase/receive")}
-            className="rounded-full p-1 text-slate-600 transition hover:bg-slate-100"
-            title="Back to Purchase Receive"
-          >
-            <ArrowLeft className="h-4 w-4" />
-          </button>
-          <h1 className="text-base font-semibold text-slate-900">Direct Receive</h1>
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            disabled={saveMutation.isPending || !perms.receive.create}
-            onClick={() => saveMutation.mutate(true)}
-            className="h-8 rounded border border-blue-500 bg-white px-3.5 text-xs font-medium text-blue-600 transition hover:bg-blue-50 disabled:opacity-50"
-          >
-            Save & New
-          </button>
-          <button
-            type="button"
-            disabled={saveMutation.isPending || !perms.receive.create}
-            onClick={() => saveMutation.mutate(false)}
-            className="flex h-8 items-center gap-1.5 rounded bg-blue-600 px-4 text-xs font-semibold text-white transition hover:bg-blue-700 disabled:opacity-50"
-          >
-            {saveMutation.isPending && <Spinner className="h-3.5 w-3.5" />}
-            SAVE
-          </button>
-        </div>
-      </div>
-
-      <div className="space-y-3 p-3.5">
-        {/* Card 1: Top Header */}
-        <div className="rounded-md border border-slate-200 bg-white p-3.5 shadow-2xs">
-          <div className="mb-3 grid grid-cols-2 gap-3 border-b border-slate-100 pb-2.5 text-xs text-slate-700 sm:grid-cols-4">
-            <label className="flex cursor-pointer items-center gap-2">
-              <input
-                type="checkbox"
-                checked={createFromRequisition}
-                onChange={(e) => setCreateFromRequisition(e.target.checked)}
-                className="h-4 w-4 rounded border-slate-300 text-blue-600"
-              />
-              <span>Create From Requisition</span>
-            </label>
-            <label className="flex cursor-pointer items-center gap-2">
-              <input
-                type="checkbox"
-                checked={createFromSalesOrder}
-                onChange={(e) => setCreateFromSalesOrder(e.target.checked)}
-                className="h-4 w-4 rounded border-slate-300 text-blue-600"
-              />
-              <span>Create From Sales Order</span>
-            </label>
-            <label className="flex cursor-pointer items-center gap-2">
-              <input
-                type="checkbox"
-                checked={priceIncludingVat}
-                onChange={(e) => setPriceIncludingVat(e.target.checked)}
-                className="h-4 w-4 rounded border-slate-300 text-blue-600"
-              />
-              <span>Price Including VAT</span>
-            </label>
-            <label className="flex cursor-pointer items-center gap-2">
-              <input
-                type="checkbox"
-                checked={amountDriven}
-                onChange={(e) => setAmountDriven(e.target.checked)}
-                className="h-4 w-4 rounded border-slate-300 text-blue-600"
-              />
-              <span>Amount Driven</span>
-            </label>
-          </div>
-
-          {(createFromRequisition || createFromSalesOrder) && (
-            <div className="mb-3 grid grid-cols-1 gap-3 rounded border border-blue-100 bg-blue-50/40 p-2.5 sm:grid-cols-2">
-              {createFromRequisition && (
-                <div>
-                  <label className="mb-1 block text-[11px] font-semibold text-blue-800">Approved Requisition</label>
-                  <SearchableCombobox
-                    value={selectedRequisitionId}
-                    onChange={handleLoadRequisition}
-                    placeholder="Select Approved Requisition..."
-                    options={requisitions.map((r) => ({
-                      value: r.id,
-                      label: `${r.requisitionNumber} — ${r.requesterName}`,
-                      sublabel: `${r.requestDate} • ${formatCurrency(r.totalEstimatedAmount)}`,
-                    }))}
-                  />
-                </div>
-              )}
-              {createFromSalesOrder && (
-                <div>
-                  <label className="mb-1 block text-[11px] font-semibold text-blue-800">Sales Order</label>
-                  <SearchableCombobox
-                    value={selectedSalesOrderId}
-                    onChange={handleLoadSalesOrder}
-                    placeholder="Select Sales Order..."
-                    options={(formOptions?.salesOrders ?? []).map((so) => ({
-                      value: so.id,
-                      label: `${so.number} — ${so.customerName}`,
-                      sublabel: `${so.orderDate} • ${so.lines.length} line(s)`,
-                    }))}
-                  />
-                </div>
-              )}
-            </div>
-          )}
-
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <div>
-              <label className="mb-1 block text-[11px] font-semibold text-slate-700">Create Date</label>
-              <input type="date" value={receiveDate} onChange={(e) => setReceiveDate(e.target.value)} className={inputCls} />
-            </div>
-
-            <div>
-              <label className="mb-1 block text-[11px] font-semibold text-slate-700">
-                Office<span className="text-red-500">*</span>
-              </label>
-              <select value={selectedOfficeId} onChange={(e) => setPickedOfficeId(e.target.value)} className={inputCls}>
-                <option value="">Select Office</option>
-                {offices.map((o) => (
-                  <option key={o.id} value={o.id}>
-                    {o.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="mb-1 block text-[11px] font-semibold text-slate-700">
-                Warehouse<span className="text-red-500">*</span>
-              </label>
-              <select value={selectedWarehouseId} onChange={(e) => setPickedWarehouseId(e.target.value)} className={inputCls}>
-                <option value="">Select Warehouse</option>
-                {availableWarehouses.map((w) => (
-                  <option key={w.id} value={w.id}>
-                    {w.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="mb-1 block text-[11px] font-semibold text-slate-700">
-                Item Type<span className="text-red-500">*</span>
-              </label>
-              <select value={itemType} onChange={(e) => setItemType(e.target.value)} className={inputCls}>
-                {INVENTORY_TYPE_OPTIONS.map((t) => (
-                  <option key={t} value={t}>
-                    {t}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <div className="mb-1 flex items-center justify-between">
-                <label className="text-[11px] font-semibold text-slate-700">
-                  Select Supplier<span className="text-red-500">*</span>
-                </label>
-                {perms.quickSupplierCreate && (
-                  <button
-                    type="button"
-                    onClick={() => setIsAddSupplierOpen(true)}
-                    className="inline-flex items-center gap-0.5 min-h-6 -my-0.5 text-[11px] font-semibold text-blue-600 hover:text-blue-700"
-                  >
-                    <Plus className="h-3 w-3" /> ADD NEW
-                  </button>
-                )}
+          <div className="min-h-screen bg-[#f8fafc] p-3 md:p-6 text-slate-800">
+            {/* Top Action Bar */}
+            <div className="bg-white border border-slate-200/90 rounded px-4 py-2.5 flex items-center justify-between shadow-2xs mb-3">
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => router.push("/purchase/receive")}
+                  className="rounded-full p-1 text-slate-600 transition hover:bg-slate-100"
+                  className="h-8 w-8 rounded border border-slate-300 flex items-center justify-center text-slate-600 hover:bg-slate-50 transition"
+                  title="Back to Purchase Receive"
+                >
+                  <ArrowLeft className="h-4 w-4" />
+                  <ArrowLeft className="w-4 h-4" />
+                </button>
+                <h1 className="text-base font-semibold text-slate-900">Direct Receive</h1>
+                <h1 className="text-base font-bold text-slate-900 tracking-tight">Direct Receive</h1>
               </div>
-              <SearchableCombobox
-                value={supplierId}
-                onChange={handleSelectSupplier}
-                placeholder="Select/Search Supplier..."
-                options={suppliers.map((s) => ({
-                  value: s.id,
-                  label: s.name,
-                  sublabel: `${s.code}${s.phone ? ` • ${s.phone}` : ""}`,
-                }))}
-              />
-            </div>
-
-            <div>
-              <label className="mb-1 block text-[11px] font-semibold text-slate-700">Name</label>
-              <input
-                type="text"
-                value={contactName}
-                onChange={(e) => setContactName(e.target.value)}
-                placeholder="Name"
-                className={inputCls}
-              />
-            </div>
-
-            <div>
-              <label className="mb-1 block text-[11px] font-semibold text-slate-700">Phone</label>
-              <input
-                type="text"
-                value={contactPhone}
-                onChange={(e) => setContactPhone(e.target.value)}
-                placeholder="Phone"
-                className={inputCls}
-              />
-            </div>
-
-            <div>
-              <label className="mb-1 block text-[11px] font-semibold text-slate-700">Challan No</label>
-              <input
-                type="text"
-                value={challanNo}
-                onChange={(e) => setChallanNo(e.target.value)}
-                placeholder="Challan No"
-                className={inputCls}
-              />
-            </div>
-
-            {viewDetails && (
-              <>
-                <div>
-                  <label className="mb-1 block text-[11px] font-semibold text-slate-700">Remarks</label>
-                  <input
-                    type="text"
-                    value={remarks}
-                    onChange={(e) => setRemarks(e.target.value)}
-                    placeholder="Enter remarks"
-                    className={inputCls}
-                  />
-                </div>
-
-                <div>
-                  <label className="mb-1 block text-[11px] font-semibold text-slate-700">Payment Days after Receive</label>
-                  <input
-                    type="number"
-                    min="0"
-                    value={paymentDaysAfterReceive}
-                    onChange={(e) => setPaymentDaysAfterReceive(e.target.value)}
-                    className={inputCls}
-                  />
-                </div>
-
-                <div>
-                  <label className="mb-1 block text-[11px] font-semibold text-slate-700">Shipping Address</label>
-                  <input
-                    type="text"
-                    value={shippingAddress}
-                    onChange={(e) => setShippingAddress(e.target.value)}
-                    placeholder="Shipping Address"
-                    className={inputCls}
-                  />
-                </div>
-
-                <div>
-                  <label className="mb-1 block text-[11px] font-semibold text-slate-700">Shipment Document Number</label>
-                  <input
-                    type="text"
-                    value={shipmentDocumentNumber}
-                    onChange={(e) => setShipmentDocumentNumber(e.target.value)}
-                    placeholder="Shipment Document Number"
-                    className={inputCls}
-                  />
-                </div>
-
-                <div>
-                  <label className="mb-1 block text-[11px] font-semibold text-slate-700">Sales Invoice Number</label>
-                  <input
-                    type="text"
-                    value={salesInvoiceNumber}
-                    onChange={(e) => setSalesInvoiceNumber(e.target.value)}
-                    placeholder="Sales Invoice Number"
-                    className={inputCls}
-                  />
-                </div>
-
-                <div>
-                  <label className="mb-1 block text-[11px] font-semibold text-slate-700">VAT Challan Number</label>
-                  <input
-                    type="text"
-                    value={vatChallanNumber}
-                    onChange={(e) => setVatChallanNumber(e.target.value)}
-                    placeholder="VAT Challan Number"
-                    className={inputCls}
-                  />
-                </div>
-
-                <div>
-                  <label className="mb-1 block text-[11px] font-semibold text-slate-700">Challan Date</label>
-                  <input type="date" value={challanDate} onChange={(e) => setChallanDate(e.target.value)} className={inputCls} />
-                </div>
-
-                <div>
-                  <label className="mb-1 block text-[11px] font-semibold text-slate-700">Delivery Number</label>
-                  <input
-                    type="text"
-                    value={deliveryNumber}
-                    onChange={(e) => setDeliveryNumber(e.target.value)}
-                    placeholder="Delivery Number"
-                    className={inputCls}
-                  />
-                </div>
-
-                <div>
-                  <label className="mb-1 block text-[11px] font-semibold text-slate-700">Attachment</label>
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    multiple
-                    onChange={(e) => {
-                      if (e.target.files?.length) setAttachedFiles(Array.from(e.target.files));
-                    }}
-                    className="hidden"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => fileInputRef.current?.click()}
-                    className="inline-flex h-8 items-center gap-1.5 rounded border border-slate-300 px-2.5 text-xs text-slate-600 hover:bg-slate-50"
-                  >
-                    <Paperclip className="h-3.5 w-3.5" />
-                    {attachedFiles.length > 0 ? `${attachedFiles.length} file(s)` : "Attach"}
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
-
-          <div className="mt-2 flex justify-end">
-            <button
-              type="button"
-              onClick={() => setViewDetails((v) => !v)}
-              className="inline-flex items-center gap-1 min-h-6 text-[11px] font-semibold text-slate-700 hover:text-blue-600"
-            >
-              <span>View Details</span>
-              {viewDetails ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-            </button>
-          </div>
-        </div>
-
-        {/* Card 2: Item Entry */}
-        <div className="rounded-md border border-slate-200 bg-white p-3.5 shadow-2xs">
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <div>
-              <label className="mb-1 block text-[11px] font-semibold text-slate-700">Category</label>
-              <select
-                value={categoryFilter}
-                onChange={(e) => {
-                  setCategoryFilter(e.target.value);
-                  setSubCategoryFilter("");
-                  setMinorCategoryFilter("");
-                }}
-                className={inputCls}
-              >
-                <option value="">Select</option>
-                {categories.map((c) => (
-                  <option key={c} value={c}>
-                    {c}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="mb-1 block text-[11px] font-semibold text-slate-700">Sub Category</label>
-              <select
-                value={subCategoryFilter}
-                onChange={(e) => {
-                  setSubCategoryFilter(e.target.value);
-                  setMinorCategoryFilter("");
-                }}
-                className={inputCls}
-              >
-                <option value="">Select</option>
-                {subCategories.map((c) => (
-                  <option key={c} value={c}>
-                    {c}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="mb-1 block text-[11px] font-semibold text-slate-700">Minor Category</label>
-              <select
-                value={minorCategoryFilter}
-                onChange={(e) => setMinorCategoryFilter(e.target.value)}
-                className={inputCls}
-              >
-                <option value="">Select</option>
-                {minorCategories.map((c) => (
-                  <option key={c} value={c}>
-                    {c}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="flex items-end pb-1.5">
-              <label className="flex cursor-pointer items-center gap-2 text-xs text-slate-700">
-                <input
-                  type="checkbox"
-                  checked={filterBySupplier}
-                  onChange={(e) => setFilterBySupplier(e.target.checked)}
-                  className="h-4 w-4 rounded border-slate-300 text-blue-600"
-                />
-                <span>Item Filter By Supplier</span>
-              </label>
-            </div>
-          </div>
-
-          <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-12">
-            <div className="lg:col-span-4">
-              <div className="mb-1 flex items-center justify-between">
-                <label className="text-[11px] font-semibold text-slate-700">
-                  Item<span className="text-red-500">*</span>
-                </label>
-                {perms.quickItemCreate && (
-                  <button
-                    type="button"
-                    onClick={() => setIsAddItemOpen(true)}
-                    className="inline-flex items-center gap-0.5 min-h-6 -my-0.5 text-[11px] font-semibold text-blue-600 hover:text-blue-700"
-                  >
-                    <Plus className="h-3 w-3" /> ADD NEW
-                  </button>
-                )}
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  disabled={saveMutation.isPending || !perms.receive.create}
+                  onClick={() => saveMutation.mutate(true)}
+                  className="h-8 rounded border border-blue-500 bg-white px-3.5 text-xs font-medium text-blue-600 transition hover:bg-blue-50 disabled:opacity-50"
+                  className="h-8 px-4 border border-[#2563eb] text-[#2563eb] hover:bg-blue-50 font-semibold text-xs rounded transition flex items-center gap-1.5 disabled:opacity-50"
+                >
+                  {saveMutation.isPending && <Spinner className="size-3.5" />}
+                  Save & New
+                </button>
+                <button
+                  type="button"
+                  disabled={saveMutation.isPending || !perms.receive.create}
+                  onClick={() => saveMutation.mutate(false)}
+                  className="flex h-8 items-center gap-1.5 rounded bg-blue-600 px-4 text-xs font-semibold text-white transition hover:bg-blue-700 disabled:opacity-50"
+                  className="h-8 px-5 bg-[#2563eb] hover:bg-blue-700 text-white font-semibold text-xs rounded transition flex items-center gap-1.5 shadow-2xs disabled:opacity-50"
+                >
+                  {saveMutation.isPending && <Spinner className="h-3.5 w-3.5" />}
+                  {saveMutation.isPending && <Spinner className="size-3.5" />}
+                  SAVE
+                </button>
               </div>
-              <SearchableCombobox
-                value={selectedItemId}
-                onChange={handleSelectItem}
-                placeholder="Select/Search Item (min 3 letters)"
-                minCharsHint={3}
-                options={filteredItems.map((it) => ({
-                  value: it.id,
-                  label: `${it.code} - ${it.name}`,
-                  sublabel: `${it.category} • ${it.uom} • Base: ${it.standardPrice}`,
-                  searchText: `${it.barcode ?? ""} ${it.brand ?? ""}`,
-                }))}
-              />
             </div>
 
-            <div className="lg:col-span-2">
-              <label className="mb-1 flex items-center justify-between text-[11px] font-semibold text-slate-700">
-                <span>Quantity</span>
-                <Info className="h-3.5 w-3.5 text-slate-400" />
-              </label>
-              <input
-                type="number"
-                step="0.001"
-                min="0"
-                value={lineQty}
-                onChange={(e) => setLineQty(e.target.value)}
-                placeholder="Quantity"
-                className={inputCls}
-              />
-            </div>
-
-            <div className="lg:col-span-2">
-              <label className="mb-1 flex items-center justify-between text-[11px] font-semibold text-slate-700">
-                <span>
-                  Rate (BDT)<span className="text-red-500">*</span>
-                </span>
-                <Info className="h-3.5 w-3.5 text-slate-400" />
-              </label>
-              <input
-                type="number"
-                step="0.01"
-                min="0"
-                readOnly={amountDriven}
-                value={amountDriven ? String(livePricing.displayRate || "") : lineRate}
-                onChange={(e) => setLineRate(e.target.value)}
-                placeholder="Rate"
-                className={amountDriven ? "h-8 w-full rounded border border-slate-200 bg-slate-100 px-2.5 text-xs text-slate-600" : inputCls}
-              />
-            </div>
-
-            <div className="lg:col-span-2">
-              <label className="mb-1 block text-[11px] font-semibold text-slate-700">Total Amount</label>
-              <input
-                type="number"
-                step="0.01"
-                min="0"
-                readOnly={!amountDriven}
-                value={amountDriven ? lineTotalInput : livePricing.lineTotal ? String(livePricing.lineTotal) : ""}
-                onChange={(e) => setLineTotalInput(e.target.value)}
-                placeholder="Total Amount"
-                className={!amountDriven ? "h-8 w-full rounded border border-slate-200 bg-slate-50 px-2.5 text-xs text-slate-700" : inputCls}
-              />
-            </div>
-
-            <div className="lg:col-span-2">
-              <div className="mb-1 flex items-center justify-between">
-                <label className="text-[11px] font-semibold text-slate-700">VAT(%)</label>
-                <input
-                  type="checkbox"
-                  checked={lineVatEnabled}
-                  onChange={(e) => setLineVatEnabled(e.target.checked)}
-                  title="Apply VAT on line"
-                  className="h-3.5 w-3.5 rounded border-slate-300 text-blue-600"
-                />
-              </div>
-              <input
-                type="number"
-                step="0.01"
-                min="0"
-                max="100"
-                disabled={!lineVatEnabled}
-                value={lineVatPct}
-                onChange={(e) => setLineVatPct(e.target.value)}
-                placeholder="VAT"
-                className={inputCls}
-              />
-            </div>
-          </div>
-
-          <div className="mt-3 flex flex-wrap items-end gap-3">
-            <div className="min-w-[180px] flex-1">
-              <label className="mb-1 block text-[11px] font-semibold text-slate-700">Brand</label>
-              <input
-                type="text"
-                value={lineBrand}
-                onChange={(e) => setLineBrand(e.target.value)}
-                placeholder="Enter brand"
-                className={inputCls}
-              />
-            </div>
-            <div className="min-w-[220px] flex-1">
-              <label className="mb-1 block text-[11px] font-semibold text-slate-700">Specification</label>
-              <input
-                type="text"
-                value={lineSpecification}
-                onChange={(e) => setLineSpecification(e.target.value)}
-                placeholder="Enter specification"
-                className={inputCls}
-              />
-            </div>
-            <label className="flex h-8 cursor-pointer items-center gap-2 px-1 text-xs text-slate-700">
-              <input
-                type="checkbox"
-                checked={addAllFlag}
-                onChange={(e) => setAddAllFlag(e.target.checked)}
-                className="h-4 w-4 rounded border-slate-300 text-blue-600"
-              />
-              <span>All</span>
-            </label>
-            <button
-              type="button"
-              onClick={handleAddLine}
-              className="h-8 rounded border border-slate-300 bg-slate-100 px-4 text-xs font-semibold text-slate-700 transition hover:border-blue-600 hover:bg-blue-600 hover:text-white"
-            >
-              Add
-            </button>
-          </div>
-        </div>
-
-        {/* Received Items Table */}
-        <div className="overflow-hidden rounded-md border border-slate-200 bg-white shadow-2xs">
-          <div className="overflow-x-auto">
-            <table className="w-full border-collapse text-left text-xs">
-              <thead>
-                <tr className="border-b border-slate-200 bg-slate-50 text-[11px] font-semibold text-slate-600">
-                  <th className="px-3 py-2">SL</th>
-                  <th className="px-3 py-2">Item Code</th>
-                  <th className="px-3 py-2">Item Name</th>
-                  <th className="px-3 py-2">UoM</th>
-                  <th className="px-3 py-2">Brand / Spec</th>
-                  <th className="px-3 py-2 text-right">Qty</th>
-                  <th className="px-3 py-2 text-right">Base Rate (BDT)</th>
-                  <th className="px-3 py-2 text-right">VAT %</th>
-                  <th className="px-3 py-2 text-right">VAT Amt</th>
-                  <th className="px-3 py-2 text-right">Total Amount</th>
-                  <th className="px-3 py-2 text-center">Action</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {addedLines.length === 0 ? (
-                  <tr>
-                    <td colSpan={11} className="py-8 text-center text-xs text-slate-400">
-                      No items added yet. Select an item above and click Add to receive directly into warehouse stock.
-                    </td>
-                  </tr>
-                ) : (
-                  addedLines.map((row, idx) => (
-                    <tr key={row.key} className="hover:bg-slate-50">
-                      <td className="px-3 py-2 text-slate-500">{idx + 1}</td>
-                      <td className="px-3 py-2 font-mono text-sky-700">{row.itemCode}</td>
-                      <td className="px-3 py-2 font-medium text-slate-800">{row.itemName}</td>
-                      <td className="px-3 py-2 text-slate-600">{row.uom}</td>
-                      <td className="px-3 py-2 text-slate-500">{row.specification || row.brand || "-"}</td>
-                      <td className="px-3 py-2 text-right font-mono">{row.quantity}</td>
-                      <td className="px-3 py-2 text-right font-mono">{formatCurrency(row.unitPrice)}</td>
-                      <td className="px-3 py-2 text-right font-mono">{row.taxPercentage}%</td>
-                      <td className="px-3 py-2 text-right font-mono">{formatCurrency(row.vatAmount)}</td>
-                      <td className="px-3 py-2 text-right font-mono font-semibold text-slate-900">
-                        {formatCurrency(row.lineTotal)}
-                      </td>
-                      <td className="px-3 py-2 text-center">
+            <div className="space-y-3 p-3.5">
+              <div className="space-y-3">
+                {/* Card 1: Top Header */}
+                <div className="rounded-md border border-slate-200 bg-white p-3.5 shadow-2xs">
+                  <div className="mb-3 grid grid-cols-2 gap-3 border-b border-slate-100 pb-2.5 text-xs text-slate-700 sm:grid-cols-4">
+                    <div className="bg-white border border-slate-200/90 rounded shadow-2xs overflow-hidden mb-3">
+                      {/* Card Tab Header with Collapse Chevron */}
+                      <div className="flex items-center justify-between border-b border-slate-200 bg-white px-3 pt-2">
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            className="px-4 py-2 text-xs font-semibold rounded-t bg-[#e6f2fb] text-blue-700 border-b-2 border-blue-600 transition"
+                          >
+                            Basic Information
+                          </button>
+                        </div>
                         <button
                           type="button"
-                          onClick={() => setAddedLines((prev) => prev.filter((l) => l.key !== row.key))}
-                          className="rounded p-1 text-red-500 hover:bg-red-50"
-                          title="Remove item"
+                          onClick={() => setIsHeaderCollapsed(!isHeaderCollapsed)}
+                          className="p-1.5 text-slate-400 hover:text-slate-600 rounded transition"
+                          title={isHeaderCollapsed ? "Expand" : "Collapse"}
                         >
-                          <Trash2 className="h-3.5 w-3.5" />
+                          {isHeaderCollapsed ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
                         </button>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-          {addedLines.length > 0 && (
-            <div className="flex flex-wrap items-center justify-end gap-6 border-t border-slate-200 bg-slate-50 px-4 py-2.5 text-xs">
-              <span className="text-slate-600">
-                Total Qty: <strong className="font-mono text-slate-900">{totals.qty}</strong>
-              </span>
-              <span className="text-slate-600">
-                Subtotal: <strong className="font-mono text-slate-900">{formatCurrency(totals.sub)}</strong>
-              </span>
-              <span className="text-slate-600">
-                Total VAT: <strong className="font-mono text-slate-900">{formatCurrency(totals.vat)}</strong>
-              </span>
-              <span className="text-slate-700">
-                Net Receive Value: <strong className="font-mono text-sm text-blue-700">{formatCurrency(totals.net)}</strong>
-              </span>
-            </div>
-          )}
-        </div>
-      </div>
+                      </div>
 
-      <QuickAddSupplierModal
-        isOpen={isAddSupplierOpen}
-        onClose={() => setIsAddSupplierOpen(false)}
-        onCreated={(s) => handleSelectSupplier(s.id)}
-      />
+                      {!isHeaderCollapsed && (
+                        <div className="p-4 space-y-3.5">
+                          <div className="mb-3 grid grid-cols-2 gap-3 border-b border-slate-100 pb-2.5 text-xs text-slate-700 sm:grid-cols-4">
+                            <label className="flex cursor-pointer items-center gap-2">
+                              <input
+                                type="checkbox"
+                                checked={createFromRequisition}
+                                onChange={(e) => setCreateFromRequisition(e.target.checked)}
+                                className="h-4 w-4 rounded border-slate-300 text-blue-600"
+                              />
+                              <span>Create From Requisition</span>
+                            </label>
+                            <label className="flex cursor-pointer items-center gap-2">
+                              <input
+                                type="checkbox"
+                                checked={createFromSalesOrder}
+                                onChange={(e) => setCreateFromSalesOrder(e.target.checked)}
+                                className="h-4 w-4 rounded border-slate-300 text-blue-600"
+                              />
+                              <span>Create From Sales Order</span>
+                            </label>
+                            <label className="flex cursor-pointer items-center gap-2">
+                              <input
+                                type="checkbox"
+                                checked={priceIncludingVat}
+                                onChange={(e) => setPriceIncludingVat(e.target.checked)}
+                                className="h-4 w-4 rounded border-slate-300 text-blue-600"
+                              />
+                              <span>Price Including VAT</span>
+                            </label>
+                            <label className="flex cursor-pointer items-center gap-2">
+                              <input
+                                type="checkbox"
+                                checked={amountDriven}
+                                onChange={(e) => setAmountDriven(e.target.checked)}
+                                className="h-4 w-4 rounded border-slate-300 text-blue-600"
+                              />
+                              <span>Amount Driven</span>
+                            </label>
+                          </div>
 
-      <QuickAddItemModal
-        isOpen={isAddItemOpen}
-        onClose={() => setIsAddItemOpen(false)}
-        categories={formOptions?.categories ?? []}
-        onCreated={(it) => handleSelectItem(it.id)}
-      />
-    </div>
-  );
+                          {(createFromRequisition || createFromSalesOrder) && (
+                            <div className="mb-3 grid grid-cols-1 gap-3 rounded border border-blue-100 bg-blue-50/40 p-2.5 sm:grid-cols-2">
+                              {createFromRequisition && (
+                                <div>
+                                  <label className="mb-1 block text-[11px] font-semibold text-blue-800">Approved Requisition</label>
+                                  <SearchableCombobox
+                                    value={selectedRequisitionId}
+                                    onChange={handleLoadRequisition}
+                                    placeholder="Select Approved Requisition..."
+                                    options={requisitions.map((r) => ({
+                                      value: r.id,
+                                      label: `${r.requisitionNumber} — ${r.requesterName}`,
+                                      sublabel: `${r.requestDate} • ${formatCurrency(r.totalEstimatedAmount)}`,
+                                    }))}
+                                  />
+                                </div>
+                              )}
+                              {createFromSalesOrder && (
+                                <div>
+                                  <label className="mb-1 block text-[11px] font-semibold text-blue-800">Sales Order</label>
+                                  <SearchableCombobox
+                                    value={selectedSalesOrderId}
+                                    onChange={handleLoadSalesOrder}
+                                    placeholder="Select Sales Order..."
+                                    options={(formOptions?.salesOrders ?? []).map((so) => ({
+                                      value: so.id,
+                                      label: `${so.number} — ${so.customerName}`,
+                                      sublabel: `${so.orderDate} • ${so.lines.length} line(s)`,
+                                    }))}
+                                  />
+                                </div>
+                              )}
+                            </div>
+                          )}
+
+                          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                            <div>
+                              <label className="mb-1 block text-[11px] font-semibold text-slate-700">Create Date</label>
+                              <input type="date" value={receiveDate} onChange={(e) => setReceiveDate(e.target.value)} className={inputCls} />
+                            </div>
+
+                            <div>
+                              <label className="mb-1 block text-[11px] font-semibold text-slate-700">
+                                Office<span className="text-red-500">*</span>
+                                <label className="mb-1 block text-xs font-semibold text-slate-700">
+                                  <span className="text-red-500 font-bold mr-0.5">*</span>Office
+                                </label>
+                                <select
+                                  value={selectedOfficeId}
+                                  onChange={(e) => {
+                                    const newOfficeId = e.target.value;
+                                    setPickedOfficeId(newOfficeId);
+                                    const matchingWh = allWarehouses.find((w) => w.officeId === newOfficeId);
+                                    setPickedWarehouseId(matchingWh?.id || "");
+                                  }}
+                                  className={inputCls}
+                                >
+                                  <option value="">Select Office</option>
+                                  {offices.map((o) => (
+                                    <option key={o.id} value={o.id}>
+                                      {o.name}
+                                    </option>
+                                  ))}
+                                </select>
+                            </div>
+
+                            <div>
+                              <label className="mb-1 block text-[11px] font-semibold text-slate-700">
+                                Warehouse<span className="text-red-500">*</span>
+                                <label className="mb-1 block text-xs font-semibold text-slate-700">
+                                  <span className="text-red-500 font-bold mr-0.5">*</span>Warehouse
+                                </label>
+                                <select
+                                  value={selectedWarehouseId}
+                                  onChange={(e) => setPickedWarehouseId(e.target.value)}
+                                  disabled={!selectedOfficeId}
+                                  className={`${inputCls} disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed`}
+                                >
+                                  {!selectedOfficeId ? (
+                                    <option value="">Select office first</option>
+                                  ) : availableWarehouses.length === 0 ? (
+                                    <option value="">No warehouse for this office</option>
+                                  ) : (
+                                    availableWarehouses.map((w) => (
+                                      <option key={w.id} value={w.id}>
+                                        {w.name}
+                                      </option>
+                                    ))
+                                  )}
+                                </select>
+                            </div>
+
+                            <div>
+                              <label className="mb-1 block text-[11px] font-semibold text-slate-700">
+                                Item Type<span className="text-red-500">*</span>
+                                <label className="mb-1 block text-xs font-semibold text-slate-700">
+                                  <span className="text-red-500 font-bold mr-0.5">*</span>Item Type
+                                </label>
+                                <select value={itemType} onChange={(e) => setItemType(e.target.value)} className={inputCls}>
+                                  {INVENTORY_TYPE_OPTIONS.map((t) => (
+                                    <option key={t} value={t}>
+                                      {t}
+                                    </option>
+                                  ))}
+                                </select>
+                            </div>
+
+                            <div>
+                              <div className="mb-1 flex items-center justify-between">
+                                <label className="text-[11px] font-semibold text-slate-700">
+                                  Select Supplier<span className="text-red-500">*</span>
+                                  <label className="text-xs font-semibold text-slate-700">
+                                    <span className="text-red-500 font-bold mr-0.5">*</span>Select Supplier
+                                  </label>
+                                  {perms.quickSupplierCreate && (
+                                    <button
+                                      type="button"
+                                      onClick={() => setIsAddSupplierOpen(true)}
+                                      className="inline-flex items-center gap-0.5 min-h-6 -my-0.5 text-[11px] font-semibold text-blue-600 hover:text-blue-700"
+                                    >
+                                      <Plus className="h-3 w-3" /> ADD NEW
+                                    </button>
+                                  )}
+                              </div>
+                              <SearchableCombobox
+                                value={supplierId}
+                                onChange={handleSelectSupplier}
+                                placeholder="Select/Search Supplier..."
+                                options={suppliers.map((s) => ({
+                                  value: s.id,
+                                  label: s.name,
+                                  sublabel: `${s.code}${s.phone ? ` • ${s.phone}` : ""}`,
+                                }))}
+                              />
+                            </div>
+
+                            <div>
+                              <label className="mb-1 block text-[11px] font-semibold text-slate-700">Name</label>
+                              <input
+                                type="text"
+                                value={contactName}
+                                onChange={(e) => setContactName(e.target.value)}
+                                placeholder="Name"
+                                className={inputCls}
+                              />
+                            </div>
+
+                            <div>
+                              <label className="mb-1 block text-[11px] font-semibold text-slate-700">Phone</label>
+                              <input
+                                type="text"
+                                value={contactPhone}
+                                onChange={(e) => setContactPhone(e.target.value)}
+                                placeholder="Phone"
+                                className={inputCls}
+                              />
+                            </div>
+
+                            <div>
+                              <label className="mb-1 block text-[11px] font-semibold text-slate-700">Challan No</label>
+                              <input
+                                type="text"
+                                value={challanNo}
+                                onChange={(e) => setChallanNo(e.target.value)}
+                                placeholder="Challan No"
+                                className={inputCls}
+                              />
+                            </div>
+
+                            {viewDetails && (
+                              <>
+                                <div>
+                                  <label className="mb-1 block text-[11px] font-semibold text-slate-700">Remarks</label>
+                                  <input
+                                    type="text"
+                                    value={remarks}
+                                    onChange={(e) => setRemarks(e.target.value)}
+                                    placeholder="Enter remarks"
+                                    className={inputCls}
+                                  />
+                                </div>
+
+                                <div>
+                                  <label className="mb-1 block text-[11px] font-semibold text-slate-700">Payment Days after Receive</label>
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    value={paymentDaysAfterReceive}
+                                    onChange={(e) => setPaymentDaysAfterReceive(e.target.value)}
+                                    className={inputCls}
+                                  />
+                                </div>
+
+                                <div>
+                                  <label className="mb-1 block text-[11px] font-semibold text-slate-700">Shipping Address</label>
+                                  <input
+                                    type="text"
+                                    value={shippingAddress}
+                                    onChange={(e) => setShippingAddress(e.target.value)}
+                                    placeholder="Shipping Address"
+                                    className={inputCls}
+                                  />
+                                </div>
+
+                                <div>
+                                  <label className="mb-1 block text-[11px] font-semibold text-slate-700">Shipment Document Number</label>
+                                  <input
+                                    type="text"
+                                    value={shipmentDocumentNumber}
+                                    onChange={(e) => setShipmentDocumentNumber(e.target.value)}
+                                    placeholder="Shipment Document Number"
+                                    className={inputCls}
+                                  />
+                                </div>
+
+                                <div>
+                                  <label className="mb-1 block text-[11px] font-semibold text-slate-700">Sales Invoice Number</label>
+                                  <input
+                                    type="text"
+                                    value={salesInvoiceNumber}
+                                    onChange={(e) => setSalesInvoiceNumber(e.target.value)}
+                                    placeholder="Sales Invoice Number"
+                                    className={inputCls}
+                                  />
+                                </div>
+
+                                <div>
+                                  <label className="mb-1 block text-[11px] font-semibold text-slate-700">VAT Challan Number</label>
+                                  <input
+                                    type="text"
+                                    value={vatChallanNumber}
+                                    onChange={(e) => setVatChallanNumber(e.target.value)}
+                                    placeholder="VAT Challan Number"
+                                    className={inputCls}
+                                  />
+                                </div>
+
+                                <div>
+                                  <label className="mb-1 block text-[11px] font-semibold text-slate-700">Challan Date</label>
+                                  <input type="date" value={challanDate} onChange={(e) => setChallanDate(e.target.value)} className={inputCls} />
+                                </div>
+
+                                <div>
+                                  <label className="mb-1 block text-[11px] font-semibold text-slate-700">Delivery Number</label>
+                                  <input
+                                    type="text"
+                                    value={deliveryNumber}
+                                    onChange={(e) => setDeliveryNumber(e.target.value)}
+                                    placeholder="Delivery Number"
+                                    className={inputCls}
+                                  />
+                                </div>
+
+                                <div>
+                                  <label className="mb-1 block text-[11px] font-semibold text-slate-700">Attachment</label>
+                                  <input
+                                    ref={fileInputRef}
+                                    type="file"
+                                    multiple
+                                    onChange={(e) => {
+                                      if (e.target.files?.length) setAttachedFiles(Array.from(e.target.files));
+                                    }}
+                                    className="hidden"
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => fileInputRef.current?.click()}
+                                    className="inline-flex h-8 items-center gap-1.5 rounded border border-slate-300 px-2.5 text-xs text-slate-600 hover:bg-slate-50"
+                                  >
+                                    <Paperclip className="h-3.5 w-3.5" />
+                                    {attachedFiles.length > 0 ? `${attachedFiles.length} file(s)` : "Attach"}
+                                  </button>
+                                </div>
+                              </>
+                            )}
+                          </div>
+
+                          <div className="mt-2 flex justify-end">
+                            <button
+                              type="button"
+                              onClick={() => setViewDetails((v) => !v)}
+                              className="inline-flex items-center gap-1 min-h-6 text-[11px] font-semibold text-slate-700 hover:text-blue-600"
+                            >
+                              <span>View Details</span>
+                              {viewDetails ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Card 2: Item Entry */}
+                    <div className="rounded-md border border-slate-200 bg-white p-3.5 shadow-2xs">
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                        {/* Card 2: Receive Items */}
+                        <div className="bg-white border border-slate-200/90 rounded shadow-2xs overflow-hidden mb-3">
+                          <div className="flex items-center justify-between border-b border-slate-200 bg-white px-3 pt-2">
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                className="px-4 py-2 text-xs font-semibold rounded-t bg-[#e6f2fb] text-blue-700 border-b-2 border-blue-600 transition"
+                              >
+                                Receive Items
+                              </button>
+                            </div>
+                          </div>
+                          <div className="p-4 space-y-3.5">
+                            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                              <div>
+                                <label className="mb-1 block text-[11px] font-semibold text-slate-700">Category</label>
+                                <select
+                                  value={categoryFilter}
+                                  onChange={(e) => {
+                                    setCategoryFilter(e.target.value);
+                                    setSubCategoryFilter("");
+                                    setMinorCategoryFilter("");
+                                  }}
+                                  className={inputCls}
+                                >
+                                  <option value="">Select</option>
+                                  {categories.map((c) => (
+                                    <option key={c} value={c}>
+                                      {c}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                              <div>
+                                <label className="mb-1 block text-[11px] font-semibold text-slate-700">Sub Category</label>
+                                <select
+                                  value={subCategoryFilter}
+                                  onChange={(e) => {
+                                    setSubCategoryFilter(e.target.value);
+                                    setMinorCategoryFilter("");
+                                  }}
+                                  className={inputCls}
+                                >
+                                  <option value="">Select</option>
+                                  {subCategories.map((c) => (
+                                    <option key={c} value={c}>
+                                      {c}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                              <div>
+                                <label className="mb-1 block text-[11px] font-semibold text-slate-700">Minor Category</label>
+                                <select
+                                  value={minorCategoryFilter}
+                                  onChange={(e) => setMinorCategoryFilter(e.target.value)}
+                                  className={inputCls}
+                                >
+                                  <option value="">Select</option>
+                                  {minorCategories.map((c) => (
+                                    <option key={c} value={c}>
+                                      {c}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                              <div className="flex items-end pb-1.5">
+                                <label className="flex cursor-pointer items-center gap-2 text-xs text-slate-700">
+                                  <input
+                                    type="checkbox"
+                                    checked={filterBySupplier}
+                                    onChange={(e) => setFilterBySupplier(e.target.checked)}
+                                    className="h-4 w-4 rounded border-slate-300 text-blue-600"
+                                  />
+                                  <span>Item Filter By Supplier</span>
+                                </label>
+                              </div>
+                            </div>
+
+                            <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-12">
+                              <div className="lg:col-span-4">
+                                <div className="mb-1 flex items-center justify-between">
+                                  <label className="text-[11px] font-semibold text-slate-700">
+                                    <span className="text-red-500 font-bold mr-0.5">*</span>Item
+                                  </label>
+                                  {perms.quickItemCreate && (
+                                    <button
+                                      type="button"
+                                      onClick={() => setIsAddItemOpen(true)}
+                                      className="inline-flex items-center gap-0.5 min-h-6 -my-0.5 text-[11px] font-semibold text-blue-600 hover:text-blue-700"
+                                    >
+                                      <Plus className="h-3 w-3" /> ADD NEW
+                                    </button>
+                                  )}
+                                </div>
+                                <SearchableCombobox
+                                  value={selectedItemId}
+                                  onChange={handleSelectItem}
+                                  placeholder="Select/Search Item (min 3 letters)"
+                                  minCharsHint={3}
+                                  options={filteredItems.map((it) => ({
+                                    value: it.id,
+                                    label: `${it.code} - ${it.name}`,
+                                    sublabel: `${it.category} • ${it.uom} • Base: ${it.standardPrice}`,
+                                    searchText: `${it.barcode ?? ""} ${it.brand ?? ""}`,
+                                  }))}
+                                />
+                              </div>
+
+                              <div className="lg:col-span-2">
+                                <label className="mb-1 flex items-center justify-between text-[11px] font-semibold text-slate-700">
+                                  <span>Quantity</span>
+                                  <Info className="h-3.5 w-3.5 text-slate-400" />
+                                </label>
+                                <input
+                                  type="number"
+                                  step="0.001"
+                                  min="0"
+                                  value={lineQty}
+                                  onChange={(e) => setLineQty(e.target.value)}
+                                  placeholder="Quantity"
+                                  className={inputCls}
+                                />
+                              </div>
+
+                              <div className="lg:col-span-2">
+                                <label className="mb-1 flex items-center justify-between text-[11px] font-semibold text-slate-700">
+                                  <span>
+                                    <span className="text-red-500 font-bold mr-0.5">*</span>Rate (BDT)
+                                  </span>
+                                  <Info className="h-3.5 w-3.5 text-slate-400" />
+                                </label>
+                                <input
+                                  type="number"
+                                  step="0.01"
+                                  min="0"
+                                  readOnly={amountDriven}
+                                  value={amountDriven ? String(livePricing.displayRate || "") : lineRate}
+                                  onChange={(e) => setLineRate(e.target.value)}
+                                  placeholder="Rate"
+                                  className={amountDriven ? "h-8 w-full rounded border border-slate-200 bg-slate-100 px-2.5 text-xs text-slate-600" : inputCls}
+                                />
+                              </div>
+
+                              <div className="lg:col-span-2">
+                                <label className="mb-1 block text-[11px] font-semibold text-slate-700">Total Amount</label>
+                                <input
+                                  type="number"
+                                  step="0.01"
+                                  min="0"
+                                  readOnly={!amountDriven}
+                                  value={amountDriven ? lineTotalInput : livePricing.lineTotal ? String(livePricing.lineTotal) : ""}
+                                  onChange={(e) => setLineTotalInput(e.target.value)}
+                                  placeholder="Total Amount"
+                                  className={!amountDriven ? "h-8 w-full rounded border border-slate-200 bg-slate-50 px-2.5 text-xs text-slate-700" : inputCls}
+                                />
+                              </div>
+
+                              <div className="lg:col-span-2">
+                                <div className="mb-1 flex items-center justify-between">
+                                  <label className="text-[11px] font-semibold text-slate-700">VAT(%)</label>
+                                  <input
+                                    type="checkbox"
+                                    checked={lineVatEnabled}
+                                    onChange={(e) => setLineVatEnabled(e.target.checked)}
+                                    title="Apply VAT on line"
+                                    className="h-3.5 w-3.5 rounded border-slate-300 text-blue-600"
+                                  />
+                                </div>
+                                <input
+                                  type="number"
+                                  step="0.01"
+                                  min="0"
+                                  max="100"
+                                  disabled={!lineVatEnabled}
+                                  value={lineVatPct}
+                                  onChange={(e) => setLineVatPct(e.target.value)}
+                                  placeholder="VAT"
+                                  className={inputCls}
+                                />
+                              </div>
+                            </div>
+
+                            <div className="mt-3 flex flex-wrap items-end gap-3">
+                              <div className="min-w-[180px] flex-1">
+                                <label className="mb-1 block text-[11px] font-semibold text-slate-700">Brand</label>
+                                <input
+                                  type="text"
+                                  value={lineBrand}
+                                  onChange={(e) => setLineBrand(e.target.value)}
+                                  placeholder="Enter brand"
+                                  className={inputCls}
+                                />
+                              </div>
+                              <div className="min-w-[220px] flex-1">
+                                <label className="mb-1 block text-[11px] font-semibold text-slate-700">Specification</label>
+                                <input
+                                  type="text"
+                                  value={lineSpecification}
+                                  onChange={(e) => setLineSpecification(e.target.value)}
+                                  placeholder="Enter specification"
+                                  className={inputCls}
+                                />
+                              </div>
+                              <label className="flex h-8 cursor-pointer items-center gap-2 px-1 text-xs text-slate-700">
+                                <input
+                                  type="checkbox"
+                                  checked={addAllFlag}
+                                  onChange={(e) => setAddAllFlag(e.target.checked)}
+                                  className="h-4 w-4 rounded border-slate-300 text-blue-600"
+                                />
+                                <span>All</span>
+                              </label>
+                              <button
+                                type="button"
+                                onClick={handleAddLine}
+                                className="h-8 rounded border border-slate-300 bg-slate-100 px-4 text-xs font-semibold text-slate-700 transition hover:border-blue-600 hover:bg-blue-600 hover:text-white"
+                              >
+                                Add
+                              </button>
+                            </div>
+
+                            {/* Received Items Table */}
+                            <div className="overflow-hidden rounded-md border border-slate-200 bg-white shadow-2xs">
+                              <div className="overflow-x-auto">
+                                <table className="w-full border-collapse text-left text-xs">
+                                  <thead>
+                                    <tr className="border-b border-blue-200 bg-[#e6f2fb] text-[11px] font-semibold text-slate-800">
+                                      <th className="px-3 py-2">SL</th>
+                                      <th className="px-3 py-2">Item Code</th>
+                                      <th className="px-3 py-2">Item Name</th>
+                                      <th className="px-3 py-2">UoM</th>
+                                      <th className="px-3 py-2">Brand / Spec</th>
+                                      <th className="px-3 py-2 text-right">Qty</th>
+                                      <th className="px-3 py-2 text-right">Base Rate (BDT)</th>
+                                      <th className="px-3 py-2 text-right">VAT %</th>
+                                      <th className="px-3 py-2 text-right">VAT Amt</th>
+                                      <th className="px-3 py-2 text-right">Total Amount</th>
+                                      <th className="px-3 py-2 text-center">Action</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody className="divide-y divide-slate-100">
+                                    {addedLines.length === 0 ? (
+                                      <tr>
+                                        <td colSpan={11} className="py-8 text-center text-xs text-slate-400">
+                                          No items added yet. Select an item above and click Add to receive directly into warehouse stock.
+                                        </td>
+                                      </tr>
+                                    ) : (
+                                      addedLines.map((row, idx) => (
+                                        <tr key={row.key} className="hover:bg-slate-50">
+                                          <td className="px-3 py-2 text-slate-500">{idx + 1}</td>
+                                          <td className="px-3 py-2 font-mono text-sky-700">{row.itemCode}</td>
+                                          <td className="px-3 py-2 font-medium text-slate-800">{row.itemName}</td>
+                                          <td className="px-3 py-2 text-slate-600">{row.uom}</td>
+                                          <td className="px-3 py-2 text-slate-500">{row.specification || row.brand || "-"}</td>
+                                          <td className="px-3 py-2 text-right font-mono">{row.quantity}</td>
+                                          <td className="px-3 py-2 text-right font-mono">{formatCurrency(row.unitPrice)}</td>
+                                          <td className="px-3 py-2 text-right font-mono">{row.taxPercentage}%</td>
+                                          <td className="px-3 py-2 text-right font-mono">{formatCurrency(row.vatAmount)}</td>
+                                          <td className="px-3 py-2 text-right font-mono font-semibold text-slate-900">
+                                            {formatCurrency(row.lineTotal)}
+                                          </td>
+                                          <td className="px-3 py-2 text-center">
+                                            <button
+                                              type="button"
+                                              onClick={() => setAddedLines((prev) => prev.filter((l) => l.key !== row.key))}
+                                              className="rounded p-1 text-red-500 hover:bg-red-50"
+                                              title="Remove item"
+                                            >
+                                              <Trash2 className="h-3.5 w-3.5" />
+                                            </button>
+                                          </td>
+                                        </tr>
+                                      ))
+                                    )}
+                                  </tbody>
+                                </table>
+                              </div>
+                              {addedLines.length > 0 && (
+                                <div className="flex flex-wrap items-center justify-end gap-6 border-t border-slate-200 bg-slate-50 px-4 py-2.5 text-xs">
+                                  <span className="text-slate-600">
+                                    Total Qty: <strong className="font-mono text-slate-900">{totals.qty}</strong>
+                                  </span>
+                                  <span className="text-slate-600">
+                                    Subtotal: <strong className="font-mono text-slate-900">{formatCurrency(totals.sub)}</strong>
+                                  </span>
+                                  <span className="text-slate-600">
+                                    Total VAT: <strong className="font-mono text-slate-900">{formatCurrency(totals.vat)}</strong>
+                                  </span>
+                                  <span className="text-slate-700">
+                                    Net Receive Value: <strong className="font-mono text-sm text-blue-700">{formatCurrency(totals.net)}</strong>
+                                  </span>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      <QuickAddSupplierModal
+                        isOpen={isAddSupplierOpen}
+                        onClose={() => setIsAddSupplierOpen(false)}
+                        onCreated={(s) => handleSelectSupplier(s.id)}
+                      />
+
+                      <QuickAddItemModal
+                        isOpen={isAddItemOpen}
+                        onClose={() => setIsAddItemOpen(false)}
+                        categories={formOptions?.categories ?? []}
+                        onCreated={(it) => handleSelectItem(it.id)}
+                      />
+                    </div>
+                    );
 }
 

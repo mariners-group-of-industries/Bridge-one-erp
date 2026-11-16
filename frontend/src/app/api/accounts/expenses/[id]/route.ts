@@ -3,6 +3,7 @@ import { db } from "@/lib/prisma/client";
 import { apiHandler } from "@/lib/api/handler";
 import { createVoucherInTx } from "@/lib/accounting/accounts-service";
 import type { Actor } from "@/lib/auth/actor";
+import { denyUnless } from "@/lib/permissions/require";
 
 async function handlePATCH(
   request: Request,
@@ -13,6 +14,11 @@ async function handlePATCH(
     const { id } = await params;
     const body = await request.json();
     const action = String(body?.action || "").toUpperCase();
+    // Approving or rejecting an expense / advance is a decision, not an edit.
+    if (["APPROVED", "REJECTED"].includes(String(body?.status || "").toUpperCase())) {
+      const denied = denyUnless(actor, "/accounts/expenses", "approve");
+      if (denied) return denied;
+    }
     const prisma = db();
 
     const existing = await prisma.expenseRecord.findUnique({ where: { id }, include: { lines: { orderBy: { lineNo: "asc" } } } });

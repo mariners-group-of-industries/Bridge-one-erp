@@ -125,34 +125,34 @@ const ToastCard: React.FC<ToastProps> = ({ toast: item, onDismiss }) => {
     switch (item.type) {
       case "success":
         return {
-          icon: <CheckCircle2 className="w-5 h-5 text-emerald-600" />,
-          iconBg: "bg-emerald-100",
-          border: "border-emerald-200",
+          icon: <CheckCircle2 className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />,
+          iconBg: "bg-emerald-100 dark:bg-emerald-500/15",
+          border: "border-emerald-200 dark:border-emerald-500/30",
           progressBg: "bg-emerald-500",
           glow: "shadow-emerald-500/10",
         };
       case "error":
         return {
-          icon: <AlertCircle className="w-5 h-5 text-rose-600" />,
-          iconBg: "bg-rose-100",
-          border: "border-rose-200",
+          icon: <AlertCircle className="w-5 h-5 text-rose-600 dark:text-rose-400" />,
+          iconBg: "bg-rose-100 dark:bg-rose-500/15",
+          border: "border-rose-200 dark:border-rose-500/30",
           progressBg: "bg-rose-500",
           glow: "shadow-rose-500/10",
         };
       case "warning":
         return {
-          icon: <AlertTriangle className="w-5 h-5 text-amber-600" />,
-          iconBg: "bg-amber-100",
-          border: "border-amber-200",
+          icon: <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400" />,
+          iconBg: "bg-amber-100 dark:bg-amber-500/15",
+          border: "border-amber-200 dark:border-amber-500/30",
           progressBg: "bg-amber-500",
           glow: "shadow-amber-500/10",
         };
       case "info":
       default:
         return {
-          icon: <Info className="w-5 h-5 text-blue-600" />,
-          iconBg: "bg-blue-100",
-          border: "border-blue-200",
+          icon: <Info className="w-5 h-5 text-blue-600 dark:text-blue-400" />,
+          iconBg: "bg-blue-100 dark:bg-blue-500/15",
+          border: "border-blue-200 dark:border-blue-500/30",
           progressBg: "bg-blue-500",
           glow: "shadow-blue-500/10",
         };
@@ -165,7 +165,7 @@ const ToastCard: React.FC<ToastProps> = ({ toast: item, onDismiss }) => {
     <div
       onMouseEnter={() => setIsPaused(true)}
       onMouseLeave={() => setIsPaused(false)}
-      className={`relative overflow-hidden w-full max-w-sm sm:max-w-md bg-white/95 backdrop-blur-md border ${theme.border} rounded-xl shadow-xl ${theme.glow} transition-all duration-300 transform translate-y-0 opacity-100 hover:scale-[1.01] pointer-events-auto`}
+      className={`relative overflow-hidden w-full max-w-sm sm:max-w-md bg-surface/95 backdrop-blur-md border ${theme.border} rounded-xl shadow-xl ${theme.glow} transition-all duration-300 transform translate-y-0 opacity-100 hover:scale-[1.01] pointer-events-auto`}
       style={{
         animation: "toastHoverSlideIn 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards",
       }}
@@ -179,11 +179,11 @@ const ToastCard: React.FC<ToastProps> = ({ toast: item, onDismiss }) => {
 
         <div className="flex-1 min-w-0 pr-2">
           {item.title && (
-            <h4 className="text-xs font-bold text-slate-900 tracking-tight leading-snug">
+            <h4 className="text-xs font-bold text-ink tracking-tight leading-snug">
               {item.title}
             </h4>
           )}
-          <p className="text-xs text-slate-600 leading-relaxed mt-0.5 break-words">
+          <p className="text-xs text-ink-muted leading-relaxed mt-0.5 break-words">
             {item.message}
           </p>
         </div>
@@ -191,7 +191,7 @@ const ToastCard: React.FC<ToastProps> = ({ toast: item, onDismiss }) => {
         <button
           type="button"
           onClick={() => onDismiss(item.id)}
-          className="text-slate-400 hover:text-slate-700 hover:bg-slate-100 p-1 rounded-md transition-colors shrink-0"
+          className="text-ink-faint hover:text-ink-muted hover:bg-control p-1 rounded-md transition-colors shrink-0"
           title="Dismiss notification"
         >
           <X className="w-3.5 h-3.5" />
@@ -200,7 +200,7 @@ const ToastCard: React.FC<ToastProps> = ({ toast: item, onDismiss }) => {
 
       {/* Progress countdown bar */}
       {item.duration && item.duration > 0 && (
-        <div className="absolute bottom-0 left-0 right-0 h-1 bg-slate-100 overflow-hidden">
+        <div className="absolute bottom-0 left-0 right-0 h-1 bg-control overflow-hidden">
           <div
             className={`h-full ${theme.progressBg} transition-all duration-75 ease-linear`}
             style={{ width: `${progress}%` }}

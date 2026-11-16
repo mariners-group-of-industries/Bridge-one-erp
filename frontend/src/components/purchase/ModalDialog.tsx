@@ -56,19 +56,19 @@ export function ModalDialog({
     >
       <div
         data-print-sheet
-        className={`bg-white rounded-lg border border-slate-200 shadow-xl w-full ${widthClass} max-h-[90vh] flex flex-col overflow-hidden`}
+        className={`bg-surface rounded-lg border border-line shadow-xl w-full ${widthClass} max-h-[90vh] flex flex-col overflow-hidden`}
       >
         {/* Header */}
-        <div className="px-5 py-3.5 border-b border-slate-200 flex items-center justify-between gap-3 bg-slate-50/70 shrink-0 print:hidden">
+        <div className="px-5 py-3.5 border-b border-line flex items-center justify-between gap-3 bg-canvas/70 shrink-0 print:hidden">
           <div className="min-w-0">
-            <h3 className="text-sm font-bold text-slate-900 tracking-tight">{title}</h3>
-            {subtitle && <p className="text-[11px] text-slate-500 mt-0.5">{subtitle}</p>}
+            <h3 className="text-sm font-bold text-ink tracking-tight">{title}</h3>
+            {subtitle && <p className="text-[11px] text-ink-faint mt-0.5">{subtitle}</p>}
           </div>
           <button
             type="button"
             onClick={onClose}
             aria-label="Close dialog"
-            className="inline-flex size-8 shrink-0 items-center justify-center rounded text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 transition"
+            className="inline-flex size-8 shrink-0 items-center justify-center rounded text-ink-faint hover:text-ink-muted hover:bg-hover/60 transition"
           >
             <X className="w-4 h-4" />
           </button>
