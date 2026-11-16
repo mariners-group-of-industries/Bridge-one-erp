@@ -298,6 +298,23 @@ const SOURCES: readonly Source[] = [
       })),
   },
   {
+    id: "salary-sheet",
+    module: "HR & Payroll",
+    label: "Salary Sheet",
+    href: "/hrm/payroll",
+    pipelineFeature: "Salary Sheet",
+    pending: ["UNDER_PROCESSING"],
+    approved: ["APPROVED"],
+    rejected: ["REJECTED"],
+    counts: async (units) => rows(await db().payrollBatch.groupBy({ ...groupArgs, where: inUnits(units) })),
+    oldest: async (units) =>
+      (await db().payrollBatch.findMany({ ...oldestArgs, where: { ...inUnits(units), status: "Under Processing" }, select: { id: true, reference: true, month: true, createdAt: true, office: { select: { name: true } } } })).map((r) => ({
+        id: r.id,
+        reference: `${r.reference} · ${r.office.name} · ${r.month}`,
+        createdAt: r.createdAt,
+      })),
+  },
+  {
     id: "bonus",
     module: "HR & Payroll",
     label: "Bonus",

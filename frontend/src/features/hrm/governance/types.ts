@@ -17,6 +17,7 @@ export const POLICY_TABS = [
   { id: "employee-assign", label: "Employee Assign" },
   { id: "pf-setup", label: "PF Setup" },
   { id: "late-punishment", label: "Late Punishment" },
+  { id: "payroll-rules", label: "Payroll Rules" },
   { id: "others", label: "Others" },
 ] as const;
 export type PolicyTab = (typeof POLICY_TABS)[number]["id"];

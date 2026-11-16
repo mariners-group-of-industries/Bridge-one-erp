@@ -1,4 +1,5 @@
 import { db } from "@/lib/prisma/client";
+import { CALENDAR_CODE_MAP } from "@/features/hrm/calendar-assign/constants";
 import type { AttendanceRecord, AttendanceFilterState, EmployeeOption } from "../types";
 
 // In-memory / runtime store for user-submitted attendance adjustments
@@ -13,11 +14,11 @@ export function clearAllDailyAttendance(): void {
 }
 
 /** Devices keep local time; days and times are shown in this time zone. */
-const TIME_ZONE = process.env.APP_TIMEZONE || "Asia/Dhaka";
+export const TIME_ZONE = process.env.APP_TIMEZONE || "Asia/Dhaka";
 /** Longest range one request may cover (punch rows are grouped in memory). */
 const MAX_RANGE_DAYS = 93;
 
-const dayKey = new Intl.DateTimeFormat("en-CA", { timeZone: TIME_ZONE, year: "numeric", month: "2-digit", day: "2-digit" });
+export const dayKey = new Intl.DateTimeFormat("en-CA", { timeZone: TIME_ZONE, year: "numeric", month: "2-digit", day: "2-digit" });
 const clock = new Intl.DateTimeFormat("en-US", { timeZone: TIME_ZONE, hour: "2-digit", minute: "2-digit", hour12: true });
 const weekday = new Intl.DateTimeFormat("en-US", { timeZone: "UTC", weekday: "short" });
 
@@ -53,7 +54,7 @@ export async function getAttendanceEmployees(): Promise<EmployeeOption[]> {
 /** Used when no rule applies: late after 9:25 AM, absent after 12:00 PM. */
 export const DEFAULT_ATTENDANCE_RULE = { dayStart: "08:00", lateAfter: "09:25", absentAfter: "12:00" } as const;
 
-interface AttendanceRule {
+export interface AttendanceRule {
   officeId: string | null;
   from: string;
   to: string | null;
@@ -64,7 +65,7 @@ interface AttendanceRule {
 const hhmm = new Intl.DateTimeFormat("en-GB", { timeZone: TIME_ZONE, hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
 const isTime = (value: unknown): value is string => typeof value === "string" && /^\d{2}:\d{2}$/.test(value);
 
-async function attendanceRules(toDate: string): Promise<AttendanceRule[]> {
+export async function attendanceRules(toDate: string): Promise<AttendanceRule[]> {
   const records = await db().hrPolicyRecord.findMany({
     where: { tab: "attendance-process", OR: [{ effectiveFrom: null }, { effectiveFrom: { lte: new Date(`${toDate}T00:00:00Z`) } }] },
     select: { officeId: true, effectiveFrom: true, effectiveTo: true, data: true },
@@ -77,7 +78,7 @@ async function attendanceRules(toDate: string): Promise<AttendanceRule[]> {
 }
 
 /** The office's own rule in force on the day, else the all-office one (latest effective date first). */
-function ruleFor(rules: AttendanceRule[], officeId: string, date: string) {
+export function ruleFor(rules: AttendanceRule[], officeId: string, date: string) {
   const inForce = rules.filter((r) => r.from <= date && (!r.to || r.to >= date));
   const pick = (list: AttendanceRule[]) => list.sort((a, b) => b.from.localeCompare(a.from))[0];
   return pick(inForce.filter((r) => r.officeId === officeId)) ?? pick(inForce.filter((r) => r.officeId === null)) ?? DEFAULT_ATTENDANCE_RULE;
@@ -89,6 +90,53 @@ export function statusOf(firstPunch: Date, rule: { lateAfter: string; absentAfte
   if (at > rule.absentAfter) return "Absent";
   if (at > rule.lateAfter) return "Late";
   return "Present";
+}
+
+// ─── Calendars (Calendar Assign, else HR Governance › Roster / Employee Assign) ──
+
+interface PeriodCalendar {
+  employeeId: string;
+  from: string;
+  to: string | null;
+  calendar: string;
+  /** Roster beats Employee Assign when both cover the day. */
+  rank: number;
+}
+
+/** Looks up the calendar each employee works on a day between the two dates. */
+async function calendarLookup(employeeIds: string[], fromDate: string, toDate: string) {
+  if (employeeIds.length === 0) return () => null as string | null;
+  const [days, records] = await Promise.all([
+    db().employeeCalendarDay.findMany({
+      where: { employeeId: { in: employeeIds }, date: { gte: new Date(`${fromDate}T00:00:00Z`), lte: new Date(`${toDate}T00:00:00Z`) } },
+      select: { employeeId: true, date: true, shortCode: true },
+    }),
+    db().hrPolicyRecord.findMany({
+      where: {
+        tab: { in: ["roster", "employee-assign"] },
+        employeeId: { in: employeeIds },
+        OR: [{ effectiveFrom: null }, { effectiveFrom: { lte: new Date(`${toDate}T00:00:00Z`) } }],
+        AND: [{ OR: [{ effectiveTo: null }, { effectiveTo: { gte: new Date(`${fromDate}T00:00:00Z`) } }] }],
+      },
+      select: { tab: true, employeeId: true, effectiveFrom: true, effectiveTo: true, data: true },
+    }),
+  ]);
+
+  const byDay = new Map(days.map((d) => [`${d.employeeId}:${d.date.toISOString().slice(0, 10)}`, d.shortCode]));
+  const periods: PeriodCalendar[] = records.flatMap((r) => {
+    const calendar = ((r.data ?? {}) as Record<string, unknown>).calendar;
+    if (!r.employeeId || typeof calendar !== "string" || !calendar) return [];
+    return [{ employeeId: r.employeeId, from: r.effectiveFrom?.toISOString().slice(0, 10) ?? "", to: r.effectiveTo?.toISOString().slice(0, 10) ?? null, calendar, rank: r.tab === "roster" ? 0 : 1 }];
+  });
+
+  return (employeeId: string, date: string): string | null => {
+    const code = byDay.get(`${employeeId}:${date}`);
+    if (code) return CALENDAR_CODE_MAP.get(code)?.calendarName ?? code;
+    const period = periods
+      .filter((p) => p.employeeId === employeeId && p.from <= date && (!p.to || p.to >= date))
+      .sort((a, b) => a.rank - b.rank || b.from.localeCompare(a.from))[0];
+    return period?.calendar ?? null;
+  };
 }
 
 /** False for a missing or reversed range; throws when the range is too long. */
@@ -137,6 +185,8 @@ async function punchRecords(filters: AttendanceFilterState): Promise<AttendanceR
     rows.set(key, row);
   }
 
+  const calendarOf = await calendarLookup([...new Set([...rows.values()].map((r) => r.employee.id))], filters.fromDate, filters.toDate);
+
   return [...rows.entries()].map(([id, { employee, date, times }]) => {
     const first = times[0];
     const last = times.length > 1 ? times[times.length - 1] : null;
@@ -151,7 +201,7 @@ async function punchRecords(filters: AttendanceFilterState): Promise<AttendanceR
       departmentSection: employee.departmentSection || "",
       date,
       day: weekday.format(new Date(`${date}T00:00:00Z`)),
-      calendarName: "Not assigned",
+      calendarName: calendarOf(employee.id, date) ?? "Not assigned",
       inTime: clock.format(first.at),
       outTime: last ? clock.format(last.at) : null,
       inTimeLocation: first.device,
@@ -183,6 +233,18 @@ export async function getDailyAttendance(filters: AttendanceFilterState): Promis
     filtered = filtered.filter(
       (r) => r.employeeId === filters.employeeId || r.employeeCode === filters.employeeId,
     );
+  }
+
+  // Employee filters: only rows of employees in the chosen office / department / section / designation.
+  const wanted = ([
+    ["officeName", filters.office],
+    ["department", filters.department],
+    ["departmentSection", filters.departmentSection],
+    ["designation", filters.designation],
+  ] as const).filter(([, value]) => value && value !== "ALL");
+  if (wanted.length > 0) {
+    const allowed = new Set(allEmployees.filter((e) => wanted.every(([key, value]) => e[key] === value)).map((e) => e.id));
+    filtered = filtered.filter((r) => allowed.has(r.employeeId));
   }
 
   if (filters.status && filters.status !== "ALL") {

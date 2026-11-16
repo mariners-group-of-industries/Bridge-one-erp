@@ -22,6 +22,10 @@ export const GET = apiHandler("employees:read", async (request) => {
       viewBy,
       employeeId,
       status,
+      office: searchParams.get("office") || "ALL",
+      department: searchParams.get("department") || "ALL",
+      departmentSection: searchParams.get("departmentSection") || "ALL",
+      designation: searchParams.get("designation") || "ALL",
       pageSize,
       page,
     });

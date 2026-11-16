@@ -34,6 +34,11 @@ export interface AttendanceFilterState {
   toDate: string; // YYYY-MM-DD
   viewBy: "Employee" | "Department" | "Date" | "All";
   employeeId: string; // "ALL" or employee id/code
+  /** Employee filters: "ALL" (or empty) = any. */
+  office?: string;
+  department?: string;
+  departmentSection?: string;
+  designation?: string;
   status: string; // "ALL" or AttendanceStatus
   pageSize: number;
   page: number;

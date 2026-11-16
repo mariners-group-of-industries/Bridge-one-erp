@@ -159,5 +159,7 @@ export const hrmWorkspace: Workspace = {
   ],
   routes: [
     { pattern: hrmPatterns.employeeProfile, label: "Employee Profile", parent: hrmPaths.employees },
+    { pattern: hrmPaths.payrollGenerate, label: "Salary Generate", parent: hrmPaths.payroll },
+    { pattern: hrmPatterns.payrollBatch, label: "Payroll", parent: hrmPaths.payroll },
   ],
 };

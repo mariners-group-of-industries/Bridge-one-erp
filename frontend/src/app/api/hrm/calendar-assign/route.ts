@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { getCalendarAssignData } from "@/features/hrm/calendar-assign/services/calendar-assign.service";
+import { getCalendarDays, saveCalendarDays } from "@/features/hrm/calendar-assign/services/calendar-days.service";
+import { AppError } from "@/lib/api/errors";
 import { apiHandler } from "@/lib/api/handler";
 
 export const GET = apiHandler("employees:read", async (request) => {
@@ -13,6 +15,8 @@ export const GET = apiHandler("employees:read", async (request) => {
     const search = searchParams.get("search")?.trim() || undefined;
     const page = parseInt(searchParams.get("page") || "1", 10);
     const limit = parseInt(searchParams.get("limit") || "40", 10);
+    const fromDate = searchParams.get("fromDate")?.trim() || "";
+    const toDate = searchParams.get("toDate")?.trim() || "";
 
     const data = await getCalendarAssignData({
       office,
@@ -24,11 +28,14 @@ export const GET = apiHandler("employees:read", async (request) => {
       page,
       limit,
     });
+    // Saved calendars of the employees on this page, for the chosen days.
+    const assignments = await getCalendarDays(data.employees.map((e) => e.id), fromDate, toDate);
 
     return NextResponse.json({
       success: true,
       options: data.options,
       employees: data.employees,
+      assignments,
       pagination: data.pagination,
       totalCount: data.pagination.total,
     });
@@ -42,19 +49,23 @@ export const GET = apiHandler("employees:read", async (request) => {
   }
 });
 
-export const POST = apiHandler("employees:read", async (request) => {
+export const POST = apiHandler("employees:read", async (request, _context, actor) => {
   try {
-    const body = await request.json();
+    const body = await request.json().catch(() => ({}));
+    const result = await saveCalendarDays(actor, body?.changes ?? []);
     return NextResponse.json({
       success: true,
-      message: "Calendar assignments successfully persisted.",
+      message: "Calendar assignments saved.",
       savedAt: new Date().toISOString(),
-      updatedCount: body?.assignments ? Object.keys(body.assignments).length : 0,
+      updatedCount: result.saved + result.cleared,
+      ...result,
     });
   } catch (error: any) {
+    const status = error instanceof AppError ? error.status : 500;
+    if (status === 500) console.error("Error saving calendar assignments:", error);
     return NextResponse.json(
       { success: false, error: error.message || "Failed to save calendar assignments" },
-      { status: 500 },
+      { status },
     );
   }
 });
