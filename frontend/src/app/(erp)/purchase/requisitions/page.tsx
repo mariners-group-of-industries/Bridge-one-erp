@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { Spinner } from "@/components/ui/spinner";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -141,6 +141,28 @@ export default function PurchaseRequisitionsPage() {
     queryKey: ["warehouses", "ALL"],
     queryFn: () => fetchApi("/master/warehouses"),
   });
+
+  // Dynamically filter warehouses in-memory according to the selected Office
+  const filteredWarehouses = useMemo(() => {
+    const list = allWarehouses ?? warehouses ?? [];
+    if (!selectedOffice || selectedOffice === "ALL") return list;
+    return list.filter((w) => w.officeId === selectedOffice);
+  }, [allWarehouses, warehouses, selectedOffice]);
+
+  // When office filter changes, update office and reset warehouse filter to ALL
+  const handleOfficeChange = (newOffice: string) => {
+    setSelectedOffice(newOffice);
+    setSelectedWarehouse("ALL");
+  };
+
+  // If selected warehouse is not valid for chosen office, treat as ALL
+  const effectiveWarehouse = useMemo(() => {
+    if (selectedWarehouse === "ALL") return "ALL";
+    if (filteredWarehouses.length > 0 && !filteredWarehouses.some((w) => w.id === selectedWarehouse)) {
+      return "ALL";
+    }
+    return selectedWarehouse;
+  }, [selectedWarehouse, filteredWarehouses]);
   const { data: itemsCatalog } = useQuery<Item[]>({
     queryKey: ["items"],
     queryFn: () => fetchApi("/master/items"),
@@ -152,7 +174,7 @@ export default function PurchaseRequisitionsPage() {
     queryKey: [
       "requisitions",
       selectedOffice,
-      selectedWarehouse,
+      effectiveWarehouse,
       selectedStatus,
       selectedRequestType,
       selectedSection,
@@ -163,7 +185,7 @@ export default function PurchaseRequisitionsPage() {
     queryFn: () => {
       const params = new URLSearchParams();
       if (selectedOffice !== "ALL") params.append("officeId", selectedOffice);
-      if (selectedWarehouse !== "ALL") params.append("warehouseId", selectedWarehouse);
+      if (effectiveWarehouse !== "ALL") params.append("warehouseId", effectiveWarehouse);
       if (selectedStatus !== "ALL") params.append("status", selectedStatus);
       if (selectedRequestType !== "ALL") params.append("requestType", selectedRequestType);
       if (selectedSection !== "ALL") params.append("section", selectedSection);
@@ -187,6 +209,17 @@ export default function PurchaseRequisitionsPage() {
   const [formLineItems, setFormLineItems] = useState<
     { itemId: string; itemCode: string; itemName: string; uom: string; quantity: number; estimatedUnitPrice: number; lineTotal: number; remarks: string }[]
   >([]);
+
+  // Default office with warehouses for Quick Requisition
+  const defaultFormOfficeId = useMemo(() => {
+    if (!offices?.length) return "";
+    const withWh = offices.find((o) => (allWarehouses ?? []).some((w) => w.officeId === o.id));
+    return withWh?.id || offices[0]?.id || "";
+  }, [offices, allWarehouses]);
+
+  const activeFormOfficeId = formOfficeId || defaultFormOfficeId;
+  const activeFormWarehouseId =
+    formWarehouseId || (allWarehouses?.find((w) => w.officeId === activeFormOfficeId)?.id ?? "");
 
   const invalidateAll = () => {
     for (const key of PURCHASE_QUERY_KEYS) queryClient.invalidateQueries({ queryKey: [key] });
@@ -459,8 +492,8 @@ export default function PurchaseRequisitionsPage() {
     e.preventDefault();
     createMutation.mutate({
       companyId: "comp-bridgeone-01",
-      officeId: formOfficeId,
-      warehouseId: formWarehouseId,
+      officeId: activeFormOfficeId,
+      warehouseId: activeFormWarehouseId,
       requestType: formRequestType,
       department: formDepartment,
       requesterName: formRequester,
@@ -969,7 +1002,7 @@ export default function PurchaseRequisitionsPage() {
             </label>
             <select
               value={selectedOffice}
-              onChange={(e) => setSelectedOffice(e.target.value)}
+              onChange={(e) => handleOfficeChange(e.target.value)}
               className="w-full h-9 border border-slate-300 rounded px-2.5 py-1.5 text-xs text-slate-700 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
             >
               <option value="ALL">Office</option>
@@ -987,12 +1020,12 @@ export default function PurchaseRequisitionsPage() {
               Warehouse
             </label>
             <select
-              value={selectedWarehouse}
+              value={effectiveWarehouse}
               onChange={(e) => setSelectedWarehouse(e.target.value)}
               className="w-full h-9 border border-slate-300 rounded px-2.5 py-1.5 text-xs text-slate-700 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
             >
               <option value="ALL">Warehouse</option>
-              {warehouses?.map((w) => (
+              {filteredWarehouses.map((w) => (
                 <option key={w.id} value={w.id}>
                   {w.name}
                 </option>
@@ -1096,7 +1129,6 @@ export default function PurchaseRequisitionsPage() {
               value={selectedBuyerOffice}
               onChange={(e) => {
                 setSelectedBuyerOffice(e.target.value);
-                setSelectedOffice(e.target.value);
               }}
               className="w-full h-9 border border-slate-300 rounded px-2.5 py-1.5 text-xs text-slate-700 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
             >
@@ -1166,7 +1198,7 @@ export default function PurchaseRequisitionsPage() {
             <label className="block text-xs font-semibold text-slate-700 mb-1.5">Office</label>
             <select
               value={selectedOffice}
-              onChange={(e) => setSelectedOffice(e.target.value)}
+              onChange={(e) => handleOfficeChange(e.target.value)}
               className="w-full h-9 border border-slate-300 rounded px-2.5 py-1.5 text-xs text-slate-700 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
             >
               <option value="ALL">All</option>
@@ -1180,12 +1212,12 @@ export default function PurchaseRequisitionsPage() {
           <div>
             <label className="block text-xs font-semibold text-slate-700 mb-1.5">Warehouse</label>
             <select
-              value={selectedWarehouse}
+              value={effectiveWarehouse}
               onChange={(e) => setSelectedWarehouse(e.target.value)}
               className="w-full h-9 border border-slate-300 rounded px-2.5 py-1.5 text-xs text-slate-700 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
             >
               <option value="ALL">All</option>
-              {warehouses?.map((w) => (
+              {filteredWarehouses.map((w) => (
                 <option key={w.id} value={w.id}>
                   {w.name}
                 </option>
@@ -1261,7 +1293,6 @@ export default function PurchaseRequisitionsPage() {
               value={selectedBuyerOffice}
               onChange={(e) => {
                 setSelectedBuyerOffice(e.target.value);
-                setSelectedOffice(e.target.value);
               }}
               className="w-full h-9 border border-slate-300 rounded px-2.5 py-1.5 text-xs text-slate-700 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
             >
@@ -1553,7 +1584,7 @@ export default function PurchaseRequisitionsPage() {
                 Office / Branch *
               </label>
               <select
-                value={formOfficeId}
+                value={activeFormOfficeId}
                 onChange={(e) => {
                   setFormOfficeId(e.target.value);
                   setFormWarehouseId(allWarehouses?.find((w) => w.officeId === e.target.value)?.id ?? "");
@@ -1574,13 +1605,17 @@ export default function PurchaseRequisitionsPage() {
                 Authorized Delivery Warehouse *
               </label>
               <select
-                value={formWarehouseId}
+                value={activeFormWarehouseId}
                 onChange={(e) => setFormWarehouseId(e.target.value)}
                 className="w-full border border-slate-300 rounded px-2 py-1.5 bg-white text-xs"
                 required
               >
-                <option value="">Select warehouse</option>
-                {allWarehouses?.filter((w) => w.officeId === formOfficeId).map((w) => (
+                <option value="">
+                  {allWarehouses?.filter((w) => w.officeId === activeFormOfficeId).length === 0
+                    ? "No warehouse for this office"
+                    : "Select warehouse"}
+                </option>
+                {allWarehouses?.filter((w) => w.officeId === activeFormOfficeId).map((w) => (
                   <option key={w.id} value={w.id}>
                     {w.name}
                   </option>
@@ -2003,7 +2038,11 @@ export default function PurchaseRequisitionsPage() {
                   className="w-full border border-slate-300 rounded px-2 py-1.5 bg-white text-xs"
                   required
                 >
-                  <option value="">Select warehouse</option>
+                  <option value="">
+                    {allWarehouses?.filter((w) => w.officeId === editOfficeId).length === 0
+                      ? "No warehouse for this office"
+                      : "Select warehouse"}
+                  </option>
                   {allWarehouses?.filter((w) => w.officeId === editOfficeId).map((w) => (
                     <option key={w.id} value={w.id}>
                       {w.name}

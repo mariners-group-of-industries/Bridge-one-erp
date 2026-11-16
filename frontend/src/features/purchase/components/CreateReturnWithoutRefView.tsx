@@ -65,7 +65,13 @@ export function CreateReturnWithoutRefView() {
   const [linePrice, setLinePrice] = useState("");
   const [addedLines, setAddedLines] = useState<ReturnDraftLine[]>([]);
 
-  const selectedOfficeId = pickedOfficeId || offices[0]?.id || "";
+  const defaultOfficeId = useMemo(() => {
+    if (!offices.length) return "";
+    const withWh = offices.find((o) => allWarehouses.some((w) => w.officeId === o.id));
+    return withWh?.id || offices[0]?.id || "";
+  }, [offices, allWarehouses]);
+
+  const selectedOfficeId = pickedOfficeId || defaultOfficeId;
   const availableWarehouses = useMemo(
     () => (selectedOfficeId ? allWarehouses.filter((w) => w.officeId === selectedOfficeId) : allWarehouses),
     [allWarehouses, selectedOfficeId]
@@ -231,7 +237,16 @@ export function CreateReturnWithoutRefView() {
               <label className="mb-1 block text-[11px] font-semibold text-slate-700">
                 Office<span className="text-red-500">*</span>
               </label>
-              <select value={selectedOfficeId} onChange={(e) => setPickedOfficeId(e.target.value)} className={inputCls}>
+              <select
+                value={selectedOfficeId}
+                onChange={(e) => {
+                  const newOfficeId = e.target.value;
+                  setPickedOfficeId(newOfficeId);
+                  const matchingWh = allWarehouses.find((w) => w.officeId === newOfficeId);
+                  setPickedWarehouseId(matchingWh?.id || "");
+                }}
+                className={inputCls}
+              >
                 <option value="">office</option>
                 {offices.map((o) => (
                   <option key={o.id} value={o.id}>
@@ -250,12 +265,15 @@ export function CreateReturnWithoutRefView() {
                 onChange={(e) => setPickedWarehouseId(e.target.value)}
                 className={inputCls}
               >
-                <option value="">Select a warehouse</option>
-                {availableWarehouses.map((w) => (
-                  <option key={w.id} value={w.id}>
-                    {w.name}
-                  </option>
-                ))}
+                {availableWarehouses.length === 0 ? (
+                  <option value="">No warehouse for this office</option>
+                ) : (
+                  availableWarehouses.map((w) => (
+                    <option key={w.id} value={w.id}>
+                      {w.name}
+                    </option>
+                  ))
+                )}
               </select>
             </div>
 

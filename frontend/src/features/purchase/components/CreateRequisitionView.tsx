@@ -200,8 +200,15 @@ function CreateRequisitionForm({ templateReq }: { templateReq: PurchaseRequisiti
     [formOptions],
   );
 
-  // The first office is used until the user picks one.
-  const selectedOfficeId = pickedOfficeId || offices[0]?.id || "";
+  // Default to the first office that has warehouses (e.g. MG Sirajganj Factory), or the first office
+  const defaultOfficeId = useMemo(() => {
+    if (templateReq?.officeId) return templateReq.officeId;
+    if (!offices.length) return "";
+    const withWh = offices.find((o) => allWarehouses.some((w) => w.officeId === o.id));
+    return withWh?.id || offices[0]?.id || "";
+  }, [templateReq, offices, allWarehouses]);
+
+  const selectedOfficeId = pickedOfficeId || defaultOfficeId;
 
   // Filter warehouses based on selected office
   const availableWarehouses = useMemo(() => {
@@ -877,7 +884,12 @@ function CreateRequisitionForm({ templateReq }: { templateReq: PurchaseRequisiti
             </label>
             <select
               value={selectedOfficeId}
-              onChange={(e) => setSelectedOfficeId(e.target.value)}
+              onChange={(e) => {
+                const newOfficeId = e.target.value;
+                setSelectedOfficeId(newOfficeId);
+                const matchingWh = allWarehouses.find((w) => w.officeId === newOfficeId);
+                setSelectedWarehouseId(matchingWh?.id || "");
+              }}
               className="w-full h-8 text-xs border border-slate-300 dark:border-slate-700 rounded px-2.5 py-1 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-hidden focus:ring-1 focus:ring-blue-500"
             >
               {offices.map((off) => (
@@ -898,11 +910,15 @@ function CreateRequisitionForm({ templateReq }: { templateReq: PurchaseRequisiti
               onChange={(e) => setSelectedWarehouseId(e.target.value)}
               className="w-full h-8 text-xs border border-slate-300 dark:border-slate-700 rounded px-2.5 py-1 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-hidden focus:ring-1 focus:ring-blue-500"
             >
-              {availableWarehouses.map((wh) => (
-                <option key={wh.id} value={wh.id}>
-                  {wh.name}
-                </option>
-              ))}
+              {availableWarehouses.length === 0 ? (
+                <option value="">No warehouse for this office</option>
+              ) : (
+                availableWarehouses.map((wh) => (
+                  <option key={wh.id} value={wh.id}>
+                    {wh.name}
+                  </option>
+                ))
+              )}
             </select>
           </div>
 

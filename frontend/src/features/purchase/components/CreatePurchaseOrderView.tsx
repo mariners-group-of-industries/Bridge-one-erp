@@ -211,7 +211,13 @@ function CreatePurchaseOrderForm({
     return [];
   });
 
-  const selectedOfficeId = pickedOfficeId || offices[0]?.id || "";
+  const defaultOfficeId = useMemo(() => {
+    if (!offices.length) return "";
+    const withWh = offices.find((o) => warehouses.some((w) => w.officeId === o.id));
+    return withWh?.id || offices[0]?.id || "";
+  }, [offices, warehouses]);
+
+  const selectedOfficeId = pickedOfficeId || defaultOfficeId;
   const availableWarehouses = useMemo(
     () => (selectedOfficeId ? warehouses.filter((w) => w.officeId === selectedOfficeId) : warehouses),
     [warehouses, selectedOfficeId]
@@ -684,7 +690,16 @@ function CreatePurchaseOrderForm({
               <label className="mb-1 block text-[11px] font-semibold text-slate-700">
                 Office<span className="text-red-500">*</span>
               </label>
-              <select value={selectedOfficeId} onChange={(e) => setPickedOfficeId(e.target.value)} className={inputCls}>
+              <select
+                value={selectedOfficeId}
+                onChange={(e) => {
+                  const newOfficeId = e.target.value;
+                  setPickedOfficeId(newOfficeId);
+                  const matchingWh = warehouses.find((w) => w.officeId === newOfficeId);
+                  setPickedWarehouseId(matchingWh?.id || "");
+                }}
+                className={inputCls}
+              >
                 <option value="">Office</option>
                 {offices.map((o) => (
                   <option key={o.id} value={o.id}>
@@ -890,11 +905,15 @@ function CreatePurchaseOrderForm({
                     onChange={(e) => setPickedWarehouseId(e.target.value)}
                     className={inputCls}
                   >
-                    {availableWarehouses.map((w) => (
-                      <option key={w.id} value={w.id}>
-                        {w.name}
-                      </option>
-                    ))}
+                    {availableWarehouses.length === 0 ? (
+                      <option value="">No warehouse for this office</option>
+                    ) : (
+                      availableWarehouses.map((w) => (
+                        <option key={w.id} value={w.id}>
+                          {w.name}
+                        </option>
+                      ))
+                    )}
                   </select>
                 </div>
 
