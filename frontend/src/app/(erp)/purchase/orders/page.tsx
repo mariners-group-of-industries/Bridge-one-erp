@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import React, { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, Download, Eye, Pencil, Plus, Printer, RotateCcw, Search, Trash2, X } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Download, Eye, Pencil, Plus, Printer, RotateCcw, Search, Trash2, X } from "lucide-react";
 import { ModalDialog } from "@/components/purchase/ModalDialog";
 import {
   PrintablePurchaseDoc,
@@ -125,29 +125,75 @@ const canReverse = (po: Order) => Boolean(po.isClosed) || (po.status === "APPROV
 
 function Pager({ total, page, size, onPage, onSize }: { total: number; page: number; size: number; onPage: (p: number) => void; onSize: (s: number) => void }) {
   const pages = Math.max(1, Math.ceil(total / size));
-  const from = total ? (page - 1) * size + 1 : 0;
-  const to = Math.min(total, page * size);
+  const current = Math.min(page, pages);
+  const from = total ? (current - 1) * size + 1 : 0;
+  const to = Math.min(total, current * size);
   return (
-    <div className="px-3 py-2 border-t border-slate-200 bg-slate-50 flex items-center justify-end gap-6 text-xs text-slate-600">
-      <label className="flex items-center gap-1.5">
+    <div className="px-3 py-2 border-t border-slate-200 bg-slate-50 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
+      <div className="flex items-center gap-2">
         <span>Rows per page:</span>
-        <select value={size} onChange={(e) => onSize(Number(e.target.value))} className="border border-slate-300 rounded px-1.5 py-0.5 text-xs bg-white">
-          {[25, 50, 100].map((n) => (
+        <select
+          value={size}
+          onChange={(e) => {
+            onSize(Number(e.target.value));
+            onPage(1);
+          }}
+          className="bg-white border border-slate-300 rounded px-1.5 py-0.5 text-xs text-slate-700 focus:outline-none"
+        >
+          {[10, 20, 50, 100].map((n) => (
             <option key={n} value={n}>
               {n}
             </option>
           ))}
         </select>
-      </label>
-      <span>
-        {from}-{to} of {total}
-      </span>
+        <span className="text-slate-400">|</span>
+        <span>
+          Showing {from} to {to} of {total} records
+        </span>
+      </div>
       <div className="flex items-center gap-1">
-        <button type="button" aria-label="Previous page" disabled={page <= 1} onClick={() => onPage(page - 1)} className={iconBtn}>
-          &lt;
+        <button
+          type="button"
+          disabled={current <= 1}
+          onClick={() => onPage(1)}
+          className="inline-flex size-6 items-center justify-center rounded hover:bg-slate-200 disabled:opacity-40 disabled:hover:bg-transparent"
+          title="First Page"
+          aria-label="First Page"
+        >
+          <ChevronsLeft className="w-3.5 h-3.5" />
         </button>
-        <button type="button" aria-label="Next page" disabled={page >= pages} onClick={() => onPage(page + 1)} className={iconBtn}>
-          &gt;
+        <button
+          type="button"
+          disabled={current <= 1}
+          onClick={() => onPage(Math.max(1, current - 1))}
+          className="inline-flex size-6 items-center justify-center rounded hover:bg-slate-200 disabled:opacity-40 disabled:hover:bg-transparent"
+          title="Previous Page"
+          aria-label="Previous Page"
+        >
+          <ChevronLeft className="w-3.5 h-3.5" />
+        </button>
+        <span className="px-2 font-medium text-slate-700">
+          Page {current} of {pages}
+        </span>
+        <button
+          type="button"
+          disabled={current >= pages}
+          onClick={() => onPage(Math.min(pages, current + 1))}
+          className="inline-flex size-6 items-center justify-center rounded hover:bg-slate-200 disabled:opacity-40 disabled:hover:bg-transparent"
+          title="Next Page"
+          aria-label="Next Page"
+        >
+          <ChevronRight className="w-3.5 h-3.5" />
+        </button>
+        <button
+          type="button"
+          disabled={current >= pages}
+          onClick={() => onPage(pages)}
+          className="inline-flex size-6 items-center justify-center rounded hover:bg-slate-200 disabled:opacity-40 disabled:hover:bg-transparent"
+          title="Last Page"
+          aria-label="Last Page"
+        >
+          <ChevronsRight className="w-3.5 h-3.5" />
         </button>
       </div>
     </div>

@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import React, { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Ban, Download, Eye, PackageCheck, Plus, Printer, RotateCcw, Search, Truck, X } from "lucide-react";
+import { Ban, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Download, Eye, PackageCheck, Plus, Printer, RotateCcw, Search, Truck, X } from "lucide-react";
 import { ModalDialog } from "@/components/purchase/ModalDialog";
 import {
   PrintablePurchaseDoc,
@@ -19,7 +19,7 @@ import { formatCurrency } from "@/lib/utils";
 import { effectiveUnitCost } from "@/lib/purchase-store/rules";
 import { PURCHASE_QUERY_KEYS, downloadCsv, localToday } from "@/features/purchase/lib/client";
 import { usePurchasePermissions } from "@/features/purchase/lib/usePurchasePermissions";
-import type { GoodsReceipt, Item, Office, PurchaseOrder, SupplierInvoiceItem } from "@bridgeone/contracts";
+import type { GoodsReceipt, Item, Office, PurchaseOrder, Supplier, SupplierInvoiceItem } from "@bridgeone/contracts";
 
 const parsePoTag = (notes: string | undefined, prefix: string): string => {
   if (!notes) return "";
@@ -113,6 +113,120 @@ function receiptStatus(g: Receipt) {
   }
 }
 
+function Pager({
+  total,
+  page,
+  size,
+  onPage,
+  onSize,
+}: {
+  total: number;
+  page: number;
+  size: number;
+  onPage: (p: number) => void;
+  onSize: (s: number) => void;
+}) {
+  const pages = Math.max(1, Math.ceil(total / size));
+  const current = Math.min(page, pages);
+  const from = total ? (current - 1) * size + 1 : 0;
+  const to = Math.min(total, current * size);
+
+  return (
+    <div className="px-3 py-2 border-t border-slate-200 bg-slate-50 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
+      <div className="flex items-center gap-2">
+        <span>Rows per page:</span>
+        <select
+          value={size}
+          onChange={(e) => {
+            onSize(Number(e.target.value));
+            onPage(1);
+          }}
+          className="bg-white border border-slate-300 rounded px-1.5 py-0.5 text-xs text-slate-700 focus:outline-none"
+        >
+          {[10, 20, 50, 100].map((n) => (
+            <option key={n} value={n}>
+              {n}
+            </option>
+          ))}
+        </select>
+        <span className="text-slate-400">|</span>
+        <span>
+          Showing {from} to {to} of {total} records
+        </span>
+      </div>
+
+      <div className="flex items-center gap-1">
+        <button
+          type="button"
+          disabled={current <= 1}
+          onClick={() => onPage(1)}
+          className="inline-flex size-6 items-center justify-center rounded hover:bg-slate-200 disabled:opacity-40 disabled:hover:bg-transparent"
+          title="First Page"
+          aria-label="First Page"
+        >
+          <ChevronsLeft className="w-3.5 h-3.5" />
+        </button>
+        <button
+          type="button"
+          disabled={current <= 1}
+          onClick={() => onPage(Math.max(1, current - 1))}
+          className="inline-flex size-6 items-center justify-center rounded hover:bg-slate-200 disabled:opacity-40 disabled:hover:bg-transparent"
+          title="Previous Page"
+          aria-label="Previous Page"
+        >
+          <ChevronLeft className="w-3.5 h-3.5" />
+        </button>
+        <span className="px-2 font-medium text-slate-700">
+          Page {current} of {pages}
+        </span>
+        <button
+          type="button"
+          disabled={current >= pages}
+          onClick={() => onPage(Math.min(pages, current + 1))}
+          className="inline-flex size-6 items-center justify-center rounded hover:bg-slate-200 disabled:opacity-40 disabled:hover:bg-transparent"
+          title="Next Page"
+          aria-label="Next Page"
+        >
+          <ChevronRight className="w-3.5 h-3.5" />
+        </button>
+        <button
+          type="button"
+          disabled={current >= pages}
+          onClick={() => onPage(pages)}
+          className="inline-flex size-6 items-center justify-center rounded hover:bg-slate-200 disabled:opacity-40 disabled:hover:bg-transparent"
+          title="Last Page"
+          aria-label="Last Page"
+        >
+          <ChevronsRight className="w-3.5 h-3.5" />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function usePaging<T>(rows: T[], defaultSize = 50) {
+  const [page, setPage] = useState(1);
+  const [size, setSize] = useState(defaultSize);
+  const pages = Math.max(1, Math.ceil(rows.length / size));
+  const current = Math.min(page, pages);
+  return {
+    slice: rows.slice((current - 1) * size, current * size),
+    offset: (current - 1) * size,
+    pager: (
+      <Pager
+        total={rows.length}
+        page={current}
+        size={size}
+        onPage={setPage}
+        onSize={(s) => {
+          setSize(s);
+          setPage(1);
+        }}
+      />
+    ),
+  };
+}
+
 export default function PurchaseReceivePage() {
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -122,7 +236,11 @@ export default function PurchaseReceivePage() {
 
   // Approved PO tab filters
   const [poOfficeFilter, setPoOfficeFilter] = useState("ALL");
+  const [poSupplierFilter, setPoSupplierFilter] = useState("ALL");
+  const [poStatusFilter, setPoStatusFilter] = useState("ALL");
   const [poExpDate, setPoExpDate] = useState("");
+  const [poFromDate, setPoFromDate] = useState("");
+  const [poToDate, setPoToDate] = useState("");
 
   // Received PO tab filters
   const [recOfficeFilter, setRecOfficeFilter] = useState("ALL");
@@ -146,6 +264,7 @@ export default function PurchaseReceivePage() {
 
   // Data
   const { data: offices = [] } = useQuery<Office[]>({ queryKey: ["offices"], queryFn: () => fetchApi("/master/offices") });
+  const { data: suppliers = [] } = useQuery<Supplier[]>({ queryKey: ["suppliers"], queryFn: () => fetchApi("/master/suppliers") });
   const { data: items = [] } = useQuery<Item[]>({ queryKey: ["items"], queryFn: () => fetchApi("/master/items") });
   const { data: context } = useQuery<PrintHeaderContext>({ queryKey: ["context"], queryFn: () => fetchApi("/master/context") });
   const { data: approvedPOs = [], isFetching: posLoading, refetch: refetchApprovedPOs } = useQuery<PurchaseOrder[]>({
@@ -175,11 +294,15 @@ export default function PurchaseReceivePage() {
     const q = search.trim().toLowerCase();
     return approvedPOs.filter((o) => {
       if (poOfficeFilter !== "ALL" && o.officeId !== poOfficeFilter) return false;
+      if (poSupplierFilter !== "ALL" && o.supplierId !== poSupplierFilter) return false;
+      if (poStatusFilter !== "ALL" && o.status !== poStatusFilter) return false;
       if (poExpDate && o.expectedDeliveryDate !== poExpDate) return false;
-      if (q && ![o.poNumber, o.supplierName, o.officeName, o.warehouseName, o.createdBy, o.requisitionNumber ?? ""].some((v) => v.toLowerCase().includes(q))) return false;
+      if (poFromDate && o.orderDate < poFromDate) return false;
+      if (poToDate && o.orderDate > poToDate) return false;
+      if (q && ![o.poNumber, o.supplierName, o.officeName, o.warehouseName, o.createdBy, o.requisitionNumber ?? "", o.referenceNumber ?? ""].some((v) => v.toLowerCase().includes(q))) return false;
       return true;
     });
-  }, [approvedPOs, poOfficeFilter, poExpDate, search]);
+  }, [approvedPOs, poOfficeFilter, poSupplierFilter, poStatusFilter, poExpDate, poFromDate, poToDate, search]);
 
   const filteredGRNs = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -195,6 +318,9 @@ export default function PurchaseReceivePage() {
       return true;
     });
   }, [receipts, search, recOfficeFilter, grnTypeFilter, lcNoFilter, itemTypeFilter, itemTypeById, fromDate, toDate]);
+
+  const pendingPOsPage = usePaging(pendingPOs, 50);
+  const filteredGRNsPage = usePaging(filteredGRNs, 50);
 
   const invalidate = () => {
     for (const key of PURCHASE_QUERY_KEYS) queryClient.invalidateQueries({ queryKey: [key] });
@@ -477,11 +603,11 @@ export default function PurchaseReceivePage() {
       {activeTab === "APPROVED_PO" && (
         <div className="space-y-3">
           <div className="bg-white rounded border border-slate-200/90 p-3.5 shadow-2xs">
-            <div className="flex flex-wrap items-end gap-3.5">
-              <label className="block w-52">
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-2">
+              <label className="block">
                 <span className="block text-[11px] font-semibold text-slate-700 mb-1">Office</span>
                 <select value={poOfficeFilter} onChange={(e) => setPoOfficeFilter(e.target.value)} className={inputCls}>
-                  <option value="ALL">All</option>
+                  <option value="ALL">All Offices</option>
                   {offices.map((o) => (
                     <option key={o.id} value={o.id}>
                       {o.name}
@@ -489,20 +615,53 @@ export default function PurchaseReceivePage() {
                   ))}
                 </select>
               </label>
-              <label className="block w-48">
+              <label className="block">
+                <span className="block text-[11px] font-semibold text-slate-700 mb-1">Supplier</span>
+                <select value={poSupplierFilter} onChange={(e) => setPoSupplierFilter(e.target.value)} className={inputCls}>
+                  <option value="ALL">All Suppliers</option>
+                  {suppliers.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="block">
+                <span className="block text-[11px] font-semibold text-slate-700 mb-1">Status</span>
+                <select value={poStatusFilter} onChange={(e) => setPoStatusFilter(e.target.value)} className={inputCls}>
+                  <option value="ALL">All Status</option>
+                  <option value="APPROVED">Approved</option>
+                  <option value="PARTIALLY_RECEIVED">Partially Received</option>
+                </select>
+              </label>
+              <label className="block">
+                <span className="block text-[11px] font-semibold text-slate-700 mb-1">From Date</span>
+                <input type="date" value={poFromDate} onChange={(e) => setPoFromDate(e.target.value)} className={inputCls} />
+              </label>
+              <label className="block">
+                <span className="block text-[11px] font-semibold text-slate-700 mb-1">To Date</span>
+                <input type="date" value={poToDate} onChange={(e) => setPoToDate(e.target.value)} className={inputCls} />
+              </label>
+              <label className="block">
                 <span className="block text-[11px] font-semibold text-slate-700 mb-1">Exp. Receive Date</span>
                 <input type="date" value={poExpDate} onChange={(e) => setPoExpDate(e.target.value)} className={inputCls} />
               </label>
+            </div>
+            <div className="flex items-center gap-2 pt-1">
               <button type="button" onClick={() => refetchApprovedPOs()} disabled={posLoading} className={btnPrimary}>
                 {posLoading && <Spinner className="size-3.5" />}
                 VIEW
               </button>
-              {(poOfficeFilter !== "ALL" || poExpDate) && (
+              {(poOfficeFilter !== "ALL" || poSupplierFilter !== "ALL" || poStatusFilter !== "ALL" || poExpDate || poFromDate || poToDate) && (
                 <button
                   type="button"
                   onClick={() => {
                     setPoOfficeFilter("ALL");
+                    setPoSupplierFilter("ALL");
+                    setPoStatusFilter("ALL");
                     setPoExpDate("");
+                    setPoFromDate("");
+                    setPoToDate("");
                   }}
                   className="h-9 px-2 text-xs text-slate-500 hover:text-slate-800 underline"
                 >
@@ -543,12 +702,12 @@ export default function PurchaseReceivePage() {
                       </td>
                     </tr>
                   ) : (
-                    pendingPOs.map((po, idx) => {
+                    pendingPOsPage.slice.map((po, idx) => {
                       const overdue = po.expectedDeliveryDate < today();
                       const docs = poDocFields(po);
                       return (
                         <tr key={po.id}>
-                          <td className="text-center font-mono text-[11px] text-slate-500">{idx + 1}</td>
+                          <td className="text-center font-mono text-[11px] text-slate-500">{pendingPOsPage.offset + idx + 1}</td>
                           <td className="text-center whitespace-nowrap">
                             <div className="row-actions flex items-center justify-center gap-0.5">
                               <button
@@ -614,6 +773,7 @@ export default function PurchaseReceivePage() {
                 </tbody>
               </table>
             </div>
+            {pendingPOsPage.pager}
           </div>
         </div>
       )}
@@ -727,12 +887,12 @@ export default function PurchaseReceivePage() {
                       </td>
                     </tr>
                   ) : (
-                    filteredGRNs.map((g, idx) => {
+                    filteredGRNsPage.slice.map((g, idx) => {
                       const totalQty = g.items.reduce((s, it) => s + it.currentReceivedQuantity, 0);
                       const pendingAmt = pendingByGrnId.get(g.id) ?? (g.status === "CANCELLED" ? 0 : g.totalReceivedAmount);
                       return (
                         <tr key={g.id}>
-                          <td className="text-center font-mono text-[11px] text-slate-500">{idx + 1}</td>
+                          <td className="text-center font-mono text-[11px] text-slate-500">{filteredGRNsPage.offset + idx + 1}</td>
                           <td className="text-center whitespace-nowrap">
                             <div className="row-actions flex items-center justify-center gap-0.5">
                               <button type="button" onClick={() => setViewGRN(g)} className={iconBtn} title="View" aria-label={`View ${g.grnNumber}`}>
@@ -793,6 +953,7 @@ export default function PurchaseReceivePage() {
                 </tbody>
               </table>
             </div>
+            {filteredGRNsPage.pager}
           </div>
         </div>
       )}

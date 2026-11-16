@@ -973,6 +973,8 @@ export default function SupplierPaymentsPage() {
                 onChange={(e) => setRowsPerPage1(Number(e.target.value))}
                 className="border border-slate-300 rounded px-1.5 py-0.5 bg-white text-xs"
               >
+                <option value={10}>10</option>
+                <option value={20}>20</option>
                 <option value={50}>50</option>
                 <option value={100}>100</option>
               </select>
@@ -1380,6 +1382,8 @@ export default function SupplierPaymentsPage() {
                 onChange={(e) => setRowsPerPage3(Number(e.target.value))}
                 className="border border-slate-300 rounded px-1.5 py-0.5 bg-white text-xs"
               >
+                <option value={10}>10</option>
+                <option value={20}>20</option>
                 <option value={50}>50</option>
                 <option value={100}>100</option>
               </select>
@@ -1497,6 +1501,8 @@ export default function SupplierPaymentsPage() {
                 onChange={(e) => setRowsPerPage4(Number(e.target.value))}
                 className="border border-slate-300 rounded px-1.5 py-0.5 bg-white text-xs"
               >
+                <option value={10}>10</option>
+                <option value={20}>20</option>
                 <option value={50}>50</option>
                 <option value={100}>100</option>
               </select>
@@ -1776,6 +1782,8 @@ export default function SupplierPaymentsPage() {
               >
                 <option value={10}>10</option>
                 <option value={25}>25</option>
+                <option value={10}>10</option>
+                <option value={20}>20</option>
                 <option value={50}>50</option>
                 <option value={100}>100</option>
               </select>
