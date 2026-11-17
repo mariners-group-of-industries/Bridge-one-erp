@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PrismaClient } from "@/generated/prisma/client";
 import type { Actor, Permission } from "@/lib/auth/actor";
-import { createBom } from "@/features/production/bom/services/bom.service";
+import { createBom, deleteBom } from "@/features/production/bom/services/bom.service";
 import { getProductionDashboard } from "@/features/production/dashboard/services/dashboard.service";
 import { entryPdf } from "@/features/production/entries/services/entry-pdf";
 import { cancelEntry, createEntry, entryForm, getEntry, listEntries, listQueue } from "@/features/production/entries/services/entry.service";
@@ -83,6 +83,7 @@ describe("production entries", () => {
     ids.pending = (await createOrder(manager, { orderDate: "2026-10-21", productionDate: "2026-10-21", itemId: ids.chips, bomId: bom.id, quantity: 5, officeId, warehouseId: rmStore })).id;
     await actOnOrder(manager, order.id, { version: order.updatedAt, action: "approve" });
     ids.order = order.id;
+    ids.bom = bom.id;
   });
 
   afterAll(stopTestDb);
@@ -102,6 +103,36 @@ describe("production entries", () => {
       { itemId: ids.oil, actualQty: 12 },
     ],
     ...overrides,
+  });
+
+  it("guards real-life data: tiny per-unit quantities, BOMs without materials, future dates, BOMs in use", async () => {
+    // 1 LTR of oil per 48,000 units: the per-unit quantity must not round away.
+    const big = await createBom(adminActor, {
+      name: "Big lot",
+      bomType: "SINGLE_OUTPUT",
+      outputs: [{ itemId: ids.chips, outputType: "FINISHED_GOODS", netWeight: 0, lotSizeQty: 48_000, costPercent: 100 }],
+      materials: [{ itemId: ids.oil, qty: 1, wastagePercent: 0, rate: 150, excludeFromScrap: false }],
+    });
+    const order = await createOrder(manager, { orderDate: "2026-10-21", productionDate: "2026-10-21", itemId: ids.chips, bomId: big.id, quantity: 24_000, officeId: ids.officeId, warehouseId: ids.rmStore });
+    await actOnOrder(manager, order.id, { version: order.updatedAt, action: "approve" });
+    const form = await entryForm(operator, order.id);
+    expect(form.materials[0].perUnit * 24_000).toBeCloseTo(0.5, 6);
+
+    // A BOM imported without its material lines cannot be produced from.
+    const imported = await prisma.productionBom.create({
+      data: { businessUnitId: ids.businessUnitId, name: "Imported", createdBy: "import", outputs: { create: [{ lineNo: 1, itemId: ids.chips, outputType: "FINISHED_GOODS", lotSizeQty: 100 }] } },
+    });
+    await expect(
+      createOrder(manager, { orderDate: "2026-10-21", productionDate: "2026-10-21", itemId: ids.chips, bomId: imported.id, quantity: 10, officeId: ids.officeId, warehouseId: ids.rmStore }),
+    ).rejects.toThrow("no input materials");
+
+    await expect(createEntry(operator, input({ entryDate: "2099-01-01" }))).rejects.toThrow("future");
+    // Quantities are kept to 3 decimals.
+    const entry = await createEntry(operator, input({ totalQty: 120.00049, rejectQty: 20 }));
+    expect(entry).toMatchObject({ totalQty: 120, netQty: 100 });
+
+    const bom = await prisma.productionBom.findUniqueOrThrow({ where: { id: ids.bom } });
+    await expect(deleteBom(adminActor, ids.bom, { version: bom.updatedAt.toISOString() })).rejects.toThrow("used by 2 production orders");
   });
 
   it("posts an entry: consumes materials, adds output to stock and moves the order on", async () => {

@@ -59,7 +59,8 @@ function ShellInner({ children }: { children: ReactNode }) {
         Skip to content
       </a>
 
-      <div className="print:hidden">
+      {/* The wrapper is exactly as tall as the navbar, so the navbar's own `sticky` has no room to stick: the wrapper sticks instead. */}
+      <div className="sticky top-0 z-30 print:hidden">
         <Navbar
           sidebarHidden={sidebarHidden}
           onToggleSidebar={() => setSidebarHidden((v) => !v)}
