@@ -56,7 +56,7 @@ describe("Leave", () => {
   it("holds pending days in the balance, counts them as taken once approved, and refuses overlaps and over-quota", async () => {
     const { id } = await applyLeave(rahim, leave(), [{ name: "note.pdf", type: "application/pdf", size: PDF.byteLength, bytes: PDF }]);
     const casual = async () => (await leaveBalance(rahim, undefined, 2026)).find((b) => b.leaveType === "Casual Leave");
-    expect(await casual()).toEqual({ leaveType: "Casual Leave", quota: 10, taken: 0, pending: 3, remaining: 7 });
+    expect(await casual()).toMatchObject({ leaveType: "Casual Leave", quota: 10, taken: 0, pending: 3, remaining: 7 });
 
     await expect(applyLeave(rahim, leave({ leaveType: "Sick Leave", fromDate: "2026-03-03", toDate: "2026-03-04" }))).rejects.toThrow(/overlap/);
     await expect(applyLeave(rahim, leave({ fromDate: "2026-04-01", toDate: "2026-04-08" }))).rejects.toThrow(/Only 7 day/);
@@ -64,7 +64,7 @@ describe("Leave", () => {
 
     await expect(decideLeave(rahim, id, "Approved")).rejects.toThrow(/Only HR/);
     await decideLeave(adminActor, id, "Approved");
-    expect(await casual()).toEqual({ leaveType: "Casual Leave", quota: 10, taken: 3, pending: 0, remaining: 7 });
+    expect(await casual()).toMatchObject({ leaveType: "Casual Leave", quota: 10, taken: 3, pending: 0, remaining: 7 });
     await expect(decideLeave(adminActor, id, "Rejected")).rejects.toThrow(/already been decided/);
     await expect(deleteLeave(rahim, id)).rejects.toThrow(/Only pending/);
 

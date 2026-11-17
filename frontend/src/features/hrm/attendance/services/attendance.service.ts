@@ -3,6 +3,7 @@ import { decideWithPipeline, employeeBusinessUnit, resetApproval } from "@/lib/a
 import { actorUserId, type Actor } from "@/lib/auth/actor";
 import { employeeScope } from "../../shared/hr-access";
 import { db } from "@/lib/prisma/client";
+import { notifyEmployees } from "@/lib/notifications/notify";
 import { ADJUSTABLE_STATUSES, type AttendanceRecord, type AttendanceFilterState, type EmployeeOption } from "../types";
 import { dayPlans, daysBetween, isOvernight, minutesOf, type DayPlan, type WorkCalendar } from "./day-plan.service";
 
@@ -237,6 +238,20 @@ export function calendarStatus(firstPunch: Date, calendar: WorkCalendar, rule: {
   return "Present";
 }
 
+/**
+ * One employee's attendance for a range: the same rows HR sees in Daily
+ * Attendance (device punches, day plan, approved adjustments; pending ones
+ * flagged), plus the day plans. Used by Employee Self Service.
+ */
+export async function employeeAttendance(employee: EmployeeOption, fromDate: string, toDate: string): Promise<{ rows: AttendanceRecord[]; plans: Map<string, DayPlan> }> {
+  const filters: AttendanceFilterState = { fromDate, toDate, viewBy: "Employee", employeeId: employee.id, officeId: "ALL", status: "ALL", pageSize: 1, page: 1 };
+  const { rows, plans } = await punchRecords(filters, [employee]);
+  const merged = new Map(rows.map((r) => [r.id, r]));
+  await applyAdjustments(merged, filters);
+  for (const row of merged.values()) if (row.calendarName === "Not assigned") row.calendarName = calendarLabel(plans.get(row.id));
+  return { rows: [...merged.values()].sort((a, b) => a.date.localeCompare(b.date)), plans };
+}
+
 export async function getDailyAttendance(filters: AttendanceFilterState): Promise<{
   records: AttendanceRecord[];
   totalRecords: number;
@@ -466,17 +481,21 @@ export async function decideAttendanceAdjustment(
   id: string,
   status: "Approved" | "Rejected",
 ) {
-  const adjustment = await db().attendanceAdjustment.findFirst({ where: { id, employee: employeeScope(actor) }, select: { id: true, status: true, employeeId: true } });
+  const adjustment = await db().attendanceAdjustment.findFirst({ where: { id, employee: employeeScope(actor) }, select: { id: true, status: true, employeeId: true, date: true } });
   if (!adjustment) throw notFound("Attendance adjustment");
   if (adjustment.status !== "Pending") throw conflict("This adjustment has already been decided.");
   const target = { feature: ATTENDANCE_APPROVAL_FEATURE, documentId: id, businessUnitId: await employeeBusinessUnit(adjustment.employeeId) };
-  await decideWithPipeline(actor, target, status === "Approved" ? "approve" : "reject", async (tx) => {
+  const result = await decideWithPipeline(actor, target, status === "Approved" ? "approve" : "reject", async (tx) => {
     const { count } = await tx.attendanceAdjustment.updateMany({
       where: { id, status: "Pending" },
       data: { status, decidedByName: (actor.name ?? "Administrator").slice(0, 150), decidedAt: new Date() },
     });
     if (!count) throw conflict("This adjustment has already been decided.");
   });
+  // The employee hears about the outcome of a change to their attendance.
+  if (status === "Rejected" || result?.final) {
+    await notifyEmployees([adjustment.employeeId], { kind: "attendance", title: `Attendance correction ${status.toLowerCase()}`, body: `Your attendance for ${isoDay(adjustment.date)} was ${status.toLowerCase()} by ${actor.name ?? "HR"}.`, link: "/employee/attendance-corrections" });
+  }
 }
 
 /** Withdraws pending adjustments (the page's "clear" action); decided ones are kept for the record. */

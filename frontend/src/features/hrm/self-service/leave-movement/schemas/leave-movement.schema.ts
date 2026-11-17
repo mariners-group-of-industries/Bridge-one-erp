@@ -11,7 +11,8 @@ export const LEAVE_TYPES = [
 
 export const MOVEMENT_TYPES = ["Official", "Personal", "Client Visit", "Field Work"] as const;
 
-export const APPLICATION_STATUSES = ["Pending", "Approved", "Rejected"] as const;
+/** Cancelled = withdrawn by the employee while pending (kept for the record; uses no balance). */
+export const APPLICATION_STATUSES = ["Pending", "Approved", "Rejected", "Cancelled"] as const;
 export type ApplicationStatus = (typeof APPLICATION_STATUSES)[number];
 
 export const MAX_LEAVE_ATTACHMENTS = 3;
@@ -24,7 +25,8 @@ const employeeId = z.uuid("Select an employee.").optional();
 
 export const leaveInputSchema = z.object({
   employeeId,
-  leaveType: z.enum(LEAVE_TYPES.map((t) => t.name) as [string, ...string[]], "Select a leave type."),
+  // Checked on the server against the employee's leave policy (leave-policy.ts).
+  leaveType: z.string("Select a leave type.").trim().min(1, "Select a leave type.").max(40),
   fromDate: date,
   toDate: date,
   location: z.string().trim().max(150).default(""),
@@ -59,7 +61,13 @@ export interface LeaveMovementOptions {
 
 export interface LeaveBalanceRow {
   leaveType: string;
+  /** This year's entitlement, including days carried forward. */
   quota: number | null;
+  /** Unused days carried forward from last year (included in `quota`). */
+  carried?: number;
+  /** Policy rules shown to the applicant. */
+  noticeDays?: number | null;
+  attachmentAfterDays?: number | null;
   /** Approved days this year. */
   taken: number;
   /** Days waiting for approval; already held back from `remaining`. */

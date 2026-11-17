@@ -302,7 +302,10 @@ export interface PayrollBatchDetail {
   approval: ApprovalProgress;
   stages: ApprovalStageRow[];
   events: PayrollBatchEventRow[];
-  can: { edit: boolean; submit: boolean; cancel: boolean; decide: boolean };
+  /** Set once HR publishes the approved payroll's payslips to employees. */
+  payslipsPublishedAt: string | null;
+  payslipsPublishedByName: string | null;
+  can: { edit: boolean; submit: boolean; cancel: boolean; decide: boolean; publish: boolean };
 }
 
 export interface PayrollLinePage {

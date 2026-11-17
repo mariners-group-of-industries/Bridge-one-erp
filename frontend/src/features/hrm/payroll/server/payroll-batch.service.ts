@@ -3,6 +3,7 @@ import { AppError, badRequest, conflict, notFound } from "@/lib/api/errors";
 import { canOn, type Actor } from "@/lib/auth/actor";
 import { approvalTrail, recordApproval, recordRejection, resetApproval } from "@/lib/approval/engine";
 import { db } from "@/lib/prisma/client";
+import { notifyEmployees } from "@/lib/notifications/notify";
 import { formatNumber, nextNumber } from "@/features/sales/lib/sequence";
 import { decisionBy, isoDate, num, officeScope, requireHr, toDate } from "../../shared/hr-access";
 import { hrmPaths } from "../../paths";
@@ -436,6 +437,31 @@ export async function decidePayrollBatch(actor: Actor, id: string, input: unknow
   });
 }
 
+/**
+ * Publishes an Approved batch's payslips: from now on each employee sees their
+ * own line in Employee Self Service › My Payslips, and is notified. Approval and
+ * publication are separate steps, so HR can approve first and release later.
+ */
+export async function publishPayslips(actor: Actor, id: string) {
+  requireHr(actor);
+  if (!canApprove(actor)) throw new AppError(403, "FORBIDDEN", "You need the Approve permission on Payroll to publish payslips.");
+  const batch = await findBatch(actor, id);
+  if (batch.status !== "Approved") throw conflict(`This payroll is ${batch.status}; only an approved payroll's payslips can be published.`);
+  if (batch.payslipsPublishedAt) throw conflict("These payslips are already published.");
+  const by = decisionBy(actor);
+  await db().$transaction(async (tx) => {
+    const { count } = await tx.payrollBatch.updateMany({ where: { id, status: "Approved", payslipsPublishedAt: null }, data: { payslipsPublishedAt: new Date(), payslipsPublishedByName: by } });
+    if (!count) throw conflict("These payslips are already published.");
+    await tx.payrollBatchEvent.create({ data: { batchId: id, action: "Payslips published", fromStatus: "Approved", toStatus: "Approved", actorId: actor.id, actorName: by } });
+  });
+  const lines = await db().payrollBatchLine.findMany({ where: { batchId: id }, select: { employeeId: true } });
+  await notifyEmployees(
+    lines.map((l) => l.employeeId),
+    { kind: "payslip", title: `Payslip for ${batch.month} is available`, body: `Your ${batch.salaryType.toLowerCase()} salary for ${batch.month} has been approved and published.`, link: "/employee/payslips" },
+  );
+  return { publishedAt: new Date().toISOString() };
+}
+
 /** Cancels a Draft or Rejected batch; it stays for audit and frees the period for a new payroll. */
 export async function cancelPayrollBatch(actor: Actor, id: string, input: unknown) {
   requireHr(actor);
@@ -580,6 +606,8 @@ export async function getPayrollBatch(actor: Actor, id: string): Promise<Payroll
     decidedByName: b.decidedByName,
     rejectionReason: b.rejectionReason,
     cancelReason: b.cancelReason,
+    payslipsPublishedAt: b.payslipsPublishedAt?.toISOString() ?? null,
+    payslipsPublishedByName: b.payslipsPublishedByName,
     stale,
     approval: progress.get(id)!,
     stages: stages.map((s) => ({ stageNo: s.stageNo, name: s.name, status: s.status, approverNames: s.approverNames, approvedNames: s.approvedNames, actedBy: s.actedBy, actedAt: s.actedAt, comment: s.comment })),
@@ -589,6 +617,7 @@ export async function getPayrollBatch(actor: Actor, id: string): Promise<Payroll
       submit: isEditor && editable(b.status) && b.errorCount === 0 && !stale,
       cancel: isEditor && editable(b.status),
       decide: canApprove(actor) && b.status === "Under Processing",
+      publish: canApprove(actor) && b.status === "Approved" && !b.payslipsPublishedAt,
     },
   };
 }

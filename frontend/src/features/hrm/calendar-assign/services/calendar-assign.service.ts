@@ -1,3 +1,4 @@
+import { notifyEmployees } from "@/lib/notifications/notify";
 import { badRequest } from "@/lib/api/errors";
 import type { Actor } from "@/lib/auth/actor";
 import { db } from "@/lib/prisma/client";
@@ -311,6 +312,7 @@ export async function saveCalendarDays(actor: Actor, input: SaveCalendarDaysInpu
     if (rows.length) await tx.employeeCalendarDay.createMany({ data: rows });
     return count;
   });
+  await notifyEmployees(ids, { kind: "calendar", title: "Your work calendar was updated", body: `Shifts and off days from ${from} to ${to} were updated by ${by}.`, link: "/employee/calendar" });
   return { saved: rows.length, cleared: Math.max(0, removed - rows.length) };
 }
 
