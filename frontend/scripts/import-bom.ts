@@ -246,6 +246,7 @@ async function main() {
       const item    = itemMap.get(row.itemCode);
 
       try {
+        let isUpdate = false;
         await prisma.$transaction(async (tx) => {
           // ── BOM ──
           const existing = await tx.productionBom.findFirst({
@@ -256,6 +257,7 @@ async function main() {
           let bomId: string;
 
           if (existing) {
+            isUpdate = true;
             // Update — only fields that may have changed
             await tx.productionBom.update({
               where: { id: existing.id },
@@ -269,7 +271,6 @@ async function main() {
               },
             });
             bomId = existing.id;
-            updated++;
           } else {
             // Insert
             const created = await tx.productionBom.create({
@@ -289,7 +290,6 @@ async function main() {
               },
             });
             bomId = created.id;
-            inserted++;
           }
 
           // ── BOM Output (only if item exists) ──
@@ -325,16 +325,16 @@ async function main() {
             noItem++;
           }
         });
+
+        if (isUpdate) {
+          updated++;
+        } else {
+          inserted++;
+        }
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
         console.error(`      FAILED row ${row.sl} "${row.bomName}": ${msg}`);
         failedRows.push(row.bomName);
-        // Rollback is automatic — continue with next row
-        if (existing !== undefined) {
-          // undo the counter we incremented optimistically
-          if (updated > 0) updated--;
-          else if (inserted > 0) inserted--;
-        }
       }
     }
 
