@@ -193,22 +193,22 @@ export function CreateReturnWithoutRefView() {
   }, [addedLines]);
 
   const inputCls =
-    "h-8 w-full rounded border border-slate-300 bg-white px-2.5 text-xs text-slate-800 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none";
+    "h-8 w-full rounded border border-line-strong bg-surface px-2.5 text-xs text-ink placeholder:text-ink-faint focus:border-blue-500 focus:outline-none";
 
   return (
-    <div className="min-h-screen bg-[#f8fafc] p-3 md:p-6 text-slate-800">
+    <div className="min-h-screen bg-canvas p-3 md:p-6 text-ink">
       {/* Top Action Bar */}
-      <div className="bg-white border border-slate-200/90 rounded px-4 py-2.5 flex items-center justify-between shadow-2xs mb-3">
+      <div className="bg-surface border border-line/90 rounded px-4 py-2.5 flex items-center justify-between shadow-2xs mb-3">
         <div className="flex items-center gap-3">
           <button
             type="button"
             onClick={() => router.push("/purchase/returns")}
-            className="h-8 w-8 rounded border border-slate-300 flex items-center justify-center text-slate-600 hover:bg-slate-50 transition"
+            className="h-8 w-8 rounded border border-line-strong flex items-center justify-center text-ink-muted hover:bg-canvas transition"
             title="Back to Purchase Returns"
           >
             <ArrowLeft className="w-4 h-4" />
           </button>
-          <h1 className="text-base font-bold text-slate-900 tracking-tight">Create Purchase Return WithOut Ref.</h1>
+          <h1 className="text-base font-bold text-ink tracking-tight">Create Purchase Return WithOut Ref.</h1>
         </div>
         <button
           type="button"
@@ -224,13 +224,13 @@ export function CreateReturnWithoutRefView() {
 
       <div className="space-y-3">
         {/* Card 1: Basic Information */}
-        <div className="bg-white border border-slate-200/90 rounded shadow-2xs overflow-hidden mb-3">
+        <div className="bg-surface border border-line/90 rounded shadow-2xs overflow-hidden mb-3">
           {/* Card Tab Header with Collapse Chevron */}
-          <div className="flex items-center justify-between border-b border-slate-200 bg-white px-3 pt-2">
+          <div className="flex items-center justify-between border-b border-line bg-surface px-3 pt-2">
             <div className="flex items-center gap-2">
               <button
                 type="button"
-                className="px-4 py-2 text-xs font-semibold rounded-t bg-[#e6f2fb] text-blue-700 border-b-2 border-blue-600 transition"
+                className="px-4 py-2 text-xs font-semibold rounded-t bg-grid-head text-blue-700 dark:text-blue-300 border-b-2 border-blue-600 transition"
               >
                 Basic Information
               </button>
@@ -238,7 +238,7 @@ export function CreateReturnWithoutRefView() {
             <button
               type="button"
               onClick={() => setIsHeaderCollapsed(!isHeaderCollapsed)}
-              className="p-1.5 text-slate-400 hover:text-slate-600 rounded transition"
+              className="p-1.5 text-ink-faint hover:text-ink-muted rounded transition"
               title={isHeaderCollapsed ? "Expand" : "Collapse"}
             >
               {isHeaderCollapsed ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
@@ -250,14 +250,14 @@ export function CreateReturnWithoutRefView() {
               {/* Row 1: Create Date, Office, Warehouse, Select Supplier */}
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
                 <div>
-                  <label className="mb-1 block text-xs font-semibold text-slate-700">
+                  <label className="mb-1 block text-xs font-semibold text-ink-muted">
                     <span className="text-red-500 font-bold mr-0.5">*</span>Create Date
                   </label>
                   <input type="date" value={returnDate} onChange={(e) => setReturnDate(e.target.value)} className={inputCls} />
                 </div>
 
                 <div>
-                  <label className="mb-1 block text-xs font-semibold text-slate-700">
+                  <label className="mb-1 block text-xs font-semibold text-ink-muted">
                     <span className="text-red-500 font-bold mr-0.5">*</span>Office
                   </label>
                   <select
@@ -280,14 +280,14 @@ export function CreateReturnWithoutRefView() {
                 </div>
 
                 <div>
-                  <label className="mb-1 block text-xs font-semibold text-slate-700">
+                  <label className="mb-1 block text-xs font-semibold text-ink-muted">
                     <span className="text-red-500 font-bold mr-0.5">*</span>Warehouse
                   </label>
                   <select
                     value={selectedWarehouseId}
                     onChange={(e) => setPickedWarehouseId(e.target.value)}
                     disabled={!selectedOfficeId}
-                    className={`${inputCls} disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed`}
+                    className={`${inputCls} disabled:bg-control disabled:text-ink-faint disabled:cursor-not-allowed`}
                   >
                     {!selectedOfficeId ? (
                       <option value="">Select office first</option>
@@ -304,7 +304,7 @@ export function CreateReturnWithoutRefView() {
                 </div>
 
                 <div>
-                  <label className="mb-1 block text-xs font-semibold text-slate-700">
+                  <label className="mb-1 block text-xs font-semibold text-ink-muted">
                     <span className="text-red-500 font-bold mr-0.5">*</span>Select Supplier
                   </label>
                   <SearchableCombobox
@@ -323,7 +323,7 @@ export function CreateReturnWithoutRefView() {
 
               {/* Row 2: Remarks */}
               <div className="max-w-sm">
-                <label className="mb-1 block text-[11px] font-semibold text-slate-700">Remarks</label>
+                <label className="mb-1 block text-[11px] font-semibold text-ink-muted">Remarks</label>
                 <input
                   type="text"
                   value={remarks}
@@ -337,12 +337,12 @@ export function CreateReturnWithoutRefView() {
         </div>
 
         {/* Card 2: Return Items */}
-        <div className="bg-white border border-slate-200/90 rounded shadow-2xs overflow-hidden mb-3">
-          <div className="flex items-center justify-between border-b border-slate-200 bg-white px-3 pt-2">
+        <div className="bg-surface border border-line/90 rounded shadow-2xs overflow-hidden mb-3">
+          <div className="flex items-center justify-between border-b border-line bg-surface px-3 pt-2">
             <div className="flex items-center gap-2">
               <button
                 type="button"
-                className="px-4 py-2 text-xs font-semibold rounded-t bg-[#e6f2fb] text-blue-700 border-b-2 border-blue-600 transition"
+                className="px-4 py-2 text-xs font-semibold rounded-t bg-grid-head text-blue-700 dark:text-blue-300 border-b-2 border-blue-600 transition"
               >
                 Return Items
               </button>
@@ -354,11 +354,11 @@ export function CreateReturnWithoutRefView() {
             <div className="grid grid-cols-1 items-end gap-3.5 lg:grid-cols-12">
               <div className="lg:col-span-4">
                 <div className="mb-1 flex items-center justify-between">
-                  <label className="text-xs font-semibold text-slate-700">
+                  <label className="text-xs font-semibold text-ink-muted">
                     <span className="text-red-500 font-bold mr-0.5">*</span>Select Item
                   </label>
                   {selectedItemStock !== null && (
-                    <span className="text-[10px] font-medium text-blue-600">Warehouse Stock: {selectedItemStock}</span>
+                    <span className="text-[10px] font-medium text-blue-600 dark:text-blue-400">Warehouse Stock: {selectedItemStock}</span>
                   )}
                 </div>
                 <SearchableCombobox
@@ -378,7 +378,7 @@ export function CreateReturnWithoutRefView() {
               </div>
 
               <div className="lg:col-span-3">
-                <label className="mb-1 block text-xs font-semibold text-slate-700">
+                <label className="mb-1 block text-xs font-semibold text-ink-muted">
                   <span className="text-red-500 font-bold mr-0.5">*</span>Quantity
                 </label>
                 <input
@@ -393,7 +393,7 @@ export function CreateReturnWithoutRefView() {
               </div>
 
               <div className="lg:col-span-3">
-                <label className="mb-1 block text-xs font-semibold text-slate-700">
+                <label className="mb-1 block text-xs font-semibold text-ink-muted">
                   <span className="text-red-500 font-bold mr-0.5">*</span>Return Price (BDT)
                 </label>
                 <input
@@ -411,7 +411,7 @@ export function CreateReturnWithoutRefView() {
                 <button
                   type="button"
                   onClick={handleAddLine}
-                  className="h-8 rounded border border-slate-300 bg-slate-100 px-5 text-xs font-semibold text-slate-700 transition hover:border-blue-600 hover:bg-blue-600 hover:text-white"
+                  className="h-8 rounded border border-line-strong bg-control px-5 text-xs font-semibold text-ink-muted transition hover:border-blue-600 hover:bg-blue-600 hover:text-white"
                 >
                   Add
                 </button>
@@ -419,11 +419,11 @@ export function CreateReturnWithoutRefView() {
             </div>
 
             {/* Return Items Table */}
-            <div className="overflow-hidden rounded-md border border-slate-200 bg-white shadow-2xs">
+            <div className="overflow-hidden rounded-md border border-line bg-surface shadow-2xs">
               <div className="overflow-x-auto">
                 <table className="w-full border-collapse text-left text-xs">
                   <thead>
-                    <tr className="border-b border-blue-200 bg-[#e6f2fb] text-[11px] font-semibold text-slate-800">
+                    <tr className="border-b border-blue-200 dark:border-blue-500/30 bg-grid-head text-[11px] font-semibold text-ink">
                       <th className="px-3 py-2">SL</th>
                       <th className="px-3 py-2">Item Code</th>
                       <th className="px-3 py-2">Item Name</th>
@@ -435,31 +435,31 @@ export function CreateReturnWithoutRefView() {
                       <th className="px-3 py-2 text-center">Action</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-100">
+                  <tbody className="divide-y divide-line">
                     {addedLines.length === 0 ? (
                       <tr>
-                        <td colSpan={9} className="py-8 text-center text-xs text-slate-400">
+                        <td colSpan={9} className="py-8 text-center text-xs text-ink-faint">
                           No return items added yet. Search item by barcode, name, or code above and click Add.
                         </td>
                       </tr>
                     ) : (
                       addedLines.map((row, idx) => (
-                        <tr key={row.key} className="hover:bg-slate-50">
-                          <td className="px-3 py-2 text-slate-500">{idx + 1}</td>
-                          <td className="px-3 py-2 font-mono text-sky-700">{row.itemCode}</td>
-                          <td className="px-3 py-2 font-medium text-slate-800">{row.itemName}</td>
-                          <td className="px-3 py-2 text-slate-600">{row.uom}</td>
-                          <td className="px-3 py-2 text-right font-mono text-slate-500">{row.availableStock}</td>
+                        <tr key={row.key} className="hover:bg-canvas">
+                          <td className="px-3 py-2 text-ink-faint">{idx + 1}</td>
+                          <td className="px-3 py-2 font-mono text-sky-700 dark:text-sky-300">{row.itemCode}</td>
+                          <td className="px-3 py-2 font-medium text-ink">{row.itemName}</td>
+                          <td className="px-3 py-2 text-ink-muted">{row.uom}</td>
+                          <td className="px-3 py-2 text-right font-mono text-ink-faint">{row.availableStock}</td>
                           <td className="px-3 py-2 text-right font-mono">{row.quantity}</td>
                           <td className="px-3 py-2 text-right font-mono">{formatCurrency(row.unitPrice)}</td>
-                          <td className="px-3 py-2 text-right font-mono font-semibold text-slate-900">
+                          <td className="px-3 py-2 text-right font-mono font-semibold text-ink">
                             {formatCurrency(row.lineTotal)}
                           </td>
                           <td className="px-3 py-2 text-center">
                             <button
                               type="button"
                               onClick={() => setAddedLines((prev) => prev.filter((l) => l.key !== row.key))}
-                              className="rounded p-1 text-red-500 hover:bg-red-50"
+                              className="rounded p-1 text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10"
                               title="Remove line"
                             >
                               <Trash2 className="h-3.5 w-3.5" />
@@ -472,12 +472,12 @@ export function CreateReturnWithoutRefView() {
                 </table>
               </div>
               {addedLines.length > 0 && (
-                <div className="flex items-center justify-end gap-6 border-t border-slate-200 bg-slate-50 px-4 py-2.5 text-xs">
-                  <span className="text-slate-600">
-                    Total Return Qty: <strong className="font-mono text-slate-900">{totals.qty}</strong>
+                <div className="flex items-center justify-end gap-6 border-t border-line bg-canvas px-4 py-2.5 text-xs">
+                  <span className="text-ink-muted">
+                    Total Return Qty: <strong className="font-mono text-ink">{totals.qty}</strong>
                   </span>
-                  <span className="text-slate-700">
-                    Total Credit Amount: <strong className="font-mono text-sm text-blue-700">{formatCurrency(totals.amount)}</strong>
+                  <span className="text-ink-muted">
+                    Total Credit Amount: <strong className="font-mono text-sm text-blue-700 dark:text-blue-300">{formatCurrency(totals.amount)}</strong>
                   </span>
                 </div>
               )}

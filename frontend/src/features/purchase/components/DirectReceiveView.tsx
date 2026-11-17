@@ -427,7 +427,10 @@ export function DirectReceiveView() {
   }, [addedLines]);
 
   const inputCls =
-    "h-8 w-full rounded border border-slate-300 bg-white px-2.5 text-xs text-slate-800 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none";
+    "h-8 w-full rounded border border-line-strong bg-surface px-2.5 text-xs text-ink placeholder:text-ink-faint focus:border-blue-500 focus:outline-none";
+
+  const labelCls = "mb-1 block text-xs font-semibold text-ink-muted";
+  const required = <span className="mr-0.5 font-bold text-red-500">*</span>;
 
   const labelCls = "mb-1 block text-xs font-semibold text-slate-700";
   const required = <span className="mr-0.5 font-bold text-red-500">*</span>;

@@ -163,6 +163,22 @@ interface LedgerReconRow {
 }
 
 
+/** One page of rows for a table: the Rows-per-page select decides how many rows show. */
+function usePage<T>(rows: T[], size: number) {
+  const [page, setPage] = useState(1);
+  const pages = Math.max(1, Math.ceil(rows.length / size));
+  const current = Math.min(page, pages);
+  const start = (current - 1) * size;
+  return {
+    rows: rows.slice(start, start + size),
+    page: current,
+    pages,
+    setPage,
+    from: rows.length ? start + 1 : 0,
+    to: Math.min(rows.length, start + size),
+  };
+}
+
 export default function SupplierPaymentsPage() {
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -691,6 +707,11 @@ export default function SupplierPaymentsPage() {
     }
   };
 
+  const dueListPage = usePage(filteredDueList, rowsPerPage1);
+  const paidListPage = usePage(filteredPaidList, rowsPerPage3);
+  const dueInvoicesPage = usePage(filteredDueInvoices, rowsPerPage4);
+  const ledgerPage = usePage(filteredLedgerReconList, rowsPerPage6);
+
   return (
     <div className="flex flex-col md:h-[calc(100dvh-3.5rem)] md:overflow-hidden font-sans p-3 space-y-2">
       {/* Fixed Top Controls (header + tabs) */}
@@ -905,7 +926,7 @@ export default function SupplierPaymentsPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-line text-[11px] text-ink">
-                {filteredDueList.map((row) => (
+                {dueListPage.rows.map((row) => (
                   <tr key={row.sl} className="hover:bg-canvas/80 transition-colors">
                     <td className="p-2 border border-line-strong text-center font-mono text-ink-muted">
                       {row.sl}
@@ -973,7 +994,10 @@ export default function SupplierPaymentsPage() {
               <span>Rows per page:</span>
               <select
                 value={rowsPerPage1}
-                onChange={(e) => setRowsPerPage1(Number(e.target.value))}
+                onChange={(e) => {
+                  setRowsPerPage1(Number(e.target.value));
+                  dueListPage.setPage(1);
+                }}
                 className="border border-line-strong rounded px-1.5 py-0.5 bg-surface text-xs"
               >
                 <option value={10}>10</option>
@@ -983,12 +1007,18 @@ export default function SupplierPaymentsPage() {
               </select>
             </div>
             <div className="flex items-center gap-4">
-              <span>1-{filteredDueList.length} of {filteredDueList.length}</span>
+              <span>{dueListPage.from}-{dueListPage.to} of {filteredDueList.length}</span>
               <div className="flex items-center gap-1">
-                <button type="button" disabled className="p-1 border border-line rounded text-slate-300">
+                <button
+                  disabled={dueListPage.page <= 1}
+                  onClick={() => dueListPage.setPage(dueListPage.page - 1)}
+                  aria-label="Previous page" type="button" className="p-1 border border-line rounded text-ink-muted hover:text-ink disabled:opacity-40">
                   <ChevronLeft className="w-4 h-4" />
                 </button>
-                <button type="button" disabled className="p-1 border border-line rounded text-slate-300">
+                <button
+                  disabled={dueListPage.page >= dueListPage.pages}
+                  onClick={() => dueListPage.setPage(dueListPage.page + 1)}
+                  aria-label="Next page" type="button" className="p-1 border border-line rounded text-ink-muted hover:text-ink disabled:opacity-40">
                   <ChevronRight className="w-4 h-4" />
                 </button>
               </div>
@@ -1282,7 +1312,7 @@ export default function SupplierPaymentsPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-line text-[11px] text-ink">
-                {filteredPaidList.map((row) => (
+                {paidListPage.rows.map((row) => (
                   <tr key={row.sl} className="hover:bg-canvas/80 transition-colors">
                     <td className="p-2 border border-line-strong text-center font-mono text-ink-muted">
                       {row.sl}
@@ -1382,7 +1412,10 @@ export default function SupplierPaymentsPage() {
               <span>Rows per page:</span>
               <select
                 value={rowsPerPage3}
-                onChange={(e) => setRowsPerPage3(Number(e.target.value))}
+                onChange={(e) => {
+                  setRowsPerPage3(Number(e.target.value));
+                  paidListPage.setPage(1);
+                }}
                 className="border border-line-strong rounded px-1.5 py-0.5 bg-surface text-xs"
               >
                 <option value={10}>10</option>
@@ -1392,12 +1425,18 @@ export default function SupplierPaymentsPage() {
               </select>
             </div>
             <div className="flex items-center gap-4">
-              <span>1-{filteredPaidList.length} of {filteredPaidList.length}</span>
+              <span>{paidListPage.from}-{paidListPage.to} of {filteredPaidList.length}</span>
               <div className="flex items-center gap-1">
-                <button type="button" disabled className="p-1 border border-line rounded text-slate-300">
+                <button
+                  disabled={paidListPage.page <= 1}
+                  onClick={() => paidListPage.setPage(paidListPage.page - 1)}
+                  aria-label="Previous page" type="button" className="p-1 border border-line rounded text-ink-muted hover:text-ink disabled:opacity-40">
                   <ChevronLeft className="w-4 h-4" />
                 </button>
-                <button type="button" className="p-1 border border-line rounded text-ink-faint hover:text-ink-muted">
+                <button
+                  disabled={paidListPage.page >= paidListPage.pages}
+                  onClick={() => paidListPage.setPage(paidListPage.page + 1)}
+                  aria-label="Next page" type="button" className="p-1 border border-line rounded text-ink-muted hover:text-ink disabled:opacity-40">
                   <ChevronRight className="w-4 h-4" />
                 </button>
               </div>
@@ -1457,7 +1496,7 @@ export default function SupplierPaymentsPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-line text-[11px] text-ink">
-                {filteredDueInvoices.map((row) => (
+                {dueInvoicesPage.rows.map((row) => (
                   <tr key={row.sl} className="hover:bg-canvas/80 transition-colors">
                     <td className="p-2 border border-line-strong text-center font-mono text-ink-muted">
                       {row.sl}
@@ -1501,7 +1540,10 @@ export default function SupplierPaymentsPage() {
               <span>Rows per page:</span>
               <select
                 value={rowsPerPage4}
-                onChange={(e) => setRowsPerPage4(Number(e.target.value))}
+                onChange={(e) => {
+                  setRowsPerPage4(Number(e.target.value));
+                  dueInvoicesPage.setPage(1);
+                }}
                 className="border border-line-strong rounded px-1.5 py-0.5 bg-surface text-xs"
               >
                 <option value={10}>10</option>
@@ -1511,12 +1553,18 @@ export default function SupplierPaymentsPage() {
               </select>
             </div>
             <div className="flex items-center gap-4">
-              <span>1-{filteredDueInvoices.length} of {filteredDueInvoices.length}</span>
+              <span>{dueInvoicesPage.from}-{dueInvoicesPage.to} of {filteredDueInvoices.length}</span>
               <div className="flex items-center gap-1">
-                <button type="button" disabled className="p-1 border border-line rounded text-slate-300">
+                <button
+                  disabled={dueInvoicesPage.page <= 1}
+                  onClick={() => dueInvoicesPage.setPage(dueInvoicesPage.page - 1)}
+                  aria-label="Previous page" type="button" className="p-1 border border-line rounded text-ink-muted hover:text-ink disabled:opacity-40">
                   <ChevronLeft className="w-4 h-4" />
                 </button>
-                <button type="button" className="p-1 border border-line rounded text-ink-faint hover:text-ink-muted">
+                <button
+                  disabled={dueInvoicesPage.page >= dueInvoicesPage.pages}
+                  onClick={() => dueInvoicesPage.setPage(dueInvoicesPage.page + 1)}
+                  aria-label="Next page" type="button" className="p-1 border border-line rounded text-ink-muted hover:text-ink disabled:opacity-40">
                   <ChevronRight className="w-4 h-4" />
                 </button>
               </div>
@@ -1729,7 +1777,7 @@ export default function SupplierPaymentsPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-line text-[11px] text-ink">
-                {filteredLedgerReconList.map((row) => (
+                {ledgerPage.rows.map((row) => (
                   <tr key={row.sl} className="hover:bg-canvas/80 transition-colors">
                     <td className="p-2 border border-line-strong text-center font-mono text-ink-muted">
                       {row.sl}
@@ -1780,7 +1828,10 @@ export default function SupplierPaymentsPage() {
               <span>Rows per page:</span>
               <select
                 value={rowsPerPage6}
-                onChange={(e) => setRowsPerPage6(Number(e.target.value))}
+                onChange={(e) => {
+                  setRowsPerPage6(Number(e.target.value));
+                  ledgerPage.setPage(1);
+                }}
                 className="border-0 bg-transparent font-medium text-ink focus:ring-0 cursor-pointer text-xs"
               >
                 <option value={10}>10</option>
@@ -1792,20 +1843,24 @@ export default function SupplierPaymentsPage() {
               </select>
             </div>
             <span>
-              1-{filteredLedgerReconList.length} of {filteredLedgerReconList.length}
+              {ledgerPage.from}-{ledgerPage.to} of {filteredLedgerReconList.length}
             </span>
             <div className="flex items-center gap-1">
               <button
+                  disabled={ledgerPage.page <= 1}
+                  onClick={() => ledgerPage.setPage(ledgerPage.page - 1)}
+                  aria-label="Previous page"
                 type="button"
                 className="p-1 text-ink-faint hover:text-ink-muted disabled:opacity-50"
-                disabled
               >
                 <ChevronLeft className="w-4 h-4" />
               </button>
               <button
+                  disabled={ledgerPage.page >= ledgerPage.pages}
+                  onClick={() => ledgerPage.setPage(ledgerPage.page + 1)}
+                  aria-label="Next page"
                 type="button"
                 className="p-1 text-ink-faint hover:text-ink-muted disabled:opacity-50"
-                disabled
               >
                 <ChevronRight className="w-4 h-4" />
               </button>

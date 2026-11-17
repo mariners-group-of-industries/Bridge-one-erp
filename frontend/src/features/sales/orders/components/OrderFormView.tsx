@@ -19,6 +19,7 @@ import { useSession } from "@/lib/auth/session";
 import { cn } from "@/lib/cn";
 import { formatAmount, formatQty } from "../../dashboard/lib/format";
 import { issuesToErrors, numberText, optionalNumber, requiredNumber } from "../../lib/form";
+import { itemTypeList } from "../../lib/item-types";
 import { addDays, useToday } from "../../lib/use-today";
 import {
   CATEGORY_LEVEL_LABELS,
@@ -689,7 +690,7 @@ function OrderEditor({ today, lookups, order, quotation }: EditorProps) {
                   required
                   error={err("customerId")}
                   disabled={!businessUnitId || masters.loading}
-                  placeholder={masters.loading ? "Loading…" : "Select/Search Customer (min 3 letters)"}
+                  placeholder={masters.loading ? "Loading…" : "Select/Search Customer"}
                   options={[
                     ...(order && !customers.some((candidate) => candidate.id === order.customerId)
                       ? [{ id: order.customerId, label: order.customerName }]
@@ -719,7 +720,7 @@ function OrderEditor({ today, lookups, order, quotation }: EditorProps) {
                   freeText
                   error={err("referredBy")}
                   disabled={!businessUnitId}
-                  placeholder="Select/Search Customer (min 3 letters)"
+                  placeholder="Select/Search Customer"
                   options={customers.filter((candidate) => candidate.id !== values.customerId).map((candidate) => ({ id: candidate.id, label: candidate.name }))}
                   text={values.referredBy}
                   onText={(text) => set("referredBy", text)}
@@ -1110,7 +1111,7 @@ export function ItemEntry({
   const listId = useId();
   const [category, setCategory] = useState<[string, string, string]>(["", "", ""]);
   const [itemType, setItemType] = useState("");
-  const itemTypes = useMemo(() => [...new Set(items.map((candidate) => candidate.itemType).filter((value): value is string => Boolean(value)))].sort(), [items]);
+  const itemTypes = useMemo(() => itemTypeList(items), [items]);
   const [itemText, setItemText] = useState("");
   const [entry, setEntry] = useState({ qty: "", unitPrice: "", discountPercent: "0", vatPercent: "0", aitPercent: "0" });
   const [warning, setWarning] = useState<string>();

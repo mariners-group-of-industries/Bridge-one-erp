@@ -22,6 +22,7 @@ import { ModalDialog } from "@/components/purchase/ModalDialog";
 import { useAccountingStore } from "@/features/accounts/store/accounting-store";
 import { localToday } from "@/features/purchase/lib/client";
 import type { ChequeBookItem } from "@/features/accounts/types";
+import { useFeaturePermissions, needsPermission } from "@/lib/permissions/useFeaturePermissions";
 
 type TabKey = "REGISTER" | "OUTGOING_REPORT" | "POST_DATE_REPORT" | "RECEIVE_REPORT";
 
@@ -46,6 +47,8 @@ function BridgeOneEmptyState() {
 let nextReceiveRowId = 1;
 
 export default function ChequeSetupPage() {
+  const perms = useFeaturePermissions("/accounts/cheque-setup");
+  const chequeIssuePerms = useFeaturePermissions("/accounts/cheque-issue");
   const { pending, run } = usePending();
   const syncDatabase = useAccountingStore((s) => s.syncDatabase);
   const chequeBooks = useAccountingStore((s) => s.chequeBooks);
@@ -880,7 +883,7 @@ export default function ChequeSetupPage() {
           </div>
 
           {activeTab === "RECEIVE_REPORT" ? (
-            <button
+            (perms.create ? (<button
               type="button"
               onClick={() => {
                 setErrorMessage("");
@@ -891,9 +894,9 @@ export default function ChequeSetupPage() {
             >
               <Plus className="w-3.5 h-3.5" />
               <span>Receive Cheque</span>
-            </button>
+            </button>) : null)
           ) : (
-            <button
+            (perms.create ? (<button
               type="button"
               onClick={() => {
                 setErrorMessage("");
@@ -904,7 +907,7 @@ export default function ChequeSetupPage() {
             >
               <Plus className="w-3.5 h-3.5" />
               <span>New Cheque</span>
-            </button>
+            </button>) : null)
           )}
         </div>
       </div>
@@ -1238,11 +1241,11 @@ export default function ChequeSetupPage() {
                             >
                               <Eye className="w-3.5 h-3.5" />
                             </button>
-                            <button
+                            <button disabled={!perms.edit}
                               type="button"
                               onClick={() => setEditBook(b)}
-                              className="hover:text-emerald-600 dark:hover:text-emerald-400 transition p-0.5"
-                              title="Edit Cheque Book"
+                              className="hover:text-emerald-600 dark:hover:text-emerald-400 transition p-0.5 disabled:opacity-40 disabled:cursor-not-allowed"
+                              title={!perms.edit ? needsPermission("edit") : "Edit Cheque Book"}
                             >
                               <Pencil className="w-3.5 h-3.5" />
                             </button>
@@ -1503,7 +1506,8 @@ export default function ChequeSetupPage() {
             >
               Register Cheque Book
             </button>
-            <button
+            {/* Issuing a cheque is a Cheque Issue record: it needs that page's Create permission. */}
+            {chequeIssuePerms.create && <button
               type="button"
               onClick={() => setNewChequeModalMode("ISSUE")}
               className={`pb-1 font-semibold text-xs transition border-b-2 ${
@@ -1513,7 +1517,7 @@ export default function ChequeSetupPage() {
               }`}
             >
               Issue Bank Cheque
-            </button>
+            </button>}
           </div>
 
           {errorMessage && (

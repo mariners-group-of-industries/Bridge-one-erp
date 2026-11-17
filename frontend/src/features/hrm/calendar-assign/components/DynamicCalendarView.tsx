@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef, useEffect } from "react";
 import {
   RefreshCw,
   SlidersHorizontal,
@@ -152,6 +152,8 @@ export function DynamicCalendarView({
       searchParams.set("toDate", filter.toDate);
       searchParams.set("page", "1");
       searchParams.set("limit", "40");
+      searchParams.set("fromDate", filter.fromDate);
+      searchParams.set("toDate", filter.toDate);
 
       const res = await fetch(`/api/hrm/calendar-assign?${searchParams.toString()}`);
       const data = await res.json();
@@ -199,6 +201,8 @@ export function DynamicCalendarView({
       searchParams.set("toDate", filter.toDate);
       searchParams.set("page", String(nextPage));
       searchParams.set("limit", "40");
+      searchParams.set("fromDate", filter.fromDate);
+      searchParams.set("toDate", filter.toDate);
 
       const res = await fetch(`/api/hrm/calendar-assign?${searchParams.toString()}`);
       const data = await res.json();
@@ -210,6 +214,7 @@ export function DynamicCalendarView({
           const newOnes = data.employees.filter((e: any) => !existingIds.has(e.id));
           return [...prev, ...newOnes];
         });
+        mergeServerAssignments(data.assignments, data.employees.map((e: EmployeeRosterItem) => e.id));
         setPage(nextPage);
         setHasMore(Boolean(data.pagination?.hasMore));
         setTotalCount(data.pagination?.total || 0);
@@ -224,14 +229,7 @@ export function DynamicCalendarView({
 
   // Handle cell change
   const handleCellChange = (employeeId: string, dateStr: string, newShiftCode: string) => {
-    setGridData((prev) => ({
-      ...prev,
-      [employeeId]: {
-        ...(prev[employeeId] || {}),
-        [dateStr]: newShiftCode,
-      },
-    }));
-    setUnsavedChanges((c) => c + 1);
+    applyCells([{ employeeId, date: dateStr, shortCode: newShiftCode }]);
   };
 
   // Bulk Apply Shift to real employees
@@ -249,39 +247,21 @@ export function DynamicCalendarView({
       return;
     }
 
-    setGridData((prev) => {
-      const next = { ...prev };
-      targetEmployees.forEach((emp) => {
-        next[emp.id] = { ...(next[emp.id] || {}) };
-        dates.forEach((d) => {
-          if (mode === "working_days" && d.isWeekend) {
-            return;
-          }
-          next[emp.id][d.dateStr] = shiftCode;
-        });
-      });
-      return next;
-    });
-
-    setUnsavedChanges((c) => c + 1);
+    applyCells(
+      targetEmployees.flatMap((emp) =>
+        dates
+          .filter((d) => !(mode === "working_days" && d.isWeekend))
+          .map((d) => ({ employeeId: emp.id, date: d.dateStr, shortCode: shiftCode })),
+      ),
+    );
     toast.success(
-      `Assigned shift [${shiftCode}] to ${targetEmployees.length} employees successfully.`,
+      `Assigned shift [${shiftCode}] to ${targetEmployees.length} employees. Click Save to keep it.`,
     );
   };
 
   // Column Bulk Assign (single date to all filtered employees)
   const handleColumnBulkAssign = (dateStr: string, shiftCode: string) => {
-    setGridData((prev) => {
-      const next = { ...prev };
-      filteredEmployees.forEach((emp) => {
-        next[emp.id] = {
-          ...(next[emp.id] || {}),
-          [dateStr]: shiftCode,
-        };
-      });
-      return next;
-    });
-    setUnsavedChanges((c) => c + 1);
+    applyCells(filteredEmployees.map((emp) => ({ employeeId: emp.id, date: dateStr, shortCode: shiftCode })));
     toast.success(`Assigned shift [${shiftCode}] for ${dateStr} across ${filteredEmployees.length} employees.`);
   };
 
@@ -290,16 +270,8 @@ export function DynamicCalendarView({
     const emp = filteredEmployees.find((e) => e.id === employeeId);
     const targetDates = dates.filter((d) => !(skipWeekends && d.isWeekend));
     if (!emp || targetDates.length === 0) return;
-    setGridData((prev) => {
-      const row = { ...(prev[employeeId] || {}) };
-      targetDates.forEach((d) => {
-        // "" clears the day.
-        if (shiftCode) row[d.dateStr] = shiftCode;
-        else delete row[d.dateStr];
-      });
-      return { ...prev, [employeeId]: row };
-    });
-    setUnsavedChanges((c) => c + 1);
+    // "" clears the day.
+    applyCells(targetDates.map((d) => ({ employeeId, date: d.dateStr, shortCode: shiftCode })));
     toast.success(
       shiftCode
         ? `Assigned shift [${shiftCode}] to ${emp.name} for ${targetDates.length} day(s).`
@@ -309,28 +281,20 @@ export function DynamicCalendarView({
 
   // Set Weekly Offs (e.g. Fridays)
   const handleSetWeeklyOffs = (dayOfWeek: number) => {
-    setGridData((prev) => {
-      const next = { ...prev };
-      filteredEmployees.forEach((emp) => {
-        next[emp.id] = { ...(next[emp.id] || {}) };
-        dates.forEach((d) => {
-          const dateObj = new Date(d.dateStr);
-          if (dateObj.getDay() === dayOfWeek) {
-            next[emp.id][d.dateStr] = "OFF";
-          }
-        });
-      });
-      return next;
-    });
-    setUnsavedChanges((c) => c + 1);
+    applyCells(
+      filteredEmployees.flatMap((emp) =>
+        dates
+          .filter((d) => new Date(d.dateStr).getDay() === dayOfWeek)
+          .map((d) => ({ employeeId: emp.id, date: d.dateStr, shortCode: "OFF" })),
+      ),
+    );
     toast.success("Fridays updated to Weekly Off (OFF).");
   };
 
   // Reset defaults
   const handleResetDefaults = () => {
-    setGridData((prev) => {
-      const next = { ...prev };
-      filteredEmployees.forEach((emp) => {
+    applyCells(
+      filteredEmployees.flatMap((emp) => {
         const defaultShift = getDefaultShiftForOffice(emp.officeName);
         next[emp.id] = {};
         dates.forEach((d) => {
@@ -433,7 +397,7 @@ export function DynamicCalendarView({
             <button
               type="button"
               onClick={handleSave}
-              disabled={isSaving || filteredEmployees.length === 0}
+              disabled={isSaving || unsavedChanges === 0}
               className="inline-flex items-center justify-center h-8 px-6 rounded font-semibold text-xs text-white bg-primary hover:bg-primary-hover active:bg-primary-hover shadow-xs transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
             >
               {isSaving ? (

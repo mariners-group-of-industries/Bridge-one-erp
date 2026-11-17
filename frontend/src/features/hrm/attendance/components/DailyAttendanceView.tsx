@@ -96,6 +96,7 @@ export function DailyAttendanceView({
       searchParams.set("employeeId", filters.employeeId);
       searchParams.set("officeId", filters.officeId);
       searchParams.set("status", filters.status);
+      for (const key of ["office", "department", "departmentSection", "designation"] as const) searchParams.set(key, filters[key] || "ALL");
       searchParams.set("pageSize", String(filters.pageSize));
       searchParams.set("page", String(filters.page));
 

@@ -87,6 +87,53 @@ export function statusOf(firstPunch: Date, rule: { lateAfter: string; absentAfte
   return "Present";
 }
 
+// ─── Calendars (Calendar Assign, else HR Governance › Roster / Employee Assign) ──
+
+interface PeriodCalendar {
+  employeeId: string;
+  from: string;
+  to: string | null;
+  calendar: string;
+  /** Roster beats Employee Assign when both cover the day. */
+  rank: number;
+}
+
+/** Looks up the calendar each employee works on a day between the two dates. */
+async function calendarLookup(employeeIds: string[], fromDate: string, toDate: string) {
+  if (employeeIds.length === 0) return () => null as string | null;
+  const [days, records] = await Promise.all([
+    db().employeeCalendarDay.findMany({
+      where: { employeeId: { in: employeeIds }, date: { gte: new Date(`${fromDate}T00:00:00Z`), lte: new Date(`${toDate}T00:00:00Z`) } },
+      select: { employeeId: true, date: true, shortCode: true },
+    }),
+    db().hrPolicyRecord.findMany({
+      where: {
+        tab: { in: ["roster", "employee-assign"] },
+        employeeId: { in: employeeIds },
+        OR: [{ effectiveFrom: null }, { effectiveFrom: { lte: new Date(`${toDate}T00:00:00Z`) } }],
+        AND: [{ OR: [{ effectiveTo: null }, { effectiveTo: { gte: new Date(`${fromDate}T00:00:00Z`) } }] }],
+      },
+      select: { tab: true, employeeId: true, effectiveFrom: true, effectiveTo: true, data: true },
+    }),
+  ]);
+
+  const byDay = new Map(days.map((d) => [`${d.employeeId}:${d.date.toISOString().slice(0, 10)}`, d.shortCode]));
+  const periods: PeriodCalendar[] = records.flatMap((r) => {
+    const calendar = ((r.data ?? {}) as Record<string, unknown>).calendar;
+    if (!r.employeeId || typeof calendar !== "string" || !calendar) return [];
+    return [{ employeeId: r.employeeId, from: r.effectiveFrom?.toISOString().slice(0, 10) ?? "", to: r.effectiveTo?.toISOString().slice(0, 10) ?? null, calendar, rank: r.tab === "roster" ? 0 : 1 }];
+  });
+
+  return (employeeId: string, date: string): string | null => {
+    const code = byDay.get(`${employeeId}:${date}`);
+    if (code) return CALENDAR_CODE_MAP.get(code)?.calendarName ?? code;
+    const period = periods
+      .filter((p) => p.employeeId === employeeId && p.from <= date && (!p.to || p.to >= date))
+      .sort((a, b) => a.rank - b.rank || b.from.localeCompare(a.from))[0];
+    return period?.calendar ?? null;
+  };
+}
+
 /** False for a missing or reversed range; throws when the range is too long. */
 function validRange(filters: AttendanceFilterState): boolean {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(filters.fromDate) || !/^\d{4}-\d{2}-\d{2}$/.test(filters.toDate) || filters.fromDate > filters.toDate) return false;
