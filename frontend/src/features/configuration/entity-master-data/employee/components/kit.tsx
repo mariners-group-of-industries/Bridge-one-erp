@@ -6,14 +6,16 @@
  * Semantic colour tokens only.
  */
 
-import { AlertCircle, CheckCircle2 } from "lucide-react";
+import { AlertCircle, Check, CheckCircle2, Plus, X } from "lucide-react";
 import {
   useId,
+  useState,
   type InputHTMLAttributes,
   type ReactNode,
   type SelectHTMLAttributes,
   type TextareaHTMLAttributes,
 } from "react";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/cn";
 
 // ─── Controls ─────────────────────────────────────────────────────────────────
@@ -293,3 +295,73 @@ export const TABLE = {
   row: "border-t border-grid-line hover:bg-grid-hover",
   td: "border-r border-grid-line px-2.5 py-2 text-ink last:border-r-0",
 } as const;
+
+// ─── Select with "add new value" ──────────────────────────────────────────────
+
+/** A dropdown with a + button to type a value that is not in the list yet. */
+export function AddableSelect({ label, value, options, onChange, error }: {
+  label: string;
+  error?: string;
+  value: string;
+  options: string[];
+  onChange: (value: string) => void;
+}) {
+  const [adding, setAdding] = useState(false);
+  const [draft, setDraft] = useState("");
+
+  const confirm = () => {
+    const next = draft.trim();
+    if (next) onChange(next);
+    setAdding(false);
+    setDraft("");
+  };
+  const cancel = () => {
+    setAdding(false);
+    setDraft("");
+  };
+
+  return (
+    <Field label={label} error={error}>
+      {(id) =>
+        adding ? (
+          <div className="flex gap-1.5">
+            <Input
+              id={id}
+              autoFocus
+              value={draft}
+              placeholder={`New ${label.toLowerCase()}`}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  confirm();
+                }
+                if (e.key === "Escape") cancel();
+              }}
+            />
+            <Button variant="accent" size="icon" className="size-8" aria-label={`Add ${label}`} onClick={confirm}>
+              <Check />
+            </Button>
+            <Button variant="ghost" size="icon" className="size-8" aria-label="Cancel" onClick={cancel}>
+              <X />
+            </Button>
+          </div>
+        ) : (
+          <div className="flex gap-1.5">
+            <Select id={id} value={value} options={options} onChange={(e) => onChange(e.target.value)} />
+            <Button
+              variant="accent-soft"
+              size="icon"
+              className="size-8"
+              aria-label={`Add new ${label}`}
+              title={`Add new ${label.toLowerCase()}`}
+              onClick={() => setAdding(true)}
+            >
+              <Plus />
+            </Button>
+          </div>
+        )
+      }
+    </Field>
+  );
+}

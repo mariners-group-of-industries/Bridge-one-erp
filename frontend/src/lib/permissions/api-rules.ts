@@ -131,6 +131,8 @@ export const API_RULES: Record<string, ApiRule> = {
 
   // ── HRM ──
   "/api/hrm/options": { read: { anyViewIn: ["hrm"] } },
+  // The calendar list is read by Calendar Assign and the Attendance page's calendar info.
+  "/api/hrm/calendar-assign/calendars": { feature: "/hrm/calendar-assign", read: { anyViewIn: ["hrm"] } },
   "/api/hrm/overtime": { feature: "/hrm/overtime" },
   "/api/hrm/bonus": { feature: "/hrm/compensation/bonus" },
   "/api/hrm/increments": { feature: "/hrm/talent/increment" },
@@ -140,6 +142,9 @@ export const API_RULES: Record<string, ApiRule> = {
   "/api/hrm/governance/pending": { feature: "/hrm/governance/pending-approval" },
   "/api/hrm/self-service/leaves": { feature: "/hrm/self-service/leave-movement" },
   "/api/hrm/self-service/movements": { feature: "/hrm/self-service/leave-movement" },
+  // An employee's own attendance change requests (always for themselves; HR decides in Pending Approval).
+  "/api/hrm/self-service/attendance-requests": { feature: "/hrm/self-service/leave-movement" },
+  "/api/hrm/self-service/attendance-requests/*/withdraw": { feature: "/hrm/self-service/leave-movement", action: "edit" },
 
   // ── Sales (masters are kept in Configuration › Sales Config › Sales Setup; lookups read by every sales page) ──
   "/api/sales/bills": { feature: "/sales/collections" },

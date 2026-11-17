@@ -3,6 +3,7 @@
 import { X, Eye, Clock, MapPin } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { AttendanceRecord } from "../types";
+import { isoToDmy } from "@/components/ui/date-input";
 
 interface AttendanceViewModalProps {
   record: AttendanceRecord | null;
@@ -61,7 +62,7 @@ export function AttendanceViewModal({
             <div>
               <span className="text-[10px] text-ink-muted">Date & Day</span>
               <div className="font-semibold text-ink">
-                {record.date} ({record.day})
+                {isoToDmy(record.date)} ({record.day})
               </div>
             </div>
             <div>

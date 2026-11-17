@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Sparkles, CheckCheck, CalendarOff, RotateCcw } from "lucide-react";
-import { CALENDAR_DEFINITIONS } from "../constants";
+import { useCalendars } from "../use-calendars";
 
 interface BulkAssignToolbarProps {
   selectedShift: string;
@@ -27,8 +27,10 @@ export function BulkAssignToolbar({
 }: BulkAssignToolbarProps) {
   const [applyMode, setApplyMode] = useState<"working_days" | "all">("working_days");
 
-  const regularCalendars = CALENDAR_DEFINITIONS.filter(
-    (c) => c.shortCode !== "OFF" && c.shortCode !== "HOL",
+  const { calendars } = useCalendars();
+  // One entry per code (offices can share a code); each employee gets their own office's calendar for it.
+  const regularCalendars = calendars.filter(
+    (c, i) => c.shortCode !== "OFF" && c.shortCode !== "HOL" && calendars.findIndex((d) => d.shortCode === c.shortCode) === i,
   );
 
   return (

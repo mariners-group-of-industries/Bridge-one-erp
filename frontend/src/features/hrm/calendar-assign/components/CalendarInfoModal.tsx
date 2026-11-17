@@ -12,7 +12,7 @@ import {
   Check,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { CALENDAR_DEFINITIONS } from "../constants";
+import { useCalendars } from "../use-calendars";
 
 interface CalendarInfoModalProps {
   open: boolean;
@@ -32,9 +32,10 @@ export function CalendarInfoModal({
   const [copied, setCopied] = useState(false);
 
   // Filter only regular shift calendars (excluding OFF and HOL from main table view or keeping them in separate section)
+  const { calendars } = useCalendars();
   const regularCalendars = useMemo(
-    () => CALENDAR_DEFINITIONS.filter((c) => c.shortCode !== "OFF" && c.shortCode !== "HOL"),
-    [],
+    () => calendars.filter((c) => c.shortCode !== "OFF" && c.shortCode !== "HOL"),
+    [calendars],
   );
 
   const officeOptions = useMemo(

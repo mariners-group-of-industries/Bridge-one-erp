@@ -30,6 +30,8 @@ interface Source {
   module: string;
   label: string;
   href: string;
+  /** Where the category links to, when it differs from `href` (e.g. a preselected list). */
+  link?: string;
   /** Approval Setup feature name, when the document can have a pipeline. */
   pipelineFeature: string | null;
   pending: readonly string[];
@@ -282,6 +284,24 @@ const SOURCES: readonly Source[] = [
       })),
   },
   {
+    id: "employee-attendance",
+    module: "HR & Payroll",
+    label: "Employee Attendance",
+    href: "/hrm/governance/pending-approval",
+    link: "/hrm/governance/pending-approval?kind=attendance",
+    pipelineFeature: "Employee Attendance",
+    pending: ["PENDING"],
+    approved: ["APPROVED"],
+    rejected: ["REJECTED"],
+    counts: async (units) => rows(await db().attendanceAdjustment.groupBy({ ...groupArgs, where: employeeInUnits(units) })),
+    oldest: async (units) =>
+      (await db().attendanceAdjustment.findMany({ ...oldestArgs, where: { ...employeeInUnits(units), status: { in: spellings(["PENDING"]) } }, select: { id: true, date: true, createdAt: true, employee: employeeSelect } })).map((r) => ({
+        id: r.id,
+        reference: `${employeeRef(r.employee)} · ${r.date.toISOString().slice(0, 10)}`,
+        createdAt: r.createdAt,
+      })),
+  },
+  {
     id: "overtime",
     module: "HR & Payroll",
     label: "Overtime",
@@ -514,7 +534,7 @@ export async function getApprovalSummary(actor: Actor): Promise<ApprovalSummary>
       id: source.id,
       module: source.module,
       label: source.label,
-      href: source.href,
+      href: source.link ?? source.href,
       ...counts,
       pipelineConfigurable: source.pipelineFeature !== null,
       pipeline: pipeline
@@ -531,7 +551,7 @@ export async function getApprovalSummary(actor: Actor): Promise<ApprovalSummary>
         categoryId: source.id,
         category: source.label,
         module: source.module,
-        href: source.href,
+        href: source.link ?? source.href,
         reference: doc.reference,
         createdAt: doc.createdAt.toISOString(),
       })),
