@@ -435,38 +435,40 @@ export function DirectReceiveView() {
   return (
     <div className="min-h-screen bg-[#f8fafc] p-3 text-slate-800 md:p-6">
       {/* Top Action Bar */}
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded border border-slate-200/90 bg-white px-4 py-2.5 shadow-2xs">
-        <div className="flex items-center gap-3">
-          <button
-            type="button"
-            onClick={() => router.push("/purchase/receive")}
-            className="flex h-8 w-8 items-center justify-center rounded border border-slate-300 text-slate-600 transition hover:bg-slate-50"
-            title="Back to Purchase Receive"
-            aria-label="Back to Purchase Receive"
-          >
-            <ArrowLeft className="h-4 w-4" />
-          </button>
-          <h1 className="text-base font-bold tracking-tight text-slate-900">Direct Receive</h1>
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            disabled={saveMutation.isPending || !perms.receive.create}
-            onClick={() => saveMutation.mutate(true)}
-            className="flex h-8 items-center gap-1.5 rounded border border-[#2563eb] px-4 text-xs font-semibold text-[#2563eb] transition hover:bg-blue-50 disabled:opacity-50"
-          >
-            {saveMutation.isPending && saveMutation.variables === true && <Spinner className="size-3.5" />}
-            Save & New
-          </button>
-          <button
-            type="button"
-            disabled={saveMutation.isPending || !perms.receive.create}
-            onClick={() => saveMutation.mutate(false)}
-            className="flex h-8 items-center gap-1.5 rounded bg-[#2563eb] px-5 text-xs font-semibold text-white shadow-2xs transition hover:bg-blue-700 disabled:opacity-50"
-          >
-            {saveMutation.isPending && saveMutation.variables === false && <Spinner className="size-3.5" />}
-            SAVE
-          </button>
+      <div data-sticky-head className="sticky top-14 z-20 -mx-3 -mt-3 px-3 pt-3 pb-3 md:-mx-6 md:-mt-6 md:px-6 md:pt-6 bg-[#f8fafc]">
+        <div className=" flex flex-wrap items-center justify-between gap-2 rounded border border-slate-200/90 bg-white px-4 py-2.5 shadow-2xs">
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => router.push("/purchase/receive")}
+              className="flex h-8 w-8 items-center justify-center rounded border border-slate-300 text-slate-600 transition hover:bg-slate-50"
+              title="Back to Purchase Receive"
+              aria-label="Back to Purchase Receive"
+            >
+              <ArrowLeft className="h-4 w-4" />
+            </button>
+            <h1 className="text-base font-bold tracking-tight text-slate-900">Direct Receive</h1>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              disabled={saveMutation.isPending || !perms.receive.create}
+              onClick={() => saveMutation.mutate(true)}
+              className="flex h-8 items-center gap-1.5 rounded border border-[#2563eb] px-4 text-xs font-semibold text-[#2563eb] transition hover:bg-blue-50 disabled:opacity-50"
+            >
+              {saveMutation.isPending && saveMutation.variables === true && <Spinner className="size-3.5" />}
+              Save & New
+            </button>
+            <button
+              type="button"
+              disabled={saveMutation.isPending || !perms.receive.create}
+              onClick={() => saveMutation.mutate(false)}
+              className="flex h-8 items-center gap-1.5 rounded bg-[#2563eb] px-5 text-xs font-semibold text-white shadow-2xs transition hover:bg-blue-700 disabled:opacity-50"
+            >
+              {saveMutation.isPending && saveMutation.variables === false && <Spinner className="size-3.5" />}
+              SAVE
+            </button>
+          </div>
         </div>
       </div>
 

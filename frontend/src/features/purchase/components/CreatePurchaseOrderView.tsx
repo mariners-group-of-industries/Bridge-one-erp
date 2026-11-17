@@ -534,43 +534,45 @@ function CreatePurchaseOrderForm({
   return (
     <div className="min-h-screen bg-[#f8fafc] p-3 md:p-6 text-slate-800">
       {/* Top Sticky Action Bar */}
-      <div className="bg-white border border-slate-200/90 rounded px-4 py-2.5 flex items-center justify-between shadow-2xs mb-3">
-        <div className="flex items-center gap-3">
-          <button
-            type="button"
-            onClick={() => router.push("/purchase/orders")}
-            className="h-8 w-8 rounded border border-slate-300 flex items-center justify-center text-slate-600 hover:bg-slate-50 transition"
-            title="Back to Purchase Orders"
-          >
-            <ArrowLeft className="w-4 h-4" />
-          </button>
-          <h1 className="text-base font-bold text-slate-900 tracking-tight">
-            {editOrder ? `Edit Purchase Order — ${editOrder.poNumber}` : "Create Purchase Order"}
-          </h1>
-        </div>
-        <div className="flex items-center gap-2">
-          {!editOrder && (
+      <div data-sticky-head className="sticky top-14 z-20 -mx-3 -mt-3 px-3 pt-3 pb-3 md:-mx-6 md:-mt-6 md:px-6 md:pt-6 bg-[#f8fafc]">
+        <div className="bg-white border border-slate-200/90 rounded px-4 py-2.5 flex items-center justify-between shadow-2xs">
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => router.push("/purchase/orders")}
+              className="h-8 w-8 rounded border border-slate-300 flex items-center justify-center text-slate-600 hover:bg-slate-50 transition"
+              title="Back to Purchase Orders"
+            >
+              <ArrowLeft className="w-4 h-4" />
+            </button>
+            <h1 className="text-base font-bold text-slate-900 tracking-tight">
+              {editOrder ? `Edit Purchase Order — ${editOrder.poNumber}` : "Create Purchase Order"}
+            </h1>
+          </div>
+          <div className="flex items-center gap-2">
+            {!editOrder && (
+              <button
+                type="button"
+                disabled={saveMutation.isPending || !canSaveOrder}
+                title={!canSaveOrder ? "Requires Create permission in Configuration" : undefined}
+                onClick={() => saveMutation.mutate(true)}
+                className="h-8 px-4 border border-[#2563eb] text-[#2563eb] hover:bg-blue-50 font-semibold text-xs rounded transition flex items-center gap-1.5 disabled:opacity-50"
+              >
+                {saveMutation.isPending && <Spinner className="size-3.5" />}
+                Save & New
+              </button>
+            )}
             <button
               type="button"
               disabled={saveMutation.isPending || !canSaveOrder}
-              title={!canSaveOrder ? "Requires Create permission in Configuration" : undefined}
-              onClick={() => saveMutation.mutate(true)}
-              className="h-8 px-4 border border-[#2563eb] text-[#2563eb] hover:bg-blue-50 font-semibold text-xs rounded transition flex items-center gap-1.5 disabled:opacity-50"
+              title={!canSaveOrder ? "Requires Create/Edit permission in Configuration" : undefined}
+              onClick={() => saveMutation.mutate(false)}
+              className="h-8 px-5 bg-[#2563eb] hover:bg-blue-700 text-white font-semibold text-xs rounded transition flex items-center gap-1.5 shadow-2xs disabled:opacity-50"
             >
               {saveMutation.isPending && <Spinner className="size-3.5" />}
-              Save & New
+              SAVE
             </button>
-          )}
-          <button
-            type="button"
-            disabled={saveMutation.isPending || !canSaveOrder}
-            title={!canSaveOrder ? "Requires Create/Edit permission in Configuration" : undefined}
-            onClick={() => saveMutation.mutate(false)}
-            className="h-8 px-5 bg-[#2563eb] hover:bg-blue-700 text-white font-semibold text-xs rounded transition flex items-center gap-1.5 shadow-2xs disabled:opacity-50"
-          >
-            {saveMutation.isPending && <Spinner className="size-3.5" />}
-            SAVE
-          </button>
+          </div>
         </div>
       </div>
 
