@@ -12,9 +12,12 @@ import {
   Plus,
   Search,
   Trash2,
+  Upload,
 } from "lucide-react";
 import { ModalDialog } from "@/components/purchase/ModalDialog";
 import { useAccountingStore } from "@/features/accounts/store/accounting-store";
+import { BulkUploadDialog } from "@/features/configuration/entity-master-data/components/BulkUploadDialog";
+import { uploadAccountImport } from "@/features/accounts/lib/bulk-import-client";
 import { localToday } from "@/features/purchase/lib/client";
 import { Spinner } from "@/components/ui/spinner";
 import type { PaymentMethod } from "@/features/accounts/types";
@@ -65,6 +68,7 @@ export default function ExpenseAdvancePage() {
   const [isCreateAdvanceOpen, setIsCreateAdvanceOpen] = useState(false);
   const [isAdvanceHeaderCollapsed, setIsAdvanceHeaderCollapsed] = useState(false);
   const [isCreateProvisionOpen, setIsCreateProvisionOpen] = useState(false);
+  const [bulkOpen, setBulkOpen] = useState(false);
   const [viewingRecord, setViewingRecord] = useState<any | null>(null);
 
   // Forms
@@ -925,6 +929,17 @@ export default function ExpenseAdvancePage() {
               >
                 <Plus className="w-3.5 h-3.5" />
                 <span>Create Advance</span>
+              </button>) : null)
+            )}
+
+            {(activeTab === "EXPENSE" || activeTab === "PROVISION") && (
+              (perms.import ? (<button
+                onClick={() => setBulkOpen(true)}
+                className="inline-flex items-center gap-1 px-3 py-1 border border-line-strong rounded text-xs font-medium text-ink-muted hover:bg-canvas transition-colors"
+                title="Bulk upload expenses from an Excel file"
+              >
+                <Upload className="w-3.5 h-3.5" />
+                <span>Bulk Upload</span>
               </button>) : null)
             )}
           </div>
@@ -1830,6 +1845,16 @@ export default function ExpenseAdvancePage() {
           </div>
         )}
       </ModalDialog>
+      <BulkUploadDialog
+        open={bulkOpen}
+        onClose={() => setBulkOpen(false)}
+        onImported={() => { void useAccountingStore.getState().syncDatabase(); }}
+        noun="expenses"
+        templateUrl="/api/accounts/expenses/import"
+        maxRows={2000}
+        matchHint="Office must match an office in your access; Account Code is the GL code; the expense total is the sum of its lines. Rows with the same Ref are saved as one record; Record Kind is EXPENSE or PROVISION."
+        upload={(file) => uploadAccountImport("/api/accounts/expenses/import", file)}
+      />
     </div>
   );
 }

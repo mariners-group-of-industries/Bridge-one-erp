@@ -20,9 +20,12 @@ import {
   Printer,
   Search,
   Trash2,
+  Upload,
 } from "lucide-react";
 import { ModalDialog } from "@/components/purchase/ModalDialog";
 import { useAccountingStore } from "@/features/accounts/store/accounting-store";
+import { BulkUploadDialog } from "@/features/configuration/entity-master-data/components/BulkUploadDialog";
+import { uploadAccountImport } from "@/features/accounts/lib/bulk-import-client";
 import type { BudgetItem, BudgetLineItem } from "@/features/accounts/types";
 import { localToday } from "@/features/purchase/lib/client";
 import { useFeaturePermissions, needsPermission } from "@/lib/permissions/useFeaturePermissions";
@@ -99,6 +102,7 @@ export default function BudgetManagementPage() {
 
   // Dialog states
   const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [bulkOpen, setBulkOpen] = useState(false);
   const [isBudgetCardCollapsed, setIsBudgetCardCollapsed] = useState(false);
   const [editTarget, setEditTarget] = useState<BudgetItem | null>(null);
   const [viewTarget, setViewTarget] = useState<BudgetItem | null>(null);
@@ -608,6 +612,15 @@ export default function BudgetManagementPage() {
               />
             </div>
 
+            {perms.import && (<button
+              type="button"
+              onClick={() => setBulkOpen(true)}
+              className="h-8 px-3 border border-line-strong rounded text-ink-muted hover:bg-canvas font-medium text-xs flex items-center gap-1.5 transition whitespace-nowrap"
+              title="Bulk upload budgets from an Excel file"
+            >
+              <Upload className="w-3.5 h-3.5" />
+              <span>Bulk Upload</span>
+            </button>)}
             {perms.create && (<button
               type="button"
               onClick={() => {
@@ -1346,6 +1359,16 @@ export default function BudgetManagementPage() {
           </div>
         )}
       </ModalDialog>
+      <BulkUploadDialog
+        open={bulkOpen}
+        onClose={() => setBulkOpen(false)}
+        onImported={() => { void useAccountingStore.getState().syncDatabase(); }}
+        noun="budgets"
+        templateUrl="/api/accounts/budget/import"
+        maxRows={2000}
+        matchHint="Office and Cost Center must match existing names (or codes); Account Code is the GL code. Month-by-month amounts are not supported here; edit the budget afterwards to add them."
+        upload={(file) => uploadAccountImport("/api/accounts/budget/import", file)}
+      />
     </div>
   );
 }

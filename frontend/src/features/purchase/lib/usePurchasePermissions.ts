@@ -54,6 +54,7 @@ export function usePurchasePermissions() {
       delete: can(feature, "delete"),
       approve: can(feature, "approve"),
       export: can(feature, "export"),
+      import: can(feature, "import"),
     });
 
     const canApproveRequisition = (officeId?: string, amount: number = 0) =>

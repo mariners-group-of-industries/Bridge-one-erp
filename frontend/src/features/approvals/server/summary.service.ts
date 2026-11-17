@@ -4,6 +4,7 @@ import type { Actor } from "@/lib/auth/actor";
 import { grantsAllow } from "@/lib/permissions/registry";
 import { db } from "@/lib/prisma/client";
 import { scopedBusinessUnitIds } from "@/features/sales/lib/scope";
+import { featureAliases } from "@/lib/approval/engine";
 import type { ApprovalCategory, ApprovalStageLoad, ApprovalSummary, PendingDocument } from "../types";
 
 /**
@@ -125,6 +126,19 @@ const SOURCES: readonly Source[] = [
       (await db().purchaseOrder.findMany({ ...oldestArgs, where: { ...inUnits(units), status: "PENDING" }, select: { id: true, number: true, createdAt: true } })).map((r) => ({ id: r.id, reference: r.number, createdAt: r.createdAt })),
   },
   {
+    id: "purchase-return",
+    module: "Purchase",
+    label: "Purchase Return",
+    href: "/purchase/returns",
+    pipelineFeature: "Purchase Return",
+    pending: ["SUBMITTED", "PENDING"],
+    approved: ["COMPLETED"],
+    rejected: ["CANCELLED"],
+    counts: async (units) => rows(await db().purchaseReturn.groupBy({ ...groupArgs, where: inUnits(units) })),
+    oldest: async (units) =>
+      (await db().purchaseReturn.findMany({ ...oldestArgs, where: { ...inUnits(units), status: "SUBMITTED" }, select: { id: true, number: true, createdAt: true } })).map((r) => ({ id: r.id, reference: r.number, createdAt: r.createdAt })),
+  },
+  {
     id: "supplier-bill",
     module: "Purchase",
     label: "Supplier Bill",
@@ -204,7 +218,7 @@ const SOURCES: readonly Source[] = [
     module: "Accounts",
     label: "Expense",
     href: "/accounts/expenses",
-    pipelineFeature: null,
+    pipelineFeature: "Expense",
     pending: ["PENDING"],
     approved: ["APPROVED", "PAID"],
     rejected: ["REJECTED"],
@@ -460,8 +474,9 @@ async function productionStageLoad(units: string[]): Promise<ApprovalStageLoad[]
  * has acted on yet wait at stage 1, so they are added there by the caller.
  */
 async function documentStageLoad(feature: string, units: string[]): Promise<{ load: ApprovalStageLoad[]; inProgress: number }> {
+  const aliases = featureAliases(feature);
   const stages = await db().documentApproval.findMany({
-    where: { feature, status: "PENDING", OR: [{ businessUnitId: null }, { businessUnitId: { in: units } }] },
+    where: { feature: { in: aliases }, status: "PENDING", OR: [{ businessUnitId: null }, { businessUnitId: { in: units } }] },
     select: { documentId: true, stageNo: true, stageName: true },
     orderBy: { stageNo: "asc" },
   });
@@ -512,7 +527,12 @@ export async function getApprovalSummary(actor: Actor): Promise<ApprovalSummary>
   ]);
 
   const pipelineByFeature = new Map<string, (typeof pipelines)[number]>();
-  for (const p of pipelines) if (!pipelineByFeature.has(p.feature)) pipelineByFeature.set(p.feature, p);
+  for (const p of pipelines) {
+    if (!pipelineByFeature.has(p.feature)) pipelineByFeature.set(p.feature, p);
+    for (const alias of featureAliases(p.feature)) {
+      if (!pipelineByFeature.has(alias)) pipelineByFeature.set(alias, p);
+    }
+  }
 
   const categories: ApprovalCategory[] = results.map(({ source, statusRows, stageLoad: productionLoad, engineLoad }) => {
     const pipeline = source.pipelineFeature ? pipelineByFeature.get(source.pipelineFeature) : undefined;

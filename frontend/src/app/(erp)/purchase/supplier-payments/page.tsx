@@ -15,6 +15,7 @@ import {
   Truck,
   CheckCircle2,
   Ban,
+  Upload,
 } from "lucide-react";
 import { ModalDialog } from "@/components/purchase/ModalDialog";
 import {
@@ -29,7 +30,8 @@ import { toast } from "@/components/purchase/Toast";
 import { Spinner } from "@/components/ui/spinner";
 import { fetchApi } from "@/lib/api";
 import { formatCurrency } from "@/lib/utils";
-import { PURCHASE_QUERY_KEYS, downloadCsv, localToday } from "@/features/purchase/lib/client";
+import { PURCHASE_QUERY_KEYS, downloadCsv, localToday, uploadPurchaseBulk } from "@/features/purchase/lib/client";
+import { BulkUploadDialog } from "@/features/configuration/entity-master-data/components/BulkUploadDialog";
 import { usePurchasePermissions } from "@/features/purchase/lib/usePurchasePermissions";
 import {
   SupplierPaymentRecord,
@@ -233,6 +235,7 @@ export default function SupplierPaymentsPage() {
   const [isPaymentByGRNOpen, setIsPaymentByGRNOpen] = useState(false);
   const [isAdvancePaymentOpen, setIsAdvancePaymentOpen] = useState(false);
   const [isCreateBillOpen, setIsCreateBillOpen] = useState(false);
+  const [bulkOpen, setBulkOpen] = useState(false);
 
   // Quick Pay Modal
   const [quickPayTarget, setQuickPayTarget] = useState<DueListRow | null>(null);
@@ -736,6 +739,18 @@ export default function SupplierPaymentsPage() {
             />
             <Search className="w-3.5 h-3.5 text-ink-faint absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
           </div>
+
+          {perms.payments.import && (
+            <button
+              type="button"
+              onClick={() => setBulkOpen(true)}
+              className="h-9 px-4 border border-line-strong rounded text-ink-muted hover:bg-canvas font-semibold text-xs inline-flex items-center gap-1.5 transition"
+              title="Bulk upload supplier payments from an Excel file"
+            >
+              <Upload className="w-4 h-4" />
+              <span>Bulk Upload</span>
+            </button>
+          )}
 
           {perms.payments.create && (
             <>
@@ -2408,6 +2423,16 @@ export default function SupplierPaymentsPage() {
           </form>
         )}
       </ModalDialog>
+      <BulkUploadDialog
+        open={bulkOpen}
+        onClose={() => setBulkOpen(false)}
+        onImported={refreshPayables}
+        noun="supplier payments"
+        templateUrl="/api/v1/purchase/supplier-payments/import"
+        maxRows={2000}
+        matchHint="Supplier must match an existing supplier; Office (optional) must match an office in your access. Method: Cash, Bank, Cheque or Online; Cheque payments need the cheque number in Reference Number."
+        upload={(file) => uploadPurchaseBulk("/api/v1/purchase/supplier-payments/import", file)}
+      />
     </div>
   );
 }

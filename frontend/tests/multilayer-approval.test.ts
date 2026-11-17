@@ -6,12 +6,13 @@ vi.mock("@/lib/prisma/client", async () => {
 });
 import { createBusinessUnit } from "@/features/configuration/business-config/company-profile/server/business-unit.service";
 import { saveCompany } from "@/features/configuration/business-config/company-profile/server/company.service";
+import { createOffice } from "@/features/configuration/business-config/company-profile/server/office.service";
 import type { PipelineInput } from "@/features/configuration/security/approval/schemas/approval.schema";
 import { createPipeline } from "@/features/configuration/security/approval/server/approval.service";
 import { approvalTrail, decideWithPipeline, recordApproval, recordRejection } from "@/lib/approval/engine";
 import { AppError } from "@/lib/api/errors";
 import type { Actor } from "@/lib/auth/actor";
-import { adminActor, businessUnitInput, companyInput } from "./helpers/fixtures";
+import { adminActor, businessUnitInput, companyInput, officeInput } from "./helpers/fixtures";
 import { resetTestDb, startTestDb, stopTestDb, testPrisma } from "./helpers/test-db";
 
 const FEATURE = "Purchase Requisition";
@@ -117,6 +118,38 @@ describe("multilayer approval engine", () => {
     expect(applied).toBe(1);
     await expect(decideWithPipeline(as(financeA), { feature: FEATURE, documentId: "e" }, "approve", apply)).rejects.toBeInstanceOf(AppError);
     expect(applied).toBe(1);
+  });
+
+  it("resolves pipeline via feature aliases (Purchase Order Local -> Purchase Order)", async () => {
+    await createPipeline(adminActor, pipeline({ feature: "Purchase Order Local" }));
+    const res = await testPrisma().$transaction((tx) =>
+      recordApproval(tx, as(managerId), { feature: "Purchase Order", documentId: "po-1", businessUnitId: unitId })
+    );
+    expect(res).toMatchObject({ final: false, stage: { stageNo: 1, done: true }, next: { stageNo: 2, name: "Finance" } });
+  });
+
+  it("resolves employee approver to active user by matching name when employee.userId is null", async () => {
+    const office = await createOffice(adminActor, unitId, officeInput);
+    const emp = await testPrisma().employee.create({
+      data: { officeId: office.id, employeeCode: "EMP-99", name: "Finance A", joiningDate: new Date("2024-01-01"), userId: null },
+    });
+    await createPipeline(
+      adminActor,
+      pipeline({
+        stages: [
+          {
+            name: "EmpStage",
+            approvalOrder: "ANY",
+            requiredCount: 1,
+            approvers: [{ userType: "EMPLOYEE", businessUnitId: "", approverId: emp.id, authorizationType: "APPROVAL" }],
+          },
+        ],
+      }),
+    );
+    const res = await testPrisma().$transaction((tx) =>
+      recordApproval(tx, as(financeA), { feature: FEATURE, documentId: "emp-doc-1", businessUnitId: unitId }),
+    );
+    expect(res).toMatchObject({ final: true, stage: { stageNo: 1, done: true } });
   });
 });
 
