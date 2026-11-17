@@ -223,7 +223,7 @@ export function BomListView() {
             onChange={(event) => setFilters({ ...filters, details: event.target.checked })}
           />
           <div className="flex flex-wrap gap-2">
-            <Button type="submit" variant="primary" disabled={list.loading}>
+            <Button type="submit" variant="primary" loading={list.loading}>
               <RefreshCw aria-hidden="true" />
               View
             </Button>

@@ -147,7 +147,7 @@ export function WorkCenterListView() {
             options={[{ value: "", label: "All" }, ...sections.map((section) => ({ value: section.id, label: section.name }))]}
             onChange={(event) => setFilters({ ...filters, departmentSectionId: event.target.value })}
           />
-          <Button type="submit" variant="primary" disabled={list.loading}>
+          <Button type="submit" variant="primary" loading={list.loading}>
             <RefreshCw aria-hidden="true" />
             View
           </Button>
