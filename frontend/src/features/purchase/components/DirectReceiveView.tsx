@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo, useRef, useState } from "react";
+import { useId, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, ChevronDown, ChevronUp, Info, Paperclip, Plus, Trash2 } from "lucide-react";
@@ -40,7 +40,12 @@ export function DirectReceiveView() {
   const router = useRouter();
   const queryClient = useQueryClient();
   const perms = usePurchasePermissions();
-  const todayStr = useMemo(() => new Date().toISOString().split("T")[0], []);
+  const fid = useId();
+  // Local calendar day: toISOString() is UTC, which is still yesterday before 6 AM in Dhaka.
+  const todayStr = useMemo(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  }, []);
 
   const { data: offices = [] } = useQuery<Office[]>({
     queryKey: ["offices"],
@@ -119,6 +124,8 @@ export function DirectReceiveView() {
   const [addAllFlag, setAddAllFlag] = useState(false);
 
   const [addedLines, setAddedLines] = useState<DirectDraftLine[]>([]);
+  /** Item just made with Quick Add, until the catalog refetch includes it. */
+  const [quickAddedItem, setQuickAddedItem] = useState<Item | null>(null);
 
   const defaultOfficeId = useMemo(() => {
     if (!offices.length) return "";
@@ -188,9 +195,10 @@ export function DirectReceiveView() {
     [lineQty, lineRate, lineTotalInput, lineVatPct, lineVatEnabled, priceIncludingVat, amountDriven]
   );
 
-  const handleSelectSupplier = (id: string) => {
+  /** `created` is passed by Quick Add: the new supplier is not in the cached list yet. */
+  const handleSelectSupplier = (id: string, created?: Supplier) => {
     setSupplierId(id);
-    const sup = suppliers.find((s) => s.id === id);
+    const sup = created ?? suppliers.find((s) => s.id === id);
     if (sup) {
       setContactName(sup.contactPerson || sup.name);
       setContactPhone(sup.phone && sup.phone !== "N/A" ? sup.phone : "");
@@ -200,9 +208,10 @@ export function DirectReceiveView() {
     }
   };
 
-  const handleSelectItem = (itemId: string) => {
+  /** `created` is passed by Quick Add: the new item is not in the cached catalog yet. */
+  const handleSelectItem = (itemId: string, created?: Item) => {
     setSelectedItemId(itemId);
-    const it = itemsCatalog.find((i) => i.id === itemId);
+    const it = created ?? itemsCatalog.find((i) => i.id === itemId);
     if (it) {
       setLineRate(String(it.standardPrice ?? 0));
       setLineVatPct(String(it.vatPercent ?? 0));
@@ -311,8 +320,8 @@ export function DirectReceiveView() {
       return toast.success(`Added ${next.length} item(s).`);
     }
 
-    const item = itemsCatalog.find((i) => i.id === selectedItemId);
-    if (!item) return toast.error("Select an item first.");
+    const item = itemsCatalog.find((i) => i.id === selectedItemId) ?? quickAddedItem;
+    if (!item || item.id !== selectedItemId) return toast.error("Select an item first.");
     const qty = Number(lineQty);
     if (!(qty > 0)) return toast.error("Enter a quantity greater than 0.");
 
@@ -407,11 +416,19 @@ export function DirectReceiveView() {
       queryClient.invalidateQueries({ queryKey: ["items"] });
       toast.success(`Direct Receive ${created.grnNumber} posted to Inventory Stock & GL.`);
       if (saveAndNew) {
+        // Clear everything that belongs to this one receipt, so the next one cannot repeat its document numbers.
         setAddedLines([]);
         setChallanNo("");
+        setChallanDate("");
         setSalesInvoiceNumber("");
         setVatChallanNumber("");
+        setShipmentDocumentNumber("");
+        setDeliveryNumber("");
         setRemarks("");
+        setAttachedFiles([]);
+        if (fileInputRef.current) fileInputRef.current.value = "";
+        setSelectedRequisitionId("");
+        setSelectedSalesOrderId("");
       } else {
         router.push("/purchase/receive");
       }
@@ -453,6 +470,7 @@ export function DirectReceiveView() {
             <button
               type="button"
               disabled={saveMutation.isPending || !perms.receive.create}
+              title={!perms.receive.create ? "Requires Create permission in Configuration" : undefined}
               onClick={() => saveMutation.mutate(true)}
               className="flex h-8 items-center gap-1.5 rounded border border-[#2563eb] px-4 text-xs font-semibold text-primary transition hover:bg-blue-50 dark:hover:bg-blue-500/10 disabled:opacity-50"
             >
@@ -462,6 +480,7 @@ export function DirectReceiveView() {
             <button
               type="button"
               disabled={saveMutation.isPending || !perms.receive.create}
+              title={!perms.receive.create ? "Requires Create permission in Configuration" : undefined}
               onClick={() => saveMutation.mutate(false)}
               className="flex h-8 items-center gap-1.5 rounded bg-[#2563eb] px-5 text-xs font-semibold text-white shadow-2xs transition hover:bg-blue-700 disabled:opacity-50"
             >
@@ -566,13 +585,13 @@ export function DirectReceiveView() {
 
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
               <div>
-                <label className={labelCls}>Create Date</label>
-                <input type="date" value={receiveDate} onChange={(e) => setReceiveDate(e.target.value)} className={inputCls} />
+                <label htmlFor={`${fid}-create-date`} className={labelCls}>Create Date</label>
+                <input id={`${fid}-create-date`} type="date" value={receiveDate} onChange={(e) => setReceiveDate(e.target.value)} className={inputCls} />
               </div>
 
               <div>
-                <label className={labelCls}>{required}Office</label>
-                <select
+                <label htmlFor={`${fid}-office`} className={labelCls}>{required}Office</label>
+                <select id={`${fid}-office`}
                   value={selectedOfficeId}
                   onChange={(e) => {
                     const newOfficeId = e.target.value;
@@ -592,8 +611,8 @@ export function DirectReceiveView() {
               </div>
 
               <div>
-                <label className={labelCls}>{required}Warehouse</label>
-                <select
+                <label htmlFor={`${fid}-warehouse`} className={labelCls}>{required}Warehouse</label>
+                <select id={`${fid}-warehouse`}
                   value={selectedWarehouseId}
                   onChange={(e) => setPickedWarehouseId(e.target.value)}
                   disabled={!selectedOfficeId}
@@ -614,8 +633,8 @@ export function DirectReceiveView() {
               </div>
 
               <div>
-                <label className={labelCls}>{required}Item Type</label>
-                <select value={itemType} onChange={(e) => setItemType(e.target.value)} className={inputCls}>
+                <label htmlFor={`${fid}-item-type`} className={labelCls}>{required}Item Type</label>
+                <select id={`${fid}-item-type`} value={itemType} onChange={(e) => setItemType(e.target.value)} className={inputCls}>
                   {INVENTORY_TYPE_OPTIONS.map((t) => (
                     <option key={t} value={t}>
                       {t}
@@ -650,30 +669,30 @@ export function DirectReceiveView() {
               </div>
 
               <div>
-                <label className={labelCls}>Name</label>
-                <input type="text" value={contactName} onChange={(e) => setContactName(e.target.value)} placeholder="Name" className={inputCls} />
+                <label htmlFor={`${fid}-name`} className={labelCls}>Name</label>
+                <input id={`${fid}-name`} type="text" value={contactName} onChange={(e) => setContactName(e.target.value)} placeholder="Name" className={inputCls} />
               </div>
 
               <div>
-                <label className={labelCls}>Phone</label>
-                <input type="text" value={contactPhone} onChange={(e) => setContactPhone(e.target.value)} placeholder="Phone" className={inputCls} />
+                <label htmlFor={`${fid}-phone`} className={labelCls}>Phone</label>
+                <input id={`${fid}-phone`} type="text" value={contactPhone} onChange={(e) => setContactPhone(e.target.value)} placeholder="Phone" className={inputCls} />
               </div>
 
               <div>
-                <label className={labelCls}>Challan No</label>
-                <input type="text" value={challanNo} onChange={(e) => setChallanNo(e.target.value)} placeholder="Challan No" className={inputCls} />
+                <label htmlFor={`${fid}-challan-no`} className={labelCls}>Challan No</label>
+                <input id={`${fid}-challan-no`} type="text" value={challanNo} onChange={(e) => setChallanNo(e.target.value)} placeholder="Challan No" className={inputCls} />
               </div>
 
               {viewDetails && (
                 <>
                   <div>
-                    <label className={labelCls}>Remarks</label>
-                    <input type="text" value={remarks} onChange={(e) => setRemarks(e.target.value)} placeholder="Enter remarks" className={inputCls} />
+                    <label htmlFor={`${fid}-remarks`} className={labelCls}>Remarks</label>
+                    <input id={`${fid}-remarks`} type="text" value={remarks} onChange={(e) => setRemarks(e.target.value)} placeholder="Enter remarks" className={inputCls} />
                   </div>
 
                   <div>
-                    <label className={labelCls}>Payment Days after Receive</label>
-                    <input
+                    <label htmlFor={`${fid}-payment-days-after-receive`} className={labelCls}>Payment Days after Receive</label>
+                    <input id={`${fid}-payment-days-after-receive`}
                       type="number"
                       min="0"
                       value={paymentDaysAfterReceive}
@@ -683,8 +702,8 @@ export function DirectReceiveView() {
                   </div>
 
                   <div>
-                    <label className={labelCls}>Shipping Address</label>
-                    <input
+                    <label htmlFor={`${fid}-shipping-address`} className={labelCls}>Shipping Address</label>
+                    <input id={`${fid}-shipping-address`}
                       type="text"
                       value={shippingAddress}
                       onChange={(e) => setShippingAddress(e.target.value)}
@@ -694,8 +713,8 @@ export function DirectReceiveView() {
                   </div>
 
                   <div>
-                    <label className={labelCls}>Shipment Document Number</label>
-                    <input
+                    <label htmlFor={`${fid}-shipment-document-number`} className={labelCls}>Shipment Document Number</label>
+                    <input id={`${fid}-shipment-document-number`}
                       type="text"
                       value={shipmentDocumentNumber}
                       onChange={(e) => setShipmentDocumentNumber(e.target.value)}
@@ -705,8 +724,8 @@ export function DirectReceiveView() {
                   </div>
 
                   <div>
-                    <label className={labelCls}>Sales Invoice Number</label>
-                    <input
+                    <label htmlFor={`${fid}-sales-invoice-number`} className={labelCls}>Sales Invoice Number</label>
+                    <input id={`${fid}-sales-invoice-number`}
                       type="text"
                       value={salesInvoiceNumber}
                       onChange={(e) => setSalesInvoiceNumber(e.target.value)}
@@ -716,8 +735,8 @@ export function DirectReceiveView() {
                   </div>
 
                   <div>
-                    <label className={labelCls}>VAT Challan Number</label>
-                    <input
+                    <label htmlFor={`${fid}-vat-challan-number`} className={labelCls}>VAT Challan Number</label>
+                    <input id={`${fid}-vat-challan-number`}
                       type="text"
                       value={vatChallanNumber}
                       onChange={(e) => setVatChallanNumber(e.target.value)}
@@ -727,13 +746,13 @@ export function DirectReceiveView() {
                   </div>
 
                   <div>
-                    <label className={labelCls}>Challan Date</label>
-                    <input type="date" value={challanDate} onChange={(e) => setChallanDate(e.target.value)} className={inputCls} />
+                    <label htmlFor={`${fid}-challan-date`} className={labelCls}>Challan Date</label>
+                    <input id={`${fid}-challan-date`} type="date" value={challanDate} onChange={(e) => setChallanDate(e.target.value)} className={inputCls} />
                   </div>
 
                   <div>
-                    <label className={labelCls}>Delivery Number</label>
-                    <input
+                    <label htmlFor={`${fid}-delivery-number`} className={labelCls}>Delivery Number</label>
+                    <input id={`${fid}-delivery-number`}
                       type="text"
                       value={deliveryNumber}
                       onChange={(e) => setDeliveryNumber(e.target.value)}
@@ -743,8 +762,8 @@ export function DirectReceiveView() {
                   </div>
 
                   <div>
-                    <label className={labelCls}>Attachment</label>
-                    <input
+                    <label htmlFor={`${fid}-attachment`} className={labelCls}>Attachment</label>
+                    <input id={`${fid}-attachment`}
                       ref={fileInputRef}
                       type="file"
                       multiple
@@ -789,8 +808,8 @@ export function DirectReceiveView() {
         <div className="space-y-3.5 p-4">
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <div>
-              <label className="mb-1 block text-[11px] font-semibold text-ink-muted">Category</label>
-              <select
+              <label htmlFor={`${fid}-category`} className="mb-1 block text-[11px] font-semibold text-ink-muted">Category</label>
+              <select id={`${fid}-category`}
                 value={categoryFilter}
                 onChange={(e) => {
                   setCategoryFilter(e.target.value);
@@ -808,8 +827,8 @@ export function DirectReceiveView() {
               </select>
             </div>
             <div>
-              <label className="mb-1 block text-[11px] font-semibold text-ink-muted">Sub Category</label>
-              <select
+              <label htmlFor={`${fid}-sub-category`} className="mb-1 block text-[11px] font-semibold text-ink-muted">Sub Category</label>
+              <select id={`${fid}-sub-category`}
                 value={subCategoryFilter}
                 onChange={(e) => {
                   setSubCategoryFilter(e.target.value);
@@ -826,8 +845,8 @@ export function DirectReceiveView() {
               </select>
             </div>
             <div>
-              <label className="mb-1 block text-[11px] font-semibold text-ink-muted">Minor Category</label>
-              <select
+              <label htmlFor={`${fid}-minor-category`} className="mb-1 block text-[11px] font-semibold text-ink-muted">Minor Category</label>
+              <select id={`${fid}-minor-category`}
                 value={minorCategoryFilter}
                 onChange={(e) => setMinorCategoryFilter(e.target.value)}
                 className={inputCls}
@@ -884,11 +903,11 @@ export function DirectReceiveView() {
             </div>
 
             <div className="lg:col-span-2">
-              <label className="mb-1 flex items-center justify-between text-[11px] font-semibold text-ink-muted">
+              <label htmlFor={`${fid}-quantity`} className="mb-1 flex items-center justify-between text-[11px] font-semibold text-ink-muted">
                 <span>Quantity</span>
                 <Info className="h-3.5 w-3.5 text-ink-faint" />
               </label>
-              <input
+              <input id={`${fid}-quantity`}
                 type="number"
                 step="0.001"
                 min="0"
@@ -900,13 +919,13 @@ export function DirectReceiveView() {
             </div>
 
             <div className="lg:col-span-2">
-              <label className="mb-1 flex items-center justify-between text-[11px] font-semibold text-ink-muted">
+              <label htmlFor={`${fid}-rate-bdt`} className="mb-1 flex items-center justify-between text-[11px] font-semibold text-ink-muted">
                 <span>
                   <span className="text-red-500 font-bold mr-0.5">*</span>Rate (BDT)
                 </span>
                 <Info className="h-3.5 w-3.5 text-ink-faint" />
               </label>
-              <input
+              <input id={`${fid}-rate-bdt`}
                 type="number"
                 step="0.01"
                 min="0"
@@ -919,8 +938,8 @@ export function DirectReceiveView() {
             </div>
 
             <div className="lg:col-span-2">
-              <label className="mb-1 block text-[11px] font-semibold text-ink-muted">Total Amount</label>
-              <input
+              <label htmlFor={`${fid}-total-amount`} className="mb-1 block text-[11px] font-semibold text-ink-muted">Total Amount</label>
+              <input id={`${fid}-total-amount`}
                 type="number"
                 step="0.01"
                 min="0"
@@ -934,16 +953,19 @@ export function DirectReceiveView() {
 
             <div className="lg:col-span-2">
               <div className="mb-1 flex items-center justify-between">
-                <label className="text-[11px] font-semibold text-ink-muted">VAT(%)</label>
-                <input
-                  type="checkbox"
-                  checked={lineVatEnabled}
-                  onChange={(e) => setLineVatEnabled(e.target.checked)}
-                  title="Apply VAT on line"
-                  className="h-3.5 w-3.5 rounded border-line-strong text-blue-600 dark:text-blue-400"
-                />
+                <label htmlFor={`${fid}-vat`} className="text-[11px] font-semibold text-ink-muted">VAT(%)</label>
+                <label className="-my-1.5 -mr-1.5 inline-flex size-6 cursor-pointer items-center justify-center" title="Apply VAT on line">
+                  <input
+                    type="checkbox"
+                    checked={lineVatEnabled}
+                    onChange={(e) => setLineVatEnabled(e.target.checked)}
+                    aria-label="Apply VAT on line"
+                    className="h-3.5 w-3.5 rounded border-line-strong text-blue-600 dark:text-blue-400"
+                  />
+                </label>
               </div>
               <input
+                id={`${fid}-vat`}
                 type="number"
                 step="0.01"
                 min="0"
@@ -952,15 +974,15 @@ export function DirectReceiveView() {
                 value={lineVatPct}
                 onChange={(e) => setLineVatPct(e.target.value)}
                 placeholder="VAT"
-                className={inputCls}
+                className={`${inputCls} disabled:cursor-not-allowed disabled:bg-control disabled:text-ink-faint`}
               />
             </div>
           </div>
 
           <div className="mt-3 flex flex-wrap items-end gap-3">
             <div className="min-w-[180px] flex-1">
-              <label className="mb-1 block text-[11px] font-semibold text-ink-muted">Brand</label>
-              <input
+              <label htmlFor={`${fid}-brand`} className="mb-1 block text-[11px] font-semibold text-ink-muted">Brand</label>
+              <input id={`${fid}-brand`}
                 type="text"
                 value={lineBrand}
                 onChange={(e) => setLineBrand(e.target.value)}
@@ -969,8 +991,8 @@ export function DirectReceiveView() {
               />
             </div>
             <div className="min-w-[220px] flex-1">
-              <label className="mb-1 block text-[11px] font-semibold text-ink-muted">Specification</label>
-              <input
+              <label htmlFor={`${fid}-specification`} className="mb-1 block text-[11px] font-semibold text-ink-muted">Specification</label>
+              <input id={`${fid}-specification`}
                 type="text"
                 value={lineSpecification}
                 onChange={(e) => setLineSpecification(e.target.value)}
@@ -1041,8 +1063,9 @@ export function DirectReceiveView() {
                           <button
                             type="button"
                             onClick={() => setAddedLines((prev) => prev.filter((l) => l.key !== row.key))}
-                            className="rounded p-1 text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10"
+                            className="inline-flex size-7 items-center justify-center rounded text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10"
                             title="Remove item"
+                            aria-label={`Remove ${row.itemName}`}
                           >
                             <Trash2 className="h-3.5 w-3.5" />
                           </button>
@@ -1076,14 +1099,17 @@ export function DirectReceiveView() {
       <QuickAddSupplierModal
         isOpen={isAddSupplierOpen}
         onClose={() => setIsAddSupplierOpen(false)}
-        onCreated={(s) => handleSelectSupplier(s.id)}
+        onCreated={(s) => handleSelectSupplier(s.id, s)}
       />
 
       <QuickAddItemModal
         isOpen={isAddItemOpen}
         onClose={() => setIsAddItemOpen(false)}
         categories={formOptions?.categories ?? []}
-        onCreated={(it) => handleSelectItem(it.id)}
+        onCreated={(it) => {
+          setQuickAddedItem(it);
+          handleSelectItem(it.id, it);
+        }}
       />
     </div>
   );
