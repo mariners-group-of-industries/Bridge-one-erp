@@ -3652,7 +3652,6 @@ model Employee {
   bonusLines           BonusLine[]
   salaryIncrements     SalaryIncrement[]
   hrPolicyRecords      HrPolicyRecord[]
-  calendarDays         EmployeeCalendarDay[]
   workCenterOperators ProductionWorkCenterOperator[]
 
   rtmOrders            RtmOrder[]            @relation("RtmOrderSr")
@@ -4727,23 +4726,6 @@ model HrPolicyRecord {
   @@index([tab, effectiveFrom])
   @@index([employeeId])
   @@map("hr_policy_records")
-}
-
-/// HRM › Calendar Assign: the calendar (shift short code, e.g. "G", "A", "OFF")
-/// an employee works on one day. Daily Attendance shows it in the Calendar column.
-model EmployeeCalendarDay {
-  id            String   @id @default(uuid()) @db.Uuid
-  employeeId    String   @db.Uuid
-  date          DateTime @db.Date
-  shortCode     String   @db.VarChar(20)
-  updatedByName String?  @db.VarChar(150)
-  updatedAt     DateTime @updatedAt @db.Timestamptz(3)
-
-  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
-
-  @@unique([employeeId, date])
-  @@index([date])
-  @@map("employee_calendar_days")
 }
 
 

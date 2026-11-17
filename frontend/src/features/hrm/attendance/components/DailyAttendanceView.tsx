@@ -46,7 +46,7 @@ export function DailyAttendanceView({
     ...defaultRange(),
     viewBy: "Employee",
     employeeId: "ALL",
-    office: "ALL",
+    officeId: "ALL",
     department: "ALL",
     departmentSection: "ALL",
     designation: "ALL",
@@ -97,8 +97,9 @@ export function DailyAttendanceView({
       searchParams.set("toDate", filters.toDate);
       searchParams.set("viewBy", filters.viewBy);
       searchParams.set("employeeId", filters.employeeId);
+      searchParams.set("officeId", filters.officeId);
+      for (const key of ["department", "departmentSection", "designation"] as const) searchParams.set(key, filters[key] || "ALL");
       searchParams.set("status", filters.status);
-      for (const key of ["office", "department", "departmentSection", "designation"] as const) searchParams.set(key, filters[key] || "ALL");
       searchParams.set("pageSize", String(filters.pageSize));
       searchParams.set("page", String(filters.page));
 
@@ -132,22 +133,20 @@ export function DailyAttendanceView({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- once, on open
   }, []);
 
-  // Remove all daily attendance records
+  // Withdraw adjustments still waiting for HR approval (device punches stay)
   const handleClearAll = async () => {
     try {
       const res = await fetch("/api/hrm/attendance", { method: "DELETE" });
       const data = await res.json();
-      if (data.success) {
-        setRecords([]);
+      if (res.ok && data.success) {
         setSelectedIds(new Set());
-        toast.success("All daily attendance data removed.");
+        toast.success(data.message || "Pending adjustments withdrawn.");
+        void load(true);
       } else {
-        toast.error("Failed to remove attendance data");
+        toast.error(data?.error?.message || "Failed to withdraw pending adjustments.");
       }
     } catch {
-      setRecords([]);
-      setSelectedIds(new Set());
-      toast.success("All daily attendance data removed.");
+      toast.error("Failed to withdraw pending adjustments.");
     }
   };
 
@@ -170,12 +169,32 @@ export function DailyAttendanceView({
   };
 
   // Save edit adjustment
-  const handleSaveEdit = (updated: Partial<AttendanceRecord>) => {
-    if (!editingRecord) return;
-    setRecords((prev) =>
-      prev.map((r) => (r.id === editingRecord.id ? { ...r, ...updated } : r)),
-    );
-    toast.success("Attendance adjusted successfully.");
+  // Sends the adjustment to HR; the status changes only once it is approved.
+  const handleSaveEdit = async (updated: { inTime: string; outTime: string; requestedStatus: string; remarks: string }): Promise<boolean> => {
+    if (!editingRecord) return false;
+    try {
+      const res = await fetch("/api/hrm/attendance", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          employeeId: editingRecord.employeeId,
+          date: editingRecord.date,
+          originalStatus: editingRecord.actualAttendance,
+          ...updated,
+        }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        toast.error(data?.error?.message || "Failed to submit the adjustment.");
+        return false;
+      }
+      toast.success("Adjustment sent to HR for approval.");
+      void load(true);
+      return true;
+    } catch {
+      toast.error("Failed to submit the adjustment.");
+      return false;
+    }
   };
 
   // PDF Export / Print Handler
@@ -211,10 +230,10 @@ export function DailyAttendanceView({
               type="button"
               onClick={handleClearAll}
               className="inline-flex items-center gap-1.5 h-7 px-3 rounded text-xs font-semibold text-rose-600 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:text-rose-300 dark:hover:bg-rose-900/40 border border-rose-200 dark:border-rose-800 shadow-2xs transition-colors cursor-pointer"
-              title="Remove All Daily Attendance Data"
+              title="Withdraw all adjustments still waiting for HR approval"
             >
               <Trash2 className="size-3.5" />
-              Remove All Data
+              Withdraw Pending
             </button>
           )}
 
