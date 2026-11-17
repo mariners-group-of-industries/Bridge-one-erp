@@ -124,7 +124,7 @@ export async function seedSalesDemo(today: string, log: (line: string) => void =
       salesPersonId: person(customerIndex),
       quotationDate: day(offset),
       validTill: day(offset + 20),
-      quotationType: "Quotation",
+      quotationType: "Special Price",
       includingVat: true,
       subject: "Demo price offer",
       lines: itemIndexes.map((index) => ({ itemId: item(index).id, qty: 100 + index * 20, rate: rate(index), vatPercent: vat(index) })),

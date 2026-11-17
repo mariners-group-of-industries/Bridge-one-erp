@@ -5,7 +5,7 @@ import { CONTROL } from "@/components/ui/form-field";
 import { cn } from "@/lib/cn";
 
 /**
- * Searchable picker: suggestions appear after `minChars` letters (3; 0 lists them on open). Picks an option by its label
+ * Searchable picker: suggestions are listed as soon as the box is opened (`minChars` 0) or after `minChars` letters. Picks an option by its label
  * (`onPick`), or with `freeText` keeps whatever is typed (`onText`).
  */
 export function SearchPick({
@@ -22,7 +22,7 @@ export function SearchPick({
   placeholder,
   onSearch,
   hideLabel,
-  minChars = 3,
+  minChars = 0,
 }: {
   label: string;
   options: { id: string; label: string }[];

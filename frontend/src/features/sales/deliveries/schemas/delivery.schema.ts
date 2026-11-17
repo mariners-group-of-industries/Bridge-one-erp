@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { optionalPhone, optionalText } from "@/lib/validation/fields";
-import { ORDER_TYPES, PAYMENT_METHODS, type OrderType, type PaymentMethod } from "../../orders/schemas/order.schema";
+import { ALL_ORDER_TYPES, PAYMENT_METHODS, type OrderType, type PaymentMethod } from "../../orders/schemas/order.schema";
 
 // ─── Enums ───────────────────────────────────────────────────────────────────
 
@@ -76,7 +76,7 @@ const headerFields = {
   buyerName: optionalText("Name", 150),
   buyerMobile: optionalPhone("Mobile no"),
   /** "Type": Sales, Sample or Export. */
-  salesType: z.enum(ORDER_TYPES).default("SALES"),
+  salesType: z.enum(ALL_ORDER_TYPES).default("SALES"),
   paymentMethod: z.enum(PAYMENT_METHODS),
   paymentTermDays: z
     .number({ error: "Payment term days must be a number." })

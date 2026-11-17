@@ -427,34 +427,34 @@ export function DirectReceiveView() {
   }, [addedLines]);
 
   const inputCls =
-    "h-8 w-full rounded border border-slate-300 bg-white px-2.5 text-xs text-slate-800 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none";
+    "h-8 w-full rounded border border-line-strong bg-surface px-2.5 text-xs text-ink placeholder:text-ink-faint focus:border-blue-500 focus:outline-none";
 
-  const labelCls = "mb-1 block text-xs font-semibold text-slate-700";
+  const labelCls = "mb-1 block text-xs font-semibold text-ink-muted";
   const required = <span className="mr-0.5 font-bold text-red-500">*</span>;
 
   return (
-    <div className="min-h-screen bg-[#f8fafc] p-3 text-slate-800 md:p-6">
+    <div className="min-h-screen bg-canvas p-3 text-ink md:p-6">
       {/* Top Action Bar */}
-      <div data-sticky-head className="sticky top-14 z-20 -mx-3 -mt-3 px-3 pt-3 pb-3 md:-mx-6 md:-mt-6 md:px-6 md:pt-6 bg-[#f8fafc]">
-        <div className=" flex flex-wrap items-center justify-between gap-2 rounded border border-slate-200/90 bg-white px-4 py-2.5 shadow-2xs">
+      <div data-sticky-head className="sticky top-14 z-20 -mx-3 -mt-3 px-3 pt-3 pb-3 md:-mx-6 md:-mt-6 md:px-6 md:pt-6 bg-canvas">
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded border border-line/90 bg-surface px-4 py-2.5 shadow-2xs">
           <div className="flex items-center gap-3">
             <button
               type="button"
               onClick={() => router.push("/purchase/receive")}
-              className="flex h-8 w-8 items-center justify-center rounded border border-slate-300 text-slate-600 transition hover:bg-slate-50"
+              className="flex h-8 w-8 items-center justify-center rounded border border-line-strong text-ink-muted transition hover:bg-canvas"
               title="Back to Purchase Receive"
               aria-label="Back to Purchase Receive"
             >
               <ArrowLeft className="h-4 w-4" />
             </button>
-            <h1 className="text-base font-bold tracking-tight text-slate-900">Direct Receive</h1>
+            <h1 className="text-base font-bold tracking-tight text-ink">Direct Receive</h1>
           </div>
           <div className="flex items-center gap-2">
             <button
               type="button"
               disabled={saveMutation.isPending || !perms.receive.create}
               onClick={() => saveMutation.mutate(true)}
-              className="flex h-8 items-center gap-1.5 rounded border border-[#2563eb] px-4 text-xs font-semibold text-[#2563eb] transition hover:bg-blue-50 disabled:opacity-50"
+              className="flex h-8 items-center gap-1.5 rounded border border-[#2563eb] px-4 text-xs font-semibold text-primary transition hover:bg-blue-50 dark:hover:bg-blue-500/10 disabled:opacity-50"
             >
               {saveMutation.isPending && saveMutation.variables === true && <Spinner className="size-3.5" />}
               Save & New
@@ -473,13 +473,13 @@ export function DirectReceiveView() {
       </div>
 
       {/* Card 1: Basic Information */}
-      <div className="mb-3 overflow-hidden rounded border border-slate-200/90 bg-white shadow-2xs">
-        <div className="flex items-center justify-between border-b border-slate-200 bg-white px-3 pt-2">
-          <span className="rounded-t border-b-2 border-blue-600 bg-[#e6f2fb] px-4 py-2 text-xs font-semibold text-blue-700">Basic Information</span>
+      <div className="mb-3 overflow-hidden rounded border border-line/90 bg-surface shadow-2xs">
+        <div className="flex items-center justify-between border-b border-line bg-surface px-3 pt-2">
+          <span className="rounded-t border-b-2 border-blue-600 bg-grid-head px-4 py-2 text-xs font-semibold text-blue-700 dark:text-blue-300">Basic Information</span>
           <button
             type="button"
             onClick={() => setIsHeaderCollapsed(!isHeaderCollapsed)}
-            className="flex h-7 w-7 items-center justify-center rounded text-slate-400 transition hover:text-slate-600"
+            className="flex h-7 w-7 items-center justify-center rounded text-ink-faint transition hover:text-ink-muted"
             title={isHeaderCollapsed ? "Expand" : "Collapse"}
             aria-label={isHeaderCollapsed ? "Expand basic information" : "Collapse basic information"}
             aria-expanded={!isHeaderCollapsed}
@@ -490,13 +490,13 @@ export function DirectReceiveView() {
 
         {!isHeaderCollapsed && (
           <div className="space-y-3.5 p-4">
-            <div className="grid grid-cols-2 gap-3 border-b border-slate-100 pb-2.5 text-xs text-slate-700 sm:grid-cols-4">
+            <div className="grid grid-cols-2 gap-3 border-b border-line pb-2.5 text-xs text-ink-muted sm:grid-cols-4">
               <label className="flex cursor-pointer items-center gap-2">
                 <input
                   type="checkbox"
                   checked={createFromRequisition}
                   onChange={(e) => setCreateFromRequisition(e.target.checked)}
-                  className="h-4 w-4 rounded border-slate-300 text-blue-600"
+                  className="h-4 w-4 rounded border-line-strong text-blue-600 dark:text-blue-400"
                 />
                 <span>Create From Requisition</span>
               </label>
@@ -505,7 +505,7 @@ export function DirectReceiveView() {
                   type="checkbox"
                   checked={createFromSalesOrder}
                   onChange={(e) => setCreateFromSalesOrder(e.target.checked)}
-                  className="h-4 w-4 rounded border-slate-300 text-blue-600"
+                  className="h-4 w-4 rounded border-line-strong text-blue-600 dark:text-blue-400"
                 />
                 <span>Create From Sales Order</span>
               </label>
@@ -514,7 +514,7 @@ export function DirectReceiveView() {
                   type="checkbox"
                   checked={priceIncludingVat}
                   onChange={(e) => setPriceIncludingVat(e.target.checked)}
-                  className="h-4 w-4 rounded border-slate-300 text-blue-600"
+                  className="h-4 w-4 rounded border-line-strong text-blue-600 dark:text-blue-400"
                 />
                 <span>Price Including VAT</span>
               </label>
@@ -523,17 +523,17 @@ export function DirectReceiveView() {
                   type="checkbox"
                   checked={amountDriven}
                   onChange={(e) => setAmountDriven(e.target.checked)}
-                  className="h-4 w-4 rounded border-slate-300 text-blue-600"
+                  className="h-4 w-4 rounded border-line-strong text-blue-600 dark:text-blue-400"
                 />
                 <span>Amount Driven</span>
               </label>
             </div>
 
             {(createFromRequisition || createFromSalesOrder) && (
-              <div className="grid grid-cols-1 gap-3 rounded border border-blue-100 bg-blue-50/40 p-2.5 sm:grid-cols-2">
+              <div className="grid grid-cols-1 gap-3 rounded border border-blue-100 dark:border-blue-500/30 bg-blue-50/40 dark:bg-blue-500/10 p-2.5 sm:grid-cols-2">
                 {createFromRequisition && (
                   <div>
-                    <label className="mb-1 block text-xs font-semibold text-blue-800">Approved Requisition</label>
+                    <label className="mb-1 block text-xs font-semibold text-blue-800 dark:text-blue-300">Approved Requisition</label>
                     <SearchableCombobox
                       value={selectedRequisitionId}
                       onChange={handleLoadRequisition}
@@ -548,7 +548,7 @@ export function DirectReceiveView() {
                 )}
                 {createFromSalesOrder && (
                   <div>
-                    <label className="mb-1 block text-xs font-semibold text-blue-800">Sales Order</label>
+                    <label className="mb-1 block text-xs font-semibold text-blue-800 dark:text-blue-300">Sales Order</label>
                     <SearchableCombobox
                       value={selectedSalesOrderId}
                       onChange={handleLoadSalesOrder}
@@ -597,7 +597,7 @@ export function DirectReceiveView() {
                   value={selectedWarehouseId}
                   onChange={(e) => setPickedWarehouseId(e.target.value)}
                   disabled={!selectedOfficeId}
-                  className={`${inputCls} disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400`}
+                  className={`${inputCls} disabled:cursor-not-allowed disabled:bg-control disabled:text-ink-faint`}
                 >
                   {!selectedOfficeId ? (
                     <option value="">Select office first</option>
@@ -626,12 +626,12 @@ export function DirectReceiveView() {
 
               <div>
                 <div className="mb-1 flex items-center justify-between">
-                  <label className="text-xs font-semibold text-slate-700">{required}Select Supplier</label>
+                  <label className="text-xs font-semibold text-ink-muted">{required}Select Supplier</label>
                   {perms.quickSupplierCreate && (
                     <button
                       type="button"
                       onClick={() => setIsAddSupplierOpen(true)}
-                      className="-my-0.5 inline-flex min-h-6 items-center gap-0.5 text-[11px] font-semibold text-blue-600 hover:text-blue-700"
+                      className="-my-0.5 inline-flex min-h-6 items-center gap-0.5 text-[11px] font-semibold text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300"
                     >
                       <Plus className="h-3 w-3" /> ADD NEW
                     </button>
@@ -756,7 +756,7 @@ export function DirectReceiveView() {
                     <button
                       type="button"
                       onClick={() => fileInputRef.current?.click()}
-                      className="inline-flex h-8 items-center gap-1.5 rounded border border-slate-300 px-2.5 text-xs text-slate-600 hover:bg-slate-50"
+                      className="inline-flex h-8 items-center gap-1.5 rounded border border-line-strong px-2.5 text-xs text-ink-muted hover:bg-canvas"
                     >
                       <Paperclip className="h-3.5 w-3.5" />
                       {attachedFiles.length > 0 ? `${attachedFiles.length} file(s)` : "Attach"}
@@ -771,7 +771,7 @@ export function DirectReceiveView() {
                 type="button"
                 onClick={() => setViewDetails((v) => !v)}
                 aria-expanded={viewDetails}
-                className="inline-flex min-h-6 items-center gap-1 text-[11px] font-semibold text-slate-700 hover:text-blue-600"
+                className="inline-flex min-h-6 items-center gap-1 text-[11px] font-semibold text-ink-muted hover:text-blue-600 dark:hover:text-blue-400"
               >
                 <span>View Details</span>
                 {viewDetails ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
@@ -782,14 +782,14 @@ export function DirectReceiveView() {
       </div>
 
       {/* Card 2: Receive Items */}
-      <div className="mb-3 overflow-hidden rounded border border-slate-200/90 bg-white shadow-2xs">
-        <div className="flex items-center justify-between border-b border-slate-200 bg-white px-3 pt-2">
-          <span className="rounded-t border-b-2 border-blue-600 bg-[#e6f2fb] px-4 py-2 text-xs font-semibold text-blue-700">Receive Items</span>
+      <div className="mb-3 overflow-hidden rounded border border-line/90 bg-surface shadow-2xs">
+        <div className="flex items-center justify-between border-b border-line bg-surface px-3 pt-2">
+          <span className="rounded-t border-b-2 border-blue-600 bg-grid-head px-4 py-2 text-xs font-semibold text-blue-700 dark:text-blue-300">Receive Items</span>
         </div>
         <div className="space-y-3.5 p-4">
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <div>
-              <label className="mb-1 block text-[11px] font-semibold text-slate-700">Category</label>
+              <label className="mb-1 block text-[11px] font-semibold text-ink-muted">Category</label>
               <select
                 value={categoryFilter}
                 onChange={(e) => {
@@ -808,7 +808,7 @@ export function DirectReceiveView() {
               </select>
             </div>
             <div>
-              <label className="mb-1 block text-[11px] font-semibold text-slate-700">Sub Category</label>
+              <label className="mb-1 block text-[11px] font-semibold text-ink-muted">Sub Category</label>
               <select
                 value={subCategoryFilter}
                 onChange={(e) => {
@@ -826,7 +826,7 @@ export function DirectReceiveView() {
               </select>
             </div>
             <div>
-              <label className="mb-1 block text-[11px] font-semibold text-slate-700">Minor Category</label>
+              <label className="mb-1 block text-[11px] font-semibold text-ink-muted">Minor Category</label>
               <select
                 value={minorCategoryFilter}
                 onChange={(e) => setMinorCategoryFilter(e.target.value)}
@@ -841,12 +841,12 @@ export function DirectReceiveView() {
               </select>
             </div>
             <div className="flex items-end pb-1.5">
-              <label className="flex cursor-pointer items-center gap-2 text-xs text-slate-700">
+              <label className="flex cursor-pointer items-center gap-2 text-xs text-ink-muted">
                 <input
                   type="checkbox"
                   checked={filterBySupplier}
                   onChange={(e) => setFilterBySupplier(e.target.checked)}
-                  className="h-4 w-4 rounded border-slate-300 text-blue-600"
+                  className="h-4 w-4 rounded border-line-strong text-blue-600 dark:text-blue-400"
                 />
                 <span>Item Filter By Supplier</span>
               </label>
@@ -856,14 +856,14 @@ export function DirectReceiveView() {
           <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-12">
             <div className="lg:col-span-4">
               <div className="mb-1 flex items-center justify-between">
-                <label className="text-[11px] font-semibold text-slate-700">
+                <label className="text-[11px] font-semibold text-ink-muted">
                   <span className="text-red-500 font-bold mr-0.5">*</span>Item
                 </label>
                 {perms.quickItemCreate && (
                   <button
                     type="button"
                     onClick={() => setIsAddItemOpen(true)}
-                    className="inline-flex items-center gap-0.5 min-h-6 -my-0.5 text-[11px] font-semibold text-blue-600 hover:text-blue-700"
+                    className="inline-flex items-center gap-0.5 min-h-6 -my-0.5 text-[11px] font-semibold text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300"
                   >
                     <Plus className="h-3 w-3" /> ADD NEW
                   </button>
@@ -884,9 +884,9 @@ export function DirectReceiveView() {
             </div>
 
             <div className="lg:col-span-2">
-              <label className="mb-1 flex items-center justify-between text-[11px] font-semibold text-slate-700">
+              <label className="mb-1 flex items-center justify-between text-[11px] font-semibold text-ink-muted">
                 <span>Quantity</span>
-                <Info className="h-3.5 w-3.5 text-slate-400" />
+                <Info className="h-3.5 w-3.5 text-ink-faint" />
               </label>
               <input
                 type="number"
@@ -900,11 +900,11 @@ export function DirectReceiveView() {
             </div>
 
             <div className="lg:col-span-2">
-              <label className="mb-1 flex items-center justify-between text-[11px] font-semibold text-slate-700">
+              <label className="mb-1 flex items-center justify-between text-[11px] font-semibold text-ink-muted">
                 <span>
                   <span className="text-red-500 font-bold mr-0.5">*</span>Rate (BDT)
                 </span>
-                <Info className="h-3.5 w-3.5 text-slate-400" />
+                <Info className="h-3.5 w-3.5 text-ink-faint" />
               </label>
               <input
                 type="number"
@@ -914,12 +914,12 @@ export function DirectReceiveView() {
                 value={amountDriven ? String(livePricing.displayRate || "") : lineRate}
                 onChange={(e) => setLineRate(e.target.value)}
                 placeholder="Rate"
-                className={amountDriven ? "h-8 w-full rounded border border-slate-200 bg-slate-100 px-2.5 text-xs text-slate-600" : inputCls}
+                className={amountDriven ? "h-8 w-full rounded border border-line bg-control px-2.5 text-xs text-ink-muted" : inputCls}
               />
             </div>
 
             <div className="lg:col-span-2">
-              <label className="mb-1 block text-[11px] font-semibold text-slate-700">Total Amount</label>
+              <label className="mb-1 block text-[11px] font-semibold text-ink-muted">Total Amount</label>
               <input
                 type="number"
                 step="0.01"
@@ -928,19 +928,19 @@ export function DirectReceiveView() {
                 value={amountDriven ? lineTotalInput : livePricing.lineTotal ? String(livePricing.lineTotal) : ""}
                 onChange={(e) => setLineTotalInput(e.target.value)}
                 placeholder="Total Amount"
-                className={!amountDriven ? "h-8 w-full rounded border border-slate-200 bg-slate-50 px-2.5 text-xs text-slate-700" : inputCls}
+                className={!amountDriven ? "h-8 w-full rounded border border-line bg-canvas px-2.5 text-xs text-ink-muted" : inputCls}
               />
             </div>
 
             <div className="lg:col-span-2">
               <div className="mb-1 flex items-center justify-between">
-                <label className="text-[11px] font-semibold text-slate-700">VAT(%)</label>
+                <label className="text-[11px] font-semibold text-ink-muted">VAT(%)</label>
                 <input
                   type="checkbox"
                   checked={lineVatEnabled}
                   onChange={(e) => setLineVatEnabled(e.target.checked)}
                   title="Apply VAT on line"
-                  className="h-3.5 w-3.5 rounded border-slate-300 text-blue-600"
+                  className="h-3.5 w-3.5 rounded border-line-strong text-blue-600 dark:text-blue-400"
                 />
               </div>
               <input
@@ -959,7 +959,7 @@ export function DirectReceiveView() {
 
           <div className="mt-3 flex flex-wrap items-end gap-3">
             <div className="min-w-[180px] flex-1">
-              <label className="mb-1 block text-[11px] font-semibold text-slate-700">Brand</label>
+              <label className="mb-1 block text-[11px] font-semibold text-ink-muted">Brand</label>
               <input
                 type="text"
                 value={lineBrand}
@@ -969,7 +969,7 @@ export function DirectReceiveView() {
               />
             </div>
             <div className="min-w-[220px] flex-1">
-              <label className="mb-1 block text-[11px] font-semibold text-slate-700">Specification</label>
+              <label className="mb-1 block text-[11px] font-semibold text-ink-muted">Specification</label>
               <input
                 type="text"
                 value={lineSpecification}
@@ -978,30 +978,30 @@ export function DirectReceiveView() {
                 className={inputCls}
               />
             </div>
-            <label className="flex h-8 cursor-pointer items-center gap-2 px-1 text-xs text-slate-700">
+            <label className="flex h-8 cursor-pointer items-center gap-2 px-1 text-xs text-ink-muted">
               <input
                 type="checkbox"
                 checked={addAllFlag}
                 onChange={(e) => setAddAllFlag(e.target.checked)}
-                className="h-4 w-4 rounded border-slate-300 text-blue-600"
+                className="h-4 w-4 rounded border-line-strong text-blue-600 dark:text-blue-400"
               />
               <span>All</span>
             </label>
             <button
               type="button"
               onClick={handleAddLine}
-              className="h-8 rounded border border-slate-300 bg-slate-100 px-4 text-xs font-semibold text-slate-700 transition hover:border-blue-600 hover:bg-blue-600 hover:text-white"
+              className="h-8 rounded border border-line-strong bg-control px-4 text-xs font-semibold text-ink-muted transition hover:border-blue-600 hover:bg-blue-600 hover:text-white"
             >
               Add
             </button>
           </div>
 
           {/* Received Items Table */}
-          <div className="overflow-hidden rounded-md border border-slate-200 bg-white shadow-2xs">
+          <div className="overflow-hidden rounded-md border border-line bg-surface shadow-2xs">
             <div className="overflow-x-auto">
               <table className="w-full border-collapse text-left text-xs">
                 <thead>
-                  <tr className="border-b border-blue-200 bg-[#e6f2fb] text-[11px] font-semibold text-slate-800">
+                  <tr className="border-b border-blue-200 dark:border-blue-500/30 bg-grid-head text-[11px] font-semibold text-ink">
                     <th className="px-3 py-2">SL</th>
                     <th className="px-3 py-2">Item Code</th>
                     <th className="px-3 py-2">Item Name</th>
@@ -1015,33 +1015,33 @@ export function DirectReceiveView() {
                     <th className="px-3 py-2 text-center">Action</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100">
+                <tbody className="divide-y divide-line">
                   {addedLines.length === 0 ? (
                     <tr>
-                      <td colSpan={11} className="py-8 text-center text-xs text-slate-400">
+                      <td colSpan={11} className="py-8 text-center text-xs text-ink-faint">
                         No items added yet. Select an item above and click Add to receive directly into warehouse stock.
                       </td>
                     </tr>
                   ) : (
                     addedLines.map((row, idx) => (
-                      <tr key={row.key} className="hover:bg-slate-50">
-                        <td className="px-3 py-2 text-slate-500">{idx + 1}</td>
-                        <td className="px-3 py-2 font-mono text-sky-700">{row.itemCode}</td>
-                        <td className="px-3 py-2 font-medium text-slate-800">{row.itemName}</td>
-                        <td className="px-3 py-2 text-slate-600">{row.uom}</td>
-                        <td className="px-3 py-2 text-slate-500">{row.specification || row.brand || "-"}</td>
+                      <tr key={row.key} className="hover:bg-canvas">
+                        <td className="px-3 py-2 text-ink-faint">{idx + 1}</td>
+                        <td className="px-3 py-2 font-mono text-sky-700 dark:text-sky-300">{row.itemCode}</td>
+                        <td className="px-3 py-2 font-medium text-ink">{row.itemName}</td>
+                        <td className="px-3 py-2 text-ink-muted">{row.uom}</td>
+                        <td className="px-3 py-2 text-ink-faint">{row.specification || row.brand || "-"}</td>
                         <td className="px-3 py-2 text-right font-mono">{row.quantity}</td>
                         <td className="px-3 py-2 text-right font-mono">{formatCurrency(row.unitPrice)}</td>
                         <td className="px-3 py-2 text-right font-mono">{row.taxPercentage}%</td>
                         <td className="px-3 py-2 text-right font-mono">{formatCurrency(row.vatAmount)}</td>
-                        <td className="px-3 py-2 text-right font-mono font-semibold text-slate-900">
+                        <td className="px-3 py-2 text-right font-mono font-semibold text-ink">
                           {formatCurrency(row.lineTotal)}
                         </td>
                         <td className="px-3 py-2 text-center">
                           <button
                             type="button"
                             onClick={() => setAddedLines((prev) => prev.filter((l) => l.key !== row.key))}
-                            className="rounded p-1 text-red-500 hover:bg-red-50"
+                            className="rounded p-1 text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10"
                             title="Remove item"
                           >
                             <Trash2 className="h-3.5 w-3.5" />
@@ -1054,18 +1054,18 @@ export function DirectReceiveView() {
               </table>
             </div>
             {addedLines.length > 0 && (
-              <div className="flex flex-wrap items-center justify-end gap-6 border-t border-slate-200 bg-slate-50 px-4 py-2.5 text-xs">
-                <span className="text-slate-600">
-                  Total Qty: <strong className="font-mono text-slate-900">{totals.qty}</strong>
+              <div className="flex flex-wrap items-center justify-end gap-6 border-t border-line bg-canvas px-4 py-2.5 text-xs">
+                <span className="text-ink-muted">
+                  Total Qty: <strong className="font-mono text-ink">{totals.qty}</strong>
                 </span>
-                <span className="text-slate-600">
-                  Subtotal: <strong className="font-mono text-slate-900">{formatCurrency(totals.sub)}</strong>
+                <span className="text-ink-muted">
+                  Subtotal: <strong className="font-mono text-ink">{formatCurrency(totals.sub)}</strong>
                 </span>
-                <span className="text-slate-600">
-                  Total VAT: <strong className="font-mono text-slate-900">{formatCurrency(totals.vat)}</strong>
+                <span className="text-ink-muted">
+                  Total VAT: <strong className="font-mono text-ink">{formatCurrency(totals.vat)}</strong>
                 </span>
-                <span className="text-slate-700">
-                  Net Receive Value: <strong className="font-mono text-sm text-blue-700">{formatCurrency(totals.net)}</strong>
+                <span className="text-ink-muted">
+                  Net Receive Value: <strong className="font-mono text-sm text-blue-700 dark:text-blue-300">{formatCurrency(totals.net)}</strong>
                 </span>
               </div>
             )}

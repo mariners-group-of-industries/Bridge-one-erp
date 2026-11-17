@@ -43,8 +43,10 @@ const accountTypeKey = (t: string) => t.toLowerCase().replace(/\baccount\b/g, ""
 import type {
   BankAccountItem,
 } from "@/features/accounts/types";
+import { useFeaturePermissions } from "@/lib/permissions/useFeaturePermissions";
 
 export default function FinanceBankingPage() {
+  const perms = useFeaturePermissions("/accounts/banking");
   const { pending, run } = usePending();
   const bankAccounts = useAccountingStore((s) => s.bankAccounts);
   const deposits = useAccountingStore((s) => s.deposits);
@@ -1612,32 +1614,32 @@ export default function FinanceBankingPage() {
 
           {/* TAB 1: + Regular Banking */}
           {activeTab === "REGULAR_BANKING" && (
-            <button
+            (perms.create ? (<button
               type="button"
               onClick={() => setIsNewBankOpen(true)}
               className="h-8 px-3.5 bg-[#2563eb] hover:bg-blue-700 text-white font-semibold text-xs rounded flex items-center gap-1.5 shadow-xs transition"
             >
               <Plus className="w-3.5 h-3.5" />
               <span>Regular Banking</span>
-            </button>
+            </button>) : null)
           )}
 
           {/* TAB 2: + Deposits */}
           {activeTab === "DEPOSITS" && (
-            <button
+            (perms.create ? (<button
               type="button"
               onClick={() => setIsNewDepositOpen(true)}
               className="h-8 px-3.5 bg-[#2563eb] hover:bg-blue-700 text-white font-semibold text-xs rounded flex items-center gap-1.5 shadow-xs transition"
             >
               <Plus className="w-3.5 h-3.5" />
               <span>Deposits</span>
-            </button>
+            </button>) : null)
           )}
 
           {/* TAB 3: Excel + + Loans */}
           {activeTab === "LOANS_BANK" && (
             <>
-              <button
+              {perms.export && (<button
                 type="button"
                 onClick={handleExportExcel}
                 className="h-8 px-3 bg-[#2563eb] hover:bg-blue-700 text-white font-semibold text-xs rounded flex items-center gap-1.5 shadow-xs transition"
@@ -1645,33 +1647,33 @@ export default function FinanceBankingPage() {
               >
                 <Download className="w-3.5 h-3.5" />
                 <span>Excel</span>
-              </button>
-              <button
+              </button>)}
+              {perms.create && (<button
                 type="button"
                 onClick={() => setIsNewLoanOpen(true)}
                 className="h-8 px-3.5 bg-[#2563eb] hover:bg-blue-700 text-white font-semibold text-xs rounded flex items-center gap-1.5 shadow-xs transition"
               >
                 <Plus className="w-3.5 h-3.5" />
                 <span>Loans</span>
-              </button>
+              </button>)}
             </>
           )}
 
           {/* TAB 4: Print/PDF */}
           {activeTab === "FACTORING_REPORT" && (
-            <button
+            (perms.export ? (<button
               type="button"
               onClick={() => window.print()}
               className="h-8 px-3.5 bg-[#2563eb] hover:bg-blue-700 text-white font-semibold text-xs rounded flex items-center gap-1.5 shadow-xs transition"
             >
               <span>Print/PDF</span>
-            </button>
+            </button>) : null)
           )}
 
           {/* TAB 5: EXCEL + + Bulk Upload + + Loan Partner */}
           {activeTab === "LOAN_OTHERS" && (
             <>
-              <button
+              {perms.export && (<button
                 type="button"
                 onClick={handleExportExcel}
                 className="h-8 px-3 bg-surface border border-line-strong text-ink-muted hover:bg-canvas font-semibold text-xs rounded flex items-center gap-1.5 shadow-2xs transition"
@@ -1679,23 +1681,23 @@ export default function FinanceBankingPage() {
               >
                 <Download className="w-3.5 h-3.5 text-ink-faint" />
                 <span>EXCEL</span>
-              </button>
-              <button
+              </button>)}
+              {perms.create && (<button
                 type="button"
                 onClick={() => setIsBulkUploadOpen(true)}
                 className="h-8 px-3.5 bg-[#2563eb] hover:bg-blue-700 text-white font-semibold text-xs rounded flex items-center gap-1.5 shadow-xs transition"
               >
                 <Plus className="w-3.5 h-3.5" />
                 <span>Bulk Upload</span>
-              </button>
-              <button
+              </button>)}
+              {perms.create && (<button
                 type="button"
                 onClick={() => setIsNewLoanPartnerOpen(true)}
                 className="h-8 px-3.5 bg-[#2563eb] hover:bg-blue-700 text-white font-semibold text-xs rounded flex items-center gap-1.5 shadow-xs transition"
               >
                 <Plus className="w-3.5 h-3.5" />
                 <span>Loan Partner</span>
-              </button>
+              </button>)}
             </>
           )}
         </div>

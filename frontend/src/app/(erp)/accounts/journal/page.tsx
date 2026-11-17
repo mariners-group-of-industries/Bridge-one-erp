@@ -27,6 +27,7 @@ import type { JournalLineItem, JournalType, JournalVoucher, VoucherStatus } from
 import { localDate, localDaysFromToday, localToday } from "@/features/purchase/lib/client";
 import { useSession } from "@/lib/auth/session";
 import { Spinner } from "@/components/ui/spinner";
+import { useFeaturePermissions, needsPermission } from "@/lib/permissions/useFeaturePermissions";
 
 const blankLine = (): JournalLineItem => ({
   id: `line-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
@@ -49,6 +50,7 @@ function fiscalYearOf(day: string) {
 }
 
 export default function AccountingJournalPage() {
+  const perms = useFeaturePermissions("/accounts/journal");
   const { pending, run } = usePending();
   const vouchers = useAccountingStore((s) => s.vouchers);
   const accounts = useAccountingStore((s) => s.accounts);
@@ -810,29 +812,29 @@ export default function AccountingJournalPage() {
             {/* Extra Buttons in Voucher Repository Tab */}
             {activeTab === "VOUCHER_REPOSITORY" && (
               <>
-                <button
+                {perms.export && (<button
                   onClick={handleExportExcel}
                   className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-medium transition-colors shadow-2xs"
                 >
                   Export to Excel
-                </button>
-                <button
+                </button>)}
+                {perms.export && (<button
                   onClick={handlePrint}
                   className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-medium transition-colors shadow-2xs"
                 >
                   PDF
-                </button>
+                </button>)}
               </>
             )}
 
             {/* + Journal Button */}
-            <button
+            {perms.create && (<button
               onClick={() => setIsCreateOpen(true)}
               className="inline-flex items-center gap-1 px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-medium transition-colors shadow-2xs"
             >
               <Plus className="w-3.5 h-3.5" />
               <span>Journal</span>
-            </button>
+            </button>)}
           </div>
         </div>
 
@@ -1076,10 +1078,10 @@ export default function AccountingJournalPage() {
                             >
                               <Pencil className="w-3.5 h-3.5" />
                             </button>
-                            <button
+                            <button disabled={!perms.approve}
                               onClick={() => handleApproveVoucher(v)}
-                              title="Approve Voucher"
-                              className="w-6 h-6 rounded-full bg-amber-50 dark:bg-amber-500/10 hover:bg-emerald-100 dark:hover:bg-emerald-500/15 text-amber-600 dark:text-amber-400 hover:text-emerald-700 dark:hover:text-emerald-300 flex items-center justify-center transition-colors"
+                              title={!perms.approve ? needsPermission("approve") : "Approve Voucher"}
+                              className="w-6 h-6 rounded-full bg-amber-50 dark:bg-amber-500/10 hover:bg-emerald-100 dark:hover:bg-emerald-500/15 text-amber-600 dark:text-amber-400 hover:text-emerald-700 dark:hover:text-emerald-300 flex items-center justify-center transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                             >
                               <ShieldCheck className="w-3.5 h-3.5" />
                             </button>
@@ -1750,7 +1752,7 @@ export default function AccountingJournalPage() {
               >
                 Cancel
               </button>
-              <button disabled={pending === "approve"}
+              <button title={!perms.approve ? needsPermission("approve") : undefined} disabled={(pending === "approve") || !perms.approve}
                 type="button"
                 onClick={confirmApproval}
                 className="inline-flex items-center justify-center gap-1.5 disabled:opacity-60 px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-xs font-semibold shadow-2xs"

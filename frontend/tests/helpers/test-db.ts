@@ -15,6 +15,11 @@ export function testPrisma(): PrismaClient {
   return current.prisma;
 }
 
+export function testPg(): PGlite {
+  if (!current) throw new Error("Test database not started. Call startTestDb() in beforeAll.");
+  return current.pg;
+}
+
 export async function startTestDb(): Promise<PrismaClient> {
   const pg = new PGlite();
   const migrationsDir = path.resolve(import.meta.dirname, "../../prisma/migrations");

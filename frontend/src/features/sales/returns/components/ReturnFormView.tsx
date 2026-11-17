@@ -18,6 +18,7 @@ import { formatAmount, formatQty } from "../../dashboard/lib/format";
 import type { WarehouseOption } from "../../deliveries/schemas/delivery.schema";
 import { fetchWarehouses } from "../../deliveries/services/delivery.api";
 import { issuesToErrors, numberText, optionalNumber, requiredNumber } from "../../lib/form";
+import { itemTypeList } from "../../lib/item-types";
 import { formatDay, useToday } from "../../lib/use-today";
 import { CATEGORY_LEVEL_LABELS, type ItemOption, type SalesLookups, type SetupLookups } from "../../masters/schemas/masters.schema";
 import { fetchCustomers, fetchItems, fetchSalesLookups, fetchSetupLookups } from "../../masters/services/masters.api";
@@ -1033,7 +1034,7 @@ function ReturnItemEntry({
   const [itemText, setItemText] = useState("");
   const [entry, setEntry] = useState({ qty: "", rate: "", vatPercent: "", reason: "" });
   const distinct = (values: (string | null)[]) => [...new Set(values.filter((value): value is string => Boolean(value)))].sort();
-  const itemTypes = useMemo(() => distinct(items.map((candidate) => candidate.itemType)), [items]);
+  const itemTypes = useMemo(() => itemTypeList(items), [items]);
   const brands = useMemo(() => distinct(items.map((candidate) => candidate.brand)), [items]);
   const [error, setError] = useState<string>();
 

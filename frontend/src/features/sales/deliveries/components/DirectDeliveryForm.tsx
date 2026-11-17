@@ -405,7 +405,7 @@ function DirectEditor({
                   required
                   error={errors.customerId}
                   disabled={!businessUnitId || masters.loading}
-                  placeholder={masters.loading ? "Loading…" : "Select/Search Customer (min 3 letters)"}
+                  placeholder={masters.loading ? "Loading…" : "Select/Search Customer"}
                   options={[
                     ...(delivery && !customers.some((candidate) => candidate.id === delivery.customerId) ? [{ id: delivery.customerId, label: delivery.customerName }] : []),
                     ...customers.map((candidate) => ({ id: candidate.id, label: customerLabel(candidate) })),
@@ -422,7 +422,7 @@ function DirectEditor({
                   freeText
                   error={errors.referredBy}
                   disabled={!businessUnitId}
-                  placeholder="Select/Search Customer (min 3 letters)"
+                  placeholder="Select/Search Customer"
                   options={customers.filter((candidate) => candidate.id !== customerId && !candidate.isAnonymous).map((candidate) => ({ id: candidate.id, label: candidate.name }))}
                   text={header.referredBy}
                   onText={(text) => set("referredBy", text)}

@@ -12,8 +12,9 @@ const day = (value: string) => value.split("-").reverse().join("-");
 export async function quotationPdf(actor: Actor, id: string): Promise<{ number: string; bytes: Uint8Array }> {
   const quotation = await getQuotation(actor, id);
   const { doc, pdf } = await pdfWriter(false);
-  pdf.title(`${quotation.quotationType} ${quotation.number}`);
+  pdf.title(`Quotation ${quotation.number}`);
   pdf.pairs([
+    ["Quotation Type", quotation.quotationType],
     ["Create Date", day(quotation.quotationDate)],
     ["Valid Till", day(quotation.validTill)],
     ["Customer", `${quotation.customerCode} - ${quotation.customerName}`],

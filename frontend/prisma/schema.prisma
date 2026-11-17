@@ -2295,7 +2295,16 @@ enum SalesOrderStatus {
 enum SalesOrderType {
   SALES
   SAMPLE
+  /// Kept for old records; not offered on the forms.
   EXPORT
+  GIFT
+  RND
+  WARRANTY
+  REPLACEMENT
+  SERVICE
+  MOCK_UP
+  OPENING
+  PROJECT
 }
 
 enum PaymentMethod {
