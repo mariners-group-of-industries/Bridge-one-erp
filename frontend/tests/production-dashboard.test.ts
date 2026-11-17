@@ -78,6 +78,20 @@ describe("production dashboard", () => {
     const dashboard = await getProductionDashboard(adminActor, { from: "2026-10-01", to: "2026-10-14" });
     expect(dashboard).toMatchObject({ volume: 26_000, hours: 22, entries: 4 });
     expect(dashboard.productivity).toBeCloseTo(1181.82, 2);
+    expect(dashboard).toMatchObject({ goodQty: 26_000, rejectQty: 0, rejectRate: 0, variance: 0 });
+    expect(dashboard.daily).toEqual([
+      { date: "2026-10-02", qty: 12_000, rejectQty: 0 },
+      { date: "2026-10-03", qty: 13_000, rejectQty: 0 },
+      { date: "2026-10-04", qty: 1_000, rejectQty: 0 },
+    ]);
+    // Both orders are in progress, but dated before this range.
+    expect(dashboard.orders).toEqual({
+      byStatus: { PENDING_APPROVAL: 0, APPROVED: 0, IN_PROGRESS: 0, CLOSED: 0, REJECTED: 0, CANCELLED: 0 },
+      open: { count: 2, orderQty: 200_000, producedQty: 0 },
+      pendingApproval: 0,
+    });
+    expect((await getProductionDashboard(adminActor, { from: "2026-09-01", to: "2026-10-14" })).orders.byStatus.IN_PROGRESS).toBe(2);
+    expect(dashboard.masters).toEqual({ workCenters: 2, boms: 2 });
     expect(dashboard.topItems.map((row) => [row.code, row.qty])).toEqual([
       ["FGSN230207", 21_000],
       ["FGCHIPS240613", 5_000],
