@@ -42,12 +42,12 @@ const isoDate = (label: string) => z.iso.date({ error: `${label} is required.` }
 const money = (label: string) =>
   z.number({ error: `${label} must be a number.` }).min(0, `${label} cannot be negative.`).max(MAX_AMOUNT);
 const qty = z.number({ error: "Quantity must be a number." }).gt(0, "Quantity must be more than 0.").max(MAX_AMOUNT);
-const optionalId = z.uuid().nullish().transform((value) => value ?? null);
+const optionalId = z.guid().nullish().transform((value) => value ?? null);
 const version = z.iso.datetime({ error: "Reload the return and try again." });
 
 const headerFields = {
-  officeId: z.uuid({ error: "Select an office." }),
-  warehouseId: z.uuid({ error: "Select a warehouse." }),
+  officeId: z.guid({ error: "Select an office." }),
+  warehouseId: z.guid({ error: "Select a warehouse." }),
   returnDate: isoDate("Return date"),
   salesPersonId: optionalId,
   /** Return Reason (header). */
@@ -66,10 +66,10 @@ export const referencedReturnSchema = z.object({
   mode: z.enum(["FULL", "PARTIAL"]),
   /** Return Type: back into the warehouse, or a market return (factory receives + QC). */
   kind: z.enum(RETURN_KINDS).default("SALES"),
-  deliveryId: z.uuid({ error: "Select a delivery." }),
+  deliveryId: z.guid({ error: "Select a delivery." }),
   ...headerFields,
   lines: z
-    .array(z.object({ deliveryLineId: z.uuid(), qty, reason: lineReason }))
+    .array(z.object({ deliveryLineId: z.guid(), qty, reason: lineReason }))
     .min(1, "Enter a return quantity for at least one item.")
     .max(MAX_LINES),
 });
@@ -78,7 +78,7 @@ export const referencedReturnSchema = z.object({
 export const withoutReferenceSchema = z.object({
   mode: z.literal("WITHOUT_REFERENCE"),
   kind: z.enum(RETURN_KINDS),
-  customerId: z.uuid({ error: "Select a customer." }),
+  customerId: z.guid({ error: "Select a customer." }),
   priceIncludesVat: z.boolean(),
   withoutInvoice: z.boolean(),
   shippingAddress: optionalText("Shipping address", 500),
@@ -86,7 +86,7 @@ export const withoutReferenceSchema = z.object({
   lines: z
     .array(
       z.object({
-        itemId: z.uuid({ error: "Select an item." }),
+        itemId: z.guid({ error: "Select an item." }),
         qty,
         rate: money("Return price"),
         vatPercent: z.number({ error: "VAT % must be a number." }).min(0, "VAT % cannot be negative.").max(100, "VAT % can be at most 100."),
@@ -112,10 +112,10 @@ export const returnDeleteSchema = z.object({
 /** Market returns: what the factory received, then what passed QC (per return line). */
 export const factoryReceiveSchema = z.object({
   version,
-  lines: z.array(z.object({ lineId: z.uuid(), qty: z.number({ error: "Quantity must be a number." }).min(0, "Quantity cannot be negative.").max(MAX_AMOUNT) })).min(1),
+  lines: z.array(z.object({ lineId: z.guid(), qty: z.number({ error: "Quantity must be a number." }).min(0, "Quantity cannot be negative.").max(MAX_AMOUNT) })).min(1),
 });
 
-const optionalUuid = z.uuid().optional();
+const optionalUuid = z.guid().optional();
 const validRange = (query: { from?: string; to?: string }) => !query.from || !query.to || query.from <= query.to;
 const rangeMessage = { error: "From Date must be on or before To Date.", path: ["to"] };
 

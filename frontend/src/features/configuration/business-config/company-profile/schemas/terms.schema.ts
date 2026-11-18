@@ -76,7 +76,7 @@ export type UpdateTermInput = z.infer<typeof updateTermSchema>;
 export const reorderTermsSchema = z.object({
   domain: termsDomainSchema,
   orderedIds: z
-    .array(z.uuid())
+    .array(z.guid())
     .min(1)
     .max(500)
     .refine((ids) => new Set(ids).size === ids.length, { message: "Ids must not repeat." }),

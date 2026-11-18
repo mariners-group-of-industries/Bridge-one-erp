@@ -21,7 +21,7 @@ export const MAX_MOVEMENT_DAYS = 31;
 
 const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use a valid date.");
 const time = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Use a valid time.");
-const employeeId = z.uuid("Select an employee.").optional();
+const employeeId = z.guid("Select an employee.").optional();
 
 export const leaveInputSchema = z.object({
   employeeId,

@@ -34,7 +34,7 @@ export const PF_CODE: ComponentCode = "PFD";
 const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Enter a valid date.");
 
 export const generateInputSchema = z.object({
-  officeId: z.uuid("Select an office."),
+  officeId: z.guid("Select an office."),
   month: monthSchema,
   salaryType: z.enum(SALARY_TYPES, "Select a salary type.").default("Monthly"),
   payrollDate: isoDate,

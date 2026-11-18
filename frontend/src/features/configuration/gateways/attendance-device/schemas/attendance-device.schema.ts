@@ -17,7 +17,7 @@ export const deviceInputSchema = z.object({
   ipAddress: host,
   port: z.coerce.number({ message: "Enter the TCP port." }).int().min(1).max(65535).optional().default(4370),
   serialNumber: z.string().trim().max(60).optional().default(""),
-  officeId: z.union([z.uuid("Select a valid office."), z.literal("")]).optional().default(""),
+  officeId: z.union([z.guid("Select a valid office."), z.literal("")]).optional().default(""),
   isActive: z.boolean().optional().default(true),
 });
 export type DeviceInput = z.input<typeof deviceInputSchema>;

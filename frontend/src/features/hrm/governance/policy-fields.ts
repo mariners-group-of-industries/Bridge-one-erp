@@ -423,8 +423,8 @@ export function policyDataSchema(def: PolicyTabDef) {
 }
 
 export const policyRecordInputSchema = z.object({
-  officeId: z.union([z.uuid(), z.literal("")]).default(""),
-  employeeId: z.union([z.uuid(), z.literal("")]).default(""),
+  officeId: z.union([z.guid(), z.literal("")]).default(""),
+  employeeId: z.union([z.guid(), z.literal("")]).default(""),
   effectiveFrom: z.union([z.string().regex(/^\d{4}-\d{2}-\d{2}$/), z.literal("")]).default(""),
   effectiveTo: z.union([z.string().regex(/^\d{4}-\d{2}-\d{2}$/), z.literal("")]).default(""),
   data: z.record(z.string(), z.unknown()).default({}),

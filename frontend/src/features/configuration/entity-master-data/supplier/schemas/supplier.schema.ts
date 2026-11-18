@@ -6,7 +6,7 @@ import { z } from "zod";
 
 const text = (max: number) => z.string().trim().max(max, `Must be ${max} characters or fewer.`);
 const optionalText = (max: number) => text(max).optional().default("");
-const optionalId = z.union([z.uuid("Select a valid option."), z.literal("")]).optional().default("");
+const optionalId = z.union([z.guid("Select a valid option."), z.literal("")]).optional().default("");
 
 /** Percentage 0–100 with up to two decimals, or "". */
 const percent = z
@@ -30,7 +30,7 @@ export const supplierDetailSchema = z.object({
 
 export const supplierInputSchema = z.object({
   // Partner Details
-  officeId: z.uuid("Select an office."),
+  officeId: z.guid("Select an office."),
   name: text(150).min(1, "Partner name is required."),
   code: optionalText(30),
   mobile: optionalText(30),
@@ -78,8 +78,8 @@ export type SupplierData = z.output<typeof supplierInputSchema>;
 /** List filters; shared by the list and the Excel download. */
 export const supplierFilterSchema = z.object({
   search: z.string().trim().max(100).optional(),
-  officeId: z.uuid().optional().catch(undefined),
-  groupId: z.uuid().optional().catch(undefined),
+  officeId: z.guid().optional().catch(undefined),
+  groupId: z.guid().optional().catch(undefined),
   status: z.enum(["active", "inactive"]).optional().catch(undefined),
   type: z.enum(["local", "foreign"]).optional().catch(undefined),
 });
@@ -100,7 +100,7 @@ export type SupplierListQuery = z.output<typeof supplierListQuerySchema>;
 // ─── "+ Add new" options ──────────────────────────────────────────────────────
 
 export const createSupplierGroupSchema = z.object({
-  officeId: z.uuid("Select an office first."),
+  officeId: z.guid("Select an office first."),
   name: text(100).min(1, "Name is required."),
   /** Set for a Sub Group. */
   parentId: optionalId,
@@ -112,7 +112,7 @@ export const createThanaSchema = z.object({
 });
 
 export const createTaxBracketSchema = z.object({
-  officeId: z.uuid("Select an office first."),
+  officeId: z.guid("Select an office first."),
   name: text(100).min(1, "Name is required."),
   ratePercent: percent,
 });

@@ -12,7 +12,7 @@ export const MAX_RANGE_DAYS = 62;
 export const MAX_MINUTES_PER_DAY = 16 * 60;
 
 const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Enter a date.");
-const uuid = z.uuid("Select a valid option.");
+const uuid = z.guid("Select a valid option.");
 const DAY_MS = 86_400_000;
 
 const range = <T extends { from: string; to: string }>(schema: z.ZodType<T>) =>

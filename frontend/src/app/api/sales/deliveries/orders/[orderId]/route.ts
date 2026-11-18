@@ -2,7 +2,7 @@ import { z } from "zod";
 import { getOrderForDelivery } from "@/features/sales/deliveries/services/delivery.service";
 import { apiHandler, ok, parseId } from "@/lib/api/handler";
 
-const querySchema = z.object({ asOf: z.iso.date(), editing: z.uuid().optional() });
+const querySchema = z.object({ asOf: z.iso.date(), editing: z.guid().optional() });
 
 /** GET /api/sales/deliveries/orders/:orderId?asOf=YYYY-MM-DD: order lines left to deliver. */
 export const GET = apiHandler<{ params: Promise<{ orderId: string }> }>("sales:read", async (request, context, actor) => {
