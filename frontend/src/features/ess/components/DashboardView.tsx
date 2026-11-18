@@ -20,7 +20,7 @@ const greeting = () => {
 };
 
 export function DashboardView() {
-  return <EssPage title="My Dashboard">{(employee) => <Dashboard employee={employee} />}</EssPage>;
+  return <EssPage title="My Dashboard" full>{(employee) => <Dashboard employee={employee} />}</EssPage>;
 }
 
 function Dashboard({ employee }: { employee: EssEmployee }) {
