@@ -93,6 +93,14 @@ export const inventoryApi = {
     apiRequest<InventoryDocument>(`/api/inventory/${slug}/${id}/${decision}`, json("POST", { comment })),
   receive: (id: string, lines: { lineId: string; receivedQty: number }[], receiveDate?: string) =>
     apiRequest<InventoryDocument>(`/api/inventory/transfer/${id}/receive`, json("POST", { lines, receiveDate })),
+  /** URL of the Excel bulk-import template for a page. */
+  importTemplateUrl: (slug: InventoryDocSlug) => `/api/inventory/${slug}/import`,
+  /** Uploads a filled template; rows that fail validation are skipped and reported. */
+  importFile: (slug: InventoryDocSlug, file: File) => {
+    const form = new FormData();
+    form.set("file", file);
+    return apiRequest<{ created: number; errors: { row: number; message: string }[] }>(`/api/inventory/${slug}/import`, { method: "POST", body: form });
+  },
   /** Uploads a store issue attachment (PDF or image, at most 5 MB). */
   uploadIssueAttachment: (file: File) => {
     const form = new FormData();

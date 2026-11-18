@@ -15,6 +15,7 @@ import {
   FileSpreadsheet,
 } from "lucide-react";
 import { useFeaturePermissions, needsPermission } from "@/lib/permissions/useFeaturePermissions";
+import { BulkUploadDialog } from "@/features/configuration/entity-master-data/components/BulkUploadDialog";
 
 // ============================================================================
 // TYPES
@@ -137,6 +138,7 @@ export default function TransferPage() {
     approved.reload();
   };
   const [createOpen, setCreateOpen] = useState(false);
+  const [bulkOpen, setBulkOpen] = useState(false);
   const [createRequestId, setCreateRequestId] = useState<string | undefined>();
   const [receiveTarget, setReceiveTarget] = useState<InventoryDocument | null>(null);
   const openTransfer = (requestId?: string) => {
@@ -380,8 +382,8 @@ export default function TransferPage() {
         onSearch={setSearchTerm}
         actions={
           <>
-            {perms.create && (<button type="button" className={tabBarButton} title="Upload">
-              <Upload /> Upload
+            {perms.import && (<button type="button" onClick={() => setBulkOpen(true)} className={tabBarButton} title="Bulk upload from Excel">
+              <Upload /> Bulk Upload
             </button>)}
             {perms.export && (<button type="button" onClick={handleExportCSV} className={tabBarButton}>
               <Download /> Download
@@ -1289,6 +1291,16 @@ export default function TransferPage() {
         }}
       />
       <ReceiveTransferDialog transfer={receiveTarget} onClose={() => setReceiveTarget(null)} onReceived={reload} />
+      <BulkUploadDialog
+        open={bulkOpen}
+        onClose={() => setBulkOpen(false)}
+        onImported={reload}
+        noun="transfers"
+        templateUrl={inventoryApi.importTemplateUrl("transfer")}
+        maxRows={2000}
+        matchHint="Warehouse names must match existing warehouses; Item Code must match an active item. Rows with the same Ref are saved as one transfer; use Request Number to fulfil an approved transfer request."
+        upload={(file) => inventoryApi.importFile("transfer", file)}
+      />
     </div>
   );
 }

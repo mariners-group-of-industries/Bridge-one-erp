@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import React, { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Ban, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Download, Eye, PackageCheck, Plus, Printer, RotateCcw, Search, Truck, X } from "lucide-react";
+import { Ban, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Download, Eye, PackageCheck, Plus, Printer, RotateCcw, Search, Truck, Upload, X } from "lucide-react";
 import { ModalDialog } from "@/components/purchase/ModalDialog";
 import {
   PrintablePurchaseDoc,
@@ -17,7 +17,8 @@ import { Spinner } from "@/components/ui/spinner";
 import { fetchApi } from "@/lib/api";
 import { formatCurrency } from "@/lib/utils";
 import { effectiveUnitCost } from "@/lib/purchase-store/rules";
-import { PURCHASE_QUERY_KEYS, downloadCsv, localToday } from "@/features/purchase/lib/client";
+import { PURCHASE_QUERY_KEYS, downloadCsv, localToday, uploadPurchaseBulk } from "@/features/purchase/lib/client";
+import { BulkUploadDialog } from "@/features/configuration/entity-master-data/components/BulkUploadDialog";
 import { usePurchasePermissions } from "@/features/purchase/lib/usePurchasePermissions";
 import type { GoodsReceipt, Item, Office, PurchaseOrder, Supplier, SupplierInvoiceItem } from "@bridgeone/contracts";
 
@@ -232,6 +233,7 @@ export default function PurchaseReceivePage() {
   const queryClient = useQueryClient();
   const perms = usePurchasePermissions();
   const [activeTab, setActiveTab] = useState<Tab>("APPROVED_PO");
+  const [bulkOpen, setBulkOpen] = useState(false);
   const [search, setSearch] = useState("");
 
   // Approved PO tab filters
@@ -567,6 +569,11 @@ export default function PurchaseReceivePage() {
               />
               <Search className="w-3.5 h-3.5 text-ink-faint absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
             </div>
+            {perms.receive.import && (
+              <button type="button" onClick={() => setBulkOpen(true)} className={btnGhost} title="Bulk upload goods receipts from an Excel file">
+                <Upload className="w-3.5 h-3.5 inline -mt-0.5" /> Bulk Upload
+              </button>
+            )}
             {perms.receive.export && (
               <button type="button" onClick={handleExport} className={btnPrimary} title="Download Excel (CSV)">
                 <Download className="w-3.5 h-3.5" /> Excel
@@ -1315,6 +1322,16 @@ export default function PurchaseReceivePage() {
           </form>
         )}
       </ModalDialog>
+      <BulkUploadDialog
+        open={bulkOpen}
+        onClose={() => setBulkOpen(false)}
+        onImported={invalidate}
+        noun="goods receipts"
+        templateUrl="/api/v1/purchase/receive/import"
+        maxRows={2000}
+        matchHint="PO Number: put the PO number to receive against it, or DIRECT for a direct receive (needs Supplier, Office, Warehouse and Unit Price). Rows with the same Ref are saved as one receipt."
+        upload={(file) => uploadPurchaseBulk("/api/v1/purchase/receive/import", file)}
+      />
     </div>
   );
 }

@@ -1031,7 +1031,7 @@ export function DirectReceiveView() {
                     <th className="px-3 py-2">Brand / Spec</th>
                     <th className="px-3 py-2 text-right">Qty</th>
                     <th className="px-3 py-2 text-right">Base Rate (BDT)</th>
-                    <th className="px-3 py-2 text-right">VAT %</th>
+                    <th className="px-3 py-2 text-right">VAT % </th>
                     <th className="px-3 py-2 text-right">VAT Amt</th>
                     <th className="px-3 py-2 text-right">Total Amount</th>
                     <th className="px-3 py-2 text-center">Action</th>

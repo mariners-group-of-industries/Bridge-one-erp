@@ -16,8 +16,10 @@ import {
   Search,
   Check,
   Ban,
+  Upload,
 } from "lucide-react";
-import { PURCHASE_QUERY_KEYS, downloadCsv, localToday } from "@/features/purchase/lib/client";
+import { PURCHASE_QUERY_KEYS, downloadCsv, localToday, uploadPurchaseBulk } from "@/features/purchase/lib/client";
+import { BulkUploadDialog } from "@/features/configuration/entity-master-data/components/BulkUploadDialog";
 import { usePurchasePermissions } from "@/features/purchase/lib/usePurchasePermissions";
 
 type ReqStatus = PurchaseRequisition["status"];
@@ -97,6 +99,7 @@ export default function PurchaseRequisitionsPage() {
 
   // Modals state
   const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [bulkOpen, setBulkOpen] = useState(false);
   const [viewReq, setViewReq] = useState<PurchaseRequisition | null>(null);
   const [editReq, setEditReq] = useState<PurchaseRequisition | null>(null);
   const [printReq, setPrintReq] = useState<PurchaseRequisition | null>(null);
@@ -960,6 +963,17 @@ export default function PurchaseRequisitionsPage() {
               <Search className="w-3.5 h-3.5 text-ink-faint absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
             </div>
 
+            {perms.requisitions.import && (
+              <button
+                type="button"
+                onClick={() => setBulkOpen(true)}
+                className="h-9 px-4 border border-line-strong rounded text-ink-muted hover:bg-canvas font-semibold text-xs inline-flex items-center gap-1.5 transition"
+                title="Bulk upload requisitions from an Excel file"
+              >
+                <Upload className="w-4 h-4" />
+                <span>Bulk Upload</span>
+              </button>
+            )}
             {perms.requisitions.create && (
               <button
                 type="button"
@@ -2466,6 +2480,16 @@ export default function PurchaseRequisitionsPage() {
           </div>
         )}
       </ModalDialog>
+      <BulkUploadDialog
+        open={bulkOpen}
+        onClose={() => setBulkOpen(false)}
+        onImported={invalidateAll}
+        noun="requisitions"
+        templateUrl="/api/v1/purchase/requisitions/import"
+        maxRows={2000}
+        matchHint="Office and Warehouse must match existing names; Item Code must match an active item. Rows with the same Ref are saved as one requisition."
+        upload={(file) => uploadPurchaseBulk("/api/v1/purchase/requisitions/import", file)}
+      />
     </div>
   );
 }

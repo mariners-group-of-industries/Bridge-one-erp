@@ -81,21 +81,75 @@ interface StageRow {
 
 const num = (value: { toString(): string } | null | undefined) => (value === null || value === undefined ? null : Number(value.toString()));
 
+/**
+ * Feature name aliases to ensure cross-module compatibility
+ * (e.g. "Purchase Order" in code matches "Purchase Order Local" in the pipeline setup).
+ */
+export function featureAliases(feature: string): string[] {
+  const f = (feature || "").trim();
+  if (f === "Purchase Order" || f === "Purchase Order Local") return ["Purchase Order", "Purchase Order Local"];
+  if (f === "Expense" || f === "Expense Approval") return ["Expense", "Expense Approval"];
+  if (f === "Journal Voucher" || f === "Journal Approval") return ["Journal Voucher", "Journal Approval"];
+  if (f === "Stock Adjustment" || f === "Stock Adjustment Approval") return ["Stock Adjustment", "Stock Adjustment Approval"];
+  if (f === "Transfer Request" || f === "Transfer Request Approval") return ["Transfer Request", "Transfer Request Approval"];
+  if (f === "Transfer Return" || f === "Transfer Return Approval") return ["Transfer Return", "Transfer Return Approval"];
+  if (f === "Payment Approval" || f === "Purchase Payment Approval") return ["Payment Approval", "Purchase Payment Approval"];
+  return [f];
+}
+
+/** True when a feature has at least one configured approval pipeline with stages. */
+export async function hasApprovalPipeline(tx: Tx, feature: string): Promise<boolean> {
+  const aliases = featureAliases(feature);
+  const pipeline = await tx.approvalPipeline.findFirst({
+    where: { feature: { in: aliases }, stages: { some: {} } },
+    select: { id: true },
+  });
+  return Boolean(pipeline);
+}
+
 /** Stages of the feature's pipeline that apply to this document (none without a pipeline). */
 async function stagesFromPipeline(tx: Tx, target: ApprovalTarget) {
+  const aliases = featureAliases(target.feature);
   const pipeline = await tx.approvalPipeline.findFirst({
-    where: { feature: target.feature },
+    where: { feature: { in: aliases } },
     orderBy: { updatedAt: "desc" },
     include: {
-      superApproverEmployee: { select: { userId: true } },
+      superApproverEmployee: { select: { userId: true, name: true } },
       stages: {
         orderBy: { stageNo: "asc" },
-        include: { approvers: { orderBy: { sortOrder: "asc" }, include: { employee: { select: { userId: true } } } } },
+        include: {
+          approvers: {
+            orderBy: { sortOrder: "asc" },
+            include: { employee: { select: { userId: true, name: true, mobile: true } } },
+          },
+        },
       },
     },
   });
   if (!pipeline) return [];
-  const superApproverUserId = pipeline.superApproverUserId ?? pipeline.superApproverEmployee?.userId ?? null;
+
+  // Match users for employee approvers who don't have a direct userId linked yet
+  const allUsers = await tx.user.findMany({ select: { id: true, name: true, phone: true } });
+  const findUserIdByEmployee = (emp?: { userId: string | null; name: string; mobile?: string | null } | null): string | null => {
+    if (!emp) return null;
+    if (emp.userId) return emp.userId;
+    const cleanName = emp.name.trim().toLowerCase().replace(/^(md|mst|mr|mrs)\.?\s+/i, "");
+    const directMatch = allUsers.find((u) => u.name.trim().toLowerCase() === emp.name.trim().toLowerCase());
+    if (directMatch) return directMatch.id;
+    const cleanMatch = allUsers.find((u) => u.name.trim().toLowerCase().replace(/^(md|mst|mr|mrs)\.?\s+/i, "") === cleanName);
+    if (cleanMatch) return cleanMatch.id;
+    if (emp.mobile) {
+      const cleanMobile = emp.mobile.replace(/\D/g, "");
+      const byPhone = allUsers.find((u) => u.phone && u.phone.replace(/\D/g, "") === cleanMobile);
+      if (byPhone) return byPhone.id;
+    }
+    return null;
+  };
+
+  const superApproverUserId =
+    pipeline.superApproverUserId ??
+    (pipeline.superApproverEmployeeId ? findUserIdByEmployee(pipeline.superApproverEmployee) : null);
+
   const amount = target.amount ?? null;
   const applies = (stage: (typeof pipeline.stages)[number]) => {
     if (!stage.allowThreshold || amount === null) return true;
@@ -104,10 +158,16 @@ async function stagesFromPipeline(tx: Tx, target: ApprovalTarget) {
     return amount >= min && (max === null || amount <= max);
   };
   return pipeline.stages.filter(applies).map((stage, index) => {
-    const ids = stage.approvers
-      .filter((a) => !a.businessUnitId || !target.businessUnitId || a.businessUnitId === target.businessUnitId)
-      .map((a) => (a.userType === "EMPLOYEE" ? a.employee?.userId : a.userId))
-      .filter((id): id is string => !!id);
+    const ids: string[] = [];
+    for (const a of stage.approvers) {
+      if (a.businessUnitId && target.businessUnitId && a.businessUnitId !== target.businessUnitId) continue;
+      if (a.userType === "USER" && a.userId) {
+        ids.push(a.userId);
+      } else if (a.userType === "EMPLOYEE") {
+        const uId = findUserIdByEmployee(a.employee);
+        if (uId) ids.push(uId);
+      }
+    }
     const approverUserIds = [...new Set(ids)];
     return {
       feature: target.feature,
@@ -140,7 +200,8 @@ const STAGE_SELECT = {
  * document back in approval after a rejection starts a new round.
  */
 async function ensureStages(tx: Tx, target: ApprovalTarget): Promise<StageRow[]> {
-  const where = { feature: target.feature, documentId: target.documentId };
+  const aliases = featureAliases(target.feature);
+  const where = { feature: { in: aliases }, documentId: target.documentId };
   let stages = await tx.documentApproval.findMany({ where, orderBy: { stageNo: "asc" }, select: STAGE_SELECT });
   if (stages.some((s) => s.status === "REJECTED")) {
     await tx.documentApproval.deleteMany({ where });
@@ -226,7 +287,7 @@ export async function recordRejection(tx: Tx, by: ApprovalActor, target: Approva
   });
   // Later stages will never be reached in this round.
   await tx.documentApproval.updateMany({
-    where: { feature: target.feature, documentId: target.documentId, stageNo: { gt: current.stageNo }, status: "PENDING" },
+    where: { feature: { in: featureAliases(target.feature) }, documentId: target.documentId, stageNo: { gt: current.stageNo }, status: "PENDING" },
     data: { status: "SKIPPED" },
   });
 }
@@ -270,7 +331,7 @@ export async function recordApprovals(tx: Tx, actor: ApprovalActor, targets: App
 
 /** Drops the document's approval progress (e.g. after it is edited), so approval starts over. */
 export async function resetApproval(tx: Tx, feature: string, documentId: string): Promise<void> {
-  await tx.documentApproval.deleteMany({ where: { feature, documentId } });
+  await tx.documentApproval.deleteMany({ where: { feature: { in: featureAliases(feature) }, documentId } });
 }
 
 /** One-line note for audit logs: "Stage 1 (Manager) approved; waiting for stage 2 (Finance)." */
@@ -311,7 +372,7 @@ export async function approvalOutlook(target: ApprovalTarget): Promise<ApprovalT
 /** The document's stages with approver names, for detail views and the Multilayer Approval page. */
 export async function approvalTrail(feature: string, documentId: string): Promise<ApprovalTrailStage[]> {
   const client = db();
-  const stages = await client.documentApproval.findMany({ where: { feature, documentId }, orderBy: { stageNo: "asc" } });
+  const stages = await client.documentApproval.findMany({ where: { feature: { in: featureAliases(feature) }, documentId }, orderBy: { stageNo: "asc" } });
   const names = await userNames(
     client as unknown as Tx,
     stages.flatMap((s) => [...s.approverUserIds, ...s.approvedUserIds, ...(s.actedBy ? [s.actedBy] : [])]),

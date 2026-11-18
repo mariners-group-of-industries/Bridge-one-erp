@@ -15,9 +15,12 @@ import {
   Pencil,
   Plus,
   Search,
+  Upload,
 } from "lucide-react";
 import { ModalDialog } from "@/components/purchase/ModalDialog";
 import { useAccountingStore } from "@/features/accounts/store/accounting-store";
+import { BulkUploadDialog } from "@/features/configuration/entity-master-data/components/BulkUploadDialog";
+import { uploadAccountImport } from "@/features/accounts/lib/bulk-import-client";
 import type { CostCenterItem } from "@/features/accounts/types";
 import { localToday } from "@/features/purchase/lib/client";
 import { useFeaturePermissions, needsPermission } from "@/lib/permissions/useFeaturePermissions";
@@ -52,6 +55,7 @@ export default function CenterSetupPage() {
 
   // Modal dialog states
   const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [bulkOpen, setBulkOpen] = useState(false);
   const [isCardCollapsed, setIsCardCollapsed] = useState(false);
   // The center being edited in the form; null when creating a new one.
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -334,6 +338,15 @@ export default function CenterSetupPage() {
               />
             </div>
 
+            {perms.import && (<button
+              type="button"
+              onClick={() => setBulkOpen(true)}
+              className="h-8 px-3 border border-line-strong rounded text-ink-muted hover:bg-canvas font-medium text-xs flex items-center gap-1.5 transition whitespace-nowrap"
+              title="Bulk upload cost centers from an Excel file"
+            >
+              <Upload className="w-3.5 h-3.5" />
+              <span>Bulk Upload</span>
+            </button>)}
             {perms.create && (<button
               type="button"
               onClick={() => setIsCreateOpen(true)}
@@ -634,6 +647,16 @@ export default function CenterSetupPage() {
           </dl>
         )}
       </ModalDialog>
+      <BulkUploadDialog
+        open={bulkOpen}
+        onClose={() => setBulkOpen(false)}
+        onImported={() => { void useAccountingStore.getState().syncDatabase(); }}
+        noun="cost centers"
+        templateUrl="/api/accounts/cost-centers/import"
+        maxRows={2000}
+        matchHint="Center Code must be unique; Office must match an office in your access. Type: DEPARTMENT, PROJECT, BRANCH, LOCATION or OTHER."
+        upload={(file) => uploadAccountImport("/api/accounts/cost-centers/import", file)}
+      />
     </div>
   );
 }
