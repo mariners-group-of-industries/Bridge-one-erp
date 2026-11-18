@@ -31,20 +31,23 @@ export function SidebarNav({ pathname, onNavigate }: { pathname: string | null; 
 
   return (
     <nav aria-label="Modules" className="flex flex-col bg-surface px-2.5 py-3 text-sm">
-      <Link
-        href="/"
-        aria-current={pathname === "/" ? "page" : undefined}
-        onClick={onNavigate}
-        className={cn(
-          "flex h-9 items-center gap-2.5 rounded-md px-2 transition-colors focus-visible:outline-2",
-          pathname === "/" ? "bg-accent-soft font-semibold text-accent-strong dark:text-accent" : "text-ink-muted hover:bg-control hover:text-ink",
-        )}
-      >
-        <IconTile active={pathname === "/"}>
-          <House />
-        </IconTile>
-        <span className="truncate">Home</span>
-      </Link>
+      {/* Home (business overview) is for the master account only; others start at My Workspace. */}
+      {user?.isMaster && (
+        <Link
+          href="/"
+          aria-current={pathname === "/" ? "page" : undefined}
+          onClick={onNavigate}
+          className={cn(
+            "flex h-9 items-center gap-2.5 rounded-md px-2 transition-colors focus-visible:outline-2",
+            pathname === "/" ? "bg-accent-soft font-semibold text-accent-strong dark:text-accent" : "text-ink-muted hover:bg-control hover:text-ink",
+          )}
+        >
+          <IconTile active={pathname === "/"}>
+            <House />
+          </IconTile>
+          <span className="truncate">Home</span>
+        </Link>
+      )}
 
       {pinned.map((workspace) => {
         const Icon = workspace.icon;

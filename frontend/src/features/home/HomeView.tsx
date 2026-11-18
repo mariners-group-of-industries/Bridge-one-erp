@@ -12,19 +12,20 @@ import { essPaths } from "@/features/ess/navigation";
 import { HomeDashboard } from "./HomeDashboard";
 
 /**
- * Home: the business overview dashboard. An employee whose login opens no
- * module (an ordinary employee) goes straight to their own workspace instead.
+ * Home: the business overview dashboard, for the master account only. Every
+ * other login lands on My Dashboard (My Workspace); a login not yet linked to
+ * an employee sees there how to get linked.
  */
 export function HomeView() {
-  const { user, workspaces } = useSession();
+  const { user } = useSession();
   const router = useRouter();
-  const onlySelfService = !!user?.employee && !workspaces.some((w) => w.status === "active");
+  const toWorkspace = !user?.isMaster;
 
   useEffect(() => {
-    if (onlySelfService) router.replace(essPaths.dashboard);
-  }, [onlySelfService, router]);
+    if (toWorkspace) router.replace(essPaths.dashboard);
+  }, [toWorkspace, router]);
 
-  if (onlySelfService) return <PageLoader label="Opening your workspace…" />;
+  if (toWorkspace) return <PageLoader label="Opening your workspace…" />;
 
   return (
     <PageContainer full>
