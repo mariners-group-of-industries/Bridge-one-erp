@@ -2,7 +2,7 @@
 
 import { Check, CheckCircle2, CircleAlert, ExternalLink, X } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonClasses } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
@@ -46,7 +46,7 @@ export function ApprovalQueueDialog({ category, onClose, onDecided }: { category
 function Queue({ category, onDecided }: { category: ApprovalCategory; onDecided: () => void }) {
   const list = useResource(`approval-pending:${category.id}`, () => fetchPendingDocuments(category.id));
   const toast = useToast();
-  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [picked, setPicked] = useState<Set<string>>(new Set());
   const [remarks, setRemarks] = useState("");
   const [busy, setBusy] = useState<Decision | null>(null);
   const [results, setResults] = useState<Map<string, RowResult>>(new Map());
@@ -57,20 +57,17 @@ function Queue({ category, onDecided }: { category: ApprovalCategory; onDecided:
   const canReject = canDecideHere(category.id, "reject");
   const multiStage = !!category.pipeline && category.pipeline.stages > 1;
 
-  // Drop selections of documents that left the list after a reload.
-  useEffect(() => {
-    setSelected((prev) => {
-      const ids = new Set(docs.map((d) => d.id));
-      const next = new Set([...prev].filter((id) => ids.has(id)));
-      return next.size === prev.size ? prev : next;
-    });
-  }, [docs]);
+  // Only documents still in the list count as selected (some may have left after a reload).
+  const selected = useMemo(() => {
+    const ids = new Set(docs.map((d) => d.id));
+    return new Set([...picked].filter((id) => ids.has(id)));
+  }, [docs, picked]);
 
   const allSelected = docs.length > 0 && selected.size === docs.length;
   const someSelected = selected.size > 0 && !allSelected;
 
   const toggle = (id: string) =>
-    setSelected((prev) => {
+    setPicked((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
@@ -105,7 +102,7 @@ function Queue({ category, onDecided }: { category: ApprovalCategory; onDecided:
     if (done > 0) toast.success(`${done} ${category.label.toLowerCase()} ${done === 1 ? "document" : "documents"} ${verb}.`);
     if (failed > 0) toast.error(`${failed} could not be ${verb}. See the rows marked in red.`);
     if (done > 0) {
-      setSelected(new Set(chosen.filter((d) => next.get(d.id)?.ok === false).map((d) => d.id)));
+      setPicked(new Set(chosen.filter((d) => next.get(d.id)?.ok === false).map((d) => d.id)));
       if (decision === "reject") setRemarks("");
       list.reload();
       onDecided();
@@ -164,7 +161,7 @@ function Queue({ category, onDecided }: { category: ApprovalCategory; onDecided:
                         if (el) el.indeterminate = someSelected;
                       }}
                       disabled={!!busy}
-                      onChange={() => setSelected(allSelected ? new Set() : new Set(docs.map((d) => d.id)))}
+                      onChange={() => setPicked(allSelected ? new Set() : new Set(docs.map((d) => d.id)))}
                     />
                   </label>
                 </th>
