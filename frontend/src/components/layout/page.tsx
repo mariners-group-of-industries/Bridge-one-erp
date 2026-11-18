@@ -21,8 +21,9 @@ interface PageHeadProps {
 /** Page title card (Purchase module style): breadcrumb, title and actions in a white card. */
 export function PageHead({ title, indicator, subtitle, actions, breadcrumbs, className }: PageHeadProps) {
   return (
-    // Sticky strip on the canvas so the header card (and its save buttons) stays in view.
-    <div className={cn("sticky top-14 z-20 -mx-4 mb-1 bg-canvas/95 px-4 py-3 backdrop-blur sm:-mx-6 sm:px-6", className)}>
+    // Opaque sticky strip under the top bar: the header card (and its save buttons) stays in view,
+    // and page content scrolls out of sight below it instead of showing through around it.
+    <div className={cn("sticky top-14 z-20 -mx-4 mb-1 bg-canvas px-4 py-3 sm:-mx-6 sm:px-6", className)}>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded border border-line bg-surface p-3 shadow-xs">
         <div className="flex min-w-0 flex-1 flex-col">
           {breadcrumbs && breadcrumbs.length > 0 && <PageBreadcrumbs crumbs={breadcrumbs} />}
