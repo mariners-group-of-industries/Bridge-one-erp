@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto";
 import { Prisma } from "@/generated/prisma/client";
 import { db } from "@/lib/prisma/client";
-import { attendanceRules, dayKey, ruleFor, statusOf, TIME_ZONE } from "@/features/hrm/attendance/services/attendance.service";
+import { attendanceOfEmployees, attendanceRules, dayKey, ruleFor } from "@/features/hrm/attendance/services/attendance.service";
+import type { AttendanceRecord } from "@/features/hrm/attendance/types";
 import { PAYROLL_DAY_RATE_BASES, PAYROLL_PERIOD_MONTHS, WEEKDAYS } from "@/features/hrm/governance/policy-fields";
 import { COMPONENT_CODES, PF_CODE, type ComponentCode, type ExcludedEmployee, type PolicyUse } from "../batch-types";
 import { DEFAULT_PAYROLL_RULES, payrollPeriod, type AllowanceInput, type DayFact, type EmployeeInput, type LateRule, type PayrollRules, type PeriodInput, type PfRule, type PolicySet, type SalaryStructure } from "./engine";
@@ -10,8 +11,10 @@ import { grossOf, monthRange } from "./payroll.service";
 /**
  * Loads everything the payroll engine needs for one office and month from the
  * modules that own it: Employee Master Data (salary, increments, adjustments),
- * Calendar Assign / Roster / Employee Assign / Off Day / Holidays, device punches
- * rated by the attendance rule, approved leave, and the HR Governance policies.
+ * Calendar Assign / Roster / Employee Assign / Off Day / Holidays, each day's
+ * attendance from the shared calculation (Daily Attendance: punches rated against
+ * the day's calendar, night shifts, approved corrections), approved leave, and
+ * the HR Governance policies.
  */
 
 const D = Prisma.Decimal;
@@ -22,7 +25,53 @@ const dec = (value: unknown) => {
   return Number.isFinite(n) ? new D(n) : new D(0);
 };
 const weekdayOf = (date: string) => WEEKDAYS[(new Date(`${date}T00:00:00Z`).getUTCDay() + 1) % 7];
-const hhmm = new Intl.DateTimeFormat("en-GB", { timeZone: TIME_ZONE, hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+
+/** "09:05 AM" (attendance rows) → "09:05"; null when absent or unreadable. */
+function clock24(value: string | null | undefined): string | null {
+  const m = value?.match(/^(\d{1,2}):(\d{2})(?::\d{2})?\s*(AM|PM)$/i);
+  if (!m) return null;
+  const h = (Number(m[1]) % 12) + (m[3].toUpperCase() === "PM" ? 12 : 0);
+  return `${String(h).padStart(2, "0")}:${m[2]}`;
+}
+
+/** What one day's attendance row means for payroll. */
+interface DayAttendance {
+  punch: DayFact["punch"];
+  /** An approved correction made the day an off day or holiday. */
+  schedule?: { kind: "weekly-off" | "holiday"; source: string };
+  /** An approved correction to Leave, on a day without an approved leave application. */
+  leaveType?: string;
+}
+
+/**
+ * Payroll reads each day's attendance from the shared calculation
+ * (`attendanceOfEmployees`, the rows of Daily Attendance and My Attendance), so
+ * salary follows what HR and employees see: Late / Absent against the day's
+ * calendar, night shifts, and approved corrections.
+ *
+ * - Approved correction: its status is final (HR decided), with or without a punch.
+ * - Punches: the row's Present / Late / Absent. On a day the attendance plan
+ *   treats as off but payroll's schedule does not, the in time is rated by the
+ *   Atten Process rule.
+ * - No punch and no approved correction: no punch, so payroll's own rules for
+ *   days without a record apply (leave, unrecorded days).
+ */
+function dayAttendance(row: AttendanceRecord | undefined, rate: (time: string) => "Present" | "Late" | "Absent"): DayAttendance {
+  if (!row) return { punch: null };
+  const time = clock24(row.inTime);
+  const status = row.actualAttendance;
+  if (row.adjustmentStatus === "Approved") {
+    const source = `Attendance correction (approved${row.lastActionBy ? ` by ${row.lastActionBy}` : ""})`;
+    if (status === "Present" || status === "Late" || status === "Absent") return { punch: { status, time: time ?? "" } };
+    const worked = time ? { status: "Present" as const, time } : null;
+    if (status === "Offday") return { punch: worked, schedule: { kind: "weekly-off", source } };
+    if (status === "Holiday") return { punch: worked, schedule: { kind: "holiday", source } };
+    return { punch: null, leaveType: "Leave (attendance correction)" };
+  }
+  if (!time) return { punch: null };
+  if (status === "Present" || status === "Late" || status === "Absent") return { punch: { status, time } };
+  return { punch: { status: rate(time), time } };
+}
 
 type PolicyRow = { id: string; tab: string; officeId: string | null; employeeId: string | null; effectiveFrom: Date | null; effectiveTo: Date | null; data: Prisma.JsonValue; updatedAt: Date };
 const data = (r: PolicyRow) => (r.data ?? {}) as Record<string, unknown>;
@@ -136,7 +185,7 @@ export async function loadPayrollInputs(officeId: string, month: string, employe
   });
   const ids = people.map((p) => p.id);
 
-  const [policyRows, calendarDays, punches, leaves, attendance] = await Promise.all([
+  const [policyRows, calendarDays, attendanceRows, leaves, attendance] = await Promise.all([
     db().hrPolicyRecord.findMany({
       where: {
         tab: { in: ["late-punishment", "salary", "pf-setup", "off-day", "holidays", "allowance", "allowance-setup", "roster", "employee-assign"] },
@@ -151,12 +200,12 @@ export async function loadPayrollInputs(officeId: string, month: string, employe
       orderBy: { id: "asc" },
     }),
     db().employeeCalendarDay.findMany({ where: { employeeId: { in: ids }, date: { gte: range.from, lte: range.to } }, select: { employeeId: true, date: true, code: true } }),
-    // A day either side covers the time-zone offset; rows are then filtered by local day.
-    db().attendancePunch.findMany({
-      where: { employeeId: { in: ids }, punchTime: { gte: new Date(range.from.getTime() - DAY_MS), lt: new Date(range.to.getTime() + 2 * DAY_MS) } },
-      orderBy: { punchTime: "asc" },
-      select: { employeeId: true, punchTime: true },
-    }),
+    // The shared attendance calculation (Daily Attendance / My Attendance), approved corrections applied.
+    attendanceOfEmployees(
+      people.map((p) => ({ id: p.id, employeeCode: p.employeeCode, name: p.name, designation: p.designation ?? "", department: p.department ?? "", departmentSection: p.departmentSection ?? "", officeId: p.officeId, officeName: office.name })),
+      fromDate,
+      toDate,
+    ),
     db().leaveApplication.findMany({
       where: { employeeId: { in: ids }, status: "Approved", fromDate: { lte: range.to }, toDate: { gte: range.from } },
       select: { id: true, employeeId: true, leaveType: true, fromDate: true, toDate: true, updatedAt: true },
@@ -217,13 +266,6 @@ export async function loadPayrollInputs(officeId: string, month: string, employe
 
   // ── Per employee ──
   const codeOf = new Map(calendarDays.map((c) => [`${c.employeeId}:${iso(c.date)}`, c.code]));
-  const firstPunch = new Map<string, Date>();
-  for (const p of punches) {
-    if (!p.employeeId) continue;
-    const day = dayKey.format(p.punchTime);
-    const key = `${p.employeeId}:${day}`;
-    if (!firstPunch.has(key)) firstPunch.set(key, p.punchTime);
-  }
   const leaveOn = new Map<string, string>();
   for (const l of leaves) for (let t = l.fromDate.getTime(); t <= l.toDate.getTime(); t += DAY_MS) leaveOn.set(`${l.employeeId}:${iso(new Date(t))}`, l.leaveType);
 
@@ -246,9 +288,11 @@ export async function loadPayrollInputs(officeId: string, month: string, employe
     const days: DayFact[] = dates.map((date) => {
       const key = `${p.id}:${date}`;
       const code = codeOf.get(key);
-      const punchAt = firstPunch.get(key);
-      const punch = punchAt ? { status: statusOf(punchAt, ruleFor(attendance, p.officeId, date)), time: hhmm.format(punchAt) } : null;
-      const base = { date, punch, leaveType: leaveOn.get(key) ?? null, lateRuleId: lateRuleOn.get(date) ?? null, future: date > today };
+      const rule = ruleFor(attendance, p.officeId, date);
+      const att = dayAttendance(attendanceRows.get(key), (time) => (time > rule.absentAfter ? "Absent" : time > rule.lateAfter ? "Late" : "Present"));
+      const base = { date, punch: att.punch, leaveType: leaveOn.get(key) ?? att.leaveType ?? null, lateRuleId: lateRuleOn.get(date) ?? null, future: date > today };
+      // An approved correction to Offday / Holiday overrides the schedule.
+      if (att.schedule) return { ...base, schedule: att.schedule.kind, source: att.schedule.source };
       if (code) {
         if (code === "OFF") return { ...base, schedule: "weekly-off", source: "Calendar Assign: OFF" };
         if (code === "HOL") return { ...base, schedule: "holiday", source: "Calendar Assign: HOL" };
