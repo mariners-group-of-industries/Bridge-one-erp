@@ -18,6 +18,7 @@ import { errorMessage } from "@/lib/api/client";
 import { useSession } from "@/lib/auth/session";
 import { cn } from "@/lib/cn";
 import { fetchApprovalSummary } from "../services/summary.api";
+import { ApprovalQueueDialog } from "./ApprovalQueueDialog";
 import type { ApprovalCategory, ApprovalSummary } from "../types";
 
 const APPROVAL_SETUP = "/configuration/security/approval-setup";
@@ -52,7 +53,7 @@ export function MultilayerApprovalView() {
     <PageContainer full>
       <PageHead
         title="Multilayer Approval"
-        subtitle="Open a category to approve what is waiting in it."
+        subtitle="Open a category to approve or reject what is waiting in it, right here."
         actions={
           <>
             {can(APPROVAL_SETUP) && (
@@ -89,7 +90,7 @@ export function MultilayerApprovalView() {
           <LoadingState label="Loading approvals…" />
         </Card>
       ) : (
-        <PendingBoard data={summary.data} refreshing={summary.loading} />
+        <PendingBoard data={summary.data} refreshing={summary.loading} onDecided={summary.reload} />
       )}
     </PageContainer>
   );
@@ -99,11 +100,15 @@ export function MultilayerApprovalView() {
 function PendingBoard({
   data,
   refreshing,
+  onDecided,
 }: {
   data: ApprovalSummary;
   refreshing: boolean;
+  onDecided: () => void;
 }) {
   const [pendingOnly, setPendingOnly] = useState(false);
+  const [openId, setOpenId] = useState<string | null>(null);
+  const openCategory = data.categories.find((c) => c.id === openId) ?? null;
   const switchId = useId();
 
   const modules = useMemo(() => {
@@ -191,11 +196,17 @@ function PendingBoard({
                 key={m.module}
                 module={m.module}
                 categories={m.categories}
+                onOpen={setOpenId}
               />
             ))}
           </div>
         )}
       </Card>
+      <ApprovalQueueDialog
+        category={openCategory}
+        onClose={() => setOpenId(null)}
+        onDecided={onDecided}
+      />
     </section>
   );
 }
@@ -221,9 +232,11 @@ function Empty({
 function ModuleGroup({
   module,
   categories,
+  onOpen,
 }: {
   module: string;
   categories: ApprovalCategory[];
+  onOpen: (id: string) => void;
 }) {
   const headingId = useId();
   return (
@@ -237,7 +250,7 @@ function ModuleGroup({
       <ul className="grid grid-cols-1 gap-3 sm:grid-cols-[repeat(auto-fill,minmax(15rem,16rem))]">
         {categories.map((c) => (
           <li key={c.id}>
-            <CategoryTile category={c} />
+            <CategoryTile category={c} onOpen={() => onOpen(c.id)} />
           </li>
         ))}
       </ul>
@@ -245,8 +258,14 @@ function ModuleGroup({
   );
 }
 
-/** One category: its name on the left, pending count in a red block on the right. */
-function CategoryTile({ category: c }: { category: ApprovalCategory }) {
+/** One category: its name on the left, pending count in a red block on the right. Opens its queue on this page. */
+function CategoryTile({
+  category: c,
+  onOpen,
+}: {
+  category: ApprovalCategory;
+  onOpen: () => void;
+}) {
   const Icon = MODULE_ICON[c.module] ?? Layers;
   const layers = !c.pipelineConfigurable
     ? "single layer"
@@ -255,11 +274,13 @@ function CategoryTile({ category: c }: { category: ApprovalCategory }) {
       : "no pipeline set up";
   const detail = `${nf.format(c.pending)} pending · ${nf.format(c.approved)} approved · ${nf.format(c.rejected)} rejected · ${layers}`;
   return (
-    <Link
-      href={c.href}
+    <button
+      type="button"
+      onClick={onOpen}
       title={detail}
       aria-label={`${c.label}: ${detail}`}
-      className="group flex min-h-11 items-stretch overflow-hidden rounded-md border border-accent-line/70 bg-accent-soft/60 shadow-2xs transition-[box-shadow,border-color] hover:border-accent-line hover:shadow-xs focus-visible:ring-2 focus-visible:ring-primary/30 focus-visible:outline-none"
+      aria-haspopup="dialog"
+      className="group flex min-h-11 w-full items-stretch text-left overflow-hidden rounded-md border border-accent-line/70 bg-accent-soft/60 shadow-2xs transition-[box-shadow,border-color] hover:border-accent-line hover:shadow-xs focus-visible:ring-2 focus-visible:ring-primary/30 focus-visible:outline-none"
     >
       <span className="flex min-w-0 flex-1 items-center gap-3 px-3 py-2">
         <span
@@ -283,6 +304,6 @@ function CategoryTile({ category: c }: { category: ApprovalCategory }) {
       >
         {nf.format(c.pending)}
       </span>
-    </Link>
+    </button>
   );
 }

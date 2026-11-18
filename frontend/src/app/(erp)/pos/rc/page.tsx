@@ -1352,42 +1352,44 @@ export default function PosRecipeAndCostingPage() {
       )}
 
       {/* 1. Header with Title & Action Buttons */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100">
-            Recipe & Cost Control (R&C)
-          </h1>
-          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-            BridgeOne POS &bull; Marinozz & Pantoa Standard Costing & Production Sheets
-          </p>
-        </div>
+      <div data-sticky-head className="sticky top-14 z-20 -mx-4 -mt-4 px-4 pt-4 pb-3 sm:-mx-6 sm:-mt-6 sm:px-6 sm:pt-6 bg-white dark:bg-slate-950">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <div>
+            <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100">
+              Recipe & Cost Control (R&C)
+            </h1>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+              BridgeOne POS &bull; Marinozz & Pantoa Standard Costing & Production Sheets
+            </p>
+          </div>
 
-        <div className="flex items-center gap-2.5">
-          <button
-            type="button"
-            onClick={handleExportCsv}
-            className="flex items-center gap-1.5 rounded border border-[#0d6efd] bg-white dark:bg-slate-900 hover:bg-blue-50 dark:hover:bg-slate-800 px-3.5 py-1.5 text-xs font-bold text-[#0d6efd] uppercase transition-colors cursor-pointer shadow-2xs"
-          >
-            <FileSpreadsheet className="size-3.5" />
-            <span>EXCEL CSV</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => typeof window !== "undefined" && window.print()}
-            className="flex items-center gap-1.5 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 px-3.5 py-1.5 text-xs font-bold text-slate-700 dark:text-slate-200 uppercase transition-colors cursor-pointer shadow-2xs"
-          >
-            <Printer className="size-3.5" />
-            <span>PRINT</span>
-          </button>
-          <button
-            type="button"
-            onClick={handleResetDefaults}
-            className="flex items-center gap-1.5 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 hover:bg-rose-50 hover:text-rose-600 px-3 py-1.5 text-xs font-semibold text-slate-600 dark:text-slate-400 transition cursor-pointer"
-            title="Reset defaults"
-          >
-            <RotateCcw className="size-3.5" />
-            <span>Reset</span>
-          </button>
+          <div className="flex items-center gap-2.5">
+            <button
+              type="button"
+              onClick={handleExportCsv}
+              className="flex items-center gap-1.5 rounded border border-[#0d6efd] bg-white dark:bg-slate-900 hover:bg-blue-50 dark:hover:bg-slate-800 px-3.5 py-1.5 text-xs font-bold text-[#0d6efd] uppercase transition-colors cursor-pointer shadow-2xs"
+            >
+              <FileSpreadsheet className="size-3.5" />
+              <span>EXCEL CSV</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => typeof window !== "undefined" && window.print()}
+              className="flex items-center gap-1.5 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 px-3.5 py-1.5 text-xs font-bold text-slate-700 dark:text-slate-200 uppercase transition-colors cursor-pointer shadow-2xs"
+            >
+              <Printer className="size-3.5" />
+              <span>PRINT</span>
+            </button>
+            <button
+              type="button"
+              onClick={handleResetDefaults}
+              className="flex items-center gap-1.5 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 hover:bg-rose-50 hover:text-rose-600 px-3 py-1.5 text-xs font-semibold text-slate-600 dark:text-slate-400 transition cursor-pointer"
+              title="Reset defaults"
+            >
+              <RotateCcw className="size-3.5" />
+              <span>Reset</span>
+            </button>
+          </div>
         </div>
       </div>
 
