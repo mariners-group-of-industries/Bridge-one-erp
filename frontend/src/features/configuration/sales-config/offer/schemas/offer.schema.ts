@@ -30,7 +30,7 @@ export const AFTER_DISCOUNT_CALC = [
 
 const text = (max: number) => z.string().trim().max(max, `Must be ${max} characters or fewer.`);
 const optionalText = (max: number) => text(max).optional().default("");
-const optionalId = z.union([z.uuid("Select a valid option."), z.literal("")]).optional().default("");
+const optionalId = z.union([z.guid("Select a valid option."), z.literal("")]).optional().default("");
 const optionalDate = z.union([z.iso.date("Enter a valid date."), z.literal("")]).optional().default("");
 const requiredDate = (label: string) => z.iso.date(`${label} is required.`);
 
@@ -75,16 +75,16 @@ function contributionIssues(row: { supplierId: string; supplierContribution: str
 // ─── Lines ────────────────────────────────────────────────────────────────────
 
 export const itemLineSchema = z.object({
-  sellingItemId: z.uuid("Select the selling item."),
+  sellingItemId: z.guid("Select the selling item."),
   sellingUom: text(20).min(1, "Select the UoM."),
   sellingQty: qty("Selling qty"),
-  offerItemId: z.uuid("Select the offer item."),
+  offerItemId: z.guid("Select the offer item."),
   offerUom: text(20).min(1, "Select the UoM."),
   offerQty: qty("Offer qty"),
 });
 
 export const bonusLineSchema = z.object({
-  itemId: z.uuid("Select a bonus item."),
+  itemId: z.guid("Select a bonus item."),
   quantity: qty("Quantity"),
 });
 
@@ -111,7 +111,7 @@ export const pairSchema = z
 
 export const discountLineSchema = z
   .object({
-    itemId: z.uuid("Select an item."),
+    itemId: z.guid("Select an item."),
     discountType,
     amount: money("Amount/%"),
     quantity: optionalQty("Qty"),
@@ -153,7 +153,7 @@ export const specialLineSchema = z
 // ─── Offers ───────────────────────────────────────────────────────────────────
 
 const header = {
-  businessUnitId: z.uuid("Select a business unit."),
+  businessUnitId: z.guid("Select a business unit."),
   name: text(150).min(1, "Offer name is required."),
 };
 const categoryTrio = { categoryId: optionalId, subCategoryId: optionalId, minorCategoryId: optionalId };

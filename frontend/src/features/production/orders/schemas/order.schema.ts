@@ -26,7 +26,7 @@ export const APPROVAL_ORDER_LABELS: Record<string, string> = { ANY: "Any_Person"
 /** Name of the feature in Configuration › Security › Approval Setup. */
 export const ORDER_APPROVAL_FEATURE = "Production Order";
 
-const optionalId = z.uuid().nullish();
+const optionalId = z.guid().nullish();
 
 /** Body of POST /api/production/orders and `data` of PUT (shared by the route and the browser). */
 export const orderInputSchema = z
@@ -36,15 +36,15 @@ export const orderInputSchema = z
     customerId: optionalId,
     salesOrderId: optionalId,
     customerPoNo: z.string().trim().max(60, { error: "Customer PO No is too long." }).nullish(),
-    itemId: z.uuid({ error: "Produced Item is required." }),
-    bomId: z.uuid({ error: "Bill Of Material is required." }),
+    itemId: z.guid({ error: "Produced Item is required." }),
+    bomId: z.guid({ error: "Bill Of Material is required." }),
     quantity: z
       .number({ error: "Quantity is required." })
       .refine(Number.isFinite, { error: "Quantity must be a number." })
       .gt(0, { error: "Quantity must be greater than 0." })
       .max(9_999_999_999, { error: "Quantity is too large." }),
-    officeId: z.uuid({ error: "Office is required." }),
-    warehouseId: z.uuid({ error: "Warehouse is required." }),
+    officeId: z.guid({ error: "Office is required." }),
+    warehouseId: z.guid({ error: "Warehouse is required." }),
     workCenterId: optionalId,
     machineName: z.string().trim().max(100, { error: "Machine Name is too long." }).nullish(),
     narration: z.string().trim().max(500, { error: "Remarks is too long." }).nullish(),
@@ -77,7 +77,7 @@ export const orderListQuerySchema = z
     from: z.iso.date().optional(),
     to: z.iso.date().optional(),
     status: z.enum(ORDER_VIEW_STATUSES).optional(),
-    bomId: z.uuid().optional(),
+    bomId: z.guid().optional(),
     search: z.string().trim().max(100).optional(),
   })
   .refine((query) => !query.from || !query.to || query.from <= query.to, { error: "Start Date must be on or before End Date.", path: ["to"] });
@@ -85,10 +85,10 @@ export type OrderListQuery = z.input<typeof orderListQuerySchema>;
 
 /** GET /api/production/orders/preview: the BOM exploded for a quantity. */
 export const orderPreviewQuerySchema = z.object({
-  bomId: z.uuid(),
-  itemId: z.uuid(),
+  bomId: z.guid(),
+  itemId: z.guid(),
   quantity: z.coerce.number().gt(0).max(9_999_999_999),
-  warehouseId: z.uuid().optional(),
+  warehouseId: z.guid().optional(),
 });
 
 /** GET /api/production/orders/customers?search=: customers by name or code (3+ letters). */

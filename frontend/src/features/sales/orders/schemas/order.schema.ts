@@ -75,10 +75,10 @@ const money = (label: string) =>
   z.number({ error: `${label} must be a number.` }).min(0, `${label} cannot be negative.`).max(MAX_AMOUNT);
 const percent = (label: string) =>
   z.number({ error: `${label} must be a number.` }).min(0, `${label} cannot be negative.`).max(100, `${label} can be at most 100.`);
-const optionalId = z.uuid().nullish().transform((value) => value ?? null);
+const optionalId = z.guid().nullish().transform((value) => value ?? null);
 
 export const orderLineSchema = z.object({
-  itemId: z.uuid({ error: "Select an item." }),
+  itemId: z.guid({ error: "Select an item." }),
   qty: z.number({ error: "Quantity must be a number." }).gt(0, "Quantity must be more than 0.").max(MAX_AMOUNT),
   unitPrice: money("Unit price"),
   discountPercent: percent("Discount %"),
@@ -89,8 +89,8 @@ export type OrderLineInputValues = z.input<typeof orderLineSchema>;
 
 export const orderInputSchema = z
   .object({
-    officeId: z.uuid({ error: "Select an office." }),
-    customerId: z.uuid({ error: "Select a customer." }),
+    officeId: z.guid({ error: "Select an office." }),
+    customerId: z.guid({ error: "Select a customer." }),
     salesPersonId: optionalId,
     quotationId: optionalId,
     priceListId: optionalId,
@@ -153,7 +153,7 @@ export const orderActionSchema = z.object({
   today: z.iso.date(),
 });
 
-const optionalUuid = z.uuid().optional();
+const optionalUuid = z.guid().optional();
 export const orderListQuerySchema = z
   .object({
     officeId: optionalUuid,

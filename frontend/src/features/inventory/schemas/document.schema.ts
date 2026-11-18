@@ -19,9 +19,9 @@ const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use a YYYY-MM-DD date.");
 const text = (max: number) => z.string().trim().max(max).optional().transform((v) => v || undefined);
 
 export const inventoryLineSchema = z.object({
-  itemId: z.uuid("Select an item."),
+  itemId: z.guid("Select an item."),
   qty: z.number().finite().refine((q) => q !== 0, "Quantity cannot be 0."),
-  toItemId: z.uuid().optional(),
+  toItemId: z.guid().optional(),
   toQty: z.number().finite().positive().optional(),
   remarks: text(300),
 });
@@ -29,9 +29,9 @@ export const inventoryLineSchema = z.object({
 export const inventoryDocumentSchema = z.object({
   docDate: date,
   expectedDate: date.optional(),
-  warehouseId: z.uuid().optional(),
-  toWarehouseId: z.uuid().optional(),
-  requestId: z.uuid().optional(),
+  warehouseId: z.guid().optional(),
+  toWarehouseId: z.guid().optional(),
+  requestId: z.guid().optional(),
   subtype: text(60),
   partyName: text(150),
   reference: text(100),
@@ -45,7 +45,7 @@ export const reviewSchema = z.object({ comment: text(500) });
 
 export const receiveSchema = z.object({
   receiveDate: date.optional(),
-  lines: z.array(z.object({ lineId: z.uuid(), receivedQty: z.number().finite().min(0) })).min(1),
+  lines: z.array(z.object({ lineId: z.guid(), receivedQty: z.number().finite().min(0) })).min(1),
 });
 
 export interface InventoryDocumentLine {

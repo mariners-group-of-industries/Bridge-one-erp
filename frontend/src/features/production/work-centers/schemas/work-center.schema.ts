@@ -9,19 +9,19 @@ const positive = (label: string, max: number) =>
 export const workCenterInputSchema = z
   .object({
     /** Needed only when the user has more than one business unit. */
-    businessUnitId: z.uuid().optional(),
+    businessUnitId: z.guid().optional(),
     name: name("Work Center Name", 150),
-    typeId: z.uuid({ error: "Work Center Type is required." }),
+    typeId: z.guid({ error: "Work Center Type is required." }),
     code: name("Work Center Code", 30),
     standardRunHour: positive("Standard Run Hour", 24),
     capacityPerHour: positive("Standard Capacity Per Hour", 99_999_999_999),
     ratedCapacityPerHour: positive("Rated Capacity Per Hour", 99_999_999_999),
     costPerHour: z.number().refine(Number.isFinite, { error: "Cost Per Hour must be a number." }).min(0, { error: "Cost Per Hour cannot be negative." }).max(999_999_999_999).nullish(),
     remarks: z.string().trim().max(500, { error: "Remarks is too long." }).nullish(),
-    departmentId: z.uuid().nullish(),
-    departmentSectionId: z.uuid().nullish(),
-    warehouseIds: z.array(z.uuid()).max(100).default([]),
-    operatorIds: z.array(z.uuid()).max(200).default([]),
+    departmentId: z.guid().nullish(),
+    departmentSectionId: z.guid().nullish(),
+    warehouseIds: z.array(z.guid()).max(100).default([]),
+    operatorIds: z.array(z.guid()).max(200).default([]),
   })
   .refine((input) => new Set(input.warehouseIds).size === input.warehouseIds.length, {
     error: "A warehouse is chosen twice.",
@@ -41,9 +41,9 @@ export const workCenterStatusSchema = z.object({ version: z.iso.datetime(), isAc
 
 /** Filters of GET /api/production/work-centers. */
 export const workCenterListQuerySchema = z.object({
-  typeId: z.uuid().optional(),
-  departmentId: z.uuid().optional(),
-  departmentSectionId: z.uuid().optional(),
+  typeId: z.guid().optional(),
+  departmentId: z.guid().optional(),
+  departmentSectionId: z.guid().optional(),
 });
 export type WorkCenterListQuery = z.input<typeof workCenterListQuerySchema>;
 
@@ -52,10 +52,10 @@ export type MasterKind = (typeof MASTER_KINDS)[number];
 
 /** Body of POST /api/production/work-center-masters/[kind] ("ADD NEW"). */
 export const masterInputSchema = z.object({
-  businessUnitId: z.uuid().optional(),
+  businessUnitId: z.guid().optional(),
   name: name("Name"),
   /** Sections only. */
-  departmentId: z.uuid().optional(),
+  departmentId: z.guid().optional(),
 });
 export type MasterInput = z.input<typeof masterInputSchema>;
 
@@ -83,7 +83,7 @@ export const operatorSearchSchema = z.object({
     .max(100)
     .default("")
     .refine((search) => search.length === 0 || search.length >= 3, { error: "Type at least 3 letters." }),
-  businessUnitId: z.uuid().optional(),
+  businessUnitId: z.guid().optional(),
 });
 
 export interface OperatorOption {

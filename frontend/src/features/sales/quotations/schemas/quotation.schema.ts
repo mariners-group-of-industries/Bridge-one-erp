@@ -37,7 +37,7 @@ const percent = (label: string) =>
   z.number({ error: `${label} must be a number.` }).min(0, `${label} cannot be negative.`).max(100, `${label} can be at most 100.`);
 
 export const quotationLineSchema = z.object({
-  itemId: z.uuid({ error: "Select an item." }),
+  itemId: z.guid({ error: "Select an item." }),
   description: optionalText("Description", 500),
   qty: z.number({ error: "Qty must be a number." }).gt(0, "Qty must be more than 0.").max(MAX_AMOUNT),
   rate: money("Unit Price").gt(0, "Unit Price must be more than 0."),
@@ -56,9 +56,9 @@ export type QuotationTerm = z.output<typeof termSchema>;
 
 export const quotationInputSchema = z
   .object({
-    officeId: z.uuid({ error: "Office is required." }),
-    customerId: z.uuid({ error: "Customer is required." }),
-    salesPersonId: z.uuid().nullish(),
+    officeId: z.guid({ error: "Office is required." }),
+    customerId: z.guid({ error: "Customer is required." }),
+    salesPersonId: z.guid().nullish(),
     quotationDate: isoDate("Create Date"),
     validTill: isoDate("Valid Till Date"),
     contactMobile: optionalPhone("Mobile no."),
@@ -102,7 +102,7 @@ export const quotationActionSchema = z.object({
 
 export const quotationListQuerySchema = z
   .object({
-    officeId: z.uuid().optional(),
+    officeId: z.guid().optional(),
     from: z.iso.date().optional(),
     to: z.iso.date().optional(),
     status: z.enum([...QUOTATION_STATUSES, "EXPIRED"]).optional(),

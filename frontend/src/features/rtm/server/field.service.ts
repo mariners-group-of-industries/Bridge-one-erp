@@ -7,7 +7,7 @@ import { DATE, MONTH, actorName, dateRange, fromDbDate, num, requireDistributor,
 import { getSettings } from "./masters.service";
 
 const text = (max: number) => z.string().trim().max(max).optional().transform((v) => v || undefined);
-const optUuid = z.preprocess((v) => (v === "" ? undefined : v), z.uuid().optional());
+const optUuid = z.preprocess((v) => (v === "" ? undefined : v), z.guid().optional());
 const DAY_NAMES = ["SUNDAY", "MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY"];
 const DAY_TYPES = ["WORKING", "WEEKEND", "HOLIDAY", "LEAVE"] as const;
 
@@ -37,7 +37,7 @@ export async function getCalendar(actor: Actor, employeeId: string, month: strin
 }
 
 const calendarSchema = z.object({
-  employeeId: z.uuid(),
+  employeeId: z.guid(),
   month: z.string().regex(MONTH),
   days: z.array(z.object({ day: z.string().regex(DATE), dayType: z.enum(DAY_TYPES), remarks: text(200) })).max(31),
 });
@@ -62,7 +62,7 @@ export async function saveCalendar(actor: Actor, raw: unknown) {
 // ── Tour plans ───────────────────────────────────────────────────────────────
 
 const tourSchema = z.object({
-  employeeId: z.uuid("Select the sales representative."),
+  employeeId: z.guid("Select the sales representative."),
   planDate: z.string().regex(DATE),
   routeId: optUuid,
   distributorId: optUuid,
@@ -140,8 +140,8 @@ export async function salesLayers(actor: Actor) {
 }
 
 const layerTransferSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("employee"), employeeId: z.uuid(), fromNodeId: z.uuid(), toNodeId: z.uuid() }),
-  z.object({ kind: z.literal("outlets"), outletIds: z.array(z.uuid()).min(1).max(500), routeId: z.uuid(), distributorId: optUuid }),
+  z.object({ kind: z.literal("employee"), employeeId: z.guid(), fromNodeId: z.guid(), toNodeId: z.guid() }),
+  z.object({ kind: z.literal("outlets"), outletIds: z.array(z.guid()).min(1).max(500), routeId: z.guid(), distributorId: optUuid }),
 ]);
 
 /** Moves an employee to another layer node, or outlets to another route (and distributor). */
@@ -180,7 +180,7 @@ export async function transferLayer(actor: Actor, raw: unknown) {
 // ── Visits: employee and outlet tracking ─────────────────────────────────────
 
 const visitSchema = z.object({
-  employeeId: z.uuid("Select the employee."),
+  employeeId: z.guid("Select the employee."),
   kind: z.enum(["CHECK_IN", "VISIT", "CHECK_OUT"]),
   outletId: optUuid,
   visitedAt: z.iso.datetime({ offset: true }).optional(),

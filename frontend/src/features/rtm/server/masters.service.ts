@@ -5,8 +5,8 @@ import { db } from "@/lib/prisma/client";
 import { DATE, MONTH, actorName, fromDbDate, num, requireDistributor, requireEmployee, toDbDate, unitIds } from "./common";
 
 const text = (max: number) => z.string().trim().max(max).optional().transform((v) => v || undefined);
-const uuid = z.uuid();
-const optUuid = z.preprocess((v) => (v === "" ? undefined : v), z.uuid().optional());
+const uuid = z.guid();
+const optUuid = z.preprocess((v) => (v === "" ? undefined : v), z.guid().optional());
 const optNum = z.preprocess((v) => (v === "" || v === null ? undefined : v), z.coerce.number().finite().min(0).optional());
 
 // ── Settings ─────────────────────────────────────────────────────────────────

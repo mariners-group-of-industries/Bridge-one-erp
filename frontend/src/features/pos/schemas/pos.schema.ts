@@ -14,7 +14,7 @@ const text = (max: number) => z.string().trim().max(max).optional().transform((v
 
 export const counterSchema = z.object({
   name: z.string().trim().min(1, "Enter the counter name.").max(100),
-  warehouseId: z.uuid("Select the warehouse the counter sells from."),
+  warehouseId: z.guid("Select the warehouse the counter sells from."),
   floorName: text(200),
   userName: text(150),
   receiptMessage: text(300),
@@ -25,7 +25,7 @@ export type CounterInput = z.infer<typeof counterSchema>;
 export const counterPatchSchema = counterSchema.partial().extend({ isActive: z.boolean().optional() });
 
 export const saleSchema = z.object({
-  counterId: z.uuid("Select a counter."),
+  counterId: z.guid("Select a counter."),
   customerName: text(150),
   customerMobile: text(30),
   tableRef: text(100),
@@ -36,7 +36,7 @@ export const saleSchema = z.object({
   lines: z
     .array(
       z.object({
-        itemId: z.uuid(),
+        itemId: z.guid(),
         qty: z.number().finite().positive("Quantity must be greater than 0."),
         rate: z.number().finite().min(0),
         discount: z.number().finite().min(0).default(0),

@@ -80,7 +80,7 @@ export type ReportKey = (typeof REPORTS)[number]["key"] | (typeof ANALYTICS)[num
 export const REPORT_KEYS = [...REPORTS, ...ANALYTICS].map((report) => report.key) as [ReportKey, ...ReportKey[]];
 export const ALL_REPORTS: readonly ReportDefinition[] = [...REPORTS, ...ANALYTICS];
 
-const optionalUuid = z.uuid().optional();
+const optionalUuid = z.guid().optional();
 const flag = z
   .enum(["true", "false"])
   .optional()

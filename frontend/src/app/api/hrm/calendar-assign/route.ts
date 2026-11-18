@@ -44,7 +44,7 @@ const SaveBody = z.object({
   fromDate: z.string().regex(ISO_DAY),
   toDate: z.string().regex(ISO_DAY),
   /** employeeId → date → code ("" clears the day). */
-  assignments: z.record(z.uuid(), z.record(z.string().regex(ISO_DAY), z.string().max(20))),
+  assignments: z.record(z.guid(), z.record(z.string().regex(ISO_DAY), z.string().max(20))),
 });
 
 /** Saves the grid for the listed employees and range; each day becomes exactly what was sent. */
