@@ -42,7 +42,7 @@ export function NotificationsView() {
   }
 
   return (
-    <PageContainer>
+    <PageContainer full>
       <PageHead
         title="Notifications"
         breadcrumbs={[{ label: "My Workspace", href: essPaths.dashboard }, { label: "Notifications", href: "#" }]}
