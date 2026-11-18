@@ -383,3 +383,67 @@ describe("Salary generation", () => {
     await expect(cancelPayrollBatch(viewer, id, { version: 1, reason: "x" })).rejects.toThrow(/permission to change/);
   });
 });
+
+describe("Salary generation: attendance from the shared calculation", () => {
+  const deductAbsences = () =>
+    policy("payroll-rules", { periodStartDay: 1, dayRateBasis: "Calendar days of the month", deductAbsentDays: true, deductUnrecordedDays: true, unpaidLeaveTypes: "" }, "2026-02-01");
+  const correct = (code: string, n: number, requestedStatus: string, status: "Approved" | "Pending", extra: Record<string, unknown> = {}) =>
+    testPrisma().attendanceAdjustment.create({
+      data: { employeeId: ids[code], date: new Date(`${day(n)}T00:00:00Z`), requestedStatus, status, remarks: "Correction", decidedByName: status === "Approved" ? "HR Manager" : null, ...extra },
+    });
+
+  it("applies approved attendance corrections, as Daily Attendance does, and ignores pending ones", async () => {
+    await deductAbsences();
+    // E-2 has no punch on the 8th and 9th: both deducted under the rule.
+    expect((await previewPayroll(hr, input())).lines[1].attendance).toMatchObject({ unrecordedDays: 2, absentDeductionDays: 2 });
+
+    await correct("E-2", 8, "Present", "Approved", { inTime: "09:00 AM" });
+    await correct("E-2", 9, "Present", "Pending"); // not decided yet: still unrecorded
+    await correct("E-2", 10, "Absent", "Approved"); // punched, but HR ruled the day absent
+    await correct("E-2", 14, "Offday", "Approved"); // a working day HR turned into an off day
+    await correct("E-2", 15, "Leave", "Approved"); // leave recorded as an attendance correction
+    const e2 = (await previewPayroll(hr, input())).lines[1];
+    expect(e2.attendance).toMatchObject({
+      workingDays: 25,
+      weeklyOffDays: 5,
+      offDaysWorked: 1,
+      presentDays: 22,
+      absentDays: 1,
+      unrecordedDays: 1,
+      absentDeductionDays: 2,
+      leaveDays: { "Leave (attendance correction)": 1 },
+      unpaidLeaveDeductionDays: 0,
+    });
+    // Two days at 30,000 ÷ 30.
+    expect(e2).toMatchObject({ attendanceDeduction: 2000, netPayable: 28000 });
+  });
+
+  it("rates punches against the day's calendar (grace time), not only the office rule", async () => {
+    // Office rule: late after 09:20, so E-1's six 09:30 punches cost two days. Calendar G allows until 09:40.
+    expect((await previewPayroll(hr, input())).lines[0]).toMatchObject({ attendanceDeduction: 2000 });
+    await testPrisma().hrPolicyRecord.create({
+      data: { tab: "calendar-setup", officeId, data: { name: "General-G", shortCode: "G", startTime: "09:00", endTime: "18:00", graceTime: "09:40", lastStartTime: "12:00" } },
+    });
+    const e1 = (await previewPayroll(hr, input())).lines[0];
+    expect(e1.attendance).toMatchObject({ presentDays: 26, lateCount: 0, lateDeductionDays: 0 });
+    expect(e1).toMatchObject({ attendanceDeduction: 0, netPayable: 30000 });
+  });
+
+  it("counts a night shift's after-midnight punches for the night it started", async () => {
+    // E-2 works nights 22:00 – 06:00 on the 1st – 3rd (Tue – Thu); the 4th is a Friday off.
+    await testPrisma().hrPolicyRecord.create({
+      data: { tab: "calendar-setup", officeId, data: { name: "Night", shortCode: "N", startTime: "22:00", endTime: "06:00", graceTime: "22:15", lastStartTime: "22:30" } },
+    });
+    await testPrisma().employeeCalendarDay.updateMany({ where: { employeeId: ids["E-2"], date: { in: [1, 2, 3].map((n) => new Date(`${day(n)}T00:00:00Z`)) } }, data: { code: "N" } });
+    await testPrisma().attendancePunch.deleteMany({ where: { employeeId: ids["E-2"], punchTime: { gte: dhaka(day(1), "00:00"), lt: dhaka(day(4), "00:00") } } });
+    await testPrisma().attendancePunch.createMany({
+      data: [1, 2, 3].flatMap((n) => [
+        { deviceId, deviceUserId: "E-2", employeeId: ids["E-2"], punchTime: dhaka(day(n), "22:05") },
+        { deviceId, deviceUserId: "E-2", employeeId: ids["E-2"], punchTime: dhaka(day(n + 1), "06:02") },
+      ]),
+    });
+    const e2 = (await previewPayroll(hr, input())).lines[1];
+    // Rated per day, the 22:05 punches would be Absent (after 12:00) and Friday's 06:02 an off day worked.
+    expect(e2.attendance).toMatchObject({ workingDays: 26, presentDays: 24, absentDays: 0, lateCount: 0, offDaysWorked: 0, unrecordedDays: 2 });
+  });
+});

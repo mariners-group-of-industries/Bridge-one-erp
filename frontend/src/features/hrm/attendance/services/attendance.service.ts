@@ -107,7 +107,7 @@ function validRange(filters: AttendanceFilterState): boolean {
  * A night calendar's punches after midnight count for the day it started.
  * Manual adjustments are applied afterwards (applyAdjustments).
  */
-async function punchRecords(filters: AttendanceFilterState, employees: EmployeeOption[]): Promise<{ rows: AttendanceRecord[]; plans: Map<string, DayPlan> }> {
+async function punchRecords(filters: AttendanceFilterState, employees: EmployeeOption[], onlyIds?: string[]): Promise<{ rows: AttendanceRecord[]; plans: Map<string, DayPlan> }> {
   if (!validRange(filters)) return { rows: [], plans: new Map() };
 
   // Two days either side: time-zone offsets, and night shifts that cross midnight.
@@ -121,7 +121,8 @@ async function punchRecords(filters: AttendanceFilterState, employees: EmployeeO
 
   const [punches, rules, plans] = await Promise.all([
     db().attendancePunch.findMany({
-      where: { punchTime: { gte: from, lt: to }, employeeId: { not: null }, employee: employeeFilter },
+      // `onlyIds` keeps a batch read (payroll) to its own employees' punches.
+      where: { punchTime: { gte: from, lt: to }, employeeId: onlyIds ? { in: onlyIds } : { not: null }, employee: employeeFilter },
       orderBy: { punchTime: "asc" },
       select: { punchTime: true, device: { select: { name: true } }, employeeId: true },
     }),
@@ -252,6 +253,23 @@ export async function employeeAttendance(employee: EmployeeOption, fromDate: str
   return { rows: [...merged.values()].sort((a, b) => a.date.localeCompare(b.date)), plans };
 }
 
+/**
+ * Several employees' attendance for a range, keyed `${employeeId}:${date}`:
+ * the same rows as Daily Attendance (device punches rated against the day's
+ * calendar, night shifts, approved adjustments applied; pending ones flagged).
+ * Reads only these employees' punches and adjustments. Used by payroll, so
+ * salary follows the attendance HR and employees see.
+ */
+export async function attendanceOfEmployees(employees: EmployeeOption[], fromDate: string, toDate: string): Promise<Map<string, AttendanceRecord>> {
+  if (employees.length === 0) return new Map();
+  const filters: AttendanceFilterState = { fromDate, toDate, viewBy: "Employee", employeeId: "ALL", officeId: "ALL", status: "ALL", pageSize: 1, page: 1 };
+  const ids = employees.map((e) => e.id);
+  const { rows } = await punchRecords(filters, employees, ids);
+  const merged = new Map(rows.map((r) => [r.id, r]));
+  await applyAdjustments(merged, filters, ids);
+  return merged;
+}
+
 export async function getDailyAttendance(filters: AttendanceFilterState): Promise<{
   records: AttendanceRecord[];
   totalRecords: number;
@@ -325,7 +343,7 @@ const stamp = (value: Date) => `${dayKey.format(value)} ${clock.format(value)}`;
  * status (and times); a pending one is shown as the requested status, waiting
  * for HR. A day with no punches gets a row when it has an adjustment.
  */
-async function applyAdjustments(rows: Map<string, AttendanceRecord>, filters: AttendanceFilterState) {
+async function applyAdjustments(rows: Map<string, AttendanceRecord>, filters: AttendanceFilterState, onlyIds?: string[]) {
   if (!validRange(filters)) return;
   const chosen = filters.employeeId && filters.employeeId !== "ALL" ? filters.employeeId : "";
   const adjustments = await db().attendanceAdjustment.findMany({
@@ -333,6 +351,7 @@ async function applyAdjustments(rows: Map<string, AttendanceRecord>, filters: At
       date: { gte: new Date(`${filters.fromDate}T00:00:00Z`), lte: new Date(`${filters.toDate}T00:00:00Z`) },
       status: { in: ["Pending", "Approved"] },
       ...(chosen ? { employee: { OR: [...(/^[0-9a-f-]{36}$/i.test(chosen) ? [{ id: chosen }] : []), { employeeCode: chosen }] } } : {}),
+      ...(onlyIds ? { employeeId: { in: onlyIds } } : {}),
     },
     // Oldest first, so the newest approved and the newest pending win.
     orderBy: { createdAt: "asc" },
