@@ -343,6 +343,32 @@ export function approvalNote(result: ApprovalResult): string | null {
   return result.next ? `${at} approved; waiting for stage ${result.next.stageNo} (${result.next.name}).` : `${at} approved.`;
 }
 
+/**
+ * The document's approval stages for a tracking view: the recorded trail once
+ * anyone has acted, otherwise the stages the feature's pipeline will apply
+ * (all "PENDING"), so the applicant sees who decides before the first decision.
+ * Empty when the feature has no pipeline (single-layer approval).
+ */
+export async function approvalOutlook(target: ApprovalTarget): Promise<ApprovalTrailStage[]> {
+  const trail = await approvalTrail(target.feature, target.documentId);
+  if (trail.length > 0) return trail;
+  const client = db() as unknown as Tx;
+  const planned = await stagesFromPipeline(client, target);
+  const names = await userNames(client, planned.flatMap((s) => s.approverUserIds));
+  return planned.map((s) => ({
+    stageNo: s.stageNo,
+    name: s.stageName,
+    approvalOrder: s.approvalOrder,
+    requiredCount: s.requiredCount,
+    status: "PENDING",
+    approverNames: s.approverUserIds.map((id) => names.get(id) ?? id),
+    approvedNames: [],
+    actedBy: null,
+    actedAt: null,
+    comment: null,
+  }));
+}
+
 /** The document's stages with approver names, for detail views and the Multilayer Approval page. */
 export async function approvalTrail(feature: string, documentId: string): Promise<ApprovalTrailStage[]> {
   const client = db();

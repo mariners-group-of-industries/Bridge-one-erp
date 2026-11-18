@@ -30,6 +30,12 @@ export interface ApiRule {
   postIsRead?: boolean;
   /** Only the master account (seeding, one-off maintenance). */
   masterOnly?: boolean;
+  /**
+   * Employee Self Service: any signed-in user, every method. The handler works
+   * only on the employee linked to the session's login (features/ess/server/identity.ts),
+   * never on an id from the request, so no page permission is needed.
+   */
+  self?: boolean;
 }
 
 const PAGE = {
@@ -58,6 +64,9 @@ const ALL_MODULES: readonly ModuleId[] = ["purchase", "inventory", "production",
 export const API_RULES: Record<string, ApiRule> = {
   // ── Home ──
   "/api/home": { read: "signed-in" },
+
+  // ── Employee Self Service (own records only; see ApiRule.self) ──
+  "/api/ess": { self: true },
 
   // ── BRG Connect file downloads (only `connect/` uploads are served; see the route) ──
   "/api/storage": { read: "signed-in" },
@@ -134,6 +143,8 @@ export const API_RULES: Record<string, ApiRule> = {
   // The calendar list is read by Calendar Assign and the Attendance page's calendar info.
   "/api/hrm/calendar-assign/calendars": { feature: "/hrm/calendar-assign", read: { anyViewIn: ["hrm"] } },
   "/api/hrm/overtime": { feature: "/hrm/overtime" },
+  // Releasing approved payslips to employees is an approver's decision.
+  "/api/hrm/payroll/batches/*/publish": { feature: "/hrm/payroll", action: "approve" },
   "/api/hrm/bonus": { feature: "/hrm/compensation/bonus" },
   "/api/hrm/increments": { feature: "/hrm/talent/increment" },
   "/api/hrm/governance/checklist": { feature: "/hrm/governance/settings" },
@@ -282,6 +293,8 @@ export interface AccessCheck {
 export function checkApiAccess(grants: AccessGrants | undefined, method: string, pathname: string): AccessCheck {
   const rule = ruleForRequest(pathname);
   if (!rule || rule.masterOnly) return { allowed: false, required: { action: "manage" } };
+  // Read-only API tokens never act as an employee.
+  if (rule.self) return { allowed: !!grants && !grants.readOnly, required: { action: "view" } };
   const action = rule.action ?? actionForRequest(method, pathname);
   const isRead = READ_METHODS.has(method.toUpperCase()) || (rule.postIsRead && method.toUpperCase() === "POST");
   if (isRead && rule.read && !rule.action) {

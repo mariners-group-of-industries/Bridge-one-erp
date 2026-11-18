@@ -378,7 +378,7 @@ describe("Salary generation", () => {
     await expect(getPayrollBatch(otherCompany, id)).rejects.toThrow(/not found/i);
     await expect(previewPayroll(otherCompany, input())).rejects.toThrow(/not found/i);
     const viewer: Actor = { ...adminActor, id: "viewer", isMaster: false, grants: grantsFromList([permissionKey("/hrm/payroll", "view")]) };
-    expect((await getPayrollBatch(viewer, id)).can).toEqual({ edit: false, submit: false, cancel: false, decide: false });
+    expect((await getPayrollBatch(viewer, id)).can).toEqual({ edit: false, submit: false, cancel: false, decide: false, publish: false });
     await expect(recalculatePayrollBatch(viewer, id, { version: 1 })).rejects.toThrow(/permission to change/);
     await expect(cancelPayrollBatch(viewer, id, { version: 1, reason: "x" })).rejects.toThrow(/permission to change/);
   });

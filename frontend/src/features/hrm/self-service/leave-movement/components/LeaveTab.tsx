@@ -69,7 +69,7 @@ export function LeaveTab({ options }: { options: LeaveMovementOptions }) {
       <form onSubmit={submit} noValidate>
         <Panel
           title="Apply for Leave"
-          description={days ? `${days} day${days === 1 ? "" : "s"}` : undefined}
+          description={days ? `${days} calendar day${days === 1 ? "" : "s"}; weekly offs and holidays are not charged` : undefined}
           footer={
             <Button type="submit" variant="primary" loading={saving}>
               <Send aria-hidden="true" className="size-3.5" />
@@ -84,7 +84,7 @@ export function LeaveTab({ options }: { options: LeaveMovementOptions }) {
                 {(id) => <EmployeeField id={id} options={options} value={employee} onChange={setEmployee} />}
               </Field>
               <Field label="Leave Type" required error={errors.leaveType}>
-                {(id) => <Select id={id} value={form.leaveType} onChange={(e) => set("leaveType")(e.target.value)} options={LEAVE_TYPES.map((t) => t.name)} aria-invalid={!!errors.leaveType} />}
+                {(id) => <Select id={id} value={form.leaveType} onChange={(e) => set("leaveType")(e.target.value)} options={balance.data?.length ? balance.data.map((b) => b.leaveType) : LEAVE_TYPES.map((t) => t.name)} aria-invalid={!!errors.leaveType} />}
               </Field>
               <Field label="Location" error={errors.location} hint="Where you will be during the leave.">
                 {(id) => <Input id={id} value={form.location} maxLength={150} onChange={(e) => set("location")(e.target.value)} />}

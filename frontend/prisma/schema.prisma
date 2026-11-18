@@ -77,6 +77,7 @@ model User {
 
   employee            Employee?  @relation("EmployeeUser")
   employeeLastActions Employee[] @relation("EmployeeLastActionBy")
+  notifications       UserNotification[]
 
   businessUnitAccess UserBusinessUnitAccess[]
   officeAccess       UserOfficeAccess[]
@@ -4556,6 +4557,9 @@ model PayrollBatch {
   decidedByName            String?   @db.VarChar(150)
   rejectionReason          String?   @db.VarChar(500)
   cancelReason             String?   @db.VarChar(500)
+  /// Payslips become visible to employees (Employee Self Service) only once an Approved batch is published.
+  payslipsPublishedAt      DateTime? @db.Timestamptz(3)
+  payslipsPublishedByName  String?   @db.VarChar(150)
   createdById              String?   @db.VarChar(100)
   createdByName            String?   @db.VarChar(150)
   updatedByName            String?   @db.VarChar(150)
@@ -4708,6 +4712,27 @@ model SalaryIncrement {
   @@index([employeeId])
   @@index([effectiveDate])
   @@map("salary_increments")
+}
+
+/// A personal notification for one user (Employee Self Service › Notifications and
+/// the navbar bell): leave and attendance decisions, published payslips, calendar changes.
+model UserNotification {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @db.Uuid
+  /// leave, attendance, payslip, calendar …
+  kind      String    @db.VarChar(30)
+  title     String    @db.VarChar(200)
+  body      String?   @db.VarChar(500)
+  /// In-app path to open, e.g. /employee/leave.
+  link      String?   @db.VarChar(300)
+  readAt    DateTime? @db.Timestamptz(3)
+  createdAt DateTime  @default(now()) @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([userId, readAt])
+  @@map("user_notifications")
 }
 
 /// HRM › HR Governance › Settings / Policies: one setup record of a tab (holiday,
