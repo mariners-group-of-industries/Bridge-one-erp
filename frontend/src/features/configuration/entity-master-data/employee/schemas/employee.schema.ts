@@ -94,11 +94,15 @@ export interface EmployeeFilterOptions {
 
 // ─── Create ──────────────────────────────────────────────────────────────────
 
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+/** An optional date; a blank date input sends "", which means "not set". */
+const optionalDate = (label: string) => z.preprocess(emptyToUndefined, z.string().regex(ISO_DATE, { message: `Enter a valid ${label}.` }).optional());
+
 export const createEmployeeSchema = z.object({
   employeeCode:      z.string().trim().min(1).max(30),
   attendanceId:      z.string().trim().max(30).optional(),
   name:              z.string().trim().min(1).max(150),
-  officeId:          z.string().regex(UUID_PATTERN, { message: "Invalid UUID" }),
+  officeId:          z.string().regex(UUID_PATTERN, { message: "Select the office." }),
   designation:       z.string().trim().max(100).optional(),
   hrPosition:        z.string().trim().max(100).optional(),
   department:        z.string().trim().max(100).optional(),
@@ -107,16 +111,16 @@ export const createEmployeeSchema = z.object({
   serviceCategory:   z.string().trim().max(100).optional(),
   employeePolicy:    z.string().trim().max(100).optional(),
   location:          z.string().trim().max(150).optional(),
-  joiningDate:       z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  confirmationDate:  z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-  terminationDate:   z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  joiningDate:       z.string().regex(ISO_DATE, { message: "Enter the joining date." }),
+  confirmationDate:  optionalDate("confirmation date"),
+  terminationDate:   optionalDate("termination date"),
   mobile:            z.string().trim().max(30).optional(),
   email:             z.string().trim().email().max(254).optional().or(z.literal("")),
   officialContact:   z.string().trim().max(30).optional(),
   religion:          z.string().trim().max(50).optional(),
   gender:            z.string().trim().max(20).optional(),
   bloodGroup:        z.string().trim().max(10).optional(),
-  dateOfBirth:       z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  dateOfBirth:       optionalDate("date of birth"),
   fathersName:       z.string().trim().max(150).optional(),
   mothersName:       z.string().trim().max(150).optional(),
   nidNumber:         z.string().trim().max(30).optional(),

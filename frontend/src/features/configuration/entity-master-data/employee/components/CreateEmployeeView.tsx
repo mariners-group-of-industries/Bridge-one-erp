@@ -9,6 +9,7 @@ import { Button, buttonClasses } from "@/components/ui/button";
 import { Tabs } from "@/components/ui/tabs";
 import { useResource } from "@/hooks/use-resource";
 import { cn } from "@/lib/cn";
+import { ApiClientError } from "@/lib/api/client";
 import { entityMasterDataBreadcrumbs } from "../../breadcrumbs";
 import { entityMasterDataPaths } from "../../paths";
 import {
@@ -119,7 +120,16 @@ export function CreateEmployeeView() {
       // Continue in the profile, where the remaining tabs can be filled in.
       router.push(`${entityMasterDataPaths.employeeProfile(created.id)}?tab=official-info`);
     } catch (err: unknown) {
-      setServerError(err instanceof Error ? err.message : "Failed to create employee.");
+      // Highlight the fields the server rejected and name them in the banner.
+      const fieldErrors = err instanceof ApiClientError ? err.fieldErrors : {};
+      const rejected = Object.entries(fieldErrors).filter(([, messages]) => messages?.length);
+      if (rejected.length) {
+        setErrors(Object.fromEntries(rejected.map(([key, messages]) => [key, messages[0]])) as FieldErrors);
+        setTab("personal-info");
+        setServerError(`Please correct: ${rejected.map(([, messages]) => messages[0]).join(" ")}`);
+      } else {
+        setServerError(err instanceof Error ? err.message : "Failed to create employee.");
+      }
     } finally {
       setSubmitting(false);
     }
