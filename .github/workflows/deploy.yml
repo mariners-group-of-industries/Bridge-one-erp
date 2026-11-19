@@ -1,0 +1,151 @@
+name: Deploy
+
+# Every push to `development` (i.e. every merged PR) is checked, built once and
+# shipped to the Hostinger VPS. Run it by hand from the Actions tab to redeploy;
+# pick an older commit's run and "Re-run all jobs" to roll back.
+on:
+  push:
+    branches: [development]
+  workflow_dispatch:
+
+# Never cancel a deploy half-way; queue the next one instead.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Check and build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    env:
+      # Inlined into the browser bundle at build time (Settings → Secrets and variables
+      # → Actions → Variables, repository level). They are public by nature.
+      NEXT_PUBLIC_PUSHER_KEY: ${{ vars.NEXT_PUBLIC_PUSHER_KEY }}
+      NEXT_PUBLIC_PUSHER_CLUSTER: ${{ vars.NEXT_PUBLIC_PUSHER_CLUSTER }}
+      NEXT_PUBLIC_API_URL: ${{ vars.NEXT_PUBLIC_API_URL }}
+      NEXT_PUBLIC_ACCOUNTING_STORAGE_KEY: ${{ vars.NEXT_PUBLIC_ACCOUNTING_STORAGE_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - run: npm ci --include=optional
+      - run: npm run db:validate
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+        env:
+          NODE_OPTIONS: --max-old-space-size=6144
+
+      - name: Assemble release
+        run: |
+          set -euo pipefail
+          out=.next/standalone
+          test -f "$out/server.js"
+          cp -r public "$out/public"
+          cp -r .next/static "$out/.next/static"
+          cp ../deploy/ecosystem.config.cjs "$out/"
+          # argon2 is a native module: make sure the traced copy actually loads.
+          (cd "$out" && node -e "require('argon2')")
+          tar -czf "$RUNNER_TEMP/release.tgz" -C "$out" .
+          ls -lh "$RUNNER_TEMP/release.tgz"
+
+      - name: Smoke test the built server
+        run: |
+          set -euo pipefail
+          cd .next/standalone
+          PORT=3999 HOSTNAME=127.0.0.1 node server.js > "$RUNNER_TEMP/server.log" 2>&1 &
+          for i in $(seq 1 30); do
+            curl -fsS http://127.0.0.1:3999/api/health && exit 0
+            sleep 1
+          done
+          cat "$RUNNER_TEMP/server.log"
+          exit 1
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release
+          path: ${{ runner.temp }}/release.tgz
+          retention-days: 7
+
+  deploy:
+    name: Migrate and deploy to VPS
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: ${{ vars.APP_URL }}
+    env:
+      RELEASE_ID: ${{ github.sha }}
+      APP_DIR: /var/www/bridgeone
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Configure SSH
+        env:
+          SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
+          VPS_HOST: ${{ vars.VPS_HOST }}
+          VPS_USER: ${{ vars.VPS_USER || 'deploy' }}
+          VPS_PORT: ${{ vars.VPS_PORT || '22' }}
+        run: |
+          set -euo pipefail
+          for v in SSH_KEY KNOWN_HOSTS VPS_HOST; do
+            test -n "${!v}" || { echo "::error::$v is not configured (see deploy/README.md)"; exit 1; }
+          done
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          cat > ~/.ssh/config <<EOF
+          Host vps
+            HostName $VPS_HOST
+            User $VPS_USER
+            Port $VPS_PORT
+            IdentityFile ~/.ssh/deploy_key
+            IdentitiesOnly yes
+            StrictHostKeyChecking yes
+            ServerAliveInterval 30
+          EOF
+
+      # Migrations run from CI with the direct (unpooled) Neon URL, before the new
+      # code goes live. Keep them backward compatible with the running release.
+      - name: Apply database migrations
+        working-directory: frontend
+        env:
+          DIRECT_URL: ${{ secrets.DIRECT_URL }}
+          DATABASE_URL: ${{ secrets.DIRECT_URL }}
+        run: |
+          test -n "$DIRECT_URL" || { echo "::error::Secret DIRECT_URL is not set"; exit 1; }
+          npm ci --include=optional
+          npx prisma migrate deploy
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: release
+          path: ${{ runner.temp }}
+
+      - name: Upload release
+        run: |
+          scp -q "$RUNNER_TEMP/release.tgz" "vps:$APP_DIR/incoming/$RELEASE_ID.tgz"
+          scp -q deploy/release.sh "vps:$APP_DIR/shared/release.sh"
+
+      - name: Activate release
+        run: ssh vps "APP_DIR=$APP_DIR bash $APP_DIR/shared/release.sh $RELEASE_ID"
