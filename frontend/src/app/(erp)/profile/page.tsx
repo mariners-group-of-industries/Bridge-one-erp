@@ -92,7 +92,7 @@ export default function ProfilePage() {
   return (
     <>
       <PageHead title="My Profile" subtitle="View and update your account information." />
-      <PageContainer>
+      <PageContainer full>
         <div className="mt-4 grid gap-6 lg:grid-cols-3">
 
           {/* Avatar card */}
