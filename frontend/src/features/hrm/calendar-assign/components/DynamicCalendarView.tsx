@@ -15,6 +15,7 @@ import { useToast } from "@/components/ui/toast";
 import { apiRequest, errorMessage } from "@/lib/api/client";
 import { useCalendars } from "../use-calendars";
 import type {
+  CalendarDefinition,
   FilterState,
   EmployeeRosterItem,
   RosterGridData,
@@ -66,7 +67,8 @@ export function DynamicCalendarView({
   const [calendarInfoOpen, setCalendarInfoOpen] = useState(false);
 
   // Selected Shift in Bulk Toolbar
-  const [selectedShiftForBulk, setSelectedShiftForBulk] = useState<string>("G");
+  // The id of the calendar chosen in Quick Assign.
+  const [selectedShiftForBulk, setSelectedShiftForBulk] = useState<string>("");
 
   // Selected row IDs in matrix grid
   const [selectedEmployeeIds, setSelectedEmployeeIds] = useState<Set<string>>(new Set());
@@ -234,18 +236,24 @@ export function DynamicCalendarView({
     setUnsavedChanges((c) => c + 1);
   };
 
+  const officeNamesInView = useMemo(() => [...new Set(filteredEmployees.map((e) => e.officeName))], [filteredEmployees]);
+
   // Bulk Apply Shift to real employees
   const handleBulkApply = (
-    shiftCode: string,
+    calendar: CalendarDefinition,
     mode: "all" | "working_days" | "selected_only",
   ) => {
-    const targetEmployees =
+    const shiftCode = calendar.shortCode;
+    const inView =
       filter.isAssignAll || selectedEmployeeIds.size === 0
         ? filteredEmployees
         : filteredEmployees.filter((e) => selectedEmployeeIds.has(e.id));
+    // An office's own calendar goes to that office's employees only; every-office ones (and OFF/HOL) go to everyone.
+    const targetEmployees = calendar.office === "All" ? inView : inView.filter((e) => e.officeName === calendar.office);
+    const skipped = inView.length - targetEmployees.length;
 
     if (targetEmployees.length === 0) {
-      toast.error("No employees to assign.");
+      toast.error(inView.length ? `None of these employees belong to ${calendar.office}.` : "No employees to assign.");
       return;
     }
 
@@ -265,7 +273,8 @@ export function DynamicCalendarView({
 
     setUnsavedChanges((c) => c + 1);
     toast.success(
-      `Assigned shift [${shiftCode}] to ${targetEmployees.length} employees successfully.`,
+      `Assigned ${calendar.calendarName} [${shiftCode}] to ${targetEmployees.length} employees successfully.` +
+        (skipped ? ` ${skipped} employee(s) outside ${calendar.office} were skipped.` : ""),
     );
   };
 
@@ -578,6 +587,7 @@ export function DynamicCalendarView({
             selectedCount={selectedEmployeeIds.size}
             totalFilteredCount={filteredEmployees.length}
             isAssignAll={filter.isAssignAll}
+            officeNames={officeNamesInView}
           />
 
           {/* Dynamic Calendar Matrix Grid */}

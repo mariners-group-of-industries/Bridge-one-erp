@@ -3,11 +3,15 @@
 import { useState } from "react";
 import { Sparkles, CheckCheck, CalendarOff, RotateCcw } from "lucide-react";
 import { useCalendars } from "../use-calendars";
+import type { CalendarDefinition } from "../types";
 
 interface BulkAssignToolbarProps {
+  /** The id of the chosen calendar ("" = none). */
   selectedShift: string;
-  onSelectShift: (code: string) => void;
-  onApplyToAll: (shiftCode: string, mode: "all" | "working_days" | "selected_only") => void;
+  onSelectShift: (calendarId: string) => void;
+  onApplyToAll: (calendar: CalendarDefinition, mode: "all" | "working_days" | "selected_only") => void;
+  /** The offices of the employees in view; only calendars they may use are offered. */
+  officeNames: string[];
   onSetWeeklyOffs: (dayOfWeek: number) => void; // 5 = Friday
   onResetAll: () => void;
   selectedCount: number;
@@ -24,14 +28,17 @@ export function BulkAssignToolbar({
   selectedCount,
   totalFilteredCount,
   isAssignAll,
+  officeNames,
 }: BulkAssignToolbarProps) {
   const [applyMode, setApplyMode] = useState<"working_days" | "all">("working_days");
 
   const { calendars } = useCalendars();
-  // One entry per code (offices can share a code); each employee gets their own office's calendar for it.
+  // Every calendar the offices in view may use: offices can share a code (e.g. "G"), so each is listed with its office.
   const regularCalendars = calendars.filter(
-    (c, i) => c.shortCode !== "OFF" && c.shortCode !== "HOL" && calendars.findIndex((d) => d.shortCode === c.shortCode) === i,
+    (c) => c.shortCode !== "OFF" && c.shortCode !== "HOL" && (c.office === "All" || officeNames.includes(c.office)),
   );
+  const specialCalendars = calendars.filter((c) => c.shortCode === "OFF" || c.shortCode === "HOL");
+  const selected = calendars.find((c) => c.id === selectedShift);
 
   return (
     <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-line bg-surface p-3 shadow-2xs">
@@ -48,12 +55,15 @@ export function BulkAssignToolbar({
           >
             <option value="">-- Choose Calendar --</option>
             {regularCalendars.map((c) => (
-              <option key={c.shortCode} value={c.shortCode}>
+              <option key={c.id} value={c.id}>
                 [{c.shortCode}] {c.calendarName} ({c.startTime} - {c.endTime}) - {c.office}
               </option>
             ))}
-            <option value="OFF">[OFF] Weekly Off</option>
-            <option value="HOL">[HOL] Holiday</option>
+            {specialCalendars.map((c) => (
+              <option key={c.id} value={c.id}>
+                [{c.shortCode}] {c.calendarName}
+              </option>
+            ))}
           </select>
         </div>
 
@@ -71,12 +81,9 @@ export function BulkAssignToolbar({
 
         <button
           type="button"
-          disabled={!selectedShift}
+          disabled={!selected}
           onClick={() =>
-            onApplyToAll(
-              selectedShift,
-              selectedCount > 0 && !isAssignAll ? "selected_only" : applyMode,
-            )
+            selected && onApplyToAll(selected, selectedCount > 0 && !isAssignAll ? "selected_only" : applyMode)
           }
           className="inline-flex items-center gap-1.5 h-8 px-3 rounded text-xs font-semibold text-white bg-accent-strong hover:bg-primary-hover disabled:opacity-50 disabled:cursor-not-allowed shadow-2xs transition-colors"
         >

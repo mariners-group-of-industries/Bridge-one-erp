@@ -85,13 +85,13 @@ export function RequestStatusBadge({ status }: { status: string }) {
 /**
  * Every ESS page: title bar, then the page body once the login is known to be
  * linked to an employee. Without a link, a dedicated screen explains what to do
- * and nothing of the employee module is requested. `full` uses the whole
- * content width instead of the standard max width.
+ * and nothing of the employee module is requested. Every My Workspace page
+ * uses the whole content width.
  */
-export function EssPage({ title, subtitle, actions, full, children }: { title: string; subtitle?: ReactNode; actions?: ReactNode; full?: boolean; children: (employee: EssEmployee) => ReactNode }) {
+export function EssPage({ title, subtitle, actions, children }: { title: string; subtitle?: ReactNode; actions?: ReactNode; children: (employee: EssEmployee) => ReactNode }) {
   const me = useResource("ess-me", essApi.me);
   return (
-    <PageContainer full={full}>
+    <PageContainer full>
       <PageHead title={title} subtitle={subtitle} actions={me.data?.linked ? actions : undefined} breadcrumbs={[{ label: "My Workspace", href: essPaths.dashboard }, { label: title, href: "#" }]} />
       {me.error ? (
         <Panel>
