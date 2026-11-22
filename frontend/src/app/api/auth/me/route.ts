@@ -12,7 +12,7 @@ export async function GET(request: Request) {
   const actor = await resolveActor(request);
   if (!actor || actor.via !== "session") return NextResponse.json({ error: "Unauthenticated." }, { status: 401 });
 
-  const user = await db().user.findUnique({ where: { id: actor.id }, select: { phone: true } });
+  const user = await db().user.findUnique({ where: { id: actor.id }, select: { phone: true, employee: { select: { employeeCode: true, name: true } } } });
   if (!user) return NextResponse.json({ error: "Unauthenticated." }, { status: 401 });
   const name = actor.name ?? "";
   return NextResponse.json({
@@ -24,5 +24,7 @@ export async function GET(request: Request) {
     isMaster: actor.isMaster,
     permissions: permissionsOf(actor),
     hideStockInSales: actor.hideStockInSales ?? false,
+    // Employee Self Service is offered to logins linked to an employee record.
+    employee: user.employee ? { code: user.employee.employeeCode, name: user.employee.name } : null,
   });
 }

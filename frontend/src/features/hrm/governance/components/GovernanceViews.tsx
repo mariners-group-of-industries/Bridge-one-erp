@@ -1,5 +1,7 @@
 "use client";
 
+import { useSearchParams } from "next/navigation";
+
 import { Check, ClipboardCheck, Settings2, X } from "lucide-react";
 import { useState } from "react";
 import { PageContainer, PageHead } from "@/components/layout/page";
@@ -176,8 +178,11 @@ function EmployeeChecklist({ filter }: { filter: Record<string, string> }) {
 
 export function PendingApprovalView() {
   const toast = useToast();
-  const [kind, setKind] = useState<PendingKind>("leave");
-  const [applied, setApplied] = useState<PendingKind>("leave");
+  // ?kind=attendance (from Multilayer Approval) opens that list.
+  const requested = useSearchParams().get("kind");
+  const initialKind: PendingKind = PENDING_KINDS.find((k) => k.id === requested)?.id ?? "leave";
+  const [kind, setKind] = useState<PendingKind>(initialKind);
+  const [applied, setApplied] = useState<PendingKind>(initialKind);
   const list = useResource(`hrm-pending?${applied}`, () => apiRequest<PendingList>(`/api/hrm/governance/pending?kind=${applied}`));
   const [rejecting, setRejecting] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);

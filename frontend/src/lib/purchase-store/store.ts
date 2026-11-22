@@ -17,7 +17,7 @@ import {
 } from "@bridgeone/contracts";
 import type { Prisma, StockSource } from "@/generated/prisma/client";
 import { badRequest, notFound } from "@/lib/api/errors";
-import { approvalNote, recordApproval, recordRejection, resetApproval } from "@/lib/approval/engine";
+import { approvalNote, hasApprovalPipeline, recordApproval, recordRejection, resetApproval } from "@/lib/approval/engine";
 import { db } from "@/lib/prisma/client";
 import { assertStockAvailable, lockWarehouse } from "@/features/sales/deliveries/services/stock.service";
 import { formatNumber, nextNumber } from "@/features/sales/lib/sequence";
@@ -1191,7 +1191,7 @@ class PurchaseDataStore {
   }
 
   /** Inserts an order inside the caller's transaction (also used by direct receiving). */
-  private async insertPurchaseOrder(tx: Tx, input: CreatePurchaseOrderInput, actorName: string, actor?: PurchaseActor) {
+  private async insertPurchaseOrder(tx: Tx, input: CreatePurchaseOrderInput, actorName: string, actor?: PurchaseActor, options?: { autoApprove?: boolean }) {
     const place = await officeAndWarehouse(input.officeId, input.warehouseId, tx);
     if (!place.warehouseId) throw badRequest("Select the warehouse the goods will be received into.");
     await assertPlaceInScope(actor, place, tx);
@@ -1220,6 +1220,7 @@ class PurchaseDataStore {
     const number = await issueNumber(tx, place.businessUnitId, "PURCHASE_ORDER", "PO", orderDate, async (n) =>
       Boolean(await tx.purchaseOrder.findFirst({ where: { businessUnitId: place.businessUnitId, number: n }, select: { id: true } })),
     );
+    const needsApproval = !options?.autoApprove && (await hasApprovalPipeline(tx, "Purchase Order"));
     const order = await tx.purchaseOrder.create({
       data: {
         businessUnitId: place.businessUnitId,
@@ -1234,8 +1235,8 @@ class PurchaseDataStore {
         projectCostCenter: text(input.projectCostCenter, 100),
         paymentTerms: text(input.paymentTerms, 100),
         deliveryTerms: text(input.deliveryTerms, 100),
-        // Issued orders are authorised by the buyer who issues them.
-        status: "APPROVED",
+        // When an approval pipeline is configured, the order starts as PENDING and walks the stages.
+        status: needsApproval ? "PENDING" : "APPROVED",
         ...totals,
         shippingFee: num(input.shippingFee) > 0 ? round2(num(input.shippingFee)) : 0,
         notes: appendNote(text(input.notes, 600), historyEntry("ISSUED", actorName)),
@@ -1504,6 +1505,7 @@ class PurchaseDataStore {
             },
             actorName,
             actor,
+            { autoApprove: true },
           )
         : await tx.purchaseOrder.findUniqueOrThrow({ where: { id: existing!.id }, include: { lines: { orderBy: { lineNo: "asc" } } } });
 

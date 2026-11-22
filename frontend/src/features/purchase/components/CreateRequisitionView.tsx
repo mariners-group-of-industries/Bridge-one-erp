@@ -671,40 +671,42 @@ function CreateRequisitionForm({ templateReq }: { templateReq: PurchaseRequisiti
   return (
     <div className="min-h-screen bg-canvas dark:bg-slate-950 p-3 md:p-6 text-ink dark:text-slate-100">
       {/* ── TOP HEADER BAR ── */}
-      <div className="bg-surface dark:bg-slate-900 border border-line/90 dark:border-slate-800 rounded px-4 py-2.5 flex items-center justify-between shadow-2xs mb-3">
-        <div className="flex items-center gap-3">
-          <button
-            type="button"
-            onClick={() => router.push("/purchase/requisitions")}
-            className="h-8 w-8 rounded border border-line-strong dark:border-slate-700 flex items-center justify-center text-ink-muted dark:text-slate-300 hover:bg-canvas dark:hover:bg-slate-800 transition"
-            title="Back to Requisitions"
-          >
-            <ArrowLeft className="w-4 h-4" />
-          </button>
-          <h1 className="text-base font-bold text-ink dark:text-white tracking-tight">Create Requisition</h1>
-        </div>
+      <div data-sticky-head className="sticky top-14 z-20 -mx-3 -mt-3 px-3 pt-3 pb-3 md:-mx-6 md:-mt-6 md:px-6 md:pt-6 bg-canvas dark:bg-slate-950">
+        <div className="bg-surface dark:bg-slate-900 border border-line/90 dark:border-slate-800 rounded px-4 py-2.5 flex items-center justify-between shadow-2xs">
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => router.push("/purchase/requisitions")}
+              className="h-8 w-8 rounded border border-line-strong dark:border-slate-700 flex items-center justify-center text-ink-muted dark:text-slate-300 hover:bg-canvas dark:hover:bg-slate-800 transition"
+              title="Back to Requisitions"
+            >
+              <ArrowLeft className="w-4 h-4" />
+            </button>
+            <h1 className="text-base font-bold text-ink dark:text-white tracking-tight">Create Requisition</h1>
+          </div>
 
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => createMutation.mutate(true)}
-            disabled={createMutation.isPending || !perms.requisitions.create}
-            title={!perms.requisitions.create ? "Requires Create permission in Configuration" : undefined}
-            className="h-8 px-4 border border-[#2563eb] text-primary hover:bg-blue-50 dark:hover:bg-blue-950 font-semibold text-xs rounded transition flex items-center gap-1.5 disabled:opacity-50"
-          >
-            {createMutation.isPending && <Spinner className="size-3.5" />}
-            Save & New
-          </button>
-          <button
-            type="button"
-            onClick={() => createMutation.mutate(false)}
-            disabled={createMutation.isPending || !perms.requisitions.create}
-            title={!perms.requisitions.create ? "Requires Create permission in Configuration" : undefined}
-            className="h-8 px-5 bg-[#2563eb] hover:bg-blue-700 text-white font-semibold text-xs rounded transition flex items-center gap-1.5 shadow-2xs disabled:opacity-50"
-          >
-            {createMutation.isPending && <Spinner className="size-3.5" />}
-            Save
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => createMutation.mutate(true)}
+              disabled={createMutation.isPending || !perms.requisitions.create}
+              title={!perms.requisitions.create ? "Requires Create permission in Configuration" : undefined}
+              className="h-8 px-4 border border-[#2563eb] text-primary hover:bg-blue-50 dark:hover:bg-blue-950 font-semibold text-xs rounded transition flex items-center gap-1.5 disabled:opacity-50"
+            >
+              {createMutation.isPending && <Spinner className="size-3.5" />}
+              Save & New
+            </button>
+            <button
+              type="button"
+              onClick={() => createMutation.mutate(false)}
+              disabled={createMutation.isPending || !perms.requisitions.create}
+              title={!perms.requisitions.create ? "Requires Create permission in Configuration" : undefined}
+              className="h-8 px-5 bg-[#2563eb] hover:bg-blue-700 text-white font-semibold text-xs rounded transition flex items-center gap-1.5 shadow-2xs disabled:opacity-50"
+            >
+              {createMutation.isPending && <Spinner className="size-3.5" />}
+              Save
+            </button>
+          </div>
         </div>
       </div>
 

@@ -33,6 +33,17 @@ beforeEach(async () => {
 });
 
 describe("Settings / Policies records", () => {
+  it("creates a calendar for an office whose id is not an RFC 4122 UUID (the seeded MGV-PLC / MBBL-HO offices)", async () => {
+    const unitId = (await testPrisma().office.findUniqueOrThrow({ where: { id: officeId } })).businessUnitId;
+    const seeded = await testPrisma().office.create({ data: { id: "cccccccc-0001-0001-0001-000000000001", businessUnitId: unitId, name: "MGV-PLC", address: "N/A" } });
+    const calendar = await createPolicyRecord(adminActor, "calendar-setup", {
+      officeId: seeded.id,
+      data: { name: "General", shortCode: "G", startTime: "09:00", endTime: "18:00", minWorkHours: 8 },
+    });
+    expect(calendar).toMatchObject({ officeId: seeded.id, officeName: "MGV-PLC" });
+    await expect(createPolicyRecord(adminActor, "calendar-setup", { officeId: "not-an-id", data: { name: "X", shortCode: "X", startTime: "09:00", endTime: "18:00", minWorkHours: 8 } })).rejects.toThrow();
+  });
+
   it("defines fields for every tab", () => {
     expect(POLICY_TABS.every((t) => POLICY_TAB_DEFS[t.id].fields.length > 0)).toBe(true);
   });

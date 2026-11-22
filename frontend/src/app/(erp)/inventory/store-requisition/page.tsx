@@ -14,8 +14,10 @@ import {
   Eye,
   X,
   FileSpreadsheet,
+  Upload,
 } from "lucide-react";
 import { useFeaturePermissions, needsPermission } from "@/lib/permissions/useFeaturePermissions";
+import { BulkUploadDialog } from "@/features/configuration/entity-master-data/components/BulkUploadDialog";
 
 // ============================================================================
 // TYPES
@@ -93,6 +95,7 @@ export default function StoreRequisitionPage() {
 
   // Modal for new requisition
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [bulkOpen, setBulkOpen] = useState(false);
 
 
   // Filtered requisition list
@@ -229,9 +232,14 @@ export default function StoreRequisitionPage() {
         search={searchTerm}
         onSearch={setSearchTerm}
         actions={
-          (perms.create ? (<button type="button" onClick={() => setIsModalOpen(true)} className={tabBarButton}>
+          <>
+            {perms.import && (<button type="button" onClick={() => setBulkOpen(true)} className={tabBarButton} title="Bulk upload from Excel">
+              <Upload /> Bulk Upload
+            </button>)}
+            {perms.create ? (<button type="button" onClick={() => setIsModalOpen(true)} className={tabBarButton}>
             <Plus /> Requisition
-          </button>) : null)
+          </button>) : null}
+          </>
         }
       />
       {/* 2. SUMMARY FILTER BAR (When on SUMMARY TAB)        */}
@@ -498,6 +506,16 @@ export default function StoreRequisitionPage() {
         </div>
       )}
 
+      <BulkUploadDialog
+        open={bulkOpen}
+        onClose={() => setBulkOpen(false)}
+        onImported={() => docs.reload()}
+        noun="store requisitions"
+        templateUrl={inventoryApi.importTemplateUrl("store-requisition")}
+        maxRows={2000}
+        matchHint="Warehouse names must match existing warehouses; Item Code must match an active item; Party / For is the employee, department or project. Rows with the same Ref are saved as one document."
+        upload={(file) => inventoryApi.importFile("store-requisition", file)}
+      />
       {/* ─────────────────────────────────────────────────── */}
       {/* 6. + REQUISITION MODAL                              */}
       {/* ─────────────────────────────────────────────────── */}

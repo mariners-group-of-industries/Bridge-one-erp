@@ -29,13 +29,13 @@ const positive = (label: string) => z.number({ error: `${label} must be a number
 const month = z.number().int().min(1).max(12);
 const year = z.number({ error: "Year must be a number." }).int().min(2000, "Year must be 2000 or later.").max(2100);
 const version = z.iso.datetime({ error: "Reload and try again." });
-const optionalId = z.uuid().nullish().transform((value) => value ?? null);
+const optionalId = z.guid().nullish().transform((value) => value ?? null);
 /** No two rows share the key. */
 const distinct = (keys: string[]) => new Set(keys).size === keys.length;
 
 /** Monthly targets of one sales force. */
 const personMonths = z.object({
-  salesPersonId: z.uuid({ error: "Select a sales force." }),
+  salesPersonId: z.guid({ error: "Select a sales force." }),
   months: z
     .array(z.object({ month, value: money("Target") }))
     .max(12)
@@ -43,7 +43,7 @@ const personMonths = z.object({
 });
 
 export const budgetInputSchema = z.object({
-  businessUnitId: z.uuid({ error: "Select a business unit." }),
+  businessUnitId: z.guid({ error: "Select a business unit." }),
   targetType: z.enum(TARGET_TYPES),
   basis: z.enum(TARGET_BASES),
   year,
@@ -69,7 +69,7 @@ const planLine = z.object({
 
 export const planInputSchema = z
   .object({
-    officeId: z.uuid({ error: "Select an office." }),
+    officeId: z.guid({ error: "Select an office." }),
     createDate: isoDate("Create date"),
     basis: z.enum(TARGET_BASES),
     name: requiredText("Target name", 150),
@@ -89,11 +89,11 @@ export type PlanInput = z.input<typeof planInputSchema>;
 export const planUpdateSchema = z.object({ version, data: planInputSchema });
 
 export const assignInputSchema = z.object({
-  planId: z.uuid({ error: "Select a target." }),
+  planId: z.guid({ error: "Select a target." }),
   rows: z
     .array(
       z.object({
-        salesPersonId: z.uuid({ error: "Select an employee." }),
+        salesPersonId: z.guid({ error: "Select an employee." }),
         customerGroupId: optionalId,
         targetAmount: positive("Target amount"),
         commissionBasis: z.enum(COMMISSION_BASES),
@@ -111,12 +111,12 @@ export type AssignInput = z.input<typeof assignInputSchema>;
 export const commissionInputSchema = z
   .object({
     name: requiredText("Commission name", 150),
-    salesPersonId: z.uuid({ error: "Select an employee." }),
+    salesPersonId: z.guid({ error: "Select an employee." }),
     customerGroupId: optionalId,
     fromDate: isoDate("From date"),
     toDate: isoDate("To date"),
     lines: z
-      .array(z.object({ itemId: z.uuid(), basis: z.enum(COMMISSION_BASES), value: money("Commission") }))
+      .array(z.object({ itemId: z.guid(), basis: z.enum(COMMISSION_BASES), value: money("Commission") }))
       .min(1, "Add at least one item.")
       .max(2000)
       .refine((rows) => distinct(rows.map((row) => row.itemId)), "An item appears twice.")
@@ -128,7 +128,7 @@ export const commissionUpdateSchema = z.object({ version, data: commissionInputS
 
 // ─── Queries ─────────────────────────────────────────────────────────────────
 
-const optionalUuid = z.uuid().optional();
+const optionalUuid = z.guid().optional();
 const flag = z
   .enum(["true", "false"])
   .optional()

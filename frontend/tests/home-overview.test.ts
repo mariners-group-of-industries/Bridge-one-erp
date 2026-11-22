@@ -54,9 +54,9 @@ describe("home overview", () => {
     expect(overview.targets).toEqual({ month: "2026-10", total: 50000, byPerson: [{ name: "Rahim", value: 50000 }] });
     expect(overview.finance).not.toBeNull();
 
-    const outsider = await getBusinessOverview({ ...scopedActor([]), isMaster: false, permissions: new Set(["sales:read"]) });
-    expect(outsider.counts.customers).toBe(0);
-    expect(outsider.finance).toBeNull();
+    // Home is for the master account only: any other login (whatever it may open) is refused.
+    await expect(getBusinessOverview({ ...scopedActor([]), isMaster: false, permissions: new Set(["sales:read"]) })).rejects.toMatchObject({ status: 403, code: "FORBIDDEN" });
+    await expect(getBusinessOverview({ ...adminActor, isMaster: false })).rejects.toMatchObject({ status: 403 });
   });
 });
 

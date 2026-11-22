@@ -5,8 +5,11 @@ vi.mock("@/lib/auth/cookies", () => ({ getAuthCookie: async () => undefined, set
 
 import { ruleForRequest } from "@/lib/permissions/api-rules";
 
-/** Login, logout, "me" and profile handle their own (missing) session. */
-const PUBLIC = ["/api/auth/"];
+/**
+ * Login, logout, "me" and profile handle their own (missing) session.
+ * /api/health is the deploy/uptime liveness probe: it returns only {"status":"ok"}.
+ */
+const PUBLIC = ["/api/auth/", "/api/health"];
 const METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE"] as const;
 
 const routes = import.meta.glob<Record<string, unknown>>("../src/app/api/**/route.ts");

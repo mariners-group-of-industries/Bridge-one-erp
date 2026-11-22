@@ -165,7 +165,7 @@ function Editor({ saved, title, breadcrumbs, onSaved }: { saved: PermissionGroup
                     <PermissionMatrix mode="grant" value={allGrants()} readOnly onChange={() => undefined} />
                   </div>
                 ) : (
-                  <PermissionMatrix mode="grant" value={grants} readOnly={readOnly} holdable={(f, a) => can(f, a)} onChange={(next) => (setGrants(next), touch())} />
+                  <PermissionMatrix mode="grant" value={grants} readOnly={readOnly} onChange={(next) => (setGrants(next), touch())} />
                 )}
               </Panel>
 

@@ -35,7 +35,7 @@ const flag = z
   .union([z.boolean(), z.enum(["true", "false"])])
   .optional()
   .transform((value) => value === true || value === "true");
-const optionalId = z.uuid().optional();
+const optionalId = z.guid().optional();
 
 /** Work center status filter (Work Center Utilization Report). */
 export const WORK_CENTER_STATUSES = [

@@ -4,7 +4,7 @@ import { z } from "zod";
 // "" means "not set"; the service stores NULL.
 
 const optionalId = z
-  .union([z.uuid("Select a valid option."), z.literal("")])
+  .union([z.guid("Select a valid option."), z.literal("")])
   .optional()
   .default("");
 
@@ -19,7 +19,7 @@ export type WalletFlag = (typeof WALLET_FLAGS)[number]["key"];
 
 export const walletInputSchema = z
   .object({
-    businessUnitId: z.uuid("Select a business unit."),
+    businessUnitId: z.guid("Select a business unit."),
     name: z.string().trim().min(1, "Enter the wallet name.").max(100, "At most 100 characters."),
     commissionPercent: z
       .string()

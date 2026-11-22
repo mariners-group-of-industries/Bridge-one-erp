@@ -6,7 +6,7 @@ import { z } from "zod";
 
 const text = (max: number) => z.string().trim().max(max, `Must be ${max} characters or fewer.`);
 const optionalText = (max: number) => text(max).optional().default("");
-const optionalId = z.union([z.uuid("Select a valid option."), z.literal("")]).optional().default("");
+const optionalId = z.union([z.guid("Select a valid option."), z.literal("")]).optional().default("");
 const optionalDistrict = z.union([z.number().int().min(1), z.literal("")]).optional().default("");
 const optionalDate = z
   .union([z.iso.date("Enter a valid date."), z.literal("")])
@@ -64,7 +64,7 @@ const flagFields = Object.fromEntries(CUSTOMER_FLAGS.map((flag) => [flag.key, z.
 export const customerInputSchema = z
   .object({
     // Partner Details
-    officeId: z.uuid("Select an office."),
+    officeId: z.guid("Select an office."),
     name: text(150).min(1, "Partner name is required."),
     code: optionalText(30),
     mobile: text(30).min(1, "Mobile number is required."),
@@ -132,11 +132,11 @@ export type CustomerData = z.output<typeof customerInputSchema>;
 /** List filters ("View" applies them); shared by both tabs and the API. */
 export const customerFilterSchema = z.object({
   search: z.string().trim().max(100).optional(),
-  officeId: z.uuid().optional().catch(undefined),
-  groupId: z.uuid().optional().catch(undefined),
-  subGroupId: z.uuid().optional().catch(undefined),
+  officeId: z.guid().optional().catch(undefined),
+  groupId: z.guid().optional().catch(undefined),
+  subGroupId: z.guid().optional().catch(undefined),
   status: z.enum(["active", "inactive"]).optional().catch(undefined),
-  territoryId: z.uuid().optional().catch(undefined),
+  territoryId: z.guid().optional().catch(undefined),
   /** Customer created date range (inclusive), YYYY-MM-DD. */
   fromDate: z.iso.date().optional().catch(undefined),
   toDate: z.iso.date().optional().catch(undefined),
@@ -158,13 +158,13 @@ export type CustomerListQuery = z.output<typeof customerListQuerySchema>;
 // ─── "+ Add new" options ──────────────────────────────────────────────────────
 
 export const createCustomerGroupSchema = z.object({
-  officeId: z.uuid("Select an office first."),
+  officeId: z.guid("Select an office first."),
   name: text(100).min(1, "Name is required."),
   parentId: optionalId,
 });
 
 export const createSectionSchema = z.object({
-  officeId: z.uuid("Select an office first."),
+  officeId: z.guid("Select an office first."),
   name: text(100).min(1, "Name is required."),
 });
 

@@ -3,6 +3,7 @@ import { AppError, badRequest, conflict, notFound } from "@/lib/api/errors";
 import { canOn, type Actor } from "@/lib/auth/actor";
 import { approvalTrail, recordApproval, recordRejection, resetApproval } from "@/lib/approval/engine";
 import { db } from "@/lib/prisma/client";
+import { notifyEmployees } from "@/lib/notifications/notify";
 import { formatNumber, nextNumber } from "@/features/sales/lib/sequence";
 import { decisionBy, isoDate, num, officeScope, requireHr, toDate } from "../../shared/hr-access";
 import { hrmPaths } from "../../paths";
@@ -32,7 +33,9 @@ import {
   type PayrollSequence,
   type PayrollTotals,
   type PolicyUse,
+  type AttendanceSummary,
 } from "../batch-types";
+import type { DisbursementLine, SalarySheet } from "../types";
 import { calculateEmployee, sumLines } from "./engine";
 import { loadPayrollInputs, type LoadedPayroll } from "./payroll-inputs";
 
@@ -436,6 +439,31 @@ export async function decidePayrollBatch(actor: Actor, id: string, input: unknow
   });
 }
 
+/**
+ * Publishes an Approved batch's payslips: from now on each employee sees their
+ * own line in Employee Self Service › My Payslips, and is notified. Approval and
+ * publication are separate steps, so HR can approve first and release later.
+ */
+export async function publishPayslips(actor: Actor, id: string) {
+  requireHr(actor);
+  if (!canApprove(actor)) throw new AppError(403, "FORBIDDEN", "You need the Approve permission on Payroll to publish payslips.");
+  const batch = await findBatch(actor, id);
+  if (batch.status !== "Approved") throw conflict(`This payroll is ${batch.status}; only an approved payroll's payslips can be published.`);
+  if (batch.payslipsPublishedAt) throw conflict("These payslips are already published.");
+  const by = decisionBy(actor);
+  await db().$transaction(async (tx) => {
+    const { count } = await tx.payrollBatch.updateMany({ where: { id, status: "Approved", payslipsPublishedAt: null }, data: { payslipsPublishedAt: new Date(), payslipsPublishedByName: by } });
+    if (!count) throw conflict("These payslips are already published.");
+    await tx.payrollBatchEvent.create({ data: { batchId: id, action: "Payslips published", fromStatus: "Approved", toStatus: "Approved", actorId: actor.id, actorName: by } });
+  });
+  const lines = await db().payrollBatchLine.findMany({ where: { batchId: id }, select: { employeeId: true } });
+  await notifyEmployees(
+    lines.map((l) => l.employeeId),
+    { kind: "payslip", title: `Payslip for ${batch.month} is available`, body: `Your ${batch.salaryType.toLowerCase()} salary for ${batch.month} has been approved and published.`, link: "/employee/payslips" },
+  );
+  return { publishedAt: new Date().toISOString() };
+}
+
 /** Cancels a Draft or Rejected batch; it stays for audit and frees the period for a new payroll. */
 export async function cancelPayrollBatch(actor: Actor, id: string, input: unknown) {
   requireHr(actor);
@@ -580,6 +608,8 @@ export async function getPayrollBatch(actor: Actor, id: string): Promise<Payroll
     decidedByName: b.decidedByName,
     rejectionReason: b.rejectionReason,
     cancelReason: b.cancelReason,
+    payslipsPublishedAt: b.payslipsPublishedAt?.toISOString() ?? null,
+    payslipsPublishedByName: b.payslipsPublishedByName,
     stale,
     approval: progress.get(id)!,
     stages: stages.map((s) => ({ stageNo: s.stageNo, name: s.name, status: s.status, approverNames: s.approverNames, approvedNames: s.approvedNames, actedBy: s.actedBy, actedAt: s.actedAt, comment: s.comment })),
@@ -589,6 +619,7 @@ export async function getPayrollBatch(actor: Actor, id: string): Promise<Payroll
       submit: isEditor && editable(b.status) && b.errorCount === 0 && !stale,
       cancel: isEditor && editable(b.status),
       decide: canApprove(actor) && b.status === "Under Processing",
+      publish: canApprove(actor) && b.status === "Approved" && !b.payslipsPublishedAt,
     },
   };
 }
@@ -660,4 +691,112 @@ export async function getPayrollLine(actor: Actor, id: string, lineId: string): 
   const line = await db().payrollBatchLine.findFirst({ where: { id: lineId, batchId: id } });
   if (!line) throw notFound("Payroll line");
   return { ...toLine(line), attendance: line.attendance as unknown as PayrollLineDetail["attendance"], trace: line.trace as unknown as PayrollLineDetail["trace"] };
+}
+
+// ─── Salary Disbursement ──────────────────────────────────────────────────────
+
+/** A payroll line as the disbursement sheet shows it. */
+function disbursementLine(l: Pick<PayrollLine, "employeeId" | "employeeCode" | "employeeName" | "designation" | "grossSalary" | "earnedGross" | "additions" | "attendanceDeduction" | "otherDeduction" | "totalDeduction" | "netPayable" | "payMethod" | "bankOrProvider" | "accountNo">, attendance: Partial<AttendanceSummary>): DisbursementLine {
+  const deductionDays = attendance.totalDeductionDays ?? 0;
+  return {
+    employeeId: l.employeeId,
+    employeeCode: l.employeeCode,
+    employeeName: l.employeeName,
+    designation: l.designation,
+    monthDays: attendance.periodDays ?? 0,
+    payableDays: Math.max(0, Math.round(((attendance.employedDays ?? 0) - deductionDays) * 100) / 100),
+    grossSalary: l.grossSalary,
+    earnedSalary: l.earnedGross,
+    additions: l.additions,
+    deductions: l.totalDeduction,
+    netAmount: l.netPayable,
+    disbursementMode: l.payMethod,
+    bankOrProvider: l.bankOrProvider,
+    accountNo: l.accountNo,
+    lateCount: attendance.lateCount ?? 0,
+    absentDays: attendance.absentDays ?? 0,
+    deductionDays,
+    attendanceDeduction: l.attendanceDeduction,
+    otherDeduction: l.otherDeduction,
+  };
+}
+
+/**
+ * Salary advice and generate sheet for an office and payroll month, from the
+ * payroll engine: the payroll period (21st – 20th unless a Payroll Rule says
+ * otherwise), lates under the Late Punishment rule, absences and unpaid leave.
+ * Reads the office's saved payrolls for the month; without one, a live,
+ * provisional calculation.
+ */
+export async function disbursementSheet(actor: Actor, officeId: string, month: string): Promise<SalarySheet> {
+  requireHr(actor);
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) throw badRequest("Select a month and year.");
+  const office = await db().office.findFirst({ where: { id: officeId, ...officeScope(actor) }, select: { id: true, name: true, businessUnit: { select: { name: true } } } });
+  if (!office) throw notFound("Office");
+  const batches = await db().payrollBatch.findMany({
+    where: { officeId, month, status: { not: "Cancelled" } },
+    orderBy: { createdAt: "asc" },
+    include: { lines: { orderBy: { sl: "asc" } } },
+  });
+
+  let lines: DisbursementLine[];
+  let fromDate: string;
+  let toDate: string;
+  let withoutSalary: number;
+  if (batches.length > 0) {
+    lines = batches.flatMap((b) =>
+      b.lines.map((l) =>
+        disbursementLine(
+          {
+            employeeId: l.employeeId,
+            employeeCode: l.employeeCode,
+            employeeName: l.employeeName,
+            designation: l.designation,
+            grossSalary: num(l.grossSalary),
+            earnedGross: num(l.earnedGross),
+            additions: num(l.additions),
+            attendanceDeduction: num(l.attendanceDeduction),
+            otherDeduction: num(l.otherDeduction),
+            totalDeduction: num(l.totalDeduction),
+            netPayable: num(l.netPayable),
+            payMethod: l.payMethod,
+            bankOrProvider: l.bankOrProvider,
+            accountNo: l.accountNo,
+          },
+          (l.attendance ?? {}) as Partial<AttendanceSummary>,
+        ),
+      ),
+    );
+    fromDate = isoDate(batches[0].fromDate);
+    toDate = isoDate(batches[0].toDate);
+    withoutSalary = batches.reduce((t, b) => t + (Array.isArray(b.excluded) ? b.excluded.length : 0), 0);
+  } else {
+    const c = await calculateOffice(actor, officeId, month);
+    lines = c.lines.map((l) => disbursementLine(l, l.attendance));
+    fromDate = c.loaded.period.fromDate;
+    toDate = c.loaded.period.toDate;
+    withoutSalary = c.loaded.excluded.length;
+  }
+  lines.sort((a, b) => a.employeeCode.localeCompare(b.employeeCode, undefined, { numeric: true }));
+
+  return {
+    officeName: office.name,
+    businessUnit: office.businessUnit.name,
+    month,
+    fromDate,
+    toDate,
+    batches: batches.map((b) => ({ id: b.id, reference: b.reference, salaryType: b.salaryType, status: b.status, payrollDate: isoDate(b.payrollDate) })),
+    final: batches.length > 0 && batches.every((b) => b.status === "Approved"),
+    lines,
+    totals: {
+      grossSalary: sumLines(lines, (l) => l.grossSalary),
+      earnedSalary: sumLines(lines, (l) => l.earnedSalary),
+      additions: sumLines(lines, (l) => l.additions),
+      deductions: sumLines(lines, (l) => l.deductions),
+      attendanceDeduction: sumLines(lines, (l) => l.attendanceDeduction),
+      netAmount: sumLines(lines, (l) => l.netAmount),
+      lateCount: lines.reduce((t, l) => t + l.lateCount, 0),
+    },
+    withoutSalary,
+  };
 }

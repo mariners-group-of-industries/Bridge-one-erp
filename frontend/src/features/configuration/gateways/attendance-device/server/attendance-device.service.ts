@@ -3,6 +3,7 @@ import { badRequest, conflict, notFound } from "@/lib/api/errors";
 import type { Actor } from "@/lib/auth/actor";
 import { db } from "@/lib/prisma/client";
 import { deviceInputSchema, punchUploadSchema, type DeviceFormOptions, type DeviceInput, type DeviceRow, type PunchUpload, type PunchUploadResult } from "../schemas/attendance-device.schema";
+import { handleNewAttendancePunches } from "@/features/configuration/gateways/attendance-notifications/server/attendance-notification.service";
 
 // ─── Scoping ──────────────────────────────────────────────────────────────────
 
@@ -155,15 +156,26 @@ export async function uploadPunches(actor: Actor, deviceId: string, input: Punch
   if (!device.isActive) throw badRequest("This device is inactive. Activate it in Attendance Devices first.");
 
   let inserted = 0;
+  const mappedPunches: Array<{ employeeId: string | null; punchTime: Date }> = [];
   if (data.punches.length) {
     const map = await employeeMap(device, [...new Set(data.punches.map((p) => p.userId))]);
     for (let i = 0; i < data.punches.length; i += 1000) {
       const batch = data.punches.slice(i, i + 1000);
+      const rows = batch.map((p) => ({
+        deviceId,
+        deviceUserId: p.userId,
+        employeeId: map.get(p.userId) ?? null,
+        punchTime: new Date(p.time),
+        punchState: p.state ?? null,
+      }));
       const { count } = await db().attendancePunch.createMany({
-        data: batch.map((p) => ({ deviceId, deviceUserId: p.userId, employeeId: map.get(p.userId) ?? null, punchTime: new Date(p.time), punchState: p.state ?? null })),
+        data: rows,
         skipDuplicates: true,
       });
       inserted += count;
+      if (count > 0) {
+        for (const r of rows) mappedPunches.push({ employeeId: r.employeeId, punchTime: r.punchTime });
+      }
     }
   }
   // Earlier punches may belong to employees whose Attendance ID was set since.
@@ -178,6 +190,9 @@ export async function uploadPunches(actor: Actor, deviceId: string, input: Punch
       ...(data.serialNumber && !device.serialNumber ? { serialNumber: data.serialNumber } : {}),
     },
   });
+  if (inserted > 0 && mappedPunches.length > 0) {
+    await handleNewAttendancePunches(mappedPunches);
+  }
   const unmatched = await db().attendancePunch.count({ where: { deviceId, employeeId: null } });
   return { received: data.punches.length, inserted, duplicates: data.punches.length - inserted, unmatched };
 }

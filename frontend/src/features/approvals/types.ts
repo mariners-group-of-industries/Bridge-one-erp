@@ -45,3 +45,19 @@ export interface ApprovalSummary {
   /** Oldest pending documents across every category the user may see. */
   oldestPending: PendingDocument[];
 }
+
+/** One pending document, as listed when a category is opened on the Multilayer Approval page. */
+export interface PendingListDocument {
+  id: string;
+  reference: string;
+  createdAt: string;
+  /** Optimistic-lock token the module's approve endpoint expects, when it needs one. */
+  version: string | null;
+}
+
+export interface PendingList {
+  categoryId: string;
+  documents: PendingListDocument[];
+  /** True when more documents are pending than were listed. */
+  truncated: boolean;
+}

@@ -174,6 +174,8 @@ export const POLICY_TAB_DEFS: Record<PolicyTab, PolicyTabDef> = {
       num("maxCarryDays", "Max. Carry Forward (days)", { integer: true }),
       flag("encashable", "Encashable"),
       flag("halfDayAllowed", "Half day allowed"),
+      num("noticeDays", "Apply In Advance (days)", { integer: true, min: 0, hint: "Employees must apply at least this many days before the leave starts. Empty = any time." }),
+      num("attachmentAfterDays", "Attachment Required Over (days)", { integer: true, min: 0, hint: "Longer applications need a supporting document. 0 = always; empty = never." }),
     ],
     columns: cols("@office", "name", "shortCode", "yearlyQuota", "gender", "carryForward", "maxCarryDays", "encashable", ["@from", "Effective Date"]),
   },
@@ -421,8 +423,8 @@ export function policyDataSchema(def: PolicyTabDef) {
 }
 
 export const policyRecordInputSchema = z.object({
-  officeId: z.union([z.uuid(), z.literal("")]).default(""),
-  employeeId: z.union([z.uuid(), z.literal("")]).default(""),
+  officeId: z.union([z.guid(), z.literal("")]).default(""),
+  employeeId: z.union([z.guid(), z.literal("")]).default(""),
   effectiveFrom: z.union([z.string().regex(/^\d{4}-\d{2}-\d{2}$/), z.literal("")]).default(""),
   effectiveTo: z.union([z.string().regex(/^\d{4}-\d{2}-\d{2}$/), z.literal("")]).default(""),
   data: z.record(z.string(), z.unknown()).default({}),

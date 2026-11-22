@@ -36,16 +36,16 @@ const isoDate = (label: string) => z.iso.date({ error: `${label} is required.` }
 const amount = (label: string) =>
   z.number({ error: `${label} must be a number.` }).gt(0, `${label} must be more than 0.`).max(MAX_AMOUNT);
 const version = z.iso.datetime({ error: "Reload and try again." });
-const optionalId = z.uuid().nullish().transform((value) => value ?? null);
+const optionalId = z.guid().nullish().transform((value) => value ?? null);
 
 const allocations = z
-  .array(z.object({ deliveryId: z.uuid(), amount: amount("Collect amount") }))
+  .array(z.object({ deliveryId: z.guid(), amount: amount("Collect amount") }))
   .max(MAX_INVOICES)
   .refine((rows) => new Set(rows.map((row) => row.deliveryId)).size === rows.length, "An invoice appears twice.");
 
 const receiptFields = {
-  officeId: z.uuid({ error: "Select an office." }),
-  customerId: z.uuid({ error: "Select a customer." }),
+  officeId: z.guid({ error: "Select an office." }),
+  customerId: z.guid({ error: "Select a customer." }),
   collectionDate: isoDate("Collection date"),
   method: z.enum(COLLECTION_METHODS),
   /** Cheque / transaction / money receipt no. */
@@ -75,7 +75,7 @@ const requiredText = (label: string, max: number) =>
 /** Bank Deduction Details: charges the bank kept out of the money received. */
 export const deductionSchema = z.object({
   expense: requiredText("Expenses", 150),
-  accountId: z.uuid({ error: "Select the account head (GL)." }),
+  accountId: z.guid({ error: "Select the account head (GL)." }),
   amount: amount("Deduction amount"),
 });
 export type DeductionInput = z.input<typeof deductionSchema>;
@@ -83,7 +83,7 @@ export type DeductionInput = z.input<typeof deductionSchema>;
 /** Due Collection: one header, invoices of one or more customers (one money receipt per customer). */
 export const dueCollectionSchema = z
   .object({
-    officeId: z.uuid({ error: "Select an office." }),
+    officeId: z.guid({ error: "Select an office." }),
     collectionDate: isoDate("Date"),
     method: z.enum(COLLECTION_METHODS),
     cashType: optionalText("Cash type", 30),
@@ -97,7 +97,7 @@ export const dueCollectionSchema = z
     remarks: optionalText("Remarks", 500),
     deductions: z.array(deductionSchema).max(20).default([]),
     rows: z
-      .array(z.object({ customerId: z.uuid({ error: "Select a customer." }), allocations: allocations.min(1, "Select at least one invoice.") }))
+      .array(z.object({ customerId: z.guid({ error: "Select a customer." }), allocations: allocations.min(1, "Select at least one invoice.") }))
       .min(1, "Add at least one invoice.")
       .max(100),
   })
@@ -113,22 +113,22 @@ export type DueCollectionInput = z.input<typeof dueCollectionSchema>;
 /** Advance Collection voucher: money taken before invoicing from one or more customers. */
 export const advanceVoucherSchema = z
   .object({
-    officeId: z.uuid({ error: "Select an office." }),
+    officeId: z.guid({ error: "Select an office." }),
     collectionDate: isoDate("Date"),
     /** Who took the advance (required, as in Managerium). */
-    employeeId: z.uuid({ error: "Select the employee." }),
+    employeeId: z.guid({ error: "Select the employee." }),
     voucherType: z.enum(VOUCHER_TYPES),
     project: optionalText("Project", 150),
     narration: optionalText("Narration", 500),
     controlAmount: z.number({ error: "Control amount must be a number." }).min(0).max(MAX_AMOUNT).nullish().transform((value) => value ?? null),
-    cashAccountId: z.uuid({ error: "Select the cash account." }),
+    cashAccountId: z.guid({ error: "Select the cash account." }),
     cashRemarks: optionalText("Cash remarks", 300),
     adjustAccountId: optionalId,
     rows: z
       .array(
         z
           .object({
-            customerId: z.uuid({ error: "Select a partner." }),
+            customerId: z.guid({ error: "Select a partner." }),
             salesOrderId: optionalId,
             adjustmentAmount: z.number({ error: "Adjustment amount must be a number." }).min(0, "Adjustment amount cannot be negative.").max(MAX_AMOUNT).default(0),
             amount: amount("Amount"),
@@ -152,8 +152,8 @@ export const cancelSchema = z.object({
 });
 
 export const billInputSchema = z.object({
-  officeId: z.uuid({ error: "Select an office." }),
-  customerId: z.uuid({ error: "Select a customer." }),
+  officeId: z.guid({ error: "Select an office." }),
+  customerId: z.guid({ error: "Select a customer." }),
   billDate: isoDate("Bill date"),
   remarks: optionalText("Remarks", 500),
   billType: z.enum(BILL_TYPES).default("NORMAL"),
@@ -162,7 +162,7 @@ export const billInputSchema = z.object({
   details: z
     .array(
       z.object({
-        deliveryId: z.uuid(),
+        deliveryId: z.guid(),
         challanManual: optionalText("Challan (manual)", 60),
         grnNumber: optionalText("GRN number", 60),
         submissionDate: z.iso.date().nullish().transform((value) => value ?? null),
@@ -171,7 +171,7 @@ export const billInputSchema = z.object({
     .max(MAX_INVOICES)
     .default([]),
   deliveryIds: z
-    .array(z.uuid())
+    .array(z.guid())
     .min(1, "Select at least one invoice.")
     .max(MAX_INVOICES)
     .refine((ids) => new Set(ids).size === ids.length, "An invoice appears twice."),
@@ -180,7 +180,7 @@ export type BillInput = z.input<typeof billInputSchema>;
 
 // ─── Queries ─────────────────────────────────────────────────────────────────
 
-const optionalUuid = z.uuid().optional();
+const optionalUuid = z.guid().optional();
 const validRange = (query: { from?: string; to?: string }) => !query.from || !query.to || query.from <= query.to;
 const rangeMessage = { error: "From Date must be on or before To Date.", path: ["to"] };
 const flag = z

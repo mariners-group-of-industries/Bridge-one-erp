@@ -4,7 +4,9 @@ import type { Actor } from "@/lib/auth/actor";
 import { grantsAllow } from "@/lib/permissions/registry";
 import { db } from "@/lib/prisma/client";
 import { scopedBusinessUnitIds } from "@/features/sales/lib/scope";
-import type { ApprovalCategory, ApprovalStageLoad, ApprovalSummary, PendingDocument } from "../types";
+import { featureAliases } from "@/lib/approval/engine";
+import { notFound } from "@/lib/api/errors";
+import type { ApprovalCategory, ApprovalStageLoad, ApprovalSummary, PendingDocument, PendingList } from "../types";
 
 /**
  * Multilayer Approval summary. Each source is one document type that goes
@@ -23,6 +25,8 @@ interface OldestRow {
   id: string;
   reference: string;
   createdAt: Date;
+  /** Optimistic-lock token the module's approve endpoint expects (updatedAt or a version number). */
+  version?: string;
 }
 
 interface Source {
@@ -30,17 +34,22 @@ interface Source {
   module: string;
   label: string;
   href: string;
+  /** Where the category links to, when it differs from `href` (e.g. a preselected list). */
+  link?: string;
   /** Approval Setup feature name, when the document can have a pipeline. */
   pipelineFeature: string | null;
   pending: readonly string[];
   approved: readonly string[];
   rejected: readonly string[];
   counts: (units: string[]) => Promise<StatusRow[]>;
-  oldest: (units: string[]) => Promise<OldestRow[]>;
+  /** Oldest pending documents first, at most `take`. */
+  oldest: (units: string[], take: number) => Promise<OldestRow[]>;
 }
 
 const OLDEST_PER_SOURCE = 5;
 const OLDEST_TOTAL = 10;
+/** Documents listed when one category is opened on the Multilayer Approval page. */
+const LIST_LIMIT = 200;
 
 const norm = (status: string) => status.trim().toUpperCase().replace(/[\s-]+/g, "_");
 
@@ -63,7 +72,7 @@ type Grouped = { status: string; _count: { _all: number }; _min: { createdAt: Da
 // Untyped parameter: a typed one leaks into Prisma's groupBy inference and breaks it.
 const rows = (grouped: unknown): StatusRow[] => (grouped as Grouped[]).map((g) => ({ status: String(g.status), count: g._count._all, oldest: g._min.createdAt }));
 const groupArgs = { by: "status" as const, _count: { _all: true as const }, _min: { createdAt: true as const } };
-const oldestArgs = { orderBy: { createdAt: "asc" as const }, take: OLDEST_PER_SOURCE };
+const pick = (take: number) => ({ orderBy: { createdAt: "asc" as const }, take });
 
 const inUnits = (units: string[]) => ({ businessUnitId: { in: units } });
 const employeeInUnits = (units: string[]) => ({ employee: { office: { businessUnitId: { in: units } } } });
@@ -83,8 +92,8 @@ function inventorySource(id: string, label: string, href: string, type: Inventor
     approved: ["APPROVED", "IN_TRANSIT", "COMPLETED"],
     rejected: ["REJECTED"],
     counts: async (units) => rows(await db().inventoryDocument.groupBy({ ...groupArgs, where: where(units) })),
-    oldest: async (units) =>
-      (await db().inventoryDocument.findMany({ ...oldestArgs, where: { ...where(units), status: { in: [...INVENTORY_PENDING] } }, select: { id: true, number: true, createdAt: true } })).map((r) => ({
+    oldest: async (units, take) =>
+      (await db().inventoryDocument.findMany({ ...pick(take), where: { ...where(units), status: { in: [...INVENTORY_PENDING] } }, select: { id: true, number: true, createdAt: true } })).map((r) => ({
         id: r.id,
         reference: r.number,
         createdAt: r.createdAt,
@@ -106,8 +115,8 @@ const SOURCES: readonly Source[] = [
     approved: ["APPROVED", "ORDERED"],
     rejected: ["REJECTED"],
     counts: async (units) => rows(await db().purchaseRequisition.groupBy({ ...groupArgs, where: inUnits(units) })),
-    oldest: async (units) =>
-      (await db().purchaseRequisition.findMany({ ...oldestArgs, where: { ...inUnits(units), status: "PENDING" }, select: { id: true, number: true, createdAt: true } })).map((r) => ({ id: r.id, reference: r.number, createdAt: r.createdAt })),
+    oldest: async (units, take) =>
+      (await db().purchaseRequisition.findMany({ ...pick(take), where: { ...inUnits(units), status: "PENDING" }, select: { id: true, number: true, createdAt: true } })).map((r) => ({ id: r.id, reference: r.number, createdAt: r.createdAt })),
   },
   {
     id: "purchase-order",
@@ -119,8 +128,21 @@ const SOURCES: readonly Source[] = [
     approved: ["APPROVED", "PARTIAL_RECEIVED", "RECEIVED", "CLOSED"],
     rejected: [],
     counts: async (units) => rows(await db().purchaseOrder.groupBy({ ...groupArgs, where: inUnits(units) })),
-    oldest: async (units) =>
-      (await db().purchaseOrder.findMany({ ...oldestArgs, where: { ...inUnits(units), status: "PENDING" }, select: { id: true, number: true, createdAt: true } })).map((r) => ({ id: r.id, reference: r.number, createdAt: r.createdAt })),
+    oldest: async (units, take) =>
+      (await db().purchaseOrder.findMany({ ...pick(take), where: { ...inUnits(units), status: "PENDING" }, select: { id: true, number: true, createdAt: true } })).map((r) => ({ id: r.id, reference: r.number, createdAt: r.createdAt })),
+  },
+  {
+    id: "purchase-return",
+    module: "Purchase",
+    label: "Purchase Return",
+    href: "/purchase/returns",
+    pipelineFeature: "Purchase Return",
+    pending: ["SUBMITTED", "PENDING"],
+    approved: ["COMPLETED"],
+    rejected: ["CANCELLED"],
+    counts: async (units) => rows(await db().purchaseReturn.groupBy({ ...groupArgs, where: inUnits(units) })),
+    oldest: async (units, take) =>
+      (await db().purchaseReturn.findMany({ ...pick(take), where: { ...inUnits(units), status: "SUBMITTED" }, select: { id: true, number: true, createdAt: true } })).map((r) => ({ id: r.id, reference: r.number, createdAt: r.createdAt })),
   },
   {
     id: "supplier-bill",
@@ -132,8 +154,8 @@ const SOURCES: readonly Source[] = [
     approved: ["APPROVED"],
     rejected: [],
     counts: async (units) => rows(await db().supplierBill.groupBy({ ...groupArgs, where: inUnits(units) })),
-    oldest: async (units) =>
-      (await db().supplierBill.findMany({ ...oldestArgs, where: { ...inUnits(units), status: "PENDING" }, select: { id: true, number: true, createdAt: true } })).map((r) => ({ id: r.id, reference: r.number, createdAt: r.createdAt })),
+    oldest: async (units, take) =>
+      (await db().supplierBill.findMany({ ...pick(take), where: { ...inUnits(units), status: "PENDING" }, select: { id: true, number: true, createdAt: true } })).map((r) => ({ id: r.id, reference: r.number, createdAt: r.createdAt })),
   },
   // ── Sales ──
   {
@@ -146,8 +168,8 @@ const SOURCES: readonly Source[] = [
     approved: ["APPROVED", "COMPLETED"],
     rejected: [],
     counts: async (units) => rows(await db().salesOrder.groupBy({ ...groupArgs, where: inUnits(units) })),
-    oldest: async (units) =>
-      (await db().salesOrder.findMany({ ...oldestArgs, where: { ...inUnits(units), status: "PENDING_APPROVAL" }, select: { id: true, number: true, createdAt: true } })).map((r) => ({ id: r.id, reference: r.number, createdAt: r.createdAt })),
+    oldest: async (units, take) =>
+      (await db().salesOrder.findMany({ ...pick(take), where: { ...inUnits(units), status: "PENDING_APPROVAL" }, select: { id: true, number: true, createdAt: true, updatedAt: true } })).map((r) => ({ id: r.id, reference: r.number, createdAt: r.createdAt, version: r.updatedAt.toISOString() })),
   },
   {
     // A draft return is waiting for approval; submitting it approves it.
@@ -160,8 +182,8 @@ const SOURCES: readonly Source[] = [
     approved: ["SUBMITTED"],
     rejected: [],
     counts: async (units) => rows(await db().salesReturn.groupBy({ ...groupArgs, where: inUnits(units) })),
-    oldest: async (units) =>
-      (await db().salesReturn.findMany({ ...oldestArgs, where: { ...inUnits(units), status: "DRAFT" }, select: { id: true, number: true, createdAt: true } })).map((r) => ({ id: r.id, reference: r.number, createdAt: r.createdAt })),
+    oldest: async (units, take) =>
+      (await db().salesReturn.findMany({ ...pick(take), where: { ...inUnits(units), status: "DRAFT" }, select: { id: true, number: true, createdAt: true, updatedAt: true } })).map((r) => ({ id: r.id, reference: r.number, createdAt: r.createdAt, version: r.updatedAt.toISOString() })),
   },
   // ── Inventory ──
   inventorySource("stock-adjustment", "Stock Adjustment", "/inventory/stock-adjustment", "STOCK_UPDATE", "Stock Adjustment"),
@@ -179,8 +201,8 @@ const SOURCES: readonly Source[] = [
     approved: ["APPROVED", "IN_PROGRESS", "CLOSED"],
     rejected: ["REJECTED"],
     counts: async (units) => rows(await db().productionOrder.groupBy({ ...groupArgs, where: inUnits(units) })),
-    oldest: async (units) =>
-      (await db().productionOrder.findMany({ ...oldestArgs, where: { ...inUnits(units), status: "PENDING_APPROVAL" }, select: { id: true, number: true, createdAt: true } })).map((r) => ({ id: r.id, reference: r.number, createdAt: r.createdAt })),
+    oldest: async (units, take) =>
+      (await db().productionOrder.findMany({ ...pick(take), where: { ...inUnits(units), status: "PENDING_APPROVAL" }, select: { id: true, number: true, createdAt: true, updatedAt: true } })).map((r) => ({ id: r.id, reference: r.number, createdAt: r.createdAt, version: r.updatedAt.toISOString() })),
   },
   // ── Accounts (company-wide records) ──
   {
@@ -194,21 +216,21 @@ const SOURCES: readonly Source[] = [
     approved: ["APPROVED", "POSTED"],
     rejected: ["REJECTED"],
     counts: async () => rows(await db().journalVoucher.groupBy({ ...groupArgs })),
-    oldest: async () =>
-      (await db().journalVoucher.findMany({ ...oldestArgs, where: { status: { in: spellings(["PENDING"]) } }, select: { id: true, voucherNumber: true, createdAt: true } })).map((r) => ({ id: r.id, reference: r.voucherNumber, createdAt: r.createdAt })),
+    oldest: async (_units, take) =>
+      (await db().journalVoucher.findMany({ ...pick(take), where: { status: { in: spellings(["PENDING"]) } }, select: { id: true, voucherNumber: true, createdAt: true } })).map((r) => ({ id: r.id, reference: r.voucherNumber, createdAt: r.createdAt })),
   },
   {
     id: "expense",
     module: "Accounts",
     label: "Expense",
     href: "/accounts/expenses",
-    pipelineFeature: null,
+    pipelineFeature: "Expense",
     pending: ["PENDING"],
     approved: ["APPROVED", "PAID"],
     rejected: ["REJECTED"],
     counts: async () => rows(await db().expenseRecord.groupBy({ ...groupArgs })),
-    oldest: async () =>
-      (await db().expenseRecord.findMany({ ...oldestArgs, where: { status: { in: spellings(["PENDING"]) } }, select: { id: true, expenseNumber: true, createdAt: true } })).map((r) => ({ id: r.id, reference: r.expenseNumber, createdAt: r.createdAt })),
+    oldest: async (_units, take) =>
+      (await db().expenseRecord.findMany({ ...pick(take), where: { status: { in: spellings(["PENDING"]) } }, select: { id: true, expenseNumber: true, createdAt: true } })).map((r) => ({ id: r.id, reference: r.expenseNumber, createdAt: r.createdAt })),
   },
   {
     id: "fund-transfer",
@@ -221,9 +243,9 @@ const SOURCES: readonly Source[] = [
     approved: ["APPROVED", "COMPLETED", "DISPATCHED", "IN_TRANSIT", "RECEIVED"],
     rejected: ["REJECTED"],
     counts: async () => rows(await db().fundTransfer.groupBy({ ...groupArgs })),
-    oldest: async () =>
+    oldest: async (_units, take) =>
       (
-        await db().fundTransfer.findMany({ ...oldestArgs, where: { status: { in: spellings(["SUBMITTED", "PENDING_APPROVAL", "PENDING"]) } }, select: { id: true, transferNumber: true, createdAt: true } })
+        await db().fundTransfer.findMany({ ...pick(take), where: { status: { in: spellings(["SUBMITTED", "PENDING_APPROVAL", "PENDING"]) } }, select: { id: true, transferNumber: true, createdAt: true } })
       ).map((r) => ({ id: r.id, reference: r.transferNumber, createdAt: r.createdAt })),
   },
   {
@@ -239,8 +261,8 @@ const SOURCES: readonly Source[] = [
       const grouped = await db().budget.groupBy({ by: ["approvalStatus"], _count: { _all: true }, _min: { createdAt: true } });
       return grouped.map((g) => ({ status: g.approvalStatus, count: g._count._all, oldest: g._min.createdAt }));
     },
-    oldest: async () =>
-      (await db().budget.findMany({ ...oldestArgs, where: { approvalStatus: { in: spellings(["SUBMITTED", "PENDING"]) } }, select: { id: true, budgetCode: true, budgetName: true, createdAt: true } })).map((r) => ({
+    oldest: async (_units, take) =>
+      (await db().budget.findMany({ ...pick(take), where: { approvalStatus: { in: spellings(["SUBMITTED", "PENDING"]) } }, select: { id: true, budgetCode: true, budgetName: true, createdAt: true } })).map((r) => ({
         id: r.id,
         reference: `${r.budgetCode} — ${r.budgetName}`,
         createdAt: r.createdAt,
@@ -257,8 +279,8 @@ const SOURCES: readonly Source[] = [
     approved: ["APPROVED"],
     rejected: ["REJECTED"],
     counts: async (units) => rows(await db().leaveApplication.groupBy({ ...groupArgs, where: employeeInUnits(units) })),
-    oldest: async (units) =>
-      (await db().leaveApplication.findMany({ ...oldestArgs, where: { ...employeeInUnits(units), status: { in: spellings(["PENDING"]) } }, select: { id: true, leaveType: true, createdAt: true, employee: employeeSelect } })).map((r) => ({
+    oldest: async (units, take) =>
+      (await db().leaveApplication.findMany({ ...pick(take), where: { ...employeeInUnits(units), status: { in: spellings(["PENDING"]) } }, select: { id: true, leaveType: true, createdAt: true, employee: employeeSelect } })).map((r) => ({
         id: r.id,
         reference: `${employeeRef(r.employee)} · ${r.leaveType}`,
         createdAt: r.createdAt,
@@ -274,10 +296,28 @@ const SOURCES: readonly Source[] = [
     approved: ["APPROVED"],
     rejected: ["REJECTED"],
     counts: async (units) => rows(await db().movementApplication.groupBy({ ...groupArgs, where: employeeInUnits(units) })),
-    oldest: async (units) =>
-      (await db().movementApplication.findMany({ ...oldestArgs, where: { ...employeeInUnits(units), status: { in: spellings(["PENDING"]) } }, select: { id: true, createdAt: true, employee: employeeSelect } })).map((r) => ({
+    oldest: async (units, take) =>
+      (await db().movementApplication.findMany({ ...pick(take), where: { ...employeeInUnits(units), status: { in: spellings(["PENDING"]) } }, select: { id: true, createdAt: true, employee: employeeSelect } })).map((r) => ({
         id: r.id,
         reference: employeeRef(r.employee),
+        createdAt: r.createdAt,
+      })),
+  },
+  {
+    id: "employee-attendance",
+    module: "HR & Payroll",
+    label: "Employee Attendance",
+    href: "/hrm/governance/pending-approval",
+    link: "/hrm/governance/pending-approval?kind=attendance",
+    pipelineFeature: "Employee Attendance",
+    pending: ["PENDING"],
+    approved: ["APPROVED"],
+    rejected: ["REJECTED"],
+    counts: async (units) => rows(await db().attendanceAdjustment.groupBy({ ...groupArgs, where: employeeInUnits(units) })),
+    oldest: async (units, take) =>
+      (await db().attendanceAdjustment.findMany({ ...pick(take), where: { ...employeeInUnits(units), status: { in: spellings(["PENDING"]) } }, select: { id: true, date: true, createdAt: true, employee: employeeSelect } })).map((r) => ({
+        id: r.id,
+        reference: `${employeeRef(r.employee)} · ${r.date.toISOString().slice(0, 10)}`,
         createdAt: r.createdAt,
       })),
   },
@@ -291,8 +331,8 @@ const SOURCES: readonly Source[] = [
     approved: ["APPROVED"],
     rejected: ["REJECTED"],
     counts: async (units) => rows(await db().overtimeEntry.groupBy({ ...groupArgs, where: employeeInUnits(units) })),
-    oldest: async (units) =>
-      (await db().overtimeEntry.findMany({ ...oldestArgs, where: { ...employeeInUnits(units), status: { in: spellings(["PENDING"]) } }, select: { id: true, createdAt: true, employee: employeeSelect } })).map((r) => ({
+    oldest: async (units, take) =>
+      (await db().overtimeEntry.findMany({ ...pick(take), where: { ...employeeInUnits(units), status: { in: spellings(["PENDING"]) } }, select: { id: true, createdAt: true, employee: employeeSelect } })).map((r) => ({
         id: r.id,
         reference: employeeRef(r.employee),
         createdAt: r.createdAt,
@@ -308,8 +348,9 @@ const SOURCES: readonly Source[] = [
     approved: ["APPROVED"],
     rejected: ["REJECTED"],
     counts: async (units) => rows(await db().payrollBatch.groupBy({ ...groupArgs, where: inUnits(units) })),
-    oldest: async (units) =>
-      (await db().payrollBatch.findMany({ ...oldestArgs, where: { ...inUnits(units), status: "Under Processing" }, select: { id: true, reference: true, month: true, createdAt: true, office: { select: { name: true } } } })).map((r) => ({
+    oldest: async (units, take) =>
+      (await db().payrollBatch.findMany({ ...pick(take), where: { ...inUnits(units), status: "Under Processing" }, select: { id: true, reference: true, month: true, version: true, createdAt: true, office: { select: { name: true } } } })).map((r) => ({
+        version: String(r.version),
         id: r.id,
         reference: `${r.reference} · ${r.office.name} · ${r.month}`,
         createdAt: r.createdAt,
@@ -325,10 +366,10 @@ const SOURCES: readonly Source[] = [
     approved: ["APPROVED"],
     rejected: ["REJECTED"],
     counts: async (units) => rows(await db().bonusRun.groupBy({ ...groupArgs, where: { OR: [{ officeId: null }, { office: { businessUnitId: { in: units } } }] } })),
-    oldest: async (units) =>
+    oldest: async (units, take) =>
       (
         await db().bonusRun.findMany({
-          ...oldestArgs,
+          ...pick(take),
           where: { OR: [{ officeId: null }, { office: { businessUnitId: { in: units } } }], status: { in: spellings(["PENDING"]) } },
           select: { id: true, name: true, createdAt: true },
         })
@@ -344,8 +385,8 @@ const SOURCES: readonly Source[] = [
     approved: ["APPROVED"],
     rejected: ["REJECTED"],
     counts: async (units) => rows(await db().salaryIncrement.groupBy({ ...groupArgs, where: employeeInUnits(units) })),
-    oldest: async (units) =>
-      (await db().salaryIncrement.findMany({ ...oldestArgs, where: { ...employeeInUnits(units), status: { in: spellings(["PENDING"]) } }, select: { id: true, incrementType: true, createdAt: true, employee: employeeSelect } })).map((r) => ({
+    oldest: async (units, take) =>
+      (await db().salaryIncrement.findMany({ ...pick(take), where: { ...employeeInUnits(units), status: { in: spellings(["PENDING"]) } }, select: { id: true, incrementType: true, createdAt: true, employee: employeeSelect } })).map((r) => ({
         id: r.id,
         reference: `${employeeRef(r.employee)} · ${r.incrementType}`,
         createdAt: r.createdAt,
@@ -362,8 +403,8 @@ const SOURCES: readonly Source[] = [
     approved: ["APPROVED", "COMPLETED"],
     rejected: ["REJECTED"],
     counts: async (units) => rows(await db().rtmStockTransfer.groupBy({ ...groupArgs, where: inUnits(units) })),
-    oldest: async (units) =>
-      (await db().rtmStockTransfer.findMany({ ...oldestArgs, where: { ...inUnits(units), status: "PENDING" }, select: { id: true, number: true, createdAt: true } })).map((r) => ({ id: r.id, reference: r.number, createdAt: r.createdAt })),
+    oldest: async (units, take) =>
+      (await db().rtmStockTransfer.findMany({ ...pick(take), where: { ...inUnits(units), status: "PENDING" }, select: { id: true, number: true, createdAt: true } })).map((r) => ({ id: r.id, reference: r.number, createdAt: r.createdAt })),
   },
   {
     id: "rtm-stock-adjustment",
@@ -375,8 +416,8 @@ const SOURCES: readonly Source[] = [
     approved: ["APPROVED", "COMPLETED"],
     rejected: ["REJECTED"],
     counts: async (units) => rows(await db().rtmStockAdjustment.groupBy({ ...groupArgs, where: inUnits(units) })),
-    oldest: async (units) =>
-      (await db().rtmStockAdjustment.findMany({ ...oldestArgs, where: { ...inUnits(units), status: "PENDING" }, select: { id: true, number: true, createdAt: true } })).map((r) => ({ id: r.id, reference: r.number, createdAt: r.createdAt })),
+    oldest: async (units, take) =>
+      (await db().rtmStockAdjustment.findMany({ ...pick(take), where: { ...inUnits(units), status: "PENDING" }, select: { id: true, number: true, createdAt: true } })).map((r) => ({ id: r.id, reference: r.number, createdAt: r.createdAt })),
   },
   {
     id: "rtm-tour-plan",
@@ -388,8 +429,8 @@ const SOURCES: readonly Source[] = [
     approved: ["APPROVED", "COMPLETED"],
     rejected: ["REJECTED"],
     counts: async (units) => rows(await db().rtmTourPlan.groupBy({ ...groupArgs, where: inUnits(units) })),
-    oldest: async (units) =>
-      (await db().rtmTourPlan.findMany({ ...oldestArgs, where: { ...inUnits(units), status: "PENDING" }, select: { id: true, createdAt: true, employee: employeeSelect } })).map((r) => ({
+    oldest: async (units, take) =>
+      (await db().rtmTourPlan.findMany({ ...pick(take), where: { ...inUnits(units), status: "PENDING" }, select: { id: true, createdAt: true, employee: employeeSelect } })).map((r) => ({
         id: r.id,
         reference: employeeRef(r.employee),
         createdAt: r.createdAt,
@@ -440,8 +481,9 @@ async function productionStageLoad(units: string[]): Promise<ApprovalStageLoad[]
  * has acted on yet wait at stage 1, so they are added there by the caller.
  */
 async function documentStageLoad(feature: string, units: string[]): Promise<{ load: ApprovalStageLoad[]; inProgress: number }> {
+  const aliases = featureAliases(feature);
   const stages = await db().documentApproval.findMany({
-    where: { feature, status: "PENDING", OR: [{ businessUnitId: null }, { businessUnitId: { in: units } }] },
+    where: { feature: { in: aliases }, status: "PENDING", OR: [{ businessUnitId: null }, { businessUnitId: { in: units } }] },
     select: { documentId: true, stageNo: true, stageName: true },
     orderBy: { stageNo: "asc" },
   });
@@ -482,7 +524,7 @@ export async function getApprovalSummary(actor: Actor): Promise<ApprovalSummary>
       visible.map(async (source) => {
         const [statusRows, oldest, stageLoad, engineLoad] = await Promise.all([
           source.counts(units),
-          source.oldest(units),
+          source.oldest(units, OLDEST_PER_SOURCE),
           source.id === "production-order" ? productionStageLoad(units) : Promise.resolve(null),
           source.pipelineFeature && source.id !== "production-order" ? documentStageLoad(source.pipelineFeature, units) : Promise.resolve(null),
         ]);
@@ -492,7 +534,12 @@ export async function getApprovalSummary(actor: Actor): Promise<ApprovalSummary>
   ]);
 
   const pipelineByFeature = new Map<string, (typeof pipelines)[number]>();
-  for (const p of pipelines) if (!pipelineByFeature.has(p.feature)) pipelineByFeature.set(p.feature, p);
+  for (const p of pipelines) {
+    if (!pipelineByFeature.has(p.feature)) pipelineByFeature.set(p.feature, p);
+    for (const alias of featureAliases(p.feature)) {
+      if (!pipelineByFeature.has(alias)) pipelineByFeature.set(alias, p);
+    }
+  }
 
   const categories: ApprovalCategory[] = results.map(({ source, statusRows, stageLoad: productionLoad, engineLoad }) => {
     const pipeline = source.pipelineFeature ? pipelineByFeature.get(source.pipelineFeature) : undefined;
@@ -514,7 +561,7 @@ export async function getApprovalSummary(actor: Actor): Promise<ApprovalSummary>
       id: source.id,
       module: source.module,
       label: source.label,
-      href: source.href,
+      href: source.link ?? source.href,
       ...counts,
       pipelineConfigurable: source.pipelineFeature !== null,
       pipeline: pipeline
@@ -531,7 +578,7 @@ export async function getApprovalSummary(actor: Actor): Promise<ApprovalSummary>
         categoryId: source.id,
         category: source.label,
         module: source.module,
-        href: source.href,
+        href: source.link ?? source.href,
         reference: doc.reference,
         createdAt: doc.createdAt.toISOString(),
       })),
@@ -540,4 +587,17 @@ export async function getApprovalSummary(actor: Actor): Promise<ApprovalSummary>
     .slice(0, OLDEST_TOTAL);
 
   return { generatedAt: new Date().toISOString(), categories, oldestPending };
+}
+
+/** Pending documents of one category, oldest first, for approving from the Multilayer Approval page. */
+export async function getPendingDocuments(actor: Actor, categoryId: string): Promise<PendingList> {
+  const source = SOURCES.find((s) => s.id === categoryId);
+  if (!source || !(actor.isMaster || !actor.grants || grantsAllow(actor.grants, source.href, "view"))) throw notFound("Approval category");
+  const units = await scopedBusinessUnitIds(actor);
+  const docs = await source.oldest(units, LIST_LIMIT + 1);
+  return {
+    categoryId: source.id,
+    truncated: docs.length > LIST_LIMIT,
+    documents: docs.slice(0, LIST_LIMIT).map((d) => ({ id: d.id, reference: d.reference, createdAt: d.createdAt.toISOString(), version: d.version ?? null })),
+  };
 }

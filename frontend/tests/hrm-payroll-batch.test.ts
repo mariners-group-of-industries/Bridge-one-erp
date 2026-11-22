@@ -10,6 +10,7 @@ import {
   cancelPayrollBatch,
   createPayrollBatch,
   decidePayrollBatch,
+  disbursementSheet,
   getPayrollBatch,
   getPayrollLine,
   listPayrollBatches,
@@ -24,6 +25,7 @@ import {
 import type { Actor } from "@/lib/auth/actor";
 import { FULL_ACCESS, grantsFromList, permissionKey } from "@/lib/permissions/registry";
 import { adminActor, businessUnitInput, companyInput, officeInput, scopedActor } from "./helpers/fixtures";
+import { payrollPeriodOn } from "@/features/hrm/payroll/server/payroll-inputs";
 import { resetTestDb, startTestDb, stopTestDb, testPrisma } from "./helpers/test-db";
 
 const MONTH = "2026-09"; // 30 days; Fridays: 4, 11, 18, 25
@@ -52,7 +54,7 @@ async function assignCalendar(code: string) {
   await testPrisma().employeeCalendarDay.createMany({
     data: Array.from({ length: 30 }, (_, i) => {
       const date = new Date(`${day(i + 1)}T00:00:00Z`);
-      return { employeeId: ids[code], date, shortCode: date.getUTCDay() === 5 ? "OFF" : "G" };
+      return { employeeId: ids[code], date, code: date.getUTCDay() === 5 ? "OFF" : "G" };
     }),
   });
 }
@@ -142,7 +144,7 @@ describe("Salary generation", () => {
     await testPrisma().employeeCalendarDay.createMany({
       data: Array.from({ length: 30 }, (_, i) => {
         const date = new Date(`${day(i + 1)}T00:00:00Z`);
-        return { employeeId: ids["E-2"], date, shortCode: date.getUTCDay() === 6 ? "OFF" : "A" };
+        return { employeeId: ids["E-2"], date, code: date.getUTCDay() === 6 ? "OFF" : "A" };
       }),
     });
     await testPrisma().leaveApplication.createMany({
@@ -378,8 +380,104 @@ describe("Salary generation", () => {
     await expect(getPayrollBatch(otherCompany, id)).rejects.toThrow(/not found/i);
     await expect(previewPayroll(otherCompany, input())).rejects.toThrow(/not found/i);
     const viewer: Actor = { ...adminActor, id: "viewer", isMaster: false, grants: grantsFromList([permissionKey("/hrm/payroll", "view")]) };
-    expect((await getPayrollBatch(viewer, id)).can).toEqual({ edit: false, submit: false, cancel: false, decide: false });
+    expect((await getPayrollBatch(viewer, id)).can).toEqual({ edit: false, submit: false, cancel: false, decide: false, publish: false });
     await expect(recalculatePayrollBatch(viewer, id, { version: 1 })).rejects.toThrow(/permission to change/);
     await expect(cancelPayrollBatch(viewer, id, { version: 1, reason: "x" })).rejects.toThrow(/permission to change/);
+  });
+});
+
+describe("Salary generation: attendance from the shared calculation", () => {
+  const deductAbsences = () =>
+    policy("payroll-rules", { periodStartDay: 1, dayRateBasis: "Calendar days of the month", deductAbsentDays: true, deductUnrecordedDays: true, unpaidLeaveTypes: "" }, "2026-02-01");
+  const correct = (code: string, n: number, requestedStatus: string, status: "Approved" | "Pending", extra: Record<string, unknown> = {}) =>
+    testPrisma().attendanceAdjustment.create({
+      data: { employeeId: ids[code], date: new Date(`${day(n)}T00:00:00Z`), requestedStatus, status, remarks: "Correction", decidedByName: status === "Approved" ? "HR Manager" : null, ...extra },
+    });
+
+  it("applies approved attendance corrections, as Daily Attendance does, and ignores pending ones", async () => {
+    await deductAbsences();
+    // E-2 has no punch on the 8th and 9th: both deducted under the rule.
+    expect((await previewPayroll(hr, input())).lines[1].attendance).toMatchObject({ unrecordedDays: 2, absentDeductionDays: 2 });
+
+    await correct("E-2", 8, "Present", "Approved", { inTime: "09:00 AM" });
+    await correct("E-2", 9, "Present", "Pending"); // not decided yet: still unrecorded
+    await correct("E-2", 10, "Absent", "Approved"); // punched, but HR ruled the day absent
+    await correct("E-2", 14, "Offday", "Approved"); // a working day HR turned into an off day
+    await correct("E-2", 15, "Leave", "Approved"); // leave recorded as an attendance correction
+    const e2 = (await previewPayroll(hr, input())).lines[1];
+    expect(e2.attendance).toMatchObject({
+      workingDays: 25,
+      weeklyOffDays: 5,
+      offDaysWorked: 1,
+      presentDays: 22,
+      absentDays: 1,
+      unrecordedDays: 1,
+      absentDeductionDays: 2,
+      leaveDays: { "Leave (attendance correction)": 1 },
+      unpaidLeaveDeductionDays: 0,
+    });
+    // Two days at 30,000 ÷ 30.
+    expect(e2).toMatchObject({ attendanceDeduction: 2000, netPayable: 28000 });
+  });
+
+  it("rates punches against the day's calendar (grace time), not only the office rule", async () => {
+    // Office rule: late after 09:20, so E-1's six 09:30 punches cost two days. Calendar G allows until 09:40.
+    expect((await previewPayroll(hr, input())).lines[0]).toMatchObject({ attendanceDeduction: 2000 });
+    await testPrisma().hrPolicyRecord.create({
+      data: { tab: "calendar-setup", officeId, data: { name: "General-G", shortCode: "G", startTime: "09:00", endTime: "18:00", graceTime: "09:40", lastStartTime: "12:00" } },
+    });
+    const e1 = (await previewPayroll(hr, input())).lines[0];
+    expect(e1.attendance).toMatchObject({ presentDays: 26, lateCount: 0, lateDeductionDays: 0 });
+    expect(e1).toMatchObject({ attendanceDeduction: 0, netPayable: 30000 });
+  });
+
+  it("counts a night shift's after-midnight punches for the night it started", async () => {
+    // E-2 works nights 22:00 – 06:00 on the 1st – 3rd (Tue – Thu); the 4th is a Friday off.
+    await testPrisma().hrPolicyRecord.create({
+      data: { tab: "calendar-setup", officeId, data: { name: "Night", shortCode: "N", startTime: "22:00", endTime: "06:00", graceTime: "22:15", lastStartTime: "22:30" } },
+    });
+    await testPrisma().employeeCalendarDay.updateMany({ where: { employeeId: ids["E-2"], date: { in: [1, 2, 3].map((n) => new Date(`${day(n)}T00:00:00Z`)) } }, data: { code: "N" } });
+    await testPrisma().attendancePunch.deleteMany({ where: { employeeId: ids["E-2"], punchTime: { gte: dhaka(day(1), "00:00"), lt: dhaka(day(4), "00:00") } } });
+    await testPrisma().attendancePunch.createMany({
+      data: [1, 2, 3].flatMap((n) => [
+        { deviceId, deviceUserId: "E-2", employeeId: ids["E-2"], punchTime: dhaka(day(n), "22:05") },
+        { deviceId, deviceUserId: "E-2", employeeId: ids["E-2"], punchTime: dhaka(day(n + 1), "06:02") },
+      ]),
+    });
+    const e2 = (await previewPayroll(hr, input())).lines[1];
+    // Rated per day, the 22:05 punches would be Absent (after 12:00) and Friday's 06:02 an off day worked.
+    expect(e2.attendance).toMatchObject({ workingDays: 26, presentDays: 24, absentDays: 0, lateCount: 0, offDaysWorked: 0, unrecordedDays: 2 });
+  });
+});
+
+describe("Salary Disbursement", () => {
+  it("shows the payroll engine's figures, lates included: live before generation, then the saved payroll", async () => {
+    const live = await disbursementSheet(hr, officeId, MONTH);
+    expect(live).toMatchObject({ batches: [], final: false, withoutSalary: 1, fromDate: "2026-09-01", toDate: "2026-09-30" });
+    expect(live.lines.find((l) => l.employeeCode === "E-1")).toMatchObject({ lateCount: 6, deductionDays: 2, payableDays: 28, attendanceDeduction: 2000, netAmount: 28000, disbursementMode: "bank", accountNo: "AC-E-1" });
+    expect(live.totals).toMatchObject({ netAmount: 58000, attendanceDeduction: 2000, lateCount: 6 });
+
+    const { id, reference } = await createPayrollBatch(hr, input());
+    // A late punch added after generation does not change the saved payroll's sheet.
+    await testPrisma().attendancePunch.create({ data: { deviceId, deviceUserId: "E-2", employeeId: ids["E-2"], punchTime: dhaka(day(8), "09:45") } });
+    const saved = await disbursementSheet(hr, officeId, MONTH);
+    expect(saved.batches).toEqual([{ id, reference, salaryType: "Monthly", status: "Draft", payrollDate: "2026-10-05" }]);
+    expect(saved).toMatchObject({ final: false, totals: { netAmount: 58000, lateCount: 6 } });
+  });
+
+  it("uses the 21st – 20th period by default", async () => {
+    await testPrisma().hrPolicyRecord.deleteMany({ where: { tab: "payroll-rules" } });
+    const sheet = await disbursementSheet(hr, officeId, "2026-10");
+    expect(sheet).toMatchObject({ fromDate: "2026-10-21", toDate: "2026-11-20" });
+  });
+});
+
+describe("Payroll period on a date", () => {
+  it("follows the office's Payroll Rule: the calendar month here, 21st – 20th without one", async () => {
+    expect(await payrollPeriodOn(officeId, "2026-11-22")).toMatchObject({ month: "2026-11", fromDate: "2026-11-01", toDate: "2026-11-30" });
+    await testPrisma().hrPolicyRecord.deleteMany({ where: { tab: "payroll-rules" } });
+    expect(await payrollPeriodOn(officeId, "2026-11-22")).toMatchObject({ month: "2026-11", fromDate: "2026-11-21", toDate: "2026-12-20" });
+    expect(await payrollPeriodOn(officeId, "2026-11-20")).toMatchObject({ month: "2026-10", fromDate: "2026-10-21", toDate: "2026-11-20" });
+    expect(await payrollPeriodOn(officeId, "2027-01-05")).toMatchObject({ month: "2026-12", fromDate: "2026-12-21", toDate: "2027-01-20" });
   });
 });

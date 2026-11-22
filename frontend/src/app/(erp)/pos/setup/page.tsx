@@ -683,18 +683,20 @@ function PosSetupContent() {
   return (
     <div className="min-h-[calc(100vh-3.5rem)] bg-white dark:bg-slate-950 p-4 sm:p-6 space-y-4">
       {/* 1. Header with back button & Title */}
-      <div className="flex items-center gap-3">
-        <button
-          type="button"
-          onClick={handleBackToHub}
-          className="text-slate-700 dark:text-slate-200 hover:text-blue-600 transition p-1"
-          title="Back to Setup Menu"
-        >
-          <ArrowLeft className="size-5" />
-        </button>
-        <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100">
-          {activeTab === "FLOOR" ? "Floor" : "Floor Layout"}
-        </h1>
+      <div data-sticky-head className="sticky top-14 z-20 -mx-4 -mt-4 px-4 pt-4 pb-3 sm:-mx-6 sm:-mt-6 sm:px-6 sm:pt-6 bg-white dark:bg-slate-950">
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={handleBackToHub}
+            className="text-slate-700 dark:text-slate-200 hover:text-blue-600 transition p-1"
+            title="Back to Setup Menu"
+          >
+            <ArrowLeft className="size-5" />
+          </button>
+          <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100">
+            {activeTab === "FLOOR" ? "Floor" : "Floor Layout"}
+          </h1>
+        </div>
       </div>
 
       {/* 2. Tabs Bar (FLOOR | FLOOR LAYOUT) */}

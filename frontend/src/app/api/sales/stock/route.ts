@@ -3,11 +3,11 @@ import { adjustStock, getStockLevels } from "@/features/sales/deliveries/service
 import { apiHandler, noContent, ok } from "@/lib/api/handler";
 
 const querySchema = z.object({
-  warehouseId: z.uuid(),
+  warehouseId: z.guid(),
   itemIds: z
     .string()
     .transform((value) => value.split(",").filter(Boolean))
-    .pipe(z.array(z.uuid()).max(500)),
+    .pipe(z.array(z.guid()).max(500)),
 });
 
 /** GET /api/sales/stock?warehouseId=…&itemIds=a,b,c */

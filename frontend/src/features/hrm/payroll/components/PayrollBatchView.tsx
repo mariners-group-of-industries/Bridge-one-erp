@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeft, Ban, Check, RefreshCw, Save, Search, Send, Users, X } from "lucide-react";
+import { ArrowLeft, Ban, Check, FileCheck2, RefreshCw, Save, Search, Send, Users, X } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState, type ReactNode } from "react";
 import { PageContainer, PageHead } from "@/components/layout/page";
@@ -19,7 +19,7 @@ import { formatDate, monthLabel } from "../../shared/hr-ui";
 import type { LineSort, PayrollBatchDetail, PayrollLine, PayrollLineDetail, PayrollLinePage } from "../batch-types";
 import { ActionDialog, Callout, PayrollStatusBadge, PayrollSummary, SalaryDetailDialog, SalaryTable, bdt } from "./payroll-ui";
 
-type Action = "recalculate" | "submit" | "approve" | "reject" | "cancel";
+type Action = "recalculate" | "submit" | "approve" | "reject" | "cancel" | "publish";
 const PAGE_SIZES = [25, 50, 100] as const;
 const dateTime = (iso: string) => new Date(iso).toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
 
@@ -29,6 +29,7 @@ const ACTIONS: Record<Action, { title: string; confirm: string; done: string; re
   approve: { title: "Approve payroll", confirm: "Approve", done: "Approval recorded.", remarks: "optional", remarksLabel: "Remarks" },
   reject: { title: "Reject payroll", confirm: "Reject", done: "Payroll rejected.", remarks: "required", remarksLabel: "Reason for rejection", danger: true },
   cancel: { title: "Cancel payroll", confirm: "Cancel Payroll", done: "Payroll cancelled.", remarks: "required", remarksLabel: "Reason for cancelling", danger: true },
+  publish: { title: "Publish payslips", confirm: "Publish Payslips", done: "Payslips published; employees can now see them in Employee Self Service." },
 };
 
 const STAGE_VARIANT: Record<string, "success" | "danger" | "warning" | "neutral"> = { APPROVED: "success", REJECTED: "danger", PENDING: "warning", SKIPPED: "neutral" };
@@ -152,6 +153,7 @@ export function PayrollBatchView({ id }: { id: string }) {
       : `Approve ${b.reference}, net payable BDT ${bdt(b.totals.net)}?`,
     reject: `Reject ${b.reference}? It returns to HR for correction and must be submitted again.`,
     cancel: `Cancel ${b.reference}? It is kept for audit, and a new payroll can then be generated for ${b.officeName}, ${period}.`,
+    publish: `Publish the payslips of ${b.reference} (${b.totals.employees} employees, ${period})? Each employee can then see their own payslip in Employee Self Service and is notified. Publishing cannot be undone.`,
   };
 
   return (
@@ -181,6 +183,17 @@ export function PayrollBatchView({ id }: { id: string }) {
                 <Send aria-hidden="true" />
                 {b.status === "Rejected" ? "Resubmit for Approval" : "Submit for Approval"}
               </Button>
+            )}
+            {b.can.publish && (
+              <Button variant="primary" onClick={() => open("publish")}>
+                <FileCheck2 aria-hidden="true" />
+                Publish Payslips
+              </Button>
+            )}
+            {b.status === "Approved" && b.payslipsPublishedAt && (
+              <Badge variant="success" title={`Published ${dateTime(b.payslipsPublishedAt)}${b.payslipsPublishedByName ? ` by ${b.payslipsPublishedByName}` : ""}`}>
+                Payslips published
+              </Badge>
             )}
             {b.can.decide && (
               <>

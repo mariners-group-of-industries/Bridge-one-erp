@@ -15,10 +15,13 @@ import {
   Search,
   X,
   Check,
+  Upload,
 } from "lucide-react";
 import { ModalDialog } from "@/components/purchase/ModalDialog";
 import { ConfirmDialog } from "@/components/ui/dialog";
 import { useAccountingStore } from "@/features/accounts/store/accounting-store";
+import { BulkUploadDialog } from "@/features/configuration/entity-master-data/components/BulkUploadDialog";
+import { uploadAccountImport } from "@/features/accounts/lib/bulk-import-client";
 import { localDaysFromToday, localToday } from "@/features/purchase/lib/client";
 import type { FundTransferRecord } from "@/features/accounts/types";
 import { useFeaturePermissions, needsPermission } from "@/lib/permissions/useFeaturePermissions";
@@ -82,6 +85,7 @@ export default function FundTransferPage() {
 
   // Modals
   const [isRequestModalOpen, setIsRequestModalOpen] = useState(false);
+  const [bulkOpen, setBulkOpen] = useState(false);
   const [isReqHeaderCollapsed, setIsReqHeaderCollapsed] = useState(false);
   const [isDirectModalOpen, setIsDirectModalOpen] = useState(false);
   const [isDirectHeaderCollapsed, setIsDirectHeaderCollapsed] = useState(false);
@@ -635,6 +639,16 @@ export default function FundTransferPage() {
                 className="px-3 py-1 bg-surface hover:bg-blue-50 dark:hover:bg-blue-500/10 border border-blue-600 text-blue-600 dark:text-blue-400 rounded text-xs font-semibold transition-colors shadow-2xs"
               >
                 CREATE FUND TRANSFER REQUEST
+              </button>) : null)
+            )}
+            {activeTab === "REQUEST" && (
+              (perms.import ? (<button
+                onClick={() => setBulkOpen(true)}
+                className="inline-flex items-center gap-1 px-3 py-1 border border-line-strong rounded text-xs font-medium text-ink-muted hover:bg-canvas transition-colors"
+                title="Bulk upload fund transfer requests from an Excel file"
+              >
+                <Upload className="w-3.5 h-3.5" />
+                <span>Bulk Upload</span>
               </button>) : null)
             )}
 
@@ -1376,6 +1390,16 @@ export default function FundTransferPage() {
           toast.success(actionOn.kind === "approve" ? "Transfer approved." : actionOn.kind === "dispatch" ? "Payment sent; the transfer is in transit." : "Transfer cancelled.");
           setActionOn(null);
         }}
+      />
+      <BulkUploadDialog
+        open={bulkOpen}
+        onClose={() => setBulkOpen(false)}
+        onImported={() => { void useAccountingStore.getState().syncDatabase(); }}
+        noun="fund transfer requests"
+        templateUrl="/api/accounts/fund-transfers/import"
+        maxRows={2000}
+        matchHint="From/To Office must match offices in your access; From/To Account are GL codes. Requests are saved as SUBMITTED for approval."
+        upload={(file) => uploadAccountImport("/api/accounts/fund-transfers/import", file)}
       />
     </div>
   );

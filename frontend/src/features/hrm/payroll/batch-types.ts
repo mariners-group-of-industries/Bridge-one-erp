@@ -34,7 +34,7 @@ export const PF_CODE: ComponentCode = "PFD";
 const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Enter a valid date.");
 
 export const generateInputSchema = z.object({
-  officeId: z.uuid("Select an office."),
+  officeId: z.guid("Select an office."),
   month: monthSchema,
   salaryType: z.enum(SALARY_TYPES, "Select a salary type.").default("Monthly"),
   payrollDate: isoDate,
@@ -302,7 +302,10 @@ export interface PayrollBatchDetail {
   approval: ApprovalProgress;
   stages: ApprovalStageRow[];
   events: PayrollBatchEventRow[];
-  can: { edit: boolean; submit: boolean; cancel: boolean; decide: boolean };
+  /** Set once HR publishes the approved payroll's payslips to employees. */
+  payslipsPublishedAt: string | null;
+  payslipsPublishedByName: string | null;
+  can: { edit: boolean; submit: boolean; cancel: boolean; decide: boolean; publish: boolean };
 }
 
 export interface PayrollLinePage {

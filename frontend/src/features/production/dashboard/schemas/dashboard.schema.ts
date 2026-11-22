@@ -5,7 +5,7 @@ export const productionDashboardQuerySchema = z
   .object({
     from: z.iso.date({ error: "From Date is required." }),
     to: z.iso.date({ error: "To Date is required." }),
-    officeId: z.uuid().optional(),
+    officeId: z.guid().optional(),
   })
   .refine((query) => query.from <= query.to, { error: "From Date must be on or before To Date.", path: ["to"] });
 export type ProductionDashboardQuery = z.input<typeof productionDashboardQuerySchema>;
