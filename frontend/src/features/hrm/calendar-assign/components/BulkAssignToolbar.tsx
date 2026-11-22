@@ -34,10 +34,12 @@ export function BulkAssignToolbar({
   const [applyMode, setApplyMode] = useState<"working_days" | "all">("working_days");
 
   const { calendars } = useCalendars();
-  // Every calendar the offices in view may use: offices can share a code (e.g. "G"), so each is listed with its office.
-  const regularCalendars = calendars.filter(
-    (c) => c.shortCode !== "OFF" && c.shortCode !== "HOL" && (c.office === "All" || officeNames.includes(c.office)),
-  );
+  // Every office's calendars, grouped by office (offices can share a code, e.g. "G"); the offices in view first.
+  // Applying one still assigns it only to that office's employees (DynamicCalendarView › handleBulkApply).
+  const regularCalendars = calendars.filter((c) => c.shortCode !== "OFF" && c.shortCode !== "HOL");
+  const groups = [...new Set(regularCalendars.map((c) => c.office))]
+    .sort((a, b) => Number(!officeNames.includes(a) && a !== "All") - Number(!officeNames.includes(b) && b !== "All") || a.localeCompare(b))
+    .map((office) => ({ office, calendars: regularCalendars.filter((c) => c.office === office) }));
   const specialCalendars = calendars.filter((c) => c.shortCode === "OFF" || c.shortCode === "HOL");
   const selected = calendars.find((c) => c.id === selectedShift);
 
@@ -55,16 +57,24 @@ export function BulkAssignToolbar({
             className="h-8 text-xs font-medium rounded border border-line-strong bg-canvas px-2.5 text-ink focus:border-primary focus:outline-none"
           >
             <option value="">-- Choose Calendar --</option>
-            {regularCalendars.map((c) => (
-              <option key={c.id} value={c.id}>
-                [{c.shortCode}] {c.calendarName} ({c.startTime} - {c.endTime}) - {c.office}
-              </option>
+            {groups.map((g) => (
+              <optgroup key={g.office} label={g.office === "All" ? "All offices" : `${g.office}${officeNames.includes(g.office) ? " (in view)" : ""}`}>
+                {g.calendars.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    [{c.shortCode}] {c.calendarName} ({c.startTime} - {c.endTime}) · Grace {c.graceTime} · {c.minWorkHour} hrs
+                  </option>
+                ))}
+              </optgroup>
             ))}
-            {specialCalendars.map((c) => (
-              <option key={c.id} value={c.id}>
-                [{c.shortCode}] {c.calendarName}
-              </option>
-            ))}
+            {specialCalendars.length > 0 && (
+              <optgroup label="Off / Holiday">
+                {specialCalendars.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    [{c.shortCode}] {c.calendarName}
+                  </option>
+                ))}
+              </optgroup>
+            )}
           </select>
         </div>
 
@@ -123,6 +133,11 @@ export function BulkAssignToolbar({
           <div className="mb-1.5 flex items-center gap-2 text-xs font-semibold text-ink">
             <span className={`inline-flex min-w-[28px] items-center justify-center rounded border px-1.5 py-0.5 text-[11px] font-bold ${selected.badgeBg} ${selected.badgeText} ${selected.badgeBorder}`}>{selected.shortCode}</span>
             {selected.calendarName}
+            {selected.office !== "All" && !officeNames.includes(selected.office) && (
+              <span className="text-[11px] font-medium text-amber-700 dark:text-amber-400">
+                {selected.office} calendar: no employee in view belongs to {selected.office}, so applying it assigns nobody.
+              </span>
+            )}
           </div>
           <CalendarQuickDetails calendar={selected} />
         </div>
