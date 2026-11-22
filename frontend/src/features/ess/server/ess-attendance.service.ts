@@ -4,7 +4,7 @@ import { db } from "@/lib/prisma/client";
 import { SELF_REQUEST_DAYS, dayKey, employeeAttendance, myAttendanceRequests } from "@/features/hrm/attendance/services/attendance.service";
 import { daysBetween, minutesOf, type DayPlan } from "@/features/hrm/attendance/services/day-plan.service";
 import type { AttendanceRecord, EmployeeOption } from "@/features/hrm/attendance/types";
-import { payrollPeriodOn } from "@/features/hrm/payroll/server/payroll-inputs";
+import { payrollPeriodOfMonth, payrollPeriodOn } from "@/features/hrm/payroll/server/payroll-inputs";
 import { policiesInForce } from "@/features/hrm/self-service/leave-movement/server/leave-policy";
 import type { EssAttendanceMonth, EssAttendanceSummary, EssCalendarDay, EssCalendarMonth, EssCorrection, EssDay, EssDayDetail, EssDayStatus, EssPayrollRef } from "../types";
 import { requireSelf, type SelfEmployee } from "./identity";
@@ -203,7 +203,11 @@ export interface AttendanceQuery {
   status?: string | null;
 }
 
-/** My Attendance: a month (default this month) or a custom range, optionally one status. Future days are left out. */
+/**
+ * My Attendance: a payroll month or a custom range, optionally one status.
+ * A month is its payroll period (21st – 20th unless the Payroll Rule says
+ * otherwise); without one, the period that contains today. Future days are left out.
+ */
 export async function myAttendance(actor: Actor, query: AttendanceQuery): Promise<EssAttendanceMonth> {
   const self = await requireSelf(actor);
   let from: string;
@@ -215,8 +219,9 @@ export async function myAttendance(actor: Actor, query: AttendanceQuery): Promis
     ({ from, to } = { from: query.from, to: query.to });
     month = from.slice(0, 7);
   } else {
-    month = query.month || today().slice(0, 7);
-    ({ from, to } = monthRange(month));
+    if (query.month && !MONTH.test(query.month)) throw badRequest("Choose a valid month.");
+    const period = query.month ? await payrollPeriodOfMonth(self.officeId, query.month) : await payrollPeriodOn(self.officeId, today());
+    ({ month, fromDate: from, toDate: to } = period);
   }
   const { days, rules } = await buildDays(self, from, to);
   const past = days.filter((d) => d.status !== "Upcoming" && d.date <= today());

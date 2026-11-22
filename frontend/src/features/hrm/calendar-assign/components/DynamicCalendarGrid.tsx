@@ -34,6 +34,8 @@ interface DynamicCalendarGridProps {
   isLoadingMore?: boolean;
   hasMore?: boolean;
   totalCount?: number;
+  /** View only (no HRM › Calendar Assign › Create): shifts are shown, nothing can be changed. */
+  readOnly?: boolean;
 }
 
 export function DynamicCalendarGrid({
@@ -50,6 +52,7 @@ export function DynamicCalendarGrid({
   isLoadingMore = false,
   hasMore = false,
   totalCount,
+  readOnly = false,
 }: DynamicCalendarGridProps) {
   const { calendars, byCode, forOffice } = useCalendars();
   // Active cell popover state
@@ -217,6 +220,7 @@ export function DynamicCalendarGrid({
                   </div>
 
                   {/* Quick bulk button on column header */}
+                  {!readOnly && (
                   <button
                     type="button"
                     onClick={() =>
@@ -227,6 +231,7 @@ export function DynamicCalendarGrid({
                   >
                     <ChevronDown className="size-2.5" />
                   </button>
+                  )}
 
                   {/* Column Header Dropdown Menu */}
                   {activeColMenu === date.dateStr && (
@@ -318,6 +323,7 @@ export function DynamicCalendarGrid({
 
                     {/* Row-wise assign */}
                     <td className="sticky left-10 z-20 bg-surface px-1.5 py-2 text-center border-r border-grid-line">
+                      {!readOnly && (
                       <button
                         type="button"
                         onClick={(e) => openRowMenu(emp.id, e.currentTarget)}
@@ -336,6 +342,7 @@ export function DynamicCalendarGrid({
                         Assign
                         <ChevronDown className="size-3" aria-hidden="true" />
                       </button>
+                      )}
                     </td>
 
                     {/* SL # */}
@@ -392,7 +399,9 @@ export function DynamicCalendarGrid({
                         >
                           <button
                             type="button"
+                            disabled={readOnly}
                             onClick={() => {
+                              if (readOnly) return;
                               setRowMenu(null);
                               setActiveCell(
                                 isCellActive

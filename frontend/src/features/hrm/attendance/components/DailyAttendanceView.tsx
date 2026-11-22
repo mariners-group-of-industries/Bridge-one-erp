@@ -16,6 +16,8 @@ import { AttendanceEditModal } from "./AttendanceEditModal";
 import { AttendanceViewModal } from "./AttendanceViewModal";
 import { CalendarInfoModal } from "@/features/hrm/calendar-assign/components/CalendarInfoModal";
 import { useToast } from "@/components/ui/toast";
+import { useSession } from "@/lib/auth/session";
+import { hrmPaths } from "../../paths";
 import type { AttendanceRecord, AttendanceFilterState, EmployeeOption } from "../types";
 
 // Days are Dhaka days, so the server and the browser agree on "today".
@@ -36,6 +38,11 @@ export function DailyAttendanceView({
   initialEmployees,
 }: DailyAttendanceViewProps) {
   const toast = useToast();
+  // Viewing is the page permission; each change needs its own action (the server checks the same).
+  const { can } = useSession();
+  const canAdjust = can(hrmPaths.attendance, "create");
+  const canWithdraw = can(hrmPaths.attendance, "delete");
+  const canExport = can(hrmPaths.attendance, "export");
 
   const [records, setRecords] = useState<AttendanceRecord[]>(initialRecords);
   const [employees, setEmployees] = useState<EmployeeOption[]>(initialEmployees);
@@ -225,7 +232,7 @@ export function DailyAttendanceView({
         </div>
 
         <div className="flex items-center gap-2 pb-1.5">
-          {records.length > 0 && (
+          {canWithdraw && records.length > 0 && (
             <button
               type="button"
               onClick={handleClearAll}
@@ -237,6 +244,7 @@ export function DailyAttendanceView({
             </button>
           )}
 
+          {canExport && (
           <button
             type="button"
             onClick={handleExportPdf}
@@ -246,6 +254,7 @@ export function DailyAttendanceView({
             <FileText className="size-3.5" />
             PDF
           </button>
+          )}
         </div>
       </div>
 
@@ -298,7 +307,7 @@ export function DailyAttendanceView({
         selectedIds={selectedIds}
         onToggleSelectAll={handleToggleSelectAll}
         onToggleSelectRow={handleToggleSelectRow}
-        onEdit={(rec) => setEditingRecord(rec)}
+        onEdit={canAdjust ? (rec) => setEditingRecord(rec) : undefined}
         onView={(rec) => setViewingRecord(rec)}
         onOpenCalendarInfo={handleOpenCalendarInfo}
         pageSize={filters.pageSize}
@@ -310,7 +319,7 @@ export function DailyAttendanceView({
       {/* Manual Adjustment Modal */}
       <AttendanceEditModal
         record={editingRecord}
-        open={Boolean(editingRecord)}
+        open={canAdjust && Boolean(editingRecord)}
         onClose={() => setEditingRecord(null)}
         onSave={handleSaveEdit}
       />

@@ -13,6 +13,8 @@ import { DynamicCalendarGrid } from "./DynamicCalendarGrid";
 import { CalendarInfoModal } from "./CalendarInfoModal";
 import { useToast } from "@/components/ui/toast";
 import { apiRequest, errorMessage } from "@/lib/api/client";
+import { useSession } from "@/lib/auth/session";
+import { hrmPaths } from "../../paths";
 import { useCalendars } from "../use-calendars";
 import type {
   CalendarDefinition,
@@ -32,6 +34,8 @@ export function DynamicCalendarView({
   initialOptions,
 }: DynamicCalendarViewProps) {
   const toast = useToast();
+  // Viewing is the page permission; saving assignments is Create (the server checks the same).
+  const canAssign = useSession().can(hrmPaths.calendarAssign, "create");
   const { calendars, forOffice } = useCalendars();
 
   // Real Employees & Options loaded from database
@@ -439,6 +443,8 @@ export function DynamicCalendarView({
                 ● {unsavedChanges} pending changes
               </span>
             )}
+            {!canAssign && <span className="text-[11px] font-medium text-ink-muted">View only: you have no permission to assign calendars.</span>}
+            {canAssign && (
             <button
               type="button"
               onClick={handleSave}
@@ -454,6 +460,7 @@ export function DynamicCalendarView({
                 "Save"
               )}
             </button>
+            )}
           </div>
         </div>
       </div>
@@ -578,6 +585,7 @@ export function DynamicCalendarView({
         /* Filtered Calendar Matrix with Scroll Pagination */
         <>
           {/* Bulk Assignment & Quick Tools Bar */}
+          {canAssign && (
           <BulkAssignToolbar
             selectedShift={selectedShiftForBulk}
             onSelectShift={setSelectedShiftForBulk}
@@ -589,9 +597,11 @@ export function DynamicCalendarView({
             isAssignAll={filter.isAssignAll}
             officeNames={officeNamesInView}
           />
+          )}
 
           {/* Dynamic Calendar Matrix Grid */}
           <DynamicCalendarGrid
+            readOnly={!canAssign}
             employees={filteredEmployees}
             dates={dates}
             gridData={gridData}

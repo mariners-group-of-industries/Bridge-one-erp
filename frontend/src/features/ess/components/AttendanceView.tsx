@@ -23,11 +23,14 @@ export function AttendanceView() {
 }
 
 function Attendance() {
-  const [draft, setDraft] = useState<Query>({ mode: "month", month: localToday().slice(0, 7), status: "ALL" });
+  // month "" = the payroll period that contains today (the server works it out from the Payroll Rule).
+  const [draft, setDraft] = useState<Query>({ mode: "month", month: "", status: "ALL" });
   const [query, setQuery] = useState<Query>(draft);
   const [rangeError, setRangeError] = useState("");
   const key = JSON.stringify(query);
-  const data = useResource(`ess-attendance:${key}`, () => essApi.attendance(query.mode === "month" ? { month: query.month, status: query.status } : { from: query.from, to: query.to, status: query.status }));
+  const data = useResource(`ess-attendance:${key}`, () => essApi.attendance(query.mode === "month" ? { month: query.month || undefined, status: query.status } : { from: query.from, to: query.to, status: query.status }));
+  // The picker shows the payroll month the server chose until one is picked.
+  const pickedMonth = draft.mode === "month" ? draft.month || (query.mode === "month" && !query.month ? data.data?.month : undefined) || localToday().slice(0, 7) : "";
   const paged = usePaged(data.data?.days ?? [], 15);
 
   function submit(event: FormEvent) {
@@ -56,16 +59,16 @@ function Attendance() {
                   key={mode}
                   type="button"
                   aria-pressed={draft.mode === mode}
-                  onClick={() => setDraft(mode === "month" ? { mode, month: localToday().slice(0, 7), status: draft.status } : { mode, from: `${localToday().slice(0, 7)}-01`, to: localToday(), status: draft.status })}
+                  onClick={() => setDraft(mode === "month" ? { mode, month: "", status: draft.status } : { mode, from: data.data && data.data.from <= localToday() ? data.data.from : `${localToday().slice(0, 7)}-01`, to: localToday(), status: draft.status })}
                   className={cn("px-3 text-xs font-semibold focus-visible:outline-2", draft.mode === mode ? "bg-accent-soft text-accent-strong dark:text-accent" : "bg-surface text-ink-muted hover:bg-control")}
                 >
-                  {mode === "month" ? "Month" : "Date Range"}
+                  {mode === "month" ? "Payroll Month" : "Date Range"}
                 </button>
               ))}
             </div>
           </div>
           {draft.mode === "month" ? (
-            <MonthPicker idPrefix="ess-att" value={draft.month} onChange={(month) => setDraft({ ...draft, month })} />
+            <MonthPicker idPrefix="ess-att" value={pickedMonth} onChange={(month) => setDraft({ ...draft, month })} />
           ) : (
             <>
               <div className="flex w-36 flex-col gap-1">
@@ -98,6 +101,12 @@ function Attendance() {
             <CalendarSearch aria-hidden="true" />
             View
           </Button>
+          {data.data && (
+            <p className="w-full text-xs text-ink-muted tabular-nums">
+              Showing {fmtDate(data.data.from)} – {fmtDate(data.data.to)}
+              {query.mode === "month" ? " · payroll period (21st – 20th unless the Payroll Rule says otherwise)" : ""}
+            </p>
+          )}
           {rangeError && (
             <p role="alert" className="w-full text-xs text-danger">
               {rangeError}
