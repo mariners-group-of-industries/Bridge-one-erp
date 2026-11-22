@@ -40,7 +40,44 @@ export interface SalaryLine {
   accountNo: string | null;
 }
 
+/** One employee in Salary Disbursement: the payroll engine's figures (period, lates, absences). */
+export interface DisbursementLine extends SalaryLine {
+  lateCount: number;
+  absentDays: number;
+  /** Days deducted for absence, unpaid leave and lates (Late Punishment). */
+  deductionDays: number;
+  attendanceDeduction: number;
+  otherDeduction: number;
+}
+
+/** A payroll batch the sheet is read from. */
+export interface DisbursementBatch {
+  id: string;
+  reference: string;
+  salaryType: string;
+  status: string;
+  payrollDate: string;
+}
+
 export interface SalarySheet {
+  officeName: string;
+  businessUnit: string;
+  month: string;
+  /** Payroll period, e.g. 21 Oct – 20 Nov. */
+  fromDate: string;
+  toDate: string;
+  /** The saved payrolls of the office and month (not cancelled); empty = a live, provisional calculation. */
+  batches: DisbursementBatch[];
+  /** Every batch is Approved: the figures are final. */
+  final: boolean;
+  lines: DisbursementLine[];
+  totals: { grossSalary: number; earnedSalary: number; additions: number; deductions: number; attendanceDeduction: number; netAmount: number; lateCount: number };
+  /** Employees left out because they have no salary set. */
+  withoutSalary: number;
+}
+
+/** Legacy calendar-month sheet (HRM › Payroll runs), kept for the old Process endpoint. */
+export interface LegacySalarySheet {
   officeName: string;
   businessUnit: string;
   month: string;
@@ -49,6 +86,5 @@ export interface SalarySheet {
   status: PayrollStatus;
   lines: SalaryLine[];
   totals: { grossSalary: number; earnedSalary: number; additions: number; deductions: number; netAmount: number };
-  /** Employees left out because they have no salary set. */
   withoutSalary: number;
 }

@@ -13,7 +13,8 @@ import { apiRequest, errorMessage } from "@/lib/api/client";
 import { resolveBreadcrumbs } from "@/lib/navigation/registry";
 import { EmptyBlock, Field, FormGrid, Input, Panel, Select, TextArea } from "@/features/configuration/entity-master-data/employee/components/kit";
 import { hrmPaths } from "../../paths";
-import { MONTHS, YEARS, currentPeriod, formatDate, monthLabel, useHrOptions } from "../../shared/hr-ui";
+import { MONTHS, YEARS, formatDate, monthLabel, useHrOptions } from "../../shared/hr-ui";
+import { defaultPayrollDate, defaultPeriodEnd, lastClosedPayrollMonth } from "../period";
 import { SALARY_TYPES, type LineSort, type PayrollLine, type PayrollLineDetail, type PayrollPreview, type PayrollSequence } from "../batch-types";
 import { ActionDialog, Callout, PayrollStatusBadge, PayrollSummary, SalaryDetailDialog, SalaryTable, bdt } from "./payroll-ui";
 
@@ -28,7 +29,6 @@ interface Form {
 }
 
 const PAGE_SIZES = [25, 50, 100] as const;
-const today = () => new Date().toLocaleDateString("en-CA");
 const SORT_VALUE: Record<LineSort, (l: PayrollLine) => string | number> = {
   sl: (l) => l.sl,
   code: (l) => l.employeeCode,
@@ -46,9 +46,11 @@ export function SalaryGenerateView({ initial }: { initial: { officeId?: string; 
     businessUnitId: "",
     officeId: initial.officeId ?? "",
     salaryType: SALARY_TYPES[0],
-    month: /^(0[1-9]|1[0-2])$/.test(initial.month ?? "") ? initial.month! : currentPeriod().month,
-    year: /^\d{4}$/.test(initial.year ?? "") ? initial.year! : currentPeriod().year,
-    payrollDate: today(),
+    // Opens on the salary that is due: the last period that has ended (on 22 Nov, 21 Oct – 20 Nov).
+    month: /^(0[1-9]|1[0-2])$/.test(initial.month ?? "") ? initial.month! : lastClosedPayrollMonth().month,
+    year: /^\d{4}$/.test(initial.year ?? "") ? initial.year! : lastClosedPayrollMonth().year,
+    // Empty = the default pay date, which follows the period (see payrollDate below).
+    payrollDate: "",
     description: "",
   }));
   const [errors, setErrors] = useState<Partial<Record<keyof Form, string>>>({});
@@ -74,6 +76,9 @@ export function SalaryGenerateView({ initial }: { initial: { officeId?: string; 
   const required = form.officeId ? (sequence.data ?? null) : null;
   const month = required ? required.nextMonth.slice(5, 7) : form.month;
   const year = required ? required.nextMonth.slice(0, 4) : form.year;
+  // Paid on the 5th of the month after the period ends (21 Oct – 20 Nov → 5 Dec) unless HR picks another date.
+  const periodEnd = preview?.toDate ?? defaultPeriodEnd(`${year}-${month}`);
+  const payrollDate = form.payrollDate || defaultPayrollDate(periodEnd);
 
   /** Any change to what is being calculated discards the preview: it must be generated again. */
   function set<K extends keyof Form>(key: K, value: Form[K], keepsPreview = false) {
@@ -86,13 +91,13 @@ export function SalaryGenerateView({ initial }: { initial: { officeId?: string; 
     const next: typeof errors = {};
     if (!businessUnitId) next.businessUnitId = "Select a branch.";
     if (!form.officeId) next.officeId = "Select an office.";
-    if (!form.payrollDate) next.payrollDate = "Select the payroll date.";
+    if (!payrollDate) next.payrollDate = "Select the payroll date.";
     if (form.description.length > 500) next.description = "At most 500 characters.";
     setErrors(next);
     return Object.keys(next).length === 0;
   }
 
-  const payload = () => ({ officeId: form.officeId, month: `${year}-${month}`, salaryType: form.salaryType, payrollDate: form.payrollDate, description: form.description });
+  const payload = () => ({ officeId: form.officeId, month: `${year}-${month}`, salaryType: form.salaryType, payrollDate, description: form.description });
 
   async function generate(event?: FormEvent) {
     event?.preventDefault();
@@ -212,8 +217,8 @@ export function SalaryGenerateView({ initial }: { initial: { officeId?: string; 
               <Field label="Salary Type" required>
                 {(id) => <Select id={id} value={form.salaryType} onChange={(e) => set("salaryType", e.target.value)} placeholder={false} options={SALARY_TYPES} />}
               </Field>
-              <Field label="Payroll Date" required error={errors.payrollDate} hint="Processing / payment reference date.">
-                {(id) => <Input id={id} type="date" value={form.payrollDate} aria-invalid={!!errors.payrollDate} onChange={(e) => set("payrollDate", e.target.value, true)} />}
+              <Field label="Payroll Date" required error={errors.payrollDate} hint={`Payment date. Default: the 5th after the period ends (${formatDate(periodEnd)}).`}>
+                {(id) => <Input id={id} type="date" value={payrollDate} aria-invalid={!!errors.payrollDate} onChange={(e) => set("payrollDate", e.target.value, true)} />}
               </Field>
               <Field
                 label="Payroll Month"
@@ -221,7 +226,9 @@ export function SalaryGenerateView({ initial }: { initial: { officeId?: string; 
                 hint={
                   required
                     ? `Fixed: the last payroll is ${monthLabel(required.lastMonth)} (${required.lastReference}), so the next is ${monthLabel(required.nextMonth)}.`
-                    : "Period: the 21st to the 20th of the next month, unless a Payroll Rule sets another."
+                    : preview
+                      ? `Period: ${formatDate(preview.fromDate)} – ${formatDate(preview.toDate)}.`
+                      : "Period: the 21st to the 20th of the next month (October = 21 Oct – 20 Nov), unless a Payroll Rule sets another."
                 }
               >
                 {(id) => <Select id={id} value={month} disabled={!!required} onChange={(e) => set("month", e.target.value)} placeholder={false} options={MONTHS.map((label, i) => ({ value: String(i + 1).padStart(2, "0"), label }))} />}
