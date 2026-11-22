@@ -18,6 +18,8 @@ export interface DialogProps {
   /** "2xl" fits wide entry forms (iBOS-style item grids). */
   size?: "md" | "lg" | "xl" | "2xl";
   className?: string;
+  /** Extra classes for the title (e.g. a larger title on report-style dialogs). */
+  titleClassName?: string;
 }
 
 /**
@@ -37,6 +39,7 @@ export function Dialog({
   onSubmit,
   size = "md",
   className,
+  titleClassName,
 }: DialogProps) {
   const ref = useRef<HTMLDialogElement>(null);
   const titleId = useId();
@@ -69,7 +72,7 @@ export function Dialog({
       <div className="mb-4 flex items-center gap-3 border-b border-line bg-canvas px-5 py-3">
         <div className="flex flex-1 flex-col gap-0.5">
           {title && (
-            <h2 id={titleId} className="text-sm font-bold tracking-tight text-ink">
+            <h2 id={titleId} className={cn("text-sm font-bold tracking-tight text-ink", titleClassName)}>
               {title}
             </h2>
           )}
