@@ -4,7 +4,8 @@ const fs = require("fs");
 const path = require("path");
 const express = require("express");
 const { Client, LocalAuth } = require("whatsapp-web.js");
-const qrcode = require("qrcode-terminal");
+const qrcodeTerminal = require("qrcode-terminal");
+const QRCode = require("qrcode");
 
 function detectChromePath() {
   if (process.env.PUPPETEER_EXECUTABLE_PATH) return process.env.PUPPETEER_EXECUTABLE_PATH;
@@ -56,8 +57,8 @@ const client = new Client({
 client.on("qr", (qr) => {
   ready = false;
   lastQr = qr;
-  console.log("\n[WhatsApp Gateway] Scan this QR code with WhatsApp (Linked Devices -> Link a Device):\n");
-  qrcode.generate(qr, { small: true });
+  console.log("\n[WhatsApp Gateway] Scan QR at /qr?token=<GATEWAY_TOKEN> or below:\n");
+  qrcodeTerminal.generate(qr, { small: true });
 });
 
 client.on("ready", async () => {
@@ -92,6 +93,27 @@ function requireAuth(req, res, next) {
 
 app.get("/", (_req, res) => {
   res.json({ ok: true, service: "bridgeone-whatsapp-gateway", connected: ready });
+});
+
+app.get("/qr", async (req, res) => {
+  const token = String(req.query.token || "").trim();
+  if (token !== TOKEN && req.headers.authorization !== `Bearer ${TOKEN}`) {
+    return res.status(401).send("Unauthorized");
+  }
+  if (ready) {
+    return res.send(
+      `<!doctype html><html><body style="font-family:sans-serif;text-align:center;padding:40px"><h2>WhatsApp Connected (${clientPhone || "Linked"})</h2><p>You can close this tab.</p></body></html>`,
+    );
+  }
+  if (!lastQr) {
+    return res.send(
+      `<!doctype html><html><head><meta http-equiv="refresh" content="3"></head><body style="font-family:sans-serif;text-align:center;padding:40px"><h3>Waiting for QR code...</h3><p>Auto-refreshing every 3 seconds.</p></body></html>`,
+    );
+  }
+  const dataUrl = await QRCode.toDataURL(lastQr, { width: 320, margin: 2 });
+  return res.send(
+    `<!doctype html><html><head><meta http-equiv="refresh" content="10"></head><body style="font-family:sans-serif;text-align:center;padding:40px;background:#fff"><h2>Scan with WhatsApp (Linked Devices)</h2><img src="${dataUrl}" alt="WhatsApp QR" style="border:1px solid #ddd;border-radius:8px" /><p style="color:#555">Page refreshes automatically every 10s until connected.</p></body></html>`,
+  );
 });
 
 app.get("/health", requireAuth, (_req, res) => {
