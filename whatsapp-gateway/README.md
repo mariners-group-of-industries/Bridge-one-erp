@@ -4,26 +4,18 @@ Isolated Node.js gateway using `whatsapp-web.js` (`LocalAuth`) to send attendanc
 
 > **Important:** `whatsapp-web.js` is an unofficial Linked Device integration and carries a risk of session disconnection or account suspension. Use a dedicated notification phone number (`01325088126`) rather than a primary business number.
 
-## Setup
+## 24/7 Cloud Deployment (Recommended for Vercel ERP)
 
-1. Copy `.env.example` to `.env`:
-   ```bash
-   cp .env.example .env
-   ```
-   Set a strong random `GATEWAY_TOKEN`.
+Deploy the `whatsapp-gateway` directory using **Railway** (or **Render** / **Fly.io** / Docker VPS):
 
-2. Install dependencies and start:
-   ```bash
-   npm install
-   npm start
-   ```
-
-3. Scan the QR code shown in the terminal using WhatsApp on `01325088126` (**Linked Devices → Link a Device**).
-
-4. If `01325088126` has not joined the target group yet, join via the invite link or call:
-   ```powershell
-   Invoke-RestMethod -Uri "http://127.0.0.1:3100/join-invite" -Method Post -Headers @{ Authorization = "Bearer YOUR_TOKEN" } -ContentType "application/json" -Body '{"invite":"https://chat.whatsapp.com/HdRuyK6WyR4HxS9QtCduYv"}'
-   ```
-
-5. Configure the same `WHATSAPP_GATEWAY_URL=http://127.0.0.1:3100` and `WHATSAPP_GATEWAY_TOKEN=...` in `frontend/.env.local` (or `shared/.env` on the VPS).
-   Then open **Configuration › Community & Gateways › Attendance Notifications** in BridgeOne ERP to select the group, enable notifications, and send a test message.
+1. Create a new project on **Railway** from your GitHub repository (`development` branch) and set **Root Directory** to `whatsapp-gateway`.
+2. Railway automatically detects the included `Dockerfile` (with Node 20 + Chromium).
+3. Add a **Volume** mounted at `/app/.wwebjs_auth` so your WhatsApp login persists across restarts.
+4. Set Environment Variables in Railway:
+   - `GATEWAY_TOKEN` = `<strong-random-secret>`
+   - `WHATSAPP_GROUP_ID` = `120363427373068927@g.us`
+5. Open the Railway **Deploy Logs**, scan the QR code once with `01325088126` (**Linked Devices → Link a Device**).
+6. Copy the Railway public `https://...` domain into **Vercel → Settings → Environment Variables**:
+   - `WHATSAPP_GATEWAY_URL` = `https://<your-railway-domain>`
+   - `WHATSAPP_GATEWAY_TOKEN` = `<same GATEWAY_TOKEN>`
+7. Redeploy Vercel once.

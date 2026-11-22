@@ -21,7 +21,8 @@ const app = express();
 app.use(express.json({ limit: "32kb" }));
 
 const PORT = Number(process.env.PORT || 3100);
-const HOST = process.env.HOST || "127.0.0.1";
+const HOST = process.env.HOST || "0.0.0.0";
+const AUTH_DATA_PATH = process.env.AUTH_DATA_PATH || "./.wwebjs_auth";
 const TOKEN = process.env.GATEWAY_TOKEN;
 const DEFAULT_GROUP_ID = (process.env.WHATSAPP_GROUP_ID || "").trim();
 const ALLOWED_GROUPS = new Set(
@@ -42,12 +43,12 @@ let clientPhone = null;
 
 const client = new Client({
   authStrategy: new LocalAuth({
-    dataPath: "./.wwebjs_auth",
+    dataPath: AUTH_DATA_PATH,
   }),
   puppeteer: {
     headless: true,
     ...(detectChromePath() ? { executablePath: detectChromePath() } : {}),
-    args: ["--no-sandbox", "--disable-setuid-sandbox"],
+    args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
   },
 });
 
@@ -87,6 +88,10 @@ function requireAuth(req, res, next) {
   }
   return next();
 }
+
+app.get("/", (_req, res) => {
+  res.json({ ok: true, service: "bridgeone-whatsapp-gateway", connected: ready });
+});
 
 app.get("/health", requireAuth, (_req, res) => {
   res.json({
