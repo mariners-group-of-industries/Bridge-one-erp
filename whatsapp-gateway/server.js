@@ -1,6 +1,7 @@
 require("dotenv").config();
 
 const fs = require("fs");
+const path = require("path");
 const express = require("express");
 const { Client, LocalAuth } = require("whatsapp-web.js");
 const qrcode = require("qrcode-terminal");
@@ -182,4 +183,24 @@ async function shutdown() {
 process.on("SIGINT", shutdown);
 process.on("SIGTERM", shutdown);
 
-client.initialize();
+function clearStaleChromiumLocks(dir) {
+  if (!fs.existsSync(dir)) return;
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const fullPath = path.join(dir, entry.name);
+    if (entry.name === "SingletonLock" || entry.name === "SingletonCookie" || entry.name === "SingletonSocket") {
+      try {
+        fs.rmSync(fullPath, { force: true });
+        console.log(`[WhatsApp Gateway] Removed stale lock: ${fullPath}`);
+      } catch (err) {
+        console.warn(`[WhatsApp Gateway] Could not remove ${fullPath}:`, err.message);
+      }
+    } else if (entry.isDirectory()) {
+      clearStaleChromiumLocks(fullPath);
+    }
+  }
+}
+
+clearStaleChromiumLocks(AUTH_DATA_PATH);
+client.initialize().catch((err) => {
+  console.error("[WhatsApp Gateway] Client initialization failed:", err);
+});
