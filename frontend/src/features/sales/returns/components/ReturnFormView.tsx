@@ -1062,8 +1062,6 @@ function ReturnItemEntry({
       (!itemType || candidate.itemType === itemType) &&
       (!brand || candidate.brand === brand),
   );
-  // As in Managerium, suggestions start after 3 letters.
-  const searching = itemText.trim().length >= 3;
   const label = (item: ItemOption) => `${item.code} — ${item.name}`;
   const item = items.find((candidate) => label(candidate) === itemText);
   const tp = item ? rateFor(item, effectivePriceList) : null;
@@ -1165,12 +1163,12 @@ function ReturnItemEntry({
             list={listId}
             value={itemText}
             disabled={disabled}
-            placeholder={loading ? "Loading items…" : disabled ? "Select an office first" : "Select/Search Item (min 3 letters)"}
+            placeholder={loading ? "Loading items…" : disabled ? "Select an office first" : "Select/Search Item"}
             onChange={(event) => pick(event.target.value)}
             className={cn(CONTROL, "h-7")}
           />
           <datalist id={listId}>
-            {(searching ? visible : []).map((candidate) => (
+            {visible.map((candidate) => (
               <option key={candidate.id} value={label(candidate)} />
             ))}
           </datalist>

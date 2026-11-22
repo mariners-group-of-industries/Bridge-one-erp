@@ -28,6 +28,7 @@ export function DriverPick({
   placeholder = "Select/Search Driver(Employee) (min 3 letters)",
   required,
   error,
+  listAll,
 }: {
   businessUnitId: string | null;
   selected: { id: string; name: string } | null;
@@ -36,10 +37,12 @@ export function DriverPick({
   placeholder?: string;
   required?: boolean;
   error?: string;
+  /** Load every active employee of the business unit up front and filter while typing. */
+  listAll?: boolean;
 }) {
   const [text, setText] = useState("");
-  const needle = text.trim();
-  const found = useResource(businessUnitId && needle.length >= 3 ? `drivers:${businessUnitId}:${needle}` : null, () => searchDrivers(businessUnitId!, needle));
+  const needle = listAll ? "" : text.trim();
+  const found = useResource(businessUnitId && (listAll || needle.length >= 3) ? `drivers:${businessUnitId}:${needle}` : null, () => searchDrivers(businessUnitId!, needle));
   const label_ = (driver: { name: string; code?: string }) => (driver.code ? `${driver.name} (${driver.code})` : driver.name);
   const options = [
     ...(selected && !found.data?.some((driver) => driver.id === selected.id) ? [{ id: selected.id, label: label_(selected) }] : []),
@@ -53,6 +56,7 @@ export function DriverPick({
       error={error}
       disabled={!businessUnitId}
       options={options}
+      maxOptions={listAll ? Infinity : undefined}
       selectedId={selected?.id ?? ""}
       onSearch={setText}
       onPick={(id) => onChange(id ? (found.data?.find((driver) => driver.id === id) ?? (selected ? { id: selected.id, code: "", name: selected.name, mobile: null } : null)) : null)}

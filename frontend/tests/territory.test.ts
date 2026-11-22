@@ -197,4 +197,33 @@ describe("sales territory", () => {
     await book.xlsx.load((await exportTree(adminActor, unitId)) as unknown as ArrayBuffer);
     expect(book.worksheets[0].rowCount).toBe(3);
   });
+
+  it("imports a names-only outline where blank cells repeat the row above", async () => {
+    await chain(); // Bangladesh → Dhaka Region → Savar already exist
+    const sheet = [
+      ["National", "Division", "Territory", "Base Point", "Route", "Market"],
+      ["Bangladesh", "Dhaka Region", "Savar", "Badda", "Dokkhin Badda"],
+      ["", "", "", "", "", "Dhokhin badda"],
+      ["", "", "", "", "", "Brack University"],
+      ["", "", "", "", "Moddho Badda"],
+      ["", "", "", "", "", "Brack University"], // same name, different route → its own market
+      ["", "", "", "", "", "brack university"], // exact repeat → reused, not duplicated
+      ["", "Mymensingh", "Mymensingh Territory", "Trishal"],
+      ["", "", "", "", "", "Gap row"], // nothing to take the Route from
+      ["", "", "Savar"], // a Territory name already used under Dhaka Region
+    ];
+    const result = await importTree(adminActor, unitId, await workbook(sheet));
+    expect(result.created).toBe(9);
+    expect(result.errors.map((error) => error.row)).toEqual([9, 10]);
+
+    const tree = await getTree(adminActor, unitId);
+    const markets = tree.nodes.filter((node) => node.level === 6);
+    expect(markets.map((node) => node.name).sort()).toEqual(["Brack University", "Brack University", "Dhokhin badda"]);
+    expect(markets.every((node) => /^MKT-\d{4}$/.test(node.code))).toBe(true);
+    const mymensingh = await testPrisma().salesTerritoryNode.findFirstOrThrow({ where: { name: "Mymensingh Territory" }, include: { salesArea: true } });
+    expect(mymensingh.salesArea).toMatchObject({ name: "Mymensingh Territory", kind: "TERRITORY" });
+
+    // Uploading the same file again adds nothing.
+    expect((await importTree(adminActor, unitId, await workbook(sheet))).created).toBe(0);
+  });
 });
