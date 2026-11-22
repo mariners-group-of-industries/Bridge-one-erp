@@ -134,6 +134,7 @@ export const API_RULES: Record<string, ApiRule> = {
   // ── Configuration › Community & Gateways ──
   "/api/configuration/gateways/api-tokens": { feature: PAGE.apiTokens },
   "/api/configuration/gateways/attendance-devices/options": { feature: "/configuration/gateways/attendance-devices", read: { anyViewIn: ["configuration", "hrm"] } },
+  "/api/configuration/gateways/attendance-notifications": { feature: "/configuration/gateways/attendance-notifications" },
 
   // ── Production ("Add new" process from the entry form) ──
   "/api/production/processes": { feature: "/production/entries" },

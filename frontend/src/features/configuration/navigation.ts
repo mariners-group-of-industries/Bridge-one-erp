@@ -79,6 +79,12 @@ export const communityGateways: NavCard = {
       description: "Biometric terminals (ZKTeco) whose punches feed HRM attendance.",
       keywords: ["attendance", "device", "zkteco", "biometric", "fingerprint", "punch"],
     },
+    {
+      label: "Attendance Notifications",
+      href: gatewaysPaths.attendanceNotifications,
+      description: "WhatsApp group notifications for employee check-in and late punches.",
+      keywords: ["attendance", "whatsapp", "notification", "late", "alert", "gateway"],
+    },
   ],
 };
 

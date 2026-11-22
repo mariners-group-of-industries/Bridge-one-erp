@@ -467,6 +467,54 @@ model AttendancePunch {
   @@map("attendance_punches")
 }
 
+/// Admin configuration for automatic WhatsApp Group attendance notifications.
+model AttendanceNotificationSetting {
+  id                String   @id @default(uuid()) @db.Uuid
+  enabled           Boolean  @default(false)
+  notifyCheckIn     Boolean  @default(true)
+  notifyLate        Boolean  @default(true)
+  notifyCheckOut    Boolean  @default(false)
+  whatsappGroupId   String?  @db.VarChar(120)
+  whatsappGroupName String?  @db.VarChar(200)
+  departmentFilter  String?  @db.VarChar(500)
+  messageTemplate   String   @db.Text
+  updatedBy         String?  @db.VarChar(150)
+  createdAt         DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime @updatedAt @db.Timestamptz(3)
+
+  @@map("attendance_notification_settings")
+}
+
+/// Persistent idempotent outbox for attendance notifications sent to WhatsApp.
+/// Unique per (employeeId, attendanceDate, eventType) so re-synced punches never duplicate.
+model AttendanceNotificationOutbox {
+  id               String    @id @default(uuid()) @db.Uuid
+  employeeId       String?   @db.Uuid
+  employeeCode     String    @db.VarChar(30)
+  employeeName     String    @db.VarChar(150)
+  designation      String?   @db.VarChar(120)
+  department       String?   @db.VarChar(100)
+  attendanceDate   String    @db.VarChar(10)
+  eventType        String    @db.VarChar(20)
+  attendanceStatus String    @db.VarChar(30)
+  punchTime        DateTime  @db.Timestamptz(3)
+  groupId          String    @db.VarChar(120)
+  messageText      String    @db.Text
+  status           String    @default("PENDING") @db.VarChar(20)
+  attempts         Int       @default(0)
+  gatewayMessageId String?   @db.VarChar(150)
+  lastError        String?   @db.VarChar(500)
+  nextRetryAt      DateTime? @db.Timestamptz(3)
+  sentAt           DateTime? @db.Timestamptz(3)
+  createdAt        DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt        DateTime  @updatedAt @db.Timestamptz(3)
+
+  @@unique([employeeId, attendanceDate, eventType])
+  @@index([status, nextRetryAt])
+  @@index([createdAt])
+  @@map("attendance_notification_outbox")
+}
+
 // ─── Configuration › Business Configuration › Company Profile ───────────────
 
 enum DateFormat {
