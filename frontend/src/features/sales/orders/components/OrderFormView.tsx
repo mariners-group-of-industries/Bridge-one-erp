@@ -1140,8 +1140,6 @@ export function ItemEntry({
   const visible = items.filter(
     (candidate) => (!allowed || (candidate.categoryId && allowed.has(candidate.categoryId))) && (!itemType || candidate.itemType === itemType),
   );
-  // As in Managerium, suggestions start after 3 letters.
-  const searching = itemText.trim().length >= 3;
   /** "is Customer": search by the printed / customer item code and name. */
   const [byCustomer, setByCustomer] = useState(false);
   const label = (item: ItemOption) =>
@@ -1253,12 +1251,12 @@ export function ItemEntry({
             list={listId}
             value={itemText}
             disabled={disabled}
-            placeholder={disabled ? "Select an office first" : byCustomer ? "Search customer item code / name (min 3 letters)" : "Select/Search item (min 3 letters)"}
+            placeholder={disabled ? "Select an office first" : byCustomer ? "Select/Search customer item code / name" : "Select/Search item"}
             onChange={(event) => pick(event.target.value)}
             className={cn(CONTROL, "h-7")}
           />
           <datalist id={listId}>
-            {(searching ? visible : []).map((candidate) => (
+            {visible.map((candidate) => (
               <option key={candidate.id} value={label(candidate)} />
             ))}
           </datalist>

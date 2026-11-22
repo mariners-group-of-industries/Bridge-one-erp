@@ -95,7 +95,7 @@ export async function createVehicle(actor: Actor, raw: unknown): Promise<Vehicle
   return toOption(created);
 }
 
-/** Driver (Employee) search: at least 3 letters of the name, code or mobile. */
+/** Driver (Employee) search: at least 3 letters of the name, code or mobile, or no search for every active employee. */
 export async function searchDrivers(actor: Actor, raw: unknown): Promise<DriverOption[]> {
   const { businessUnitId, search } = driverQuerySchema.parse(raw);
   await requireBusinessUnit(actor, businessUnitId);
@@ -103,15 +103,19 @@ export async function searchDrivers(actor: Actor, raw: unknown): Promise<DriverO
     where: {
       isActive: true,
       office: { businessUnitId },
-      OR: [
-        { name: { contains: search, mode: "insensitive" } },
-        { employeeCode: { contains: search, mode: "insensitive" } },
-        { mobile: { contains: search } },
-      ],
+      ...(search
+        ? {
+            OR: [
+              { name: { contains: search, mode: "insensitive" as const } },
+              { employeeCode: { contains: search, mode: "insensitive" as const } },
+              { mobile: { contains: search } },
+            ],
+          }
+        : {}),
     },
     select: { id: true, employeeCode: true, name: true, mobile: true },
     orderBy: { name: "asc" },
-    take: 20,
+    take: search ? 20 : 5000,
   });
   return rows.map((row) => ({ id: row.id, code: row.employeeCode, name: row.name, mobile: row.mobile }));
 }

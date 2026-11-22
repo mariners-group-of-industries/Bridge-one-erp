@@ -34,7 +34,13 @@ export type VehicleInput = z.input<typeof vehicleInputSchema>;
 
 export const driverQuerySchema = z.object({
   businessUnitId: z.guid(),
-  search: z.string().trim().min(3, "Type at least 3 letters.").max(60),
+  /** Empty lists every active employee of the business unit; otherwise at least 3 letters. */
+  search: z
+    .string()
+    .trim()
+    .max(60)
+    .default("")
+    .refine((value) => value === "" || value.length >= 3, "Type at least 3 letters."),
 });
 
 export interface VehicleCompartment {
