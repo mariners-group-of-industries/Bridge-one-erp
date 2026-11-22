@@ -286,7 +286,7 @@ export async function handleNewAttendancePunches(
       skipDuplicates: true,
     });
 
-    const sent = await processPendingAttendanceNotifications(20);
+    const sent = await processPendingAttendanceNotifications(10);
     return { enqueued: count, sent };
   } catch (err) {
     console.error("[attendance-notifications] failed to enqueue punches:", err);

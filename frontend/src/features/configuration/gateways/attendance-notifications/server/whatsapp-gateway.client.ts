@@ -81,7 +81,7 @@ export async function sendGatewayMessage(groupId: string, message: string): Prom
       method: "POST",
       body: JSON.stringify({ groupId, message }),
     },
-    6000,
+    15000,
   );
   return { accepted: Boolean(data.accepted), messageId: data.messageId ?? null };
 }

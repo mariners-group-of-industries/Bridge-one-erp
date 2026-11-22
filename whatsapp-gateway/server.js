@@ -178,7 +178,7 @@ app.post("/send", requireAuth, async (req, res) => {
   }
 
   try {
-    const sent = await client.sendMessage(targetGroupId, message);
+    const sent = await client.sendMessage(targetGroupId, message, { sendSeen: false });
     res.json({
       accepted: true,
       messageId: sent?.id?._serialized || null,
