@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Sparkles, CheckCheck, CalendarOff, RotateCcw } from "lucide-react";
 import { useCalendars } from "../use-calendars";
 import type { CalendarDefinition } from "../types";
+import { CalendarQuickDetails } from "./CalendarQuickDetails";
 
 interface BulkAssignToolbarProps {
   /** The id of the chosen calendar ("" = none). */
@@ -115,6 +116,17 @@ export function BulkAssignToolbar({
           Reset Defaults
         </button>
       </div>
+
+      {/* The chosen calendar's timings, so HR sees what is being assigned. */}
+      {selected && (
+        <div className="basis-full border-t border-line pt-2.5" aria-live="polite">
+          <div className="mb-1.5 flex items-center gap-2 text-xs font-semibold text-ink">
+            <span className={`inline-flex min-w-[28px] items-center justify-center rounded border px-1.5 py-0.5 text-[11px] font-bold ${selected.badgeBg} ${selected.badgeText} ${selected.badgeBorder}`}>{selected.shortCode}</span>
+            {selected.calendarName}
+          </div>
+          <CalendarQuickDetails calendar={selected} />
+        </div>
+      )}
     </div>
   );
 }

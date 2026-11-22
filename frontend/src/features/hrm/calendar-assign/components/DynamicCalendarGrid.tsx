@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import type { EmployeeRosterItem, RosterGridData } from "../types";
 import { useCalendars } from "../use-calendars";
+import { CalendarQuickDetails } from "./CalendarQuickDetails";
 
 interface DateInfo {
   dateStr: string; // YYYY-MM-DD
@@ -464,14 +465,9 @@ export function DynamicCalendarGrid({
                                 ))}
                               </div>
 
-                              {cal && cal.startTime !== "-" && (
-                                <div className="text-[9px] text-ink-faint bg-canvas p-1.5 rounded border border-line/60">
-                                  <div>
-                                    Time: <strong className="text-ink">{cal.startTime} - {cal.endTime}</strong>
-                                  </div>
-                                  <div>
-                                    Grace: <strong className="text-ink">{cal.graceTime}</strong> | Break: <strong className="text-ink">{cal.breakStartTime}-{cal.breakEndTime}</strong>
-                                  </div>
+                              {cal && (
+                                <div className="rounded border border-line/60 bg-canvas p-1.5">
+                                  <CalendarQuickDetails calendar={cal} compact />
                                 </div>
                               )}
                             </div>
