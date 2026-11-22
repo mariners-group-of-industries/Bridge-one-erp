@@ -33,7 +33,9 @@ import {
   type PayrollSequence,
   type PayrollTotals,
   type PolicyUse,
+  type AttendanceSummary,
 } from "../batch-types";
+import type { DisbursementLine, SalarySheet } from "../types";
 import { calculateEmployee, sumLines } from "./engine";
 import { loadPayrollInputs, type LoadedPayroll } from "./payroll-inputs";
 
@@ -689,4 +691,112 @@ export async function getPayrollLine(actor: Actor, id: string, lineId: string): 
   const line = await db().payrollBatchLine.findFirst({ where: { id: lineId, batchId: id } });
   if (!line) throw notFound("Payroll line");
   return { ...toLine(line), attendance: line.attendance as unknown as PayrollLineDetail["attendance"], trace: line.trace as unknown as PayrollLineDetail["trace"] };
+}
+
+// ─── Salary Disbursement ──────────────────────────────────────────────────────
+
+/** A payroll line as the disbursement sheet shows it. */
+function disbursementLine(l: Pick<PayrollLine, "employeeId" | "employeeCode" | "employeeName" | "designation" | "grossSalary" | "earnedGross" | "additions" | "attendanceDeduction" | "otherDeduction" | "totalDeduction" | "netPayable" | "payMethod" | "bankOrProvider" | "accountNo">, attendance: Partial<AttendanceSummary>): DisbursementLine {
+  const deductionDays = attendance.totalDeductionDays ?? 0;
+  return {
+    employeeId: l.employeeId,
+    employeeCode: l.employeeCode,
+    employeeName: l.employeeName,
+    designation: l.designation,
+    monthDays: attendance.periodDays ?? 0,
+    payableDays: Math.max(0, Math.round(((attendance.employedDays ?? 0) - deductionDays) * 100) / 100),
+    grossSalary: l.grossSalary,
+    earnedSalary: l.earnedGross,
+    additions: l.additions,
+    deductions: l.totalDeduction,
+    netAmount: l.netPayable,
+    disbursementMode: l.payMethod,
+    bankOrProvider: l.bankOrProvider,
+    accountNo: l.accountNo,
+    lateCount: attendance.lateCount ?? 0,
+    absentDays: attendance.absentDays ?? 0,
+    deductionDays,
+    attendanceDeduction: l.attendanceDeduction,
+    otherDeduction: l.otherDeduction,
+  };
+}
+
+/**
+ * Salary advice and generate sheet for an office and payroll month, from the
+ * payroll engine: the payroll period (21st – 20th unless a Payroll Rule says
+ * otherwise), lates under the Late Punishment rule, absences and unpaid leave.
+ * Reads the office's saved payrolls for the month; without one, a live,
+ * provisional calculation.
+ */
+export async function disbursementSheet(actor: Actor, officeId: string, month: string): Promise<SalarySheet> {
+  requireHr(actor);
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) throw badRequest("Select a month and year.");
+  const office = await db().office.findFirst({ where: { id: officeId, ...officeScope(actor) }, select: { id: true, name: true, businessUnit: { select: { name: true } } } });
+  if (!office) throw notFound("Office");
+  const batches = await db().payrollBatch.findMany({
+    where: { officeId, month, status: { not: "Cancelled" } },
+    orderBy: { createdAt: "asc" },
+    include: { lines: { orderBy: { sl: "asc" } } },
+  });
+
+  let lines: DisbursementLine[];
+  let fromDate: string;
+  let toDate: string;
+  let withoutSalary: number;
+  if (batches.length > 0) {
+    lines = batches.flatMap((b) =>
+      b.lines.map((l) =>
+        disbursementLine(
+          {
+            employeeId: l.employeeId,
+            employeeCode: l.employeeCode,
+            employeeName: l.employeeName,
+            designation: l.designation,
+            grossSalary: num(l.grossSalary),
+            earnedGross: num(l.earnedGross),
+            additions: num(l.additions),
+            attendanceDeduction: num(l.attendanceDeduction),
+            otherDeduction: num(l.otherDeduction),
+            totalDeduction: num(l.totalDeduction),
+            netPayable: num(l.netPayable),
+            payMethod: l.payMethod,
+            bankOrProvider: l.bankOrProvider,
+            accountNo: l.accountNo,
+          },
+          (l.attendance ?? {}) as Partial<AttendanceSummary>,
+        ),
+      ),
+    );
+    fromDate = isoDate(batches[0].fromDate);
+    toDate = isoDate(batches[0].toDate);
+    withoutSalary = batches.reduce((t, b) => t + (Array.isArray(b.excluded) ? b.excluded.length : 0), 0);
+  } else {
+    const c = await calculateOffice(actor, officeId, month);
+    lines = c.lines.map((l) => disbursementLine(l, l.attendance));
+    fromDate = c.loaded.period.fromDate;
+    toDate = c.loaded.period.toDate;
+    withoutSalary = c.loaded.excluded.length;
+  }
+  lines.sort((a, b) => a.employeeCode.localeCompare(b.employeeCode, undefined, { numeric: true }));
+
+  return {
+    officeName: office.name,
+    businessUnit: office.businessUnit.name,
+    month,
+    fromDate,
+    toDate,
+    batches: batches.map((b) => ({ id: b.id, reference: b.reference, salaryType: b.salaryType, status: b.status, payrollDate: isoDate(b.payrollDate) })),
+    final: batches.length > 0 && batches.every((b) => b.status === "Approved"),
+    lines,
+    totals: {
+      grossSalary: sumLines(lines, (l) => l.grossSalary),
+      earnedSalary: sumLines(lines, (l) => l.earnedSalary),
+      additions: sumLines(lines, (l) => l.additions),
+      deductions: sumLines(lines, (l) => l.deductions),
+      attendanceDeduction: sumLines(lines, (l) => l.attendanceDeduction),
+      netAmount: sumLines(lines, (l) => l.netAmount),
+      lateCount: lines.reduce((t, l) => t + l.lateCount, 0),
+    },
+    withoutSalary,
+  };
 }

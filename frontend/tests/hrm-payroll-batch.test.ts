@@ -10,6 +10,7 @@ import {
   cancelPayrollBatch,
   createPayrollBatch,
   decidePayrollBatch,
+  disbursementSheet,
   getPayrollBatch,
   getPayrollLine,
   listPayrollBatches,
@@ -445,5 +446,27 @@ describe("Salary generation: attendance from the shared calculation", () => {
     const e2 = (await previewPayroll(hr, input())).lines[1];
     // Rated per day, the 22:05 punches would be Absent (after 12:00) and Friday's 06:02 an off day worked.
     expect(e2.attendance).toMatchObject({ workingDays: 26, presentDays: 24, absentDays: 0, lateCount: 0, offDaysWorked: 0, unrecordedDays: 2 });
+  });
+});
+
+describe("Salary Disbursement", () => {
+  it("shows the payroll engine's figures, lates included: live before generation, then the saved payroll", async () => {
+    const live = await disbursementSheet(hr, officeId, MONTH);
+    expect(live).toMatchObject({ batches: [], final: false, withoutSalary: 1, fromDate: "2026-09-01", toDate: "2026-09-30" });
+    expect(live.lines.find((l) => l.employeeCode === "E-1")).toMatchObject({ lateCount: 6, deductionDays: 2, payableDays: 28, attendanceDeduction: 2000, netAmount: 28000, disbursementMode: "bank", accountNo: "AC-E-1" });
+    expect(live.totals).toMatchObject({ netAmount: 58000, attendanceDeduction: 2000, lateCount: 6 });
+
+    const { id, reference } = await createPayrollBatch(hr, input());
+    // A late punch added after generation does not change the saved payroll's sheet.
+    await testPrisma().attendancePunch.create({ data: { deviceId, deviceUserId: "E-2", employeeId: ids["E-2"], punchTime: dhaka(day(8), "09:45") } });
+    const saved = await disbursementSheet(hr, officeId, MONTH);
+    expect(saved.batches).toEqual([{ id, reference, salaryType: "Monthly", status: "Draft", payrollDate: "2026-10-05" }]);
+    expect(saved).toMatchObject({ final: false, totals: { netAmount: 58000, lateCount: 6 } });
+  });
+
+  it("uses the 21st – 20th period by default", async () => {
+    await testPrisma().hrPolicyRecord.deleteMany({ where: { tab: "payroll-rules" } });
+    const sheet = await disbursementSheet(hr, officeId, "2026-10");
+    expect(sheet).toMatchObject({ fromDate: "2026-10-21", toDate: "2026-11-20" });
   });
 });
