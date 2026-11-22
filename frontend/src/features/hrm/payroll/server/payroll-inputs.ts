@@ -141,6 +141,25 @@ const shiftMonth = (month: string, by: number) => {
   return d.toISOString().slice(0, 7);
 };
 
+async function payrollRulesOn(officeId: string, date: string): Promise<PayrollRules> {
+  const rows = await db().hrPolicyRecord.findMany({
+    where: { tab: "payroll-rules", OR: [{ officeId: null }, { officeId }] },
+    select: { id: true, tab: true, officeId: true, employeeId: true, effectiveFrom: true, effectiveTo: true, data: true, updatedAt: true },
+    orderBy: { id: "asc" },
+  });
+  return payrollRules(officeRecord(rows, "payroll-rules", officeId, date));
+}
+
+/**
+ * The payroll period of a payroll month (YYYY-MM) for the office, exactly as
+ * payroll generation reads it (the Payroll Rule in force at the end of the
+ * named month): "2026-11" is 21 Nov – 20 Dec by default.
+ */
+export async function payrollPeriodOfMonth(officeId: string, month: string): Promise<PeriodInput> {
+  const rules = await payrollRulesOn(officeId, iso(monthRange(month).to));
+  return payrollPeriod(month, rules.periodStartDay, rules.periodMonth);
+}
+
 /**
  * The payroll period that contains `date` for the office, under the Payroll
  * Rule in force that day (21st – 20th by default): on 22 Nov, 21 Nov – 20 Dec.
@@ -148,12 +167,7 @@ const shiftMonth = (month: string, by: number) => {
  * deductions are counted over the same days as the salary.
  */
 export async function payrollPeriodOn(officeId: string, date: string): Promise<PeriodInput> {
-  const rows = await db().hrPolicyRecord.findMany({
-    where: { tab: "payroll-rules", OR: [{ officeId: null }, { officeId }] },
-    select: { id: true, tab: true, officeId: true, employeeId: true, effectiveFrom: true, effectiveTo: true, data: true, updatedAt: true },
-    orderBy: { id: "asc" },
-  });
-  const rules = payrollRules(officeRecord(rows, "payroll-rules", officeId, date));
+  const rules = await payrollRulesOn(officeId, date);
   const month = date.slice(0, 7);
   for (const label of [month, shiftMonth(month, -1), shiftMonth(month, 1)]) {
     const period = payrollPeriod(label, rules.periodStartDay, rules.periodMonth);
