@@ -4,6 +4,7 @@ import { db } from "@/lib/prisma/client";
 import { SELF_REQUEST_DAYS, dayKey, employeeAttendance, myAttendanceRequests } from "@/features/hrm/attendance/services/attendance.service";
 import { daysBetween, minutesOf, type DayPlan } from "@/features/hrm/attendance/services/day-plan.service";
 import type { AttendanceRecord, EmployeeOption } from "@/features/hrm/attendance/types";
+import { payrollPeriodOn } from "@/features/hrm/payroll/server/payroll-inputs";
 import { policiesInForce } from "@/features/hrm/self-service/leave-movement/server/leave-policy";
 import type { EssAttendanceMonth, EssAttendanceSummary, EssCalendarDay, EssCalendarMonth, EssCorrection, EssDay, EssDayDetail, EssDayStatus, EssPayrollRef } from "../types";
 import { requireSelf, type SelfEmployee } from "./identity";
@@ -223,11 +224,15 @@ export async function myAttendance(actor: Actor, query: AttendanceQuery): Promis
   return { month, from, to, summary: summarize(past, rules), days: wanted.reverse(), payroll: await publishedPayroll(self.id, month) };
 }
 
-/** The current month's summary and today's row, for the dashboard. */
+/**
+ * The current payroll period's summary and today's row, for the dashboard. The
+ * period follows the office's Payroll Rule (21st – 20th by default), so lates
+ * and deductions count over the same days as the salary.
+ */
 export async function attendanceSnapshot(self: SelfEmployee) {
   const now = today();
-  const month = now.slice(0, 7);
-  const { from, to } = monthRange(month);
+  const period = await payrollPeriodOn(self.officeId, now);
+  const { month, fromDate: from, toDate: to } = period;
   const { days, rules, plans, leaves } = await buildDays(self, from, to);
   const todayRow =
     days.find((d) => d.date === now) ??
@@ -250,7 +255,7 @@ export async function attendanceSnapshot(self: SelfEmployee) {
       correction: null,
       deduction: null,
     } satisfies EssDay);
-  return { month, summary: summarize(days.filter((d) => d.date <= now), rules), today: todayRow, days, plans, leaves };
+  return { month, from, to, summary: summarize(days.filter((d) => d.date <= now), rules), today: todayRow, days, plans, leaves };
 }
 
 /** One day in detail, with the raw device punches of that day. */

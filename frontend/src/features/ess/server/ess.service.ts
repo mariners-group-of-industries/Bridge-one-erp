@@ -534,7 +534,7 @@ export async function myDashboard(actor: Actor): Promise<EssDashboard> {
   const leaveOn = (date: string) => approved.find((l) => iso(l.fromDate) <= date && iso(l.toDate) >= date);
   const upcoming: EssUpcoming[] = [];
   const horizon = daysBetween(now, iso(new Date(Date.parse(`${now}T00:00:00Z`) + 13 * 86_400_000)));
-  const plans = horizon.at(-1)!.slice(0, 7) === now.slice(0, 7) ? snapshot.plans : await dayPlans([{ id: self.id, officeId: self.officeId }], now, horizon.at(-1)!);
+  const plans = horizon.at(-1)! <= snapshot.to ? snapshot.plans : await dayPlans([{ id: self.id, officeId: self.officeId }], now, horizon.at(-1)!);
   const weekday = new Intl.DateTimeFormat("en-US", { timeZone: "UTC", weekday: "short" });
   for (const date of horizon) {
     const plan = plans.get(`${self.id}:${date}`);
@@ -550,7 +550,7 @@ export async function myDashboard(actor: Actor): Promise<EssDashboard> {
   return {
     employee,
     today: snapshot.today,
-    month: { month: snapshot.month, summary: snapshot.summary },
+    month: { month: snapshot.month, from: snapshot.from, to: snapshot.to, summary: snapshot.summary },
     leave: {
       balances,
       pending: leaves.filter((l) => l.status === "Pending").length,

@@ -135,6 +135,33 @@ const componentCode = (shortCode: unknown, name: unknown): ComponentCode | null 
   return null;
 };
 
+const shiftMonth = (month: string, by: number) => {
+  const [y, m] = month.split("-").map(Number);
+  const d = new Date(Date.UTC(y, m - 1 + by, 1));
+  return d.toISOString().slice(0, 7);
+};
+
+/**
+ * The payroll period that contains `date` for the office, under the Payroll
+ * Rule in force that day (21st – 20th by default): on 22 Nov, 21 Nov – 20 Dec.
+ * The attendance summary on the employee dashboard follows it, so its lates and
+ * deductions are counted over the same days as the salary.
+ */
+export async function payrollPeriodOn(officeId: string, date: string): Promise<PeriodInput> {
+  const rows = await db().hrPolicyRecord.findMany({
+    where: { tab: "payroll-rules", OR: [{ officeId: null }, { officeId }] },
+    select: { id: true, tab: true, officeId: true, employeeId: true, effectiveFrom: true, effectiveTo: true, data: true, updatedAt: true },
+    orderBy: { id: "asc" },
+  });
+  const rules = payrollRules(officeRecord(rows, "payroll-rules", officeId, date));
+  const month = date.slice(0, 7);
+  for (const label of [month, shiftMonth(month, -1), shiftMonth(month, 1)]) {
+    const period = payrollPeriod(label, rules.periodStartDay, rules.periodMonth);
+    if (period.fromDate <= date && date <= period.toDate) return period;
+  }
+  return payrollPeriod(month, 1);
+}
+
 export interface LoadedPayroll {
   office: { id: string; name: string; businessUnitId: string; businessUnit: string };
   period: PeriodInput;

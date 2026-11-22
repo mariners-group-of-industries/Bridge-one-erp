@@ -238,7 +238,8 @@ export interface EssUpcoming {
 export interface EssDashboard {
   employee: EssEmployee;
   today: EssDay;
-  month: { month: string; summary: EssAttendanceSummary };
+  /** The current payroll period (21st – 20th unless the Payroll Rule says otherwise) and its attendance so far. */
+  month: { month: string; from: string; to: string; summary: EssAttendanceSummary };
   leave: { balances: LeaveBalanceRow[]; pending: number; upcoming: { leaveType: string; fromDate: string; toDate: string; days: number }[] };
   activities: EssActivity[];
   upcoming: EssUpcoming[];

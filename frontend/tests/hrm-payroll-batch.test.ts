@@ -25,6 +25,7 @@ import {
 import type { Actor } from "@/lib/auth/actor";
 import { FULL_ACCESS, grantsFromList, permissionKey } from "@/lib/permissions/registry";
 import { adminActor, businessUnitInput, companyInput, officeInput, scopedActor } from "./helpers/fixtures";
+import { payrollPeriodOn } from "@/features/hrm/payroll/server/payroll-inputs";
 import { resetTestDb, startTestDb, stopTestDb, testPrisma } from "./helpers/test-db";
 
 const MONTH = "2026-09"; // 30 days; Fridays: 4, 11, 18, 25
@@ -468,5 +469,15 @@ describe("Salary Disbursement", () => {
     await testPrisma().hrPolicyRecord.deleteMany({ where: { tab: "payroll-rules" } });
     const sheet = await disbursementSheet(hr, officeId, "2026-10");
     expect(sheet).toMatchObject({ fromDate: "2026-10-21", toDate: "2026-11-20" });
+  });
+});
+
+describe("Payroll period on a date", () => {
+  it("follows the office's Payroll Rule: the calendar month here, 21st – 20th without one", async () => {
+    expect(await payrollPeriodOn(officeId, "2026-11-22")).toMatchObject({ month: "2026-11", fromDate: "2026-11-01", toDate: "2026-11-30" });
+    await testPrisma().hrPolicyRecord.deleteMany({ where: { tab: "payroll-rules" } });
+    expect(await payrollPeriodOn(officeId, "2026-11-22")).toMatchObject({ month: "2026-11", fromDate: "2026-11-21", toDate: "2026-12-20" });
+    expect(await payrollPeriodOn(officeId, "2026-11-20")).toMatchObject({ month: "2026-10", fromDate: "2026-10-21", toDate: "2026-11-20" });
+    expect(await payrollPeriodOn(officeId, "2027-01-05")).toMatchObject({ month: "2026-12", fromDate: "2026-12-21", toDate: "2027-01-20" });
   });
 });
