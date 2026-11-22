@@ -142,6 +142,12 @@ describe("ESS › access without Employee Master permissions", () => {
     const dashboard = await myDashboard(rahim);
     expect(dashboard.employee.code).toBe("E-1");
     expect(dashboard.upcoming).toHaveLength(14);
+    // The attendance summary follows the payroll period (21st – 20th without a Payroll Rule), not the calendar month.
+    const now = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Dhaka" });
+    const [y, m, d] = now.split("-").map(Number);
+    const start = new Date(Date.UTC(y, m - 1 - (d >= 21 ? 0 : 1), 21));
+    const end = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + 1, 20));
+    expect(dashboard.month).toMatchObject({ from: start.toISOString().slice(0, 10), to: end.toISOString().slice(0, 10) });
     const profile = await myProfile(rahim);
     expect(profile.employee.name).toBe("Rahim Uddin");
     // Confidential fields are not part of the self-service profile.

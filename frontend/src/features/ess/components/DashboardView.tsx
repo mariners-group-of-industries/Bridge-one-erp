@@ -36,7 +36,7 @@ function Dashboard({ employee }: { employee: EssEmployee }) {
       <section aria-labelledby="ess-month-heading" className="flex flex-col gap-2">
         <div className="flex items-baseline justify-between gap-2">
           <h2 id="ess-month-heading" className="text-sm font-semibold text-ink">
-            {monthTitle(d.month.month)} so far
+            Attendance period {fmtDate(d.month.from)} – {fmtDate(d.month.to)} <span className="font-normal text-ink-muted">· so far</span>
           </h2>
           <Link href={essPaths.attendance} className="inline-flex min-h-6 items-center gap-1 rounded text-xs font-medium text-accent-strong hover:underline focus-visible:outline-2 dark:text-accent">
             View attendance <ArrowRight aria-hidden="true" className="size-3" />
@@ -47,7 +47,7 @@ function Dashboard({ employee }: { employee: EssEmployee }) {
           <StatTile label="Late" value={s.late} tone="warning" note={s.lateRule ? `${s.lateRule.latesAllowed} lates = ${s.lateRule.deductionDays} day(s)` : undefined} />
           <StatTile label="Absent" value={s.absent} tone="danger" />
           <StatTile label="Leave" value={s.leave} tone="primary" />
-          <StatTile label="Working Days" value={s.workingDays} note="Assigned this month" />
+          <StatTile label="Working Days" value={s.workingDays} note="Assigned this period" />
           <StatTile label="Attendance" value={s.attendanceRate === null ? "—" : `${s.attendanceRate}%`} note={s.pending ? `${s.pending} day pending` : "Of scheduled days so far"} />
         </div>
       </section>
