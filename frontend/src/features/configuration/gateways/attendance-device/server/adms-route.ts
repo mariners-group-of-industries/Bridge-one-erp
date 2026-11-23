@@ -1,3 +1,4 @@
+import { unstable_rethrow } from "next/navigation";
 import { AdmsError } from "./adms.service";
 
 /** Largest punch upload accepted from a device (it sends its log in batches). */
@@ -21,6 +22,9 @@ export function admsRoute(handler: (query: URLSearchParams, body: string) => Pro
       }
       return text(await handler(query, body));
     } catch (error) {
+      // Next.js control flow (the build's prerender bail-out on request.url) must propagate,
+      // so the routes stay dynamic instead of being logged as device errors.
+      unstable_rethrow(error);
       if (error instanceof AdmsError) return text(error.message, error.status);
       console.error("[adms]", error);
       return text("Server error", 500);
