@@ -14,6 +14,7 @@ import {
   decideMovement,
   deleteLeave,
   getLeave,
+  getMovement,
   leaveBalance,
   listLeaves,
   listMovements,
@@ -165,5 +166,16 @@ describe("Leave approval notifications", () => {
     // Salma decides as a line manager: Approve on Leave & Movement.
     await decideLeave({ ...salma, grants: FULL_ACCESS }, id, "Approved");
     expect((await inbox(hr)).map((n) => [n.title, n.link])).toEqual([["Leave application to approve: Casual Leave (stage 2)", `/hrm/self-service/leave-movement?leave=${id}`]]);
+  });
+
+  it("does the same for movement applications", async () => {
+    const hr = await hrUser();
+    const { id } = await applyMovement(rahim, { movementType: "Client Visit", fromDate: "2026-03-10", toDate: "2026-03-10", startTime: "10:00", endTime: "13:30", location: "Gulshan", reason: "Client meeting" });
+    expect(await inbox(hr)).toEqual([
+      { title: "Movement application to approve: Client Visit", body: "Rahim Uddin (E-1): Client Visit, 2026-03-10, 10:00–13:30, Gulshan.", link: `/hrm/self-service/leave-movement?movement=${id}` },
+    ]);
+    expect(await inbox(rahim.id)).toEqual([]);
+    expect(await getMovement(adminActor, id)).toMatchObject({ id, movementType: "Client Visit", startTime: "10:00", status: "Pending", canDecide: true, stages: [] });
+    await expect(getMovement(salma, id)).rejects.toThrow(/not found/i);
   });
 });
