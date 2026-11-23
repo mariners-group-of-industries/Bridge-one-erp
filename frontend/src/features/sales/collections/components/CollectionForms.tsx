@@ -37,6 +37,7 @@ import {
 } from "../schemas/collection.schema";
 import { createBill, createDueCollection, fetchBill, fetchCollectionWallets, fetchDueInvoices, fetchDueList, fetchGlAccounts } from "../services/collection.api";
 import { AdvanceCollectionForm } from "./AdvanceCollectionForm";
+import { NativeDateInput } from "@/components/ui/date-input";
 
 type Mode = "invoice" | "advance" | "bill";
 const TITLES: Record<Mode, string> = { invoice: "Due Collection", advance: "Advance Collection", bill: "Bill Create" };
@@ -856,7 +857,7 @@ function BillCreate({ today, lookups, initialCustomerId }: { today: string; look
                         </td>
                         <td className="px-2 py-1.5 whitespace-nowrap">{formatDay(row.deliveryDate)}</td>
                         <td className="w-40 px-2 py-1">
-                          <input aria-label={`Submission date for ${row.number}`} type="date" value={values.submissionDate} onChange={(event) => setLine(row, { submissionDate: event.target.value })} className={cn(CONTROL, "h-7")} />
+                          <NativeDateInput aria-label={`Submission date for ${row.number}`} type="date" value={values.submissionDate} onChange={(event) => setLine(row, { submissionDate: event.target.value })} className={cn(CONTROL, "h-7")} />
                         </td>
                       </tr>
                     );

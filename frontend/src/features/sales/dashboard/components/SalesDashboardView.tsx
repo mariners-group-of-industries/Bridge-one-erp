@@ -26,6 +26,7 @@ import { dashboardQuerySchema, type DashboardQuery } from "../schemas/dashboard.
 import { fetchSalesDashboard } from "../services/dashboard.api";
 import { fetchSalesLookups } from "../../masters/services/masters.api";
 import { OverdueWidget, RankedWidget, StatTile, TargetWidget } from "./DashboardWidgets";
+import { NativeDateInput } from "@/components/ui/date-input";
 
 /** Sales Dashboard. Waits for the browser's date (see useToday) before loading. */
 export function SalesDashboardView() {
@@ -247,7 +248,7 @@ function Dashboard({ today }: { today: string }) {
               From Date
             </label>
             <div className="relative">
-              <input
+              <NativeDateInput
                 id="dashboard-from"
                 type="date"
                 required
@@ -264,7 +265,7 @@ function Dashboard({ today }: { today: string }) {
               To Date
             </label>
             <div className="relative">
-              <input
+              <NativeDateInput
                 id="dashboard-to"
                 type="date"
                 required

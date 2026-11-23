@@ -12,6 +12,7 @@ import { round2 } from "@/lib/purchase-store/rules";
 import { usePurchasePermissions } from "@/features/purchase/lib/usePurchasePermissions";
 import { SearchableCombobox, type PurchaseFormOptions } from "@/features/purchase/components/PurchaseFormShared";
 import type { Item, Office, PurchaseReturn, Supplier, Warehouse } from "@bridgeone/contracts";
+import { NativeDateInput } from "@/components/ui/date-input";
 
 interface ReturnDraftLine {
   key: string;
@@ -255,7 +256,7 @@ export function CreateReturnWithoutRefView() {
                   <label className="mb-1 block text-xs font-semibold text-ink-muted">
                     <span className="text-red-500 font-bold mr-0.5">*</span>Create Date
                   </label>
-                  <input type="date" value={returnDate} onChange={(e) => setReturnDate(e.target.value)} className={inputCls} />
+                  <NativeDateInput type="date" value={returnDate} onChange={(e) => setReturnDate(e.target.value)} className={inputCls} />
                 </div>
 
                 <div>

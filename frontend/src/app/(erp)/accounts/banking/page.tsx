@@ -44,6 +44,7 @@ import type {
   BankAccountItem,
 } from "@/features/accounts/types";
 import { useFeaturePermissions } from "@/lib/permissions/useFeaturePermissions";
+import { NativeDateInput } from "@/components/ui/date-input";
 
 export default function FinanceBankingPage() {
   const perms = useFeaturePermissions("/accounts/banking");
@@ -761,7 +762,7 @@ export default function FinanceBankingPage() {
                   <label className="mb-1 block text-xs font-semibold text-slate-700">
                     <span className="text-red-500 font-bold mr-0.5">*</span>Date
                   </label>
-                  <input
+                  <NativeDateInput
                     type="date"
                     required
                     value={newDepositForm.openingDate}
@@ -998,7 +999,7 @@ export default function FinanceBankingPage() {
                   <label className="mb-1 block text-xs font-semibold text-slate-700">
                     <span className="text-red-500 font-bold mr-0.5">*</span>Date
                   </label>
-                  <input
+                  <NativeDateInput
                     type="date"
                     required
                     value={newLoanForm.disbursementDate}
@@ -1161,7 +1162,7 @@ export default function FinanceBankingPage() {
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6">
                 <div>
                   <label className="mb-1 block text-xs font-semibold text-slate-700">From Date</label>
-                  <input
+                  <NativeDateInput
                     type="date"
                     value={createLoanFromDate}
                     onChange={(e) => setCreateLoanFromDate(e.target.value)}
@@ -1171,7 +1172,7 @@ export default function FinanceBankingPage() {
 
                 <div>
                   <label className="mb-1 block text-xs font-semibold text-slate-700">To Date</label>
-                  <input
+                  <NativeDateInput
                     type="date"
                     value={createLoanToDate}
                     onChange={(e) => setCreateLoanToDate(e.target.value)}
@@ -1215,7 +1216,7 @@ export default function FinanceBankingPage() {
                   <label className="mb-1 block text-xs font-semibold text-slate-700">
                     <span className="text-red-500 font-bold mr-0.5">*</span>Maturity Date
                   </label>
-                  <input
+                  <NativeDateInput
                     type="date"
                     value={newLoanForm.maturityDate}
                     onChange={(e) => setNewLoanForm({ ...newLoanForm, maturityDate: e.target.value })}
@@ -2093,7 +2094,7 @@ export default function FinanceBankingPage() {
               <label className="text-[11px] font-semibold text-ink-muted">
                 From Date <span className="text-red-500">*</span>
               </label>
-              <input
+              <NativeDateInput
                 type="date"
                 value={loanFromDate}
                 onChange={(e) => setLoanFromDate(e.target.value)}
@@ -2105,7 +2106,7 @@ export default function FinanceBankingPage() {
               <label className="text-[11px] font-semibold text-ink-muted">
                 To Date <span className="text-red-500">*</span>
               </label>
-              <input
+              <NativeDateInput
                 type="date"
                 value={loanToDate}
                 onChange={(e) => setLoanToDate(e.target.value)}
@@ -2193,7 +2194,7 @@ export default function FinanceBankingPage() {
               <label className="text-[11px] font-semibold text-ink-muted">
                 From Date <span className="text-red-500">*</span>
               </label>
-              <input
+              <NativeDateInput
                 type="date"
                 value={factoringFromDate}
                 onChange={(e) => setFactoringFromDate(e.target.value)}
@@ -2205,7 +2206,7 @@ export default function FinanceBankingPage() {
               <label className="text-[11px] font-semibold text-ink-muted">
                 To Date <span className="text-red-500">*</span>
               </label>
-              <input
+              <NativeDateInput
                 type="date"
                 value={factoringToDate}
                 onChange={(e) => setFactoringToDate(e.target.value)}

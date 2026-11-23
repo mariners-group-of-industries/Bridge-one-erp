@@ -14,10 +14,10 @@ import { errorMessage } from "@/lib/api/client";
 import { cn } from "@/lib/cn";
 import { canDecideHere, decide, fetchPendingDocuments, type Decision } from "../services/decisions";
 import type { ApprovalCategory, PendingListDocument } from "../types";
+import { formatDate } from "@/lib/format";
 
 type RowResult = { ok: true; decision: Decision } | { ok: false; message: string };
 
-const dateFmt = new Intl.DateTimeFormat("en-GB", { day: "2-digit", month: "short", year: "numeric" });
 
 function age(iso: string): string {
   const days = Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000);
@@ -195,7 +195,7 @@ function Queue({ category, onDecided }: { category: ApprovalCategory; onDecided:
                         {doc.reference}
                       </button>
                     </td>
-                    <td className="px-2 py-1 whitespace-nowrap text-ink-muted">{dateFmt.format(new Date(doc.createdAt))}</td>
+                    <td className="px-2 py-1 whitespace-nowrap text-ink-muted">{formatDate(doc.createdAt)}</td>
                     <td className="px-2 py-1 text-right whitespace-nowrap text-ink-muted tabular-nums">{age(doc.createdAt)}</td>
                     <td className="px-2 py-1 text-xs">
                       {!result ? (

@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { useFeaturePermissions, needsPermission } from "@/lib/permissions/useFeaturePermissions";
 import { BulkUploadDialog } from "@/features/configuration/entity-master-data/components/BulkUploadDialog";
+import { NativeDateInput } from "@/components/ui/date-input";
 
 // ============================================================================
 // TYPES
@@ -280,7 +281,7 @@ export default function StoreRequisitionPage() {
             <label className="block text-[11px] text-ink-muted mb-1 font-semibold">
               From Date <span className="text-red-500">*</span>
             </label>
-            <input
+            <NativeDateInput
               type="date"
               value={summaryFromDate}
               onChange={(e) => setSummaryFromDate(e.target.value)}
@@ -293,7 +294,7 @@ export default function StoreRequisitionPage() {
             <label className="block text-[11px] text-ink-muted mb-1 font-semibold">
               To Date <span className="text-red-500">*</span>
             </label>
-            <input
+            <NativeDateInput
               type="date"
               value={summaryToDate}
               onChange={(e) => setSummaryToDate(e.target.value)}

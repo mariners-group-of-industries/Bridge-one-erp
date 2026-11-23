@@ -28,6 +28,7 @@ import type { EssNotifications } from "@/features/ess/types";
 import { useSession } from "@/lib/auth/session";
 import { applyTheme, readTheme } from "@/lib/theme";
 import { cn } from "@/lib/cn";
+import { formatDateTime } from "@/lib/format";
 
 interface NavbarProps {
   onToggleSidebar: () => void;
@@ -130,7 +131,7 @@ export function Navbar({ onToggleSidebar, sidebarHidden, onOpenSearch }: NavbarP
                         <span className="min-w-0 flex-1">
                           <span className={cn("block truncate text-[13px]", item.read ? "text-ink-muted" : "font-semibold text-ink")}>{item.title}</span>
                           {item.body && <span className="line-clamp-2 text-xs text-ink-faint">{item.body}</span>}
-                          <span className="text-[11px] text-ink-faint">{new Date(item.createdAt).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}</span>
+                          <span className="text-[11px] text-ink-faint">{formatDateTime(item.createdAt)}</span>
                         </span>
                       </Link>
                     </li>

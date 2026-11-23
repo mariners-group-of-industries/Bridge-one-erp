@@ -10,6 +10,7 @@ import { formatCurrency } from "@/lib/utils";
 import { downloadCsv, localDate, localToday } from "@/features/purchase/lib/client";
 import { usePurchasePermissions } from "@/features/purchase/lib/usePurchasePermissions";
 import type { DashboardAnalytics, Office } from "@bridgeone/contracts";
+import { NativeDateInput } from "@/components/ui/date-input";
 
 const COLORS = ["#0284c7", "#0ea5e9", "#38bdf8", "#0369a1", "#075985", "#3b82f6", "#6366f1"];
 
@@ -185,11 +186,11 @@ export default function PurchaseAnalyticsPage() {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 text-xs">
           <label className="block">
             <span className="block text-[11px] text-ink-faint mb-1">From Date</span>
-            <input type="date" value={fromDate} max={toDate || undefined} onChange={(e) => setFromDate(e.target.value)} className="w-full border border-line-strong rounded px-2 py-1.5 bg-surface text-xs" />
+            <NativeDateInput type="date" value={fromDate} max={toDate || undefined} onChange={(e) => setFromDate(e.target.value)} className="w-full border border-line-strong rounded px-2 py-1.5 bg-surface text-xs" />
           </label>
           <label className="block">
             <span className="block text-[11px] text-ink-faint mb-1">To Date</span>
-            <input type="date" value={toDate} min={fromDate || undefined} onChange={(e) => setToDate(e.target.value)} className="w-full border border-line-strong rounded px-2 py-1.5 bg-surface text-xs" />
+            <NativeDateInput type="date" value={toDate} min={fromDate || undefined} onChange={(e) => setToDate(e.target.value)} className="w-full border border-line-strong rounded px-2 py-1.5 bg-surface text-xs" />
           </label>
           <label className="block">
             <span className="block text-[11px] text-ink-faint mb-1">Office</span>

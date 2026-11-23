@@ -22,6 +22,7 @@ import { localToday } from "@/features/purchase/lib/client";
 import { Spinner } from "@/components/ui/spinner";
 import type { PaymentMethod } from "@/features/accounts/types";
 import { useFeaturePermissions, needsPermission } from "@/lib/permissions/useFeaturePermissions";
+import { NativeDateInput } from "@/components/ui/date-input";
 
 export default function ExpenseAdvancePage() {
   const perms = useFeaturePermissions("/accounts/expenses");
@@ -495,7 +496,7 @@ export default function ExpenseAdvancePage() {
                   <label className="block text-[11px] font-semibold text-slate-700 mb-1">
                     Expense Date
                   </label>
-                  <input
+                  <NativeDateInput
                     type="date"
                     value={expHeader.date}
                     onChange={(e) => setExpHeader({ ...expHeader, date: e.target.value })}
@@ -655,7 +656,7 @@ export default function ExpenseAdvancePage() {
                         </span>
                       </td>
                       <td className="py-2 px-3">
-                        <input
+                        <NativeDateInput
                           type="date"
                           value={l.date}
                           onChange={(e) => set({ date: e.target.value })}
@@ -797,7 +798,7 @@ export default function ExpenseAdvancePage() {
                   <label className="block text-[11px] font-semibold text-slate-700 mb-1">
                     <span className="text-red-500 font-bold mr-0.5">*</span> Advance Date
                   </label>
-                  <input
+                  <NativeDateInput
                     type="date"
                     value={advanceForm.date}
                     onChange={(e) => setAdvanceForm({ ...advanceForm, date: e.target.value })}
@@ -1015,7 +1016,7 @@ export default function ExpenseAdvancePage() {
                 </div>
                 <div>
                   <label className="block text-[11px] font-medium text-ink-faint mb-0.5">From</label>
-                  <input
+                  <NativeDateInput
                     type="date"
                     value={fromDate}
                     onChange={(e) => setFromDate(e.target.value)}
@@ -1024,7 +1025,7 @@ export default function ExpenseAdvancePage() {
                 </div>
                 <div>
                   <label className="block text-[11px] font-medium text-ink-faint mb-0.5">To</label>
-                  <input
+                  <NativeDateInput
                     type="date"
                     value={toDate}
                     onChange={(e) => setToDate(e.target.value)}
@@ -1109,7 +1110,7 @@ export default function ExpenseAdvancePage() {
                 </div>
                 <div>
                   <label className="block text-[11px] font-medium text-ink-faint mb-0.5">From</label>
-                  <input
+                  <NativeDateInput
                     type="date"
                     value={fromDate}
                     onChange={(e) => setFromDate(e.target.value)}
@@ -1118,7 +1119,7 @@ export default function ExpenseAdvancePage() {
                 </div>
                 <div>
                   <label className="block text-[11px] font-medium text-ink-faint mb-0.5">To</label>
-                  <input
+                  <NativeDateInput
                     type="date"
                     value={toDate}
                     onChange={(e) => setToDate(e.target.value)}
@@ -1196,7 +1197,7 @@ export default function ExpenseAdvancePage() {
               </div>
               <div>
                 <label className="block text-[11px] font-medium text-ink-faint mb-0.5">From</label>
-                <input
+                <NativeDateInput
                   type="date"
                   value={fromDate}
                   onChange={(e) => setFromDate(e.target.value)}
@@ -1205,7 +1206,7 @@ export default function ExpenseAdvancePage() {
               </div>
               <div>
                 <label className="block text-[11px] font-medium text-ink-faint mb-0.5">To</label>
-                <input
+                <NativeDateInput
                   type="date"
                   value={toDate}
                   onChange={(e) => setToDate(e.target.value)}
@@ -1245,7 +1246,7 @@ export default function ExpenseAdvancePage() {
               </div>
               <div>
                 <label className="block text-[11px] font-medium text-ink-faint mb-0.5">From</label>
-                <input
+                <NativeDateInput
                   type="date"
                   value={fromDate}
                   onChange={(e) => setFromDate(e.target.value)}
@@ -1254,7 +1255,7 @@ export default function ExpenseAdvancePage() {
               </div>
               <div>
                 <label className="block text-[11px] font-medium text-ink-faint mb-0.5">To</label>
-                <input
+                <NativeDateInput
                   type="date"
                   value={toDate}
                   onChange={(e) => setToDate(e.target.value)}

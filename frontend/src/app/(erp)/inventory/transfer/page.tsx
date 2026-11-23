@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { useFeaturePermissions, needsPermission } from "@/lib/permissions/useFeaturePermissions";
 import { BulkUploadDialog } from "@/features/configuration/entity-master-data/components/BulkUploadDialog";
+import { NativeDateInput } from "@/components/ui/date-input";
 
 // ============================================================================
 // TYPES
@@ -481,7 +482,7 @@ export default function TransferPage() {
 
               <div>
                 <label className="block text-[11px] text-ink-muted mb-0.5 font-medium">From Date</label>
-                <input
+                <NativeDateInput
                   type="date"
                   value={fromDate}
                   onChange={(e) => setFromDate(e.target.value)}
@@ -491,7 +492,7 @@ export default function TransferPage() {
 
               <div>
                 <label className="block text-[11px] text-ink-muted mb-0.5 font-medium">To Date</label>
-                <input
+                <NativeDateInput
                   type="date"
                   value={toDate}
                   onChange={(e) => setToDate(e.target.value)}
@@ -649,7 +650,7 @@ export default function TransferPage() {
 
               <div>
                 <label className="block text-[11px] text-ink-muted mb-0.5 font-medium">From Date</label>
-                <input
+                <NativeDateInput
                   type="date"
                   value={fromDate}
                   onChange={(e) => setFromDate(e.target.value)}
@@ -659,7 +660,7 @@ export default function TransferPage() {
 
               <div>
                 <label className="block text-[11px] text-ink-muted mb-0.5 font-medium">To Date</label>
-                <input
+                <NativeDateInput
                   type="date"
                   value={toDate}
                   onChange={(e) => setToDate(e.target.value)}
@@ -847,7 +848,7 @@ export default function TransferPage() {
 
               <div>
                 <label className="block text-[11px] text-ink-muted mb-0.5 font-medium">From Date</label>
-                <input
+                <NativeDateInput
                   type="date"
                   value={fromDate}
                   onChange={(e) => setFromDate(e.target.value)}
@@ -857,7 +858,7 @@ export default function TransferPage() {
 
               <div>
                 <label className="block text-[11px] text-ink-muted mb-0.5 font-medium">To Date</label>
-                <input
+                <NativeDateInput
                   type="date"
                   value={toDate}
                   onChange={(e) => setToDate(e.target.value)}
@@ -975,7 +976,7 @@ export default function TransferPage() {
           <div className="bg-canvas/60 p-3 rounded border border-line grid grid-cols-1 sm:grid-cols-4 gap-3 items-end text-xs shrink-0">
             <div>
               <label className="block text-[11px] text-ink-muted mb-0.5 font-medium">From Date</label>
-              <input
+              <NativeDateInput
                 type="date"
                 value={fromDate}
                 onChange={(e) => setFromDate(e.target.value)}
@@ -985,7 +986,7 @@ export default function TransferPage() {
 
             <div>
               <label className="block text-[11px] text-ink-muted mb-0.5 font-medium">To Date</label>
-              <input
+              <NativeDateInput
                 type="date"
                 value={toDate}
                 onChange={(e) => setToDate(e.target.value)}
@@ -1153,7 +1154,7 @@ export default function TransferPage() {
 
               <div>
                 <label className="block text-[11px] text-ink-muted mb-0.5 font-medium">From Date</label>
-                <input
+                <NativeDateInput
                   type="date"
                   value={fromDate}
                   onChange={(e) => setFromDate(e.target.value)}
@@ -1165,7 +1166,7 @@ export default function TransferPage() {
             <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 items-end">
               <div>
                 <label className="block text-[11px] text-ink-muted mb-0.5 font-medium">To Date</label>
-                <input
+                <NativeDateInput
                   type="date"
                   value={toDate}
                   onChange={(e) => setToDate(e.target.value)}

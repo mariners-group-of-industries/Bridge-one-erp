@@ -29,6 +29,8 @@ import { uploadAccountImport } from "@/features/accounts/lib/bulk-import-client"
 import type { BudgetItem, BudgetLineItem } from "@/features/accounts/types";
 import { localToday } from "@/features/purchase/lib/client";
 import { useFeaturePermissions, needsPermission } from "@/lib/permissions/useFeaturePermissions";
+import { NativeDateInput } from "@/components/ui/date-input";
+import { formatDate } from "@/lib/format";
 
 /** Budget types as iBOS lists them. */
 const BUDGET_TYPES = ["OverHeads/Expense Budget", "Sales/Revenue Budget", "Purchase Budget", "Capital Expenditure Budget"];
@@ -239,7 +241,7 @@ export default function BudgetManagementPage() {
     if (!createForm.budgetName.trim()) return setCreateError("Enter the budget name.");
     if (createForm.toPeriod < createForm.fromPeriod) return setCreateError("The To Period cannot be before the From Period.");
     if (createForm.items.length === 0) return setCreateError("Add at least one budget line.");
-    const fmt = (day: string) => new Date(`${day}T00:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+    const fmt = (day: string) => formatDate(day);
 
     const ok = await run("budget", () => createBudget({
       budgetName: createForm.budgetName.trim(),
@@ -351,7 +353,7 @@ export default function BudgetManagementPage() {
                   <label className="mb-1 block text-xs font-semibold text-slate-700">
                     <span className="text-red-500 font-bold mr-0.5">*</span>Create Date
                   </label>
-                  <input
+                  <NativeDateInput
                     type="date"
                     required
                     value={createForm.createDate}
@@ -412,7 +414,7 @@ export default function BudgetManagementPage() {
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                 <div>
                   <label className="mb-1 block text-xs font-semibold text-slate-700">From Period</label>
-                  <input
+                  <NativeDateInput
                     type="date"
                     value={createForm.fromPeriod}
                     onChange={(e) => setCreateForm({ ...createForm, fromPeriod: e.target.value })}
@@ -421,7 +423,7 @@ export default function BudgetManagementPage() {
                 </div>
                 <div>
                   <label className="mb-1 block text-xs font-semibold text-slate-700">To Period</label>
-                  <input
+                  <NativeDateInput
                     type="date"
                     value={createForm.toPeriod}
                     onChange={(e) => setCreateForm({ ...createForm, toPeriod: e.target.value })}

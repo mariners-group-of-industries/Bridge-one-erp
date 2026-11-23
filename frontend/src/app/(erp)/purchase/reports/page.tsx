@@ -27,6 +27,7 @@ import { fetchApi } from "@/lib/api";
 import { formatCurrency } from "@/lib/utils";
 import { usePurchasePermissions } from "@/features/purchase/lib/usePurchasePermissions";
 import { ReportResult, Office, Supplier } from "@bridgeone/contracts";
+import { NativeDateInput } from "@/components/ui/date-input";
 
 const REPORT_CATEGORIES = [
   {
@@ -430,14 +431,14 @@ export default function PurchaseReportsPage() {
             <div className="flex items-center gap-1.5 text-xs text-ink-muted">
               <Calendar className="w-3.5 h-3.5 text-ink-faint" />
               <span className="text-[11px] font-medium text-ink-faint">From:</span>
-              <input
+              <NativeDateInput
                 type="date"
                 value={fromDate}
                 onChange={(e) => setFromDate(e.target.value)}
                 className="border border-line-strong rounded px-2 py-1 bg-canvas text-xs outline-none"
               />
               <span className="text-[11px] font-medium text-ink-faint">To:</span>
-              <input
+              <NativeDateInput
                 type="date"
                 value={toDate}
                 onChange={(e) => setToDate(e.target.value)}

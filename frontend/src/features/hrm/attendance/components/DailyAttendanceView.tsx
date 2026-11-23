@@ -22,10 +22,10 @@ import type { AttendanceRecord, AttendanceFilterState, EmployeeOption } from "..
 
 // Days are Dhaka days, so the server and the browser agree on "today".
 const dhakaDay = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Dhaka", year: "numeric", month: "2-digit", day: "2-digit" });
-/** The last 30 days up to today. */
+/** The page always opens on today's attendance (From and To = today). */
 function defaultRange() {
-  const now = Date.now();
-  return { fromDate: dhakaDay.format(now - 29 * 86_400_000), toDate: dhakaDay.format(now) };
+  const today = dhakaDay.format(Date.now());
+  return { fromDate: today, toDate: today };
 }
 
 interface DailyAttendanceViewProps {
@@ -46,7 +46,7 @@ export function DailyAttendanceView({
 
   const [records, setRecords] = useState<AttendanceRecord[]>(initialRecords);
   const [employees, setEmployees] = useState<EmployeeOption[]>(initialEmployees);
-  // The page loads the default range as soon as it opens.
+  // The page loads today's attendance as soon as it opens.
   const [loading, setLoading] = useState(true);
 
   const [filters, setFilters] = useState<AttendanceFilterState>(() => ({

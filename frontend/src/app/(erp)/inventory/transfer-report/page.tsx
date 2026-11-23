@@ -8,6 +8,7 @@ import { InventoryTabBar, tabBarOutlineButton } from "@/features/inventory/compo
 import type { InventoryDocument, InventoryDocumentLine } from "@/features/inventory/schemas/document.schema";
 import { dmy, inventoryApi, monthAgo, today, type ItemOption } from "@/features/inventory/services/inventory.api";
 import { useFeaturePermissions } from "@/lib/permissions/useFeaturePermissions";
+import { NativeDateInput } from "@/components/ui/date-input";
 
 // iBOS Transfer Report: View By × Based On, with "Is Details" for one row per item line.
 const VIEWS = ["Transfer Out", "Transfer Received", "Transfer In Transit"] as const;
@@ -354,11 +355,11 @@ export default function TransferReportPage() {
             </div>
             <div>
               <label className={labelCls} htmlFor="tr-from"><Req />From Date</label>
-              <input id="tr-from" type="date" className={field} value={form.from} onChange={(e) => set("from", e.target.value)} />
+              <NativeDateInput id="tr-from" type="date" className={field} value={form.from} onChange={(e) => set("from", e.target.value)} />
             </div>
             <div>
               <label className={labelCls} htmlFor="tr-todate"><Req />To Date</label>
-              <input id="tr-todate" type="date" className={field} value={form.to} onChange={(e) => set("to", e.target.value)} />
+              <NativeDateInput id="tr-todate" type="date" className={field} value={form.to} onChange={(e) => set("to", e.target.value)} />
             </div>
           </>
         )}

@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { useFeaturePermissions, needsPermission } from "@/lib/permissions/useFeaturePermissions";
 import { BulkUploadDialog } from "@/features/configuration/entity-master-data/components/BulkUploadDialog";
+import { NativeDateInput } from "@/components/ui/date-input";
 
 // ============================================================================
 // TYPES
@@ -220,7 +221,7 @@ export default function StoreIssuePage() {
           <div className="flex flex-wrap items-end gap-3 text-xs bg-canvas/70 p-3 rounded border border-line shrink-0">
             <div>
               <label className="block text-[11px] text-ink-muted mb-0.5 font-medium">From Date</label>
-              <input
+              <NativeDateInput
                 type="date"
                 placeholder="mm/dd/yyyy"
                 value={reqFromDate}
@@ -231,7 +232,7 @@ export default function StoreIssuePage() {
 
             <div>
               <label className="block text-[11px] text-ink-muted mb-0.5 font-medium">To Date</label>
-              <input
+              <NativeDateInput
                 type="date"
                 placeholder="mm/dd/yyyy"
                 value={reqToDate}
@@ -382,7 +383,7 @@ export default function StoreIssuePage() {
           <div className="flex flex-wrap items-end gap-3 text-xs bg-canvas/70 p-3 rounded border border-line shrink-0">
             <div>
               <label className="block text-[11px] text-ink-muted mb-0.5 font-medium">From Date</label>
-              <input
+              <NativeDateInput
                 type="date"
                 placeholder="mm/dd/yyyy"
                 value={issueFromDate}
@@ -393,7 +394,7 @@ export default function StoreIssuePage() {
 
             <div>
               <label className="block text-[11px] text-ink-muted mb-0.5 font-medium">To Date</label>
-              <input
+              <NativeDateInput
                 type="date"
                 placeholder="mm/dd/yyyy"
                 value={issueToDate}

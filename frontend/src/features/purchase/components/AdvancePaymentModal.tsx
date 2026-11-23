@@ -11,6 +11,7 @@ import { formatCurrency } from "@/lib/utils";
 import { round2 } from "@/lib/purchase-store/rules";
 import { SearchableCombobox, type PurchaseFormOptions } from "@/features/purchase/components/PurchaseFormShared";
 import type { Office, PurchaseOrder, Supplier } from "@bridgeone/contracts";
+import { NativeDateInput } from "@/components/ui/date-input";
 
 interface AdvanceVoucherRow {
   key: string;
@@ -230,7 +231,7 @@ export function AdvancePaymentModal({
             <label className="mb-1 block text-[11px] font-semibold text-ink-muted">
               <span className="text-red-500">*</span> Date
             </label>
-            <input type="date" value={paymentDate} onChange={(e) => setPaymentDate(e.target.value)} className={inputCls} />
+            <NativeDateInput type="date" value={paymentDate} onChange={(e) => setPaymentDate(e.target.value)} className={inputCls} />
           </div>
 
           <div>
