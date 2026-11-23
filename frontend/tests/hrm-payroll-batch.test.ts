@@ -163,18 +163,24 @@ describe("Salary generation", () => {
 
   it("uses the 21st – 20th payroll period unless a Payroll Rule says otherwise", async () => {
     await testPrisma().hrPolicyRecord.deleteMany({ where: { tab: "payroll-rules" } });
-    // September payroll = 21 Sept – 20 Oct (30 days). The fixtures only cover September days.
+    // Default: named after the month the period ends in, so September's salary = 21 Aug – 20 Sept.
+    const byDefault = await previewPayroll(hr, input());
+    expect(byDefault).toMatchObject({ fromDate: "2026-08-21", toDate: "2026-09-20" });
+    expect(byDefault.notices.join(" ")).toMatch(/21st to the 20th, named after the month it ends in/);
+    // A rule naming the period after the month it starts in: September payroll = 21 Sept – 20 Oct (30 days).
+    // The fixtures only cover September days.
+    await policy("payroll-rules", { periodStartDay: 21, periodMonth: "The month the period starts in", dayRateBasis: "Calendar days of the month" });
     const preview = await previewPayroll(hr, input());
     expect(preview).toMatchObject({ fromDate: "2026-09-21", toDate: "2026-10-20" });
     const e1 = preview.lines[0];
     // Calendar and punches exist for 21 – 30 Sept only: 9 working days (the 25th is a Friday); the other 20 days have no calendar.
     expect(e1.attendance).toMatchObject({ periodDays: 30, employedDays: 30, workingDays: 9, weeklyOffDays: 1, presentDays: 9, lateCount: 0, unassignedDays: 20 });
     expect(e1).toMatchObject({ earnedGross: 30000, netPayable: 30000 });
-    expect(preview.notices.join(" ")).toMatch(/21st to the 20th of the next month/);
     // A joiner on 6 Oct is paid 15 of the period's 30 days.
     await testPrisma().employee.update({ where: { id: ids["E-2"] }, data: { joiningDate: new Date("2026-10-06") } });
     expect((await previewPayroll(hr, input())).lines[1]).toMatchObject({ earnedGross: 15000 });
     // Named after the month the period ends in: September = 21 Aug – 20 Sept.
+    await testPrisma().hrPolicyRecord.deleteMany({ where: { tab: "payroll-rules" } });
     await policy("payroll-rules", { periodStartDay: 21, periodMonth: "The month the period ends in", dayRateBasis: "Calendar days of the month" });
     expect(await previewPayroll(hr, input())).toMatchObject({ fromDate: "2026-08-21", toDate: "2026-09-20" });
     const { id } = await createPayrollBatch(hr, input());
@@ -351,6 +357,20 @@ describe("Salary generation", () => {
     expect(await payrollSequence(hr, other, "Monthly")).toBeNull();
   });
 
+  it("never pays the same days twice when the payroll months are renamed (starts in → ends in)", async () => {
+    const forMonth = (month: string) => ({ ...input(), month });
+    await testPrisma().hrPolicyRecord.deleteMany({ where: { tab: "payroll-rules" } });
+    // Generated under the old naming: "September" = 21 Sept – 20 Oct.
+    await policy("payroll-rules", { periodStartDay: 21, periodMonth: "The month the period starts in", dayRateBasis: "Calendar days of the month" });
+    const sept = await createPayrollBatch(hr, input());
+    expect(await getPayrollBatch(hr, sept.id)).toMatchObject({ fromDate: "2026-09-21", toDate: "2026-10-20" });
+    // Back to the default: "October" is now 21 Sept – 20 Oct, the days just paid, so the next payroll is November.
+    await testPrisma().hrPolicyRecord.deleteMany({ where: { tab: "payroll-rules" } });
+    expect(await payrollSequence(hr, officeId, "Monthly")).toMatchObject({ lastMonth: "2026-09", nextMonth: "2026-11" });
+    await expect(createPayrollBatch(hr, forMonth("2026-10"))).rejects.toThrow(/October 2026 covers days already paid in September 2026/);
+    expect(await previewPayroll(hr, forMonth("2026-11"))).toMatchObject({ fromDate: "2026-10-21", toDate: "2026-11-20", inSequence: true });
+  });
+
   it("cancels a draft with a reason, keeps it for audit and frees the period", async () => {
     const { id } = await createPayrollBatch(hr, input());
     await expect(cancelPayrollBatch(hr, id, { version: 1, reason: "" })).rejects.toThrow();
@@ -467,7 +487,8 @@ describe("Salary Disbursement", () => {
 
   it("uses the 21st – 20th period by default", async () => {
     await testPrisma().hrPolicyRecord.deleteMany({ where: { tab: "payroll-rules" } });
-    const sheet = await disbursementSheet(hr, officeId, "2026-10");
+    // November's salary is 21 Oct – 20 Nov.
+    const sheet = await disbursementSheet(hr, officeId, "2026-11");
     expect(sheet).toMatchObject({ fromDate: "2026-10-21", toDate: "2026-11-20" });
   });
 });
@@ -476,8 +497,9 @@ describe("Payroll period on a date", () => {
   it("follows the office's Payroll Rule: the calendar month here, 21st – 20th without one", async () => {
     expect(await payrollPeriodOn(officeId, "2026-11-22")).toMatchObject({ month: "2026-11", fromDate: "2026-11-01", toDate: "2026-11-30" });
     await testPrisma().hrPolicyRecord.deleteMany({ where: { tab: "payroll-rules" } });
-    expect(await payrollPeriodOn(officeId, "2026-11-22")).toMatchObject({ month: "2026-11", fromDate: "2026-11-21", toDate: "2026-12-20" });
-    expect(await payrollPeriodOn(officeId, "2026-11-20")).toMatchObject({ month: "2026-10", fromDate: "2026-10-21", toDate: "2026-11-20" });
-    expect(await payrollPeriodOn(officeId, "2027-01-05")).toMatchObject({ month: "2026-12", fromDate: "2026-12-21", toDate: "2027-01-20" });
+    // Without a rule, months are named after the month the period ends in.
+    expect(await payrollPeriodOn(officeId, "2026-11-22")).toMatchObject({ month: "2026-12", fromDate: "2026-11-21", toDate: "2026-12-20" });
+    expect(await payrollPeriodOn(officeId, "2026-11-20")).toMatchObject({ month: "2026-11", fromDate: "2026-10-21", toDate: "2026-11-20" });
+    expect(await payrollPeriodOn(officeId, "2027-01-05")).toMatchObject({ month: "2027-01", fromDate: "2026-12-21", toDate: "2027-01-20" });
   });
 });

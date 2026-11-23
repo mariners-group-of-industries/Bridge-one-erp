@@ -64,10 +64,14 @@ export const DEFAULT_PAYROLL_RULES: PayrollRules = {
   deductAbsentDays: false,
   deductUnrecordedDays: false,
   unpaidLeaveTypes: ["leave without pay"],
-  // The company's payroll month: the 21st to the 20th of the next month.
+  // The company's payroll month: the 21st to the 20th, named after the month it
+  // ends in (21 Oct – 20 Nov is November's salary).
   periodStartDay: 21,
-  periodMonth: "start",
+  periodMonth: "end",
 };
+
+/** Late punishment when no Late Punishment rule is in force: every 3 lates in the period cost 1 day of salary. */
+export const DEFAULT_LATE_RULE: LateRule = { id: "default-late-rule", latesAllowed: 3, deductionDays: new D(1), deductFrom: "Salary" };
 
 /**
  * The payroll period of a month label (YYYY-MM). Start day 1 is the calendar
@@ -75,7 +79,7 @@ export const DEFAULT_PAYROLL_RULES: PayrollRules = {
  * the following month: "2026-11" with day 21 is 21 Nov – 20 Dec ("start"), or
  * 21 Oct – 20 Nov when the month is named after the period's end ("end").
  */
-export function payrollPeriod(month: string, startDay: number, naming: "start" | "end" = "start"): PeriodInput {
+export function payrollPeriod(month: string, startDay: number, naming: "start" | "end" = "end"): PeriodInput {
   const [year, m] = month.split("-").map(Number);
   const day = Number.isInteger(startDay) && startDay >= 1 && startDay <= 28 ? startDay : 1;
   const first = day === 1 || naming === "start" ? m - 1 : m - 2;

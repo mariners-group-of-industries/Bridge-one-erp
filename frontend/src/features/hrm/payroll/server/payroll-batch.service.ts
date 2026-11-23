@@ -37,7 +37,7 @@ import {
 } from "../batch-types";
 import type { DisbursementLine, SalarySheet } from "../types";
 import { calculateEmployee, sumLines } from "./engine";
-import { loadPayrollInputs, type LoadedPayroll } from "./payroll-inputs";
+import { loadPayrollInputs, payrollPeriodOfMonth, type LoadedPayroll } from "./payroll-inputs";
 
 type Tx = Prisma.TransactionClient;
 const PAGE = hrmPaths.payroll;
@@ -211,20 +211,45 @@ export function nextMonthOf(month: string) {
 }
 
 /** The office's latest live payroll of the salary type, and the month that must follow it. */
-async function sequenceOf(client: Tx | ReturnType<typeof db>, officeId: string, salaryType: string): Promise<PayrollSequence | null> {
-  const last = await client.payrollBatch.findFirst({
+/** The office's latest payroll that is not cancelled (by the days it pays). */
+function lastPayrollOf(client: Tx | ReturnType<typeof db>, officeId: string, salaryType: string) {
+  return client.payrollBatch.findFirst({
     where: { officeId, salaryType, status: { not: "Cancelled" } },
-    orderBy: { month: "desc" },
-    select: { month: true, reference: true, status: true },
+    orderBy: [{ toDate: "desc" }, { month: "desc" }],
+    select: { month: true, reference: true, status: true, toDate: true },
   });
-  return last ? { lastMonth: last.month, lastReference: last.reference, lastStatus: last.status as PayrollBatchStatus, nextMonth: nextMonthOf(last.month) } : null;
 }
+
+async function sequenceOf(officeId: string, salaryType: string): Promise<PayrollSequence | null> {
+  const last = await lastPayrollOf(db(), officeId, salaryType);
+  if (!last) return null;
+  // The next payroll is the first month whose period starts after the last one ends. Normally the
+  // month after; when the Payroll Rule renamed its months (e.g. "October" was 21 Oct – 20 Nov and is
+  // now "November"), the month that would pay the same days again is skipped.
+  const paidTo = isoDate(last.toDate);
+  let next = nextMonthOf(last.month);
+  for (let i = 0; i < 3 && (await payrollPeriodOfMonth(officeId, next)).fromDate <= paidTo; i++) next = nextMonthOf(next);
+  return { lastMonth: last.month, lastReference: last.reference, lastStatus: last.status as PayrollBatchStatus, nextMonth: next };
+}
+
+/** A live payroll of the office whose period shares days with `from`–`to` (paying them twice). */
+async function overlappingBatch(client: Tx | ReturnType<typeof db>, officeId: string, salaryType: string, from: string, to: string, periodKey: string) {
+  return client.payrollBatch.findFirst({
+    where: { officeId, salaryType, periodKey: { not: null }, NOT: { periodKey }, fromDate: { lte: toDate(to) }, toDate: { gte: toDate(from) } },
+    select: { reference: true, status: true, month: true, fromDate: true, toDate: true },
+  });
+}
+
+const overlapMessage = (b: { reference: string; status: string; fromDate: Date; toDate: Date }, from: string, to: string) =>
+  `This period (${from} to ${to}) shares days with payroll ${b.reference} (${b.status}, ${isoDate(b.fromDate)} to ${isoDate(b.toDate)}). Those days are already paid; cancel that payroll first or generate the next month.`;
 
 /** A new payroll must be for the month right after the office's latest one: no earlier month, no gap. */
 function assertInSequence(sequence: PayrollSequence | null, month: string) {
   if (!sequence || month === sequence.nextMonth) return;
   if (month === sequence.lastMonth) throw conflict(`Payroll ${sequence.lastReference} (${sequence.lastStatus}) already exists for this office and period.`);
   const last = `${monthName(sequence.lastMonth)} (${sequence.lastReference})`;
+  if (month < sequence.nextMonth && month > sequence.lastMonth)
+    throw badRequest(`${monthName(month)} covers days already paid in ${last}; the next payroll is ${monthName(sequence.nextMonth)}.`);
   if (month <= sequence.lastMonth) throw badRequest(`Salary is already generated up to ${last}. An earlier month cannot be generated; the next payroll is ${monthName(sequence.nextMonth)}.`);
   throw badRequest(`The last payroll is ${last}, so the next one must be ${monthName(sequence.nextMonth)}; ${monthName(month)} would skip a month.`);
 }
@@ -233,7 +258,7 @@ function assertInSequence(sequence: PayrollSequence | null, month: string) {
 export async function payrollSequence(actor: Actor, officeId: string, salaryType: string): Promise<PayrollSequence | null> {
   requireHr(actor);
   if (!(await db().office.findFirst({ where: { id: officeId, ...officeScope(actor) }, select: { id: true } }))) throw notFound("Office");
-  return sequenceOf(db(), officeId, salaryType);
+  return sequenceOf(officeId, salaryType);
 }
 
 // ─── Preview / generate ───────────────────────────────────────────────────────
@@ -250,7 +275,9 @@ export async function previewPayroll(actor: Actor, input: GenerateInput): Promis
     existing?.id,
   );
   const notices = [...c.loaded.notices];
-  const sequence = await sequenceOf(db(), data.officeId, data.salaryType);
+  const sequence = await sequenceOf(data.officeId, data.salaryType);
+  const overlap = await overlappingBatch(db(), data.officeId, data.salaryType, c.loaded.period.fromDate, c.loaded.period.toDate, periodKey);
+  if (overlap) notices.push(overlapMessage(overlap, c.loaded.period.fromDate, c.loaded.period.toDate));
   if (elsewhere.length) notices.push(`${elsewhere.length} employee(s) already have a salary for this period in ${[...new Set(elsewhere.map((e) => e.batch.reference))].join(", ")}: ${elsewhere.map((e) => e.employeeCode).join(", ")}.`);
   return {
     officeId: c.loaded.office.id,
@@ -283,12 +310,22 @@ export async function createPayrollBatch(actor: Actor, input: GenerateInput): Pr
   const periodKey = periodKeyOf(data.month, data.salaryType);
   const live = await liveBatchFor(data.officeId, periodKey);
   if (live) throw conflict(`Payroll ${live.reference} (${live.status}) already exists for this office and period.`);
-  assertInSequence(await sequenceOf(db(), data.officeId, data.salaryType), data.month);
+  const sequence = await sequenceOf(data.officeId, data.salaryType);
+  assertInSequence(sequence, data.month);
+  const { fromDate, toDate: periodTo } = c.loaded.period;
+  const overlap = await overlappingBatch(db(), data.officeId, data.salaryType, fromDate, periodTo, periodKey);
+  if (overlap) throw conflict(overlapMessage(overlap, fromDate, periodTo));
   const by = decisionBy(actor);
   try {
     return await db().$transaction(async (tx) => {
       // Checked again inside the transaction, against payrolls saved meanwhile.
-      assertInSequence(await sequenceOf(tx, data.officeId, data.salaryType), data.month);
+      const latest = await lastPayrollOf(tx, data.officeId, data.salaryType);
+      if (latest && latest.reference !== sequence?.lastReference) {
+        if (latest.month === data.month) throw conflict(`Payroll ${latest.reference} (${latest.status}) already exists for this office and period.`);
+        throw conflict(`Payroll ${latest.reference} was generated for this office meanwhile; generate again.`);
+      }
+      const clash = await overlappingBatch(tx, data.officeId, data.salaryType, fromDate, periodTo, periodKey);
+      if (clash) throw conflict(overlapMessage(clash, fromDate, periodTo));
       const year = Number(data.month.slice(0, 4));
       const reference = formatNumber("PAY", year, await nextNumber(tx, c.loaded.office.businessUnitId, "PAYROLL_BATCH", year));
       const batch = await tx.payrollBatch.create({
