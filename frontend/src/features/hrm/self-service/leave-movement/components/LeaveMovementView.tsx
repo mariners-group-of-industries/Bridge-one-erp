@@ -1,6 +1,5 @@
 "use client";
 
-import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 import { PageContainer, PageHead } from "@/components/layout/page";
 import { ErrorState, LoadingState } from "@/components/ui/section";
@@ -11,7 +10,7 @@ import { Notice } from "@/features/configuration/entity-master-data/employee/com
 import { hrmPaths } from "../../../paths";
 import { leaveMovementApi } from "../services/leave-movement.api";
 import { AttendanceTab } from "./AttendanceTab";
-import { LeaveApplicationDialog } from "./LeaveApplicationDialog";
+import { ApplicationDialog, useLinkedApplication } from "./ApplicationDialog";
 import { LeaveTab } from "./LeaveTab";
 import { MovementTab } from "./MovementTab";
 
@@ -25,8 +24,8 @@ type TabId = (typeof TABS)[number]["id"];
 export function LeaveMovementView() {
   const [tab, setTab] = useState<TabId>("leave");
   const options = useResource("leave-movement-options", leaveMovementApi.options);
-  // Bumped after a decision in the notification dialog, so the leave list reloads.
-  const [decided, setDecided] = useState(0);
+  // Bumped after a decision in the notification dialog, so that list reloads.
+  const [decided, setDecided] = useState({ leaves: 0, movements: 0 });
 
   return (
     <PageContainer full>
@@ -46,13 +45,13 @@ export function LeaveMovementView() {
           )}
           <section className="rounded border border-line bg-surface shadow-xs">
             <Tabs tabs={TABS} value={tab} onChange={setTab} label="Leave and movement">
-              {tab === "leave" ? <LeaveTab options={options.data} refresh={decided} /> : tab === "movement" ? <MovementTab options={options.data} /> : <AttendanceTab options={options.data} />}
+              {tab === "leave" ? <LeaveTab options={options.data} refresh={decided.leaves} /> : tab === "movement" ? <MovementTab options={options.data} refresh={decided.movements} /> : <AttendanceTab options={options.data} />}
             </Tabs>
           </section>
-          {/* ?leave=<id> (an approver's notification) opens that application. */}
+          {/* ?leave=<id> or ?movement=<id> (an approver's notification) opens that application. */}
           <Suspense fallback={null}>
-            <LeaveLinkWatcher onOpen={() => setTab("leave")} />
-            <LeaveApplicationDialog onDecided={() => setDecided((n) => n + 1)} />
+            <LinkedTab onOpen={setTab} />
+            <ApplicationDialog onDecided={(kind) => setDecided((n) => ({ ...n, [kind]: n[kind] + 1 }))} />
           </Suspense>
         </div>
       )}
@@ -60,11 +59,12 @@ export function LeaveMovementView() {
   );
 }
 
-/** Shows the Leave tab when a notification link opens an application. */
-function LeaveLinkWatcher({ onOpen }: { onOpen: () => void }) {
-  const id = useSearchParams().get("leave");
+/** Shows the Leave or Movement tab when a notification link opens an application. */
+function LinkedTab({ onOpen }: { onOpen: (tab: TabId) => void }) {
+  const linked = useLinkedApplication();
+  const tab: TabId | null = linked ? (linked.kind === "leaves" ? "leave" : "movement") : null;
   useEffect(() => {
-    if (id) onOpen();
-  }, [id, onOpen]);
+    if (tab) onOpen(tab);
+  }, [tab, onOpen]);
   return null;
 }
