@@ -130,3 +130,41 @@ into `development` deploys by itself.
 **Migrations** run before the new code goes live and are not rolled back with
 the code. Write them so the release that is still running keeps working (add
 columns/tables first, remove old ones in a later release).
+
+---
+
+## Attendance devices pushing directly (ZKTeco ADMS)
+
+Devices set to **Comm. › Cloud Server Setting → ADMS** with this server's domain send
+their punches to `/iclock/cdata`, `/iclock/getrequest` and `/iclock/devicecmd`
+(see Configuration › Attendance Devices). Devices with an HTTPS option use port 443
+and need nothing more.
+
+Many devices speak **plain HTTP only** (port 80) and do not follow redirects, but
+`certbot --redirect` sends all port-80 traffic to HTTPS. Keep `/iclock/` on HTTP: in
+`/etc/nginx/sites-available/bridgeone`, change the port-80 `server` block that certbot
+wrote so it reads:
+
+```nginx
+server {
+    listen 80;
+    listen [::]:80;
+    server_name erp.example.com;
+
+    # ZKTeco devices (ADMS) without HTTPS.
+    location /iclock/ {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        client_max_body_size 5m;
+    }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+```
+
+(remove certbot's `if ($host = …) { return 301 … }` and `return 404;` lines from that
+block), then `nginx -t && systemctl reload nginx`. Only the device endpoints answer on
+HTTP; they accept punches only from serial numbers registered as Active devices.
