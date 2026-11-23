@@ -1148,18 +1148,25 @@ export function ItemEntry({
   const pending = useResource(item ? `pending:${item.id}` : null, () => fetchItemPending(item!.id));
   // ERP Login "Hide Stock In Sales": no stock is read or shown for this user.
   const hideStock = useSession().user?.hideStockInSales ?? false;
+  /** The picked item has a packing unit (Bag, Ctn …) with a piece count. */
+  const packed = Boolean(item?.altUomFactor);
   const stock = useResource(item && warehouseId && !hideStock ? `stock:${warehouseId}:${item.id}` : null, () => fetchStock(warehouseId!, [item!.id]));
 
   function pick(text: string) {
     setItemText(text);
     const match = items.find((candidate) => label(candidate) === text);
     if (match) {
+      // Packed items (Bag, Ctn …) default to one pack; loose items to one piece.
+      const qty = String(match.altUomFactor || 1);
       setEntry((current) => ({
         ...current,
-        qty: current.qty || "1",
+        qty,
         unitPrice: String(rateFor(match, priceListId)),
         vatPercent: String(match.vatPercent),
       }));
+      setPack(match.altUomFactor ? String(Math.round((orZero(qty) / match.altUomFactor) * 1000) / 1000) : "");
+    } else {
+      setPack("");
     }
   }
 
@@ -1220,7 +1227,10 @@ export function ItemEntry({
         {filterExtra}
       </div>
       <div
-        className="grid items-end gap-3 sm:grid-cols-4 lg:grid-cols-[minmax(16rem,2fr)_repeat(8,minmax(5rem,1fr))_auto]"
+        className={cn(
+          "grid items-end gap-3 sm:grid-cols-4",
+          packed ? "lg:grid-cols-[minmax(16rem,2fr)_repeat(8,minmax(5rem,1fr))_auto]" : "lg:grid-cols-[minmax(16rem,2fr)_repeat(7,minmax(5rem,1fr))_auto]",
+        )}
         onKeyDown={(event) => {
           if (event.key === "Enter" && (event.target as HTMLElement).tagName === "INPUT") {
             event.preventDefault();
@@ -1261,8 +1271,23 @@ export function ItemEntry({
             ))}
           </datalist>
         </div>
+        {/* Packed item (Bag, Ctn …): enter packs first, pieces follow — e.g. 2 Bag (40 PCS) = 80 PCS. */}
+        {packed && item && (
+          <TextField
+            label={`ALT. Qty - ${item.altUom ?? "Pack"} (${formatQty(item.altUomFactor!)} ${item.uom})`}
+            type="number"
+            min={0}
+            step="any"
+            value={pack}
+            disabled={disabled}
+            onChange={(event) => {
+              setPack(event.target.value);
+              setEntry({ ...entry, qty: event.target.value ? String(Math.round(orZero(event.target.value) * item.altUomFactor! * 1000) / 1000) : "" });
+            }}
+          />
+        )}
         <TextField
-          label="Quantity"
+          label={item ? `Quantity (${item.uom})` : "Quantity"}
           required
           type="number"
           min={0}
@@ -1271,20 +1296,7 @@ export function ItemEntry({
           disabled={disabled}
           onChange={(event) => {
             setEntry({ ...entry, qty: event.target.value });
-            setPack(item?.altUomFactor && event.target.value ? String(Math.round((orZero(event.target.value) / item.altUomFactor) * 1000) / 1000) : "");
-          }}
-        />
-        <TextField
-          label={item?.altUom ? `Pack Qty (${item.altUom})` : "Pack Qty"}
-          type="number"
-          min={0}
-          step="any"
-          value={pack}
-          disabled={disabled || !item?.altUomFactor}
-          hint={item && !item.altUomFactor ? "No packing unit" : undefined}
-          onChange={(event) => {
-            setPack(event.target.value);
-            if (item?.altUomFactor) setEntry({ ...entry, qty: event.target.value ? String(Math.round(orZero(event.target.value) * item.altUomFactor * 1000) / 1000) : "" });
+            setPack(packed && event.target.value ? String(Math.round((orZero(event.target.value) / item!.altUomFactor!) * 1000) / 1000) : "");
           }}
         />
         <TextField label="Rate" type="number" min={0} step="any" value={entry.unitPrice} disabled={disabled} onChange={(event) => setEntry({ ...entry, unitPrice: event.target.value })} />
