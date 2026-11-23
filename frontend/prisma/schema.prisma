@@ -2018,6 +2018,7 @@ model SalesTerritoryNode {
   rtmLayerTransfersOut RtmLayerTransfer[] @relation("RtmLayerTransferSource")
   rtmLayerTransfersIn  RtmLayerTransfer[] @relation("RtmLayerTransferDestination")
   rtmTourPlans         RtmTourPlan[]      @relation("RtmTourPlanPoint")
+  rtmOutletAreas       RtmOutletArea[]    @relation("RtmOutletAreaNode")
 
   @@unique([businessUnitId, code])
   @@index([parentId])
@@ -2793,6 +2794,7 @@ model District {
   suppliers         Supplier[]
   customers         Customer[]
   customerAddresses CustomerAddress[]
+  rtmOutlets        RtmOutlet[]
 
   @@map("districts")
 }
@@ -2808,6 +2810,7 @@ model Thana {
   suppliers         Supplier[]
   customers         Customer[]
   customerAddresses CustomerAddress[]
+  rtmOutlets        RtmOutlet[]
 
   @@unique([districtId, name])
   @@map("thanas")
@@ -5248,6 +5251,30 @@ model RtmOutlet {
   longitude      Decimal? @db.Decimal(10, 7)
   creditLimit    Decimal? @db.Decimal(14, 2)
   isActive       Boolean  @default(true)
+  // ── Outlet profile (Outlet Setup) ──
+  nameBn          String?      @db.VarChar(150)
+  partnerCode     String?      @db.VarChar(30)
+  category        String?      @db.VarChar(60)
+  businessType    String?      @db.VarChar(60)
+  outletGroup     String?      @db.VarChar(60)
+  districtId      Int?
+  thanaId         String?      @db.Uuid
+  ownerPhone      String?      @db.VarChar(30)
+  contactPerson   String?      @db.VarChar(150)
+  tradeLicense    String?      @db.VarChar(60)
+  nid             String?      @db.VarChar(30)
+  email           String?      @db.VarChar(150)
+  dateOfBirth     DateTime?    @db.Date
+  serial          Int?
+  maritalStatus   String?      @db.VarChar(20)
+  competitors     String?      @db.VarChar(300)
+  competitorItems String?      @db.VarChar(300)
+  regularSales    Decimal?     @db.Decimal(14, 2)
+  /// DAILY or MONTHLY: the period `regularSales` is for.
+  salesPeriod     String?      @db.VarChar(10)
+  /// Outlet Setup Approval: new outlets wait for approval before they can order.
+  approvalStatus  RtmDocStatus @default(APPROVED)
+  approvedBy      String?      @db.VarChar(150)
   createdBy      String   @db.VarChar(150)
   createdAt      DateTime @default(now()) @db.Timestamptz(3)
   updatedAt      DateTime @updatedAt @db.Timestamptz(3)
@@ -5256,6 +5283,10 @@ model RtmOutlet {
   channel      RtmChannel?     @relation(fields: [channelId], references: [id], onDelete: SetNull)
   distributor  Customer        @relation("RtmOutletDistributor", fields: [distributorId], references: [id], onDelete: Restrict)
   route        SalesArea?      @relation(fields: [routeId], references: [id], onDelete: SetNull)
+  district     District?       @relation(fields: [districtId], references: [id], onDelete: SetNull)
+  thana        Thana?          @relation(fields: [thanaId], references: [id], onDelete: SetNull)
+  areas        RtmOutletArea[]
+  attachments  RtmOutletAttachment[]
   orders       RtmOrder[]
   deliveries   RtmDelivery[]
   collections  RtmCollection[]
@@ -5268,6 +5299,39 @@ model RtmOutlet {
 }
 
 /// An order taken from an outlet; delivered (in full or part) by the distributor.
+/// Where an outlet is served: Sales Territory nodes (a market, or the deepest node picked). Line 1 is the main one.
+model RtmOutletArea {
+  id       String @id @default(uuid()) @db.Uuid
+  outletId String @db.Uuid
+  nodeId   String @db.Uuid
+  lineNo   Int
+
+  outlet RtmOutlet          @relation(fields: [outletId], references: [id], onDelete: Cascade)
+  node   SalesTerritoryNode @relation("RtmOutletAreaNode", fields: [nodeId], references: [id], onDelete: Restrict)
+
+  @@unique([outletId, nodeId])
+  @@index([nodeId])
+  @@map("rtm_outlet_areas")
+}
+
+/// Outlet image or other document (trade license, NID copy …).
+model RtmOutletAttachment {
+  id           String   @id @default(uuid()) @db.Uuid
+  outletId     String   @db.Uuid
+  /// IMAGE or DOCUMENT
+  kind         String   @db.VarChar(10)
+  storageKey   String   @unique @db.VarChar(300)
+  originalName String   @db.VarChar(255)
+  mimeType     String   @db.VarChar(100)
+  size         Int
+  createdAt    DateTime @default(now()) @db.Timestamptz(3)
+
+  outlet RtmOutlet @relation(fields: [outletId], references: [id], onDelete: Cascade)
+
+  @@index([outletId])
+  @@map("rtm_outlet_attachments")
+}
+
 model RtmOrder {
   id             String       @id @default(uuid()) @db.Uuid
   businessUnitId String       @db.Uuid

@@ -238,6 +238,11 @@ export const API_RULES: Record<string, ApiRule> = {
   "/api/rtm/collection/export": { feature: "/rtm/collection", action: "export" },
   "/api/rtm/sales-return/export": { feature: "/rtm/sales-return", action: "export" },
   "/api/rtm/direct-delivery/export": { feature: "/rtm/direct-delivery", action: "export" },
+  "/api/rtm/outlet-setup/export": { feature: "/rtm/outlet-setup", action: "export" },
+  "/api/rtm/outlet-setup/bulk": { feature: "/rtm/outlet-setup", action: "import" },
+  "/api/rtm/outlet-setup/bulk/template": { feature: "/rtm/outlet-setup", action: "import" },
+  "/api/rtm/outlet-setup/*/status": { feature: "/rtm/outlet-setup", action: "edit" },
+  "/api/rtm/outlet-setup/*/resubmit": { feature: "/rtm/outlet-setup", action: "edit" },
   // Rolling back reverses posted stock, like cancelling a document.
   "/api/rtm/distributor-stock-adjustment/*/rollback": { feature: "/rtm/distributor-stock-adjustment", action: "delete" },
   "/api/rtm/distributor-stock-adjustment/bulk": { feature: "/rtm/distributor-stock-adjustment", action: "import" },

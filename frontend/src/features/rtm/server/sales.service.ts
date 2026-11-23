@@ -144,6 +144,7 @@ export async function createOrder(actor: Actor, raw: unknown) {
   const input = orderSchema.parse(raw);
   const outlet = await requireOutlet(actor, input.outletId);
   if (!outlet.isActive) throw badRequest("The outlet is inactive.");
+  if (outlet.approvalStatus !== "APPROVED") throw badRequest(`${outlet.name} is not approved yet (Outlet Setup).`);
   if (input.srId) await requireEmployee(actor, input.srId);
   await db().$transaction(async (tx) => {
     await requireItems(tx, outlet.businessUnitId, input.lines.map((l) => l.itemId));
@@ -305,6 +306,7 @@ const directSchema = z.object({
 export async function directDelivery(actor: Actor, raw: unknown) {
   const input = directSchema.parse(raw);
   const outlet = await requireOutlet(actor, input.outletId);
+  if (outlet.approvalStatus !== "APPROVED") throw badRequest(`${outlet.name} is not approved yet (Outlet Setup).`);
   if ((await getSettings(outlet.businessUnitId)).allowDirectDelivery !== "true") throw badRequest("Direct deliveries are turned off in RTM Configuration.");
   if (input.srId) await requireEmployee(actor, input.srId);
   await db().$transaction(async (tx) => {

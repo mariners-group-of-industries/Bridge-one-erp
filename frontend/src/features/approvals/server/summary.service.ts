@@ -394,6 +394,28 @@ const SOURCES: readonly Source[] = [
   },
   // ── RTM ──
   {
+    id: "rtm-outlet",
+    module: "RTM",
+    label: "Outlet Setup",
+    href: "/rtm/outlet-setup",
+    pipelineFeature: "Outlet Setup Approval",
+    pending: RTM_PENDING,
+    approved: ["APPROVED"],
+    rejected: ["REJECTED"],
+    counts: async (units) =>
+      (await db().rtmOutlet.groupBy({ by: ["approvalStatus"], _count: { _all: true }, _min: { createdAt: true }, where: inUnits(units) })).map((g) => ({
+        status: g.approvalStatus,
+        count: g._count._all,
+        oldest: g._min.createdAt,
+      })),
+    oldest: async (units, take) =>
+      (await db().rtmOutlet.findMany({ ...pick(take), where: { ...inUnits(units), approvalStatus: "PENDING" }, select: { id: true, code: true, name: true, createdAt: true } })).map((r) => ({
+        id: r.id,
+        reference: `${r.code} · ${r.name}`,
+        createdAt: r.createdAt,
+      })),
+  },
+  {
     id: "rtm-stock-transfer",
     module: "RTM",
     label: "Distributor Stock Transfer",

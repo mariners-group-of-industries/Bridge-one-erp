@@ -10,97 +10,13 @@ import { Card, ErrorState, LoadingState } from "@/components/ui/section";
 import { useToast } from "@/components/ui/toast";
 import { useResource } from "@/hooks/use-resource";
 import { errorMessage } from "@/lib/api/client";
-import { configuration, distributionChannel, offerAndDiscount, outletSetup, salesTarget } from "../navigation";
+import { configuration, distributionChannel, offerAndDiscount, salesTarget } from "../navigation";
 import { money, qty, rtmApi, thisMonth } from "../services/rtm.api";
 import { FilterBar, FormDialog, RtmPage, options, useAction, useLookups, type FieldDef } from "../components/kit";
 
 const active = (on: boolean) => <Badge variant={on ? "success" : "neutral"}>{on ? "Active" : "Inactive"}</Badge>;
 
-// ── Outlet setup ─────────────────────────────────────────────────────────────
-
-interface Outlet {
-  id: string;
-  code: string;
-  name: string;
-  ownerName: string | null;
-  phone: string | null;
-  address: string | null;
-  channelId: string | null;
-  channel: string | null;
-  distributorId: string;
-  distributor: string;
-  routeId: string | null;
-  route: string | null;
-  latitude: number | null;
-  longitude: number | null;
-  creditLimit: number | null;
-  isActive: boolean;
-  updatedAt: string;
-}
-
-export function OutletSetupView() {
-  const list = useResource("rtm-outlets", () => rtmApi.get<Outlet[]>("outlet-setup"));
-  const lookups = useLookups();
-  const [editing, setEditing] = useState<Outlet | "new" | null>(null);
-  const l = lookups.data;
-  const fields: FieldDef[] = [
-    { name: "name", label: "Outlet name", required: true },
-    { name: "ownerName", label: "Owner" },
-    { name: "phone", label: "Mobile" },
-    { name: "distributorId", label: "Distributor", type: "select", required: true, options: options(l?.distributors, (d) => `${d.code} · ${d.name}`, (d) => d.id, "Select distributor") },
-    { name: "channelId", label: "Distribution channel", type: "select", options: options(l?.channels, (c) => c.name, (c) => c.id, "None") },
-    { name: "routeId", label: "Route", type: "select", options: options(l?.routes, (r) => r.name, (r) => r.id, "None") },
-    { name: "creditLimit", label: "Credit limit", type: "number", hint: "Empty = no limit." },
-    { name: "latitude", label: "Latitude", type: "number" },
-    { name: "longitude", label: "Longitude", type: "number" },
-    { name: "address", label: "Address", type: "textarea", wide: true },
-    { name: "isActive", label: "Active", type: "checkbox" },
-  ];
-  const columns: Column<Outlet>[] = [
-    { id: "code", header: "Code", cell: (o) => <span className="font-mono">{o.code}</span>, sortValue: (o) => o.code },
-    { id: "name", header: "Outlet", cell: (o) => o.name, sortValue: (o) => o.name },
-    { id: "owner", header: "Owner / Mobile", cell: (o) => [o.ownerName, o.phone].filter(Boolean).join(" · ") || "—", hideBelow: "md" },
-    { id: "distributor", header: "Distributor", cell: (o) => o.distributor, sortValue: (o) => o.distributor },
-    { id: "channel", header: "Channel", cell: (o) => o.channel ?? "—", hideBelow: "lg" },
-    { id: "route", header: "Route", cell: (o) => o.route ?? "—", hideBelow: "lg" },
-    { id: "credit", header: "Credit limit", cell: (o) => (o.creditLimit === null ? "—" : money(o.creditLimit)), className: "text-right" },
-    { id: "status", header: "Status", cell: (o) => active(o.isActive) },
-    { id: "edit", header: "", cell: (o) => <Button size="sm" variant="ghost" onClick={() => setEditing(o)}><Pencil /> Edit</Button> },
-  ];
-  const initial = editing && editing !== "new"
-    ? { name: editing.name, ownerName: editing.ownerName ?? "", phone: editing.phone ?? "", distributorId: editing.distributorId, channelId: editing.channelId ?? "", routeId: editing.routeId ?? "", creditLimit: editing.creditLimit === null ? "" : String(editing.creditLimit), latitude: editing.latitude === null ? "" : String(editing.latitude), longitude: editing.longitude === null ? "" : String(editing.longitude), address: editing.address ?? "", isActive: editing.isActive }
-    : undefined;
-  return (
-    <RtmPage page={outletSetup} actions={<Button variant="primary" onClick={() => setEditing("new")}><Plus /> New Outlet</Button>}>
-      {list.error ? <ErrorState message={list.error.message} onRetry={list.reload} /> : !list.data ? <LoadingState /> : (
-        <Card>
-          <DataTable
-            rows={list.data}
-            columns={columns}
-            getRowId={(o) => o.id}
-            getRowLabel={(o) => o.name}
-            modifiedAt={(o) => o.updatedAt}
-            search={{ placeholder: "Search outlet, code, owner, distributor…", match: (o, q) => `${o.code} ${o.name} ${o.ownerName ?? ""} ${o.phone ?? ""} ${o.distributor}`.toLowerCase().includes(q) }}
-          />
-        </Card>
-      )}
-      <FormDialog
-        key={editing === "new" ? "new" : editing?.id}
-        open={!!editing}
-        title={editing === "new" ? "New Outlet" : `Edit ${editing?.name ?? ""}`}
-        fields={fields}
-        initial={initial}
-        onClose={() => setEditing(null)}
-        onSubmit={async (p) => {
-          if (editing === "new") await rtmApi.post("outlet-setup", p);
-          else if (editing) await rtmApi.patch(`outlet-setup/${editing.id}`, p);
-          list.reload();
-          lookups.reload();
-        }}
-      />
-    </RtmPage>
-  );
-}
+// Outlet setup: see outlet-setup.tsx.
 
 // ── Distribution channels ────────────────────────────────────────────────────
 
