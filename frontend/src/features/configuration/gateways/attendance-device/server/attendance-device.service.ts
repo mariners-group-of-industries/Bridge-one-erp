@@ -62,10 +62,17 @@ export async function deviceFormOptions(actor: Actor): Promise<DeviceFormOptions
   return { offices: await db().office.findMany({ where: officeScope(actor), orderBy: { name: "asc" }, select: { id: true, name: true } }) };
 }
 
-async function toData(actor: Actor, input: DeviceInput) {
+async function toData(actor: Actor, input: DeviceInput, id?: string) {
   const data = deviceInputSchema.parse(input);
   if (data.officeId && !(await db().office.findFirst({ where: { id: data.officeId, ...officeScope(actor) }, select: { id: true } }))) {
     throw badRequest("Select an office you can access.");
+  }
+  // A device pushing to the ERP (ADMS) is known only by its serial number, so it must be unique.
+  if (
+    data.serialNumber &&
+    (await db().attendanceDevice.findFirst({ where: { serialNumber: { equals: data.serialNumber, mode: "insensitive" }, ...(id ? { id: { not: id } } : {}) }, select: { id: true } }))
+  ) {
+    throw conflict(`Another device already has serial number ${data.serialNumber}.`);
   }
   return { name: data.name, ipAddress: data.ipAddress, port: data.port, serialNumber: orNull(data.serialNumber), officeId: orNull(data.officeId), isActive: data.isActive };
 }
@@ -84,7 +91,7 @@ export async function createDevice(actor: Actor, input: DeviceInput) {
 
 export async function updateDevice(actor: Actor, id: string, input: DeviceInput) {
   const before = await loadDevice(actor, id);
-  const data = await toData(actor, input);
+  const data = await toData(actor, input, id);
   try {
     await db().attendanceDevice.update({ where: { id }, data });
   } catch (error) {
@@ -154,24 +161,34 @@ export async function uploadPunches(actor: Actor, deviceId: string, input: Punch
   const data = punchUploadSchema.parse(input);
   const device = await loadDevice(actor, deviceId);
   if (!device.isActive) throw badRequest("This device is inactive. Activate it in Attendance Devices first.");
+  const punches = data.punches.map((p) => ({ userId: p.userId, time: new Date(p.time), state: p.state ?? null }));
+  return storePunches(device, punches, { error: data.error, serialNumber: data.serialNumber });
+}
 
+export interface DevicePunch {
+  userId: string;
+  time: Date;
+  state: number | null;
+}
+
+/**
+ * Stores punches of a device (from the agent upload or the device's own push),
+ * once each, links them to employees, updates the device's sync status and
+ * sends the attendance notifications for new ones.
+ */
+export async function storePunches(
+  device: { id: string; serialNumber: string | null; lastSyncCount: number | null; office: { businessUnitId: string } | null },
+  punches: DevicePunch[],
+  status: { error?: string; serialNumber?: string } = {},
+): Promise<PunchUploadResult> {
+  const deviceId = device.id;
   let inserted = 0;
   const mappedPunches: Array<{ employeeId: string | null; punchTime: Date }> = [];
-  if (data.punches.length) {
-    const map = await employeeMap(device, [...new Set(data.punches.map((p) => p.userId))]);
-    for (let i = 0; i < data.punches.length; i += 1000) {
-      const batch = data.punches.slice(i, i + 1000);
-      const rows = batch.map((p) => ({
-        deviceId,
-        deviceUserId: p.userId,
-        employeeId: map.get(p.userId) ?? null,
-        punchTime: new Date(p.time),
-        punchState: p.state ?? null,
-      }));
-      const { count } = await db().attendancePunch.createMany({
-        data: rows,
-        skipDuplicates: true,
-      });
+  if (punches.length) {
+    const map = await employeeMap(device, [...new Set(punches.map((p) => p.userId))]);
+    for (let i = 0; i < punches.length; i += 1000) {
+      const rows = punches.slice(i, i + 1000).map((p) => ({ deviceId, deviceUserId: p.userId, employeeId: map.get(p.userId) ?? null, punchTime: p.time, punchState: p.state }));
+      const { count } = await db().attendancePunch.createMany({ data: rows, skipDuplicates: true });
       inserted += count;
       if (count > 0) {
         for (const r of rows) mappedPunches.push({ employeeId: r.employeeId, punchTime: r.punchTime });
@@ -179,20 +196,20 @@ export async function uploadPunches(actor: Actor, deviceId: string, input: Punch
     }
   }
   // Earlier punches may belong to employees whose Attendance ID was set since.
-  if (!data.error && (await db().attendancePunch.count({ where: { deviceId, employeeId: null } }))) await rematch(deviceId, true);
+  if (!status.error && (await db().attendancePunch.count({ where: { deviceId, employeeId: null } }))) await rematch(deviceId, true);
 
   await db().attendanceDevice.update({
     where: { id: deviceId },
     data: {
       lastSyncAt: new Date(),
-      lastSyncCount: data.error ? device.lastSyncCount : inserted,
-      lastError: data.error ?? null,
-      ...(data.serialNumber && !device.serialNumber ? { serialNumber: data.serialNumber } : {}),
+      lastSyncCount: status.error ? device.lastSyncCount : inserted,
+      lastError: status.error ?? null,
+      ...(status.serialNumber && !device.serialNumber ? { serialNumber: status.serialNumber } : {}),
     },
   });
   if (inserted > 0 && mappedPunches.length > 0) {
     await handleNewAttendancePunches(mappedPunches);
   }
   const unmatched = await db().attendancePunch.count({ where: { deviceId, employeeId: null } });
-  return { received: data.punches.length, inserted, duplicates: data.punches.length - inserted, unmatched };
+  return { received: punches.length, inserted, duplicates: punches.length - inserted, unmatched };
 }
