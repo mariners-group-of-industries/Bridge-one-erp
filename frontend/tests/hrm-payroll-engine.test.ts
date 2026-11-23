@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { Prisma } from "@/generated/prisma/client";
-import { calculateEmployee, DEFAULT_PAYROLL_RULES, grossOn, payrollPeriod, type DayFact, type EmployeeInput, type LateRule, type PayrollRules, type PolicySet } from "@/features/hrm/payroll/server/engine";
+import { calculateEmployee, DEFAULT_LATE_RULE, DEFAULT_PAYROLL_RULES, grossOn, payrollPeriod, type DayFact, type EmployeeInput, type LateRule, type PayrollRules, type PolicySet } from "@/features/hrm/payroll/server/engine";
 
 const D = Prisma.Decimal;
 const SEPT = { month: "2026-09", fromDate: "2026-09-01", toDate: "2026-09-30", monthDays: 30 };
@@ -73,6 +73,14 @@ describe("payroll engine", () => {
     const noRule = calculateEmployee(employee({ days: days(SEPT, six, null) }), SEPT, policies());
     expect(noRule.netPayable).toBe(30000);
     expect(noRule.warnings.join(" ")).toMatch(/6 lates on days without a Late Punishment rule/);
+  });
+
+  it("applies the default late rule (3 lates = 1 day of salary) on days without a Late Punishment rule", () => {
+    const lates = (n: number) => days(SEPT, Object.fromEntries([1, 2, 3, 5, 6, 7, 8].slice(0, n).map((d) => [d, late])), DEFAULT_LATE_RULE.id);
+    const rules = policies({}, { lateRules: new Map([[DEFAULT_LATE_RULE.id, DEFAULT_LATE_RULE]]) });
+    expect(calculateEmployee(employee({ days: lates(3) }), SEPT, rules)).toMatchObject({ attendanceDeduction: 1000, netPayable: 29000 });
+    expect(calculateEmployee(employee({ days: lates(7) }), SEPT, rules).attendance).toMatchObject({ lateCount: 7, lateDeductionDays: 2 });
+    expect(calculateEmployee(employee({ days: lates(2) }), SEPT, rules)).toMatchObject({ attendanceDeduction: 0, netPayable: 30000 });
   });
 
   it("never charges a day twice: a leave day is not also late or absent", () => {
@@ -165,11 +173,15 @@ describe("payroll engine", () => {
     expect(tooMuch.errors.join(" ")).toMatch(/Deductions .* are more than the earnings/);
   });
 
-  it("runs the payroll period from the 21st to the 20th of the next month by default", () => {
-    expect(DEFAULT_PAYROLL_RULES).toMatchObject({ periodStartDay: 21, periodMonth: "start" });
-    expect(payrollPeriod("2026-11", 21)).toEqual({ month: "2026-11", fromDate: "2026-11-21", toDate: "2026-12-20", monthDays: 30 });
-    expect(payrollPeriod("2026-12", 21)).toEqual({ month: "2026-12", fromDate: "2026-12-21", toDate: "2027-01-20", monthDays: 31 });
-    expect(payrollPeriod("2027-02", 21)).toMatchObject({ fromDate: "2027-02-21", toDate: "2027-03-20", monthDays: 28 });
+  it("runs the payroll period from the 21st to the 20th, named after the month it ends in, by default", () => {
+    expect(DEFAULT_PAYROLL_RULES).toMatchObject({ periodStartDay: 21, periodMonth: "end" });
+    // November's salary is 21 Oct – 20 Nov; December's is 21 Nov – 20 Dec.
+    expect(payrollPeriod("2026-11", 21)).toEqual({ month: "2026-11", fromDate: "2026-10-21", toDate: "2026-11-20", monthDays: 31 });
+    expect(payrollPeriod("2026-12", 21)).toEqual({ month: "2026-12", fromDate: "2026-11-21", toDate: "2026-12-20", monthDays: 30 });
+    // A Payroll Rule may still name the period after the month it starts in.
+    expect(payrollPeriod("2026-11", 21, "start")).toEqual({ month: "2026-11", fromDate: "2026-11-21", toDate: "2026-12-20", monthDays: 30 });
+    expect(payrollPeriod("2026-12", 21, "start")).toEqual({ month: "2026-12", fromDate: "2026-12-21", toDate: "2027-01-20", monthDays: 31 });
+    expect(payrollPeriod("2027-02", 21, "start")).toMatchObject({ fromDate: "2027-02-21", toDate: "2027-03-20", monthDays: 28 });
     expect(payrollPeriod("2026-11", 21, "end")).toMatchObject({ fromDate: "2026-10-21", toDate: "2026-11-20", monthDays: 31 });
     expect(payrollPeriod("2026-01", 21, "end")).toMatchObject({ fromDate: "2025-12-21", toDate: "2026-01-20" });
     expect(payrollPeriod("2026-09", 1)).toEqual({ month: "2026-09", fromDate: "2026-09-01", toDate: "2026-09-30", monthDays: 30 });

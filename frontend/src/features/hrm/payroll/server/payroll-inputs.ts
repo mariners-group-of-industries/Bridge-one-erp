@@ -5,7 +5,7 @@ import { attendanceOfEmployees, attendanceRules, dayKey, ruleFor } from "@/featu
 import type { AttendanceRecord } from "@/features/hrm/attendance/types";
 import { PAYROLL_DAY_RATE_BASES, PAYROLL_PERIOD_MONTHS, WEEKDAYS } from "@/features/hrm/governance/policy-fields";
 import { COMPONENT_CODES, PF_CODE, type ComponentCode, type ExcludedEmployee, type PolicyUse } from "../batch-types";
-import { DEFAULT_PAYROLL_RULES, payrollPeriod, type AllowanceInput, type DayFact, type EmployeeInput, type LateRule, type PayrollRules, type PeriodInput, type PfRule, type PolicySet, type SalaryStructure } from "./engine";
+import { DEFAULT_LATE_RULE, DEFAULT_PAYROLL_RULES, payrollPeriod, type AllowanceInput, type DayFact, type EmployeeInput, type LateRule, type PayrollRules, type PeriodInput, type PfRule, type PolicySet, type SalaryStructure } from "./engine";
 import { grossOf, monthRange } from "./payroll.service";
 
 /**
@@ -115,7 +115,7 @@ function payrollRules(r: PolicyRow | null): PayrollRules {
     deductUnrecordedDays: d.deductUnrecordedDays === true,
     unpaidLeaveTypes: unpaid,
     periodStartDay: Number.isInteger(startDay) && startDay >= 1 && startDay <= 28 ? startDay : DEFAULT_PAYROLL_RULES.periodStartDay,
-    periodMonth: d.periodMonth === PAYROLL_PERIOD_MONTHS[1] ? "end" : DEFAULT_PAYROLL_RULES.periodMonth,
+    periodMonth: d.periodMonth === PAYROLL_PERIOD_MONTHS[1] ? "end" : d.periodMonth === PAYROLL_PERIOD_MONTHS[0] ? "start" : DEFAULT_PAYROLL_RULES.periodMonth,
   };
 }
 
@@ -153,7 +153,7 @@ async function payrollRulesOn(officeId: string, date: string): Promise<PayrollRu
 /**
  * The payroll period of a payroll month (YYYY-MM) for the office, exactly as
  * payroll generation reads it (the Payroll Rule in force at the end of the
- * named month): "2026-11" is 21 Nov – 20 Dec by default.
+ * named month): "2026-11" is 21 Oct – 20 Nov by default (named after the month it ends in).
  */
 export async function payrollPeriodOfMonth(officeId: string, month: string): Promise<PeriodInput> {
   const rules = await payrollRulesOn(officeId, iso(monthRange(month).to));
@@ -162,7 +162,7 @@ export async function payrollPeriodOfMonth(officeId: string, month: string): Pro
 
 /**
  * The payroll period that contains `date` for the office, under the Payroll
- * Rule in force that day (21st – 20th by default): on 22 Nov, 21 Nov – 20 Dec.
+ * Rule in force that day (21st – 20th by default): on 22 Nov, 21 Nov – 20 Dec (December's salary).
  * The attendance summary on the employee dashboard follows it, so its lates and
  * deductions are counted over the same days as the salary.
  */
@@ -282,12 +282,11 @@ export async function loadPayrollInputs(officeId: string, month: string, employe
   const offDaysOn = new Map<string, string[]>();
   for (const date of dates) {
     const late = officeRecord(policyRows, "late-punishment", officeId, date);
-    const parsed = late ? lateRule(late) : null;
-    if (parsed) {
-      lateRules.set(parsed.id, parsed);
-      track(late);
-    }
-    lateRuleOn.set(date, parsed?.id ?? null);
+    // No Late Punishment rule in force: the company default (3 lates = 1 day of salary).
+    const parsed = (late ? lateRule(late) : null) ?? DEFAULT_LATE_RULE;
+    lateRules.set(parsed.id, parsed);
+    if (late && parsed !== DEFAULT_LATE_RULE) track(late);
+    lateRuleOn.set(date, parsed.id);
     const off = track(officeRecord(policyRows, "off-day", officeId, date));
     offDaysOn.set(date, off && Array.isArray(data(off).days) ? (data(off).days as string[]) : []);
   }
@@ -406,8 +405,9 @@ export async function loadPayrollInputs(officeId: string, month: string, employe
 
   // ── Batch-wide notices about missing configuration ──
   const notices: string[] = [];
-  if (!rulesRow) notices.push("No Payroll Rule (HR Governance › Settings / Policies › Payroll Rules): the period is the 21st to the 20th of the next month, a day's salary is gross ÷ the days of the period, and absences are not deducted.");
-  if (lateRules.size === 0) notices.push("No Late Punishment rule in force this month: lates are not penalised.");
+  if (!rulesRow) notices.push("No Payroll Rule (HR Governance › Settings / Policies › Payroll Rules): the period is the 21st to the 20th, named after the month it ends in (21 Oct – 20 Nov = November), a day's salary is gross ÷ the days of the period, and absences are not deducted.");
+  if (lateRules.has(DEFAULT_LATE_RULE.id))
+    notices.push("No Late Punishment rule on some days of the period (HR Governance › Late Punishment): those lates follow the default, 3 lates = 1 day of salary.");
   if (employees.length > 0 && employees.every((e) => e.days.every((d) => d.schedule === "unassigned")))
     notices.push("No employee of this office has a calendar for the month (Calendar Assign, Roster, Employee Assign or Off Day): absences cannot be checked.");
   if (!structure && employees.some((e) => e.salary.salaryOption === "gross" && e.salary.salaryType !== "day-basis"))

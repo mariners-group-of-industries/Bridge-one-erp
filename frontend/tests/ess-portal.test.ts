@@ -152,8 +152,9 @@ describe("ESS › access without Employee Master permissions", () => {
     expect(profile.employee.name).toBe("Rahim Uddin");
     // Confidential fields are not part of the self-service profile.
     expect(JSON.stringify(profile)).not.toContain("1234567890");
-    // A month is its payroll period (21st – 20th without a Payroll Rule); no month = the period containing today.
-    expect(await myAttendance(rahim, { month: "2026-01" })).toMatchObject({ month: "2026-01", from: "2026-01-21", to: "2026-02-20" });
+    // A month is its payroll period (21st – 20th, named after the month it ends in, without a Payroll Rule);
+    // no month = the period containing today.
+    expect(await myAttendance(rahim, { month: "2026-01" })).toMatchObject({ month: "2026-01", from: "2025-12-21", to: "2026-01-20" });
     expect(await myAttendance(rahim, {})).toMatchObject({ from: dashboard.month.from, to: dashboard.month.to });
     expect((await myCalendar(rahim, "2026-01")).days).toHaveLength(31);
   });
