@@ -1,20 +1,23 @@
 "use client";
 
-import { Plus, Truck, X } from "lucide-react";
-import { useState } from "react";
-import { Badge } from "@/components/ui/badge";
+import { Eye, FileSpreadsheet, Plus, Truck, Wallet, X } from "lucide-react";
+import { useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { DataTable, type Column } from "@/components/ui/data-table";
+import type { MenuItem } from "@/components/ui/dropdown-menu";
 import { Dialog } from "@/components/ui/dialog";
 import { CONTROL, SelectField, TextField } from "@/components/ui/form-field";
-import { Card, ErrorState, LoadingState } from "@/components/ui/section";
+import { EmptyState, ErrorState, LoadingState } from "@/components/ui/section";
 import { useToast } from "@/components/ui/toast";
 import { useResource } from "@/hooks/use-resource";
 import { errorMessage } from "@/lib/api/client";
 import { cn } from "@/lib/cn";
+import { useFeaturePermissions } from "@/lib/permissions/useFeaturePermissions";
 import { collection, delivery, directDelivery, outletLedger, retailOrder, salesReturn } from "../navigation";
 import { money, monthStart, qty, rtmApi, today, type Lookups } from "../services/rtm.api";
 import { DateRange, FilterBar, FormDialog, Kpi, RtmPage, SimpleTable, StatusBadge, options, useAction, useLookups, type FieldDef } from "../components/kit";
+import { EMPTY_TERRITORY, ListCard, RowAction, TerritoryFields, ViewButton, nodeOf, searchOutlets, useListExport, useTerritory, useViewFilters, type ExportFile } from "../components/sales-filters";
+import { rtmPaths } from "../paths";
 
 interface DocLine {
   itemId: string;
@@ -28,34 +31,24 @@ interface DocLine {
 
 const outletOptions = (l: Lookups | undefined) => options(l?.outlets, (o) => `${o.code} · ${o.name}`, (o) => o.id, "Select outlet");
 const srOptions = (l: Lookups | undefined) => options(l?.srs, (s) => `${s.code} · ${s.name}`, (s) => s.id, "None");
-const linesText = (lines: DocLine[]) => lines.map((l) => `${l.itemName} × ${qty(l.qty)}`).join(", ");
-
-/** Period + distributor filter shared by the sales lists. */
-function usePeriod() {
-  const [from, setFrom] = useState(monthStart());
-  const [to, setTo] = useState(today());
-  const [distributorId, setDistributorId] = useState("");
-  return { from, to, distributorId, setRange: (f: string, t: string) => (setFrom(f), setTo(t)), setDistributorId, key: `${from}-${to}-${distributorId}` };
-}
-
-function PeriodFilter({ p, lookups }: { p: ReturnType<typeof usePeriod>; lookups: Lookups | undefined }) {
-  return (
-    <FilterBar>
-      <DateRange from={p.from} to={p.to} onChange={p.setRange} />
-      <SelectField label="Distributor" className="w-56" value={p.distributorId} onChange={(e) => p.setDistributorId(e.target.value)} options={options(lookups?.distributors, (d) => d.name, (d) => d.id, "All distributors")} />
-    </FilterBar>
-  );
-}
 
 // ── Retail orders ────────────────────────────────────────────────────────────
 
-interface Order {
+interface OutletRef {
+  outletCode: string;
+  outletName: string;
+  outletPhone: string | null;
+}
+
+interface Order extends OutletRef {
   id: string;
   number: string;
   orderDate: string;
   outlet: string;
   distributor: string;
+  srId: string | null;
   sr: string | null;
+  srCode: string | null;
   status: string;
   subtotal: number;
   discount: number;
@@ -64,18 +57,47 @@ interface Order {
   orderedQty: number;
   deliveredQty: number;
   deliveries: string[];
+  remarks: string | null;
   lines: (DocLine & { lineId: string; deliveredQty: number; openQty: number })[];
   updatedAt: string;
 }
 
 const ORDER_LABELS = { PENDING: "Not delivered", APPROVED: "Partly delivered", COMPLETED: "Delivered" };
 
+const slColumn = <T,>(): Column<T> => ({ id: "sl", header: "SL", cell: (_r, i) => i + 1, className: "w-12 text-right tabular-nums" });
+const actionColumn = <T,>(cell: (row: T) => ReactNode, header = "Action"): Column<T> => ({ id: "action", header, cell: (r) => <div className="flex items-center gap-0.5">{cell(r)}</div>, className: "w-24" });
+const outletColumn = <T extends OutletRef>(header: string): Column<T> => ({
+  id: "outlet",
+  header,
+  cell: (r) => (
+    <span className="flex flex-col">
+      <span className="font-semibold text-ink">{r.outletName}</span>
+      <span className="font-mono text-[11px] text-ink-faint">{r.outletCode}</span>
+    </span>
+  ),
+  sortValue: (r) => r.outletName,
+});
+const mobileColumn = <T extends OutletRef>(): Column<T> => ({
+  id: "mobile",
+  header: "Mobile",
+  cell: (r) => (r.outletPhone ? <a href={`tel:${r.outletPhone}`} className="tabular-nums hover:underline">{r.outletPhone}</a> : "—"),
+});
+const srText = (r: { sr: string | null; srCode: string | null }) => (r.sr ? `${r.srCode ? `${r.srCode} · ` : ""}${r.sr}` : "");
+
 export function RetailOrderView() {
-  const p = usePeriod();
   const lookups = useLookups();
-  const list = useResource(`rtm-orders-${p.key}`, () => rtmApi.get<Order[]>("retail-order", { from: p.from, to: p.to, distributorId: p.distributorId }));
-  const [open, setOpen] = useState(false);
+  const territory = useTerritory();
+  const can = useFeaturePermissions(rtmPaths.retailOrder);
+  const canDeliver = useFeaturePermissions(rtmPaths.delivery).create;
+  const f = useViewFilters({ ...EMPTY_TERRITORY, date: today() });
+  const a = f.applied;
+  const list = useResource(`rtm-orders-${f.key}`, () => rtmApi.get<Order[]>("retail-order", { from: a.date, to: a.date, nodeId: nodeOf(a), srId: a.srId }));
+  const [query, setQuery] = useState("");
+  const [creating, setCreating] = useState(false);
+  const [viewing, setViewing] = useState<Order | null>(null);
+  const [delivering, setDelivering] = useState<Order | null>(null);
   const { busy, run } = useAction(list.reload);
+  const rows = searchOutlets(list.data, query);
   const fields: FieldDef[] = [
     { name: "orderDate", label: "Order date", type: "date", required: true },
     { name: "outletId", label: "Outlet", type: "select", required: true, options: outletOptions(lookups.data) },
@@ -83,117 +105,245 @@ export function RetailOrderView() {
     { name: "remarks", label: "Remarks", type: "textarea" },
   ];
   const columns: Column<Order>[] = [
-    { id: "number", header: "Order", cell: (o) => <span className="font-mono">{o.number}</span>, sortValue: (o) => o.number },
-    { id: "date", header: "Date", cell: (o) => o.orderDate, sortValue: (o) => o.orderDate },
-    { id: "outlet", header: "Outlet", cell: (o) => o.outlet },
-    { id: "distributor", header: "Distributor", cell: (o) => o.distributor, hideBelow: "md" },
-    { id: "sr", header: "SR", cell: (o) => o.sr ?? "—", hideBelow: "lg" },
-    { id: "items", header: "Items", cell: (o) => <span className="line-clamp-1 text-xs">{linesText(o.lines)}</span>, hideBelow: "lg" },
-    { id: "discount", header: "Discount", cell: (o) => (o.discount ? <span title={o.offer ?? undefined}>{money(o.discount)}</span> : "—"), className: "text-right", hideBelow: "md" },
-    { id: "total", header: "Total", cell: (o) => money(o.total), sortValue: (o) => o.total, className: "text-right" },
-    { id: "delivered", header: "Delivered", cell: (o) => `${qty(o.deliveredQty)} / ${qty(o.orderedQty)}`, className: "text-right" },
+    slColumn(),
+    actionColumn((o) => (
+      <>
+        <RowAction label={`View ${o.number}`} icon={<Eye />} onClick={() => setViewing(o)} />
+        {canDeliver && (o.status === "PENDING" || o.status === "APPROVED") && <RowAction label={`Deliver ${o.number}`} icon={<Truck />} onClick={() => setDelivering(o)} />}
+        {can.edit && o.status === "PENDING" && o.deliveredQty === 0 && (
+          <RowAction label={`Cancel ${o.number}`} tone="danger" icon={<X />} loading={busy === o.id} onClick={() => run(o.id, () => rtmApi.post(`retail-order/${o.id}/cancel`), `${o.number} cancelled.`)} />
+        )}
+      </>
+    )),
+    outletColumn("Outlet Name"),
+    { id: "sr", header: "Sales Force", cell: (o) => srText(o) || "—", sortValue: (o) => o.sr ?? "" },
+    mobileColumn(),
+    { id: "date", header: "Date", cell: (o) => o.orderDate, sortValue: (o) => o.orderDate, className: "whitespace-nowrap" },
+    { id: "qty", header: "Item Qty", cell: (o) => qty(o.orderedQty), sortValue: (o) => o.orderedQty, className: "text-right tabular-nums" },
     { id: "status", header: "Status", cell: (o) => <StatusBadge status={o.status} labels={ORDER_LABELS} /> },
-    {
-      id: "actions",
-      header: "",
-      cell: (o) =>
-        o.status === "PENDING" && o.deliveredQty === 0 ? (
-          <Button size="sm" variant="ghost" disabled={busy === o.id} onClick={() => run(o.id, () => rtmApi.post(`retail-order/${o.id}/cancel`), `${o.number} cancelled.`)}>
-            <X /> Cancel
-          </Button>
-        ) : null,
-    },
   ];
   return (
-    <RtmPage page={retailOrder} actions={<Button variant="primary" onClick={() => setOpen(true)}><Plus /> New Order</Button>}>
-      <PeriodFilter p={p} lookups={lookups.data} />
+    <RtmPage page={retailOrder} actions={can.create && <Button variant="primary" onClick={() => setCreating(true)}><Plus /> New Order</Button>}>
+      <FilterBar>
+        <TerritoryFields value={f.draft} onChange={f.set} territory={territory.data} />
+        <TextField label="Date" type="date" className="w-40" value={f.draft.date} onChange={(e) => f.set({ date: e.target.value })} />
+        <ViewButton loading={list.loading} onClick={() => f.view(list.reload)} />
+      </FilterBar>
       {list.error ? <ErrorState message={list.error.message} onRetry={list.reload} /> : !list.data ? <LoadingState /> : (
-        <Card>
-          <DataTable rows={list.data} columns={columns} getRowId={(o) => o.id} getRowLabel={(o) => o.number} modifiedAt={(o) => o.updatedAt} search={{ placeholder: "Search order, outlet…", match: (o, q) => `${o.number} ${o.outlet} ${o.sr ?? ""}`.toLowerCase().includes(q) }} />
-        </Card>
+        <ListCard
+          title="Retail Orders"
+          rows={rows}
+          query={query}
+          onQuery={setQuery}
+          exportPage="retail-order"
+          canExport={can.export}
+          exportFile={{
+            title: `Retail Orders ${a.date}`,
+            headers: ["SL", "Order", "Outlet Code", "Outlet Name", "Sales Force", "Mobile", "Date", "Item Qty", "Total", "Status"],
+            row: (o, i) => [i + 1, o.number, o.outletCode, o.outletName, srText(o) || null, o.outletPhone, o.orderDate, o.orderedQty, o.total, ORDER_LABELS[o.status as keyof typeof ORDER_LABELS] ?? o.status],
+          }}
+        >
+          <DataTable sheet rows={rows} columns={columns} getRowId={(o) => o.id} getRowLabel={(o) => o.number} emptyState={<EmptyState title="No retail orders">Nothing was ordered for these filters.</EmptyState>} footer={(r) => ({ qty: qty(r.reduce((t, o) => t + o.orderedQty, 0)) })} />
+        </ListCard>
       )}
       <FormDialog
-        open={open}
+        open={creating}
         title="New Retail Order"
         fields={fields}
+        initial={{ orderDate: a.date, srId: a.srId }}
         lines={{ items: lookups.data?.items ?? [], rate: true }}
-        onClose={() => setOpen(false)}
+        onClose={() => setCreating(false)}
         onSubmit={async (body) => {
           await rtmApi.post("retail-order", body);
           list.reload();
         }}
       />
+      {viewing && <OrderDetail order={viewing} onClose={() => setViewing(null)} />}
+      {delivering && <DeliverDialog order={delivering} onClose={() => setDelivering(null)} onDone={list.reload} />}
     </RtmPage>
   );
 }
 
-// ── Delivery (against orders) ────────────────────────────────────────────────
+function DetailHead({ items }: { items: [string, ReactNode][] }) {
+  return (
+    <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-[13px] sm:grid-cols-3">
+      {items.map(([label, value]) => (
+        <div key={label} className="flex flex-col">
+          <dt className="text-xs font-medium text-ink-muted">{label}</dt>
+          <dd className="text-ink">{value || "—"}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
 
-interface Delivery {
+function LinesTable({ lines, delivered }: { lines: (DocLine & { deliveredQty?: number })[]; delivered?: boolean }) {
+  return (
+    <div className="overflow-x-auto rounded border border-line">
+      <table className="w-full text-[13px]">
+        <thead className="bg-canvas text-xs text-ink-muted">
+          <tr>
+            <th className="px-2.5 py-2 text-left font-semibold">Item</th>
+            <th className="px-2.5 py-2 text-right font-semibold">Qty</th>
+            {delivered && <th className="px-2.5 py-2 text-right font-semibold">Delivered</th>}
+            <th className="px-2.5 py-2 text-right font-semibold">Rate</th>
+            <th className="px-2.5 py-2 text-right font-semibold">Amount</th>
+          </tr>
+        </thead>
+        <tbody>
+          {lines.map((l, i) => (
+            <tr key={i} className="border-t border-line">
+              <td className="px-2.5 py-1.5">
+                {l.itemName} <span className="font-mono text-[11px] text-ink-faint">{l.itemCode}</span>
+              </td>
+              <td className="px-2.5 py-1.5 text-right tabular-nums">{qty(l.qty)} {l.uom}</td>
+              {delivered && <td className="px-2.5 py-1.5 text-right tabular-nums">{qty(l.deliveredQty)}</td>}
+              <td className="px-2.5 py-1.5 text-right tabular-nums">{money(l.rate)}</td>
+              <td className="px-2.5 py-1.5 text-right tabular-nums">{money(l.amount)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function Totals({ subtotal, discount, total }: { subtotal: number; discount: number; total: number }) {
+  return (
+    <dl className="ml-auto grid w-full max-w-64 grid-cols-2 gap-y-1 text-[13px]">
+      <dt className="text-ink-muted">Subtotal</dt>
+      <dd className="text-right tabular-nums">{money(subtotal)}</dd>
+      <dt className="text-ink-muted">Discount</dt>
+      <dd className="text-right tabular-nums">{money(discount)}</dd>
+      <dt className="font-semibold text-ink">Total</dt>
+      <dd className="text-right font-semibold tabular-nums">{money(total)}</dd>
+    </dl>
+  );
+}
+
+function OrderDetail({ order: o, onClose }: { order: Order; onClose: () => void }) {
+  return (
+    <Dialog open size="xl" title={`Retail Order ${o.number}`} description={`${o.outletCode} · ${o.outletName}`} onClose={onClose} footer={<Button onClick={onClose}>Close</Button>}>
+      <div className="flex flex-col gap-4">
+        <DetailHead
+          items={[
+            ["Date", o.orderDate],
+            ["Status", <StatusBadge key="s" status={o.status} labels={ORDER_LABELS} />],
+            ["Sales force", srText(o)],
+            ["Mobile", o.outletPhone],
+            ["Distributor", o.distributor],
+            ["Deliveries", o.deliveries.join(", ")],
+            ["Offer", o.offer],
+            ["Remarks", o.remarks],
+          ]}
+        />
+        <LinesTable lines={o.lines} delivered />
+        <Totals subtotal={o.subtotal} discount={o.discount} total={o.total} />
+      </div>
+    </Dialog>
+  );
+}
+
+// ── Delivery ─────────────────────────────────────────────────────────────────
+
+interface Delivery extends OutletRef {
   id: string;
   number: string;
   deliveryDate: string;
   order: string | null;
   outlet: string;
   distributor: string;
+  srId: string | null;
   sr: string | null;
+  srCode: string | null;
+  isDirect: boolean;
+  status: string;
+  subtotal: number;
   discount: number;
   total: number;
+  remarks: string | null;
   lines: DocLine[];
   updatedAt: string;
 }
 
-const deliveryColumns: Column<Delivery>[] = [
-  { id: "number", header: "Delivery", cell: (d) => <span className="font-mono">{d.number}</span>, sortValue: (d) => d.number },
-  { id: "date", header: "Date", cell: (d) => d.deliveryDate, sortValue: (d) => d.deliveryDate },
-  { id: "order", header: "Order", cell: (d) => d.order ?? "Direct", hideBelow: "md" },
-  { id: "outlet", header: "Outlet", cell: (d) => d.outlet },
-  { id: "distributor", header: "Distributor", cell: (d) => d.distributor, hideBelow: "md" },
-  { id: "items", header: "Items", cell: (d) => <span className="line-clamp-1 text-xs">{linesText(d.lines)}</span>, hideBelow: "lg" },
-  { id: "discount", header: "Discount", cell: (d) => (d.discount ? money(d.discount) : "—"), className: "text-right", hideBelow: "md" },
-  { id: "total", header: "Total", cell: (d) => money(d.total), sortValue: (d) => d.total, className: "text-right" },
+const DELIVERY_LABELS = { COMPLETED: "Delivered" };
+const DELIVERY_TYPES = [
+  { value: "", label: "All types" },
+  { value: "ORDER", label: "Against order" },
+  { value: "DIRECT", label: "Direct delivery" },
 ];
 
 export function DeliveryView() {
-  const p = usePeriod();
   const lookups = useLookups();
-  const open = useResource(`rtm-open-orders-${p.distributorId}`, async () => {
-    const [pending, partial] = await Promise.all([
-      rtmApi.get<Order[]>("retail-order", { status: "PENDING", distributorId: p.distributorId }),
-      rtmApi.get<Order[]>("retail-order", { status: "APPROVED", distributorId: p.distributorId }),
-    ]);
-    return [...pending, ...partial].sort((a, b) => a.orderDate.localeCompare(b.orderDate));
-  });
-  const list = useResource(`rtm-deliveries-${p.key}`, () => rtmApi.get<Delivery[]>("delivery", { from: p.from, to: p.to, distributorId: p.distributorId }));
-  const [target, setTarget] = useState<Order | null>(null);
-  const reload = () => {
-    open.reload();
-    list.reload();
-  };
+  const territory = useTerritory();
+  const can = useFeaturePermissions(rtmPaths.delivery);
+  const f = useViewFilters({ deliveryType: "", ...EMPTY_TERRITORY, distributorId: "", from: today(), to: today() });
+  const a = f.applied;
+  const list = useResource(`rtm-deliveries-${f.key}`, () =>
+    rtmApi.get<Delivery[]>("delivery", { deliveryType: a.deliveryType, nodeId: nodeOf(a), srId: a.srId, distributorId: a.distributorId, from: a.from, to: a.to }),
+  );
+  const [query, setQuery] = useState("");
+  const [viewing, setViewing] = useState<Delivery | null>(null);
+  const rows = searchOutlets(list.data, query);
+  const columns: Column<Delivery>[] = [
+    slColumn(),
+    actionColumn((d) => <RowAction label={`View ${d.number}`} icon={<Eye />} onClick={() => setViewing(d)} />),
+    outletColumn("Outlet"),
+    { id: "sr", header: "Sales Force", cell: (d) => srText(d) || "—", sortValue: (d) => d.sr ?? "" },
+    mobileColumn(),
+    { id: "date", header: "Date", cell: (d) => d.deliveryDate, sortValue: (d) => d.deliveryDate, className: "whitespace-nowrap" },
+    { id: "status", header: "Status", cell: (d) => <StatusBadge status={d.status} labels={DELIVERY_LABELS} /> },
+  ];
   return (
     <RtmPage page={delivery}>
-      <PeriodFilter p={p} lookups={lookups.data} />
-      <SimpleTable
-        title="Orders to deliver"
-        rows={open.data ?? []}
-        empty={open.loading ? "Loading…" : "No orders waiting for delivery."}
-        columns={[
-          { header: "Order", cell: (o) => <span className="font-mono">{o.number}</span> },
-          { header: "Date", cell: (o) => o.orderDate },
-          { header: "Outlet", cell: (o) => o.outlet },
-          { header: "Distributor", cell: (o) => o.distributor },
-          { header: "Open qty", cell: (o) => qty(o.orderedQty - o.deliveredQty), align: "right" },
-          { header: "Total", cell: (o) => money(o.total), align: "right" },
-          { header: "", cell: (o) => <Button size="sm" variant="primary" onClick={() => setTarget(o)}><Truck /> Deliver</Button> },
-        ]}
-      />
+      <FilterBar>
+        <SelectField label="Delivery Type" className="w-40" value={f.draft.deliveryType} onChange={(e) => f.set({ deliveryType: e.target.value })} options={DELIVERY_TYPES} />
+        <TerritoryFields value={f.draft} onChange={f.set} territory={territory.data} />
+        <SelectField label="Delivery By" className="w-56" value={f.draft.distributorId} onChange={(e) => f.set({ distributorId: e.target.value })} options={options(lookups.data?.distributors, (d) => d.name, (d) => d.id, "All distributors")} />
+        <DateRange from={f.draft.from} to={f.draft.to} onChange={(from, to) => f.set({ from, to })} />
+        <ViewButton loading={list.loading} onClick={() => f.view(list.reload)} />
+      </FilterBar>
       {list.error ? <ErrorState message={list.error.message} onRetry={list.reload} /> : !list.data ? <LoadingState /> : (
-        <Card>
-          <DataTable rows={list.data} columns={deliveryColumns} getRowId={(d) => d.id} getRowLabel={(d) => d.number} modifiedAt={(d) => d.updatedAt} search={{ placeholder: "Search delivery, outlet…", match: (d, q) => `${d.number} ${d.outlet} ${d.order ?? ""}`.toLowerCase().includes(q) }} />
-        </Card>
+        <ListCard
+          title="Deliveries"
+          rows={rows}
+          query={query}
+          onQuery={setQuery}
+          exportPage="delivery"
+          canExport={can.export}
+          exportFile={{
+            title: `Deliveries ${a.from} to ${a.to}`,
+            headers: ["SL", "Delivery", "Type", "Order", "Outlet Code", "Outlet", "Sales Force", "Mobile", "Date", "Delivery By", "Total", "Status"],
+            row: (d, i) => [i + 1, d.number, d.isDirect ? "Direct" : "Against order", d.order, d.outletCode, d.outletName, srText(d) || null, d.outletPhone, d.deliveryDate, d.distributor, d.total, d.status === "COMPLETED" ? "Delivered" : d.status],
+          }}
+        >
+          <DataTable sheet rows={rows} columns={columns} getRowId={(d) => d.id} getRowLabel={(d) => d.number} emptyState={<EmptyState title="No deliveries">Nothing was delivered for these filters.</EmptyState>} />
+        </ListCard>
       )}
-      {target && <DeliverDialog order={target} onClose={() => setTarget(null)} onDone={reload} />}
+      {viewing && <DeliveryDetail delivery={viewing} onClose={() => setViewing(null)} />}
     </RtmPage>
+  );
+}
+
+function DeliveryDetail({ delivery: d, onClose }: { delivery: Delivery; onClose: () => void }) {
+  return (
+    <Dialog open size="xl" title={`Delivery ${d.number}`} description={`${d.outletCode} · ${d.outletName}`} onClose={onClose} footer={<Button onClick={onClose}>Close</Button>}>
+      <div className="flex flex-col gap-4">
+        <DetailHead
+          items={[
+            ["Date", d.deliveryDate],
+            ["Status", <StatusBadge key="s" status={d.status} labels={DELIVERY_LABELS} />],
+            ["Type", d.isDirect ? "Direct delivery" : `Against order ${d.order ?? ""}`],
+            ["Sales force", srText(d)],
+            ["Mobile", d.outletPhone],
+            ["Delivery by", d.distributor],
+            ["Remarks", d.remarks],
+          ]}
+        />
+        <LinesTable lines={d.lines} />
+        <Totals subtotal={d.subtotal} discount={d.discount} total={d.total} />
+      </div>
+    </Dialog>
   );
 }
 
@@ -261,11 +411,34 @@ function DeliverDialog({ order, onClose, onDone }: { order: Order; onClose: () =
 
 // ── Direct delivery ──────────────────────────────────────────────────────────
 
+/** Excel of the rows ticked in a list (the list's bulk action). */
+function selectedExcel<T>(download: (rows: readonly T[]) => Promise<void>) {
+  return (selected: T[], clear: () => void): MenuItem[] => [
+    {
+      label: `Excel (${selected.length} selected)`,
+      icon: <FileSpreadsheet className="size-4" />,
+      onSelect: () => void download(selected).then(clear),
+    },
+  ];
+}
+
 export function DirectDeliveryView() {
-  const p = usePeriod();
   const lookups = useLookups();
-  const list = useResource(`rtm-direct-${p.key}`, () => rtmApi.get<Delivery[]>("direct-delivery", { from: p.from, to: p.to, distributorId: p.distributorId }));
-  const [open, setOpen] = useState(false);
+  const territory = useTerritory();
+  const can = useFeaturePermissions(rtmPaths.directDelivery);
+  const f = useViewFilters({ ...EMPTY_TERRITORY, distributorId: "", date: today() });
+  const a = f.applied;
+  const list = useResource(`rtm-direct-${f.key}`, () => rtmApi.get<Delivery[]>("direct-delivery", { nodeId: nodeOf(a), srId: a.srId, distributorId: a.distributorId, from: a.date, to: a.date }));
+  const [query, setQuery] = useState("");
+  const [creating, setCreating] = useState(false);
+  const [viewing, setViewing] = useState<Delivery | null>(null);
+  const rows = searchOutlets(list.data, query);
+  const file: ExportFile<Delivery> = {
+    title: `Direct Deliveries ${a.date}`,
+    headers: ["SL", "Delivery", "Outlet Code", "Outlet", "Sales Force", "Mobile", "Date", "Delivered By", "Total", "Status"],
+    row: (d, i) => [i + 1, d.number, d.outletCode, d.outletName, srText(d) || null, d.outletPhone, d.deliveryDate, d.distributor, d.total, d.status === "COMPLETED" ? "Delivered" : d.status],
+  };
+  const selected = useListExport("direct-delivery", file);
   const fields: FieldDef[] = [
     { name: "deliveryDate", label: "Delivery date", type: "date", required: true },
     { name: "outletId", label: "Outlet", type: "select", required: true, options: outletOptions(lookups.data) },
@@ -273,42 +446,66 @@ export function DirectDeliveryView() {
     { name: "discount", label: "Discount", type: "number" },
     { name: "remarks", label: "Remarks", type: "textarea", wide: true },
   ];
+  const columns: Column<Delivery>[] = [
+    slColumn(),
+    outletColumn("Outlet"),
+    { id: "sr", header: "Sales Force", cell: (d) => srText(d) || "—" },
+    mobileColumn(),
+    { id: "date", header: "Date", cell: (d) => d.deliveryDate, className: "whitespace-nowrap" },
+    { id: "status", header: "Status", cell: (d) => <StatusBadge status={d.status} labels={DELIVERY_LABELS} /> },
+    actionColumn((d) => <RowAction label={`View ${d.number}`} icon={<Eye />} onClick={() => setViewing(d)} />, "Actions"),
+  ];
   return (
-    <RtmPage page={directDelivery} actions={<Button variant="primary" onClick={() => setOpen(true)}><Plus /> New Direct Delivery</Button>}>
-      <PeriodFilter p={p} lookups={lookups.data} />
+    <RtmPage page={directDelivery} actions={can.create && <Button variant="primary" onClick={() => setCreating(true)}><Plus /> New Direct Delivery</Button>}>
+      <FilterBar>
+        <TerritoryFields value={f.draft} onChange={f.set} territory={territory.data} />
+        <SelectField label="Delivered By" className="w-56" value={f.draft.distributorId} onChange={(e) => f.set({ distributorId: e.target.value })} options={options(lookups.data?.distributors, (d) => d.name, (d) => d.id, "All distributors")} />
+        <TextField label="Date" type="date" className="w-40" value={f.draft.date} onChange={(e) => f.set({ date: e.target.value })} />
+        <ViewButton loading={list.loading} onClick={() => f.view(list.reload)} />
+      </FilterBar>
       {list.error ? <ErrorState message={list.error.message} onRetry={list.reload} /> : !list.data ? <LoadingState /> : (
-        <Card>
-          <DataTable rows={list.data} columns={deliveryColumns.filter((c) => c.id !== "order")} getRowId={(d) => d.id} getRowLabel={(d) => d.number} modifiedAt={(d) => d.updatedAt} search={{ placeholder: "Search delivery, outlet…", match: (d, q) => `${d.number} ${d.outlet}`.toLowerCase().includes(q) }} />
-        </Card>
+        <ListCard title="Direct Deliveries" rows={rows} query={query} onQuery={setQuery} exportPage="direct-delivery" canExport={can.export} exportFile={file}>
+          <DataTable
+            rows={rows}
+            columns={columns}
+            getRowId={(d) => d.id}
+            getRowLabel={(d) => `${d.number} ${d.outletName}`}
+            bulkActions={can.export ? selectedExcel(selected.download) : undefined}
+            emptyState={<EmptyState title="No direct deliveries">Nothing was delivered for these filters.</EmptyState>}
+          />
+        </ListCard>
       )}
       <FormDialog
-        open={open}
+        open={creating}
         title="New Direct Delivery"
         fields={fields}
+        initial={{ deliveryDate: a.date, srId: a.srId }}
         lines={{ items: lookups.data?.items ?? [], rate: true }}
-        onClose={() => setOpen(false)}
+        onClose={() => setCreating(false)}
         onSubmit={async (body) => {
           await rtmApi.post("direct-delivery", body);
           list.reload();
         }}
       />
+      {viewing && <DeliveryDetail delivery={viewing} onClose={() => setViewing(null)} />}
     </RtmPage>
   );
 }
 
 // ── Collection ───────────────────────────────────────────────────────────────
 
-interface CollectionRow {
-  id: string;
-  number: string;
-  collectionDate: string;
-  outlet: string;
+/** One outlet on one day (GET /api/rtm/collection/summary). */
+interface CollectionDay extends OutletRef {
+  outletId: string;
   distributor: string;
+  date: string;
+  srId: string | null;
   sr: string | null;
-  amount: number;
-  method: string;
-  reference: string | null;
-  updatedAt: string;
+  delivered: number;
+  collected: number;
+  rest: number;
+  /** Everything the outlet owes now (the most that can be collected). */
+  due: number;
 }
 
 const METHODS = [
@@ -319,97 +516,220 @@ const METHODS = [
 ];
 
 export function CollectionView() {
-  const p = usePeriod();
   const lookups = useLookups();
-  const list = useResource(`rtm-collections-${p.key}`, () => rtmApi.get<CollectionRow[]>("collection", { from: p.from, to: p.to, distributorId: p.distributorId }));
-  const [open, setOpen] = useState(false);
-  const fields: FieldDef[] = [
+  const territory = useTerritory();
+  const can = useFeaturePermissions(rtmPaths.collection);
+  const f = useViewFilters({ ...EMPTY_TERRITORY, outletId: "", date: today() });
+  const a = f.applied;
+  const list = useResource(`rtm-collection-day-${f.key}`, () => rtmApi.get<CollectionDay[]>("collection/summary", { date: a.date, nodeId: nodeOf(a), srId: a.srId, outletId: a.outletId }));
+  const [query, setQuery] = useState("");
+  const [collecting, setCollecting] = useState<CollectionDay | null>(null);
+  const [creating, setCreating] = useState(false);
+  const rows = searchOutlets(list.data, query);
+  const collectFields: FieldDef[] = [
     { name: "collectionDate", label: "Date", type: "date", required: true },
-    { name: "outletId", label: "Outlet", type: "select", required: true, options: outletOptions(lookups.data) },
-    { name: "amount", label: "Amount", type: "number", required: true },
+    { name: "amount", label: "Amount", type: "number", required: true, hint: collecting ? `Rest ${money(collecting.rest)} · owes ${money(collecting.due)} in all` : undefined },
     { name: "method", label: "Method", type: "select", options: METHODS },
     { name: "reference", label: "Reference / money receipt" },
     { name: "srId", label: "Collected by (SR)", type: "select", options: srOptions(lookups.data) },
     { name: "remarks", label: "Remarks", type: "textarea", wide: true },
   ];
-  const columns: Column<CollectionRow>[] = [
-    { id: "number", header: "Receipt", cell: (c) => <span className="font-mono">{c.number}</span>, sortValue: (c) => c.number },
-    { id: "date", header: "Date", cell: (c) => c.collectionDate, sortValue: (c) => c.collectionDate },
-    { id: "outlet", header: "Outlet", cell: (c) => c.outlet },
-    { id: "distributor", header: "Distributor", cell: (c) => c.distributor, hideBelow: "md" },
-    { id: "sr", header: "SR", cell: (c) => c.sr ?? "—", hideBelow: "lg" },
-    { id: "method", header: "Method", cell: (c) => <Badge>{METHODS.find((m) => m.value === c.method)?.label ?? c.method}</Badge> },
-    { id: "reference", header: "Reference", cell: (c) => c.reference ?? "—", hideBelow: "lg" },
-    { id: "amount", header: "Amount", cell: (c) => money(c.amount), sortValue: (c) => c.amount, className: "text-right" },
+  const newFields: FieldDef[] = [collectFields[0], { name: "outletId", label: "Outlet", type: "select", required: true, options: outletOptions(lookups.data) }, ...collectFields.slice(1)];
+  const columns: Column<CollectionDay>[] = [
+    slColumn(),
+    actionColumn((c) =>
+      can.create ? (
+        <Button size="sm" variant={c.rest > 0 ? "accent-soft" : "ghost"} disabled={c.due <= 0} title={c.due <= 0 ? "Nothing is due" : `Collect from ${c.outletName}`} onClick={() => setCollecting(c)}>
+          <Wallet /> Collect
+        </Button>
+      ) : null,
+    ),
+    outletColumn("Outlet Name"),
+    mobileColumn(),
+    { id: "date", header: "Date", cell: (c) => c.date, className: "whitespace-nowrap" },
+    { id: "delivered", header: "Delivered Amount", cell: (c) => money(c.delivered), sortValue: (c) => c.delivered, className: "text-right tabular-nums" },
+    { id: "collected", header: "Collection Amount", cell: (c) => money(c.collected), sortValue: (c) => c.collected, className: "text-right tabular-nums" },
+    { id: "rest", header: "Rest Amount", cell: (c) => <span className={cn(c.rest > 0 && "font-semibold text-warning")}>{money(c.rest)}</span>, sortValue: (c) => c.rest, className: "text-right tabular-nums" },
   ];
+  const sum = (r: readonly CollectionDay[], k: "delivered" | "collected" | "rest") => money(r.reduce((t, c) => t + c[k], 0));
   return (
-    <RtmPage page={collection} actions={<Button variant="primary" onClick={() => setOpen(true)}><Plus /> New Collection</Button>}>
-      <PeriodFilter p={p} lookups={lookups.data} />
+    <RtmPage page={collection} actions={can.create && <Button variant="primary" onClick={() => setCreating(true)}><Plus /> New Collection</Button>}>
+      <FilterBar>
+        <TerritoryFields value={f.draft} onChange={f.set} territory={territory.data} />
+        <SelectField label="Outlet" className="w-64" value={f.draft.outletId} onChange={(e) => f.set({ outletId: e.target.value })} options={options(lookups.data?.outlets, (o) => `${o.code} · ${o.name}`, (o) => o.id, "All outlets")} />
+        <TextField label="Date" type="date" className="w-40" value={f.draft.date} onChange={(e) => f.set({ date: e.target.value })} />
+        <ViewButton loading={list.loading} onClick={() => f.view(list.reload)} />
+      </FilterBar>
       {list.error ? <ErrorState message={list.error.message} onRetry={list.reload} /> : !list.data ? <LoadingState /> : (
-        <Card>
-          <DataTable rows={list.data} columns={columns} getRowId={(c) => c.id} getRowLabel={(c) => c.number} modifiedAt={(c) => c.updatedAt} search={{ placeholder: "Search receipt, outlet…", match: (c, q) => `${c.number} ${c.outlet} ${c.reference ?? ""}`.toLowerCase().includes(q) }} footer={(rows) => ({ amount: money(rows.reduce((t, r) => t + r.amount, 0)) })} />
-        </Card>
+        <ListCard
+          title="Collections"
+          rows={rows}
+          query={query}
+          onQuery={setQuery}
+          exportPage="collection"
+          canExport={can.export}
+          exportFile={{
+            title: `Collections ${a.date}`,
+            headers: ["SL", "Outlet Code", "Outlet Name", "Mobile", "Date", "Delivered Amount", "Collection Amount", "Rest Amount"],
+            row: (c, i) => [i + 1, c.outletCode, c.outletName, c.outletPhone, c.date, c.delivered, c.collected, c.rest],
+          }}
+        >
+          <DataTable
+            sheet
+            rows={rows}
+            columns={columns}
+            getRowId={(c) => c.outletId}
+            getRowLabel={(c) => c.outletName}
+            emptyState={<EmptyState title="Nothing delivered or collected">No outlet had a delivery or a collection for these filters.</EmptyState>}
+            footer={(r) => ({ delivered: sum(r, "delivered"), collected: sum(r, "collected"), rest: sum(r, "rest") })}
+          />
+        </ListCard>
       )}
-      <FormDialog open={open} title="New Collection" fields={fields} initial={{ method: "CASH" }} onClose={() => setOpen(false)} onSubmit={async (body) => { await rtmApi.post("collection", body); list.reload(); }} />
+      <FormDialog
+        open={collecting !== null}
+        title={collecting ? `Collect from ${collecting.outletName}` : ""}
+        fields={collectFields}
+        initial={collecting ? { collectionDate: collecting.date, amount: collecting.rest > 0 ? String(collecting.rest) : "", method: "CASH", srId: collecting.srId ?? "" } : undefined}
+        submitLabel="Collect"
+        onClose={() => setCollecting(null)}
+        onSubmit={async (body) => {
+          await rtmApi.post("collection", { ...body, outletId: collecting!.outletId });
+          list.reload();
+        }}
+      />
+      <FormDialog
+        open={creating}
+        title="New Collection"
+        fields={newFields}
+        initial={{ collectionDate: a.date, method: "CASH", srId: a.srId }}
+        onClose={() => setCreating(false)}
+        onSubmit={async (body) => {
+          await rtmApi.post("collection", body);
+          list.reload();
+        }}
+      />
     </RtmPage>
   );
 }
 
 // ── Sales return ─────────────────────────────────────────────────────────────
 
-interface ReturnRow {
+interface ReturnRow extends OutletRef {
   id: string;
   number: string;
   returnDate: string;
   outlet: string;
   distributor: string;
   delivery: string | null;
+  deliveryType: "ORDER" | "DIRECT" | null;
+  srId: string | null;
+  sr: string | null;
+  srCode: string | null;
   reason: string | null;
   total: number;
+  status: string;
   lines: DocLine[];
   updatedAt: string;
 }
 
+const RETURN_LABELS = { COMPLETED: "Returned" };
+const RETURN_DELIVERY_TYPES = [...DELIVERY_TYPES, { value: "NONE", label: "Without delivery" }];
+const returnTypeLabel = (r: ReturnRow) => (r.deliveryType === "DIRECT" ? "Direct delivery" : r.deliveryType === "ORDER" ? "Against order" : "Without delivery");
+
 export function SalesReturnView() {
-  const p = usePeriod();
   const lookups = useLookups();
-  const list = useResource(`rtm-returns-${p.key}`, () => rtmApi.get<ReturnRow[]>("sales-return", { from: p.from, to: p.to, distributorId: p.distributorId }));
-  const [open, setOpen] = useState(false);
+  const territory = useTerritory();
+  const can = useFeaturePermissions(rtmPaths.salesReturn);
+  const f = useViewFilters({ deliveryType: "", ...EMPTY_TERRITORY, distributorId: "", date: today() });
+  const a = f.applied;
+  const list = useResource(`rtm-returns-${f.key}`, () =>
+    rtmApi.get<ReturnRow[]>("sales-return", { deliveryType: a.deliveryType, nodeId: nodeOf(a), srId: a.srId, distributorId: a.distributorId, from: a.date, to: a.date }),
+  );
+  const [query, setQuery] = useState("");
+  const [creating, setCreating] = useState(false);
+  const [viewing, setViewing] = useState<ReturnRow | null>(null);
+  const rows = searchOutlets(list.data, query);
+  const file: ExportFile<ReturnRow> = {
+    title: `Sales Returns ${a.date}`,
+    headers: ["SL", "Return", "Delivery Type", "Delivery", "Outlet Code", "Outlet", "Sales Force", "Mobile", "Date", "Delivered By", "Reason", "Value", "Status"],
+    row: (r, i) => [i + 1, r.number, returnTypeLabel(r), r.delivery, r.outletCode, r.outletName, srText(r) || null, r.outletPhone, r.returnDate, r.distributor, r.reason, r.total, r.status === "COMPLETED" ? "Returned" : r.status],
+  };
+  const selected = useListExport("sales-return", file);
   const fields: FieldDef[] = [
     { name: "returnDate", label: "Return date", type: "date", required: true },
     { name: "outletId", label: "Outlet", type: "select", required: true, options: outletOptions(lookups.data) },
     { name: "reason", label: "Reason", type: "select", options: ["Damaged", "Expired", "Near expiry", "Wrong item", "Not sold", "Other"].map((r) => ({ value: r, label: r })) },
   ];
   const columns: Column<ReturnRow>[] = [
-    { id: "number", header: "Return", cell: (r) => <span className="font-mono">{r.number}</span>, sortValue: (r) => r.number },
-    { id: "date", header: "Date", cell: (r) => r.returnDate, sortValue: (r) => r.returnDate },
-    { id: "outlet", header: "Outlet", cell: (r) => r.outlet },
-    { id: "distributor", header: "Distributor", cell: (r) => r.distributor, hideBelow: "md" },
-    { id: "reason", header: "Reason", cell: (r) => r.reason ?? "—" },
-    { id: "items", header: "Items", cell: (r) => <span className="line-clamp-1 text-xs">{linesText(r.lines)}</span>, hideBelow: "lg" },
-    { id: "total", header: "Value", cell: (r) => money(r.total), sortValue: (r) => r.total, className: "text-right" },
+    slColumn(),
+    outletColumn("Outlet"),
+    { id: "sr", header: "Sales Force", cell: (r) => srText(r) || "—" },
+    mobileColumn(),
+    { id: "date", header: "Date", cell: (r) => r.returnDate, className: "whitespace-nowrap" },
+    { id: "status", header: "Status", cell: (r) => <StatusBadge status={r.status} labels={RETURN_LABELS} /> },
+    actionColumn((r) => <RowAction label={`View ${r.number}`} icon={<Eye />} onClick={() => setViewing(r)} />, "Actions"),
   ];
   return (
-    <RtmPage page={salesReturn} actions={<Button variant="primary" onClick={() => setOpen(true)}><Plus /> New Return</Button>}>
-      <PeriodFilter p={p} lookups={lookups.data} />
+    <RtmPage page={salesReturn} actions={can.create && <Button variant="primary" onClick={() => setCreating(true)}><Plus /> New Return</Button>}>
+      <FilterBar>
+        <SelectField label="Delivery Type" className="w-40" value={f.draft.deliveryType} onChange={(e) => f.set({ deliveryType: e.target.value })} options={RETURN_DELIVERY_TYPES} />
+        <TerritoryFields value={f.draft} onChange={f.set} territory={territory.data} />
+        <SelectField label="Delivered By" className="w-56" value={f.draft.distributorId} onChange={(e) => f.set({ distributorId: e.target.value })} options={options(lookups.data?.distributors, (d) => d.name, (d) => d.id, "All distributors")} />
+        <TextField label="Date" type="date" className="w-40" value={f.draft.date} onChange={(e) => f.set({ date: e.target.value })} />
+        <ViewButton loading={list.loading} onClick={() => f.view(list.reload)} />
+      </FilterBar>
       {list.error ? <ErrorState message={list.error.message} onRetry={list.reload} /> : !list.data ? <LoadingState /> : (
-        <Card>
-          <DataTable rows={list.data} columns={columns} getRowId={(r) => r.id} getRowLabel={(r) => r.number} modifiedAt={(r) => r.updatedAt} search={{ placeholder: "Search return, outlet…", match: (r, q) => `${r.number} ${r.outlet}`.toLowerCase().includes(q) }} />
-        </Card>
+        <ListCard title="Sales Returns" rows={rows} query={query} onQuery={setQuery} exportPage="sales-return" canExport={can.export} exportFile={file}>
+          <DataTable
+            rows={rows}
+            columns={columns}
+            getRowId={(r) => r.id}
+            getRowLabel={(r) => `${r.number} ${r.outletName}`}
+            bulkActions={can.export ? selectedExcel(selected.download) : undefined}
+            emptyState={<EmptyState title="No sales returns">Nothing was returned for these filters.</EmptyState>}
+          />
+        </ListCard>
       )}
       <FormDialog
-        open={open}
+        open={creating}
         title="New Sales Return"
         fields={fields}
-        initial={{ reason: "Damaged" }}
+        initial={{ returnDate: a.date, reason: "Damaged" }}
         lines={{ items: lookups.data?.items ?? [], rate: true }}
-        onClose={() => setOpen(false)}
+        onClose={() => setCreating(false)}
         onSubmit={async (body) => {
           await rtmApi.post("sales-return", body);
           list.reload();
         }}
       />
+      {viewing && <ReturnDetail ret={viewing} onClose={() => setViewing(null)} />}
     </RtmPage>
+  );
+}
+
+function ReturnDetail({ ret: r, onClose }: { ret: ReturnRow; onClose: () => void }) {
+  return (
+    <Dialog open size="xl" title={`Sales Return ${r.number}`} description={`${r.outletCode} · ${r.outletName}`} onClose={onClose} footer={<Button onClick={onClose}>Close</Button>}>
+      <div className="flex flex-col gap-4">
+        <DetailHead
+          items={[
+            ["Date", r.returnDate],
+            ["Status", <StatusBadge key="s" status={r.status} labels={RETURN_LABELS} />],
+            ["Delivery type", returnTypeLabel(r)],
+            ["Delivery", r.delivery],
+            ["Sales force", srText(r)],
+            ["Mobile", r.outletPhone],
+            ["Delivered by", r.distributor],
+            ["Reason", r.reason],
+          ]}
+        />
+        <LinesTable lines={r.lines} />
+        <dl className="ml-auto grid w-full max-w-64 grid-cols-2 text-[13px]">
+          <dt className="font-semibold text-ink">Value</dt>
+          <dd className="text-right font-semibold tabular-nums">{money(r.total)}</dd>
+        </dl>
+      </div>
+    </Dialog>
   );
 }
 
