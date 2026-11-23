@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import {
+  ArrowLeft,
   Bell,
   Building2,
   ChevronDown,
@@ -19,7 +20,7 @@ import {
   User,
 } from "lucide-react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Kbd } from "@/components/ui/kbd";
 import { useResource } from "@/hooks/use-resource";
@@ -62,6 +63,8 @@ export function Navbar({ onToggleSidebar, sidebarHidden, onOpenSearch }: NavbarP
       >
         <PanelLeft className="size-4" />
       </NavIconBtn>
+
+      <BackButton />
 
       {/* Logo */}
       <Link href="/" className="flex shrink-0 items-center rounded-lg px-1 focus-visible:outline-2" title="BridgeOne ERP">
@@ -293,6 +296,28 @@ function BusinessUnitSwitcher() {
         </Popover>
       )}
     </div>
+  );
+}
+
+/**
+ * Back on every page: the previous page in this tab, or Home when the page was
+ * opened directly (new tab, bookmark, link). Hidden on Home itself.
+ */
+function BackButton() {
+  const router = useRouter();
+  const pathname = usePathname();
+  if (pathname === "/") return null;
+  return (
+    <button
+      type="button"
+      aria-label="Go back"
+      title="Back (Alt+←)"
+      onClick={() => (window.history.length > 1 ? router.back() : router.push("/"))}
+      className="flex h-11 min-w-11 shrink-0 items-center justify-center gap-1 rounded-lg px-1.5 text-ink-faint transition-colors hover:bg-control hover:text-ink focus-visible:outline-2 sm:h-8 sm:min-w-8 sm:pr-2.5"
+    >
+      <ArrowLeft className="size-4" aria-hidden="true" />
+      <span className="hidden text-xs font-medium sm:inline">Back</span>
+    </button>
   );
 }
 
