@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import { useFeaturePermissions, needsPermission } from "@/lib/permissions/useFeaturePermissions";
 import { BulkUploadDialog } from "@/features/configuration/entity-master-data/components/BulkUploadDialog";
+import { NativeDateInput } from "@/components/ui/date-input";
 
 // ============================================================================
 // TYPES
@@ -382,7 +383,7 @@ export default function TransferRequestPage() {
               <label className="block text-[11px] text-ink-muted mb-1 font-medium">
                 From Date
               </label>
-              <input
+              <NativeDateInput
                 type="date"
                 value={listFromDate}
                 onChange={(e) => setListFromDate(e.target.value)}
@@ -395,7 +396,7 @@ export default function TransferRequestPage() {
               <label className="block text-[11px] text-ink-muted mb-1 font-medium">
                 To Date
               </label>
-              <input
+              <NativeDateInput
                 type="date"
                 value={listToDate}
                 onChange={(e) => setListToDate(e.target.value)}
@@ -648,7 +649,7 @@ export default function TransferRequestPage() {
               <label className="block text-[11px] text-ink-muted mb-1 font-medium">
                 From Date
               </label>
-              <input
+              <NativeDateInput
                 type="date"
                 value={summaryFromDate}
                 onChange={(e) => setSummaryFromDate(e.target.value)}
@@ -661,7 +662,7 @@ export default function TransferRequestPage() {
               <label className="block text-[11px] text-ink-muted mb-1 font-medium">
                 To Date
               </label>
-              <input
+              <NativeDateInput
                 type="date"
                 value={summaryToDate}
                 onChange={(e) => setSummaryToDate(e.target.value)}
@@ -847,7 +848,7 @@ export default function TransferRequestPage() {
               <label className="block text-[11px] text-ink-muted mb-1 font-medium">
                 From Request Date
               </label>
-              <input
+              <NativeDateInput
                 type="date"
                 value={detailFromReqDate}
                 onChange={(e) => setDetailFromReqDate(e.target.value)}
@@ -860,7 +861,7 @@ export default function TransferRequestPage() {
               <label className="block text-[11px] text-ink-muted mb-1 font-medium">
                 To Request Date
               </label>
-              <input
+              <NativeDateInput
                 type="date"
                 value={detailToReqDate}
                 onChange={(e) => setDetailToReqDate(e.target.value)}
@@ -873,7 +874,7 @@ export default function TransferRequestPage() {
               <label className="block text-[11px] text-ink-muted mb-1 font-medium">
                 From Exp. Date
               </label>
-              <input
+              <NativeDateInput
                 type="date"
                 value={detailFromExpDate}
                 onChange={(e) => setDetailFromExpDate(e.target.value)}
@@ -886,7 +887,7 @@ export default function TransferRequestPage() {
               <label className="block text-[11px] text-ink-muted mb-1 font-medium">
                 To Exp. Date
               </label>
-              <input
+              <NativeDateInput
                 type="date"
                 value={detailToExpDate}
                 onChange={(e) => setDetailToExpDate(e.target.value)}

@@ -21,6 +21,8 @@ import { PURCHASE_QUERY_KEYS, downloadCsv, localToday, uploadPurchaseBulk } from
 import { BulkUploadDialog } from "@/features/configuration/entity-master-data/components/BulkUploadDialog";
 import { usePurchasePermissions } from "@/features/purchase/lib/usePurchasePermissions";
 import type { GoodsReceipt, Item, Office, PurchaseOrder, Supplier, SupplierInvoiceItem } from "@bridgeone/contracts";
+import { NativeDateInput } from "@/components/ui/date-input";
+import { formatDate } from "@/lib/format";
 
 const parsePoTag = (notes: string | undefined, prefix: string): string => {
   if (!notes) return "";
@@ -89,7 +91,7 @@ function formatEta(dateStr?: string) {
   if (!dateStr) return "—";
   const dt = new Date(`${dateStr}T00:00:00`);
   if (Number.isNaN(dt.getTime())) return dateStr;
-  return `00.00h (${dt.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })})`;
+  return `00.00h (${dt.toLocaleDateString("en-GB", { weekday: "short" })}, ${formatDate(dateStr)})`;
 }
 
 const inputCls =
@@ -646,15 +648,15 @@ export default function PurchaseReceivePage() {
               </label>
               <label className="block">
                 <span className="block text-[11px] font-semibold text-ink-muted mb-1">From Date</span>
-                <input type="date" value={poFromDate} onChange={(e) => setPoFromDate(e.target.value)} className={inputCls} />
+                <NativeDateInput type="date" value={poFromDate} onChange={(e) => setPoFromDate(e.target.value)} className={inputCls} />
               </label>
               <label className="block">
                 <span className="block text-[11px] font-semibold text-ink-muted mb-1">To Date</span>
-                <input type="date" value={poToDate} onChange={(e) => setPoToDate(e.target.value)} className={inputCls} />
+                <NativeDateInput type="date" value={poToDate} onChange={(e) => setPoToDate(e.target.value)} className={inputCls} />
               </label>
               <label className="block">
                 <span className="block text-[11px] font-semibold text-ink-muted mb-1">Exp. Receive Date</span>
-                <input type="date" value={poExpDate} onChange={(e) => setPoExpDate(e.target.value)} className={inputCls} />
+                <NativeDateInput type="date" value={poExpDate} onChange={(e) => setPoExpDate(e.target.value)} className={inputCls} />
               </label>
             </div>
             <div className="flex items-center gap-2 pt-1">
@@ -837,11 +839,11 @@ export default function PurchaseReceivePage() {
               </label>
               <label className="block">
                 <span className="block text-[11px] font-semibold text-ink-muted mb-1">From Date</span>
-                <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} className={inputCls} />
+                <NativeDateInput type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} className={inputCls} />
               </label>
               <label className="block">
                 <span className="block text-[11px] font-semibold text-ink-muted mb-1">To Date</span>
-                <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} className={inputCls} />
+                <NativeDateInput type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} className={inputCls} />
               </label>
             </div>
             <div className="flex items-center gap-3">
@@ -983,7 +985,7 @@ export default function PurchaseReceivePage() {
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <label className="block">
                 <span className="block text-ink-muted font-medium mb-1">Receive Date *</span>
-                <input type="date" required min={receiveForm.po.orderDate} value={receiveForm.receiptDate} onChange={(e) => setReceiveForm({ ...receiveForm, receiptDate: e.target.value })} className={inputCls} />
+                <NativeDateInput type="date" required min={receiveForm.po.orderDate} value={receiveForm.receiptDate} onChange={(e) => setReceiveForm({ ...receiveForm, receiptDate: e.target.value })} className={inputCls} />
               </label>
               <label className="block">
                 <span className="block text-ink-muted font-medium mb-1">Supplier Challan No</span>
@@ -1265,7 +1267,7 @@ export default function PurchaseReceivePage() {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <label className="block">
                 <span className="block text-ink-muted font-medium mb-1">Return Date *</span>
-                <input type="date" required min={returnGRN.receiptDate} value={returnDate} onChange={(e) => setReturnDate(e.target.value)} className={inputCls} />
+                <NativeDateInput type="date" required min={returnGRN.receiptDate} value={returnDate} onChange={(e) => setReturnDate(e.target.value)} className={inputCls} />
               </label>
               <label className="block">
                 <span className="block text-ink-muted font-medium mb-1">Reason *</span>

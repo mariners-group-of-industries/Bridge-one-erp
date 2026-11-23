@@ -30,6 +30,7 @@ import { fetchPricing } from "../../pricing/services/pricing.api";
 import { lineFigures, quotationTotals } from "../lib/totals";
 import { DEFAULT_QUOTATION_TYPE, QUOTATION_TYPES, quotationInputSchema, type QuotationDetail, type QuotationInput, type QuotationTerm } from "../schemas/quotation.schema";
 import { createQuotation, fetchQuotation, updateQuotation } from "../services/quotation.api";
+import { NativeDateInput } from "@/components/ui/date-input";
 
 /** Customers listed at once in the picker; typing narrows the rest. */
 const CUSTOMER_PAGE = 50;
@@ -784,7 +785,7 @@ function QuotationForm({ today, lookups, source, copy }: { today: string; lookup
                           <input aria-label={`Warranty of ${line.name}`} maxLength={100} value={line.warranty} onChange={(event) => updateLine(line.key, { warranty: event.target.value })} className={cn(CONTROL, "h-7 w-28")} />
                         </td>
                         <td className="px-2 py-1.5">
-                          <input
+                          <NativeDateInput
                             type="date"
                             aria-label={`Delivery date of ${line.name}`}
                             min={values.quotationDate}

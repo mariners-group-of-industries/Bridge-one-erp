@@ -31,6 +31,7 @@ import { localDate, localDaysFromToday, localToday } from "@/features/purchase/l
 import { useSession } from "@/lib/auth/session";
 import { Spinner } from "@/components/ui/spinner";
 import { useFeaturePermissions, needsPermission } from "@/lib/permissions/useFeaturePermissions";
+import { NativeDateInput } from "@/components/ui/date-input";
 
 const blankLine = (): JournalLineItem => ({
   id: `line-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
@@ -464,7 +465,7 @@ export default function AccountingJournalPage() {
                     <label className="mb-1 block text-xs font-semibold text-slate-700">
                       <span className="text-red-500 font-bold mr-0.5">*</span>Date
                     </label>
-                    <input
+                    <NativeDateInput
                       type="date"
                       required
                       value={newVoucherHeader.transactionDate}
@@ -920,7 +921,7 @@ export default function AccountingJournalPage() {
             <div>
               <label className="block text-[11px] font-medium text-ink-muted mb-0.5">From Date</label>
               <div className="relative">
-                <input
+                <NativeDateInput
                   type="date"
                   value={fromDate}
                   onChange={(e) => setFromDate(e.target.value)}
@@ -933,7 +934,7 @@ export default function AccountingJournalPage() {
             <div>
               <label className="block text-[11px] font-medium text-ink-muted mb-0.5">To Date</label>
               <div className="relative">
-                <input
+                <NativeDateInput
                   type="date"
                   value={toDate}
                   onChange={(e) => setToDate(e.target.value)}
@@ -1335,7 +1336,7 @@ export default function AccountingJournalPage() {
             </div>
             <div>
               <label className="block text-ink-muted font-medium mb-1">Transaction Date *</label>
-              <input
+              <NativeDateInput
                 type="date"
                 required
                 value={newVoucherHeader.transactionDate}

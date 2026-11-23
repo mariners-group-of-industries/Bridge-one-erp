@@ -11,6 +11,7 @@ import {
 import { useAccountingStore } from "@/features/accounts/store/accounting-store";
 import { localToday } from "@/features/purchase/lib/client";
 import { useFeaturePermissions } from "@/lib/permissions/useFeaturePermissions";
+import { NativeDateInput } from "@/components/ui/date-input";
 
 /** The first day of the current month, yyyy-mm-dd. */
 const monthStart = () => `${localToday().slice(0, 8)}01`;
@@ -494,7 +495,7 @@ export default function FinancialReportsPage() {
           {/* From Date */}
           <div>
             <label className="block text-[11px] font-semibold text-ink-muted mb-1">From Date</label>
-            <input
+            <NativeDateInput
               type="date"
               value={fromDate}
               onChange={(e) => setFromDate(e.target.value)}
@@ -505,7 +506,7 @@ export default function FinancialReportsPage() {
           {/* To Date */}
           <div>
             <label className="block text-[11px] font-semibold text-ink-muted mb-1">To Date</label>
-            <input
+            <NativeDateInput
               type="date"
               value={toDate}
               onChange={(e) => setToDate(e.target.value)}

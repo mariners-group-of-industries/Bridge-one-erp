@@ -33,7 +33,7 @@ const money = (value: string | null) =>
   value === null ? NONE : Number(value).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const qty = (value: string) => Number(value).toLocaleString("en-US", { maximumFractionDigits: 3 });
 const date = (iso: string) =>
-  new Date(iso).toLocaleDateString("en-GB", { day: "2-digit", month: "2-digit", year: "numeric" }).replace(/\//g, "-");
+  new Date(iso).toLocaleDateString("en-GB", { day: "2-digit", month: "2-digit", year: "numeric" });
 const text = (value: string | null) => value ?? NONE;
 
 /** Item Profile columns after SL and Action, in the required order. */

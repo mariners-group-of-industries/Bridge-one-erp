@@ -6,6 +6,7 @@ import { Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer,
 import { Spinner } from "@/components/ui/spinner";
 import { useResource } from "@/hooks/use-resource";
 import { inventoryApi, monthAgo, today } from "@/features/inventory/services/inventory.api";
+import { NativeDateInput } from "@/components/ui/date-input";
 
 // iBOS Inventory Dashboard: period filter, four balance tiles, then Valuation, Transaction Value and Coverage Days.
 
@@ -56,11 +57,11 @@ export default function InventoryDashboardPage() {
       <div className="flex flex-wrap items-end gap-3 rounded-xl border border-line bg-surface px-4 py-3 shadow-2xs">
         <label className="flex flex-col gap-1 text-xs font-medium">
           From Date
-          <input type="date" value={fromDate} max={toDate} onChange={(e) => setFromDate(e.target.value)} className={`${field} w-44`} />
+          <NativeDateInput type="date" value={fromDate} max={toDate} onChange={(e) => setFromDate(e.target.value)} className={`${field} w-44`} />
         </label>
         <label className="flex flex-col gap-1 text-xs font-medium">
           To Date
-          <input type="date" value={toDate} min={fromDate} onChange={(e) => setToDate(e.target.value)} className={`${field} w-44`} />
+          <NativeDateInput type="date" value={toDate} min={fromDate} onChange={(e) => setToDate(e.target.value)} className={`${field} w-44`} />
         </label>
         <button
           type="button"

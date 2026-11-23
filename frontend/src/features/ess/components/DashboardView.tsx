@@ -13,6 +13,7 @@ import { essApi } from "../api";
 import { essPaths } from "../navigation";
 import type { EssDashboard, EssEmployee } from "../types";
 import { DayStatusBadge, EssPage, StatTile, fmtClock, fmtDate, fmtDateTime, fmtMinutes, fmtMoney, monthTitle } from "./ess-ui";
+import { formatDate } from "@/lib/format";
 
 const greeting = () => {
   const h = new Date().getHours();
@@ -98,7 +99,7 @@ function Header({ employee }: { employee: EssEmployee }) {
       </div>
       <p className="text-right text-xs text-ink-muted">
         <span className="block text-sm font-semibold text-ink">{new Date().toLocaleDateString("en-GB", { weekday: "long" })}</span>
-        {new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "long", year: "numeric" })}
+        {formatDate(new Date())}
       </p>
     </section>
   );

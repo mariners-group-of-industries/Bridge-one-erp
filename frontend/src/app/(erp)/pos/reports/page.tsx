@@ -11,6 +11,7 @@ import {
   FileSpreadsheet,
   CheckCircle,
 } from "lucide-react";
+import { NativeDateInput } from "@/components/ui/date-input";
 
 type PosReportTabId =
   | "INVENTORY_REPORT"
@@ -291,7 +292,7 @@ export default function PosReportsPage() {
               From Date
             </label>
             <div className="relative flex items-center">
-              <input
+              <NativeDateInput
                 type="date"
                 value={fromDate}
                 onChange={(e) => setFromDate(e.target.value)}
@@ -307,7 +308,7 @@ export default function PosReportsPage() {
               To Date
             </label>
             <div className="relative flex items-center">
-              <input
+              <NativeDateInput
                 type="date"
                 value={toDate}
                 onChange={(e) => setToDate(e.target.value)}

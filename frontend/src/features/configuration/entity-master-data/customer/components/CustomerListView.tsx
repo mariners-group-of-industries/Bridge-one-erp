@@ -436,7 +436,7 @@ const LIST_COLUMNS: ColumnId[] = [
 ];
 
 const createdDate = (iso: string) =>
-  new Date(iso).toLocaleDateString("en-GB", { day: "2-digit", month: "2-digit", year: "numeric" }).replace(/\//g, "-");
+  new Date(iso).toLocaleDateString("en-GB", { day: "2-digit", month: "2-digit", year: "numeric" });
 
 const COLUMN_DEFS: Record<ColumnId, { header: string; className?: string; cell: (row: CustomerListRow) => ReactNode }> = {
   code: { header: "Partner Code", className: "font-medium text-ink whitespace-nowrap", cell: (row) => row.code },

@@ -9,6 +9,7 @@ import type { InventoryReportRow, LedgerRow } from "@/features/inventory/server/
 import { useFeaturePermissions } from "@/lib/permissions/useFeaturePermissions";
 // Item types are the ones Configuration › Item Profile saves items with.
 import { ITEM_TYPES } from "@/features/configuration/entity-master-data/item/schemas/item.schema";
+import { NativeDateInput } from "@/components/ui/date-input";
 
 // ── Report views (iBOS "View By") ────────────────────────────────────────────
 
@@ -463,11 +464,11 @@ export default function InventoryReportPage() {
           </div>
           <div>
             <label className={labelCls} htmlFor="f-from">From Date</label>
-            <input id="f-from" type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} className={field} />
+            <NativeDateInput id="f-from" type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} className={field} />
           </div>
           <div>
             <label className={labelCls} htmlFor="f-to">To Date</label>
-            <input id="f-to" type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} className={field} />
+            <NativeDateInput id="f-to" type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} className={field} />
           </div>
           <label className="flex min-h-9 cursor-pointer items-center gap-2 self-end text-[13px]">
             <input type="checkbox" checked={netWeight} onChange={(e) => setNetWeight(e.target.checked)} className="size-4 rounded border-line" /> Net Weight

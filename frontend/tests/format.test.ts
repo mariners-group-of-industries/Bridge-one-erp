@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { shortTimeAgo, timeAgo } from "@/lib/format";
+import { formatDate, formatDateTime, shortTimeAgo, timeAgo } from "@/lib/format";
 
 const now = new Date("2026-10-11T12:00:00Z");
 const ago = (seconds: number) => new Date(now.getTime() - seconds * 1000);
@@ -28,5 +28,21 @@ describe("timeAgo", () => {
     expect(timeAgo(ago(5 * 60), now)).toBe("5 minutes ago");
     expect(timeAgo(ago(86400), now)).toBe("yesterday");
     expect(timeAgo(ago(3 * 86400), now)).toBe("3 days ago");
+  });
+});
+
+describe("DD/MM/YYYY display", () => {
+  it("shows dates as DD/MM/YYYY", () => {
+    expect(formatDate("2026-11-23")).toBe("23/11/2026");
+    expect(formatDate(new Date(2026, 0, 5, 10, 0))).toBe("05/01/2026");
+    expect(formatDate(null)).toBe("—");
+    expect(formatDate("not a date")).toBe("not a date");
+  });
+
+  it("shows date-times as DD/MM/YYYY hh:mm AM/PM on the viewer's clock", () => {
+    expect(formatDateTime(new Date(2026, 10, 23, 9, 5))).toBe("23/11/2026 09:05 AM");
+    expect(formatDateTime(new Date(2026, 10, 23, 0, 30))).toBe("23/11/2026 12:30 AM");
+    expect(formatDateTime(new Date(2026, 10, 23, 18, 0))).toBe("23/11/2026 06:00 PM");
+    expect(formatDateTime(undefined)).toBe("—");
   });
 });

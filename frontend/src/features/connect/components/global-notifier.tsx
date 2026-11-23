@@ -26,6 +26,7 @@ import {
   UserPlus,
 } from "lucide-react";
 import { NewChatPanel } from "./new-chat-panel";
+import { formatDate } from "@/lib/format";
 
 interface ExtendedNotificationOptions extends NotificationOptions {
   renotify?: boolean;
@@ -75,7 +76,7 @@ function getMessageDateLabel(dateStr?: string): string {
     const yesterday = new Date();
     yesterday.setDate(today.getDate() - 1);
     if (d.toDateString() === yesterday.toDateString()) return "Yesterday";
-    return d.toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" });
+    return `${d.toLocaleDateString("en-GB", { weekday: "long" })}, ${formatDate(d)}`;
   } catch {
     return "Today";
   }

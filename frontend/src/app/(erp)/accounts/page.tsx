@@ -21,6 +21,7 @@ import {
 } from "recharts";
 import type { DashboardResponseData } from "@/lib/accounting/accounts-service";
 import { useAccountingStore } from "@/features/accounts/store/accounting-store";
+import { NativeDateInput } from "@/components/ui/date-input";
 
 function fmtMoney(n: number | undefined | null): string {
   const num = Number(n || 0);
@@ -161,7 +162,7 @@ export default function AccountsDashboardPage() {
           <label className="block text-[11px] text-ink-faint font-medium mb-1">
             From Date
           </label>
-          <input
+          <NativeDateInput
             type="date"
             value={fromDate}
             onChange={(e) => setFromDate(e.target.value)}
@@ -173,7 +174,7 @@ export default function AccountsDashboardPage() {
           <label className="block text-[11px] text-ink-faint font-medium mb-1">
             To Date
           </label>
-          <input
+          <NativeDateInput
             type="date"
             value={toDate}
             onChange={(e) => setToDate(e.target.value)}

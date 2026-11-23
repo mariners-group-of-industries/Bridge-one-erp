@@ -11,6 +11,7 @@ import {
   Search,
   RefreshCw,
 } from "lucide-react";
+import { formatDateTime } from "@/lib/format";
 
 interface CallLogItem {
   id: string;
@@ -77,7 +78,7 @@ export default function BrgConnectCallsPage() {
             type: c.type?.toLowerCase() === "video" ? "video" : "audio",
             direction: c.status === "MISSED" ? "missed" : "outgoing",
             durationSec: c.durationSec || 0,
-            timestamp: new Date(c.startedAt).toLocaleString([], { dateStyle: "short", timeStyle: "short" }),
+            timestamp: formatDateTime(c.startedAt),
             quality: "Excellent",
           })
         );

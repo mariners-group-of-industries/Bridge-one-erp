@@ -21,6 +21,8 @@ import { PURCHASE_QUERY_KEYS, downloadCsv, uploadPurchaseBulk } from "@/features
 import { BulkUploadDialog } from "@/features/configuration/entity-master-data/components/BulkUploadDialog";
 import { usePurchasePermissions } from "@/features/purchase/lib/usePurchasePermissions";
 import type { Item, Office, PurchaseOrder, PurchaseRequisition, Supplier, Warehouse } from "@bridgeone/contracts";
+import { NativeDateInput } from "@/components/ui/date-input";
+import { formatDate } from "@/lib/format";
 
 type Tab = "LOCAL_PO" | "REQUISITION_SUMMARY" | "PURCHASE_METHOD";
 type Order = PurchaseOrder & { isClosed?: boolean; notes?: string };
@@ -98,7 +100,7 @@ function formatEta(dateStr?: string) {
   if (!dateStr) return "—";
   const dt = new Date(`${dateStr}T00:00:00`);
   if (Number.isNaN(dt.getTime())) return dateStr;
-  return `00.00h (${dt.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })})`;
+  return `00.00h (${dt.toLocaleDateString("en-GB", { weekday: "short" })}, ${formatDate(dateStr)})`;
 }
 
 function statusLabel(po: Order) {
@@ -636,11 +638,11 @@ export default function PurchaseOrdersPage() {
               </label>
               <label className="block">
                 <span className="block text-[11px] font-semibold text-ink-muted mb-1">From Date</span>
-                <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} className={inputCls} />
+                <NativeDateInput type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} className={inputCls} />
               </label>
               <label className="block">
                 <span className="block text-[11px] font-semibold text-ink-muted mb-1">To Date</span>
-                <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} className={inputCls} />
+                <NativeDateInput type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} className={inputCls} />
               </label>
             </div>
             <div className="flex items-center gap-3">
@@ -824,11 +826,11 @@ export default function PurchaseOrdersPage() {
               </label>
               <label className="block w-44">
                 <span className="block text-[11px] font-semibold text-ink-muted mb-1">From Date</span>
-                <input type="date" value={sumFrom} onChange={(e) => setSumFrom(e.target.value)} className={inputCls} />
+                <NativeDateInput type="date" value={sumFrom} onChange={(e) => setSumFrom(e.target.value)} className={inputCls} />
               </label>
               <label className="block w-44">
                 <span className="block text-[11px] font-semibold text-ink-muted mb-1">To Date</span>
-                <input type="date" value={sumTo} onChange={(e) => setSumTo(e.target.value)} className={inputCls} />
+                <NativeDateInput type="date" value={sumTo} onChange={(e) => setSumTo(e.target.value)} className={inputCls} />
               </label>
               <button type="button" onClick={() => queryClient.invalidateQueries({ queryKey: ["requisitionSummary"] })} disabled={summaryLoading} className={btnPrimary}>
                 {summaryLoading && <Spinner className="size-3.5" />}
@@ -957,11 +959,11 @@ export default function PurchaseOrdersPage() {
               </label>
               <label className="block">
                 <span className="block text-[11px] font-semibold text-ink-muted mb-1">From Date</span>
-                <input type="date" value={pmFrom} onChange={(e) => setPmFrom(e.target.value)} className={inputCls} />
+                <NativeDateInput type="date" value={pmFrom} onChange={(e) => setPmFrom(e.target.value)} className={inputCls} />
               </label>
               <label className="block">
                 <span className="block text-[11px] font-semibold text-ink-muted mb-1">To Date</span>
-                <input type="date" value={pmTo} onChange={(e) => setPmTo(e.target.value)} className={inputCls} />
+                <NativeDateInput type="date" value={pmTo} onChange={(e) => setPmTo(e.target.value)} className={inputCls} />
               </label>
             </div>
             <div className="flex items-center gap-3">
@@ -1151,11 +1153,11 @@ export default function PurchaseOrdersPage() {
               </label>
               <label className="block">
                 <span className="block text-ink-muted font-medium mb-1">Order Date *</span>
-                <input type="date" value={form.orderDate} onChange={(e) => patchForm({ orderDate: e.target.value })} className={inputCls} required />
+                <NativeDateInput type="date" value={form.orderDate} onChange={(e) => patchForm({ orderDate: e.target.value })} className={inputCls} required />
               </label>
               <label className="block">
                 <span className="block text-ink-muted font-medium mb-1">Expected Delivery *</span>
-                <input type="date" min={form.orderDate} value={form.expectedDeliveryDate} onChange={(e) => patchForm({ expectedDeliveryDate: e.target.value })} className={inputCls} required />
+                <NativeDateInput type="date" min={form.orderDate} value={form.expectedDeliveryDate} onChange={(e) => patchForm({ expectedDeliveryDate: e.target.value })} className={inputCls} required />
               </label>
               <label className="block">
                 <span className="block text-ink-muted font-medium mb-1">Supplier Ref / Quotation No</span>
