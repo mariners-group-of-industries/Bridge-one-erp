@@ -63,6 +63,7 @@ const PREFIX = {
   RETURN: "RR-",
   TRANSFER: "DST-",
   ADJUSTMENT: "DSA-",
+  LAYER_TRANSFER: "SLT-",
 } as const;
 
 export function documentNumber(tx: Tx, businessUnitId: string, kind: keyof typeof PREFIX, date: string) {

@@ -646,6 +646,7 @@ model BusinessUnit {
   rtmTourPlans         RtmTourPlan[]
   rtmVisits            RtmVisit[]
   rtmOffers            RtmOffer[]
+  rtmLayerTransfers    RtmLayerTransfer[]
   rtmTargets           RtmTarget[]
   rtmSettings          RtmSetting[]
   @@unique([companyId, name])
@@ -1986,8 +1987,9 @@ model SalesTerritoryLayer {
   isTerritory    Boolean  @default(false)
   createdAt      DateTime @default(now()) @db.Timestamptz(3)
 
-  businessUnit BusinessUnit         @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
-  nodes        SalesTerritoryNode[]
+  businessUnit      BusinessUnit         @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  nodes             SalesTerritoryNode[]
+  rtmLayerTransfers RtmLayerTransfer[]
 
   @@unique([businessUnitId, level])
   @@unique([businessUnitId, code])
@@ -2013,6 +2015,9 @@ model SalesTerritoryNode {
   children     SalesTerritoryNode[]     @relation("TerritoryTree")
   salesArea    SalesArea?               @relation(fields: [salesAreaId], references: [id], onDelete: SetNull)
   employees    SalesTerritoryEmployee[]
+  rtmLayerTransfersOut RtmLayerTransfer[] @relation("RtmLayerTransferSource")
+  rtmLayerTransfersIn  RtmLayerTransfer[] @relation("RtmLayerTransferDestination")
+  rtmTourPlans         RtmTourPlan[]      @relation("RtmTourPlanPoint")
 
   @@unique([businessUnitId, code])
   @@index([parentId])
@@ -3718,6 +3723,7 @@ model Employee {
   rtmCalendarDays      RtmSrCalendarDay[]
   rtmTourPlans         RtmTourPlan[]         @relation("RtmTourPlanSr")
   rtmVisits            RtmVisit[]
+  rtmLayerTransfers    RtmLayerTransfer[]    @relation("RtmLayerTransferEmployee")
   rtmTargets           RtmTarget[]           @relation("RtmTargetSr")
   coaPermissions       CoaPermission[]
   @@index([officeId])
@@ -5504,6 +5510,9 @@ model RtmStockAdjustment {
   status         RtmDocStatus @default(PENDING)
   createdBy      String       @db.VarChar(150)
   approvedBy     String?      @db.VarChar(150)
+  /// Rolled back: the stock entries were reversed and the status set to CANCELLED.
+  rolledBackBy   String?      @db.VarChar(150)
+  rolledBackAt   DateTime?    @db.Timestamptz(3)
   createdAt      DateTime     @default(now()) @db.Timestamptz(3)
 
   businessUnit BusinessUnit             @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
@@ -5520,7 +5529,9 @@ model RtmStockAdjustmentLine {
   lineNo       Int
   itemId       String  @db.Uuid
   /// + found / opening, − lost.
-  qty          Decimal @db.Decimal(14, 3)
+  qty          Decimal  @db.Decimal(14, 3)
+  /// Dealer price when the adjustment was made (valuation impact = qty × rate).
+  rate         Decimal? @db.Decimal(14, 2)
 
   adjustment RtmStockAdjustment @relation(fields: [adjustmentId], references: [id], onDelete: Cascade)
   item       Item               @relation(fields: [itemId], references: [id], onDelete: Restrict)
@@ -5554,13 +5565,23 @@ model RtmTourPlan {
   routeId        String?      @db.Uuid
   distributorId  String?      @db.Uuid
   purpose        String?      @db.VarChar(300)
+  /// Monthly tour plan (Tour Plan Setup › Generate): HIGH / MEDIUM / LOW.
+  priority       String?      @db.VarChar(10)
+  activity       String?      @db.VarChar(60)
+  /// The Sales Territory node visited (base point, route, market …).
+  pointNodeId    String?      @db.Uuid
+  /// HH:mm, local time.
+  startTime      String?      @db.VarChar(5)
+  endTime        String?      @db.VarChar(5)
+  remarks        String?      @db.VarChar(300)
   status         RtmDocStatus @default(PENDING)
   createdBy      String       @db.VarChar(150)
   approvedBy     String?      @db.VarChar(150)
   createdAt      DateTime     @default(now()) @db.Timestamptz(3)
 
-  businessUnit BusinessUnit @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
-  employee     Employee     @relation("RtmTourPlanSr", fields: [employeeId], references: [id], onDelete: Cascade)
+  businessUnit BusinessUnit        @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  employee     Employee            @relation("RtmTourPlanSr", fields: [employeeId], references: [id], onDelete: Cascade)
+  point        SalesTerritoryNode? @relation("RtmTourPlanPoint", fields: [pointNodeId], references: [id], onDelete: SetNull)
   route        SalesArea?   @relation(fields: [routeId], references: [id], onDelete: SetNull)
   distributor  Customer?    @relation("RtmTourPlanDistributor", fields: [distributorId], references: [id], onDelete: SetNull)
 
@@ -5569,6 +5590,43 @@ model RtmTourPlan {
 }
 
 /// A field visit: check-in / check-out of the day, or an outlet visit (with location).
+enum RtmLayerTransferType {
+  /// One sales person moves from the source node to the destination node.
+  EMPLOYEE
+  /// Everything under the source node (child nodes and their people) moves to the destination node.
+  AREA
+}
+
+/// A move in the Sales Territory tree (Sales Layer Transfer). Applied once approved.
+model RtmLayerTransfer {
+  id                String               @id @default(uuid()) @db.Uuid
+  businessUnitId    String               @db.Uuid
+  number            String               @db.VarChar(30)
+  transferDate      DateTime             @db.Date
+  type              RtmLayerTransferType
+  layerId           String               @db.Uuid
+  sourceNodeId      String               @db.Uuid
+  destinationNodeId String               @db.Uuid
+  employeeId        String?              @db.Uuid
+  remarks           String?              @db.VarChar(500)
+  status            RtmDocStatus         @default(PENDING)
+  requestedBy       String               @db.VarChar(150)
+  approvedBy        String?              @db.VarChar(150)
+  appliedAt         DateTime?            @db.Timestamptz(3)
+  createdAt         DateTime             @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime             @updatedAt @db.Timestamptz(3)
+
+  businessUnit    BusinessUnit        @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  layer           SalesTerritoryLayer @relation(fields: [layerId], references: [id], onDelete: Restrict)
+  sourceNode      SalesTerritoryNode  @relation("RtmLayerTransferSource", fields: [sourceNodeId], references: [id], onDelete: Restrict)
+  destinationNode SalesTerritoryNode  @relation("RtmLayerTransferDestination", fields: [destinationNodeId], references: [id], onDelete: Restrict)
+  employee        Employee?           @relation("RtmLayerTransferEmployee", fields: [employeeId], references: [id], onDelete: SetNull)
+
+  @@unique([businessUnitId, number])
+  @@index([businessUnitId, transferDate])
+  @@map("rtm_layer_transfers")
+}
+
 model RtmVisit {
   id             String       @id @default(uuid()) @db.Uuid
   businessUnitId String       @db.Uuid

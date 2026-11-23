@@ -436,6 +436,19 @@ const SOURCES: readonly Source[] = [
         createdAt: r.createdAt,
       })),
   },
+  {
+    id: "rtm-layer-transfer",
+    module: "RTM",
+    label: "Sales Layer Transfer",
+    href: "/rtm/sales-layer-transfer",
+    pipelineFeature: "Sales Layer Transfer",
+    pending: RTM_PENDING,
+    approved: ["APPROVED", "COMPLETED"],
+    rejected: ["REJECTED"],
+    counts: async (units) => rows(await db().rtmLayerTransfer.groupBy({ ...groupArgs, where: inUnits(units) })),
+    oldest: async (units, take) =>
+      (await db().rtmLayerTransfer.findMany({ ...pick(take), where: { ...inUnits(units), status: "PENDING" }, select: { id: true, number: true, createdAt: true } })).map((r) => ({ id: r.id, reference: r.number, createdAt: r.createdAt })),
+  },
 ];
 
 function bucket(source: Source, statusRows: StatusRow[]) {

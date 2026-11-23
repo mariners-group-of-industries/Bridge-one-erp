@@ -1,5 +1,6 @@
 import { apiHandler, ok, parseId } from "@/lib/api/handler";
 import type { Actor } from "@/lib/auth/actor";
+import { tableExport } from "@/features/sales/lib/table-export";
 
 /**
  * Route handlers for RTM pages. Each page has its own API path
@@ -19,3 +20,10 @@ export const write = (fn: (actor: Actor, body: unknown) => Promise<unknown>, sta
 
 export const writeId = (fn: (actor: Actor, id: string, body: unknown) => Promise<unknown>) =>
   apiHandler<IdContext>("sales:write", async (request, { params }, actor) => ok((await fn(actor, parseId((await params).id, "Record"), await body(request))) ?? null));
+
+/** Excel export of a list as the page shows it (the page's Export permission, see api-rules.ts). */
+export const exportTableRoute = () =>
+  apiHandler("sales:read", async (request) => {
+    const { bytes, contentType, fileName } = await tableExport(await request.json().catch(() => null));
+    return new Response(Buffer.from(bytes), { headers: { "Content-Type": contentType, "Content-Disposition": `attachment; filename="${fileName}"` } });
+  });

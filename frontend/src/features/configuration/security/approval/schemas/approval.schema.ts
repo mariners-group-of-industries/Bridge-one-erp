@@ -15,7 +15,7 @@ export const APPROVAL_MODULES = [
   { module: "Inventory", features: ["Stock Adjustment", "Inventory Item Conversion", "Transfer Request", "Transfer Return", "Store Requisition"] },
   { module: "Production", features: ["Production Order"] },
   { module: "HR & Payroll", features: ["Employee Attendance", "Employee Movement", "Employee Leave", "Attendance Register Location", "Attendance Register Device", "Salary Sheet", "Salary Advice Approval", "Overtime", "Bonus", "Salary Increment"] },
-  { module: "RTM", features: ["Outlet Setup Approval", "Distributor Stock Transfer", "Distributor Stock Adjustment", "Tour Plan"] },
+  { module: "RTM", features: ["Outlet Setup Approval", "Distributor Stock Transfer", "Distributor Stock Adjustment", "Tour Plan", "Sales Layer Transfer"] },
 ] as const;
 
 export type ApprovalModule = (typeof APPROVAL_MODULES)[number]["module"];
