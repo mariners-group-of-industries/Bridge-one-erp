@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { OutletSetupView } from "@/features/rtm/views/setup";
+import { OutletSetupView } from "@/features/rtm/views/outlet-setup";
 import { outletSetup } from "@/features/rtm/navigation";
 
 export const instant = false;
