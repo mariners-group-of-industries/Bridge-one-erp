@@ -950,10 +950,10 @@ export default function SupplierPaymentsPage() {
                     <td className="p-1 border border-line-strong text-center">
                       <button
                         type="button"
-                        disabled={!perms.payments.create}
-                        onClick={() => handleOpenQuickPay(row)}
+                        disabled={!perms.payments.create || !row.supplierId}
+                        onClick={() => router.push(`/purchase/supplier-payments/bill-payment?supplierId=${encodeURIComponent(row.supplierId)}`)}
                         className="w-6 h-6 rounded bg-control hover:bg-emerald-100 dark:hover:bg-emerald-500/15 text-ink-muted hover:text-emerald-700 dark:hover:text-emerald-300 disabled:opacity-40 disabled:pointer-events-none font-bold text-xs inline-flex items-center justify-center border border-line-strong transition"
-                        title={!perms.payments.create ? "Requires Create permission in Configuration" : "Make Payment to Supplier"}
+                        title={!perms.payments.create ? "Requires Create permission in Configuration" : "Open Bill Payment"}
                       >
                         $
                       </button>
