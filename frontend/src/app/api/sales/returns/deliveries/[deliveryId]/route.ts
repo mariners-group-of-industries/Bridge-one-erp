@@ -2,7 +2,7 @@ import { z } from "zod";
 import { getDeliveryForReturn } from "@/features/sales/returns/services/return.service";
 import { apiHandler, ok, parseId } from "@/lib/api/handler";
 
-const querySchema = z.object({ editing: z.uuid().optional() });
+const querySchema = z.object({ editing: z.guid().optional() });
 
 /** GET /api/sales/returns/deliveries/:deliveryId[?editing=<returnId>]: delivery lines with what can still be returned. */
 export const GET = apiHandler<{ params: Promise<{ deliveryId: string }> }>("sales:read", async (request, context, actor) => {

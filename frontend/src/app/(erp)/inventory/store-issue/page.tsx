@@ -13,8 +13,10 @@ import {
   ChevronRight,
   FileSpreadsheet,
   Paperclip,
+  Upload,
 } from "lucide-react";
 import { useFeaturePermissions, needsPermission } from "@/lib/permissions/useFeaturePermissions";
+import { BulkUploadDialog } from "@/features/configuration/entity-master-data/components/BulkUploadDialog";
 
 // ============================================================================
 // TYPES
@@ -98,6 +100,7 @@ export default function StoreIssuePage() {
 
   // Issue Action Modal (for issuing against approved requisition)
   const [activeRequisitionForIssue, setActiveRequisitionForIssue] = useState<ApprovedRequisitionRow | null>(null);
+  const [bulkOpen, setBulkOpen] = useState(false);
 
   const approvedDocs = useResource("store-requisition-approved", () => inventoryApi.list("store-requisition", { status: "APPROVED" }));
   const issueDocs = useResource("store-issue-all", () => inventoryApi.list("store-issue"));
@@ -199,9 +202,14 @@ export default function StoreIssuePage() {
         search={searchTerm}
         onSearch={setSearchTerm}
         actions={
-          (perms.create ? (<button type="button" onClick={() => setIsDirectIssueOpen(true)} className={tabBarButton}>
+          <>
+            {perms.import && (<button type="button" onClick={() => setBulkOpen(true)} className={tabBarButton} title="Bulk upload from Excel">
+              <Upload /> Bulk Upload
+            </button>)}
+            {perms.create ? (<button type="button" onClick={() => setIsDirectIssueOpen(true)} className={tabBarButton}>
             <Plus /> Direct Store Issue
-          </button>) : null)
+          </button>) : null}
+          </>
         }
       />
       {/* 3. TAB 1: APPROVED REQUISITION LIST                 */}
@@ -549,6 +557,16 @@ export default function StoreIssuePage() {
         </div>
       )}
 
+      <BulkUploadDialog
+        open={bulkOpen}
+        onClose={() => setBulkOpen(false)}
+        onImported={reload}
+        noun="store issues"
+        templateUrl={inventoryApi.importTemplateUrl("store-issue")}
+        maxRows={2000}
+        matchHint="Warehouse names must match existing warehouses; Item Code must match an active item. Rows with the same Ref are saved as one issue; use Request Number to fulfil an approved requisition."
+        upload={(file) => inventoryApi.importFile("store-issue", file)}
+      />
       {/* ─────────────────────────────────────────────────── */}
       {/* 5. MODAL: ISSUE AGAINST REQUISITION                 */}
       {/* ─────────────────────────────────────────────────── */}

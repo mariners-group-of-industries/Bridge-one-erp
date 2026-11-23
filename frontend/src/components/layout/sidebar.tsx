@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronRight, House } from "lucide-react";
+import { ChevronRight, House, UserRound } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useId, useState, type ReactNode } from "react";
@@ -8,10 +8,11 @@ import { cn } from "@/lib/cn";
 import { useSession } from "@/lib/auth/session";
 import { findWorkspace, PINNED_WORKSPACES, workspaces as allWorkspaces } from "@/lib/navigation/registry";
 import type { NavLink } from "@/lib/navigation/types";
+import { essNavigation, essPaths } from "@/features/ess/navigation";
 
 const isWithin = (pathname: string | null, href: string) => pathname === href || !!pathname?.startsWith(`${href}/`);
-const isPageActive = (pathname: string | null, href: string) =>
-  allWorkspaces.some((workspace) => workspace.href === href) ? pathname === href : isWithin(pathname, href);
+const isPageActive = (pathname: string | null, href: string, exact = false) =>
+  exact || allWorkspaces.some((workspace) => workspace.href === href) ? pathname === href : isWithin(pathname, href);
 
 export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   return <SidebarNav pathname={usePathname()} onNavigate={onNavigate} />;
@@ -24,26 +25,29 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
 export function SidebarNav({ pathname, onNavigate }: { pathname: string | null; onNavigate?: () => void }) {
   const current = pathname === null ? undefined : findWorkspace(pathname);
   // Only modules and pages the user may open.
-  const { workspaces: visible } = useSession();
+  const { workspaces: visible, user } = useSession();
   const pinned = visible.filter((workspace) => PINNED_WORKSPACES.has(workspace.id));
   const workspaces = visible.filter((workspace) => !PINNED_WORKSPACES.has(workspace.id));
 
   return (
     <nav aria-label="Modules" className="flex flex-col bg-surface px-2.5 py-3 text-sm">
-      <Link
-        href="/"
-        aria-current={pathname === "/" ? "page" : undefined}
-        onClick={onNavigate}
-        className={cn(
-          "flex h-9 items-center gap-2.5 rounded-md px-2 transition-colors focus-visible:outline-2",
-          pathname === "/" ? "bg-accent-soft font-semibold text-accent-strong dark:text-accent" : "text-ink-muted hover:bg-control hover:text-ink",
-        )}
-      >
-        <IconTile active={pathname === "/"}>
-          <House />
-        </IconTile>
-        <span className="truncate">Home</span>
-      </Link>
+      {/* Home (business overview) is for the master account only; others start at My Workspace. */}
+      {user?.isMaster && (
+        <Link
+          href="/"
+          aria-current={pathname === "/" ? "page" : undefined}
+          onClick={onNavigate}
+          className={cn(
+            "flex h-9 items-center gap-2.5 rounded-md px-2 transition-colors focus-visible:outline-2",
+            pathname === "/" ? "bg-accent-soft font-semibold text-accent-strong dark:text-accent" : "text-ink-muted hover:bg-control hover:text-ink",
+          )}
+        >
+          <IconTile active={pathname === "/"}>
+            <House />
+          </IconTile>
+          <span className="truncate">Home</span>
+        </Link>
+      )}
 
       {pinned.map((workspace) => {
         const Icon = workspace.icon;
@@ -67,6 +71,9 @@ export function SidebarNav({ pathname, onNavigate }: { pathname: string | null; 
           </Link>
         );
       })}
+
+      {/* Employee Self Service: for any login linked to an employee record, whatever its module permissions. */}
+      {user?.employee && <MyWorkspace pathname={pathname} onNavigate={onNavigate} />}
 
       <p className="mt-5 mb-1.5 flex items-center gap-2 px-2 text-[10.5px] font-semibold tracking-[0.08em] text-ink-faint uppercase">
         Modules
@@ -153,6 +160,38 @@ export function SidebarNav({ pathname, onNavigate }: { pathname: string | null; 
   );
 }
 
+/** "My Workspace": the signed-in employee's own pages (Employee Self Service). */
+function MyWorkspace({ pathname, onNavigate }: { pathname: string | null; onNavigate?: () => void }) {
+  const active = isWithin(pathname, essPaths.root) || pathname === essPaths.account;
+  return (
+    <div className="mt-0.5">
+      <Collapsible
+        active={active}
+        trigger={(open) => (
+          <>
+            <IconTile active={active}>
+              <UserRound />
+            </IconTile>
+            <span className={cn("flex-1 truncate text-left", active ? "font-semibold text-ink" : "font-medium")}>My Workspace</span>
+            <Chevron open={open} />
+          </>
+        )}
+        triggerClass={cn("h-9 gap-2.5 px-2", active ? "text-ink" : "text-ink-muted hover:bg-control hover:text-ink")}
+      >
+        <ul className="mt-0.5 mb-1.5 ml-[1.15rem] flex flex-col gap-px border-l border-line pl-2">
+          {essNavigation.map((card) =>
+            card.links.length === 1 ? (
+              <PageLink key={card.label} link={card.links[0]} pathname={pathname} onNavigate={onNavigate} level={1} />
+            ) : (
+              <GroupItem key={card.label} label={card.label} links={card.links} pathname={pathname} onNavigate={onNavigate} />
+            ),
+          )}
+        </ul>
+      </Collapsible>
+    </div>
+  );
+}
+
 // ─── Building blocks ──────────────────────────────────────────────────────────
 
 function IconTile({ active, muted, children }: { active?: boolean; muted?: boolean; children: ReactNode }) {
@@ -208,7 +247,7 @@ function Collapsible({ active, trigger, triggerClass, children }: { active: bool
 
 /** Second level: a group of pages with a filled bullet. */
 function GroupItem({ label, links, groupHref, pathname, onNavigate }: { label: string; links: readonly NavLink[]; groupHref?: string; pathname: string | null; onNavigate?: () => void }) {
-  const active = (!!groupHref && isWithin(pathname, groupHref)) || links.some((link) => isPageActive(pathname, link.href));
+  const active = (!!groupHref && isWithin(pathname, groupHref)) || links.some((link) => isPageActive(pathname, link.href, link.exact));
   return (
     <li>
       <Collapsible
@@ -234,7 +273,7 @@ function GroupItem({ label, links, groupHref, pathname, onNavigate }: { label: s
 
 /** A page: hollow bullet (filled and highlighted when it is the current page). */
 function PageLink({ link, pathname, onNavigate, level }: { link: NavLink; pathname: string | null; onNavigate?: () => void; level: 1 | 2 }) {
-  const active = isPageActive(pathname, link.href);
+  const active = isPageActive(pathname, link.href, link.exact);
   return (
     <li>
       <Link

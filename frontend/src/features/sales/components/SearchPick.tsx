@@ -23,6 +23,7 @@ export function SearchPick({
   onSearch,
   hideLabel,
   minChars = 0,
+  maxOptions = 50,
 }: {
   label: string;
   options: { id: string; label: string }[];
@@ -41,6 +42,8 @@ export function SearchPick({
   hideLabel?: boolean;
   /** Letters typed before suggestions appear; 0 shows the first ones as soon as the box is opened. */
   minChars?: number;
+  /** Most suggestions listed at once (default 50). */
+  maxOptions?: number;
 }) {
   const id = useId();
   const labelOf = (optionId: string | undefined) => options.find((option) => option.id === optionId)?.label ?? "";
@@ -53,7 +56,7 @@ export function SearchPick({
   }
   const value = freeText ? (text ?? "") : typed;
   const needle = value.trim().toLowerCase();
-  const matches = needle.length >= minChars ? options.filter((option) => option.label.toLowerCase().includes(needle)).slice(0, 50) : [];
+  const matches = needle.length >= minChars ? options.filter((option) => option.label.toLowerCase().includes(needle)).slice(0, maxOptions) : [];
 
   function change(next: string) {
     onSearch?.(next);

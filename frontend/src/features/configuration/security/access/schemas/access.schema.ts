@@ -31,7 +31,7 @@ export const permissionGroupInputSchema = z.object({
 export type PermissionGroupInput = z.input<typeof permissionGroupInputSchema>;
 
 export const groupUsersInputSchema = z.object({
-  userIds: z.array(z.uuid()).max(1000).refine((ids) => new Set(ids).size === ids.length, { message: "Each user can be added only once." }),
+  userIds: z.array(z.guid()).max(1000).refine((ids) => new Set(ids).size === ids.length, { message: "Each user can be added only once." }),
 });
 
 export const overrideSchema = z.object({ featureKey, action, effect: z.enum(["ALLOW", "DENY"]) });
@@ -42,7 +42,7 @@ export const userAccessInputSchema = z.object({
   status: z.enum(USER_STATUSES),
   /** Only the master account may change it, and never on itself. */
   isMaster: z.boolean().optional(),
-  groupIds: z.array(z.uuid()).max(100).refine((ids) => new Set(ids).size === ids.length, { message: "Each group can be added only once." }),
+  groupIds: z.array(z.guid()).max(100).refine((ids) => new Set(ids).size === ids.length, { message: "Each group can be added only once." }),
   overrides: z
     .array(overrideSchema)
     .max(5000)

@@ -172,7 +172,8 @@ export function AdvanceCollectionForm({
           businessUnitId={businessUnitId}
           label="Employee"
           required
-          placeholder="Select/Search Employee (min 3 letters)"
+          placeholder="Select/Search Employee"
+          listAll
           error={errors.employeeId}
           selected={employee}
           onChange={(next) => setEmployee(next ? { id: next.id, name: next.name } : null)}

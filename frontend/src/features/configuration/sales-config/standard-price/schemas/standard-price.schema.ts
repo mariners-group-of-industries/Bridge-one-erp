@@ -14,7 +14,7 @@ export const INCREASE_TYPES = [
 export type IncreaseType = (typeof INCREASE_TYPES)[number]["value"];
 
 const optionalId = z
-  .union([z.uuid("Select a valid option."), z.literal("")])
+  .union([z.guid("Select a valid option."), z.literal("")])
   .optional()
   .default("");
 const optionalPrice = (label: string) =>
@@ -54,7 +54,7 @@ export type StandardPriceFilter = {
 
 export const standardPriceRowSchema = z
   .object({
-    itemId: z.uuid("Select an item."),
+    itemId: z.guid("Select an item."),
     effectiveFrom: z.iso.date("Effective From: enter a valid date."),
     costPrice: optionalPrice("Cost Price"),
     increaseType: z.enum(["PERCENT", "AMOUNT"]).optional().default("PERCENT"),
@@ -77,7 +77,7 @@ export const standardPriceRowSchema = z
 
 export const saveStandardPricesSchema = z
   .object({
-    businessUnitId: z.uuid("Select a business unit."),
+    businessUnitId: z.guid("Select a business unit."),
     rows: z.array(standardPriceRowSchema).min(1, "Change at least one row before saving.").max(1000, "Save at most 1000 rows at a time."),
   })
   .refine((data) => new Set(data.rows.map((r) => r.itemId)).size === data.rows.length, { message: "Each item can appear only once.", path: ["rows"] });

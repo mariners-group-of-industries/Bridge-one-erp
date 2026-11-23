@@ -21,8 +21,10 @@ import {
   Clock,
   XCircle,
   ArrowRight,
+  Upload,
 } from "lucide-react";
 import { useFeaturePermissions, needsPermission } from "@/lib/permissions/useFeaturePermissions";
+import { BulkUploadDialog } from "@/features/configuration/entity-master-data/components/BulkUploadDialog";
 
 // ============================================================================
 // TYPES
@@ -189,6 +191,7 @@ export default function ItemStockConversionPage() {
 
   // Modals
   const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [bulkOpen, setBulkOpen] = useState(false);
   const [viewRecord, setViewRecord] = useState<StockConversionRecord | null>(null);
 
   // Filtered rows for Tab 1
@@ -397,6 +400,9 @@ export default function ItemStockConversionPage() {
             <button type="button" onClick={() => setActiveTab("CONVERSION_LIST")} className={tabBarButton}>
               <Copy /> Item Stock Conversion
             </button>
+            {perms.import && (<button type="button" onClick={() => setBulkOpen(true)} className={tabBarButton} title="Bulk upload from Excel">
+              <Upload /> Bulk Upload
+            </button>)}
             {perms.create && (<button type="button" onClick={() => setIsCreateOpen(true)} className={tabBarButton} aria-label="Create Item Stock Conversion">
               <Plus /> Item Stock Conversion
             </button>)}
@@ -1104,6 +1110,16 @@ export default function ItemStockConversionPage() {
       {/* ───────────────────────────────────────────────────────────────── */}
       {/* 5. CREATE NEW STOCK CONVERSION MODAL                              */}
       {/* ───────────────────────────────────────────────────────────────── */}
+      <BulkUploadDialog
+        open={bulkOpen}
+        onClose={() => setBulkOpen(false)}
+        onImported={() => docs.reload()}
+        noun="item conversions"
+        templateUrl={inventoryApi.importTemplateUrl("item-stock-conversion")}
+        maxRows={2000}
+        matchHint="Warehouse names must match existing warehouses; Item Code and To Item Code must match active items. Rows with the same Ref are saved as one conversion."
+        upload={(file) => inventoryApi.importFile("item-stock-conversion", file)}
+      />
       <InventoryDocumentDialog
         open={isCreateOpen}
         onClose={() => setIsCreateOpen(false)}

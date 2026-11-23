@@ -1,4 +1,5 @@
 import type { Prisma } from "@/generated/prisma/client";
+import { AppError } from "@/lib/api/errors";
 import type { Actor } from "@/lib/auth/actor";
 import { db } from "@/lib/prisma/client";
 import type { BusinessOverview, Named, SalesMonth, StockPoint } from "./overview.types";
@@ -32,7 +33,9 @@ function rank(rows: Named[], top = 8): Named[] {
   return [...sorted.slice(0, top - 1), { name: "Other", value: round(other) }];
 }
 
+/** The Home business overview is for the master account only; everyone else lands on My Dashboard. */
 export async function getBusinessOverview(actor: Actor): Promise<BusinessOverview> {
+  if (!actor.isMaster) throw new AppError(403, "FORBIDDEN", "The business overview is available to the master account only.");
   const unitScope: Prisma.BusinessUnitWhereInput = actor.companyScope === "ALL" ? {} : { companyId: { in: [...actor.companyScope] } };
   const units = await db().businessUnit.findMany({ where: unitScope, select: { id: true } });
   const businessUnitId = { in: units.map((u) => u.id) };

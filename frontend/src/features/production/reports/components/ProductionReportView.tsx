@@ -369,7 +369,7 @@ function Reports({ today }: { today: string }) {
                     <CheckboxField key={check} label={CHECK_LABELS[check]} checked={filters[check]} onChange={(event) => set({ [check]: event.target.checked })} />
                   ))}
                   <div className="flex gap-2">
-                    <Button type="submit" variant="primary" disabled={report.loading}>
+                    <Button type="submit" variant="primary" loading={report.loading}>
                       <RefreshCw aria-hidden="true" />
                       View
                     </Button>

@@ -18,7 +18,7 @@ export const PRICE_SOURCE_LABELS: Record<PriceSource, string> = {
 export type PriceTier = "DP" | "TP";
 
 export const pricingLineSchema = z.object({
-  itemId: z.uuid(),
+  itemId: z.guid(),
   qty: z.number().min(0).max(999_999_999_999).default(0),
   unitPrice: z.number().min(0).max(999_999_999_999).default(0),
   discountPercent: z.number().min(0).max(100).default(0),
@@ -27,13 +27,13 @@ export type PricingLine = z.output<typeof pricingLineSchema>;
 
 /** Body of POST /api/sales/pricing: what the order / quotation form has so far. */
 export const pricingQuerySchema = z.object({
-  officeId: z.uuid(),
-  customerId: z.uuid(),
-  priceListId: z.uuid().nullish(),
+  officeId: z.guid(),
+  customerId: z.guid(),
+  priceListId: z.guid().nullish(),
   date: z.iso.date(),
   lines: z.array(pricingLineSchema).max(300).default([]),
   /** Custom Offer: apply only this offer (orders). */
-  offerId: z.uuid().nullish(),
+  offerId: z.guid().nullish(),
 });
 export type PricingQuery = z.input<typeof pricingQuerySchema>;
 
@@ -89,9 +89,9 @@ export interface PricingResult {
 
 /** Body of POST /api/sales/pricing/return-rates: Return Price Setup rates on a return date. */
 export const returnRatesQuerySchema = z.object({
-  officeId: z.uuid(),
+  officeId: z.guid(),
   date: z.iso.date(),
-  itemIds: z.array(z.uuid()).min(1).max(300),
+  itemIds: z.array(z.guid()).min(1).max(300),
 });
 export type ReturnRatesQuery = z.input<typeof returnRatesQuerySchema>;
 

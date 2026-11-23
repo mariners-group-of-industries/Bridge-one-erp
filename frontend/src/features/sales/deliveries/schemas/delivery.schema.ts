@@ -36,12 +36,12 @@ const money = (label: string) =>
 const percent = (label: string) =>
   z.number({ error: `${label} must be a number.` }).min(0, `${label} cannot be negative.`).max(100, `${label} can be at most 100.`);
 const qty = z.number({ error: "Quantity must be a number." }).gt(0, "Quantity must be more than 0.").max(MAX_AMOUNT);
-const optionalId = z.uuid().nullish().transform((value) => value ?? null);
+const optionalId = z.guid().nullish().transform((value) => value ?? null);
 
 /** Header fields every delivery has (transportation details, references, payment). */
 const headerFields = {
-  officeId: z.uuid({ error: "Select an office." }),
-  warehouseId: z.uuid({ error: "Select a warehouse." }),
+  officeId: z.guid({ error: "Select an office." }),
+  warehouseId: z.guid({ error: "Select a warehouse." }),
   deliveryDate: isoDate("Delivery date"),
   /** "HH:MM" local time the goods left. */
   deliveryTime: z
@@ -90,7 +90,7 @@ const headerFields = {
 };
 
 export const pricedLineSchema = z.object({
-  itemId: z.uuid({ error: "Select an item." }),
+  itemId: z.guid({ error: "Select an item." }),
   qty,
   unitPrice: money("Unit price"),
   discountPercent: percent("Discount %"),
@@ -101,17 +101,17 @@ export type PricedLineInput = z.input<typeof pricedLineSchema>;
 
 export const orderDeliverySchema = z.object({
   deliveryType: z.literal("SALES_ORDER"),
-  salesOrderId: z.uuid({ error: "Select a sales order." }),
+  salesOrderId: z.guid({ error: "Select a sales order." }),
   ...headerFields,
   lines: z
-    .array(z.object({ orderLineId: z.uuid(), qty }))
+    .array(z.object({ orderLineId: z.guid(), qty }))
     .min(1, "Enter a delivery quantity for at least one item.")
     .max(MAX_LINES),
 });
 
 export const directDeliverySchema = z.object({
   deliveryType: z.literal("DIRECT"),
-  customerId: z.uuid({ error: "Select a customer." }),
+  customerId: z.guid({ error: "Select a customer." }),
   priceIncludesVat: z.boolean(),
   discountAmount: money("Discount"),
   ...headerFields,
@@ -120,7 +120,7 @@ export const directDeliverySchema = z.object({
 
 export const exchangeSchema = z.object({
   deliveryType: z.literal("EXCHANGE"),
-  customerId: z.uuid({ error: "Select a customer." }),
+  customerId: z.guid({ error: "Select a customer." }),
   priceIncludesVat: z.boolean(),
   discountAmount: money("Discount"),
   /** Why goods are exchanged (damaged, expired …). */
@@ -128,7 +128,7 @@ export const exchangeSchema = z.object({
   ...headerFields,
   /** Goods taken back from the customer (into the warehouse). */
   receivedLines: z
-    .array(z.object({ itemId: z.uuid({ error: "Select an item." }), qty, rate: money("Rate") }))
+    .array(z.object({ itemId: z.guid({ error: "Select an item." }), qty, rate: money("Rate") }))
     .min(1, "Add at least one item taken back.")
     .max(MAX_LINES),
   /** Replacement goods given to the customer (out of the warehouse). */
@@ -166,7 +166,7 @@ export const deliveryConfirmSchema = z.object({
   actualDeliveryDate: isoDate("Actual delivery date"),
   /** Return QTY entered on Delivery Confirmation: goods the customer gave back at once. */
   returns: z
-    .array(z.object({ deliveryLineId: z.uuid(), qty }))
+    .array(z.object({ deliveryLineId: z.guid(), qty }))
     .max(MAX_LINES)
     .refine((rows) => new Set(rows.map((row) => row.deliveryLineId)).size === rows.length, "An item appears twice.")
     .default([]),
@@ -175,8 +175,8 @@ export const deliveryConfirmSchema = z.object({
 export const pendingReasonSchema = z.object({ reasonId: optionalId });
 
 export const stockAdjustmentSchema = z.object({
-  warehouseId: z.uuid({ error: "Select a warehouse." }),
-  itemId: z.uuid({ error: "Select an item." }),
+  warehouseId: z.guid({ error: "Select a warehouse." }),
+  itemId: z.guid({ error: "Select an item." }),
   qty: z
     .number({ error: "Quantity must be a number." })
     .refine((value) => value !== 0, "Quantity cannot be 0.")
@@ -187,7 +187,7 @@ export const stockAdjustmentSchema = z.object({
 });
 export type StockAdjustmentInput = z.input<typeof stockAdjustmentSchema>;
 
-const optionalUuid = z.uuid().optional();
+const optionalUuid = z.guid().optional();
 const areaFilters = {
   officeId: optionalUuid,
   customerGroupId: optionalUuid,

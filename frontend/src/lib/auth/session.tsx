@@ -17,6 +17,8 @@ export interface SessionUser {
   permissions?: string[];
   /** ERP Login "Hide Stock In Sales": Sales screens do not show stock levels. */
   hideStockInSales?: boolean;
+  /** The employee record linked to this login (Employee Self Service), if any. */
+  employee?: { code: string; name: string } | null;
 }
 
 interface SessionCtx {

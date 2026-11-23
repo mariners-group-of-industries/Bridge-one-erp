@@ -138,7 +138,8 @@ export async function entryForm(actor: Actor, orderId: string): Promise<EntryFor
       code: line.item.code,
       name: line.item.name,
       uom: line.uom,
-      perUnit: round4(num(line.bomQty) / lotSize),
+      // Kept precise: with lot sizes in the thousands a 4-decimal per-unit figure loses small ingredients.
+      perUnit: num(line.bomQty) / lotSize,
       rate: rateOf.get(line.itemId) ?? 0,
       stock: stock.get(line.itemId) ?? 0,
     })),
@@ -281,10 +282,17 @@ export async function getEntry(actor: Actor, id: string): Promise<EntryDetail> {
  * produced quantity, material usage and status move on (closed once fully produced).
  */
 export async function createEntry(actor: Actor, raw: unknown): Promise<EntryDetail> {
-  const input = entryInputSchema.parse(raw);
+  const parsed = entryInputSchema.parse(raw);
+  // Quantities are stored (and stock is kept) to 3 decimals: round once so the entry, the order and stock agree.
+  const input = { ...parsed, totalQty: round3(parsed.totalQty), rejectQty: round3(parsed.rejectQty) };
+  if (input.totalQty <= 0) throw badRequest("Total QTY must be more than 0.");
+  if (input.rejectQty > input.totalQty) throw badRequest("Reject QTY cannot be more than the Total QTY.");
   const order = await openOrder(actor, input.orderId);
   const businessUnitId = order.businessUnitId;
   if (input.entryDate < fromDbDate(order.orderDate)) throw badRequest("Production Entry Date cannot be before the order date.");
+  // One day of slack: the server clock is UTC, users are ahead of it.
+  const latest = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
+  if (input.entryDate > latest) throw badRequest("Production Entry Date cannot be in the future.");
 
   const orderMaterialIds = order.materials.map((line) => line.itemId).sort();
   const inputIds = input.materials.map((line) => line.itemId).sort();
@@ -307,7 +315,7 @@ export async function createEntry(actor: Actor, raw: unknown): Promise<EntryDeta
   const lotSize = num(order.bomLotSize);
   const rateOf = new Map(order.bom.materials.map((line) => [line.itemId, num(line.rate)]));
   const orderLine = new Map(order.materials.map((line) => [line.itemId, line]));
-  const netQty = round4(input.totalQty - input.rejectQty);
+  const netQty = round3(input.totalQty - input.rejectQty);
   const materials = input.materials.map((line, index) => {
     const base = orderLine.get(line.itemId)!;
     return {

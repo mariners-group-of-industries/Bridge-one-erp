@@ -13,8 +13,10 @@ import {
   Printer,
   Eye,
   FileSpreadsheet,
+  Upload,
 } from "lucide-react";
 import { useFeaturePermissions, needsPermission } from "@/lib/permissions/useFeaturePermissions";
+import { BulkUploadDialog } from "@/features/configuration/entity-master-data/components/BulkUploadDialog";
 
 // ============================================================================
 // TYPES
@@ -136,6 +138,7 @@ export default function GateInOutPage() {
 
   // Modal State for "+ Create Get In Out"
   const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [bulkOpen, setBulkOpen] = useState(false);
 
   const tabs: { id: GateTab; label: string }[] = [
     { id: "GATE_IN", label: "Gate In" },
@@ -212,9 +215,14 @@ export default function GateInOutPage() {
         search={searchTerm}
         onSearch={setSearchTerm}
         actions={
-          (perms.create ? (<button type="button" onClick={() => setIsCreateOpen(true)} className={tabBarButton}>
+          <>
+            {perms.import && (<button type="button" onClick={() => setBulkOpen(true)} className={tabBarButton} title="Bulk upload from Excel">
+              <Upload /> Bulk Upload
+            </button>)}
+            {perms.create ? (<button type="button" onClick={() => setIsCreateOpen(true)} className={tabBarButton}>
             <Plus /> Create Get In Out
-          </button>) : null)
+          </button>) : null}
+          </>
         }
       />
       {/* 3. FILTER BAR (Matches Screenshots)                */}
@@ -617,6 +625,16 @@ export default function GateInOutPage() {
           ],
           columns: ["name", "uom", "qty"],
         }}
+      />
+      <BulkUploadDialog
+        open={bulkOpen}
+        onClose={() => setBulkOpen(false)}
+        onImported={() => docs.reload()}
+        noun="gate passes"
+        templateUrl={inventoryApi.importTemplateUrl("gate-in-out")}
+        maxRows={2000}
+        matchHint="Type must be Gate In, Gate Out or Visitor. Visitor passes need Party / For (visitor name) and cannot carry items. One Ref per gate pass."
+        upload={(file) => inventoryApi.importFile("gate-in-out", file)}
       />
     </div>
   );

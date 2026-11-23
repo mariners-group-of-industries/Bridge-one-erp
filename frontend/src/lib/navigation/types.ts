@@ -6,6 +6,8 @@ export interface NavLink {
   description?: string;
   /** Extra search terms for the awesomebar. */
   keywords?: readonly string[];
+  /** Highlight in the sidebar only on this exact path (not on pages under it). */
+  exact?: boolean;
 }
 
 /** A titled group of links, shown as a card on the workspace page. */

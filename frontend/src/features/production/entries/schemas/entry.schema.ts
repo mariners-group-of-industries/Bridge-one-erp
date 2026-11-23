@@ -8,7 +8,7 @@ const quantity = (label: string) =>
 
 const materialSchema = z
   .object({
-    itemId: z.uuid(),
+    itemId: z.guid(),
     actualQty: quantity("Actual consumed quantity"),
     wastageQty: quantity("Wastage").default(0),
     scrapQty: quantity("Scrap").default(0),
@@ -21,13 +21,13 @@ const materialSchema = z
 /** Body of POST /api/production/entries (shared by the route and the browser). */
 export const entryInputSchema = z
   .object({
-    orderId: z.uuid({ error: "Choose the production order." }),
+    orderId: z.guid({ error: "Choose the production order." }),
     entryDate: z.iso.date({ error: "Production Entry Date is required." }),
     shift: z.enum(SHIFTS, { error: "Choose the shift." }),
-    workCenterId: z.uuid().nullish(),
-    departmentId: z.uuid().nullish(),
-    departmentSectionId: z.uuid().nullish(),
-    outputWarehouseId: z.uuid({ error: "Choose the finished goods warehouse." }),
+    workCenterId: z.guid().nullish(),
+    departmentId: z.guid().nullish(),
+    departmentSectionId: z.guid().nullish(),
+    outputWarehouseId: z.guid({ error: "Choose the finished goods warehouse." }),
     totalQty: quantity("Total QTY").gt(0, { error: "Total QTY must be more than 0." }),
     rejectQty: quantity("Reject QTY").default(0),
     hours: quantity("Machine hours").max(24, { error: "Machine hours cannot be over 24." }).default(0),
@@ -54,8 +54,8 @@ export const entryListQuerySchema = z
   .object({
     from: z.iso.date().optional(),
     to: z.iso.date().optional(),
-    departmentId: z.uuid().optional(),
-    departmentSectionId: z.uuid().optional(),
+    departmentId: z.guid().optional(),
+    departmentSectionId: z.guid().optional(),
     status: z.enum(["POSTED", "CANCELLED"]).optional(),
     search: z.string().trim().max(100).optional(),
   })
@@ -189,8 +189,8 @@ export const entryWastageSchema = z
     lines: z
       .array(
         z.object({
-          processId: z.uuid({ error: "Choose the process." }),
-          itemId: z.uuid({ error: "Choose the item." }),
+          processId: z.guid({ error: "Choose the process." }),
+          itemId: z.guid({ error: "Choose the item." }),
           qty: z.number({ error: "Wastage Quantity is required." }).refine(Number.isFinite, { error: "Wastage Quantity must be a number." }).gt(0, { error: "Wastage Quantity must be more than 0." }).max(9_999_999_999),
         }),
       )
@@ -204,7 +204,7 @@ export type EntryWastageInput = z.input<typeof entryWastageSchema>;
 
 /** POST /api/production/processes ("ADD NEW" process). */
 export const processInputSchema = z.object({
-  businessUnitId: z.uuid().optional(),
+  businessUnitId: z.guid().optional(),
   name: z.string({ error: "Process Name is required." }).trim().min(1, { error: "Process Name is required." }).max(100, { error: "Process Name is too long." }),
 });
 

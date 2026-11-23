@@ -63,7 +63,7 @@ export function EmployeeField({ id, options, value, onChange }: { id: string; op
   );
 }
 
-const STATUS_VARIANT = { Pending: "warning", Approved: "success", Rejected: "danger" } as const;
+const STATUS_VARIANT = { Pending: "warning", Approved: "success", Rejected: "danger", Cancelled: "neutral" } as const;
 
 export function ApplicationStatusBadge({ status }: { status: ApplicationStatus }) {
   return <Badge variant={STATUS_VARIANT[status]}>{status}</Badge>;

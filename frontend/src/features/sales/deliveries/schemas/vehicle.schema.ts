@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { optionalPhone, optionalText } from "@/lib/validation/fields";
 
-const optionalId = z.uuid().nullish().transform((value) => value ?? null);
+const optionalId = z.guid().nullish().transform((value) => value ?? null);
 const required = (label: string, max: number) =>
   z.string({ error: `${label} is required.` }).trim().min(1, `${label} is required.`).max(max, `${label} must be at most ${max} characters.`);
 
@@ -15,7 +15,7 @@ export type CompartmentInput = z.input<typeof compartmentInputSchema>;
 
 /** Vehicle Create: vehicle, its default driver and compartments. */
 export const vehicleInputSchema = z.object({
-  businessUnitId: z.uuid({ error: "Select an office first." }),
+  businessUnitId: z.guid({ error: "Select an office first." }),
   vehicleNumber: required("Vehicle number", 40),
   vehicleSize: optionalText("Vehicle size", 50),
   chassisNumber: optionalText("Chassis number", 60),
@@ -33,8 +33,14 @@ export const vehicleInputSchema = z.object({
 export type VehicleInput = z.input<typeof vehicleInputSchema>;
 
 export const driverQuerySchema = z.object({
-  businessUnitId: z.uuid(),
-  search: z.string().trim().min(3, "Type at least 3 letters.").max(60),
+  businessUnitId: z.guid(),
+  /** Empty lists every active employee of the business unit; otherwise at least 3 letters. */
+  search: z
+    .string()
+    .trim()
+    .max(60)
+    .default("")
+    .refine((value) => value === "" || value.length >= 3, "Type at least 3 letters."),
 });
 
 export interface VehicleCompartment {

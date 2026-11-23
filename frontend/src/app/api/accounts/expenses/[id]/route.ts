@@ -4,6 +4,7 @@ import { apiHandler } from "@/lib/api/handler";
 import { createVoucherInTx } from "@/lib/accounting/accounts-service";
 import type { Actor } from "@/lib/auth/actor";
 import { denyUnless } from "@/lib/permissions/require";
+import { approvalNote, approvalTrail, recordApproval, recordRejection } from "@/lib/approval/engine";
 
 async function handlePATCH(
   request: Request,
@@ -88,6 +89,47 @@ async function handlePATCH(
         });
       }
 
+      if (action === "APPROVE" || body.status === "APPROVED") {
+        const office = existing.officeId ? await tx.office.findUnique({ where: { id: existing.officeId }, select: { businessUnitId: true } }) : null;
+        const gate = await recordApproval(tx, actor, {
+          feature: "Expense",
+          documentId: id,
+          businessUnitId: office?.businessUnitId ?? null,
+          amount: Number(existing.amount),
+          comment: body.comments || body.comment || null,
+        });
+        if (!gate.final) {
+          return {
+            ...existing,
+            status: "PENDING",
+            approvalNote: approvalNote(gate),
+          };
+        }
+        return tx.expenseRecord.update({
+          where: { id },
+          data: {
+            status: "APPROVED",
+            approvedBy: actor.name || "Accounts User",
+          },
+        });
+      }
+
+      if (action === "REJECT" || body.status === "REJECTED") {
+        const office = existing.officeId ? await tx.office.findUnique({ where: { id: existing.officeId }, select: { businessUnitId: true } }) : null;
+        await recordRejection(tx, actor, {
+          feature: "Expense",
+          documentId: id,
+          businessUnitId: office?.businessUnitId ?? null,
+          comment: body.comments || body.comment || null,
+        });
+        return tx.expenseRecord.update({
+          where: { id },
+          data: {
+            status: "REJECTED",
+          },
+        });
+      }
+
       return tx.expenseRecord.update({
         where: { id },
         data: {
@@ -104,4 +146,27 @@ async function handlePATCH(
   }
 }
 
+async function handleGET(
+  request: Request,
+  { params }: { params: Promise<{ id: string }> },
+  _actor: Actor
+) {
+  try {
+    const { id } = await params;
+    const expense = await db().expenseRecord.findUnique({
+      where: { id },
+      include: { lines: { orderBy: { lineNo: "asc" } } },
+    });
+    if (!expense) {
+      return NextResponse.json({ success: false, error: "Expense record not found" }, { status: 404 });
+    }
+    const trail = await approvalTrail("Expense", id);
+    return NextResponse.json({ success: true, data: { ...expense, approvalTrail: trail } });
+  } catch (error) {
+    console.error("Failed to fetch expense record:", error);
+    return NextResponse.json({ success: false, error: "Failed to fetch expense record" }, { status: 500 });
+  }
+}
+
+export const GET = apiHandler("accounts:read", handleGET);
 export const PATCH = apiHandler("accounts:write", handlePATCH);

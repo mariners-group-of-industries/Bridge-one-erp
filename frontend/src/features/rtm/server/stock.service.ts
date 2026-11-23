@@ -23,10 +23,10 @@ export async function stockLevels(actor: Actor, distributorId: string) {
 
 const transferSchema = z.object({
   requestDate: z.string().regex(DATE),
-  fromDistributorId: z.uuid("Select the distributor that sends the stock."),
-  toDistributorId: z.uuid("Select the distributor that receives the stock."),
+  fromDistributorId: z.guid("Select the distributor that sends the stock."),
+  toDistributorId: z.guid("Select the distributor that receives the stock."),
   remarks: text(500),
-  lines: z.array(z.object({ itemId: z.uuid(), qty: z.coerce.number().finite().positive("Quantities must be greater than 0.") })).min(1, "Add at least one item.").max(200),
+  lines: z.array(z.object({ itemId: z.guid(), qty: z.coerce.number().finite().positive("Quantities must be greater than 0.") })).min(1, "Add at least one item.").max(200),
 });
 
 const transferInclude = {
@@ -104,7 +104,7 @@ export async function reviewTransfer(actor: Actor, id: string, decision: "approv
   return listTransfers(actor);
 }
 
-const issueSchema = z.object({ lines: z.array(z.object({ lineId: z.uuid(), qty: z.coerce.number().finite().min(0) })).min(1) });
+const issueSchema = z.object({ lines: z.array(z.object({ lineId: z.guid(), qty: z.coerce.number().finite().min(0) })).min(1) });
 
 /** Issues an approved transfer: stock leaves the sending distributor and reaches the receiving one. */
 export async function issueTransfer(actor: Actor, id: string, raw: unknown) {
@@ -132,11 +132,11 @@ export const ADJUSTMENT_REASONS = ["Opening stock", "Physical count", "Damage", 
 
 const adjustmentSchema = z.object({
   adjustDate: z.string().regex(DATE),
-  distributorId: z.uuid("Select the distributor."),
+  distributorId: z.guid("Select the distributor."),
   reason: z.enum(ADJUSTMENT_REASONS),
   remarks: text(500),
   lines: z
-    .array(z.object({ itemId: z.uuid(), qty: z.coerce.number().finite().refine((q) => q !== 0, "Quantity cannot be 0.") }))
+    .array(z.object({ itemId: z.guid(), qty: z.coerce.number().finite().refine((q) => q !== 0, "Quantity cannot be 0.") }))
     .min(1, "Add at least one item.")
     .max(200),
 });

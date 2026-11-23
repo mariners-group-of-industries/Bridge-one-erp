@@ -21,9 +21,9 @@ import {
 } from "./common";
 import { bestOffer, getSettings } from "./masters.service";
 
-const optUuid = z.preprocess((v) => (v === "" ? undefined : v), z.uuid().optional());
+const optUuid = z.preprocess((v) => (v === "" ? undefined : v), z.guid().optional());
 const text = (max: number) => z.string().trim().max(max).optional().transform((v) => v || undefined);
-const line = z.object({ itemId: z.uuid(), qty: z.coerce.number().finite().positive("Quantities must be greater than 0."), rate: z.coerce.number().finite().min(0).optional() });
+const line = z.object({ itemId: z.guid(), qty: z.coerce.number().finite().positive("Quantities must be greater than 0."), rate: z.coerce.number().finite().min(0).optional() });
 
 export interface ListFilters {
   from?: string;
@@ -67,7 +67,7 @@ async function assertCredit(client: Client, outletId: string, businessUnitId: st
 
 const orderSchema = z.object({
   orderDate: z.string().regex(DATE),
-  outletId: z.uuid("Select the outlet."),
+  outletId: z.guid("Select the outlet."),
   srId: optUuid,
   remarks: text(500),
   lines: z.array(line).min(1, "Add at least one item.").max(200),
@@ -213,10 +213,10 @@ export async function listDeliveries(actor: Actor, f: ListFilters & { direct?: b
 }
 
 const deliverSchema = z.object({
-  orderId: z.uuid("Select the order."),
+  orderId: z.guid("Select the order."),
   deliveryDate: z.string().regex(DATE),
   remarks: text(500),
-  lines: z.array(z.object({ lineId: z.uuid(), qty: z.coerce.number().finite().min(0) })).min(1),
+  lines: z.array(z.object({ lineId: z.guid(), qty: z.coerce.number().finite().min(0) })).min(1),
 });
 
 /** Delivers (part of) a retail order: stock leaves the distributor, the outlet owes the amount. */
@@ -271,7 +271,7 @@ export async function deliverOrder(actor: Actor, raw: unknown) {
 
 const directSchema = z.object({
   deliveryDate: z.string().regex(DATE),
-  outletId: z.uuid("Select the outlet."),
+  outletId: z.guid("Select the outlet."),
   srId: optUuid,
   discount: z.preprocess((v) => (v === "" ? undefined : v), z.coerce.number().finite().min(0).default(0)),
   remarks: text(500),
@@ -327,7 +327,7 @@ export async function directDelivery(actor: Actor, raw: unknown) {
 
 const collectionSchema = z.object({
   collectionDate: z.string().regex(DATE),
-  outletId: z.uuid("Select the outlet."),
+  outletId: z.guid("Select the outlet."),
   srId: optUuid,
   amount: z.coerce.number().finite().positive("Enter the amount collected."),
   method: z.enum(["CASH", "BANK", "MFS", "CHEQUE"]).default("CASH"),
@@ -395,7 +395,7 @@ export async function createCollection(actor: Actor, raw: unknown) {
 
 const returnSchema = z.object({
   returnDate: z.string().regex(DATE),
-  outletId: z.uuid("Select the outlet."),
+  outletId: z.guid("Select the outlet."),
   deliveryId: optUuid,
   reason: text(300),
   lines: z.array(line).min(1, "Add at least one item.").max(200),

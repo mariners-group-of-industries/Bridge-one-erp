@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import React, { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Download, Eye, Pencil, Plus, Printer, RotateCcw, Search, Trash2, X } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Download, Eye, Pencil, Plus, Printer, RotateCcw, Search, Trash2, Upload, X } from "lucide-react";
 import { ModalDialog } from "@/components/purchase/ModalDialog";
 import {
   PrintablePurchaseDoc,
@@ -17,7 +17,8 @@ import { Spinner } from "@/components/ui/spinner";
 import { fetchApi } from "@/lib/api";
 import { formatCurrency } from "@/lib/utils";
 import { orderTotals, priceLine } from "@/lib/purchase-store/rules";
-import { PURCHASE_QUERY_KEYS, downloadCsv } from "@/features/purchase/lib/client";
+import { PURCHASE_QUERY_KEYS, downloadCsv, uploadPurchaseBulk } from "@/features/purchase/lib/client";
+import { BulkUploadDialog } from "@/features/configuration/entity-master-data/components/BulkUploadDialog";
 import { usePurchasePermissions } from "@/features/purchase/lib/usePurchasePermissions";
 import type { Item, Office, PurchaseOrder, PurchaseRequisition, Supplier, Warehouse } from "@bridgeone/contracts";
 
@@ -216,6 +217,7 @@ export default function PurchaseOrdersPage() {
   const router = useRouter();
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<Tab>("LOCAL_PO");
+  const [bulkOpen, setBulkOpen] = useState(false);
   const [search, setSearch] = useState("");
 
   // Local PO filters
@@ -541,6 +543,12 @@ export default function PurchaseOrdersPage() {
               />
               <Search className="w-3.5 h-3.5 text-ink-faint absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
             </div>
+            {perms.orders.import && (
+              <button type="button" onClick={() => setBulkOpen(true)} className={btnGhost} title="Bulk upload purchase orders from an Excel file">
+                <Upload className="w-3.5 h-3.5" />
+                <span>Bulk Upload</span>
+              </button>
+            )}
             {perms.orders.export && (
               <button type="button" onClick={handleExport} className={btnPrimary} title="Download Excel (CSV)">
                 <Download className="w-3.5 h-3.5" />
@@ -1549,6 +1557,16 @@ export default function PurchaseOrdersPage() {
           </div>
         )}
       </ModalDialog>
+      <BulkUploadDialog
+        open={bulkOpen}
+        onClose={() => setBulkOpen(false)}
+        onImported={invalidate}
+        noun="purchase orders"
+        templateUrl="/api/v1/purchase/orders/import"
+        maxRows={2000}
+        matchHint="Supplier, Office and Warehouse must match existing names; Item Code must match an active item. Rows with the same Ref are saved as one purchase order."
+        upload={(file) => uploadPurchaseBulk("/api/v1/purchase/orders/import", file)}
+      />
     </div>
   );
 }

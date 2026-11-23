@@ -1,9 +1,8 @@
 "use client";
 
-import { Pencil, Plus, Printer, Trash2 } from "lucide-react";
-import Link from "next/link";
-import { useEffect, useState, type ReactNode } from "react";
-import { Button, buttonClasses } from "@/components/ui/button";
+import { Plus, Printer, Trash2 } from "lucide-react";
+import { Fragment, useEffect, useState, type ReactNode } from "react";
+import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { TextField } from "@/components/ui/form-field";
 import { ErrorState, LoadingState } from "@/components/ui/section";
@@ -12,13 +11,15 @@ import { useResource } from "@/hooks/use-resource";
 import { errorMessage } from "@/lib/api/client";
 import { cn } from "@/lib/cn";
 import { Combobox } from "../../components/Combobox";
-import { paths } from "../../paths";
-import { BOM_TYPE_LABELS, OUTPUT_TYPE_LABELS, WASTAGE_TYPE_LABELS, bomChildrenSchema, type BomOption, type BomRow } from "../schemas/bom.schema";
+import { BOM_TYPE_LABELS, OUTPUT_TYPE_LABELS, WASTAGE_TYPE_LABELS, bomChildrenSchema, type BomDetail, type BomOption, type BomRow } from "../schemas/bom.schema";
 import { downloadBomPdf, fetchBom, searchBomOptions, setBomChildren } from "../services/bom.api";
 
 export const money = (value: number) => value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 export const qty = (value: number) => value.toLocaleString("en-US", { maximumFractionDigits: 4 });
 const dash = (value: string | number | null | undefined) => (value === null || value === undefined || value === "" ? "—" : value);
+
+/** Table classes that draw a border around every cell. */
+const GRID_TABLE = "border-collapse [&_td]:border [&_td]:border-line-strong [&_th]:border [&_th]:border-line-strong";
 
 export interface SimpleColumn {
   header: string;
@@ -37,17 +38,20 @@ export function LineTable({
   footer = [],
   footerLabelSpan,
   empty,
+  grid = false,
 }: {
   columns: SimpleColumn[];
   rows: ReactNode[][];
   footer?: ReactNode[][];
   footerLabelSpan?: number;
   empty?: string;
+  /** Border on every cell (report look of the details dialog). */
+  grid?: boolean;
 }) {
   const align = (column: SimpleColumn) => (column.align === "right" ? "text-right" : column.align === "center" ? "text-center" : "text-left");
   return (
-    <div className="overflow-x-auto rounded-md border border-line">
-      <table className="w-full text-sm">
+    <div className={grid ? "overflow-x-auto shadow-sm" : "overflow-x-auto rounded-md border border-line"}>
+      <table className={cn("w-full text-sm", grid && GRID_TABLE)}>
         <thead className="bg-accent-soft text-xs text-ink">
           <tr>
             {columns.map((column) => (
@@ -117,6 +121,110 @@ function Pair({ label, value }: { label: string; value: ReactNode }) {
   );
 }
 
+const qty6 = (value: number) => value.toLocaleString("en-US", { minimumFractionDigits: 6, maximumFractionDigits: 6 });
+
+interface MaterialSums {
+  altQty: number;
+  qty: number;
+  totalQty: number;
+  amount: number;
+}
+
+const sumMaterials = (lines: BomDetail["materials"]): MaterialSums =>
+  lines.reduce(
+    (sum, line) => ({
+      altQty: sum.altQty + (line.altQty ?? 0),
+      qty: sum.qty + line.qty,
+      totalQty: sum.totalQty + line.totalQty,
+      amount: sum.amount + line.amount,
+    }),
+    { altQty: 0, qty: 0, totalQty: 0, amount: 0 },
+  );
+
+const MATERIAL_COLUMNS: SimpleColumn[] = [
+  { header: "SL", className: "w-12" },
+  { header: "Materials" },
+  { header: "Type" },
+  { header: "Exclude From Scrap" },
+  { header: "Alt. Quantity", align: "right" },
+  { header: "Quantity", align: "right" },
+  { header: "Wastage (%)", align: "right" },
+  { header: "Total Quantity", align: "right" },
+  { header: "Avg. Rate", align: "right" },
+  { header: "Total", align: "right" },
+];
+
+/** Bold "label + totals" row of the materials table (group subtotal, overhead, grand total). */
+function SumRow({ label, sums, amount }: { label: string; sums?: MaterialSums; amount: number }) {
+  return (
+    <tr className="border-t border-line-strong bg-canvas font-semibold text-ink tabular-nums">
+      <td colSpan={4} className="px-3 py-2 text-right">
+        {label}
+      </td>
+      <td className="px-3 py-2 text-right">{sums ? money(sums.altQty) : ""}</td>
+      <td className="px-3 py-2 text-right">{sums ? qty6(sums.qty) : ""}</td>
+      <td className="px-3 py-2" />
+      <td className="px-3 py-2 text-right">{sums ? money(sums.totalQty) : ""}</td>
+      <td className="px-3 py-2" />
+      <td className="px-3 py-2 text-right">{money(amount)}</td>
+    </tr>
+  );
+}
+
+/** Input materials grouped by type (Raw Material, Packaging Material …), each with its subtotal, then the grand total. */
+function MaterialsTable({ bom }: { bom: BomDetail }) {
+  const groups = new Map<string, BomDetail["materials"]>();
+  for (const line of bom.materials) {
+    const type = line.materialType || "Other Material";
+    groups.set(type, [...(groups.get(type) ?? []), line]);
+  }
+  const all = sumMaterials(bom.materials);
+  const cell = (column: number) =>
+    cn("px-3 py-2 text-ink-muted tabular-nums", MATERIAL_COLUMNS[column].align === "right" ? "text-right" : "text-left");
+  return (
+    <div className="overflow-x-auto shadow-sm">
+      <table className={cn("w-full text-sm", GRID_TABLE)}>
+        <thead className="bg-accent-soft text-xs text-ink">
+          <tr>
+            {MATERIAL_COLUMNS.map((column) => (
+              <th
+                key={column.header}
+                scope="col"
+                className={cn("px-3 py-2 font-semibold whitespace-nowrap", column.align === "right" ? "text-right" : "text-left", column.className)}
+              >
+                {column.header}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {[...groups].map(([type, lines]) => (
+            <Fragment key={type}>
+              {lines.map((line, index) => (
+                <tr key={line.itemId} className="border-t border-line">
+                  <td className={cell(0)}>{index + 1}</td>
+                  <td className={cn(cell(1), "text-ink")}>{`${line.code} - ${line.name} (${line.uom})`}</td>
+                  <td className={cell(2)}>{dash(line.materialType)}</td>
+                  <td className={cell(3)}>{line.excludeFromScrap ? "Yes" : "No"}</td>
+                  <td className={cell(4)}>{line.altQty === null ? "" : `${qty(line.altQty)} ${line.altUom ?? ""}`}</td>
+                  <td className={cn(cell(5), "whitespace-nowrap")}>{`${qty6(line.qty)} ${line.uom}`}</td>
+                  <td className={cell(6)}>{money(line.wastagePercent)}</td>
+                  <td className={cell(7)}>{money(line.totalQty)}</td>
+                  <td className={cell(8)}>{money(line.rate)}</td>
+                  <td className={cell(9)}>{money(line.amount)}</td>
+                </tr>
+              ))}
+              <SumRow label={`Total Of ${type}:`} sums={sumMaterials(lines)} amount={sumMaterials(lines).amount} />
+            </Fragment>
+          ))}
+          {bom.overheadCost > 0 && <SumRow label="Overhead:" amount={bom.overheadCost} />}
+          <SumRow label="Grand Total:" sums={all} amount={bom.totalCost} />
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 /** "Bill Of Material Details" of the list's view (eye) action. */
 export function BomDetailsDialog({ id, onClose }: { id: string | null; onClose: () => void }) {
   const toast = useToast();
@@ -136,9 +244,6 @@ export function BomDetailsDialog({ id, onClose }: { id: string | null; onClose: 
     }
   }
 
-  const materialQty = bom?.materials.reduce((sum, line) => sum + line.qty, 0) ?? 0;
-  const materialTotalQty = bom?.materials.reduce((sum, line) => sum + line.totalQty, 0) ?? 0;
-  const materialAltQty = bom?.materials.reduce((sum, line) => sum + (line.altQty ?? 0), 0) ?? 0;
   // Tolerance and Primary only matter when a line has a tolerance / there are several outputs.
   const showOutputTolerance = bom?.outputLines.some((line) => line.tolerancePercent !== null) ?? false;
   const showPrimary = (bom?.outputLines.length ?? 0) > 1;
@@ -146,7 +251,7 @@ export function BomDetailsDialog({ id, onClose }: { id: string | null; onClose: 
     { header: "SL", className: "w-12" },
     { header: "Item" },
     { header: "Item Type" },
-    { header: "Net Weight", align: "right" },
+    { header: "Net Weight" },
     { header: "Lot Size/Quantity", align: "right" },
     { header: "Total Weight", align: "right" },
     ...(showOutputTolerance ? [{ header: "Tolerance (%)", align: "right" as const }] : []),
@@ -158,21 +263,14 @@ export function BomDetailsDialog({ id, onClose }: { id: string | null; onClose: 
     <Dialog
       open={id !== null}
       title="Bill Of Material Details"
-      size="xl"
-      className="max-w-7xl"
+      titleClassName="text-xl! font-medium! tracking-normal!"
+      size="2xl"
+      className="max-w-[96rem]!"
       onClose={onClose}
       footer={
-        <>
-          <Button variant="ghost" className="text-danger" onClick={onClose}>
-            CLOSE
-          </Button>
-          {id && (
-            <Link href={paths.editBom(id)} className={cn(buttonClasses("ghost"), "text-accent-strong")}>
-              <Pencil aria-hidden="true" />
-              EDIT
-            </Link>
-          )}
-        </>
+        <Button variant="ghost" className="text-base! font-medium text-danger! hover:text-danger!" onClick={onClose}>
+          CLOSE
+        </Button>
       }
     >
       {detail.error ? (
@@ -188,9 +286,6 @@ export function BomDetailsDialog({ id, onClose }: { id: string | null; onClose: 
               <Pair label="Department" value={bom.departmentName ?? "N/A"} />
               <Pair label="Section" value={bom.sectionName ?? "N/A"} />
               <Pair label="Tolerance" value={bom.tolerancePercent === null ? "N/A" : `${qty(bom.tolerancePercent)}%`} />
-              <Pair label="Lot Size" value={qty(bom.lotSize)} />
-              <Pair label="Status" value={bom.isActive ? "Active" : "Inactive"} />
-              <Pair label="Created By" value={bom.createdByName} />
             </dl>
             <Button variant="primary" size="sm" onClick={pdf} loading={downloading}>
               <Printer aria-hidden="true" />
@@ -199,20 +294,21 @@ export function BomDetailsDialog({ id, onClose }: { id: string | null; onClose: 
           </div>
 
           <section aria-labelledby="bom-outputs" className="flex flex-col gap-2">
-            <h3 id="bom-outputs" className="text-base font-semibold text-ink">
+            <h3 id="bom-outputs" className="text-lg font-medium text-ink">
               Production Items
             </h3>
             <LineTable
+              grid
               columns={outputColumns}
               rows={bom.outputLines.map((line, index) => [
                 index + 1,
                 <span key="item" className="text-ink">{`${line.code} - ${line.name} (${line.uom})`}</span>,
                 OUTPUT_TYPE_LABELS[line.outputType],
                 qty(line.netWeight),
-                qty(line.lotSizeQty),
-                qty(line.totalWeight),
+                money(line.lotSizeQty),
+                money(line.totalWeight),
                 ...(showOutputTolerance ? [line.tolerancePercent === null ? "—" : qty(line.tolerancePercent)] : []),
-                `${qty(line.costPercent)}%`,
+                qty(line.costPercent),
                 ...(showPrimary ? [line.isPrimary ? "Yes" : "No"] : []),
               ])}
             />
@@ -220,45 +316,14 @@ export function BomDetailsDialog({ id, onClose }: { id: string | null; onClose: 
 
           <section aria-labelledby="bom-materials" className="flex flex-col gap-2">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <h3 id="bom-materials" className="text-base font-semibold text-ink">
+              <h3 id="bom-materials" className="text-lg font-medium text-ink">
                 Input Materials
               </h3>
-              <p className="text-base text-ink">
+              <p className="text-lg text-ink">
                 Material Total : <span className="font-semibold">{money(bom.materialCost)}</span>
               </p>
             </div>
-            <LineTable
-              columns={[
-                { header: "SL", className: "w-12" },
-                { header: "Materials" },
-                { header: "Type" },
-                { header: "Exclude From Scrap", align: "center" },
-                { header: "Alt. Quantity", align: "right" },
-                { header: "Quantity", align: "right" },
-                { header: "Wastage (%)", align: "right" },
-                { header: "Total Quantity", align: "right" },
-                { header: "Avg. Rate", align: "right" },
-                { header: "Total", align: "right" },
-              ]}
-              rows={bom.materials.map((line, index) => [
-                index + 1,
-                <span key="item" className="text-ink">{`${line.code} - ${line.name} (${line.uom})`}</span>,
-                dash(line.materialType),
-                line.excludeFromScrap ? "Yes" : "No",
-                line.altQty === null ? "—" : `${qty(line.altQty)} ${line.altUom ?? ""}`,
-                `${qty(line.qty)} ${line.uom}`,
-                money(line.wastagePercent),
-                money(line.totalQty),
-                money(line.rate),
-                money(line.amount),
-              ])}
-              footerLabelSpan={4}
-              footer={[
-                ["Total Of Raw Material:", money(materialAltQty), qty(materialQty), "", money(materialTotalQty), "", money(bom.materialCost)],
-                ...(bom.overheadCost ? [["Overhead:", "", "", "", "", "", money(bom.overheadCost)]] : []),
-                ["Grand Total:", money(materialAltQty), qty(materialQty), "", money(materialTotalQty), "", money(bom.totalCost)],
-              ]}
-            />
+            <MaterialsTable bom={bom} />
           </section>
 
           {bom.wastages.length > 0 && (

@@ -49,7 +49,7 @@ export const MAX_APPROVERS = 20;
 export const labelOf = (list: readonly { value: string; label: string }[], value: string) => list.find((o) => o.value === value)?.label ?? value;
 
 const optionalId = z
-  .union([z.uuid("Select a valid option."), z.literal("")])
+  .union([z.guid("Select a valid option."), z.literal("")])
   .optional()
   .default("");
 const userType = z.enum(["USER", "EMPLOYEE"], { message: "Select the user type." });
@@ -57,7 +57,7 @@ const userType = z.enum(["USER", "EMPLOYEE"], { message: "Select the user type."
 export const approverInputSchema = z.object({
   userType,
   businessUnitId: optionalId,
-  approverId: z.uuid("Select the approver."),
+  approverId: z.guid("Select the approver."),
   authorizationType: z.enum(["APPROVAL", "RECOMMENDATION", "REVIEW"], { message: "Select the authorization type." }),
 });
 
@@ -99,7 +99,7 @@ export const pipelineInputSchema = z
     module: z.union([z.enum(MODULE_NAMES, { message: "Select the module." }), z.literal("")]).optional().default(""),
     feature: z.enum(APPROVAL_FEATURES, { message: "Select the approval feature." }),
     userType,
-    superApproverId: z.uuid("Select the super approver."),
+    superApproverId: z.guid("Select the super approver."),
     remarks: z.string().trim().max(500, "At most 500 characters.").optional().default(""),
     isOfficeWise: z.boolean().optional().default(false),
     isTerritoryWise: z.boolean().optional().default(false),

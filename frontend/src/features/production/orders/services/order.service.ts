@@ -55,6 +55,8 @@ async function explode(client: Client, businessUnitId: string, bomId: string, it
   if (!bom.isActive) throw badRequest(`Bill of material ${bom.name} is inactive.`);
   const output = bom.outputs.find((line) => line.itemId === itemId);
   if (!output) throw badRequest(`${bom.name} does not produce the chosen item.`);
+  // Imported BOMs can lack their lines: producing from one would add finished goods to stock without consuming anything.
+  if (bom.materials.length === 0) throw badRequest(`Bill of material ${bom.name} has no input materials. Add its materials in Bill Of Material first.`);
   const lotSize = num(output.lotSizeQty);
   const factor = quantity / lotSize;
   const unitCost = round4((num(bom.totalCost) * num(output.costPercent)) / 100 / lotSize);

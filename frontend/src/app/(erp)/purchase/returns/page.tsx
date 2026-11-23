@@ -14,6 +14,7 @@ import {
   ChevronLeft,
   ChevronRight,
   AlertTriangle,
+  Upload,
 } from "lucide-react";
 import { ModalDialog } from "@/components/purchase/ModalDialog";
 import {
@@ -27,7 +28,8 @@ import { toast } from "@/components/purchase/Toast";
 import { Spinner } from "@/components/ui/spinner";
 import { fetchApi } from "@/lib/api";
 import { formatCurrency } from "@/lib/utils";
-import { PURCHASE_QUERY_KEYS, downloadCsv, localToday } from "@/features/purchase/lib/client";
+import { PURCHASE_QUERY_KEYS, downloadCsv, localToday, uploadPurchaseBulk } from "@/features/purchase/lib/client";
+import { BulkUploadDialog } from "@/features/configuration/entity-master-data/components/BulkUploadDialog";
 import { usePurchasePermissions } from "@/features/purchase/lib/usePurchasePermissions";
 import {
   PurchaseReturn,
@@ -92,10 +94,14 @@ interface ReturnRow {
 export default function PurchaseReturnsPage() {
   const router = useRouter();
   const queryClient = useQueryClient();
+  const invalidateAll = () => {
+    for (const key of PURCHASE_QUERY_KEYS) queryClient.invalidateQueries({ queryKey: [key] });
+  };
   const perms = usePurchasePermissions();
 
   // Active Tab: RECEIVED_LIST or RETURN_LIST
   const [activeTab, setActiveTab] = useState<"RECEIVED_LIST" | "RETURN_LIST">("RECEIVED_LIST");
+  const [bulkOpen, setBulkOpen] = useState(false);
 
   // Global Search
   const [searchTerm, setSearchTerm] = useState("");
@@ -402,6 +408,19 @@ export default function PurchaseReturnsPage() {
             />
             <Search className="w-3.5 h-3.5 text-ink-faint absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
           </div>
+
+          {/* Bulk upload from Excel */}
+          {perms.returns.import && (
+            <button
+              type="button"
+              onClick={() => setBulkOpen(true)}
+              title="Bulk upload returns from an Excel file"
+              className="h-9 px-4 border border-line-strong rounded text-ink-muted hover:bg-canvas font-semibold text-xs inline-flex items-center gap-1.5 transition"
+            >
+              <Upload className="w-4 h-4" />
+              <span>Bulk Upload</span>
+            </button>
+          )}
 
           {/* Export to CSV / Excel Button */}
           {perms.returns.export && (
@@ -1241,6 +1260,16 @@ export default function PurchaseReturnsPage() {
           </form>
         )}
       </ModalDialog>
+      <BulkUploadDialog
+        open={bulkOpen}
+        onClose={() => setBulkOpen(false)}
+        onImported={invalidateAll}
+        noun="return documents"
+        templateUrl="/api/v1/purchase/returns/import"
+        maxRows={2000}
+        matchHint="GRN Number: put the GRN number to return against it, or WITHOUT_REF for a return without reference (needs Supplier, Office, Warehouse and Unit Price). Rows with the same Ref are saved as one return."
+        upload={(file) => uploadPurchaseBulk("/api/v1/purchase/returns/import", file)}
+      />
     </div>
   );
 }

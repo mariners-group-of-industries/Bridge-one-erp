@@ -17,8 +17,10 @@ import {
   Eye,
   Printer,
   FileSpreadsheet,
+  Upload,
 } from "lucide-react";
 import { useFeaturePermissions, needsPermission } from "@/lib/permissions/useFeaturePermissions";
+import { BulkUploadDialog } from "@/features/configuration/entity-master-data/components/BulkUploadDialog";
 
 // ============================================================================
 // TYPES
@@ -261,6 +263,7 @@ export default function TransferRequestPage() {
 
   // ── + Request modal ──
   const [isNewRequestOpen, setIsNewRequestOpen] = useState(false);
+  const [bulkOpen, setBulkOpen] = useState(false);
 
   // ── Filtered REQUEST LIST ──
   const filteredList = useMemo(() => {
@@ -357,6 +360,9 @@ export default function TransferRequestPage() {
                 <Download /> Excel
               </button>) : null)
             )}
+            {perms.import && (<button type="button" onClick={() => setBulkOpen(true)} className={tabBarButton} title="Bulk upload from Excel">
+              <Upload /> Bulk Upload
+            </button>)}
             {perms.create && (<button type="button" onClick={() => setIsNewRequestOpen(true)} className={tabBarButton}>
               <Plus /> Request
             </button>)}
@@ -987,6 +993,16 @@ export default function TransferRequestPage() {
       {/* ============================================================= */}
       {/* NEW REQUEST MODAL                                              */}
       {/* ============================================================= */}
+      <BulkUploadDialog
+        open={bulkOpen}
+        onClose={() => setBulkOpen(false)}
+        onImported={() => listDocs.reload()}
+        noun="transfer requests"
+        templateUrl={inventoryApi.importTemplateUrl("transfer-request")}
+        maxRows={2000}
+        matchHint="Requesting warehouse name must match an existing warehouse; Item Code must match an active item. Rows with the same Ref are saved as one request."
+        upload={(file) => inventoryApi.importFile("transfer-request", file)}
+      />
       <InventoryDocumentDialog
         open={isNewRequestOpen}
         onClose={() => setIsNewRequestOpen(false)}

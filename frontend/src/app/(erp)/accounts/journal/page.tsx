@@ -19,9 +19,12 @@ import {
   Search,
   ShieldCheck,
   Trash2,
+  Upload,
 } from "lucide-react";
 import { ModalDialog } from "@/components/purchase/ModalDialog";
 import { useAccountingStore } from "@/features/accounts/store/accounting-store";
+import { BulkUploadDialog } from "@/features/configuration/entity-master-data/components/BulkUploadDialog";
+import { uploadAccountImport } from "@/features/accounts/lib/bulk-import-client";
 import { MANUAL_TRANS_TYPES, transTypeBase, transTypeFilterOptions, transTypeLabel } from "@/features/accounts/transaction-types";
 import type { JournalLineItem, JournalType, JournalVoucher, VoucherStatus } from "@/features/accounts/types";
 import { localDate, localDaysFromToday, localToday } from "@/features/purchase/lib/client";
@@ -118,6 +121,7 @@ export default function AccountingJournalPage() {
 
   // Modals
   const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [bulkOpen, setBulkOpen] = useState(false);
   const [formError, setFormError] = useState("");
   const [formSuccess, setFormSuccess] = useState("");
   const [viewingVoucher, setViewingVoucher] = useState<JournalVoucher | null>(null);
@@ -826,6 +830,16 @@ export default function AccountingJournalPage() {
                 </button>)}
               </>
             )}
+
+            {/* Bulk upload from Excel */}
+            {perms.import && (<button
+              onClick={() => setBulkOpen(true)}
+              className="inline-flex items-center gap-1 px-3 py-1 border border-line-strong rounded text-xs font-medium text-ink-muted hover:bg-canvas transition-colors"
+              title="Bulk upload vouchers from an Excel file"
+            >
+              <Upload className="w-3.5 h-3.5" />
+              <span>Bulk Upload</span>
+            </button>)}
 
             {/* + Journal Button */}
             {perms.create && (<button
@@ -1763,6 +1777,16 @@ export default function AccountingJournalPage() {
           </div>
         )}
       </ModalDialog>
+      <BulkUploadDialog
+        open={bulkOpen}
+        onClose={() => setBulkOpen(false)}
+        onImported={() => { void useAccountingStore.getState().syncDatabase(); }}
+        noun="journal vouchers"
+        templateUrl="/api/accounts/journal/import"
+        maxRows={2000}
+        matchHint="Office must match an office in your access; Account Code is the GL code; debits must equal credits within each Ref. Rows with the same Ref are saved as one voucher."
+        upload={(file) => uploadAccountImport("/api/accounts/journal/import", file)}
+      />
     </div>
   );
 }

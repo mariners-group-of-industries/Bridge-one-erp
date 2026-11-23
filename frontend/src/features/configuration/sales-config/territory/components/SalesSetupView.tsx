@@ -207,10 +207,10 @@ export function SalesSetupView({ initialTab }: { initialTab?: string }) {
               ? territoryApi.templateUrl(businessUnitId)
               : territoryApi.excelUrl(businessUnitId, "customers")
           }
-          maxRows={5000}
+          maxRows={10000}
           matchHint={
             tab === "territory"
-              ? "One row per path: a code and name column for each layer. Existing codes are renamed, new codes are created."
+              ? "Either the template (a code and name column per layer: existing codes are renamed, new codes are created), or one name column per layer in layer order, where a blank cell repeats the row above and new entries get a code automatically."
               : "Columns Customer Code and Territory Code: each customer is moved into that territory."
           }
           upload={async (file) => {

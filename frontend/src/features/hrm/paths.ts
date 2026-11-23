@@ -17,6 +17,8 @@ export const hrmPaths = {
 
   // Payroll Administration
   payroll: `${ROOT}/payroll`,
+  payrollGenerate: `${ROOT}/payroll/generate`,
+  payrollBatch: (id: string) => `${ROOT}/payroll/${id}`,
   payrollProcess: `${ROOT}/payroll/process`,
   payslips: `${ROOT}/payroll/payslips`,
   salaryStructures: `${ROOT}/payroll/structures`,
@@ -42,4 +44,5 @@ export const hrmPaths = {
 
 export const hrmPatterns = {
   employeeProfile: `${ROOT}/employees/[id]`,
+  payrollBatch: `${ROOT}/payroll/[id]`,
 } as const;

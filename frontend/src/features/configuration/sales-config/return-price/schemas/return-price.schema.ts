@@ -7,7 +7,7 @@ import { ITEM_TYPES } from "@/features/configuration/entity-master-data/item/sch
 export { ITEM_TYPES };
 
 const optionalId = z
-  .union([z.uuid("Select a valid option."), z.literal("")])
+  .union([z.guid("Select a valid option."), z.literal("")])
   .optional()
   .default("");
 const rate = (label: string) =>
@@ -49,7 +49,7 @@ export type ReturnPriceFilter = {
 };
 
 export const returnPriceRowSchema = z.object({
-  itemId: z.uuid("Select an item."),
+  itemId: z.guid("Select an item."),
   effectiveFrom: z.iso.date("Effective From: enter a valid date."),
   damageRate: rate("Damage Return Rate"),
   expireRate: rate("Expire Rate"),
@@ -59,7 +59,7 @@ export const returnPriceRowSchema = z.object({
 
 export const saveReturnPricesSchema = z
   .object({
-    businessUnitId: z.uuid("Select a business unit."),
+    businessUnitId: z.guid("Select a business unit."),
     rows: z.array(returnPriceRowSchema).min(1, "Change at least one row before saving.").max(1000, "Save at most 1000 rows at a time."),
   })
   .refine((data) => new Set(data.rows.map((r) => r.itemId)).size === data.rows.length, { message: "Each item can appear only once.", path: ["rows"] });

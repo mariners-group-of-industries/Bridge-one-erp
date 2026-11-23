@@ -3,7 +3,7 @@ name: CI
 on:
   pull_request:
   push:
-    branches: [main, development]
+    branches: [main]  # pushes to development are checked by deploy.yml
 
 concurrency:
   group: ci-${{ github.ref }}

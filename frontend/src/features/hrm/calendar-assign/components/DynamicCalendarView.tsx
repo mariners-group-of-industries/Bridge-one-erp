@@ -12,17 +12,17 @@ import { BulkAssignToolbar } from "./BulkAssignToolbar";
 import { DynamicCalendarGrid } from "./DynamicCalendarGrid";
 import { CalendarInfoModal } from "./CalendarInfoModal";
 import { useToast } from "@/components/ui/toast";
-import {
-  CALENDAR_DEFINITIONS,
-} from "../constants";
+import { apiRequest, errorMessage } from "@/lib/api/client";
+import { useSession } from "@/lib/auth/session";
+import { hrmPaths } from "../../paths";
+import { useCalendars } from "../use-calendars";
 import type {
+  CalendarDefinition,
   FilterState,
   EmployeeRosterItem,
   RosterGridData,
 } from "../types";
 import type { CalendarAssignMeta } from "../services/calendar-assign.service";
-
-const STORAGE_KEY = "bridgeone_dynamic_calendar_assignments_v1";
 
 interface DynamicCalendarViewProps {
   initialEmployees: EmployeeRosterItem[];
@@ -34,6 +34,9 @@ export function DynamicCalendarView({
   initialOptions,
 }: DynamicCalendarViewProps) {
   const toast = useToast();
+  // Viewing is the page permission; saving assignments is Create (the server checks the same).
+  const canAssign = useSession().can(hrmPaths.calendarAssign, "create");
+  const { calendars, forOffice } = useCalendars();
 
   // Real Employees & Options loaded from database
   const [employees, setEmployees] = useState<EmployeeRosterItem[]>(initialEmployees);
@@ -47,23 +50,29 @@ export function DynamicCalendarView({
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [hasFiltered, setHasFiltered] = useState(initialEmployees.length > 0);
 
-  // Filters State (default dates match user screenshot: 01/10/2026 to 31/10/2026)
-  const [filter, setFilter] = useState<FilterState>({
-    office: "",
-    department: "",
-    departmentSection: "",
-    designation: "",
-    employeeId: "",
-    fromDate: "2026-10-01",
-    toDate: "2026-10-31",
-    isAssignAll: false,
+  // Filters State (the current month by default)
+  const [filter, setFilter] = useState<FilterState>(() => {
+    const now = new Date();
+    const pad = (n: number) => String(n).padStart(2, "0");
+    const last = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+    return {
+      office: "",
+      department: "",
+      departmentSection: "",
+      designation: "",
+      employeeId: "",
+      fromDate: `${now.getFullYear()}-${pad(now.getMonth() + 1)}-01`,
+      toDate: `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(last)}`,
+      isAssignAll: false,
+    };
   });
 
   // Modal State
   const [calendarInfoOpen, setCalendarInfoOpen] = useState(false);
 
   // Selected Shift in Bulk Toolbar
-  const [selectedShiftForBulk, setSelectedShiftForBulk] = useState<string>("G");
+  // The id of the calendar chosen in Quick Assign.
+  const [selectedShiftForBulk, setSelectedShiftForBulk] = useState<string>("");
 
   // Selected row IDs in matrix grid
   const [selectedEmployeeIds, setSelectedEmployeeIds] = useState<Set<string>>(new Set());
@@ -72,11 +81,10 @@ export function DynamicCalendarView({
   const [isSaving, setIsSaving] = useState(false);
   const [unsavedChanges, setUnsavedChanges] = useState(0);
 
-  // Helper to generate default shift based on office
+  // Default shift of an office: the first of its own Calendar Setup calendars (earliest start), else an every-office one.
   const getDefaultShiftForOffice = (officeName: string): string => {
-    if (officeName.includes("Factory")) return "g"; // General-g for factory
-    if (officeName.toLowerCase().includes("marinozz")) return "R-G"; // Restaurant-G
-    return "G"; // Dhaka Head Office General-G
+    const usable = forOffice(officeName).filter((c) => c.shortCode !== "OFF" && c.shortCode !== "HOL");
+    return (usable.find((c) => c.office === officeName) ?? usable[0])?.shortCode ?? "";
   };
 
   // Generate Date Range info
@@ -132,20 +140,8 @@ export function DynamicCalendarView({
     });
   }, [employees, filter]);
 
-  // Grid Data State
-  const [gridData, setGridData] = useState<RosterGridData>(() => {
-    if (typeof window !== "undefined") {
-      try {
-        const saved = localStorage.getItem(STORAGE_KEY);
-        if (saved) {
-          return JSON.parse(saved);
-        }
-      } catch (e) {
-        console.error("Failed to read from localStorage", e);
-      }
-    }
-    return {};
-  });
+  // Grid Data State: the days saved in the database for the loaded employees and range.
+  const [gridData, setGridData] = useState<RosterGridData>({});
 
   // Handle Fetch / Filter on View button click from DB
   const handleView = async () => {
@@ -158,6 +154,8 @@ export function DynamicCalendarView({
       if (filter.departmentSection) searchParams.set("departmentSection", filter.departmentSection);
       if (filter.designation) searchParams.set("designation", filter.designation);
       if (filter.employeeId) searchParams.set("employeeId", filter.employeeId);
+      searchParams.set("fromDate", filter.fromDate);
+      searchParams.set("toDate", filter.toDate);
       searchParams.set("page", "1");
       searchParams.set("limit", "40");
 
@@ -165,6 +163,8 @@ export function DynamicCalendarView({
       const data = await res.json();
       if (data.success && Array.isArray(data.employees)) {
         setEmployees(data.employees);
+        setGridData(data.assignments ?? {});
+        setUnsavedChanges(0);
         setHasMore(Boolean(data.pagination?.hasMore));
         setTotalCount(data.pagination?.total || data.employees.length);
         setHasFiltered(true);
@@ -201,12 +201,16 @@ export function DynamicCalendarView({
       if (filter.departmentSection) searchParams.set("departmentSection", filter.departmentSection);
       if (filter.designation) searchParams.set("designation", filter.designation);
       if (filter.employeeId) searchParams.set("employeeId", filter.employeeId);
+      searchParams.set("fromDate", filter.fromDate);
+      searchParams.set("toDate", filter.toDate);
       searchParams.set("page", String(nextPage));
       searchParams.set("limit", "40");
 
       const res = await fetch(`/api/hrm/calendar-assign?${searchParams.toString()}`);
       const data = await res.json();
       if (data.success && Array.isArray(data.employees)) {
+        // Saved days of the newly loaded employees; rows already on screen keep their edits.
+        setGridData((prev) => ({ ...(data.assignments ?? {}), ...prev }));
         setEmployees((prev) => {
           const existingIds = new Set(prev.map((e) => e.id));
           const newOnes = data.employees.filter((e: any) => !existingIds.has(e.id));
@@ -236,18 +240,24 @@ export function DynamicCalendarView({
     setUnsavedChanges((c) => c + 1);
   };
 
+  const officeNamesInView = useMemo(() => [...new Set(filteredEmployees.map((e) => e.officeName))], [filteredEmployees]);
+
   // Bulk Apply Shift to real employees
   const handleBulkApply = (
-    shiftCode: string,
+    calendar: CalendarDefinition,
     mode: "all" | "working_days" | "selected_only",
   ) => {
-    const targetEmployees =
+    const shiftCode = calendar.shortCode;
+    const inView =
       filter.isAssignAll || selectedEmployeeIds.size === 0
         ? filteredEmployees
         : filteredEmployees.filter((e) => selectedEmployeeIds.has(e.id));
+    // An office's own calendar goes to that office's employees only; every-office ones (and OFF/HOL) go to everyone.
+    const targetEmployees = calendar.office === "All" ? inView : inView.filter((e) => e.officeName === calendar.office);
+    const skipped = inView.length - targetEmployees.length;
 
     if (targetEmployees.length === 0) {
-      toast.error("No employees to assign.");
+      toast.error(inView.length ? `None of these employees belong to ${calendar.office}.` : "No employees to assign.");
       return;
     }
 
@@ -267,7 +277,8 @@ export function DynamicCalendarView({
 
     setUnsavedChanges((c) => c + 1);
     toast.success(
-      `Assigned shift [${shiftCode}] to ${targetEmployees.length} employees successfully.`,
+      `Assigned ${calendar.calendarName} [${shiftCode}] to ${targetEmployees.length} employees successfully.` +
+        (skipped ? ` ${skipped} employee(s) outside ${calendar.office} were skipped.` : ""),
     );
   };
 
@@ -336,7 +347,8 @@ export function DynamicCalendarView({
         const defaultShift = getDefaultShiftForOffice(emp.officeName);
         next[emp.id] = {};
         dates.forEach((d) => {
-          next[emp.id][d.dateStr] = d.isWeekend ? "OFF" : defaultShift;
+          if (d.isWeekend) next[emp.id][d.dateStr] = "OFF";
+          else if (defaultShift) next[emp.id][d.dateStr] = defaultShift;
         });
       });
       return next;
@@ -370,31 +382,26 @@ export function DynamicCalendarView({
     });
   };
 
-  // Save changes
+  // Save: every shown employee and day is saved exactly as on screen (an empty cell clears the day).
   const handleSave = async () => {
+    if (!dates.length) {
+      toast.error("Choose a valid date range.");
+      return;
+    }
     setIsSaving(true);
     try {
-      if (typeof window !== "undefined") {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(gridData));
+      const assignments: RosterGridData = {};
+      for (const emp of filteredEmployees) {
+        assignments[emp.id] = Object.fromEntries(dates.map((d) => [d.dateStr, gridData[emp.id]?.[d.dateStr] ?? ""]));
       }
-
-      await fetch("/api/hrm/calendar-assign", {
+      const result = await apiRequest<{ saved: number; cleared: number }>("/api/hrm/calendar-assign", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          assignments: gridData,
-          employeeCount: filteredEmployees.length,
-          savedAt: new Date().toISOString(),
-        }),
+        body: JSON.stringify({ fromDate: filter.fromDate, toDate: filter.toDate, assignments }),
       });
-
       setUnsavedChanges(0);
-      toast.success(
-        `Dynamic calendar assigned and saved successfully for ${filteredEmployees.length} employees!`,
-      );
+      toast.success(`Saved ${result.saved} calendar day(s) for ${filteredEmployees.length} employee(s).`);
     } catch (e) {
-      toast.error("Failed to save calendar assignments.");
-      console.error(e);
+      toast.error(errorMessage(e));
     } finally {
       setIsSaving(false);
     }
@@ -436,6 +443,8 @@ export function DynamicCalendarView({
                 ● {unsavedChanges} pending changes
               </span>
             )}
+            {!canAssign && <span className="text-[11px] font-medium text-ink-muted">View only: you have no permission to assign calendars.</span>}
+            {canAssign && (
             <button
               type="button"
               onClick={handleSave}
@@ -451,6 +460,7 @@ export function DynamicCalendarView({
                 "Save"
               )}
             </button>
+            )}
           </div>
         </div>
       </div>
@@ -527,9 +537,9 @@ export function DynamicCalendarView({
                 Official Shift Calendars
               </div>
               <div className="flex flex-wrap justify-center gap-1.5">
-                {CALENDAR_DEFINITIONS.map((c) => (
+                {calendars.map((c) => (
                   <span
-                    key={c.shortCode}
+                    key={c.id}
                     className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded border text-[11px] font-medium ${c.badgeBg} ${c.badgeText} ${c.badgeBorder}`}
                   >
                     <strong className="font-bold">{c.shortCode}</strong>
@@ -575,6 +585,7 @@ export function DynamicCalendarView({
         /* Filtered Calendar Matrix with Scroll Pagination */
         <>
           {/* Bulk Assignment & Quick Tools Bar */}
+          {canAssign && (
           <BulkAssignToolbar
             selectedShift={selectedShiftForBulk}
             onSelectShift={setSelectedShiftForBulk}
@@ -584,10 +595,13 @@ export function DynamicCalendarView({
             selectedCount={selectedEmployeeIds.size}
             totalFilteredCount={filteredEmployees.length}
             isAssignAll={filter.isAssignAll}
+            officeNames={officeNamesInView}
           />
+          )}
 
           {/* Dynamic Calendar Matrix Grid */}
           <DynamicCalendarGrid
+            readOnly={!canAssign}
             employees={filteredEmployees}
             dates={dates}
             gridData={gridData}

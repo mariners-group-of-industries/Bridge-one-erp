@@ -7,13 +7,15 @@ import {
   ChevronRight,
 } from "lucide-react";
 import type { AttendanceRecord } from "../types";
+import { isoToDmy } from "@/components/ui/date-input";
 
 interface AttendanceTableProps {
   records: AttendanceRecord[];
   selectedIds: Set<string>;
   onToggleSelectAll: () => void;
   onToggleSelectRow: (id: string) => void;
-  onEdit: (record: AttendanceRecord) => void;
+  /** Absent without permission to adjust attendance (HRM › Attendance › Create): no edit button. */
+  onEdit?: (record: AttendanceRecord) => void;
   onView: (record: AttendanceRecord) => void;
   onOpenCalendarInfo?: (calendarName: string) => void;
   pageSize: number;
@@ -220,14 +222,17 @@ export function AttendanceTable({
                     {/* Action */}
                     <td className="px-2.5 py-2 text-center border-r border-grid-line">
                       <div className="flex items-center justify-center gap-1.5">
-                        <button
-                          type="button"
-                          onClick={() => onEdit(r)}
-                          className="rounded p-1 text-primary hover:bg-accent-soft transition-colors"
-                          title="Edit / Manual Attendance Adjustment"
-                        >
-                          <Pencil className="size-3.5" />
-                        </button>
+                        {onEdit && (
+                          <button
+                            type="button"
+                            onClick={() => onEdit(r)}
+                            className="inline-flex min-h-6 min-w-6 items-center justify-center rounded p-1 text-primary hover:bg-accent-soft transition-colors focus-visible:ring-2 focus-visible:ring-blue-500/20"
+                            title="Edit / Manual Attendance Adjustment"
+                            aria-label={`Adjust attendance of ${r.employeeName} on ${r.date}`}
+                          >
+                            <Pencil className="size-3.5" />
+                          </button>
+                        )}
                         <button
                           type="button"
                           onClick={() => onView(r)}
@@ -266,7 +271,7 @@ export function AttendanceTable({
 
                     {/* Date */}
                     <td className="px-3 py-2 font-mono text-[11px] text-ink border-r border-grid-line">
-                      {r.date}
+                      {isoToDmy(r.date)}
                     </td>
 
                     {/* Day */}

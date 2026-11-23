@@ -14,7 +14,7 @@ export const slugFromTab = (tab: PriceTab) => PRICE_TABS.find((t) => t.id === ta
 
 export { ITEM_TYPES };
 
-const optionalId = z.union([z.uuid("Select a valid option."), z.literal("")]).optional().default("");
+const optionalId = z.union([z.guid("Select a valid option."), z.literal("")]).optional().default("");
 const optionalDate = z.union([z.iso.date("Enter a valid date."), z.literal("")]).optional().default("");
 const price = (label: string) =>
   z.string().trim().refine((v) => /^\d{1,12}(\.\d{1,2})?$/.test(v), { message: `${label}: enter a price (up to 2 decimals).` });
@@ -36,16 +36,16 @@ const itemFilter = {
 // ─── Customer price ───────────────────────────────────────────────────────────
 
 export const customerPriceLineSchema = z.object({
-  itemId: z.uuid("Select an item."),
+  itemId: z.guid("Select an item."),
   dpPrice: price("DP price"),
   tpPrice: price("TP price"),
 });
 
 export const customerPriceSchema = z
   .object({
-    businessUnitId: z.uuid("Select a business unit."),
+    businessUnitId: z.guid("Select a business unit."),
     priceListId: optionalId,
-    customerId: z.uuid("Select a customer."),
+    customerId: z.guid("Select a customer."),
     ...itemFilter,
     lines: z.array(customerPriceLineSchema).min(1, "Add at least one item.").max(5000),
   })
@@ -61,7 +61,7 @@ export type CustomerPriceData = z.output<typeof customerPriceSchema>;
 
 export const groupPriceLineSchema = z
   .object({
-    itemId: z.uuid("Select an item."),
+    itemId: z.guid("Select an item."),
     fromDate: optionalDate,
     toDate: optionalDate,
     fromQty: optionalQty("From qty"),
@@ -75,10 +75,10 @@ export const groupPriceLineSchema = z
   });
 
 export const groupPriceSchema = z.object({
-  businessUnitId: z.uuid("Select a business unit."),
+  businessUnitId: z.guid("Select a business unit."),
   priceListId: optionalId,
-  officeId: z.uuid("Select an office."),
-  customerGroupId: z.uuid("Select a customer group."),
+  officeId: z.guid("Select an office."),
+  customerGroupId: z.guid("Select a customer group."),
   createDate: z.iso.date("Create date is required."),
   circularNo: z.string().trim().max(100).optional().default(""),
   remarks: z.string().trim().max(500).optional().default(""),

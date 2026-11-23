@@ -9,12 +9,14 @@ import { resolveBreadcrumbs } from "@/lib/navigation/registry";
 import { Notice } from "@/features/configuration/entity-master-data/employee/components/kit";
 import { hrmPaths } from "../../../paths";
 import { leaveMovementApi } from "../services/leave-movement.api";
+import { AttendanceTab } from "./AttendanceTab";
 import { LeaveTab } from "./LeaveTab";
 import { MovementTab } from "./MovementTab";
 
 const TABS = [
   { id: "leave", label: "Leave" },
   { id: "movement", label: "Movement" },
+  { id: "attendance", label: "Attendance" },
 ] as const;
 type TabId = (typeof TABS)[number]["id"];
 
@@ -26,7 +28,7 @@ export function LeaveMovementView() {
     <PageContainer full>
       <PageHead
         title="Leave & Movement"
-        subtitle={options.data?.canManage ? "HR view: apply for any employee, and approve or reject applications." : "Apply for leave or movement and follow the approval."}
+        subtitle={options.data?.canManage ? "HR view: apply for any employee, and approve or reject applications." : "Apply for leave or movement, ask for an attendance change, and follow the approval."}
         breadcrumbs={resolveBreadcrumbs(hrmPaths.leaveMovement).slice(1)}
       />
       {options.error ? (
@@ -40,7 +42,7 @@ export function LeaveMovementView() {
           )}
           <section className="rounded border border-line bg-surface shadow-xs">
             <Tabs tabs={TABS} value={tab} onChange={setTab} label="Leave and movement">
-              {tab === "leave" ? <LeaveTab options={options.data} /> : <MovementTab options={options.data} />}
+              {tab === "leave" ? <LeaveTab options={options.data} /> : tab === "movement" ? <MovementTab options={options.data} /> : <AttendanceTab options={options.data} />}
             </Tabs>
           </section>
         </div>

@@ -37,49 +37,51 @@ export function InventoryPageTemplate({
   return (
     <div className="min-h-screen bg-canvas dark:bg-slate-950 p-4 sm:p-6 space-y-5 text-ink dark:text-slate-100">
       {/* Header */}
-      <div className="flex flex-wrap items-center justify-between gap-4 border-b border-line/80 dark:border-slate-800 pb-4">
-        <div className="space-y-1">
-          <div className="flex items-center gap-2">
-            <Link
-              href="/inventory"
-              className="text-xs text-ink-faint hover:text-ink dark:hover:text-slate-200 flex items-center gap-1"
-            >
-              <ArrowLeft className="size-3.5" />
-              <span>Back to Dashboard</span>
-            </Link>
-            <span className="text-slate-300">/</span>
-            <span className="text-xs font-semibold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/60 px-2 py-0.5 rounded border border-blue-200 dark:border-blue-800">
-              {badge}
-            </span>
+      <div data-sticky-head className="sticky top-14 z-20 -mx-4 -mt-4 px-4 pt-4 pb-3 sm:-mx-6 sm:-mt-6 sm:px-6 sm:pt-6 bg-canvas dark:bg-slate-950">
+        <div className="flex flex-wrap items-center justify-between gap-4 border-b border-line/80 dark:border-slate-800 pb-4">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <Link
+                href="/inventory"
+                className="text-xs text-ink-faint hover:text-ink dark:hover:text-slate-200 flex items-center gap-1"
+              >
+                <ArrowLeft className="size-3.5" />
+                <span>Back to Dashboard</span>
+              </Link>
+              <span className="text-slate-300">/</span>
+              <span className="text-xs font-semibold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/60 px-2 py-0.5 rounded border border-blue-200 dark:border-blue-800">
+                {badge}
+              </span>
+            </div>
+            <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-ink dark:text-slate-100">
+              {title}
+            </h1>
+            <p className="text-xs text-ink-faint dark:text-slate-400">{description}</p>
           </div>
-          <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-ink dark:text-slate-100">
-            {title}
-          </h1>
-          <p className="text-xs text-ink-faint dark:text-slate-400">{description}</p>
-        </div>
 
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            className="h-8 px-3 rounded border border-line dark:border-slate-700 bg-surface dark:bg-slate-900 text-xs font-medium text-ink-muted dark:text-slate-300 hover:bg-canvas flex items-center gap-1.5 shadow-2xs"
-          >
-            <Download className="size-3.5 text-ink-faint" />
-            <span>Export</span>
-          </button>
-          <button
-            type="button"
-            className="h-8 px-3 rounded border border-line dark:border-slate-700 bg-surface dark:bg-slate-900 text-xs font-medium text-ink-muted dark:text-slate-300 hover:bg-canvas flex items-center gap-1.5 shadow-2xs"
-          >
-            <Printer className="size-3.5 text-ink-faint" />
-            <span>Print</span>
-          </button>
-          <button
-            type="button"
-            className="h-8 px-3.5 rounded bg-[#1877f2] hover:bg-[#166fe5] text-white text-xs font-semibold flex items-center gap-1.5 shadow-2xs transition-colors"
-          >
-            <Plus className="size-3.5" />
-            <span>{primaryActionLabel}</span>
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              className="h-8 px-3 rounded border border-line dark:border-slate-700 bg-surface dark:bg-slate-900 text-xs font-medium text-ink-muted dark:text-slate-300 hover:bg-canvas flex items-center gap-1.5 shadow-2xs"
+            >
+              <Download className="size-3.5 text-ink-faint" />
+              <span>Export</span>
+            </button>
+            <button
+              type="button"
+              className="h-8 px-3 rounded border border-line dark:border-slate-700 bg-surface dark:bg-slate-900 text-xs font-medium text-ink-muted dark:text-slate-300 hover:bg-canvas flex items-center gap-1.5 shadow-2xs"
+            >
+              <Printer className="size-3.5 text-ink-faint" />
+              <span>Print</span>
+            </button>
+            <button
+              type="button"
+              className="h-8 px-3.5 rounded bg-[#1877f2] hover:bg-[#166fe5] text-white text-xs font-semibold flex items-center gap-1.5 shadow-2xs transition-colors"
+            >
+              <Plus className="size-3.5" />
+              <span>{primaryActionLabel}</span>
+            </button>
+          </div>
         </div>
       </div>
 

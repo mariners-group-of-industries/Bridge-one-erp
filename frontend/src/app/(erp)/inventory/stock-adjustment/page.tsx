@@ -16,8 +16,10 @@ import {
   ChevronRight,
   X,
   FileSpreadsheet,
+  Upload,
 } from "lucide-react";
 import { useFeaturePermissions, needsPermission } from "@/lib/permissions/useFeaturePermissions";
+import { BulkUploadDialog } from "@/features/configuration/entity-master-data/components/BulkUploadDialog";
 
 // ============================================================================
 // TYPES
@@ -121,6 +123,7 @@ export default function StockUpdatePage() {
 
   // + Create Modal State
   const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [bulkOpen, setBulkOpen] = useState(false);
 
   // Filtered rows
   const filteredRows = useMemo(() => {
@@ -198,9 +201,14 @@ export default function StockUpdatePage() {
         search={searchTerm}
         onSearch={setSearchTerm}
         actions={
-          (perms.create ? (<button type="button" onClick={() => setIsCreateOpen(true)} className={tabBarButton}>
+          <>
+            {perms.import && (<button type="button" onClick={() => setBulkOpen(true)} className={tabBarButton} title="Bulk upload from Excel">
+              <Upload /> Bulk Upload
+            </button>)}
+            {perms.create ? (<button type="button" onClick={() => setIsCreateOpen(true)} className={tabBarButton}>
             <Plus /> Create
-          </button>) : null)
+          </button>) : null}
+          </>
         }
       />
       {/* 2. FILTER BAR                                       */}
@@ -511,6 +519,16 @@ export default function StockUpdatePage() {
       {/* ─────────────────────────────────────────────────── */}
       {/* 6. + CREATE MODAL                                   */}
       {/* ─────────────────────────────────────────────────── */}
+      <BulkUploadDialog
+        open={bulkOpen}
+        onClose={() => setBulkOpen(false)}
+        onImported={() => docs.reload()}
+        noun="stock updates"
+        templateUrl={inventoryApi.importTemplateUrl("stock-adjustment")}
+        maxRows={2000}
+        matchHint="Warehouse names must match existing warehouses exactly; Item Code must match an active item. Rows with the same Ref are saved as one document."
+        upload={(file) => inventoryApi.importFile("stock-adjustment", file)}
+      />
       <InventoryDocumentDialog
         open={isCreateOpen}
         onClose={() => setIsCreateOpen(false)}

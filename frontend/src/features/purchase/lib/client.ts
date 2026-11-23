@@ -1,4 +1,5 @@
 /** Browser-side helpers shared by the purchase pages. */
+import { apiRequest } from "@/lib/api/client";
 
 /** Today as yyyy-mm-dd in the user's own time zone (toISOString would give the UTC date). */
 export function localToday(): string {
@@ -54,3 +55,16 @@ export const PURCHASE_QUERY_KEYS = [
   "purchaseAnalytics",
   "report",
 ] as const;
+
+/** Result of a purchase bulk import (shared with the Excel templates). */
+export interface BulkImportResult {
+  created: number;
+  errors: { row: number; message: string }[];
+}
+
+/** Uploads a filled template to `/api/v1/purchase/<doc>/import`. */
+export async function uploadPurchaseBulk(path: string, file: File): Promise<BulkImportResult> {
+  const form = new FormData();
+  form.set("file", file);
+  return apiRequest<BulkImportResult>(path, { method: "POST", body: form });
+}

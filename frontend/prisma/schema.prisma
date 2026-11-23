@@ -77,6 +77,7 @@ model User {
 
   employee            Employee?  @relation("EmployeeUser")
   employeeLastActions Employee[] @relation("EmployeeLastActionBy")
+  notifications       UserNotification[]
 
   businessUnitAccess UserBusinessUnitAccess[]
   officeAccess       UserOfficeAccess[]
@@ -466,6 +467,54 @@ model AttendancePunch {
   @@map("attendance_punches")
 }
 
+/// Admin configuration for automatic WhatsApp Group attendance notifications.
+model AttendanceNotificationSetting {
+  id                String   @id @default(uuid()) @db.Uuid
+  enabled           Boolean  @default(false)
+  notifyCheckIn     Boolean  @default(true)
+  notifyLate        Boolean  @default(true)
+  notifyCheckOut    Boolean  @default(false)
+  whatsappGroupId   String?  @db.VarChar(120)
+  whatsappGroupName String?  @db.VarChar(200)
+  departmentFilter  String?  @db.VarChar(500)
+  messageTemplate   String   @db.Text
+  updatedBy         String?  @db.VarChar(150)
+  createdAt         DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime @updatedAt @db.Timestamptz(3)
+
+  @@map("attendance_notification_settings")
+}
+
+/// Persistent idempotent outbox for attendance notifications sent to WhatsApp.
+/// Unique per (employeeId, attendanceDate, eventType) so re-synced punches never duplicate.
+model AttendanceNotificationOutbox {
+  id               String    @id @default(uuid()) @db.Uuid
+  employeeId       String?   @db.Uuid
+  employeeCode     String    @db.VarChar(30)
+  employeeName     String    @db.VarChar(150)
+  designation      String?   @db.VarChar(120)
+  department       String?   @db.VarChar(100)
+  attendanceDate   String    @db.VarChar(10)
+  eventType        String    @db.VarChar(20)
+  attendanceStatus String    @db.VarChar(30)
+  punchTime        DateTime  @db.Timestamptz(3)
+  groupId          String    @db.VarChar(120)
+  messageText      String    @db.Text
+  status           String    @default("PENDING") @db.VarChar(20)
+  attempts         Int       @default(0)
+  gatewayMessageId String?   @db.VarChar(150)
+  lastError        String?   @db.VarChar(500)
+  nextRetryAt      DateTime? @db.Timestamptz(3)
+  sentAt           DateTime? @db.Timestamptz(3)
+  createdAt        DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt        DateTime  @updatedAt @db.Timestamptz(3)
+
+  @@unique([employeeId, attendanceDate, eventType])
+  @@index([status, nextRetryAt])
+  @@index([createdAt])
+  @@map("attendance_notification_outbox")
+}
+
 // ─── Configuration › Business Configuration › Company Profile ───────────────
 
 enum DateFormat {
@@ -558,6 +607,7 @@ model BusinessUnit {
   inventoryDocuments   InventoryDocument[]
   posCounters          PosCounter[]
   posSales             PosSale[]
+  payrollBatches       PayrollBatch[]
   supplierGroups       SupplierGroup[]
   taxBrackets          TaxBracket[]
   itemDivisions        ItemDivision[]
@@ -638,6 +688,7 @@ model Office {
   salesWallets         SalesWallet[]
   attendanceDevices    AttendanceDevice[]
   payrollRuns          PayrollRun[]
+  payrollBatches       PayrollBatch[]
   bonusRuns            BonusRun[]
   hrPolicyRecords      HrPolicyRecord[]
   workCenters       ProductionWorkCenter[]
@@ -3651,8 +3702,11 @@ model Employee {
   attendancePunches    AttendancePunch[]
   leaveApplications    LeaveApplication[]
   movementApplications MovementApplication[]
+  attendanceAdjustments AttendanceAdjustment[]
+  calendarDays          EmployeeCalendarDay[]
   overtimeEntries      OvertimeEntry[]
   payrollRunLines      PayrollRunLine[]
+  payrollBatchLines    PayrollBatchLine[]
   bonusLines           BonusLine[]
   salaryIncrements     SalaryIncrement[]
   hrPolicyRecords      HrPolicyRecord[]
@@ -4372,6 +4426,59 @@ model MovementApplication {
   @@map("movement_applications")
 }
 
+/// HRM › Attendance: a manual change to one employee's attendance on one day.
+/// It stays Pending until HR approves it (Approval Setup feature "Employee
+/// Attendance"); only an approved adjustment changes the day's status.
+model AttendanceAdjustment {
+  id              String    @id @default(uuid()) @db.Uuid
+  employeeId      String    @db.Uuid
+  date            DateTime  @db.Date
+  /// Status before the change (from device punches), for the approver.
+  originalStatus  String?   @db.VarChar(20)
+  requestedStatus String    @db.VarChar(20)
+  /// As typed, e.g. "09:00 AM".
+  inTime          String?   @db.VarChar(20)
+  outTime         String?   @db.VarChar(20)
+  remarks         String?   @db.VarChar(500)
+  status          String    @default("Pending") @db.VarChar(20)
+  createdById     String?   @db.Uuid
+  createdByName   String?   @db.VarChar(150)
+  decidedByName   String?   @db.VarChar(150)
+  decidedAt       DateTime? @db.Timestamptz(3)
+  createdAt       DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime  @updatedAt @db.Timestamptz(3)
+
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([employeeId, date])
+  @@index([date])
+  @@index([status])
+  @@map("attendance_adjustments")
+}
+
+/// HRM › Calendar Assign: the calendar (shift) an employee works on one day,
+/// or OFF (weekly off) / HOL (holiday). Overrides Roster, Holidays and Off Day.
+model EmployeeCalendarDay {
+  id            String   @id @default(uuid()) @db.Uuid
+  employeeId    String   @db.Uuid
+  date          DateTime @db.Date
+  /// The calendar's short code as assigned ("G", "A" …), or OFF / HOL.
+  code          String   @db.VarChar(20)
+  /// The Calendar Setup record (HR Governance); null for OFF / HOL.
+  calendarId    String?  @db.Uuid
+  updatedByName String?  @db.VarChar(150)
+  createdAt     DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime @updatedAt @db.Timestamptz(3)
+
+  employee Employee        @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  calendar HrPolicyRecord? @relation(fields: [calendarId], references: [id], onDelete: SetNull)
+
+  @@unique([employeeId, date])
+  @@index([date])
+  @@index([calendarId])
+  @@map("employee_calendar_days")
+}
+
 /// HRM › Overtime: one employee's overtime on one day, from attendance punches or entered by hand.
 /// It is paid (Monthly OT Summary) once approved.
 model OvertimeEntry {
@@ -4454,6 +4561,138 @@ model PayrollRunLine {
   @@map("payroll_run_lines")
 }
 
+/// HRM › Payroll › Salary Generate: one office's salary batch for a month and
+/// salary type. Draft → Under Processing (submitted; figures frozen) → Approved
+/// (last approval stage of the "Salary Sheet" pipeline), or Rejected / Cancelled.
+/// `periodKey` ("YYYY-MM|Monthly") is set while the batch is live and cleared when
+/// it is cancelled, so the unique keys allow one live batch per office and period.
+model PayrollBatch {
+  id                       String    @id @default(uuid()) @db.Uuid
+  reference                String    @unique @db.VarChar(30)
+  businessUnitId           String    @db.Uuid
+  officeId                 String    @db.Uuid
+  salaryType               String    @db.VarChar(30)
+  /// YYYY-MM
+  month                    String    @db.VarChar(7)
+  fromDate                 DateTime  @db.Date
+  toDate                   DateTime  @db.Date
+  payrollDate              DateTime  @db.Date
+  description              String?   @db.VarChar(500)
+  status                   String    @default("Draft") @db.VarChar(20)
+  periodKey                String?   @db.VarChar(40)
+  eligibleCount            Int       @default(0)
+  employeeCount            Int       @default(0)
+  totalGross               Decimal   @default(0) @db.Decimal(14, 2)
+  totalBasic               Decimal   @default(0) @db.Decimal(14, 2)
+  totalAllowances          Decimal   @default(0) @db.Decimal(14, 2)
+  totalEarned              Decimal   @default(0) @db.Decimal(14, 2)
+  totalAdditions           Decimal   @default(0) @db.Decimal(14, 2)
+  totalAttendanceDeduction Decimal   @default(0) @db.Decimal(14, 2)
+  totalOtherDeduction      Decimal   @default(0) @db.Decimal(14, 2)
+  totalNet                 Decimal   @default(0) @db.Decimal(14, 2)
+  warningCount             Int       @default(0)
+  errorCount               Int       @default(0)
+  /// Employees left out (no salary set …) with the reason, for reconciliation.
+  excluded                 Json      @default("[]")
+  /// Policy records (id, tab, updatedAt) the calculation used.
+  policySnapshot           Json      @default("[]")
+  /// Hash of every input of the calculation; a different hash later means the sources changed.
+  sourceHash               String    @db.VarChar(64)
+  calculatedAt             DateTime  @db.Timestamptz(3)
+  submittedAt              DateTime? @db.Timestamptz(3)
+  submittedByName          String?   @db.VarChar(150)
+  decidedAt                DateTime? @db.Timestamptz(3)
+  decidedByName            String?   @db.VarChar(150)
+  rejectionReason          String?   @db.VarChar(500)
+  cancelReason             String?   @db.VarChar(500)
+  /// Payslips become visible to employees (Employee Self Service) only once an Approved batch is published.
+  payslipsPublishedAt      DateTime? @db.Timestamptz(3)
+  payslipsPublishedByName  String?   @db.VarChar(150)
+  createdById              String?   @db.VarChar(100)
+  createdByName            String?   @db.VarChar(150)
+  updatedByName            String?   @db.VarChar(150)
+  /// Bumped on every change; writes check it so concurrent edits do not overwrite each other.
+  version                  Int       @default(1)
+  createdAt                DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt                DateTime  @updatedAt @db.Timestamptz(3)
+
+  businessUnit BusinessUnit        @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  office       Office              @relation(fields: [officeId], references: [id], onDelete: Restrict)
+  lines        PayrollBatchLine[]
+  events       PayrollBatchEvent[]
+
+  @@unique([officeId, periodKey])
+  @@index([month, officeId])
+  @@index([status])
+  @@map("payroll_batches")
+}
+
+/// One employee's calculated salary in a batch: a snapshot, so later salary or
+/// attendance changes do not alter it until the batch is recalculated.
+model PayrollBatchLine {
+  id                  String   @id @default(uuid()) @db.Uuid
+  batchId             String   @db.Uuid
+  employeeId          String   @db.Uuid
+  /// The batch's period key while the batch is live: one live salary per employee and period.
+  periodKey           String?  @db.VarChar(40)
+  sl                  Int
+  employeeCode        String   @db.VarChar(50)
+  employeeName        String   @db.VarChar(150)
+  joiningDate         DateTime @db.Date
+  designation         String?  @db.VarChar(150)
+  department          String?  @db.VarChar(150)
+  grossSalary         Decimal  @db.Decimal(14, 2)
+  basic               Decimal? @db.Decimal(14, 2)
+  houseRent           Decimal? @db.Decimal(14, 2)
+  medical             Decimal? @db.Decimal(14, 2)
+  transport           Decimal? @db.Decimal(14, 2)
+  /// Allowance and deduction columns by code (MA, FA, EA, PFD, TAA, TDA, NPA …).
+  components          Json     @default("{}")
+  earnedGross         Decimal  @db.Decimal(14, 2)
+  additions           Decimal  @db.Decimal(14, 2)
+  attendanceDeduction Decimal  @db.Decimal(14, 2)
+  otherDeduction      Decimal  @db.Decimal(14, 2)
+  totalDeduction      Decimal  @db.Decimal(14, 2)
+  netPayable          Decimal  @db.Decimal(14, 2)
+  payMethod           String   @db.VarChar(20)
+  bankOrProvider      String?  @db.VarChar(150)
+  accountNo           String?  @db.VarChar(50)
+  /// Day counts: working, present, absent, leave by type, weekly off, holidays, lates …
+  attendance          Json     @default("{}")
+  /// Read-only steps showing how the net payable was reached.
+  trace               Json     @default("[]")
+  warnings            Json     @default("[]")
+  errors              Json     @default("[]")
+  sourceHash          String   @db.VarChar(64)
+
+  batch    PayrollBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  employee Employee     @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+
+  @@unique([employeeId, periodKey])
+  @@index([batchId, sl])
+  @@map("payroll_batch_lines")
+}
+
+/// Audit trail of a payroll batch: generation, recalculation, submission, each approval stage, rejection, cancellation.
+model PayrollBatchEvent {
+  id         String   @id @default(uuid()) @db.Uuid
+  batchId    String   @db.Uuid
+  action     String   @db.VarChar(30)
+  fromStatus String?  @db.VarChar(20)
+  toStatus   String   @db.VarChar(20)
+  stageNo    Int?
+  stageName  String?  @db.VarChar(150)
+  actorId    String?  @db.VarChar(100)
+  actorName  String   @db.VarChar(150)
+  remarks    String?  @db.VarChar(500)
+  createdAt  DateTime @default(now()) @db.Timestamptz(3)
+
+  batch PayrollBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+
+  @@index([batchId, createdAt])
+  @@map("payroll_batch_events")
+}
+
 /// HRM › Compensation Adjustments › Bonus: a bonus for one office (or all), as a percentage of gross salary.
 model BonusRun {
   id               String    @id @default(uuid()) @db.Uuid
@@ -4523,6 +4762,27 @@ model SalaryIncrement {
   @@map("salary_increments")
 }
 
+/// A personal notification for one user (Employee Self Service › Notifications and
+/// the navbar bell): leave and attendance decisions, published payslips, calendar changes.
+model UserNotification {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @db.Uuid
+  /// leave, attendance, payslip, calendar …
+  kind      String    @db.VarChar(30)
+  title     String    @db.VarChar(200)
+  body      String?   @db.VarChar(500)
+  /// In-app path to open, e.g. /employee/leave.
+  link      String?   @db.VarChar(300)
+  readAt    DateTime? @db.Timestamptz(3)
+  createdAt DateTime  @default(now()) @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([userId, readAt])
+  @@map("user_notifications")
+}
+
 /// HRM › HR Governance › Settings / Policies: one setup record of a tab (holiday,
 /// calendar, PF rule, …). The tab's own fields are in `data`, validated by the
 /// field definitions in features/hrm/governance/policy-fields.ts.
@@ -4542,11 +4802,14 @@ model HrPolicyRecord {
 
   office   Office?   @relation(fields: [officeId], references: [id], onDelete: Restrict)
   employee Employee? @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  /// Calendar Setup records: the days employees are assigned to this calendar.
+  calendarDays EmployeeCalendarDay[]
 
   @@index([tab, effectiveFrom])
   @@index([employeeId])
   @@map("hr_policy_records")
 }
+
 
 
 // ─────────────────────────────────────────────────────────────────────────────

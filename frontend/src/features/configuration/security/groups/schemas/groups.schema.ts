@@ -7,7 +7,7 @@ const groupName = z.string().trim().min(1, "Enter the group name.").max(150, "At
 export const userGroupInputSchema = z.object({
   name: groupName,
   userIds: z
-    .array(z.uuid("Select a user in every row."))
+    .array(z.guid("Select a user in every row."))
     .min(1, "Add at least one user.")
     .max(500, "At most 500 users per group.")
     .refine((ids) => new Set(ids).size === ids.length, { message: "Each user can be added only once." }),

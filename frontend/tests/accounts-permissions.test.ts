@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Actor } from "@/lib/auth/actor";
 import { checkApiAccess } from "@/lib/permissions/api-rules";
-import { findFeature, grantsFromList } from "@/lib/permissions/registry";
+import { findFeature, grantsFromList, PERMISSION_ACTIONS } from "@/lib/permissions/registry";
 import { denyUnless } from "@/lib/permissions/require";
 import { bankingFeatureOf } from "@/features/accounts/paths";
 
@@ -48,7 +48,7 @@ describe("Accounts permissions", () => {
     expect(denyUnless({ ...editor, isMaster: true }, "/accounts/journal", "approve")).toBeNull();
   });
 
-  it("treats the Purchase dashboard as a read-only page", () => {
-    expect(findFeature("/purchase")?.actions).toEqual(["view", "export"]);
+  it("offers every action on every page, dashboards included", () => {
+    expect(findFeature("/purchase")?.actions).toEqual([...PERMISSION_ACTIONS]);
   });
 });
