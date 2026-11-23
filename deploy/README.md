@@ -16,7 +16,7 @@ push / merge to development
   current → releases/<commit>   switched atomically
   shared/.env          runtime secrets (only on the server)
   shared/storage/      uploaded files (STORAGE_DRIVER=local)
-  PM2 "bridgeone" → node server.js on 127.0.0.1:3000 ← nginx (80/443) ← users
+  PM2 "bridgeone" → node server.js on 127.0.0.1:3100 ← nginx (80/443) ← users
 ```
 
 The VPS never runs `npm install` or `next build`; it only unpacks and restarts.
@@ -49,6 +49,13 @@ scp deploy/setup-vps.sh root@<VPS_IP>:/root/
 ssh root@<VPS_IP>
 bash /root/setup-vps.sh erp.example.com "$(cat bridgeone_deploy.pub)"   # paste the .pub content
 ```
+
+The app listens on **127.0.0.1:3100** (stored in `/var/www/bridgeone/shared/port`).
+If the server already runs other apps, check that the port is free
+(`ss -tlnp | grep 3100`) or pass another one as a third argument, e.g.
+`bash /root/setup-vps.sh erp.example.com "<key>" 3200`. On a server that already
+hosts other nginx sites, the script keeps the installed Node/PM2 and does not switch
+the `ufw` firewall on (it could block ports the other apps use).
 
 It installs Node 22, PM2, nginx, certbot and the firewall (SSH + HTTP/HTTPS only),
 creates the `deploy` user and `/var/www/bridgeone`, and makes PM2 start on boot.
@@ -124,9 +131,47 @@ into `development` deploys by itself.
 | Redeploy | Actions → Deploy → Run workflow |
 | Roll back | on the VPS: `bash /var/www/bridgeone/shared/release.sh --rollback` (or re-run the Deploy run of an older commit) |
 | Logs | `ssh deploy@<VPS_IP>` then `pm2 logs bridgeone` |
-| Status | `pm2 status`, `curl -s localhost:3000/api/health` |
+| Status | `pm2 status`, `curl -s localhost:$(cat /var/www/bridgeone/shared/port)/api/health` |
 | Change a secret | edit `shared/.env`, then `pm2 restart bridgeone --update-env` |
 
 **Migrations** run before the new code goes live and are not rolled back with
 the code. Write them so the release that is still running keeps working (add
 columns/tables first, remove old ones in a later release).
+
+---
+
+## Attendance devices pushing directly (ZKTeco ADMS)
+
+Devices set to **Comm. › Cloud Server Setting → ADMS** with this server's domain send
+their punches to `/iclock/cdata`, `/iclock/getrequest` and `/iclock/devicecmd`
+(see Configuration › Attendance Devices). Devices with an HTTPS option use port 443
+and need nothing more.
+
+Many devices speak **plain HTTP only** (port 80) and do not follow redirects, but
+`certbot --redirect` sends all port-80 traffic to HTTPS. Keep `/iclock/` on HTTP: in
+`/etc/nginx/sites-available/bridgeone`, change the port-80 `server` block that certbot
+wrote so it reads:
+
+```nginx
+server {
+    listen 80;
+    listen [::]:80;
+    server_name erp.example.com;
+
+    # ZKTeco devices (ADMS) without HTTPS.
+    location /iclock/ {
+        proxy_pass http://127.0.0.1:3100;   # the port in shared/port
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        client_max_body_size 5m;
+    }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+```
+
+(remove certbot's `if ($host = …) { return 301 … }` and `return 404;` lines from that
+block), then `nginx -t && systemctl reload nginx`. Only the device endpoints answer on
+HTTP; they accept punches only from serial numbers registered as Active devices.

@@ -44,6 +44,7 @@ import {
   Upload,
   Users,
 } from "./task-ui-shared";
+import { NativeDateInput } from "@/components/ui/date-input";
 
 interface TasksApiPayload {
   tasks: ConnectTaskRecord[];
@@ -647,7 +648,7 @@ export function AssignTaskView() {
             <label htmlFor={`${formId}-start`} className="block text-xs font-bold text-ink mb-1.5">
               9. Start Date &amp; Time <span className="text-rose-600">*</span>
             </label>
-            <input
+            <NativeDateInput
               id={`${formId}-start`}
               name="startDate"
               type="datetime-local"
@@ -662,7 +663,7 @@ export function AssignTaskView() {
             <label htmlFor={`${formId}-deadline`} className="block text-xs font-bold text-ink mb-1.5">
               10. Deadline Date &amp; Time <span className="text-rose-600">*</span>
             </label>
-            <input
+            <NativeDateInput
               id={`${formId}-deadline`}
               name="deadline"
               type="datetime-local"
@@ -1351,7 +1352,7 @@ export function AllTasksView() {
             </div>
             <div>
               <label className="block font-bold text-ink mb-1">Modify Official Deadline</label>
-              <input
+              <NativeDateInput
                 type="datetime-local"
                 value={editDeadline}
                 onChange={(e) => setEditDeadline(e.target.value)}

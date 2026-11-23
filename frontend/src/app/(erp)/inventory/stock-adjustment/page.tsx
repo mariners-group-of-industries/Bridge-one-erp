@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { useFeaturePermissions, needsPermission } from "@/lib/permissions/useFeaturePermissions";
 import { BulkUploadDialog } from "@/features/configuration/entity-master-data/components/BulkUploadDialog";
+import { NativeDateInput } from "@/components/ui/date-input";
 
 // ============================================================================
 // TYPES
@@ -272,7 +273,7 @@ export default function StockUpdatePage() {
           {/* From Date */}
           <div>
             <label className="block text-[11px] text-ink-muted mb-1 font-medium">From Date</label>
-            <input
+            <NativeDateInput
               type="date"
               value={fromDate}
               onChange={(e) => setFromDate(e.target.value)}
@@ -283,7 +284,7 @@ export default function StockUpdatePage() {
           {/* To Date */}
           <div>
             <label className="block text-[11px] text-ink-muted mb-1 font-medium">To Date</label>
-            <input
+            <NativeDateInput
               type="date"
               value={toDate}
               onChange={(e) => setToDate(e.target.value)}

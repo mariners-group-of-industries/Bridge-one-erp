@@ -38,8 +38,30 @@ export function timeAgo(value: string | Date, now: Date = new Date()): string {
   return format.format(-Math.round(amount), "year");
 }
 
-export function formatDateTime(value: string | Date): string {
-  return new Date(value).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+const pad2 = (n: number) => String(n).padStart(2, "0");
+
+/**
+ * The ERP shows every date as DD/MM/YYYY. A "YYYY-MM-DD" date is shown as is (no
+ * time-zone shift); a timestamp is shown on the viewer's clock. "—" when empty or invalid.
+ */
+export function formatDate(value: string | Date | null | undefined): string {
+  if (!value) return "—";
+  if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    const [y, m, d] = value.split("-");
+    return `${d}/${m}/${y}`;
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return typeof value === "string" ? value : "—";
+  return `${pad2(date.getDate())}/${pad2(date.getMonth() + 1)}/${date.getFullYear()}`;
+}
+
+/** "23/11/2026 09:05 AM" on the viewer's clock. "—" when empty or invalid. */
+export function formatDateTime(value: string | Date | null | undefined): string {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return typeof value === "string" ? value : "—";
+  const hours = date.getHours();
+  return `${formatDate(date)} ${pad2(hours % 12 || 12)}:${pad2(date.getMinutes())} ${hours < 12 ? "AM" : "PM"}`;
 }
 
 export type CompanyDateFormat = "DD_MM_YYYY_SLASH" | "MM_DD_YYYY_SLASH" | "YYYY_MM_DD_DASH" | "DD_MM_YYYY_DASH";

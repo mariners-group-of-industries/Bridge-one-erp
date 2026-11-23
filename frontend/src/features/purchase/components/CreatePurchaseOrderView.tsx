@@ -20,6 +20,8 @@ import {
   type PurchaseFormOptions,
 } from "@/features/purchase/components/PurchaseFormShared";
 import type { Item, Office, PurchaseOrder, PurchaseRequisition, Supplier, Warehouse } from "@bridgeone/contracts";
+import { NativeDateInput } from "@/components/ui/date-input";
+import { formatDate } from "@/lib/format";
 
 interface OrderDraftLine {
   key: string;
@@ -231,7 +233,7 @@ function CreatePurchaseOrderForm({
   const etaPreview = useMemo(() => {
     const dt = new Date((expectedReceiveDate || orderDate) + "T00:00:00");
     if (Number.isNaN(dt.getTime())) return "00.00h";
-    return `00.00h (${dt.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })})`;
+    return `00.00h (${dt.toLocaleDateString("en-GB", { weekday: "short" })}, ${formatDate(dt)})`;
   }, [expectedReceiveDate, orderDate]);
 
   // 3-Level Category Options
@@ -709,7 +711,7 @@ function CreatePurchaseOrderForm({
                 <label className="mb-1 block text-xs font-semibold text-ink-muted">
                   <span className="text-red-500 font-bold mr-0.5">*</span>Create Date
                 </label>
-                <input type="date" value={orderDate} onChange={(e) => setOrderDate(e.target.value)} className={inputCls} />
+                <NativeDateInput type="date" value={orderDate} onChange={(e) => setOrderDate(e.target.value)} className={inputCls} />
               </div>
 
               <div>
@@ -809,7 +811,7 @@ function CreatePurchaseOrderForm({
 
             <div>
               <label className="mb-1 block text-[11px] font-semibold text-ink-muted">Expected Receive Date</label>
-              <input
+              <NativeDateInput
                 type="date"
                 value={expectedReceiveDate}
                 onChange={(e) => setExpectedReceiveDate(e.target.value)}
@@ -866,7 +868,7 @@ function CreatePurchaseOrderForm({
 
                 <div>
                   <label className="mb-1 block text-[11px] font-semibold text-ink-muted">Challan Date</label>
-                  <input type="date" value={challanDate} onChange={(e) => setChallanDate(e.target.value)} className={inputCls} />
+                  <NativeDateInput type="date" value={challanDate} onChange={(e) => setChallanDate(e.target.value)} className={inputCls} />
                 </div>
 
                 <div>
@@ -914,7 +916,7 @@ function CreatePurchaseOrderForm({
 
                 <div>
                   <label className="mb-1 block text-[11px] font-semibold text-ink-muted">Reference Date</label>
-                  <input
+                  <NativeDateInput
                     type="date"
                     value={referenceDate}
                     onChange={(e) => setReferenceDate(e.target.value)}

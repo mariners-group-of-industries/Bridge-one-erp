@@ -336,7 +336,7 @@ export const POLICY_TAB_DEFS: Record<PolicyTab, PolicyTabDef> = {
     columns: cols("@office", "basis", "employeePercent", "employerPercent", "eligibleAfterMonths", "vestingYears", ["@from", "Effective Date"]),
   },
   "late-punishment": {
-    description: "How repeated late attendance is penalised.",
+    description: "How repeated late attendance is penalised. Without a rule, every 3 lates in a payroll period deduct 1 day of salary.",
     createLabel: "Create Late Rule",
     noun: "late rule",
     scope: { office: true, from: "required" },
@@ -350,13 +350,13 @@ export const POLICY_TAB_DEFS: Record<PolicyTab, PolicyTabDef> = {
   },
   "payroll-rules": {
     description:
-      "The payroll period, and how Salary Generate turns attendance into salary deductions. Without a rule, the period is the 21st to the 20th of the next month, salaries are prorated by the days of the period and no absence is deducted (each such day is listed as a warning instead).",
+      "The payroll period, and how Salary Generate turns attendance into salary deductions. Without a rule, the period is the 21st to the 20th, named after the month it ends in (21 Oct – 20 Nov is November), salaries are prorated by the days of the period and no absence is deducted (each such day is listed as a warning instead).",
     createLabel: "Create Payroll Rule",
     noun: "payroll rule",
     scope: { office: true, from: "required" },
     fields: [
       num("periodStartDay", "Period Starts On Day", { integer: true, min: 1, max: 28, hint: "21 = the 21st to the 20th of the next month (the default). 1 = calendar month." }),
-      pick("periodMonth", "Payroll Month Is", PAYROLL_PERIOD_MONTHS, { hint: "Which month names the period; default: the month it starts in." }),
+      pick("periodMonth", "Payroll Month Is", PAYROLL_PERIOD_MONTHS, { hint: "Which month names the period; default: the month it ends in (21 Oct – 20 Nov = November)." }),
       pick("dayRateBasis", "Daily Rate Basis", PAYROLL_DAY_RATE_BASES, { required: true, hint: "One day's salary = monthly gross ÷ these days." }),
       flag("deductAbsentDays", "Deduct salary for absent days", { hint: "Days rated Absent by the attendance rule." }),
       flag("deductUnrecordedDays", "Treat working days without punch or leave as absent", { hint: "Off: such days are paid and listed as warnings." }),

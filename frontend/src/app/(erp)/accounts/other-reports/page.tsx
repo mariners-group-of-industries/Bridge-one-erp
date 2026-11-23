@@ -6,6 +6,7 @@ import { ChevronDown, Download, Inbox, Printer } from "lucide-react";
 import { useAccountingStore } from "@/features/accounts/store/accounting-store";
 import { downloadCsv, localToday } from "@/features/purchase/lib/client";
 import { useFeaturePermissions } from "@/lib/permissions/useFeaturePermissions";
+import { NativeDateInput } from "@/components/ui/date-input";
 
 /** The report choices iBOS lists, in its order. */
 const REPORTS = [
@@ -410,7 +411,7 @@ export default function OtherReportsPage() {
         <div className="flex flex-wrap items-end gap-5 text-xs">
           <div className="w-40">
             <label htmlFor="report-from" className="block text-[11px] font-semibold text-ink-muted mb-1">From Date</label>
-            <input
+            <NativeDateInput
               id="report-from"
               type="date"
               value={fromDate}
@@ -420,7 +421,7 @@ export default function OtherReportsPage() {
           </div>
           <div className="w-40">
             <label htmlFor="report-to" className="block text-[11px] font-semibold text-ink-muted mb-1">To Date</label>
-            <input
+            <NativeDateInput
               id="report-to"
               type="date"
               value={toDate}

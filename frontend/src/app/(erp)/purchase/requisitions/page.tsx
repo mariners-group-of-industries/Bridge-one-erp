@@ -54,6 +54,7 @@ import {
   Item,
   CreateRequisitionInput,
 } from "@bridgeone/contracts";
+import { NativeDateInput } from "@/components/ui/date-input";
 
 export default function PurchaseRequisitionsPage() {
   const router = useRouter();
@@ -1100,7 +1101,7 @@ export default function PurchaseRequisitionsPage() {
               <label className="block text-xs font-semibold text-ink-muted mb-1.5">
                 From Date
               </label>
-              <input
+              <NativeDateInput
                 type="date"
                 value={fromDate}
                 onChange={(e) => setFromDate(e.target.value)}
@@ -1116,7 +1117,7 @@ export default function PurchaseRequisitionsPage() {
               <label className="block text-xs font-semibold text-ink-muted mb-1.5">
                 To Date
               </label>
-              <input
+              <NativeDateInput
                 type="date"
                 value={toDate}
                 onChange={(e) => setToDate(e.target.value)}
@@ -1269,7 +1270,7 @@ export default function PurchaseRequisitionsPage() {
             </div>
             <div>
               <label className="block text-xs font-semibold text-ink-muted mb-1.5">From Date</label>
-              <input
+              <NativeDateInput
                 type="date"
                 value={fromDate}
                 onChange={(e) => setFromDate(e.target.value)}
@@ -1278,7 +1279,7 @@ export default function PurchaseRequisitionsPage() {
             </div>
             <div>
               <label className="block text-xs font-semibold text-ink-muted mb-1.5">To Date</label>
-              <input
+              <NativeDateInput
                 type="date"
                 value={toDate}
                 onChange={(e) => setToDate(e.target.value)}
@@ -1660,7 +1661,7 @@ export default function PurchaseRequisitionsPage() {
               <label className="block text-[11px] font-semibold text-ink-muted mb-1">
                 Required Delivery Date *
               </label>
-              <input
+              <NativeDateInput
                 type="date"
                 value={formDeliveryDate}
                 onChange={(e) => setFormDeliveryDate(e.target.value)}
@@ -2132,7 +2133,7 @@ export default function PurchaseRequisitionsPage() {
                 <label className="block text-[11px] font-semibold text-ink-muted mb-1">
                   Required Delivery Date *
                 </label>
-                <input
+                <NativeDateInput
                   type="date"
                   value={editDeliveryDate}
                   onChange={(e) => setEditDeliveryDate(e.target.value)}

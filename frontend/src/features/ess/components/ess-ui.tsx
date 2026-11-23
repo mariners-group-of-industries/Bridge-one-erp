@@ -13,18 +13,20 @@ import { Panel } from "@/features/configuration/entity-master-data/employee/comp
 import { essApi } from "../api";
 import { essPaths } from "../navigation";
 import type { EssDayStatus, EssEmployee } from "../types";
+import { formatDateTime } from "@/lib/format";
 
 // ─── Formatting ───────────────────────────────────────────────────────────────
 
 export const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
-/** "2026-11-05" → "05 Nov 2026". */
+/** "2026-11-05" → "05/11/2026". */
 export const fmtDate = (iso: string | null | undefined) => {
   if (!iso) return "—";
   const [y, m, d] = iso.slice(0, 10).split("-");
-  return `${d} ${MONTHS[Number(m) - 1]?.slice(0, 3)} ${y}`;
+  return `${d}/${m}/${y}`;
 };
-export const fmtDateTime = (iso: string) => new Date(iso).toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
+/** "05/11/2026 09:05 AM". */
+export const fmtDateTime = (iso: string) => formatDateTime(iso);
 export const monthTitle = (month: string) => `${MONTHS[Number(month.slice(5, 7)) - 1]} ${month.slice(0, 4)}`;
 export const fmtMoney = (value: number) => value.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 /** 95 → "1h 35m". */

@@ -12,6 +12,7 @@ import { round2 } from "@/lib/purchase-store/rules";
 import { usePurchasePermissions } from "@/features/purchase/lib/usePurchasePermissions";
 import { SearchableCombobox, type PurchaseFormOptions } from "@/features/purchase/components/PurchaseFormShared";
 import type { Office, Supplier, SupplierInvoiceItem } from "@bridgeone/contracts";
+import { NativeDateInput } from "@/components/ui/date-input";
 
 interface QueuedGrnPayment {
   key: string;
@@ -281,7 +282,7 @@ export function PaymentByGrnView() {
                   <label className="mb-1 block text-xs font-semibold text-ink-muted">
                     <span className="text-red-500 font-bold mr-0.5">*</span>Date
                   </label>
-                  <input type="date" value={paymentDate} onChange={(e) => setPaymentDate(e.target.value)} className={inputCls} />
+                  <NativeDateInput type="date" value={paymentDate} onChange={(e) => setPaymentDate(e.target.value)} className={inputCls} />
                 </div>
 
                 <div>

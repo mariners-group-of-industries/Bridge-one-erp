@@ -231,6 +231,22 @@ export const API_RULES: Record<string, ApiRule> = {
   // Issuing moves stock that was already approved: the Issue page edits the transfer.
   "/api/rtm/distributor-stock-transfer-issue/*/issue": { feature: "/rtm/distributor-stock-transfer-issue", action: "edit" },
   "/api/rtm/retail-order/*/cancel": { feature: "/rtm/retail-order", action: "edit" },
+  "/api/rtm/territory": { read: { anyViewIn: ["rtm"] } },
+  // Excel of the list on screen: reading the page's data, behind its Export permission.
+  "/api/rtm/retail-order/export": { feature: "/rtm/retail-order", action: "export" },
+  "/api/rtm/delivery/export": { feature: "/rtm/delivery", action: "export" },
+  "/api/rtm/collection/export": { feature: "/rtm/collection", action: "export" },
+  "/api/rtm/sales-return/export": { feature: "/rtm/sales-return", action: "export" },
+  "/api/rtm/direct-delivery/export": { feature: "/rtm/direct-delivery", action: "export" },
+  "/api/rtm/outlet-setup/export": { feature: "/rtm/outlet-setup", action: "export" },
+  "/api/rtm/outlet-setup/bulk": { feature: "/rtm/outlet-setup", action: "import" },
+  "/api/rtm/outlet-setup/bulk/template": { feature: "/rtm/outlet-setup", action: "import" },
+  "/api/rtm/outlet-setup/*/status": { feature: "/rtm/outlet-setup", action: "edit" },
+  "/api/rtm/outlet-setup/*/resubmit": { feature: "/rtm/outlet-setup", action: "edit" },
+  // Rolling back reverses posted stock, like cancelling a document.
+  "/api/rtm/distributor-stock-adjustment/*/rollback": { feature: "/rtm/distributor-stock-adjustment", action: "delete" },
+  "/api/rtm/distributor-stock-adjustment/bulk": { feature: "/rtm/distributor-stock-adjustment", action: "import" },
+  "/api/rtm/distributor-stock-adjustment/bulk/template": { feature: "/rtm/distributor-stock-adjustment", action: "import" },
 
   // ── Inventory (/api/inventory/<page>/… maps to its page automatically) ──
   "/api/inventory/stock": { read: { anyViewIn: ["inventory"] } },

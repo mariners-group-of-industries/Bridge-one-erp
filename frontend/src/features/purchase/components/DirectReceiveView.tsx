@@ -20,6 +20,7 @@ import {
   type PurchaseFormOptions,
 } from "@/features/purchase/components/PurchaseFormShared";
 import type { GoodsReceipt, Item, Office, PurchaseRequisition, Supplier, Warehouse } from "@bridgeone/contracts";
+import { NativeDateInput } from "@/components/ui/date-input";
 
 interface DirectDraftLine {
   key: string;
@@ -586,7 +587,7 @@ export function DirectReceiveView() {
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
               <div>
                 <label htmlFor={`${fid}-create-date`} className={labelCls}>Create Date</label>
-                <input id={`${fid}-create-date`} type="date" value={receiveDate} onChange={(e) => setReceiveDate(e.target.value)} className={inputCls} />
+                <NativeDateInput id={`${fid}-create-date`} type="date" value={receiveDate} onChange={(e) => setReceiveDate(e.target.value)} className={inputCls} />
               </div>
 
               <div>
@@ -747,7 +748,7 @@ export function DirectReceiveView() {
 
                   <div>
                     <label htmlFor={`${fid}-challan-date`} className={labelCls}>Challan Date</label>
-                    <input id={`${fid}-challan-date`} type="date" value={challanDate} onChange={(e) => setChallanDate(e.target.value)} className={inputCls} />
+                    <NativeDateInput id={`${fid}-challan-date`} type="date" value={challanDate} onChange={(e) => setChallanDate(e.target.value)} className={inputCls} />
                   </div>
 
                   <div>

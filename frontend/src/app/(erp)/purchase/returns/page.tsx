@@ -37,6 +37,7 @@ import {
   Warehouse,
   Office,
 } from "@bridgeone/contracts";
+import { NativeDateInput } from "@/components/ui/date-input";
 
 // ============================================================================
 // REALISTIC MOCK FALLBACK DATA MATCHING SCREENSHOT 1 (RECEIVED LIST - 30 ROWS)
@@ -657,7 +658,7 @@ export default function PurchaseReturnsPage() {
             {/* From Date */}
             <div>
               <label className="block text-[11px] text-ink-muted mb-1 font-medium">From Date</label>
-              <input
+              <NativeDateInput
                 type="date"
                 value={filterFromDate}
                 onChange={(e) => setFilterFromDate(e.target.value)}
@@ -668,7 +669,7 @@ export default function PurchaseReturnsPage() {
             {/* To Date */}
             <div>
               <label className="block text-[11px] text-ink-muted mb-1 font-medium">To Date</label>
-              <input
+              <NativeDateInput
                 type="date"
                 value={filterToDate}
                 onChange={(e) => setFilterToDate(e.target.value)}

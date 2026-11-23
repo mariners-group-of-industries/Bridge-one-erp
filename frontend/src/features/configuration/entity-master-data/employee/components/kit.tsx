@@ -17,6 +17,7 @@ import {
 } from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/cn";
+import { NativeDateInput } from "@/components/ui/date-input";
 
 // ─── Controls ─────────────────────────────────────────────────────────────────
 
@@ -28,6 +29,8 @@ export const CONTROL_CLASS =
   "aria-[invalid=true]:border-danger aria-[invalid=true]:focus:ring-danger/20";
 
 export function Input({ className, ...props }: InputHTMLAttributes<HTMLInputElement>) {
+  // Dates always read DD/MM/YYYY, whatever the browser's language.
+  if (props.type === "date" || props.type === "datetime-local") return <NativeDateInput {...props} type={props.type as "date" | "datetime-local"} className={cn(CONTROL_CLASS, className)} />;
   return <input className={cn(CONTROL_CLASS, className)} {...props} />;
 }
 

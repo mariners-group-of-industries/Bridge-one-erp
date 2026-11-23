@@ -113,6 +113,8 @@ const ACTIONS: Record<string, CategoryActions> = {
   "rtm-stock-transfer": idRoutes("/api/rtm/distributor-stock-transfer-request"),
   "rtm-stock-adjustment": idRoutes("/api/rtm/distributor-stock-adjustment"),
   "rtm-tour-plan": idRoutes("/api/rtm/tour-plan-setup"),
+  "rtm-layer-transfer": idRoutes("/api/rtm/sales-layer-transfer"),
+  "rtm-outlet": idRoutes("/api/rtm/outlet-setup"),
 };
 
 /** Whether this page can decide documents of the category itself (false = only the module page can). */

@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import {
+  ArrowLeft,
   Bell,
   Building2,
   ChevronDown,
@@ -19,7 +20,7 @@ import {
   User,
 } from "lucide-react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Kbd } from "@/components/ui/kbd";
 import { useResource } from "@/hooks/use-resource";
@@ -28,6 +29,7 @@ import type { EssNotifications } from "@/features/ess/types";
 import { useSession } from "@/lib/auth/session";
 import { applyTheme, readTheme } from "@/lib/theme";
 import { cn } from "@/lib/cn";
+import { formatDateTime } from "@/lib/format";
 
 interface NavbarProps {
   onToggleSidebar: () => void;
@@ -61,6 +63,8 @@ export function Navbar({ onToggleSidebar, sidebarHidden, onOpenSearch }: NavbarP
       >
         <PanelLeft className="size-4" />
       </NavIconBtn>
+
+      <BackButton />
 
       {/* Logo */}
       <Link href="/" className="flex shrink-0 items-center rounded-lg px-1 focus-visible:outline-2" title="BridgeOne ERP">
@@ -130,7 +134,7 @@ export function Navbar({ onToggleSidebar, sidebarHidden, onOpenSearch }: NavbarP
                         <span className="min-w-0 flex-1">
                           <span className={cn("block truncate text-[13px]", item.read ? "text-ink-muted" : "font-semibold text-ink")}>{item.title}</span>
                           {item.body && <span className="line-clamp-2 text-xs text-ink-faint">{item.body}</span>}
-                          <span className="text-[11px] text-ink-faint">{new Date(item.createdAt).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}</span>
+                          <span className="text-[11px] text-ink-faint">{formatDateTime(item.createdAt)}</span>
                         </span>
                       </Link>
                     </li>
@@ -292,6 +296,28 @@ function BusinessUnitSwitcher() {
         </Popover>
       )}
     </div>
+  );
+}
+
+/**
+ * Back on every page: the previous page in this tab, or Home when the page was
+ * opened directly (new tab, bookmark, link). Hidden on Home itself.
+ */
+function BackButton() {
+  const router = useRouter();
+  const pathname = usePathname();
+  if (pathname === "/") return null;
+  return (
+    <button
+      type="button"
+      aria-label="Go back"
+      title="Back (Alt+←)"
+      onClick={() => (window.history.length > 1 ? router.back() : router.push("/"))}
+      className="flex h-11 min-w-11 shrink-0 items-center justify-center gap-1 rounded-lg px-1.5 text-ink-faint transition-colors hover:bg-control hover:text-ink focus-visible:outline-2 sm:h-8 sm:min-w-8 sm:pr-2.5"
+    >
+      <ArrowLeft className="size-4" aria-hidden="true" />
+      <span className="hidden text-xs font-medium sm:inline">Back</span>
+    </button>
   );
 }
 

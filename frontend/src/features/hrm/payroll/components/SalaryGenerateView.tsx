@@ -228,7 +228,7 @@ export function SalaryGenerateView({ initial }: { initial: { officeId?: string; 
                     ? `Fixed: the last payroll is ${monthLabel(required.lastMonth)} (${required.lastReference}), so the next is ${monthLabel(required.nextMonth)}.`
                     : preview
                       ? `Period: ${formatDate(preview.fromDate)} – ${formatDate(preview.toDate)}.`
-                      : "Period: the 21st to the 20th of the next month (October = 21 Oct – 20 Nov), unless a Payroll Rule sets another."
+                      : "Period: the 21st to the 20th, named after the month it ends in (November = 21 Oct – 20 Nov), unless a Payroll Rule sets another."
                 }
               >
                 {(id) => <Select id={id} value={month} disabled={!!required} onChange={(e) => set("month", e.target.value)} placeholder={false} options={MONTHS.map((label, i) => ({ value: String(i + 1).padStart(2, "0"), label }))} />}

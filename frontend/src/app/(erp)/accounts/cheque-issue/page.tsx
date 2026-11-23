@@ -33,6 +33,7 @@ function nextLeaf(book: { startChequeNumber: string; usedLeaves: number } | unde
 
 import type { ChequeIssueItem, ChequeStatus } from "@/features/accounts/types";
 import { useFeaturePermissions, needsPermission } from "@/lib/permissions/useFeaturePermissions";
+import { NativeDateInput } from "@/components/ui/date-input";
 
 export default function ChequeIssuePage() {
   const perms = useFeaturePermissions("/accounts/cheque-issue");
@@ -302,7 +303,7 @@ export default function ChequeIssuePage() {
                   <label className="mb-1 block text-xs font-semibold text-slate-700">
                     <span className="text-red-500 font-bold mr-0.5">*</span>Cheque Date
                   </label>
-                  <input
+                  <NativeDateInput
                     type="date"
                     required
                     value={form.chequeDate}
@@ -315,7 +316,7 @@ export default function ChequeIssuePage() {
                   <label className="mb-1 block text-xs font-semibold text-slate-700">
                     Transaction Date
                   </label>
-                  <input
+                  <NativeDateInput
                     type="date"
                     value={form.issueDate}
                     onChange={(e) => setForm({ ...form, issueDate: e.target.value })}

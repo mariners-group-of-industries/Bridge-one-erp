@@ -8,6 +8,7 @@ import {
   type TextareaHTMLAttributes,
 } from "react";
 import { cn } from "@/lib/cn";
+import { NativeDateInput } from "@/components/ui/date-input";
 
 /** Purchase-style control: white, bordered, blue ring on focus. */
 export const CONTROL =
@@ -63,16 +64,29 @@ export function TextField({
 }: Common & InputHTMLAttributes<HTMLInputElement>) {
   return (
     <FieldShell label={label} required={required} error={error} hint={hint} className={className}>
-      {({ id, describedBy, invalid }) => (
-        <input
-          id={id}
-          required={required}
-          aria-invalid={invalid || undefined}
-          aria-describedby={describedBy}
-          className={cn(CONTROL, "h-8", invalid && INVALID)}
-          {...props}
-        />
-      )}
+      {({ id, describedBy, invalid }) =>
+        props.type === "date" || props.type === "datetime-local" ? (
+          // Dates always read DD/MM/YYYY, whatever the browser's language.
+          <NativeDateInput
+            id={id}
+            required={required}
+            aria-invalid={invalid || undefined}
+            aria-describedby={describedBy}
+            {...props}
+            type={props.type as "date" | "datetime-local"}
+            className={cn(CONTROL, "h-8 w-full", invalid && INVALID)}
+          />
+        ) : (
+          <input
+            id={id}
+            required={required}
+            aria-invalid={invalid || undefined}
+            aria-describedby={describedBy}
+            className={cn(CONTROL, "h-8", invalid && INVALID)}
+            {...props}
+          />
+        )
+      }
     </FieldShell>
   );
 }

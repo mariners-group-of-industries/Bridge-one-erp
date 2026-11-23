@@ -34,7 +34,7 @@ export async function requireOutlet(actor: Actor, id: string, client: Client = d
   const units = await unitIds(actor);
   const o = await client.rtmOutlet.findFirst({
     where: { id, businessUnitId: { in: units } },
-    select: { id: true, name: true, code: true, businessUnitId: true, distributorId: true, channelId: true, routeId: true, isActive: true },
+    select: { id: true, name: true, code: true, businessUnitId: true, distributorId: true, channelId: true, routeId: true, isActive: true, approvalStatus: true },
   });
   if (!o) throw notFound("Outlet");
   return o;
@@ -63,6 +63,7 @@ const PREFIX = {
   RETURN: "RR-",
   TRANSFER: "DST-",
   ADJUSTMENT: "DSA-",
+  LAYER_TRANSFER: "SLT-",
 } as const;
 
 export function documentNumber(tx: Tx, businessUnitId: string, kind: keyof typeof PREFIX, date: string) {

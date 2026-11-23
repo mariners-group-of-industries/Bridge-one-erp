@@ -1,4 +1,4 @@
-import { saveOutlet } from "@/features/rtm/server/masters.service";
+import { saveOutlet } from "@/features/rtm/server/outlet.service";
 import { writeId } from "@/features/rtm/server/routes";
 
 /** Edit an outlet. */

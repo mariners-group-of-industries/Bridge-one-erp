@@ -23,6 +23,7 @@ import { useAccountingStore } from "@/features/accounts/store/accounting-store";
 import { localToday } from "@/features/purchase/lib/client";
 import type { ChequeBookItem } from "@/features/accounts/types";
 import { useFeaturePermissions, needsPermission } from "@/lib/permissions/useFeaturePermissions";
+import { NativeDateInput } from "@/components/ui/date-input";
 
 type TabKey = "REGISTER" | "OUTGOING_REPORT" | "POST_DATE_REPORT" | "RECEIVE_REPORT";
 
@@ -697,7 +698,7 @@ export default function ChequeSetupPage() {
                         </span>
                       </td>
                       <td className="py-2 px-3">
-                        <input
+                        <NativeDateInput
                           type="date"
                           value={r.date}
                           onChange={(e) => set({ date: e.target.value })}
@@ -732,7 +733,7 @@ export default function ChequeSetupPage() {
                         />
                       </td>
                       <td className="py-2 px-3">
-                        <input
+                        <NativeDateInput
                           type="date"
                           value={r.instrumentDate}
                           onChange={(e) => set({ instrumentDate: e.target.value })}
@@ -1029,7 +1030,7 @@ export default function ChequeSetupPage() {
 
             <div className="flex flex-col gap-1">
               <label className="text-[11px] font-semibold text-ink-muted">From Date</label>
-              <input
+              <NativeDateInput
                 type="date"
                 value={fromDate}
                 onChange={(e) => setFromDate(e.target.value)}
@@ -1039,7 +1040,7 @@ export default function ChequeSetupPage() {
 
             <div className="flex flex-col gap-1">
               <label className="text-[11px] font-semibold text-ink-muted">To Date</label>
-              <input
+              <NativeDateInput
                 type="date"
                 value={toDate}
                 onChange={(e) => setToDate(e.target.value)}
@@ -1100,7 +1101,7 @@ export default function ChequeSetupPage() {
 
             <div className="flex flex-col gap-1">
               <label className="text-[11px] font-semibold text-ink-muted">From Date</label>
-              <input
+              <NativeDateInput
                 type="date"
                 value={fromDate}
                 onChange={(e) => setFromDate(e.target.value)}
@@ -1110,7 +1111,7 @@ export default function ChequeSetupPage() {
 
             <div className="flex flex-col gap-1">
               <label className="text-[11px] font-semibold text-ink-muted">To Date</label>
-              <input
+              <NativeDateInput
                 type="date"
                 value={toDate}
                 onChange={(e) => setToDate(e.target.value)}
@@ -1137,7 +1138,7 @@ export default function ChequeSetupPage() {
           <>
             <div className="flex flex-col gap-1">
               <label className="text-[11px] font-semibold text-ink-muted">From Date</label>
-              <input
+              <NativeDateInput
                 type="date"
                 value={fromDate}
                 onChange={(e) => setFromDate(e.target.value)}
@@ -1147,7 +1148,7 @@ export default function ChequeSetupPage() {
 
             <div className="flex flex-col gap-1">
               <label className="text-[11px] font-semibold text-ink-muted">To Date</label>
-              <input
+              <NativeDateInput
                 type="date"
                 value={toDate}
                 onChange={(e) => setToDate(e.target.value)}
@@ -1689,7 +1690,7 @@ export default function ChequeSetupPage() {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block font-semibold text-ink-muted mb-1">Cheque Date *</label>
-                  <input
+                  <NativeDateInput
                     type="date"
                     required
                     value={issueForm.chequeDate}
@@ -1699,7 +1700,7 @@ export default function ChequeSetupPage() {
                 </div>
                 <div>
                   <label className="block font-semibold text-ink-muted mb-1">Issue Date</label>
-                  <input
+                  <NativeDateInput
                     type="date"
                     value={issueForm.issueDate}
                     onChange={(e) => setIssueForm({ ...issueForm, issueDate: e.target.value })}

@@ -37,6 +37,7 @@ import {
   SupplierPaymentRecord,
   SupplierInvoiceItem,
 } from "@bridgeone/contracts";
+import { NativeDateInput } from "@/components/ui/date-input";
 
 const formatNum = (num: number) => {
   if (Math.abs(num) < 0.0001) return "0.00";
@@ -875,7 +876,7 @@ export default function SupplierPaymentsPage() {
           <div className="shrink-0 flex flex-wrap items-end gap-3 text-xs bg-canvas/50 p-2 rounded border border-line">
             <div>
               <label className="block text-[11px] text-ink-faint mb-1">From Date</label>
-              <input
+              <NativeDateInput
                 type="date"
                 value={tab1FromDate}
                 onChange={(e) => setTab1FromDate(e.target.value)}
@@ -884,7 +885,7 @@ export default function SupplierPaymentsPage() {
             </div>
             <div>
               <label className="block text-[11px] text-ink-faint mb-1">To Date</label>
-              <input
+              <NativeDateInput
                 type="date"
                 value={tab1ToDate}
                 onChange={(e) => setTab1ToDate(e.target.value)}
@@ -1274,7 +1275,7 @@ export default function SupplierPaymentsPage() {
             </div>
             <div>
               <label className="block text-[11px] text-ink-faint mb-1">From</label>
-              <input
+              <NativeDateInput
                 type="date"
                 aria-label="Paid from date"
                 value={tab3FromDate}
@@ -1284,7 +1285,7 @@ export default function SupplierPaymentsPage() {
             </div>
             <div>
               <label className="block text-[11px] text-ink-faint mb-1">To</label>
-              <input
+              <NativeDateInput
                 type="date"
                 aria-label="Paid to date"
                 value={tab3ToDate}
@@ -1469,7 +1470,7 @@ export default function SupplierPaymentsPage() {
           <div className="shrink-0 flex flex-wrap items-end gap-3 text-xs bg-canvas/50 p-2 rounded border border-line">
             <div>
               <label className="block text-[11px] text-ink-faint mb-1">Rece. From Date</label>
-              <input
+              <NativeDateInput
                 type="date"
                 value={tab4FromDate}
                 onChange={(e) => setTab4FromDate(e.target.value)}
@@ -1478,7 +1479,7 @@ export default function SupplierPaymentsPage() {
             </div>
             <div>
               <label className="block text-[11px] text-ink-faint mb-1">Rece. To Date</label>
-              <input
+              <NativeDateInput
                 type="date"
                 value={tab4ToDate}
                 onChange={(e) => setTab4ToDate(e.target.value)}
@@ -1607,7 +1608,7 @@ export default function SupplierPaymentsPage() {
             </div>
             <div>
               <label className="block text-[11px] text-ink-faint mb-1">From</label>
-              <input
+              <NativeDateInput
                 type="date"
                 value={tab5FromDate}
                 onChange={(e) => setTab5FromDate(e.target.value)}
@@ -1616,7 +1617,7 @@ export default function SupplierPaymentsPage() {
             </div>
             <div>
               <label className="block text-[11px] text-ink-faint mb-1">To</label>
-              <input
+              <NativeDateInput
                 type="date"
                 value={tab5ToDate}
                 onChange={(e) => setTab5ToDate(e.target.value)}
@@ -1752,7 +1753,7 @@ export default function SupplierPaymentsPage() {
           <div className="shrink-0 flex flex-wrap items-end gap-3 text-xs p-2">
             <div>
               <label className="block text-[11px] text-ink-faint mb-1">From</label>
-              <input
+              <NativeDateInput
                 type="date"
                 value={tab6FromDate}
                 onChange={(e) => setTab6FromDate(e.target.value)}
@@ -1761,7 +1762,7 @@ export default function SupplierPaymentsPage() {
             </div>
             <div>
               <label className="block text-[11px] text-ink-faint mb-1">To</label>
-              <input
+              <NativeDateInput
                 type="date"
                 value={tab6ToDate}
                 onChange={(e) => setTab6ToDate(e.target.value)}
@@ -2020,7 +2021,7 @@ export default function SupplierPaymentsPage() {
             </div>
             <div>
               <label className="block text-ink-muted font-semibold mb-1">Payment Date *</label>
-              <input type="date" value={grnPayDate} onChange={(e) => setGrnPayDate(e.target.value)} className="w-full border border-line-strong rounded p-1.5 text-xs bg-surface" />
+              <NativeDateInput type="date" value={grnPayDate} onChange={(e) => setGrnPayDate(e.target.value)} className="w-full border border-line-strong rounded p-1.5 text-xs bg-surface" />
             </div>
           </div>
 
@@ -2148,7 +2149,7 @@ export default function SupplierPaymentsPage() {
             </div>
             <div>
               <label className="block text-ink-muted font-semibold mb-1">Bill Date *</label>
-              <input
+              <NativeDateInput
                 type="date"
                 value={billDate}
                 onChange={(e) => setBillDate(e.target.value)}
@@ -2177,7 +2178,7 @@ export default function SupplierPaymentsPage() {
             </div>
             <div>
               <label className="block text-ink-muted font-semibold mb-1">Due Date *</label>
-              <input
+              <NativeDateInput
                 type="date"
                 value={billDueDate}
                 onChange={(e) => setBillDueDate(e.target.value)}

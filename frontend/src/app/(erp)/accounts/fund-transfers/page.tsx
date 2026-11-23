@@ -25,6 +25,7 @@ import { uploadAccountImport } from "@/features/accounts/lib/bulk-import-client"
 import { localDaysFromToday, localToday } from "@/features/purchase/lib/client";
 import type { FundTransferRecord } from "@/features/accounts/types";
 import { useFeaturePermissions, needsPermission } from "@/lib/permissions/useFeaturePermissions";
+import { NativeDateInput } from "@/components/ui/date-input";
 
 /** What each stored status is called on screen (the server writes upper case). */
 const STATUS_TEXT: Record<string, { label: string; tone: string }> = {
@@ -323,7 +324,7 @@ export default function FundTransferPage() {
                   <label className="block text-[11px] font-semibold text-slate-700 mb-1">
                     <span className="text-red-500 font-bold mr-0.5">*</span> Request Date
                   </label>
-                  <input
+                  <NativeDateInput
                     type="date"
                     value={form.requestDate}
                     onChange={(e) => setForm({ ...form, requestDate: e.target.value })}
@@ -394,7 +395,7 @@ export default function FundTransferPage() {
                   <label className="block text-[11px] font-semibold text-slate-700 mb-1">
                     <span className="text-red-500 font-bold mr-0.5">*</span> Expected Date
                   </label>
-                  <input
+                  <NativeDateInput
                     type="date"
                     value={form.expectedDate}
                     onChange={(e) => setForm({ ...form, expectedDate: e.target.value })}
@@ -496,7 +497,7 @@ export default function FundTransferPage() {
                   <label className="block text-[11px] font-semibold text-slate-700 mb-1">
                     <span className="text-red-500 font-bold mr-0.5">*</span> Transfer Date
                   </label>
-                  <input
+                  <NativeDateInput
                     type="date"
                     value={form.requestDate}
                     onChange={(e) => setForm({ ...form, requestDate: e.target.value })}
@@ -829,7 +830,7 @@ export default function FundTransferPage() {
               </div>
               <div>
                 <label className="block text-[11px] font-medium text-ink-faint mb-0.5">From Date</label>
-                <input
+                <NativeDateInput
                   type="date"
                   value={fromDate}
                   onChange={(e) => setFromDate(e.target.value)}
@@ -838,7 +839,7 @@ export default function FundTransferPage() {
               </div>
               <div>
                 <label className="block text-[11px] font-medium text-ink-faint mb-0.5">To Date</label>
-                <input
+                <NativeDateInput
                   type="date"
                   value={toDate}
                   onChange={(e) => setToDate(e.target.value)}

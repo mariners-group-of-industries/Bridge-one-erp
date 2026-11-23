@@ -21,6 +21,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { usePurchasePermissions } from "@/features/purchase/lib/usePurchasePermissions";
 import { categoryNamesAt, type PurchaseFormOptions } from "@/features/purchase/components/PurchaseFormShared";
 import type { Office, Warehouse, Item, Supplier, PurchaseRequisition } from "@bridgeone/contracts";
+import { NativeDateInput } from "@/components/ui/date-input";
 
 interface DirectoryEmployee {
   id: string;
@@ -795,7 +796,7 @@ function CreateRequisitionForm({ templateReq }: { templateReq: PurchaseRequisiti
                   <span className="text-red-500 font-bold mr-0.5">*</span>Create Date
                 </label>
                 <div className="relative">
-                  <input
+                  <NativeDateInput
                     type="date"
                     value={createDate}
                     onChange={(e) => setCreateDate(e.target.value)}
@@ -975,7 +976,7 @@ function CreateRequisitionForm({ templateReq }: { templateReq: PurchaseRequisiti
                 <label className="block text-xs font-semibold text-ink-muted dark:text-slate-300 mb-1">
                   <span className="text-red-500 font-bold mr-0.5">*</span>Expected Date
                 </label>
-                <input
+                <NativeDateInput
                   type="date"
                   value={expectedDate}
                   onChange={(e) => setExpectedDate(e.target.value)}

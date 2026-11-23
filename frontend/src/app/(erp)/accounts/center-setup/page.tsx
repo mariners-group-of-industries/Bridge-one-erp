@@ -24,6 +24,7 @@ import { uploadAccountImport } from "@/features/accounts/lib/bulk-import-client"
 import type { CostCenterItem } from "@/features/accounts/types";
 import { localToday } from "@/features/purchase/lib/client";
 import { useFeaturePermissions, needsPermission } from "@/lib/permissions/useFeaturePermissions";
+import { NativeDateInput } from "@/components/ui/date-input";
 
 export default function CenterSetupPage() {
   const perms = useFeaturePermissions("/accounts/center-setup");
@@ -228,7 +229,7 @@ export default function CenterSetupPage() {
                   <label className="mb-1 block text-xs font-semibold text-slate-700">
                     <span className="text-red-500 font-bold mr-0.5">*</span>Create Date
                   </label>
-                  <input
+                  <NativeDateInput
                     type="date"
                     required
                     value={createForm.effectiveDate}
@@ -407,7 +408,7 @@ export default function CenterSetupPage() {
           {/* From Date */}
           <div className="w-36">
             <label className="block text-[11px] font-semibold text-ink-muted mb-1">From Date</label>
-            <input
+            <NativeDateInput
               type="date"
               value={fromDate}
               onChange={(e) => setFromDate(e.target.value)}
@@ -418,7 +419,7 @@ export default function CenterSetupPage() {
           {/* To Date */}
           <div className="w-36">
             <label className="block text-[11px] font-semibold text-ink-muted mb-1">To Date</label>
-            <input
+            <NativeDateInput
               type="date"
               value={toDate}
               onChange={(e) => setToDate(e.target.value)}

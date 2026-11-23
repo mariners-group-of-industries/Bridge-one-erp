@@ -40,6 +40,8 @@ import type {
   TaskPriority,
   TaskStatus,
 } from "@/lib/connect/tasks-db";
+import { NativeDateInput } from "@/components/ui/date-input";
+import { formatDateTime as formatDateTimeDmy } from "@/lib/format";
 
 export type ActiveUserRole =
   | "Managing Director"
@@ -110,13 +112,7 @@ export function formatDateTime(iso?: string | null): string {
   if (!iso) return "—";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleString("en-US", {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-    hour12: true,
-  });
+  return formatDateTimeDmy(d);
 }
 
 export function StatusBadge({ status }: { status: TaskStatus }) {
@@ -931,7 +927,7 @@ export function InteractiveEmployeeTaskCard({
               <label htmlFor={`${formId}-ext-date`} className="block text-[11px] font-semibold text-ink mb-1">
                 Proposed New Deadline
               </label>
-              <input
+              <NativeDateInput
                 id={`${formId}-ext-date`}
                 type="datetime-local"
                 value={extDate}
