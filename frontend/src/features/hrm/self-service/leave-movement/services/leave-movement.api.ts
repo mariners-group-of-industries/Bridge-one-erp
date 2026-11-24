@@ -1,7 +1,7 @@
 import { apiRequest } from "@/lib/api/client";
 import type { AttendanceAdjustmentRow } from "@/features/hrm/attendance/services/attendance.service";
 import type { AttendanceRecord } from "@/features/hrm/attendance/types";
-import type { EmployeeOption, LeaveBalanceRow, LeaveInput, LeaveMovementOptions, LeaveRow, MovementInput, MovementRow } from "../schemas/leave-movement.schema";
+import type { EmployeeOption, LeaveBalanceRow, LeaveInput, LeaveMovementOptions, LeaveDetail, LeaveRow, MovementDetail, MovementInput, MovementRow } from "../schemas/leave-movement.schema";
 
 const BASE = "/api/hrm/self-service";
 const withEmployee = (path: string, employeeId?: string) => (employeeId ? `${path}?employeeId=${encodeURIComponent(employeeId)}` : path);
@@ -14,6 +14,8 @@ export const leaveMovementApi = {
 
   balance: (employeeId?: string) => apiRequest<LeaveBalanceRow[]>(withEmployee(`${BASE}/leaves/balance`, employeeId)),
   leaves: () => apiRequest<LeaveRow[]>(`${BASE}/leaves`),
+  leave: (id: string) => apiRequest<LeaveDetail>(`${BASE}/leaves/${id}`),
+  movement: (id: string) => apiRequest<MovementDetail>(`${BASE}/movements/${id}`),
   applyLeave: (input: LeaveInput, files: File[]) => {
     const body = new FormData();
     body.set("data", JSON.stringify(input));

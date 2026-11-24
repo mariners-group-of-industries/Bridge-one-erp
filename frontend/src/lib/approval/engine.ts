@@ -379,6 +379,34 @@ export async function approvalOutlook(target: ApprovalTarget): Promise<ApprovalT
   }));
 }
 
+/**
+ * Users who can act on the document now: the current stage's waiting approvers
+ * (and its super approver). Before anyone has acted that is the pipeline's first
+ * stage. `null` when the feature has no pipeline, or the stage names no
+ * approvers, so whoever holds the page's Approve permission decides.
+ * `[]` when the document is no longer waiting.
+ */
+export async function currentApproverIds(target: ApprovalTarget): Promise<string[] | null> {
+  const client = db() as unknown as Tx;
+  const stored = await client.documentApproval.findMany({ where: { feature: { in: featureAliases(target.feature) }, documentId: target.documentId }, orderBy: { stageNo: "asc" }, select: STAGE_SELECT });
+  // A rejected round starts again from the pipeline.
+  const live = stored.some((s) => s.status === "REJECTED") ? [] : stored;
+  let stage: Pick<StageRow, "approvalOrder" | "approverUserIds" | "approvedUserIds" | "superApproverUserId">;
+  if (live.length > 0) {
+    const current = live.find((s) => s.status === "PENDING");
+    if (!current) return [];
+    stage = current;
+  } else {
+    const first = (await stagesFromPipeline(client, target))[0];
+    if (!first) return null;
+    stage = { ...first, approvedUserIds: [] };
+  }
+  if (stage.approverUserIds.length === 0) return null;
+  const waiting =
+    stage.approvalOrder === "SEQUENTIAL" ? [stage.approverUserIds[stage.approvedUserIds.length]] : stage.approverUserIds.filter((id) => !stage.approvedUserIds.includes(id));
+  return [...new Set([...waiting, stage.superApproverUserId].filter((id): id is string => !!id))];
+}
+
 /** The document's stages with approver names, for detail views and the Multilayer Approval page. */
 export async function approvalTrail(feature: string, documentId: string): Promise<ApprovalTrailStage[]> {
   const client = db();
