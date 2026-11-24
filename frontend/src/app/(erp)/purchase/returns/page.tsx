@@ -79,7 +79,7 @@ interface ReturnRow {
   supplier: string;
   amount: number;
   returnType: string;
-  status: "Approved" | "Cancelled";
+  status: "Approved" | "Pending Approval" | "Cancelled";
   items?: Array<{
     itemCode: string;
     itemName: string;
@@ -208,7 +208,7 @@ export default function PurchaseReturnsPage() {
         supplier: r.supplierName,
         amount: r.totalReturnAmount,
         returnType: r.grnNumber === "Direct Return" ? "Direct / Ad-hoc" : "Against GRN",
-        status: r.status === "CANCELLED" ? "Cancelled" : "Approved",
+        status: r.status === "CANCELLED" ? "Cancelled" : r.status === "PENDING_APPROVAL" ? "Pending Approval" : "Approved",
         items: r.items.map((it) => ({
           itemCode: it.itemCode,
           itemName: it.itemName,
@@ -230,7 +230,8 @@ export default function PurchaseReturnsPage() {
       setFullReturnTarget(null);
       setPartialReturnTarget(null);
       setActiveTab("RETURN_LIST");
-      toast.success(`Return ${data.returnNumber} posted. Stock and supplier balance updated.`, { title: "Purchase Return Posted" });
+      if (data.status === "PENDING_APPROVAL") toast.success(`Return ${data.returnNumber} saved; the goods leave stock once its approval is complete.`, { title: "Sent for Approval" });
+      else toast.success(`Return ${data.returnNumber} posted. Stock and supplier balance updated.`, { title: "Purchase Return Posted" });
     },
     onError: (err: Error) => toast.error(err.message, { title: "Return Failed" }),
   });
@@ -790,7 +791,7 @@ export default function PurchaseReturnsPage() {
                           </span>
                         </td>
                         <td className="p-2 border border-line-strong text-center whitespace-nowrap">
-                          <span className={row.status === "Cancelled" ? "text-rose-600 dark:text-rose-400 font-semibold" : "text-emerald-700 dark:text-emerald-300 font-semibold"}>
+                          <span className={row.status === "Cancelled" ? "text-rose-600 dark:text-rose-400 font-semibold" : row.status === "Pending Approval" ? "text-amber-700 dark:text-amber-300 font-semibold" : "text-emerald-700 dark:text-emerald-300 font-semibold"}>
                             {row.status}
                           </span>
                         </td>

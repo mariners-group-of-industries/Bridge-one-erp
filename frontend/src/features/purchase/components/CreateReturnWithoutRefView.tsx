@@ -181,7 +181,8 @@ export function CreateReturnWithoutRefView() {
       queryClient.invalidateQueries({ queryKey: ["purchase-returns"] });
       queryClient.invalidateQueries({ queryKey: ["supplier-payments"] });
       queryClient.invalidateQueries({ queryKey: ["purchase-form-options"] });
-      toast.success(`Purchase Return ${created.returnNumber} saved; warehouse stock and supplier balance updated.`);
+      if (created.status === "PENDING_APPROVAL") toast.success(`Purchase Return ${created.returnNumber} saved; the goods leave stock once its approval is complete.`);
+      else toast.success(`Purchase Return ${created.returnNumber} saved; warehouse stock and supplier balance updated.`);
       router.push("/purchase/returns");
     },
     onError: (err: Error) => toast.error(err.message, { title: "Purchase Return Error" }),

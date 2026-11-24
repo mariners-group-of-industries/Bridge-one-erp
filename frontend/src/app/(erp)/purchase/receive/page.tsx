@@ -107,6 +107,9 @@ function receiptStatus(g: Receipt) {
   switch (g.status) {
     case "CANCELLED":
       return { text: "Cancelled", cls: "text-rose-600 dark:text-rose-400" };
+    case "DRAFT":
+      // Waiting for its "Goods Receipt" approval stages; stock is booked on the last one.
+      return { text: "Pending Approval", cls: "text-amber-700 dark:text-amber-300" };
     case "PARTIALLY_RETURNED":
       return { text: "Partly Returned", cls: "text-amber-700 dark:text-amber-300" };
     case "FULLY_RETURNED":
@@ -369,7 +372,8 @@ export default function PurchaseReceivePage() {
     onSuccess: (grn) => {
       invalidate();
       setReceiveForm(null);
-      toast.success(`${grn.grnNumber} posted: ${formatCurrency(grn.totalReceivedAmount)} received into ${grn.warehouseName}.`, { title: "Goods Received" });
+      if (grn.status === "DRAFT") toast.success(`${grn.grnNumber} saved; stock is booked once its Goods Receipt approval is complete.`, { title: "Sent for Approval" });
+      else toast.success(`${grn.grnNumber} posted: ${formatCurrency(grn.totalReceivedAmount)} received into ${grn.warehouseName}.`, { title: "Goods Received" });
     },
     onError: (err: Error) => toast.error(err.message, { title: "Receipt Failed" }),
   });
@@ -457,11 +461,12 @@ export default function PurchaseReceivePage() {
   };
 
   const returnMutation = useMutation({
-    mutationFn: (payload: Record<string, unknown>) => fetchApi<{ returnNumber: string; totalReturnAmount: number }>("/purchase/returns", { method: "POST", body: JSON.stringify(payload) }),
+    mutationFn: (payload: Record<string, unknown>) => fetchApi<{ returnNumber: string; totalReturnAmount: number; status?: string }>("/purchase/returns", { method: "POST", body: JSON.stringify(payload) }),
     onSuccess: (ret) => {
       invalidate();
       setReturnGRN(null);
-      toast.success(`${ret.returnNumber} posted (${formatCurrency(ret.totalReturnAmount)}). Stock and supplier balance updated.`, { title: "Purchase Return" });
+      if (ret.status === "PENDING_APPROVAL") toast.success(`${ret.returnNumber} saved; the goods leave stock once its Purchase Return approval is complete.`, { title: "Sent for Approval" });
+      else toast.success(`${ret.returnNumber} posted (${formatCurrency(ret.totalReturnAmount)}). Stock and supplier balance updated.`, { title: "Purchase Return" });
     },
     onError: (err: Error) => toast.error(err.message, { title: "Return Failed" }),
   });

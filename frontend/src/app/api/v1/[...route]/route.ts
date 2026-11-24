@@ -581,16 +581,20 @@ async function handlePOST(
       }
     }
 
-    // Approve Supplier Bill / Payment
-    if (
-      route[0] === "purchase" &&
-      route[1] === "supplier-payments" &&
-      route.length === 4 &&
-      route[3] === "approve"
-    ) {
+    // Multilayer approval of a goods receipt, purchase return or supplier payment waiting for it
+    if (route[0] === "purchase" && route.length === 4 && (route[3] === "approve" || route[3] === "reject")) {
       const id = route[2];
-      const updated = await purchaseStore.approveSupplierPayment(id, pActor);
-      return NextResponse.json({ success: true, data: updated });
+      const decision = route[3];
+      const comments = String(body?.comments ?? body?.comment ?? "");
+      if (route[1] === "receipts" || route[1] === "receive") {
+        return NextResponse.json({ success: true, data: await purchaseStore.decideGoodsReceipt(id, decision, actorName, comments, pActor) });
+      }
+      if (route[1] === "returns") {
+        return NextResponse.json({ success: true, data: await purchaseStore.decidePurchaseReturn(id, decision, actorName, comments, pActor) });
+      }
+      if (route[1] === "supplier-payments") {
+        return NextResponse.json({ success: true, data: await purchaseStore.decideSupplierPayment(id, decision, actorName, comments, pActor) });
+      }
     }
 
     return NextResponse.json(

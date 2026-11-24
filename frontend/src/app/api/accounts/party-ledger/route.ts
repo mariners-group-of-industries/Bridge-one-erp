@@ -29,8 +29,8 @@ const day = (d: Date) => d.toISOString().slice(0, 10);
 async function supplierEntries(partyId: string): Promise<Entry[]> {
   const prisma = db();
   const [receipts, returns, payments, bills] = await Promise.all([
-    prisma.goodsReceipt.findMany({ where: { supplierId: partyId, status: { not: "CANCELLED" } }, select: { number: true, receiveDate: true, totalAmount: true } }),
-    prisma.purchaseReturn.findMany({ where: { supplierId: partyId, status: { not: "CANCELLED" } }, select: { number: true, returnDate: true, totalAmount: true } }),
+    prisma.goodsReceipt.findMany({ where: { supplierId: partyId, status: { in: ["RECEIVED", "INSPECTED"] } }, select: { number: true, receiveDate: true, totalAmount: true } }),
+    prisma.purchaseReturn.findMany({ where: { supplierId: partyId, status: "COMPLETED" }, select: { number: true, returnDate: true, totalAmount: true } }),
     prisma.supplierPayment.findMany({ where: { supplierId: partyId, status: "PAID" }, select: { number: true, paymentDate: true, amount: true, method: true } }),
     prisma.supplierBill.findMany({ where: { supplierId: partyId, receiptId: null, status: { not: "CANCELLED" } }, select: { number: true, billDate: true, amount: true } }),
   ]);

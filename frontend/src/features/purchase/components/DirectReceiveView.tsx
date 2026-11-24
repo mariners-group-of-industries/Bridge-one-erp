@@ -415,7 +415,8 @@ export function DirectReceiveView() {
       queryClient.invalidateQueries({ queryKey: ["purchase-orders"] });
       queryClient.invalidateQueries({ queryKey: ["purchase-form-options"] });
       queryClient.invalidateQueries({ queryKey: ["items"] });
-      toast.success(`Direct Receive ${created.grnNumber} posted to Inventory Stock & GL.`);
+      if (created.status === "DRAFT") toast.success(`Direct Receive ${created.grnNumber} saved; stock is booked once its Goods Receipt approval is complete.`);
+      else toast.success(`Direct Receive ${created.grnNumber} posted to Inventory Stock & GL.`);
       if (saveAndNew) {
         // Clear everything that belongs to this one receipt, so the next one cannot repeat its document numbers.
         setAddedLines([]);

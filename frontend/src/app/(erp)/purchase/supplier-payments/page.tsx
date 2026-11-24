@@ -406,12 +406,13 @@ export default function SupplierPaymentsPage() {
   // Posts a supplier payment: lowers the supplier's payable.
   const paymentMutation = useMutation({
     mutationFn: (payload: Record<string, unknown>) =>
-      fetchApi<{ number: string }>("/purchase/supplier-payments", { method: "POST", body: JSON.stringify(payload) }),
+      fetchApi<{ number: string; status?: string }>("/purchase/supplier-payments", { method: "POST", body: JSON.stringify(payload) }),
     onSuccess: (data) => {
       refreshPayables();
       setQuickPayTarget(null);
       setIsAdvancePaymentOpen(false);
-      toast.success(`Payment ${data.number} posted. Supplier payable updated.`);
+      if (data.status === "DRAFT") toast.success(`Payment ${data.number} saved; it is paid once Payment Approval is complete.`, { title: "Sent for Approval" });
+      else toast.success(`Payment ${data.number} posted. Supplier payable updated.`);
     },
     onError: (err: Error) => toast.error(err.message),
   });
