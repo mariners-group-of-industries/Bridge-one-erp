@@ -274,9 +274,9 @@ export function AssignTaskView() {
   const formId = useId();
   const [activeRole, setActiveRole] = useState<ActiveUserRole>("Department Head");
 
-  const [companyName, setCompanyName] = useState("MOHS");
+  const [companyName, setCompanyName] = useState("Mariners");
   const [department, setDepartment] = useState("Legal");
-  const [projectName, setProjectName] = useState("MOHS Venice City Township");
+  const [projectName, setProjectName] = useState("Mariners Fleet & Logistics");
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [assignedToName, setAssignedToName] = useState("Adv. Rafiqul Islam");
@@ -319,9 +319,9 @@ export function AssignTaskView() {
   };
 
   const handleLoadSampleDraft = () => {
-    setCompanyName("MOHS");
+    setCompanyName("Mariners");
     setDepartment("Legal");
-    setProjectName("MOHS Venice City Township");
+    setProjectName("Mariners Fleet & Logistics");
     setTitle("Prepare Tripartite Commercial Plot Allotment & Indemnity Deed");
     setDescription(
       "Draft commercial plot allotment agreement with stamp duty schedule, power of attorney clause, and bank mortgage NOC verification."
@@ -393,7 +393,7 @@ export function AssignTaskView() {
     <div className="p-6 space-y-6 max-w-7xl mx-auto">
       <TaskModuleHeader
         title="Assign New Task — Staff Task Assignment Form"
-        subtitle="Create a uniquely numbered task across Mariners, MOHS, or Marinozz with automatic SLA reminders and supervisor verification."
+        subtitle="Create a uniquely numbered task across Mariners or Marinozz with automatic SLA reminders and supervisor verification."
         activeRole={activeRole}
         onRoleChange={setActiveRole}
       />
@@ -477,7 +477,6 @@ export function AssignTaskView() {
               className="w-full h-9 rounded-md border border-line bg-control/40 px-3 text-xs font-semibold text-ink"
             >
               <option value="Mariners">Mariners</option>
-              <option value="MOHS">MOHS</option>
               <option value="Marinozz">Marinozz</option>
             </select>
           </div>
@@ -1226,7 +1225,7 @@ export function AllTasksView() {
     <div className="p-6 space-y-6 max-w-7xl mx-auto">
       <TaskModuleHeader
         title="All Tasks — Master Group Task Registry"
-        subtitle="Centralized registry of all approved tasks across Mariners, MOHS, and Marinozz with immutable audit tracking."
+        subtitle="Centralized registry of all approved tasks across Mariners and Marinozz with immutable audit tracking."
         activeRole={activeRole}
         onRoleChange={setActiveRole}
         onRefresh={fetchAll}
@@ -1486,7 +1485,7 @@ export function DailyWorkReportView() {
   const formId = useId();
 
   const [employeeName, setEmployeeName] = useState("Adv. Rafiqul Islam");
-  const [companyName, setCompanyName] = useState("MOHS");
+  const [companyName, setCompanyName] = useState("Mariners");
   const [department, setDepartment] = useState("Legal");
   const [hoursLogged, setHoursLogged] = useState("8.5");
   const [tasksWorkedCount, setTasksWorkedCount] = useState("2");

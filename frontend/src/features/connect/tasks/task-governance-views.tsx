@@ -806,7 +806,6 @@ export function RecurringTasksView() {
               className="w-full h-8 rounded border border-line bg-control/40 px-2 font-semibold text-ink"
             >
               <option value="Mariners">Mariners</option>
-              <option value="MOHS">MOHS</option>
               <option value="Marinozz">Marinozz</option>
             </select>
           </div>
@@ -1237,7 +1236,7 @@ export function ManagementDashboardView() {
     <div className="p-6 space-y-6 max-w-7xl mx-auto">
       <TaskModuleHeader
         title="Management Dashboard — MD & Group Executive Command Center"
-        subtitle="Centralized oversight across Mariners, MOHS, and Marinozz with live Executive Filters and MD's 3 Golden Reports."
+        subtitle="Centralized oversight across Mariners and Marinozz with live Executive Filters and MD's 3 Golden Reports."
         activeRole={activeRole}
         onRoleChange={setActiveRole}
         onRefresh={fetchAll}
@@ -1267,7 +1266,7 @@ export function ManagementDashboardView() {
       {/* Section 6: MD Executive Filter Bar (Company Pills + Department + Employee) */}
       <div className="rounded-xl border border-line bg-surface p-4 space-y-3 shadow-2xs">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          {/* Company Pills: All Companies | Mariners | MOHS | Marinozz */}
+          {/* Company Pills: All Companies | Mariners | Marinozz */}
           <div className="flex flex-wrap items-center gap-1.5">
             {COMPANIES.map((comp) => (
               <button
@@ -1706,7 +1705,7 @@ export function TaskSettingsView() {
             <div className="rounded-lg border border-line bg-control/30 p-3">
               <div className="font-bold text-blue-600">1. Managing Director (MD) / Group Management</div>
               <div className="text-ink-muted mt-0.5">
-                Full access across all companies (Mariners, MOHS, Marinozz), 3 Golden Reports, executive unblock directives, and final KPI overrides.
+                Full access across all companies (Mariners, Marinozz), 3 Golden Reports, executive unblock directives, and final KPI overrides.
               </div>
             </div>
             <div className="rounded-lg border border-line bg-control/30 p-3">
