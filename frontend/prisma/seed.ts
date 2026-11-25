@@ -87,11 +87,6 @@ async function main() {
       warehouses: [],
     },
     {
-      name: "MOHS-Eco",
-      address: GULFESHA_ADDRESS,
-      warehouses: ["MOHS_ECO_MW", "MOHS_ECO_CW"],
-    },
-    {
       name: "MFGL-HO",
       address: GULFESHA_ADDRESS,
       warehouses: [],

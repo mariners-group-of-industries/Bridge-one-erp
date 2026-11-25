@@ -372,9 +372,9 @@ async function seedInitialTaskEcosystem(): Promise<void> {
     {
       id: "11111111-2222-4333-8444-000000000001",
       taskCode: "LEGAL-2026-001",
-      companyName: "MOHS",
+      companyName: "Mariners",
       department: "Legal",
-      projectName: "MOHS Venice City Township",
+      projectName: "Group Corporate Legal & Compliance",
       title: "Prepare Client Investment Deed",
       description:
         "Draft and vet the tripartite client investment deed for Plot Sector-B commercial investors, including stamp duty schedule, arbitration clause, and land schedule verification.",
@@ -518,9 +518,9 @@ async function seedInitialTaskEcosystem(): Promise<void> {
     {
       id: "11111111-2222-4333-8444-000000000004",
       taskCode: "SALES-2026-004",
-      companyName: "MOHS",
+      companyName: "Mariners",
       department: "Sales",
-      projectName: "MOHS Venice City Township",
+      projectName: "Mariners Fleet & Logistics",
       title: "Finalize Plot Handover Documentation for Block-C Clients",
       description:
         "Compile zero-due clearance certificates, engineering demarcation maps, and signed possession letters for 12 residential plot owners in Block-C.",
@@ -566,9 +566,9 @@ async function seedInitialTaskEcosystem(): Promise<void> {
     {
       id: "11111111-2222-4333-8444-000000000005",
       taskCode: "PROC-2026-005",
-      companyName: "MOHS",
+      companyName: "Mariners",
       department: "Procurement",
-      projectName: "MOHS Venice City Township",
+      projectName: "Mariners Fleet & Logistics",
       title: "Vendor Price Negotiation for 500 MT Structural Steel Batch Q4",
       description:
         "Conduct comparative CS analysis across top 4 steel manufacturers and lock credit terms (90-day LC) within approved project budget.",
@@ -802,9 +802,9 @@ async function seedInitialTaskEcosystem(): Promise<void> {
     {
       id: "11111111-2222-4333-8444-000000000010",
       taskCode: "LEGAL-2026-010",
-      companyName: "MOHS",
+      companyName: "Mariners",
       department: "Legal",
-      projectName: "MOHS Venice City Township",
+      projectName: "Group Corporate Legal & Compliance",
       title: "Sub-Registry Mutation & Land Tax Clearance for Sector-A2",
       description:
         "Complete Dakhila verification, mutation khatian indexing, and upload certified scan copies to the Legal Repository.",
@@ -968,9 +968,9 @@ async function seedInitialTaskEcosystem(): Promise<void> {
       assigned_to_id, assigned_to_name, reporting_to_name, priority, frequency,
       schedule_label, due_offset_hours, verification_required, is_active, last_generated_at
     ) VALUES
-      ('55555555-2222-4333-8444-000000000001', 'REC-DAILY-001', 'Mariners', 'Accounts', 'Group Treasury Operations', 'Daily Cashbook & Bank Position Summary for MD', 'Compile opening/closing balances across all Mariners, MOHS, and Marinozz bank accounts and submit daily liquidity sheet.', 'emp-acc-01', 'Nusrat Jahan', 'Shafiqur Rahman (CFO)', 'HIGH', 'DAILY', 'Every Working Day at 9:30 AM (Deadline 11:30 AM)', 2, TRUE, TRUE, $1),
+      ('55555555-2222-4333-8444-000000000001', 'REC-DAILY-001', 'Mariners', 'Accounts', 'Group Treasury Operations', 'Daily Cashbook & Bank Position Summary for MD', 'Compile opening/closing balances across all Mariners and Marinozz bank accounts and submit daily liquidity sheet.', 'emp-acc-01', 'Nusrat Jahan', 'Shafiqur Rahman (CFO)', 'HIGH', 'DAILY', 'Every Working Day at 9:30 AM (Deadline 11:30 AM)', 2, TRUE, TRUE, $1),
       ('55555555-2222-4333-8444-000000000002', 'REC-DAILY-002', 'Marinozz', 'HR', 'Marinozz Retail Expansion', 'Daily Biometric Attendance & Shift Roster Verification', 'Audit morning attendance across Head Office and retail outlets and reconcile leave records.', 'emp-hr-01', 'Sabrina Karim', 'Managing Director', 'MEDIUM', 'DAILY', 'Every Working Day at 9:15 AM (Deadline 10:30 AM)', 2, TRUE, TRUE, $1),
-      ('55555555-2222-4333-8444-000000000003', 'REC-WEEKLY-001', 'MOHS', 'Sales', 'MOHS Venice City Township', 'Weekly Client Booking, Collection & Plot Handover Pipeline Report', 'Summarize weekly plot bookings, down-payment collections, and installment overdue recovery.', 'emp-sales-01', 'Tanvir Ahmed', 'Mahmudul Hasan (Director Sales)', 'HIGH', 'WEEKLY', 'Every Thursday at 10:00 AM (Deadline 5:00 PM)', 7, TRUE, TRUE, $1),
+      ('55555555-2222-4333-8444-000000000003', 'REC-WEEKLY-001', 'Mariners', 'Sales', 'Mariners Fleet & Logistics', 'Weekly Client Booking, Collection & Plot Handover Pipeline Report', 'Summarize weekly plot bookings, down-payment collections, and installment overdue recovery.', 'emp-sales-01', 'Tanvir Ahmed', 'Mahmudul Hasan (Director Sales)', 'HIGH', 'WEEKLY', 'Every Thursday at 10:00 AM (Deadline 5:00 PM)', 7, TRUE, TRUE, $1),
       ('55555555-2222-4333-8444-000000000004', 'REC-MONTHLY-001', 'Mariners', 'Accounts', 'FY2026 Statutory Tax & Audit', 'Monthly VAT Mushak-9.1 & Withholding Tax Return Filing', 'Prepare and verify monthly statutory VAT & AIT returns with treasury challans across all units.', 'emp-acc-01', 'Nusrat Jahan', 'Shafiqur Rahman (CFO)', 'CRITICAL', 'MONTHLY', '1st Working Day of Month (Deadline 10th of Month)', 72, TRUE, TRUE, $1)
     ON CONFLICT (template_code) DO NOTHING
     `,
@@ -985,9 +985,9 @@ async function seedInitialTaskEcosystem(): Promise<void> {
       tasks_worked_count, tasks_completed_count, tasks_blocked_count, hours_logged,
       summary_notes, achievements, blockers_reported, next_day_plan, on_approved_leave, supervisor_acknowledged
     ) VALUES
-      ('66666666-2222-4333-8444-000000000001', CURRENT_DATE, 'emp-legal-01', 'Adv. Rafiqul Islam', 'MOHS', 'Legal', 'Senior Legal Counsel', 2, 1, 0, 8.5, 'Completed Sector-A2 Sub-Registry Mutation verification and reached 60% progress on Client Investment Deed (LEGAL-2026-001).', 'Certified Mutation Dakhila A2 verified (5/5 quality rating).', 'Waiting for investor NID annexure from Sales team.', 'Submit LEGAL-2026-001 for final approval by 4:00 PM.', FALSE, TRUE),
+      ('66666666-2222-4333-8444-000000000001', CURRENT_DATE, 'emp-legal-01', 'Adv. Rafiqul Islam', 'Mariners', 'Legal', 'Senior Legal Counsel', 2, 1, 0, 8.5, 'Completed Sector-A2 Sub-Registry Mutation verification and reached 60% progress on Client Investment Deed (LEGAL-2026-001).', 'Certified Mutation Dakhila A2 verified (5/5 quality rating).', 'Waiting for investor NID annexure from Sales team.', 'Submit LEGAL-2026-001 for final approval by 4:00 PM.', FALSE, TRUE),
       ('66666666-2222-4333-8444-000000000002', CURRENT_DATE, 'emp-acc-01', 'Nusrat Jahan', 'Mariners', 'Accounts', 'Senior Manager, Accounts', 2, 0, 0, 9.0, 'Reconciled 5 corporate bank ledgers and reviewed steel procurement LC costings.', 'Completed 80% of monthly bank reconciliation.', 'Awaiting Eastern Bank LC debit advice.', 'Finalize Mushak-9.1 return and submit for CFO verification.', FALSE, TRUE),
-      ('66666666-2222-4333-8444-000000000003', CURRENT_DATE, 'emp-sales-01', 'Tanvir Ahmed', 'MOHS', 'Sales', 'AGM, Corporate Sales', 2, 1, 0, 8.0, 'Compiled and submitted all 12 Block-C plot handover dossiers for supervisor approval.', '100% completion of SALES-2026-004 ahead of deadline.', 'None', 'Follow up on Investor NID annexure for Legal.', FALSE, TRUE),
+      ('66666666-2222-4333-8444-000000000003', CURRENT_DATE, 'emp-sales-01', 'Tanvir Ahmed', 'Mariners', 'Sales', 'AGM, Corporate Sales', 2, 1, 0, 8.0, 'Compiled and submitted all 12 Block-C plot handover dossiers for supervisor approval.', '100% completion of SALES-2026-004 ahead of deadline.', 'None', 'Follow up on Investor NID annexure for Legal.', FALSE, TRUE),
       ('66666666-2222-4333-8444-000000000004', CURRENT_DATE, 'emp-ops-01', 'Capt. Tareq Mahmud', 'Mariners', 'Operations', 'Head of Marine Operations', 1, 0, 1, 8.5, 'Completed Chittagong Customs assessment for Shipment #408; logged verified blocker for HS code bank guarantee.', 'Customs assessment completed without penalty.', 'Requires MD decision on BDT 14.5L bank guarantee (Verified Blocker — KPI protected).', 'Execute container release immediately upon bank guarantee issuance.', FALSE, TRUE),
       ('66666666-2222-4333-8444-000000000005', CURRENT_DATE, 'emp-acc-02', 'Sajid Hasan', 'Marinozz', 'Accounts', 'Accounts Executive', 1, 1, 0, 8.0, 'Executed Supplier Payment Batch #19 across 14 vendors and uploaded stamped RTGS bank advice.', 'Verified Completed with 5-star quality rating.', 'None', 'Prepare Marinozz outlet petty cash reconciliation.', FALSE, TRUE),
       ('66666666-2222-4333-8444-000000000006', CURRENT_DATE, 'emp-hr-01', 'Sabrina Karim', 'Marinozz', 'HR', 'HR & Admin Manager', 1, 1, 0, 8.0, 'Verified biometric attendance across all offices and updated HRM leave ledger.', 'Daily attendance report verified before 11:00 AM.', 'None', 'Conduct onboarding orientation for 3 new sales executives.', FALSE, TRUE)

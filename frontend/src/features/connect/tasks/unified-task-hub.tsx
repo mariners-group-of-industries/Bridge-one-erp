@@ -85,9 +85,9 @@ export function UnifiedTaskHub() {
 
   // In-page Quick Assign Modal State
   const [showAssignModal, setShowAssignModal] = useState(false);
-  const [assignCompany, setAssignCompany] = useState("MOHS");
+  const [assignCompany, setAssignCompany] = useState("Mariners");
   const [assignDept, setAssignDept] = useState("Legal");
-  const [assignProject, setAssignProject] = useState(PROJECTS_BY_COMPANY["MOHS"][0]);
+  const [assignProject, setAssignProject] = useState(PROJECTS_BY_COMPANY["Mariners"][0]);
   const [assignTitle, setAssignTitle] = useState("");
   const [assignDesc, setAssignDesc] = useState("");
   const [assignStaff, setAssignStaff] = useState("Adv. Rafiqul Islam");
@@ -1204,7 +1204,6 @@ export function UnifiedTaskHub() {
                     }}
                     className="w-full h-8 rounded-lg border border-line bg-control/40 px-2 font-semibold text-ink"
                   >
-                    <option value="MOHS">MOHS</option>
                     <option value="Mariners">Mariners</option>
                     <option value="Marinozz">Marinozz</option>
                   </select>
