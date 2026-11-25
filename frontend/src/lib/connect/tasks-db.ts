@@ -27,6 +27,12 @@ export interface TaskCollaborator {
   department: string;
 }
 
+export interface TaskChecklistItem {
+  id: string;
+  text: string;
+  done: boolean;
+}
+
 export interface ConnectTaskRecord {
   id: string;
   taskCode: string;
@@ -39,6 +45,7 @@ export interface ConnectTaskRecord {
   assignedToName: string;
   assignedToDesignation: string;
   collaborators: TaskCollaborator[];
+  checklist: TaskChecklistItem[];
   assignedById: string;
   assignedByName: string;
   assignedByRole: string;
@@ -80,6 +87,30 @@ export interface ConnectTaskRecord {
   hoursUntilDeadline: number;
   computedEscalation: EscalationStage;
   priorityWeight: number;
+}
+
+/**
+ * Only Master users see every task; everyone else sees only tasks assigned to them,
+ * allocated by them, or where they are a collaborator.
+ */
+export function canViewConnectTask(
+  task: Pick<ConnectTaskRecord, "assignedToId" | "assignedToName" | "assignedById" | "assignedByName" | "collaborators">,
+  actor: { id: string; name?: string | null; isMaster?: boolean },
+  currentEmployeeId: string | null
+): boolean {
+  if (actor.isMaster) return true;
+  const actorName = actor.name?.trim().toLowerCase();
+  if (task.assignedToId === actor.id || task.assignedById === actor.id) return true;
+  if (currentEmployeeId && task.assignedToId === currentEmployeeId) return true;
+  if (actorName && (task.assignedToName.toLowerCase() === actorName || task.assignedByName.toLowerCase() === actorName)) {
+    return true;
+  }
+  return task.collaborators.some(
+    (c) =>
+      c.id === actor.id ||
+      (currentEmployeeId ? c.id === currentEmployeeId : false) ||
+      (actorName ? c.name.toLowerCase() === actorName : false)
+  );
 }
 
 export interface EmployeeKpiScorecard {
@@ -231,8 +262,11 @@ export async function ensureTasksSchema(): Promise<void> {
       completed_at TIMESTAMPTZ,
       verified_at TIMESTAMPTZ,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      checklist JSONB NOT NULL DEFAULT '[]'::jsonb
     );
+
+    ALTER TABLE connect_tasks ADD COLUMN IF NOT EXISTS checklist JSONB NOT NULL DEFAULT '[]'::jsonb;
 
     CREATE TABLE IF NOT EXISTS connect_task_logs (
       id UUID PRIMARY KEY,
@@ -351,14 +385,6 @@ export async function ensureTasksSchema(): Promise<void> {
     VALUES ('global')
     ON CONFLICT (id) DO NOTHING;
   `);
-
-  // Check if seed tasks exist
-  const countRes = await pool.query(`SELECT COUNT(*)::int AS cnt FROM connect_tasks`);
-  const count = countRes.rows[0]?.cnt ?? 0;
-
-  if (count === 0) {
-    await seedInitialTaskEcosystem();
-  }
 
   schemaInitialized = true;
 }
@@ -1022,6 +1048,17 @@ export function mapTaskRow(row: any): ConnectTaskRecord {
     }
   }
 
+  let parsedChecklist: TaskChecklistItem[] = [];
+  if (Array.isArray(row.checklist)) {
+    parsedChecklist = row.checklist as TaskChecklistItem[];
+  } else if (typeof row.checklist === "string") {
+    try {
+      parsedChecklist = JSON.parse(row.checklist);
+    } catch {
+      parsedChecklist = [];
+    }
+  }
+
   return {
     id: String(row.id),
     taskCode: String(row.task_code),
@@ -1034,6 +1071,7 @@ export function mapTaskRow(row: any): ConnectTaskRecord {
     assignedToName: String(row.assigned_to_name),
     assignedToDesignation: String(row.assigned_to_designation || "Executive"),
     collaborators: parsedCollaborators,
+    checklist: parsedChecklist,
     assignedById: String(row.assigned_by_id),
     assignedByName: String(row.assigned_by_name),
     assignedByRole: String(row.assigned_by_role || "Department Head"),

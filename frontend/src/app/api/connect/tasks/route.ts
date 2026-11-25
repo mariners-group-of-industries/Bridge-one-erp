@@ -8,6 +8,7 @@ import { getPusherServer } from "@/lib/connect/pusher-server";
 import {
   ensureTasksSchema,
   mapTaskRow,
+  canViewConnectTask,
   calculateEmployeeKpiScorecards,
   type TaskPriority,
   type RecurringType,
@@ -21,7 +22,7 @@ function deptPrefix(dept: string): string {
   return clean.slice(0, 8) || "TASK";
 }
 
-async function handleGET(req: Request) {
+async function handleGET(req: Request, actor: Actor) {
   try {
     await ensureTasksSchema();
     const pool = getConnectPool();
@@ -53,10 +54,21 @@ async function handleGET(req: Request) {
       pool.query(`SELECT * FROM connect_task_logs ORDER BY created_at DESC LIMIT 150`),
     ]);
 
-    const allTasks = tasksRes.rows.map(mapTaskRow);
+    let currentEmployeeId: string | null = null;
+    try {
+      const empSelf = await pool.query(`SELECT id FROM employees WHERE "userId"::text = $1 LIMIT 1`, [actor.id]);
+      currentEmployeeId = empSelf.rows[0]?.id ? String(empSelf.rows[0].id) : null;
+    } catch {
+      currentEmployeeId = null;
+    }
 
-    // Apply filters for the filtered view while keeping allTasks for KPI/Golden Reports if needed
-    const filteredTasks = allTasks.filter((t) => {
+    const allTasks = tasksRes.rows.map(mapTaskRow);
+    const visibleTasks = actor.isMaster
+      ? allTasks
+      : allTasks.filter((t) => canViewConnectTask(t, actor, currentEmployeeId));
+
+    // Apply filters for the filtered view while keeping visibleTasks for KPI/Golden Reports
+    const filteredTasks = visibleTasks.filter((t) => {
       if (company && company !== "All" && company !== "All Companies") {
         if (t.companyName.toLowerCase() !== company.toLowerCase()) return false;
       }
@@ -116,6 +128,12 @@ async function handleGET(req: Request) {
 
     return NextResponse.json({
       success: true,
+      currentUser: {
+        id: actor.id,
+        name: actor.name || "ERP User",
+        employeeId: currentEmployeeId,
+        isMaster: Boolean(actor.isMaster),
+      },
       tasks: filteredTasks,
       summary: {
         totalTasks,
@@ -192,80 +210,139 @@ async function handlePOST(req: Request, actor: Actor) {
       const recurringType = (String(body.recurringType || "ONE_TIME").toUpperCase() as RecurringType);
       const attachmentName = body.attachmentName ? String(body.attachmentName).trim() : null;
       const attachmentUrl = body.attachmentUrl ? String(body.attachmentUrl).trim() : null;
+      const checklist = Array.isArray(body.checklist)
+        ? body.checklist
+            .filter((item: unknown) => item && typeof item === "object" && String((item as { text?: string }).text || "").trim())
+            .map((item: { id?: string; text?: string; done?: boolean }) => ({
+              id: String(item.id || randomUUID()),
+              text: String(item.text || "").trim(),
+              done: Boolean(item.done),
+            }))
+        : [];
 
-      if (!title || !assignedToName) {
+      const assigneesList: Array<{ id: string; name: string; designation: string; department?: string }> =
+        Array.isArray(body.assignees) && body.assignees.length > 0
+          ? body.assignees
+              .filter((a: unknown) => a && typeof a === "object" && String((a as { name?: string }).name || "").trim())
+              .map((a: { id?: string; name?: string; designation?: string; department?: string }) => ({
+                id: String(a.id || `emp-${Date.now()}`),
+                name: String(a.name || "").trim(),
+                designation: String(a.designation || "Executive").trim(),
+                department: a.department ? String(a.department).trim() : undefined,
+              }))
+          : [{ id: assignedToId, name: assignedToName, designation: assignedToDesignation, department }];
+
+      if (!title || assigneesList.length === 0 || !assigneesList[0].name) {
         return NextResponse.json(
           { success: false, error: "Task Title and Assigned Employee are required." },
           { status: 400 }
         );
       }
 
-      // Generate Unique Task ID: e.g. LEGAL-2026-011
       const seqRes = await pool.query(`SELECT COUNT(*)::int AS cnt FROM connect_tasks`);
-      const nextNum = (seqRes.rows[0]?.cnt ?? 0) + 1;
+      let nextNum = (seqRes.rows[0]?.cnt ?? 0) + 1;
       const year = new Date().getFullYear();
-      const taskCode = `${deptPrefix(department)}-${year}-${String(nextNum).padStart(3, "0")}`;
-      const id = randomUUID();
 
-      const insertRes = await pool.query(
-        `
-        INSERT INTO connect_tasks (
-          id, task_code, company_name, department, project_name, title, description,
-          assigned_to_id, assigned_to_name, assigned_to_designation, collaborators,
-          assigned_by_id, assigned_by_name, assigned_by_role, reporting_to_id, reporting_to_name,
-          start_date, original_deadline, deadline, priority, status, progress_percent,
-          verification_required, recurring_type, attachment_name, attachment_url
-        ) VALUES (
-          $1, $2, $3, $4, $5, $6, $7,
-          $8, $9, $10, $11::jsonb,
-          $12, $13, $14, $15, $16,
-          $17, $18, $19, $20, 'NOT_STARTED', 0,
-          $21, $22, $23, $24
-        ) RETURNING *
-        `,
-        [
-          id,
-          taskCode,
-          companyName,
-          department,
-          projectName,
-          title,
-          description,
-          assignedToId,
-          assignedToName,
-          assignedToDesignation,
-          JSON.stringify(collaborators),
-          actorId,
-          assignedByName,
-          assignedByRole,
-          actorId,
-          reportingToName,
-          startDate,
-          deadline,
-          deadline,
-          priority,
-          verificationRequired,
-          recurringType,
-          attachmentName,
-          attachmentUrl,
-        ]
-      );
+      const allocationMode = String(body.allocationMode || "INDIVIDUAL").toUpperCase();
+      const groupName = String(body.groupName || "").trim();
+      const isSharedGroup = allocationMode === "GROUP" && assigneesList.length > 1;
 
-      // Write progress log
-      await pool.query(
-        `
-        INSERT INTO connect_task_logs (id, task_id, actor_id, actor_name, actor_role, action_type, previous_status, new_status, progress_percent, remarks)
-        VALUES ($1, $2, $3, $4, $5, 'TASK_ASSIGNED', NULL, 'NOT_STARTED', 0, $6)
-        `,
-        [
-          randomUUID(),
-          id,
-          actorId,
-          assignedByName,
-          assignedByRole,
-          `Assigned new ${priority} priority task (#${taskCode}) to ${assignedToName}.`,
-        ]
-      );
+      const primaryAssignee = assigneesList[0];
+      const targets = isSharedGroup
+        ? [
+            {
+              id: primaryAssignee.id,
+              name: groupName ? `${groupName} (${assigneesList.length})` : `${primaryAssignee.name} +${assigneesList.length - 1}`,
+              designation: "Group Task",
+              department: groupName || primaryAssignee.department || department,
+              collaboratorsList: [
+                ...collaborators,
+                ...assigneesList.map((a) => ({
+                  id: a.id,
+                  name: a.name,
+                  department: a.department || department,
+                })),
+              ],
+            },
+          ]
+        : assigneesList.map((a) => ({
+            ...a,
+            collaboratorsList: collaborators,
+          }));
+
+      let firstCreatedRow = null as Record<string, unknown> | null;
+      const createdTasks = [];
+
+      for (const target of targets) {
+        const taskDept = target.department || department;
+        const taskCode = `${deptPrefix(taskDept)}-${year}-${String(nextNum).padStart(3, "0")}`;
+        nextNum += 1;
+        const id = randomUUID();
+
+        const insertRes = await pool.query(
+          `
+          INSERT INTO connect_tasks (
+            id, task_code, company_name, department, project_name, title, description,
+            assigned_to_id, assigned_to_name, assigned_to_designation, collaborators, checklist,
+            assigned_by_id, assigned_by_name, assigned_by_role, reporting_to_id, reporting_to_name,
+            start_date, original_deadline, deadline, priority, status, progress_percent,
+            verification_required, recurring_type, attachment_name, attachment_url
+          ) VALUES (
+            $1, $2, $3, $4, $5, $6, $7,
+            $8, $9, $10, $11::jsonb, $12::jsonb,
+            $13, $14, $15, $16, $17,
+            $18, $19, $20, $21, 'NOT_STARTED', 0,
+            $22, $23, $24, $25
+          ) RETURNING *
+          `,
+          [
+            id,
+            taskCode,
+            companyName,
+            taskDept,
+            projectName,
+            title,
+            description,
+            target.id,
+            target.name,
+            target.designation,
+            JSON.stringify(target.collaboratorsList),
+            JSON.stringify(checklist),
+            actorId,
+            assignedByName,
+            assignedByRole,
+            actorId,
+            reportingToName,
+            startDate,
+            deadline,
+            deadline,
+            priority,
+            verificationRequired,
+            recurringType,
+            attachmentName,
+            attachmentUrl,
+          ]
+        );
+        if (!firstCreatedRow) firstCreatedRow = insertRes.rows[0];
+        createdTasks.push(mapTaskRow(insertRes.rows[0]));
+
+        await pool.query(
+          `
+          INSERT INTO connect_task_logs (id, task_id, actor_id, actor_name, actor_role, action_type, previous_status, new_status, progress_percent, remarks)
+          VALUES ($1, $2, $3, $4, $5, 'TASK_ASSIGNED', NULL, 'NOT_STARTED', 0, $6)
+          `,
+          [
+            randomUUID(),
+            id,
+            actorId,
+            assignedByName,
+            assignedByRole,
+            `Assigned new ${priority} priority task (#${taskCode}) to ${target.name}.`,
+          ]
+        );
+      }
+
+      const taskCode = createdTasks[0].taskCode;
 
       // If Recurring != ONE_TIME, also register in recurring templates automatically
       if (recurringType !== "ONE_TIME") {
@@ -286,8 +363,8 @@ async function handlePOST(req: Request, actor: Actor) {
             projectName,
             title,
             description,
-            assignedToId,
-            assignedToName,
+            primaryAssignee.id,
+            primaryAssignee.name,
             reportingToName,
             priority,
             recurringType,
@@ -295,6 +372,61 @@ async function handlePOST(req: Request, actor: Actor) {
             verificationRequired,
           ]
         );
+      }
+
+      // Send direct BRG Connect Chat notification to each linked employee
+      try {
+        for (let i = 0; i < assigneesList.length; i += 1) {
+          const assignee = assigneesList[i];
+          const created = isSharedGroup ? createdTasks[0] : createdTasks[i];
+          const empUserRes = await pool.query(
+            `SELECT "userId" FROM employees WHERE id::text = $1 AND "userId" IS NOT NULL LIMIT 1`,
+            [assignee.id]
+          );
+          const targetUserId = empUserRes.rows[0]?.userId ? String(empUserRes.rows[0].userId) : null;
+          if (!targetUserId || targetUserId === actorId) continue;
+
+          const existingConv = await pool.query(
+            `
+            SELECT c.id FROM connect_conversations c
+            JOIN connect_conversation_members m1 ON m1.conversation_id = c.id AND m1.user_id::text = $1 AND m1.left_at IS NULL
+            JOIN connect_conversation_members m2 ON m2.conversation_id = c.id AND m2.user_id::text = $2 AND m2.left_at IS NULL
+            WHERE c.type = 'DIRECT' AND c.is_archived = false
+            LIMIT 1
+            `,
+            [actorId, targetUserId]
+          );
+          let convId = existingConv.rows[0]?.id ? String(existingConv.rows[0].id) : null;
+          if (!convId) {
+            convId = randomUUID();
+            await pool.query(
+              `INSERT INTO connect_conversations (id, type, created_by_id, is_archived, created_at, updated_at) VALUES ($1, 'DIRECT', $2::uuid, false, NOW(), NOW())`,
+              [convId, actorId]
+            );
+            await pool.query(
+              `INSERT INTO connect_conversation_members (id, conversation_id, user_id, role) VALUES ($1, $2, $3::uuid, 'MEMBER'), ($4, $2, $5::uuid, 'MEMBER') ON CONFLICT DO NOTHING`,
+              [randomUUID(), convId, actorId, randomUUID(), targetUserId]
+            );
+          }
+          const msgBody = `New Task Allocated: [${created.taskCode}] ${title}\nPriority: ${priority} · Due: ${deadline.slice(0, 10)}`;
+          await pool.query(
+            `
+            INSERT INTO connect_messages (id, conversation_id, sender_id, type, body, erp_record_type, erp_record_id, erp_record_data, created_at)
+            VALUES ($1, $2, $3::uuid, 'TEXT', $4, 'TASK', $5, $6::jsonb, NOW())
+            `,
+            [
+              randomUUID(),
+              convId,
+              actorId,
+              msgBody,
+              created.id,
+              JSON.stringify({ taskCode: created.taskCode, title, priority, deadline: deadline.slice(0, 10) }),
+            ]
+          );
+          await pool.query(`UPDATE connect_conversations SET updated_at = NOW() WHERE id = $1`, [convId]);
+        }
+      } catch {
+        // Non-blocking: chat notification failure should never fail task creation
       }
 
       // Broadcast real-time notification via Pusher
@@ -306,7 +438,7 @@ async function handlePOST(req: Request, actor: Actor) {
             conversationId: "task-alerts",
             senderId: actorId,
             senderName: `${assignedByName} (Task Desk)`,
-            content: `New Task Assigned: [${taskCode}] ${title} — Assigned to ${assignedToName} (${priority} Priority)`,
+            content: `New Task Assigned: [${taskCode}] ${title} — Assigned to ${assigneesList.map((a) => a.name).join(", ")} (${priority} Priority)`,
             createdAt: new Date().toISOString(),
           });
         }
@@ -316,7 +448,8 @@ async function handlePOST(req: Request, actor: Actor) {
 
       return NextResponse.json({
         success: true,
-        task: mapTaskRow(insertRes.rows[0]),
+        task: createdTasks[0],
+        tasks: createdTasks,
       });
     }
 
@@ -609,6 +742,6 @@ async function handlePOST(req: Request, actor: Actor) {
   }
 }
 
-export const GET = apiHandler("configuration:read", (req) => handleGET(req));
+export const GET = apiHandler("configuration:read", (req, _context, actor) => handleGET(req, actor));
 export const POST = apiHandler("configuration:write", (req, _context, actor) => handlePOST(req, actor));
 
