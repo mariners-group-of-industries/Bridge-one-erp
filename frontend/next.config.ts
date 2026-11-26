@@ -6,6 +6,9 @@ const nextConfig: NextConfig = {
   output: "standalone",
   cacheComponents: true,
   partialPrefetching: true,
+  experimental: {
+    agentUpgrade: "security",
+  },
   serverExternalPackages: ["argon2"],
   // Some ZKTeco firmwares push to /iclock/cdata.aspx etc. (ADMS); same handlers.
   async rewrites() {
