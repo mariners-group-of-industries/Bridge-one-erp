@@ -15,6 +15,7 @@ export const AUTO_TRANS_TYPES: Record<string, string> = {
   SALES_COLLECTION: "Due Receive",
   POS_SALE: "POS Accounting",
   INVENTORY: "Inventory Movement",
+  PRODUCTION_ENTRY: "Production",
   PAYROLL: "Payroll",
 };
 

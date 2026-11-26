@@ -360,7 +360,7 @@ export default function ChequeIssuePage() {
   }
 
   return (
-    <div className="space-y-2.5 font-sans bg-canvas flex flex-col md:h-[calc(100dvh-3.5rem)] md:overflow-hidden print:block print:h-auto print:overflow-visible">
+    <div className="space-y-2 font-sans bg-surface p-3 flex flex-col md:h-[calc(100dvh-3.5rem)] md:overflow-hidden print:block print:h-auto print:overflow-visible">
       {/* ------------------------------------------------------------- */}
       {/* 1. TOP TAB ROW WITH SEARCH & + CREATE (Matching Screenshot) */}
       {/* ------------------------------------------------------------- */}

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { AppError } from "@/lib/api/errors";
 import { db } from "@/lib/prisma/client";
 import { apiHandler } from "@/lib/api/handler";
 import { applyVoucherLinesToAccounts, createVoucherInTx } from "@/lib/accounting/accounts-service";
@@ -111,6 +112,8 @@ async function handlePATCH(
 
     return NextResponse.json({ success: false, error: "Unsupported journal action" }, { status: 400 });
   } catch (error) {
+    // An approval refusal ("waiting for stage 2 …") is the approver's answer, not a server failure.
+    if (error instanceof AppError) return NextResponse.json({ success: false, error: error.message }, { status: error.status });
     console.error("Failed to update Journal Voucher:", error);
     return NextResponse.json(
       { success: false, error: error instanceof Error ? error.message : "Failed to update Journal Voucher" },

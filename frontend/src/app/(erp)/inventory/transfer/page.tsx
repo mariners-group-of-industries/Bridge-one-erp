@@ -370,7 +370,7 @@ export default function TransferPage() {
   };
 
   return (
-    <div className="space-y-3 p-1 flex flex-col md:h-[calc(100dvh-3.5rem)] md:overflow-hidden print:block print:h-auto print:overflow-visible">
+    <div className="bg-surface space-y-2 p-3 flex flex-col md:h-[calc(100dvh-3.5rem)] md:overflow-hidden print:block print:h-auto print:overflow-visible">
       <InventoryTabBar
         title="Transfer"
         tabs={tabs}
@@ -402,7 +402,7 @@ export default function TransferPage() {
       {activeTab === "APPROVED_REQ" && (
         <div className="space-y-2 flex-1 min-h-0 flex flex-col print:block">
           {/* Filter row 1 */}
-          <div className="bg-canvas/60 p-3 rounded border border-line space-y-3 text-xs shrink-0">
+          <div className="py-1.5 space-y-2.5 text-xs shrink-0">
             <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
               <div>
                 <label className="block text-[11px] text-ink-muted mb-1 font-medium">From Office</label>
@@ -570,7 +570,7 @@ export default function TransferPage() {
       {activeTab === "TRANSFER_OUT" && (
         <div className="space-y-2 flex-1 min-h-0 flex flex-col print:block">
           {/* Filter row 1 */}
-          <div className="bg-canvas/60 p-3 rounded border border-line space-y-3 text-xs shrink-0">
+          <div className="py-1.5 space-y-2.5 text-xs shrink-0">
             <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
               <div>
                 <label className="block text-[11px] text-ink-muted mb-1 font-medium">From Office</label>
@@ -768,7 +768,7 @@ export default function TransferPage() {
       {activeTab === "IN_TRANSIT" && (
         <div className="space-y-2 flex-1 min-h-0 flex flex-col print:block">
           {/* Filter row 1 */}
-          <div className="bg-canvas/60 p-3 rounded border border-line space-y-3 text-xs shrink-0">
+          <div className="py-1.5 space-y-2.5 text-xs shrink-0">
             <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
               <div>
                 <label className="block text-[11px] text-ink-muted mb-1 font-medium">From Office</label>
@@ -1077,7 +1077,7 @@ export default function TransferPage() {
       {activeTab === "RECEIVED_LIST" && (
         <div className="space-y-2 flex-1 min-h-0 flex flex-col print:block">
           {/* Filters */}
-          <div className="bg-canvas/60 p-3 rounded border border-line space-y-3 text-xs shrink-0">
+          <div className="py-1.5 space-y-2.5 text-xs shrink-0">
             <div className="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-6 gap-3">
               <div>
                 <label className="block text-[11px] text-ink-muted mb-1 font-medium">From Office</label>

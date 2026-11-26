@@ -5,11 +5,20 @@ import { apiHandler } from "@/lib/api/handler";
 import { can, type Actor } from "@/lib/auth/actor";
 import { connectPaths } from "@/features/connect/paths";
 import { getPusherServer } from "@/lib/connect/pusher-server";
-import { ensureTasksSchema, mapTaskRow, type TaskStatus, type TaskPriority } from "@/lib/connect/tasks-db";
+import { canViewConnectTask, ensureTasksSchema, mapTaskRow, type TaskStatus, type TaskPriority } from "@/lib/connect/tasks-db";
 
 type TaskContext = { params: Promise<{ taskId: string }> };
 
-async function handleGET(_req: Request, context: TaskContext) {
+async function resolveEmployeeId(pool: ReturnType<typeof getConnectPool>, userId: string): Promise<string | null> {
+  try {
+    const res = await pool.query(`SELECT id FROM employees WHERE "userId"::text = $1 LIMIT 1`, [userId]);
+    return res.rows[0]?.id ? String(res.rows[0].id) : null;
+  } catch {
+    return null;
+  }
+}
+
+async function handleGET(_req: Request, context: TaskContext, actor: Actor) {
   try {
     await ensureTasksSchema();
     const { taskId } = await context.params;
@@ -24,6 +33,10 @@ async function handleGET(_req: Request, context: TaskContext) {
     }
 
     const task = mapTaskRow(taskRes.rows[0]);
+    const currentEmployeeId = actor.isMaster ? null : await resolveEmployeeId(pool, actor.id);
+    if (!canViewConnectTask(task, actor, currentEmployeeId)) {
+      return NextResponse.json({ success: false, error: "You can only view your own tasks." }, { status: 403 });
+    }
     const [logsRes, auditRes] = await Promise.all([
       pool.query(`SELECT * FROM connect_task_logs WHERE task_id = $1 ORDER BY created_at DESC`, [task.id]),
       pool.query(`SELECT * FROM connect_task_audit_logs WHERE task_id = $1 ORDER BY created_at DESC`, [task.id]),
@@ -78,15 +91,35 @@ async function handlePATCH(req: Request, context: TaskContext, actor: Actor) {
       return NextResponse.json({ success: false, error: "Task not found" }, { status: 404 });
     }
     const current = existingRes.rows[0];
+    const currentEmployeeId = actor.isMaster ? null : await resolveEmployeeId(pool, actor.id);
+    if (!canViewConnectTask(mapTaskRow(current), actor, currentEmployeeId)) {
+      return NextResponse.json({ success: false, error: "You can only update your own tasks." }, { status: 403 });
+    }
     const settingsRes = await pool.query(`SELECT * FROM connect_task_settings WHERE id = 'global' LIMIT 1`);
     const settings = settingsRes.rows[0] || {};
 
-    // 1. Staff Daily Work Update (Progress %, Status, Remarks, Evidence Upload, Blocker)
+    // 1. Staff Daily Work Update (Progress %, Status, Remarks, Evidence Upload, Blocker, Checklist)
     if (mutationType === "STAFF_UPDATE") {
+      const nextChecklist = Array.isArray(body.checklist)
+        ? body.checklist.map((item: { id?: string; text?: string; done?: boolean }) => ({
+            id: String(item.id || randomUUID()),
+            text: String(item.text || "").trim(),
+            done: Boolean(item.done),
+          }))
+        : (current.checklist ?? []);
+
       let nextStatus = String(body.status || current.status) as TaskStatus;
       let nextProgress =
-        body.progressPercent !== undefined ? Number(body.progressPercent) : Number(current.progress_percent);
+        body.progressPercent !== undefined
+          ? Number(body.progressPercent)
+          : Array.isArray(body.checklist) && nextChecklist.length > 0
+            ? Math.round((nextChecklist.filter((c: { done: boolean }) => c.done).length / nextChecklist.length) * 100)
+            : Number(current.progress_percent);
       nextProgress = Math.max(0, Math.min(100, nextProgress));
+
+      if (nextStatus === "NOT_STARTED" && nextProgress > 0 && nextProgress < 100) {
+        nextStatus = "IN_PROGRESS";
+      }
 
       // CRITICAL RULE (Section 5): If Verification Required = Yes, Staff cannot self-mark VERIFIED_COMPLETED.
       // Selecting Completed / 100% routes the task to SUBMITTED_FOR_APPROVAL for Supervisor Verification.
@@ -131,8 +164,9 @@ async function handlePATCH(req: Request, context: TaskContext, actor: Actor) {
           blocked_by_person = $8,
           requires_md_decision = $9,
           submitted_at = $10,
+          checklist = $11::jsonb,
           updated_at = NOW()
-        WHERE id = $11
+        WHERE id = $12
         RETURNING *
         `,
         [
@@ -146,6 +180,7 @@ async function handlePATCH(req: Request, context: TaskContext, actor: Actor) {
           blockedByPerson,
           requiresMdDecision,
           submittedAt,
+          JSON.stringify(nextChecklist),
           current.id,
         ]
       );
@@ -638,6 +673,37 @@ async function handlePATCH(req: Request, context: TaskContext, actor: Actor) {
   }
 }
 
-export const GET = apiHandler<TaskContext>("configuration:read", (req, context) => handleGET(req, context));
+async function handleDELETE(_req: Request, context: TaskContext, actor: Actor) {
+  try {
+    await ensureTasksSchema();
+    const { taskId } = await context.params;
+    const pool = getConnectPool();
+
+    const existing = await pool.query(
+      `SELECT * FROM connect_tasks WHERE id::text = $1 OR task_code = $1 LIMIT 1`,
+      [taskId]
+    );
+    if (existing.rows.length === 0) {
+      return NextResponse.json({ success: false, error: "Task not found" }, { status: 404 });
+    }
+    const task = mapTaskRow(existing.rows[0]);
+    if (!actor.isMaster && task.assignedById !== actor.id) {
+      return NextResponse.json({ success: false, error: "Only Master or task creator can delete this task." }, { status: 403 });
+    }
+    const id = task.id;
+    await pool.query(`DELETE FROM connect_task_logs WHERE task_id = $1`, [id]);
+    await pool.query(`DELETE FROM connect_task_audit_logs WHERE task_id = $1`, [id]);
+    await pool.query(`DELETE FROM connect_task_extension_requests WHERE task_id = $1`, [id]);
+    await pool.query(`DELETE FROM connect_tasks WHERE id = $1`, [id]);
+
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error("Error in DELETE /api/connect/tasks/[taskId]:", error);
+    return NextResponse.json({ success: false, error: "Failed to delete task" }, { status: 500 });
+  }
+}
+
+export const GET = apiHandler<TaskContext>("configuration:read", (req, context, actor) => handleGET(req, context, actor));
 export const PATCH = apiHandler<TaskContext>("configuration:write", (req, context, actor) => handlePATCH(req, context, actor));
+export const DELETE = apiHandler<TaskContext>("configuration:write", (req, context, actor) => handleDELETE(req, context, actor));
 

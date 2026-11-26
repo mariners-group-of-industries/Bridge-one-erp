@@ -748,11 +748,11 @@ export default function AccountingJournalPage() {
   }
 
   return (
-    <div className="space-y-2.5 font-sans flex flex-col md:h-[calc(100dvh-3.5rem)] md:overflow-hidden print:block print:h-auto print:overflow-visible">
+    <div className="space-y-2 font-sans bg-surface p-3 flex flex-col md:h-[calc(100dvh-3.5rem)] md:overflow-hidden print:block print:h-auto print:overflow-visible">
       {/* ------------------------------------------------------------- */}
       {/* 1. TOP BAR: TABS ON LEFT + ACTIONS/SEARCH ON RIGHT */}
       {/* ------------------------------------------------------------- */}
-      <div className="bg-surface rounded border border-line/90 shadow-2xs p-2.5 shrink-0">
+      <div className="border-b border-line pb-2 shrink-0">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
           {/* TABS */}
           <div className="flex items-center gap-1.5 border-b md:border-b-0 border-line pb-2 md:pb-0 overflow-x-auto">

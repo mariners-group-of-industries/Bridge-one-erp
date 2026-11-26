@@ -157,6 +157,7 @@ export function AdvancePaymentModal({
           ? cashAccounts.find((a) => a.id === cashOrBankAccountId)?.name
           : formOptions?.bankAccounts.find((b) => b.id === cashOrBankAccountId)?.bankName;
 
+      let pending = 0;
       for (const row of validRows) {
         const acctObj =
           (formOptions?.accounts ?? []).find((a) => a.id === row.accountHead) ?? defaultPayableAccount;
@@ -174,7 +175,7 @@ export function AdvancePaymentModal({
           .filter(Boolean)
           .join(" | ");
 
-        await fetchApi("/purchase/supplier-payments", {
+        const saved = await fetchApi<{ status?: string }>("/purchase/supplier-payments", {
           method: "POST",
           body: JSON.stringify({
             supplierId: row.supplierId,
@@ -190,13 +191,16 @@ export function AdvancePaymentModal({
             isAdvance: true,
           }),
         });
+        if (saved?.status === "DRAFT") pending++;
       }
+      return pending;
     },
-    onSuccess: () => {
+    onSuccess: (pending) => {
       queryClient.invalidateQueries({ queryKey: ["supplierPayables"] });
       queryClient.invalidateQueries({ queryKey: ["supplierAdvances"] });
       queryClient.invalidateQueries({ queryKey: ["supplierPaymentHistory"] });
-      toast.success("Advance payment voucher saved & posted to Accounting GL.");
+      if (pending) toast.success(`Advance saved; ${pending} payment(s) wait for Payment Approval before money is paid.`, { title: "Sent for Approval" });
+      else toast.success("Advance payment voucher saved & posted to Accounting GL.");
       onClose();
     },
     onError: (err: Error) => toast.error(err.message, { title: "Advance Payment Error" }),

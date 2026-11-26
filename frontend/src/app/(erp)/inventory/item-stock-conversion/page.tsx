@@ -382,7 +382,7 @@ export default function ItemStockConversionPage() {
   };
 
   return (
-    <div className="space-y-3 p-1 font-sans text-ink flex flex-col md:h-[calc(100dvh-3.5rem)] md:overflow-hidden print:block print:h-auto print:overflow-visible">
+    <div className="bg-surface space-y-2 p-3 font-sans text-ink flex flex-col md:h-[calc(100dvh-3.5rem)] md:overflow-hidden print:block print:h-auto print:overflow-visible">
       <InventoryTabBar
         title="Item Stock Conversion"
         tabs={[
@@ -415,7 +415,7 @@ export default function ItemStockConversionPage() {
       {activeTab === "CONVERSION_LIST" && (
         <div className="space-y-3 flex-1 min-h-0 flex flex-col print:block">
           {/* Filter Bar (Exact to Screenshot 1) */}
-          <div className="bg-surface p-3 rounded border border-line text-xs shrink-0">
+          <div className="py-1.5 text-xs shrink-0">
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-7 gap-3 items-end">
               {/* Office */}
               <div>

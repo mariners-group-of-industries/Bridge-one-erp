@@ -1,7 +1,7 @@
 "use client";
 
 import { CalendarOff, Paperclip, Send } from "lucide-react";
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { ErrorState, LoadingState } from "@/components/ui/section";
 import { useToast } from "@/components/ui/toast";
@@ -16,7 +16,7 @@ const ACCEPT = "application/pdf,image/png,image/jpeg,image/webp";
 const EMPTY = { leaveType: "", fromDate: "", toDate: "", location: "", reason: "" };
 const dayCount = (from: string, to: string) => (from && to && to >= from ? Math.round((Date.parse(to) - Date.parse(from)) / 86_400_000) + 1 : 0);
 
-export function LeaveTab({ options }: { options: LeaveMovementOptions }) {
+export function LeaveTab({ options, refresh = 0 }: { options: LeaveMovementOptions; refresh?: number }) {
   const toast = useToast();
   const [employee, setEmployee] = useState<EmployeeOption | null>(options.self);
   const [form, setForm] = useState(EMPTY);
@@ -29,6 +29,15 @@ export function LeaveTab({ options }: { options: LeaveMovementOptions }) {
   const balance = useResource(employee ? `leave-balance:${employee.id}` : null, () => leaveMovementApi.balance(options.canManage ? employee?.id : undefined));
   const list = useResource("leave-list", leaveMovementApi.leaves);
   const days = dayCount(form.fromDate, form.toDate);
+  // A decision made in the notification dialog.
+  const { reload: reloadList } = list;
+  const { reload: reloadBalance } = balance;
+  useEffect(() => {
+    if (refresh) {
+      reloadList();
+      reloadBalance();
+    }
+  }, [refresh, reloadList, reloadBalance]);
   const set = (key: keyof typeof EMPTY) => (value: string) => setForm((current) => ({ ...current, [key]: value }));
 
   async function submit(event: FormEvent) {

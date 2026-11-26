@@ -29,7 +29,7 @@ export function apiHandler<C>(permission: Permission, handler: Handler<C>) {
 }
 
 /** Saves in these modules may create documents the general ledger has not seen yet. */
-const POSTING_PATHS = /^\/api\/(sales|v1\/purchase|pos|inventory|hrm\/payroll)\//;
+const POSTING_PATHS = /^\/api\/(sales|v1\/purchase|pos|inventory|production|hrm\/payroll)\//;
 let posting: Promise<void> | null = null;
 let postAgain = false;
 

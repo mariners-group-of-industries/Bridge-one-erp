@@ -108,7 +108,7 @@ export async function hasApprovalPipeline(tx: Tx, feature: string): Promise<bool
 }
 
 /** Stages of the feature's pipeline that apply to this document (none without a pipeline). */
-async function stagesFromPipeline(tx: Tx, target: ApprovalTarget) {
+async function stagesFromPipeline(tx: Tx, target: ApprovalTarget, options: { strict?: boolean } = {}) {
   const aliases = featureAliases(target.feature);
   const pipeline = await tx.approvalPipeline.findFirst({
     where: { feature: { in: aliases } },
@@ -128,22 +128,21 @@ async function stagesFromPipeline(tx: Tx, target: ApprovalTarget) {
   });
   if (!pipeline) return [];
 
-  // Match users for employee approvers who don't have a direct userId linked yet
+  // Match users for employee approvers who don't have a direct userId linked yet.
+  // A match counts only when it is unambiguous: two users named "Md. Rahim" must not
+  // let the wrong one approve.
   const allUsers = await tx.user.findMany({ select: { id: true, name: true, phone: true } });
+  const only = (matches: { id: string }[]) => (matches.length === 1 ? matches[0].id : null);
+  const bareName = (name: string) => name.trim().toLowerCase().replace(/^(md|mst|mr|mrs)\.?\s+/i, "");
   const findUserIdByEmployee = (emp?: { userId: string | null; name: string; mobile?: string | null } | null): string | null => {
     if (!emp) return null;
     if (emp.userId) return emp.userId;
-    const cleanName = emp.name.trim().toLowerCase().replace(/^(md|mst|mr|mrs)\.?\s+/i, "");
-    const directMatch = allUsers.find((u) => u.name.trim().toLowerCase() === emp.name.trim().toLowerCase());
-    if (directMatch) return directMatch.id;
-    const cleanMatch = allUsers.find((u) => u.name.trim().toLowerCase().replace(/^(md|mst|mr|mrs)\.?\s+/i, "") === cleanName);
-    if (cleanMatch) return cleanMatch.id;
-    if (emp.mobile) {
-      const cleanMobile = emp.mobile.replace(/\D/g, "");
-      const byPhone = allUsers.find((u) => u.phone && u.phone.replace(/\D/g, "") === cleanMobile);
-      if (byPhone) return byPhone.id;
+    const mobile = emp.mobile?.replace(/\D/g, "") ?? "";
+    if (mobile.length >= 10) {
+      const byPhone = only(allUsers.filter((u) => u.phone && u.phone.replace(/\D/g, "").endsWith(mobile.slice(-10))));
+      if (byPhone) return byPhone;
     }
-    return null;
+    return only(allUsers.filter((u) => u.name.trim().toLowerCase() === emp.name.trim().toLowerCase())) ?? only(allUsers.filter((u) => bareName(u.name) === bareName(emp.name)));
   };
 
   const superApproverUserId =
@@ -159,6 +158,7 @@ async function stagesFromPipeline(tx: Tx, target: ApprovalTarget) {
   };
   return pipeline.stages.filter(applies).map((stage, index) => {
     const ids: string[] = [];
+    const unlinked: string[] = [];
     for (const a of stage.approvers) {
       if (a.businessUnitId && target.businessUnitId && a.businessUnitId !== target.businessUnitId) continue;
       if (a.userType === "USER" && a.userId) {
@@ -166,9 +166,19 @@ async function stagesFromPipeline(tx: Tx, target: ApprovalTarget) {
       } else if (a.userType === "EMPLOYEE") {
         const uId = findUserIdByEmployee(a.employee);
         if (uId) ids.push(uId);
+        else unlinked.push(a.employee?.name ?? "an employee");
       }
     }
     const approverUserIds = [...new Set(ids)];
+    // A stage with approvers none of whom can log in would otherwise open to anyone
+    // holding the page's Approve permission: refuse instead, naming whom to link.
+    if (options.strict && approverUserIds.length === 0 && unlinked.length > 0) {
+      throw new AppError(
+        409,
+        "CONFLICT",
+        `Approval stage ${index + 1} (${stage.name}) of "${target.feature}" has no approver with a user login (${unlinked.join(", ")}). Link the employee to a user, or change the approvers in Configuration › Approval Setup.`,
+      );
+    }
     return {
       feature: target.feature,
       documentId: target.documentId,
@@ -208,7 +218,7 @@ async function ensureStages(tx: Tx, target: ApprovalTarget): Promise<StageRow[]>
     stages = [];
   }
   if (stages.length > 0) return stages;
-  const fresh = await stagesFromPipeline(tx, target);
+  const fresh = await stagesFromPipeline(tx, target, { strict: true });
   if (fresh.length === 0) return [];
   await tx.documentApproval.createMany({ data: fresh, skipDuplicates: true });
   return tx.documentApproval.findMany({ where, orderBy: { stageNo: "asc" }, select: STAGE_SELECT });
@@ -367,6 +377,34 @@ export async function approvalOutlook(target: ApprovalTarget): Promise<ApprovalT
     actedAt: null,
     comment: null,
   }));
+}
+
+/**
+ * Users who can act on the document now: the current stage's waiting approvers
+ * (and its super approver). Before anyone has acted that is the pipeline's first
+ * stage. `null` when the feature has no pipeline, or the stage names no
+ * approvers, so whoever holds the page's Approve permission decides.
+ * `[]` when the document is no longer waiting.
+ */
+export async function currentApproverIds(target: ApprovalTarget): Promise<string[] | null> {
+  const client = db() as unknown as Tx;
+  const stored = await client.documentApproval.findMany({ where: { feature: { in: featureAliases(target.feature) }, documentId: target.documentId }, orderBy: { stageNo: "asc" }, select: STAGE_SELECT });
+  // A rejected round starts again from the pipeline.
+  const live = stored.some((s) => s.status === "REJECTED") ? [] : stored;
+  let stage: Pick<StageRow, "approvalOrder" | "approverUserIds" | "approvedUserIds" | "superApproverUserId">;
+  if (live.length > 0) {
+    const current = live.find((s) => s.status === "PENDING");
+    if (!current) return [];
+    stage = current;
+  } else {
+    const first = (await stagesFromPipeline(client, target))[0];
+    if (!first) return null;
+    stage = { ...first, approvedUserIds: [] };
+  }
+  if (stage.approverUserIds.length === 0) return null;
+  const waiting =
+    stage.approvalOrder === "SEQUENTIAL" ? [stage.approverUserIds[stage.approvedUserIds.length]] : stage.approverUserIds.filter((id) => !stage.approvedUserIds.includes(id));
+  return [...new Set([...waiting, stage.superApproverUserId].filter((id): id is string => !!id))];
 }
 
 /** The document's stages with approver names, for detail views and the Multilayer Approval page. */

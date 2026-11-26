@@ -3,10 +3,11 @@ import type { Prisma } from "@/generated/prisma/client";
 import { validateAttachment, type UploadedFile } from "@/features/configuration/entity-master-data/supplier/server/supplier.service";
 import { AppError, badRequest, conflict, notFound } from "@/lib/api/errors";
 import { actorUserId, can, type Actor } from "@/lib/auth/actor";
-import { decideWithPipeline, employeeBusinessUnit } from "@/lib/approval/engine";
+import { approvalOutlook, currentApproverIds, decideWithPipeline, employeeBusinessUnit } from "@/lib/approval/engine";
 import { db } from "@/lib/prisma/client";
 import { getStorage } from "@/lib/storage";
-import { notifyEmployees } from "@/lib/notifications/notify";
+import { notifyEmployees, notifyUsers } from "@/lib/notifications/notify";
+import { usersAllowed } from "@/lib/notifications/recipients";
 import { dayKey } from "@/features/hrm/attendance/services/attendance.service";
 import { chargeableDays, leaveTypesFor, type LeaveSubject, type LeaveTypeRule } from "./leave-policy";
 import {
@@ -18,9 +19,11 @@ import {
   type ApplicationStatus,
   type EmployeeOption,
   type LeaveBalanceRow,
+  type LeaveDetail,
   type LeaveInput,
   type LeaveMovementOptions,
   type LeaveRow,
+  type MovementDetail,
   type MovementInput,
   type MovementRow,
 } from "../schemas/leave-movement.schema";
@@ -202,12 +205,73 @@ export async function listLeaves(actor: Actor, employeeId?: string): Promise<Lea
     take: LIST_LIMIT,
     include: { employee: employeeSelect, attachments: { orderBy: { createdAt: "asc" }, select: { id: true, originalName: true, size: true } } },
   });
-  return leaves.map((l) => ({
-    ...baseRow(actor, own?.id ?? null, l),
+  return leaves.map((l) => leaveRow(actor, own?.id ?? null, l));
+}
+
+function leaveRow(actor: Actor, ownId: string | null, l: StoredApplication & { leaveType: string; days: number; attachments: { id: string; originalName: string; size: number }[] }): LeaveRow {
+  return {
+    ...baseRow(actor, ownId, l),
     leaveType: l.leaveType,
     days: l.days,
     attachments: l.attachments.map((f) => ({ id: f.id, name: f.originalName, size: f.size })),
-  }));
+  };
+}
+
+/** One application (the one a notification opens), with its approval stages. */
+export async function getLeave(actor: Actor, id: string): Promise<LeaveDetail> {
+  const scope = await listScope(actor, undefined);
+  const leave =
+    scope &&
+    (await db().leaveApplication.findFirst({
+      where: { id, employee: scope },
+      include: { employee: employeeSelect, attachments: { orderBy: { createdAt: "asc" }, select: { id: true, originalName: true, size: true } } },
+    }));
+  if (!leave) throw notFound("Leave application");
+  const own = await linkedEmployee(actor);
+  const stages = await approvalOutlook({ feature: LEAVE_APPROVAL_FEATURE, documentId: id, businessUnitId: await employeeBusinessUnit(leave.employeeId) });
+  return { ...leaveRow(actor, own?.id ?? null, leave), stages };
+}
+
+/** Leave & Movement with this application open (Approve / Reject for HR). */
+export const leaveLink = (id: string) => `/hrm/self-service/leave-movement?leave=${id}`;
+export const movementLink = (id: string) => `/hrm/self-service/leave-movement?movement=${id}`;
+
+/**
+ * Tells whoever can decide the application now: the current approval stage's
+ * approvers, or (without a pipeline) everyone allowed to approve leave and
+ * movement. The applicant is never asked to decide their own application.
+ */
+async function notifyApprovers(
+  feature: string,
+  id: string,
+  applicant: { employeeId: string; userId: string | null },
+  message: { kind: "leave" | "movement"; title: string; body: string; link: string },
+) {
+  try {
+    const named = await currentApproverIds({ feature, documentId: id, businessUnitId: await employeeBusinessUnit(applicant.employeeId) });
+    const ids = named ?? (await usersAllowed([{ featureKey: "/hrm/self-service/leave-movement", action: "approve" }, { featureKey: "/hrm/governance/pending-approval", action: "approve" }]));
+    await notifyUsers(ids.filter((userId) => userId !== applicant.userId).map((userId) => ({ userId, ...message })));
+  } catch (error) {
+    console.error(`[notifications] could not notify ${message.kind} approvers`, error);
+  }
+}
+
+async function notifyLeaveApprovers(id: string, title: string) {
+  const leave = await db().leaveApplication.findUnique({ where: { id }, select: { employeeId: true, leaveType: true, days: true, fromDate: true, toDate: true, status: true, employee: { select: { employeeCode: true, name: true, userId: true } } } });
+  if (!leave || leave.status !== "Pending") return;
+  const body = `${leave.employee.name} (${leave.employee.employeeCode}): ${leave.leaveType}, ${leave.days} day(s), ${isoDate(leave.fromDate)} to ${isoDate(leave.toDate)}.`;
+  await notifyApprovers(LEAVE_APPROVAL_FEATURE, id, { employeeId: leave.employeeId, userId: leave.employee.userId }, { kind: "leave", title, body, link: leaveLink(id) });
+}
+
+async function notifyMovementApprovers(id: string, title: string) {
+  const m = await db().movementApplication.findUnique({
+    where: { id },
+    select: { employeeId: true, movementType: true, fromDate: true, toDate: true, startTime: true, endTime: true, location: true, status: true, employee: { select: { employeeCode: true, name: true, userId: true } } },
+  });
+  if (!m || m.status !== "Pending") return;
+  const days = isoDate(m.fromDate) === isoDate(m.toDate) ? isoDate(m.fromDate) : `${isoDate(m.fromDate)} to ${isoDate(m.toDate)}`;
+  const body = `${m.employee.name} (${m.employee.employeeCode}): ${m.movementType}, ${days}, ${m.startTime}–${m.endTime}, ${m.location}.`;
+  await notifyApprovers(MOVEMENT_APPROVAL_FEATURE, id, { employeeId: m.employeeId, userId: m.employee.userId }, { kind: "movement", title, body, link: movementLink(id) });
 }
 
 const sanitizeFileName = (name: string) => (name.replace(/[\u0000-\u001f\u007f"\\/]/g, "_").trim() || "attachment").slice(0, 255);
@@ -296,6 +360,7 @@ export async function applyLeave(actor: Actor, input: LeaveInput, files: Require
     body: `${days} day(s), ${data.fromDate} to ${data.toDate}. It is waiting for approval.`,
     link: "/employee/leave/history",
   });
+  await notifyLeaveApprovers(id, `Leave application to approve: ${leaveType}`);
   return { id, days };
 }
 
@@ -321,6 +386,8 @@ export async function decideLeave(actor: Actor, id: string, status: "Approved" |
   if (status === "Rejected") await notifyEmployees([leave.employeeId], { kind: "leave", title: `${leave.leaveType} rejected`, body: `Your application for ${range} was rejected by ${actor.name ?? "the approver"}.`, link: "/employee/leave/history" });
   else if (result?.final) await notifyEmployees([leave.employeeId], { kind: "leave", title: `${leave.leaveType} approved`, body: `Your ${leave.days} day(s) from ${range} are approved.`, link: "/employee/leave/history" });
   else if (result?.next) await notifyEmployees([leave.employeeId], { kind: "leave", title: `${leave.leaveType}: stage ${result.stage?.stageNo} approved`, body: `Now waiting for ${result.next.name} (stage ${result.next.stageNo} of ${result.stages}).`, link: "/employee/leave/history" });
+  // The next stage's approvers are told it is their turn.
+  if (result && !result.final && result.next && result.stage?.done) await notifyLeaveApprovers(id, `Leave application to approve: ${leave.leaveType} (stage ${result.next.stageNo})`);
 }
 
 /** Approval Setup feature of leave applications. */
@@ -366,7 +433,24 @@ export async function listMovements(actor: Actor, employeeId?: string): Promise<
     take: LIST_LIMIT,
     include: { employee: employeeSelect },
   });
-  return movements.map((m) => ({ ...baseRow(actor, own?.id ?? null, m), movementType: m.movementType, startTime: m.startTime, endTime: m.endTime }));
+  return movements.map((m) => movementRow(actor, own?.id ?? null, m));
+}
+
+function movementRow(actor: Actor, ownId: string | null, m: StoredApplication & { movementType: string; startTime: string; endTime: string }): MovementRow {
+  return { ...baseRow(actor, ownId, m), movementType: m.movementType, startTime: m.startTime, endTime: m.endTime };
+}
+
+/** Approval Setup feature of movement applications. */
+export const MOVEMENT_APPROVAL_FEATURE = "Employee Movement";
+
+/** One movement application (the one a notification opens), with its approval stages. */
+export async function getMovement(actor: Actor, id: string): Promise<MovementDetail> {
+  const scope = await listScope(actor, undefined);
+  const movement = scope && (await db().movementApplication.findFirst({ where: { id, employee: scope }, include: { employee: employeeSelect } }));
+  if (!movement) throw notFound("Movement application");
+  const own = await linkedEmployee(actor);
+  const stages = await approvalOutlook({ feature: MOVEMENT_APPROVAL_FEATURE, documentId: id, businessUnitId: await employeeBusinessUnit(movement.employeeId) });
+  return { ...movementRow(actor, own?.id ?? null, movement), stages };
 }
 
 export async function applyMovement(actor: Actor, input: MovementInput): Promise<{ id: string }> {
@@ -374,7 +458,7 @@ export async function applyMovement(actor: Actor, input: MovementInput): Promise
   const employeeId = await resolveEmployee(actor, data.employeeId);
   const { from, to } = checkDates(data.fromDate, data.toDate, MAX_MOVEMENT_DAYS);
   if (data.endTime <= data.startTime) throw badRequest("End Time must be after Start Time.");
-  return db().movementApplication.create({
+  const created = await db().movementApplication.create({
     data: {
       employeeId,
       movementType: data.movementType,
@@ -388,6 +472,8 @@ export async function applyMovement(actor: Actor, input: MovementInput): Promise
     },
     select: { id: true },
   });
+  await notifyMovementApprovers(created.id, `Movement application to approve: ${data.movementType}`);
+  return created;
 }
 
 async function loadMovement(actor: Actor, id: string) {
@@ -402,12 +488,14 @@ export async function decideMovement(actor: Actor, id: string, status: "Approved
   const movement = await loadMovement(actor, id);
   if (movement.status !== "Pending") throw conflict("This application has already been decided.");
   await refuseOwnDecision(actor, movement.employeeId);
-  const target = { feature: "Employee Movement", documentId: id, businessUnitId: await employeeBusinessUnit(movement.employeeId) };
+  const target = { feature: MOVEMENT_APPROVAL_FEATURE, documentId: id, businessUnitId: await employeeBusinessUnit(movement.employeeId) };
   const result = await decideWithPipeline(actor, target, status === "Approved" ? "approve" : "reject", async (tx) => {
     const { count } = await tx.movementApplication.updateMany({ where: { id, status: "Pending" }, data: decision(actor, status) });
     if (!count) throw conflict("This application has already been decided.");
   });
   if (status === "Rejected" || result?.final) await notifyEmployees([movement.employeeId], { kind: "movement", title: `Movement application ${status.toLowerCase()}`, body: `Decided by ${actor.name ?? "the approver"}.`, link: "/employee/notifications" });
+  // The next stage's approvers are told it is their turn.
+  if (result && !result.final && result.next && result.stage?.done) await notifyMovementApprovers(id, `Movement application to approve (stage ${result.next.stageNo})`);
 }
 
 export async function deleteMovement(actor: Actor, id: string) {

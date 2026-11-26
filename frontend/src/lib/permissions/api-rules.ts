@@ -213,6 +213,8 @@ export const API_RULES: Record<string, ApiRule> = {
   "/api/v1/purchase/receive/*/cancel": { feature: "/purchase/receive", action: "delete" },
   "/api/v1/purchase/receipts": { feature: "/purchase/receive" },
   "/api/v1/purchase/receipts/*/cancel": { feature: "/purchase/receive", action: "delete" },
+  "/api/v1/purchase/receive/*/accounting": { feature: "/purchase/receive" },
+  "/api/v1/purchase/receipts/*/accounting": { feature: "/purchase/receive" },
   "/api/v1/purchase/analytics": { feature: "/purchase/analytics" },
   "/api/v1/purchase/returns": { feature: "/purchase/returns" },
   "/api/v1/purchase/returns/*/cancel": { feature: "/purchase/returns", action: "delete" },

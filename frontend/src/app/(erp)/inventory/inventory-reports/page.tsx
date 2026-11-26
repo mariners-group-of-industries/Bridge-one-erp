@@ -372,7 +372,7 @@ export default function InventoryReportPage() {
   const isRight = (c: Col) => c.format === "qty" || c.format === "money" || c.format === "int";
 
   return (
-    <div className="space-y-3 p-1 text-ink flex flex-col md:h-[calc(100dvh-3.5rem)] md:overflow-hidden print:block print:h-auto print:overflow-visible">
+    <div className="bg-surface space-y-2 p-3 text-ink flex flex-col md:h-[calc(100dvh-3.5rem)] md:overflow-hidden print:block print:h-auto print:overflow-visible">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between print:hidden shrink-0">
         <h1 className="text-xl font-bold tracking-tight sm:text-2xl">Inventory Report</h1>
         <div className="flex flex-wrap items-center gap-2">
@@ -390,7 +390,7 @@ export default function InventoryReportPage() {
         </div>
       </div>
 
-      <div className="space-y-3 rounded-lg border border-line bg-surface p-3 shadow-2xs print:hidden shrink-0">
+      <div className="space-y-2.5 py-1.5 print:hidden shrink-0">
         <div className="sm:w-1/2 lg:w-[34rem]">
           <label className={labelCls} htmlFor="view-by">
             View By <span className="text-rose-600 dark:text-rose-400">*</span>

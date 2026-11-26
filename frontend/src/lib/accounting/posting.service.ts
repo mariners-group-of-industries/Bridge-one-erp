@@ -8,6 +8,8 @@ import {
   fiscalYearOf,
   isBalanced,
   payrollLines,
+  productionIssueLines,
+  productionLines,
   receiptLines,
   reverse,
   saleLines,
@@ -241,6 +243,7 @@ const SOURCES: SourceDef[] = [
             number: true,
             docDate: true,
             warehouse: { select: { officeId: true } },
+            request: { select: { meta: true } },
             lines: { select: { qty: true, toQty: true, item: { select: { purchasePrice: true } }, toItem: { select: { purchasePrice: true } } } },
           },
           take: BATCH,
@@ -253,8 +256,56 @@ const SOURCES: SourceDef[] = [
           if (d.type === "CONVERSION") return t + num(l.toQty) * num(l.toItem?.purchasePrice) - out;
           return t + out;
         }, 0);
-        return { id: d.id, journal: { date: d.docDate, number: d.number, narration: `Inventory ${d.number}`, officeId: d.warehouse?.officeId, lines: stockValueLines(value) } };
+        // An issue against a production order's requisition moves the materials into work in progress, not to expense.
+        const meta = d.request?.meta as { productionOrderId?: unknown } | null | undefined;
+        const toProduction = d.type === "STORE_ISSUE" && typeof meta?.productionOrderId === "string";
+        return {
+          id: d.id,
+          journal: {
+            date: d.docDate,
+            number: d.number,
+            narration: toProduction ? `Store issue ${d.number} to production` : `Inventory ${d.number}`,
+            officeId: d.warehouse?.officeId,
+            lines: toProduction ? productionIssueLines(-value) : stockValueLines(value),
+          },
+        };
       }),
+  },
+  {
+    type: "PRODUCTION_ENTRY",
+    label: "Production entries",
+    pending: async (posted) => {
+      const entries = await db().productionEntry.findMany({
+        where: { status: "POSTED", ...notIn(posted) },
+        select: { id: true, number: true, productionDate: true, officeId: true, materials: { select: { itemId: true, actualQty: true, item: { select: { purchasePrice: true } } } } },
+        take: BATCH,
+      });
+      if (!entries.length) return [];
+      // What the entry took straight from the warehouse (beyond what was issued to the order). Cancellations add positive rows: skip them.
+      const directRows = await db().stockEntry.findMany({
+        where: { source: "PRODUCTION_CONSUMPTION", sourceId: { in: entries.map((e) => e.id) }, qty: { lt: 0 } },
+        select: { sourceId: true, itemId: true, qty: true },
+      });
+      const directQty = new Map<string, number>();
+      for (const row of directRows) directQty.set(`${row.sourceId}:${row.itemId}`, (directQty.get(`${row.sourceId}:${row.itemId}`) ?? 0) - num(row.qty));
+      return entries.map((e) => {
+        let fromWip = 0;
+        let direct = 0;
+        for (const m of e.materials) {
+          const used = num(m.actualQty);
+          const fromStock = Math.min(used, directQty.get(`${e.id}:${m.itemId}`) ?? 0);
+          const price = num(m.item.purchasePrice);
+          direct += fromStock * price;
+          fromWip += (used - fromStock) * price;
+        }
+        return {
+          id: e.id,
+          journal: { date: e.productionDate, number: e.number, narration: `Production entry ${e.number}`, officeId: e.officeId, lines: productionLines({ fromWip, direct }) },
+        };
+      });
+    },
+    cancelled: async (posted) =>
+      posted.length ? (await db().productionEntry.findMany({ where: { id: { in: posted }, status: "CANCELLED" }, select: { id: true } })).map((e) => e.id) : [],
   },
   {
     type: "PAYROLL",

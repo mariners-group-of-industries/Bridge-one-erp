@@ -1,7 +1,7 @@
 "use client";
 
 import { MapPinned, Send } from "lucide-react";
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { ErrorState, LoadingState } from "@/components/ui/section";
 import { useToast } from "@/components/ui/toast";
@@ -14,7 +14,7 @@ import { ApplicationActions, ApplicationStatusBadge, EmployeeField, Grid, format
 
 const EMPTY = { movementType: "", fromDate: "", toDate: "", startTime: "", endTime: "", location: "", reason: "" };
 
-export function MovementTab({ options }: { options: LeaveMovementOptions }) {
+export function MovementTab({ options, refresh = 0 }: { options: LeaveMovementOptions; refresh?: number }) {
   const toast = useToast();
   const [employee, setEmployee] = useState<EmployeeOption | null>(options.self);
   const [form, setForm] = useState(EMPTY);
@@ -22,6 +22,11 @@ export function MovementTab({ options }: { options: LeaveMovementOptions }) {
   const [failure, setFailure] = useState("");
   const [saving, setSaving] = useState(false);
   const list = useResource("movement-list", leaveMovementApi.movements);
+  // A decision made in the notification dialog.
+  const { reload: reloadList } = list;
+  useEffect(() => {
+    if (refresh) reloadList();
+  }, [refresh, reloadList]);
   const set = (key: keyof typeof EMPTY) => (value: string) => setForm((current) => ({ ...current, [key]: value }));
 
   async function submit(event: FormEvent) {

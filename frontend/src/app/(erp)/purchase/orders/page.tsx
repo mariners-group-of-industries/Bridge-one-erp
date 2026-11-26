@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import React, { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Download, Eye, Pencil, Plus, Printer, RotateCcw, Search, Trash2, Upload, X } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Download, Eye, Pencil, Plus, Printer, RotateCcw, Search, Trash2, Upload, XCircle } from "lucide-react";
 import { ModalDialog } from "@/components/purchase/ModalDialog";
 import {
   PrintablePurchaseDoc,
@@ -17,12 +17,14 @@ import { Spinner } from "@/components/ui/spinner";
 import { fetchApi } from "@/lib/api";
 import { formatCurrency } from "@/lib/utils";
 import { orderTotals, priceLine } from "@/lib/purchase-store/rules";
-import { PURCHASE_QUERY_KEYS, downloadCsv, uploadPurchaseBulk } from "@/features/purchase/lib/client";
+import { PURCHASE_QUERY_KEYS, downloadCsv, uploadPurchaseBulk, tableDate } from "@/features/purchase/lib/client";
 import { BulkUploadDialog } from "@/features/configuration/entity-master-data/components/BulkUploadDialog";
+import { PurchaseOrderDetails } from "@/features/purchase/components/PurchaseOrderDetails";
+import { ClosePurchaseOrderDialog } from "@/features/purchase/components/ClosePurchaseOrderDialog";
+import { ConfirmPrompt } from "@/components/purchase/ConfirmPrompt";
 import { usePurchasePermissions } from "@/features/purchase/lib/usePurchasePermissions";
 import type { Item, Office, PurchaseOrder, PurchaseRequisition, Supplier, Warehouse } from "@bridgeone/contracts";
 import { NativeDateInput } from "@/components/ui/date-input";
-import { formatDate } from "@/lib/format";
 
 type Tab = "LOCAL_PO" | "REQUISITION_SUMMARY" | "PURCHASE_METHOD";
 type Order = PurchaseOrder & { isClosed?: boolean; notes?: string };
@@ -94,13 +96,13 @@ const inputCls =
 const btnPrimary =
   "h-9 px-4 bg-[#2563eb] hover:bg-blue-700 disabled:opacity-60 text-white font-semibold text-xs rounded inline-flex items-center justify-center gap-1.5 shadow-xs transition";
 const btnGhost = "h-9 px-4 border border-line-strong rounded text-ink-muted hover:bg-canvas text-xs font-semibold";
-const iconBtn = "inline-flex items-center justify-center size-6 rounded hover:bg-hover text-ink-muted transition disabled:opacity-30 disabled:hover:bg-transparent";
+const iconBtn = "inline-flex size-6 items-center justify-center rounded transition-colors disabled:opacity-30 disabled:pointer-events-none hover:bg-control text-ink-muted hover:text-ink";
 
 function formatEta(dateStr?: string) {
   if (!dateStr) return "—";
   const dt = new Date(`${dateStr}T00:00:00`);
   if (Number.isNaN(dt.getTime())) return dateStr;
-  return `00.00h (${dt.toLocaleDateString("en-GB", { weekday: "short" })}, ${formatDate(dateStr)})`;
+  return `00.00h (${dt.toLocaleDateString("en-GB", { weekday: "short" })}, ${tableDate(dateStr)})`;
 }
 
 function statusLabel(po: Order) {
@@ -122,8 +124,10 @@ function statusLabel(po: Order) {
 }
 
 const anyReceived = (po: Order) => po.items.some((i) => i.receivedQuantity > 0);
-const canEdit = (po: Order) => !po.isClosed && (po.status === "APPROVED" || po.status === "PENDING_APPROVAL" || po.status === "DRAFT") && !anyReceived(po);
-const canCloseOrCancel = (po: Order) => !po.isClosed && (po.status === "APPROVED" || po.status === "PARTIALLY_RECEIVED" || po.status === "PENDING_APPROVAL" || po.status === "DRAFT");
+// As in the reference ERP: an approved order is no longer edited (reverse it first).
+const canEdit = (po: Order) => !po.isClosed && (po.status === "PENDING_APPROVAL" || po.status === "DRAFT") && !anyReceived(po);
+/** Close an approved order (nothing received yet); an order still awaiting approval is cancelled instead. */
+const canCloseOrder = (po: Order) => !po.isClosed && (po.status === "APPROVED" || po.status === "PENDING_APPROVAL" || po.status === "DRAFT");
 const canReverse = (po: Order) => Boolean(po.isClosed) || (po.status === "APPROVED" && !anyReceived(po));
 
 function Pager({ total, page, size, onPage, onSize }: { total: number; page: number; size: number; onPage: (p: number) => void; onSize: (s: number) => void }) {
@@ -250,6 +254,8 @@ export default function PurchaseOrdersPage() {
   const [printPO, setPrintPO] = useState<Order | null>(null);
   const [actionPO, setActionPO] = useState<{ po: Order; action: "close" | "cancel" | "reverse" | "approve" } | null>(null);
   const [actionComment, setActionComment] = useState("");
+  const [closingPO, setClosingPO] = useState<Order | null>(null);
+  const [reversingPO, setReversingPO] = useState<Order | null>(null);
   const [viewReq, setViewReq] = useState<PurchaseRequisition | null>(null);
 
   // Master data & permissions
@@ -384,6 +390,8 @@ export default function PurchaseOrdersPage() {
     onSuccess: (po, vars) => {
       invalidate();
       setActionPO(null);
+      setClosingPO(null);
+      setReversingPO(null);
       const verb = { close: "closed", cancel: "cancelled", reverse: "reversed", approve: "approved" }[vars.action] ?? "updated";
       toast.success(`Purchase order ${po.poNumber} ${verb}.`, { title: "Order Updated" });
     },
@@ -527,12 +535,12 @@ export default function PurchaseOrdersPage() {
   ];
 
   return (
-    <div className="flex flex-col md:h-[calc(100dvh-3.5rem)] md:overflow-hidden font-sans p-3 space-y-2.5">
+    <div className="flex flex-col md:h-[calc(100dvh-3.5rem)] md:overflow-hidden font-sans bg-surface p-3 space-y-2">
       {/* Fixed Top Controls: Header & Tabs */}
-      <div className="shrink-0 space-y-2.5">
+      <div className="shrink-0 space-y-2">
         {/* Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-surface p-3 rounded border border-line/90 shadow-2xs">
-          <h1 className="text-xl font-bold text-ink tracking-tight">Purchase Order</h1>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <h1 className="text-lg font-semibold text-ink tracking-tight">Purchase Order</h1>
           <div className="flex flex-wrap items-center gap-2">
             <div className="relative">
               <input
@@ -567,7 +575,7 @@ export default function PurchaseOrdersPage() {
         </div>
 
         {/* Tabs */}
-        <div role="tablist" className="flex items-center gap-8 border-b border-line bg-surface px-3 pt-1 overflow-x-auto rounded border border-line/90 shadow-2xs">
+        <div role="tablist" className="flex items-center gap-6 border-b border-line pt-1 overflow-x-auto">
           {tabs.map((t) => (
             <button
               key={t.id}
@@ -575,8 +583,8 @@ export default function PurchaseOrdersPage() {
               role="tab"
               aria-selected={activeTab === t.id}
               onClick={() => setActiveTab(t.id)}
-              className={`pb-2.5 pt-2 text-xs font-bold tracking-wide border-b-2 whitespace-nowrap transition ${
-                activeTab === t.id ? "border-[#2563eb] text-primary" : "border-transparent text-ink-faint hover:text-ink"
+              className={`pb-2 text-xs font-bold tracking-wide border-b-2 whitespace-nowrap transition ${
+                activeTab === t.id ? "border-[#2563eb] text-primary -mb-[1px]" : "border-transparent text-ink-faint hover:text-ink"
               }`}
             >
               {t.label}
@@ -587,9 +595,9 @@ export default function PurchaseOrdersPage() {
 
       {/* TAB 1: LOCAL PO */}
       {activeTab === "LOCAL_PO" && (
-        <div className="flex-1 min-h-0 flex flex-col space-y-2.5">
+        <div className="flex-1 min-h-0 flex flex-col space-y-2">
           {/* Filters (Fixed) */}
-          <div className="shrink-0 bg-surface rounded border border-line/90 p-3.5 shadow-2xs">
+          <div className="shrink-0 py-1.5">
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-3">
               <label className="block">
                 <span className="block text-[11px] font-semibold text-ink-muted mb-1">Office</span>
@@ -707,22 +715,46 @@ export default function PurchaseOrdersPage() {
                         <tr key={row.id}>
                           <td className="text-center font-mono text-[11px] text-ink-faint">{ordersPage.offset + idx + 1}</td>
                           <td className="text-center whitespace-nowrap">
-                            <div className="row-actions flex items-center justify-center gap-0.5">
+                            <div className="flex items-center justify-center gap-0.5">
+                              <button type="button" onClick={() => setPrintPO(row)} className={iconBtn} title="Print" aria-label="Print purchase order">
+                                <Printer className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                disabled={!canCloseOrder(row) || (row.status === "APPROVED" ? !perms.orders.edit : !perms.orders.delete)}
+                                onClick={() => {
+                                  if (row.status === "APPROVED") setClosingPO(row);
+                                  else setActionPO({ po: row, action: "cancel" });
+                                  setActionComment("");
+                                }}
+                                className={`${iconBtn} hover:bg-rose-100 dark:hover:bg-rose-500/15 hover:text-rose-700 dark:hover:text-rose-300`}
+                                title={row.status === "APPROVED" ? (!perms.orders.edit ? "Requires Edit permission in Configuration" : "Close Order") : !perms.orders.delete ? "Requires Delete permission in Configuration" : "Cancel Order"}
+                                aria-label="Close or cancel purchase order"
+                              >
+                                <XCircle className="w-3.5 h-3.5" />
+                              </button>
+                              <button type="button" onClick={() => setViewPO(row)} className={iconBtn} title="View Order" aria-label="View purchase order">
+                                <Eye className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                disabled={!canReverse(row) || !perms.orders.edit}
+                                onClick={() => setReversingPO(row)}
+                                className={`${iconBtn} hover:bg-amber-100 dark:hover:bg-amber-500/15 hover:text-amber-800 dark:hover:text-amber-300`}
+                                title={!perms.orders.edit ? "Requires Edit permission in Configuration" : "Reverse Order"}
+                                aria-label="Reverse purchase order status"
+                              >
+                                <RotateCcw className="w-3.5 h-3.5" />
+                              </button>
                               <button
                                 type="button"
                                 disabled={!canEdit(row) || !perms.orders.edit}
                                 onClick={() => openEdit(row)}
                                 className={iconBtn}
-                                title={!perms.orders.edit ? "Requires Edit permission in Configuration" : "Edit"}
+                                title={!perms.orders.edit ? "Requires Edit permission in Configuration" : "Edit Order"}
                                 aria-label="Edit purchase order"
                               >
                                 <Pencil className="w-3.5 h-3.5" />
-                              </button>
-                              <button type="button" onClick={() => setPrintPO(row)} className={iconBtn} title="Print" aria-label="Print purchase order">
-                                <Printer className="w-3.5 h-3.5" />
-                              </button>
-                              <button type="button" onClick={() => setViewPO(row)} className={iconBtn} title="View" aria-label="View purchase order">
-                                <Eye className="w-3.5 h-3.5" />
                               </button>
                               {row.status === "PENDING_APPROVAL" && (
                                 <button
@@ -733,54 +765,16 @@ export default function PurchaseOrdersPage() {
                                     setActionComment("");
                                   }}
                                   className={`${iconBtn} hover:bg-emerald-100 dark:hover:bg-emerald-500/15 hover:text-emerald-700 dark:hover:text-emerald-300`}
-                                  title={
-                                    !perms.canApproveOrder(row.officeId, row.totalAmount)
-                                      ? "Requires Approve permission & Approval Setup eligibility in Configuration"
-                                      : "Approve"
-                                  }
+                                  title={!perms.canApproveOrder(row.officeId, row.totalAmount) ? "Requires Approve permission & Approval Setup eligibility in Configuration" : "Approve"}
                                   aria-label="Approve purchase order"
                                 >
                                   <Check className="w-3.5 h-3.5" />
                                 </button>
                               )}
-                              <button
-                                type="button"
-                                disabled={!canCloseOrCancel(row) || (anyReceived(row) ? !perms.orders.edit : !perms.orders.delete)}
-                                onClick={() => {
-                                  setActionPO({ po: row, action: anyReceived(row) ? "close" : "cancel" });
-                                  setActionComment("");
-                                }}
-                                className={`${iconBtn} hover:bg-rose-100 dark:hover:bg-rose-500/15 hover:text-rose-700 dark:hover:text-rose-300`}
-                                title={
-                                  anyReceived(row)
-                                    ? !perms.orders.edit
-                                      ? "Requires Edit permission in Configuration to close order"
-                                      : "Close (stop receiving)"
-                                    : !perms.orders.delete
-                                      ? "Requires Delete permission in Configuration to cancel order"
-                                      : "Cancel order"
-                                }
-                                aria-label="Close or cancel purchase order"
-                              >
-                                <X className="w-3.5 h-3.5" />
-                              </button>
-                              <button
-                                type="button"
-                                disabled={!canReverse(row) || !perms.orders.edit}
-                                onClick={() => {
-                                  setActionPO({ po: row, action: "reverse" });
-                                  setActionComment("");
-                                }}
-                                className={`${iconBtn} hover:bg-amber-100 dark:hover:bg-amber-500/15 hover:text-amber-800 dark:hover:text-amber-300`}
-                                title={!perms.orders.edit ? "Requires Edit permission in Configuration" : "Reverse status"}
-                                aria-label="Reverse purchase order status"
-                              >
-                                <RotateCcw className="w-3.5 h-3.5" />
-                              </button>
                             </div>
                           </td>
-                          <td className="whitespace-nowrap font-mono text-[11px] text-center">{row.orderDate}</td>
-                          <td className="whitespace-nowrap font-mono text-[11px] text-center">{row.expectedDeliveryDate}</td>
+                          <td className="whitespace-nowrap font-mono text-[11px] text-center">{tableDate(row.orderDate)}</td>
+                          <td className="whitespace-nowrap font-mono text-[11px] text-center">{tableDate(row.expectedDeliveryDate)}</td>
                           <td className="text-ink-faint font-mono text-[11px] text-center">{row.referenceNumber || "—"}</td>
                           <td className="whitespace-nowrap">
                             <button type="button" onClick={() => setViewPO(row)} className="font-mono text-sky-700 dark:text-sky-300 font-semibold hover:underline">
@@ -809,8 +803,8 @@ export default function PurchaseOrdersPage() {
 
       {/* TAB 2: REQUISITION SUMMARY */}
       {activeTab === "REQUISITION_SUMMARY" && (
-        <div className="flex-1 min-h-0 flex flex-col space-y-2.5">
-          <div className="shrink-0 bg-surface rounded border border-line/90 p-3.5 shadow-2xs">
+        <div className="flex-1 min-h-0 flex flex-col space-y-2">
+          <div className="shrink-0 py-1.5">
             <p className="text-[11px] text-ink-faint mb-2">Items on approved requisitions that are not ordered yet, with the current stock.</p>
             <div className="flex flex-wrap items-end gap-3.5">
               <label className="block w-48">
@@ -887,8 +881,8 @@ export default function PurchaseOrdersPage() {
 
       {/* TAB 3: PURCHASE METHOD */}
       {activeTab === "PURCHASE_METHOD" && (
-        <div className="flex-1 min-h-0 flex flex-col space-y-2.5">
-          <div className="shrink-0 bg-surface rounded border border-line/90 p-3.5 shadow-2xs">
+        <div className="flex-1 min-h-0 flex flex-col space-y-2">
+          <div className="shrink-0 py-1.5">
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-3">
               <label className="block">
                 <span className="block text-[11px] font-semibold text-ink-muted mb-1">Office</span>
@@ -1028,7 +1022,7 @@ export default function PurchaseOrdersPage() {
                       <tr key={row.id}>
                         <td className="text-center font-mono text-ink-muted">{methodPage.offset + idx + 1}</td>
                         <td className="text-center">
-                          <div className="row-actions flex items-center justify-center gap-0.5">
+                          <div className="flex items-center justify-center gap-0.5">
                             <button type="button" onClick={() => setViewReq(row)} className={iconBtn} title="View requisition" aria-label="View requisition">
                               <Eye className="w-3.5 h-3.5" />
                             </button>
@@ -1045,7 +1039,7 @@ export default function PurchaseOrdersPage() {
                           </div>
                         </td>
                         <td className="font-mono text-sky-700 dark:text-sky-300 font-semibold">{row.requisitionNumber}</td>
-                        <td>{row.requestDate}</td>
+                        <td className="whitespace-nowrap">{tableDate(row.requestDate)}</td>
                         <td className="text-ink-muted">{row.department ? "Department" : "Employee"}</td>
                         <td className="font-medium text-ink">{row.department || row.requesterName}</td>
                         <td>{row.requesterName || "N/A"}</td>
@@ -1283,101 +1277,18 @@ export default function PurchaseOrdersPage() {
       </ModalDialog>
 
       {/* VIEW ORDER */}
-      <ModalDialog isOpen={Boolean(viewPO)} onClose={() => setViewPO(null)} title={`Purchase Order ${viewPO?.poNumber ?? ""}`} subtitle={`${viewPO?.supplierName ?? ""} · ${viewPO?.orderDate ?? ""}`} maxWidth="4xl">
+      <ModalDialog isOpen={Boolean(viewPO)} onClose={() => setViewPO(null)} title="Purchase Order Details" maxWidth="6xl">
         {viewPO && (
-          <div className="space-y-4 text-xs">
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-canvas p-3 rounded border border-line">
-              <div>
-                <span className="text-[10px] text-ink-faint font-bold uppercase block">Supplier</span>
-                <p className="font-bold text-ink text-sm">{viewPO.supplierName}</p>
-                <p className="text-ink-muted">Reference: {viewPO.referenceNumber || "—"}</p>
-                <p className="text-ink-muted">Terms: {viewPO.paymentTerms || "—"} · {viewPO.deliveryTerms || "—"}</p>
-              </div>
-              <div>
-                <span className="text-[10px] text-ink-faint font-bold uppercase block">Deliver To</span>
-                <p className="font-bold text-ink text-sm">{viewPO.warehouseName}</p>
-                <p className="text-ink-muted">{viewPO.officeName} · by {viewPO.expectedDeliveryDate}</p>
-              </div>
-              <div>
-                <span className="text-[10px] text-ink-faint font-bold uppercase block">Status</span>
-                <p className={`font-bold text-sm ${statusLabel(viewPO).cls}`}>{statusLabel(viewPO).text}</p>
-                <p className="text-ink-muted">Requisition: {viewPO.requisitionNumber || "—"}</p>
-              </div>
-            </div>
-            <div className="border border-line rounded overflow-x-auto">
-              <table className="w-full min-w-[640px] text-left text-xs">
-                <thead className="bg-control text-ink-muted font-semibold">
-                  <tr>
-                    <th className="p-2">Item</th>
-                    <th className="p-2 text-right">Ordered</th>
-                    <th className="p-2 text-right">Received</th>
-                    <th className="p-2 text-right">Outstanding</th>
-                    <th className="p-2 text-right">Returned</th>
-                    <th className="p-2 text-right">Unit Price</th>
-                    <th className="p-2 text-right">Disc / VAT</th>
-                    <th className="p-2 text-right">Line Total</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-line">
-                  {viewPO.items.map((it) => (
-                    <tr key={it.id}>
-                      <td className="p-2">
-                        <div className="font-semibold text-ink">{it.itemName}</div>
-                        <div className="text-[10px] text-ink-faint font-mono">{it.itemCode} · {it.uom}</div>
-                      </td>
-                      <td className="p-2 text-right font-mono">{it.orderedQuantity}</td>
-                      <td className="p-2 text-right font-mono text-emerald-700 dark:text-emerald-300">{it.receivedQuantity}</td>
-                      <td className="p-2 text-right font-mono text-amber-700 dark:text-amber-300">{it.outstandingQuantity}</td>
-                      <td className="p-2 text-right font-mono text-rose-600 dark:text-rose-400">{it.returnedQuantity}</td>
-                      <td className="p-2 text-right font-mono">{formatCurrency(it.unitPrice)}</td>
-                      <td className="p-2 text-right font-mono text-ink-faint">{it.discountPercentage}% / {it.taxPercentage}%</td>
-                      <td className="p-2 text-right font-mono font-bold">{formatCurrency(it.lineTotal)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <div className="flex flex-col sm:flex-row justify-between gap-3">
-              <div className="flex-1 bg-surface border border-line rounded p-3">
-                <span className="text-[10px] text-ink-faint font-bold uppercase block mb-1">History</span>
-                {viewPO.approvalHistory.length === 0 ? (
-                  <p className="text-ink-faint">No history recorded.</p>
-                ) : (
-                  <ul className="space-y-1">
-                    {viewPO.approvalHistory.map((h) => (
-                      <li key={h.id}>
-                        <span className="font-semibold text-ink">{h.action.replace(/_/g, " ")}</span> by {h.actorName}
-                        <span className="text-ink-faint"> · {new Date(h.timestamp).toLocaleString()}</span>
-                        {h.comments && <span className="text-ink-muted"> — {h.comments}</span>}
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-              <div className="sm:w-64 space-y-1 bg-canvas p-3 rounded border border-line">
-                <div className="flex justify-between"><span>Subtotal</span><span className="font-mono">{formatCurrency(viewPO.subtotal)}</span></div>
-                <div className="flex justify-between"><span>Discount</span><span className="font-mono">− {formatCurrency(viewPO.totalDiscount)}</span></div>
-                <div className="flex justify-between"><span>VAT</span><span className="font-mono">{formatCurrency(viewPO.totalTax)}</span></div>
-                <div className="flex justify-between"><span>Shipping</span><span className="font-mono">{formatCurrency(viewPO.shippingFee)}</span></div>
-                <div className="flex justify-between pt-1 border-t border-line-strong font-bold text-sm"><span>Total</span><span className="font-mono text-sky-800 dark:text-sky-300">{formatCurrency(viewPO.totalAmount)}</span></div>
-              </div>
-            </div>
-            <div className="flex justify-end gap-2">
-              <button type="button" onClick={() => setViewPO(null)} className={btnGhost}>
-                Close
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setPrintPO(viewPO);
-                  setViewPO(null);
-                }}
-                className={btnPrimary}
-              >
-                <Printer className="w-3.5 h-3.5" /> Print
-              </button>
-            </div>
-          </div>
+          <PurchaseOrderDetails
+            po={viewPO}
+            supplier={suppliers.find((s) => s.id === viewPO.supplierId)}
+            status={statusLabel(viewPO)}
+            onClose={() => setViewPO(null)}
+            onPrint={() => {
+              setPrintPO(viewPO);
+              setViewPO(null);
+            }}
+          />
         )}
       </ModalDialog>
 
@@ -1444,7 +1355,23 @@ export default function PurchaseOrdersPage() {
         })()}
       </ModalDialog>
 
-      {/* ORDER ACTION (approve / close / cancel / reverse) */}
+      {/* CLOSE ORDER / REVERSE ORDER, as in the reference ERP */}
+      <ClosePurchaseOrderDialog
+        po={closingPO}
+        pending={actionMutation.isPending}
+        onCancel={() => setClosingPO(null)}
+        onConfirm={(po) => actionMutation.mutate({ id: po.id, action: "close", comments: "Closed from the purchase order list" })}
+      />
+      <ConfirmPrompt
+        open={Boolean(reversingPO)}
+        question="Are you sure you want to reverse this Order?"
+        detail={reversingPO ? `Order Code : ${reversingPO.poNumber}` : undefined}
+        pending={actionMutation.isPending}
+        onNo={() => setReversingPO(null)}
+        onYes={() => reversingPO && actionMutation.mutate({ id: reversingPO.id, action: "reverse", comments: "Reversed from the purchase order list" })}
+      />
+
+      {/* ORDER ACTION (approve / cancel) */}
       <ModalDialog
         isOpen={Boolean(actionPO)}
         onClose={() => !actionMutation.isPending && setActionPO(null)}

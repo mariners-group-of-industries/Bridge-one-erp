@@ -185,8 +185,9 @@ export function PaymentByGrnView() {
         remarks.trim(),
       ].filter(Boolean);
 
+      let pending = 0;
       for (const line of queuedLines) {
-        await fetchApi("/purchase/supplier-payments", {
+        const saved = await fetchApi<{ status?: string }>("/purchase/supplier-payments", {
           method: "POST",
           body: JSON.stringify({
             supplierId: line.supplierId,
@@ -201,14 +202,17 @@ export function PaymentByGrnView() {
             narration: narrationParts.join(" | ") || `Payment for ${line.grnNumber}`,
           }),
         });
+        if (saved?.status === "DRAFT") pending++;
       }
+      return pending;
     },
-    onSuccess: () => {
+    onSuccess: (pending) => {
       queryClient.invalidateQueries({ queryKey: ["supplierPayables"] });
       queryClient.invalidateQueries({ queryKey: ["supplierInvoices"] });
       queryClient.invalidateQueries({ queryKey: ["supplierPaymentHistory"] });
       queryClient.invalidateQueries({ queryKey: ["supplierBills"] });
-      toast.success(`Posted ${queuedLines.length} GRN payment(s) and updated Accounting GL.`);
+      if (pending) toast.success(`${pending} of ${queuedLines.length} GRN payment(s) wait for Payment Approval; the rest are posted.`, { title: "Sent for Approval" });
+      else toast.success(`Posted ${queuedLines.length} GRN payment(s) and updated Accounting GL.`);
       router.push("/purchase/supplier-payments");
     },
     onError: (err: Error) => toast.error(err.message, { title: "Payment By GRN Error" }),

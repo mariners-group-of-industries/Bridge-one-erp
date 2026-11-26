@@ -68,3 +68,17 @@ export async function uploadPurchaseBulk(path: string, file: File): Promise<Bulk
   form.set("file", file);
   return apiRequest<BulkImportResult>(path, { method: "POST", body: form });
 }
+
+/**
+ * Table date for purchase pages: always dd-mm-yyyy (e.g. "17-11-2026").
+ * Accepts yyyy-mm-dd, ISO timestamps, or dd/mm/yyyy | dd-mm-yyyy; anything else is shown as is.
+ */
+export function tableDate(value?: string | null): string {
+  if (!value) return "—";
+  const v = value.trim();
+  const iso = v.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (iso) return `${iso[3]}-${iso[2]}-${iso[1]}`;
+  const dmy = v.match(/^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})$/);
+  if (dmy) return `${dmy[1].padStart(2, "0")}-${dmy[2].padStart(2, "0")}-${dmy[3]}`;
+  return v;
+}

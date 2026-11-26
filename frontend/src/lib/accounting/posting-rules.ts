@@ -16,6 +16,7 @@ export const POSTING_KEYS = {
   BANK: "Bank / card / mobile money",
   PURCHASE_EXPENSE: "Purchase expense (bills without goods)",
   STOCK_ADJUSTMENT: "Stock adjustment & consumption",
+  WORK_IN_PROGRESS: "Work in progress (materials issued to production)",
   SALARY_EXPENSE: "Salary expense",
   SALARY_PAYABLE: "Salary payable",
 } as const;
@@ -101,6 +102,19 @@ export const supplierPaymentLines = (amount: number, method: string, cashAccount
 /** Stock found (+) or lost / used (−), at cost. */
 export const stockValueLines = (value: number) =>
   clean(value >= 0 ? [dr("INVENTORY", value), cr("STOCK_ADJUSTMENT", value)] : [dr("STOCK_ADJUSTMENT", -value), cr("INVENTORY", -value)]);
+/** Materials issued to a production order: out of stores into work in progress, at cost. */
+export const productionIssueLines = (value: number) => clean([dr("WORK_IN_PROGRESS", value), cr("INVENTORY", value)]);
+/**
+ * A production entry: finished goods into inventory at the cost of the materials used.
+ * Materials issued to the order earlier leave work in progress; those the entry took
+ * straight from the warehouse leave inventory.
+ */
+export const productionLines = (input: { fromWip: number; direct: number }) =>
+  clean([
+    dr("INVENTORY", input.fromWip + input.direct, "Finished goods produced"),
+    cr("WORK_IN_PROGRESS", input.fromWip, "Issued materials used"),
+    cr("INVENTORY", input.direct, "Materials consumed from stock"),
+  ]);
 /** A processed payroll: salary expense against salary payable (net pay). */
 export const payrollLines = (net: number) => clean([dr("SALARY_EXPENSE", net), cr("SALARY_PAYABLE", net)]);
 

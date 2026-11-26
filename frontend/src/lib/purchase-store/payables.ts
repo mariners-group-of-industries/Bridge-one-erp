@@ -115,7 +115,7 @@ async function loadPayables(filters?: PayablesDateFilter, prisma: Client = db())
   const [suppliers, receipts, returns, bills, payments] = await Promise.all([
     prisma.supplier.findMany({ where: { isActive: true }, orderBy: { name: "asc" } }),
     prisma.goodsReceipt.findMany({
-      where: { status: { not: "CANCELLED" }, ...(range ? { receiveDate: range } : {}) },
+      where: { status: { in: ["RECEIVED", "INSPECTED"] }, ...(range ? { receiveDate: range } : {}) },
       select: {
         id: true, supplierId: true, number: true, receiveDate: true, totalAmount: true, challanNumber: true,
         businessUnitId: true, officeId: true, warehouseId: true,
@@ -124,7 +124,7 @@ async function loadPayables(filters?: PayablesDateFilter, prisma: Client = db())
       },
     }),
     prisma.purchaseReturn.findMany({
-      where: { status: { not: "CANCELLED" }, ...(range ? { returnDate: range } : {}) },
+      where: { status: "COMPLETED", ...(range ? { returnDate: range } : {}) },
       select: { supplierId: true, receiptId: true, totalAmount: true },
     }),
     prisma.supplierBill.findMany({
@@ -281,6 +281,7 @@ export async function createSupplierBill(input: Record<string, unknown>, actorNa
       .catch(() => null);
     if (!receipt || receipt.supplierId !== supplierId) throw badRequest("The goods receipt does not belong to this supplier.");
     if (receipt.status === "CANCELLED") throw badRequest("The goods receipt is cancelled; a bill cannot be booked for it.");
+    if (receipt.status === "DRAFT") throw badRequest("The goods receipt is waiting for approval; book the bill once it is approved.");
     await assertPlaceInScope(actor, receipt);
     if (receipt.bill) throw badRequest("A bill is already booked for this goods receipt.");
     // The receipt already made its value payable; the bill records the invoice for it.

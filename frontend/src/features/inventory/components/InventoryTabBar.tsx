@@ -32,7 +32,7 @@ export function InventoryTabBar<T extends string>({
   actions?: ReactNode;
 }) {
   return (
-    <div className="flex flex-wrap items-stretch justify-between gap-x-3 overflow-hidden rounded-lg border border-line bg-blue-50 dark:bg-blue-500/10">
+    <div className="flex flex-wrap items-stretch justify-between gap-x-3 border-b border-line bg-surface">
       <h1 className="sr-only">{title}</h1>
       <div role="tablist" aria-label={title} className="flex flex-wrap">
         {tabs.map((tab) => {

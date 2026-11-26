@@ -68,6 +68,9 @@ const ACTIONS: Record<string, CategoryActions> = {
   "purchase-requisition": idRoutes("/api/v1/purchase/requisitions", ({ remarks }) => ({ comments: remarks })),
   "purchase-order": { approve: ({ doc, remarks }) => post(`/api/v1/purchase/orders/${id(doc)}/approve`, { comments: remarks }) },
   "supplier-bill": { approve: ({ doc }) => post(`/api/v1/purchase/supplier-bills/${id(doc)}/approve`, {}) },
+  "goods-receipt": idRoutes("/api/v1/purchase/receipts", ({ remarks }) => ({ comments: remarks })),
+  "purchase-return": idRoutes("/api/v1/purchase/returns", ({ remarks }) => ({ comments: remarks })),
+  "supplier-payment": idRoutes("/api/v1/purchase/supplier-payments", ({ remarks }) => ({ comments: remarks })),
   // ── Sales ──
   "sales-order": {
     approve: ({ doc, remarks }) => post(`/api/sales/orders/${id(doc)}/status`, { action: "approve", version: needVersion(doc), remarks: remarks || undefined, today: localToday() }),

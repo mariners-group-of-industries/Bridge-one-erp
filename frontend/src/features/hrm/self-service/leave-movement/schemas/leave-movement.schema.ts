@@ -98,8 +98,29 @@ export interface LeaveRow extends ApplicationBase {
   attachments: { id: string; name: string; size: number }[];
 }
 
+/** An application's approval stages (empty without an approval pipeline). */
+export interface ApprovalStage {
+  stageNo: number;
+  name: string;
+  status: string;
+  approverNames: string[];
+  approvedNames: string[];
+  actedBy: string | null;
+  actedAt: string | null;
+}
+
+/** One leave application with its approval stages. */
+export interface LeaveDetail extends LeaveRow {
+  stages: ApprovalStage[];
+}
+
 export interface MovementRow extends ApplicationBase {
   movementType: string;
   startTime: string;
   endTime: string;
+}
+
+/** One movement application with its approval stages. */
+export interface MovementDetail extends MovementRow {
+  stages: ApprovalStage[];
 }

@@ -8,6 +8,7 @@ import { requireOffice, scopedBusinessUnitIds } from "@/features/sales/lib/scope
 import { userNames } from "@/features/sales/lib/users";
 import { round2, round4 } from "../../bom/lib/bom-totals";
 import { productionNumber } from "../../lib/numbering";
+import { companyDocumentNumber } from "@/features/sales/lib/sequence";
 import {
   ORDER_APPROVAL_FEATURE,
   customerSearchSchema,
@@ -36,6 +37,73 @@ export const ORDER_LIST_LIMIT = 2000;
 const STALE = "Someone else changed this production order. Reload and try again.";
 
 const num = (value: Prisma.Decimal | null | undefined) => (value ? value.toNumber() : 0);
+const round3 = (value: number) => Math.round(value * 1000) / 1000;
+
+/**
+ * Ensures an approved Store Requisition exists in Inventory › Store Issue for an approved
+ * production order so storekeepers can issue the BOM materials from the order's warehouse.
+ */
+async function ensureProductionStoreRequisition(
+  tx: Tx,
+  order: Awaited<ReturnType<typeof findInScope>>,
+  actor: Actor,
+  now: Date,
+) {
+  const existing = await tx.inventoryDocument.findFirst({
+    where: {
+      businessUnitId: order.businessUnitId,
+      type: "STORE_REQUISITION",
+      reference: order.number,
+      status: { in: ["PENDING", "APPROVED", "COMPLETED"] },
+    },
+    select: { id: true },
+  });
+  if (existing) return;
+
+  const lines = order.materials
+    .map((m) => ({ itemId: m.itemId, qty: round3(num(m.requiredQty)) }))
+    .filter((m) => m.qty > 0);
+  if (!lines.length) return;
+
+  const number = await companyDocumentNumber(
+    tx,
+    order.businessUnitId,
+    "INVENTORY_STORE_REQUISITION",
+    "SR-",
+    fromDbDate(order.orderDate),
+  );
+  const actorLabel = (actor.name ?? actor.id).slice(0, 150);
+  await tx.inventoryDocument.create({
+    data: {
+      businessUnitId: order.businessUnitId,
+      type: "STORE_REQUISITION",
+      number,
+      docDate: order.orderDate,
+      warehouseId: order.warehouseId,
+      status: "APPROVED",
+      subtype: "Department",
+      partyName: "Production",
+      reference: order.number,
+      meta: {
+        officeName: order.office.name,
+        productionOrderId: order.id,
+        productionOrderNumber: order.number,
+      },
+      remarks: `Production Order ${order.number} (${order.item.code} - ${order.item.name})`.slice(0, 500),
+      createdBy: actorLabel,
+      approvedBy: actorLabel,
+      approvedAt: now,
+      lines: {
+        create: lines.map((line, idx) => ({
+          lineNo: idx + 1,
+          itemId: line.itemId,
+          qty: line.qty,
+          remarks: `BOM ${order.bom.name}`.slice(0, 300),
+        })),
+      },
+    },
+  });
+}
 
 // ─── BOM explosion ───────────────────────────────────────────────────────────
 
@@ -95,7 +163,7 @@ export async function previewOrder(actor: Actor, raw: unknown): Promise<OrderPre
 // ─── Approval ────────────────────────────────────────────────────────────────
 
 /** Approval stages copied from the "Production Order" pipeline, or one "Any_Person" stage without a pipeline. */
-async function approvalStages(tx: Tx, businessUnitId: string) {
+async function approvalStages(tx: Tx, businessUnitId: string, amount: number) {
   const pipeline = await tx.approvalPipeline.findFirst({
     where: { feature: ORDER_APPROVAL_FEATURE },
     orderBy: { updatedAt: "desc" },
@@ -103,11 +171,20 @@ async function approvalStages(tx: Tx, businessUnitId: string) {
       superApproverEmployee: { select: { userId: true } },
       stages: {
         orderBy: { stageNo: "asc" },
-        include: { approvers: { orderBy: { sortOrder: "asc" }, include: { employee: { select: { userId: true } } } } },
+        include: { approvers: { orderBy: { sortOrder: "asc" }, include: { employee: { select: { userId: true, name: true } } } } },
       },
     },
   });
-  if (!pipeline || pipeline.stages.length === 0) {
+  // Stages with an amount threshold apply only to orders whose value (BOM unit cost × quantity) is within it,
+  // as in the shared engine (src/lib/approval/engine.ts).
+  const applies = (stage: NonNullable<typeof pipeline>["stages"][number]) => {
+    if (!stage.allowThreshold) return true;
+    const min = stage.thresholdMin ? stage.thresholdMin.toNumber() : 0;
+    const max = stage.thresholdMax ? stage.thresholdMax.toNumber() : null;
+    return amount >= min && (max === null || amount <= max);
+  };
+  const stages = pipeline?.stages.filter(applies) ?? [];
+  if (!pipeline || stages.length === 0) {
     return {
       superApproverUserId: null,
       stages: [{ stageNo: 1, stageName: "Production Order Approval", approvalOrder: "ANY", requiredCount: 1, approverUserIds: [] as string[] }],
@@ -115,12 +192,17 @@ async function approvalStages(tx: Tx, businessUnitId: string) {
   }
   return {
     superApproverUserId: pipeline.superApproverUserId ?? pipeline.superApproverEmployee?.userId ?? null,
-    stages: pipeline.stages.map((stage, index) => {
-      const ids = stage.approvers
-        .filter((approver) => !approver.businessUnitId || approver.businessUnitId === businessUnitId)
-        .map((approver) => (approver.userType === "EMPLOYEE" ? approver.employee?.userId : approver.userId))
-        .filter((id): id is string => !!id);
+    stages: stages.map((stage, index) => {
+      const forUnit = stage.approvers.filter((approver) => !approver.businessUnitId || approver.businessUnitId === businessUnitId);
+      const ids = forUnit.map((approver) => (approver.userType === "EMPLOYEE" ? approver.employee?.userId : approver.userId)).filter((id): id is string => !!id);
       const approverUserIds = [...new Set(ids)];
+      // Approvers none of whom can log in would leave the stage open to anyone with Approve permission.
+      if (forUnit.length > 0 && approverUserIds.length === 0) {
+        const names = forUnit.map((approver) => approver.employee?.name ?? "an approver").join(", ");
+        throw badRequest(
+          `Approval stage ${index + 1} (${stage.name}) of "Production Order" has no approver with a user login (${names}). Link the employee to a user, or change the approvers in Configuration › Approval Setup.`,
+        );
+      }
       return {
         stageNo: index + 1,
         stageName: stage.name,
@@ -140,7 +222,7 @@ interface StageState {
 
 /** Whether the actor may approve / reject this stage now. */
 function canActOnStage(actor: Actor, stage: StageState, superApproverUserId: string | null): boolean {
-  if (superApproverUserId && actor.id === superApproverUserId) return true;
+  if (actor.isMaster || (superApproverUserId && actor.id === superApproverUserId)) return true;
   if (stage.approverUserIds.length === 0) return canOn(actor, "/production/orders", "approve", "production:approve");
   if (stage.approvedUserIds.includes(actor.id)) return false;
   if (stage.approvalOrder === "SEQUENTIAL") return stage.approverUserIds[stage.approvedUserIds.length] === actor.id;
@@ -365,7 +447,7 @@ export async function createOrder(actor: Actor, raw: unknown): Promise<OrderDeta
   const id = await db().$transaction(async (tx) => {
     const businessUnitId = await checkReferences(tx, office, input);
     const exploded = await explode(tx, businessUnitId, input.bomId, input.itemId, input.quantity);
-    const approval = await approvalStages(tx, businessUnitId);
+    const approval = await approvalStages(tx, businessUnitId, round2(Number(exploded.unitCost) * input.quantity));
     const created = await tx.productionOrder.create({
       data: {
         businessUnitId,
@@ -404,7 +486,7 @@ export async function updateOrder(actor: Actor, id: string, raw: unknown): Promi
       data: header(data, exploded),
     });
     if (count === 0) throw conflict(STALE);
-    const approval = await approvalStages(tx, businessUnitId);
+    const approval = await approvalStages(tx, businessUnitId, round2(Number(exploded.unitCost) * data.quantity));
     await tx.productionOrderMaterial.deleteMany({ where: { orderId: id } });
     await tx.productionOrderMaterial.createMany({ data: materialRows(exploded).map((row) => ({ ...row, orderId: id })) });
     await tx.productionOrderApproval.deleteMany({ where: { orderId: id } });
@@ -431,13 +513,16 @@ export async function actOnOrder(actor: Actor, id: string, raw: unknown): Promis
 
     if (action === "approve" || action === "reject") {
       const stage = order.approvals.find((item) => item.status === "PENDING")!;
-      const superApprover = !!order.superApproverUserId && actor.id === order.superApproverUserId;
+      // Same rule as the shared engine (src/lib/approval/engine.ts): the master account clears a stage like the super approver.
+      const superApprover = actor.isMaster || (!!order.superApproverUserId && actor.id === order.superApproverUserId);
       const approvedUserIds = action === "approve" && !stage.approvedUserIds.includes(actor.id) ? [...stage.approvedUserIds, actor.id] : stage.approvedUserIds;
       const stageDone = action === "approve" && (superApprover || approvedUserIds.length >= stage.requiredCount);
       const lastStage = !order.approvals.some((item) => item.stageNo > stage.stageNo && item.status === "PENDING");
       if (action === "reject") await claim("REJECTED", { statusReason: comment ?? null });
-      else if (stageDone && lastStage) await claim("APPROVED");
-      else await claim("PENDING_APPROVAL");
+      else if (stageDone && lastStage) {
+        await claim("APPROVED");
+        await ensureProductionStoreRequisition(tx, order, actor, now);
+      } else await claim("PENDING_APPROVAL");
       const { count } = await tx.productionOrderApproval.updateMany({
         where: { id: stage.id, status: "PENDING", approvedUserIds: { equals: stage.approvedUserIds } },
         data: {
@@ -453,7 +538,20 @@ export async function actOnOrder(actor: Actor, id: string, raw: unknown): Promis
     }
     if (action === "start") return claim("IN_PROGRESS");
     if (action === "close") return claim("CLOSED", { statusReason: comment || null });
-    return claim("CANCELLED", { statusReason: comment ?? null });
+    await claim("CANCELLED", { statusReason: comment ?? null });
+    await tx.inventoryDocument.updateMany({
+      where: {
+        businessUnitId: order.businessUnitId,
+        type: "STORE_REQUISITION",
+        reference: order.number,
+        status: { in: ["PENDING", "APPROVED"] },
+        fulfilments: { none: {} },
+      },
+      data: {
+        status: "CANCELLED",
+        reviewComment: comment ? `Cancelled from ${order.number}: ${comment}`.slice(0, 500) : `Cancelled from ${order.number}`,
+      },
+    });
   });
   return getOrder(actor, id);
 }

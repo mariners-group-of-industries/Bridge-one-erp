@@ -304,7 +304,7 @@ export async function createDocument(actor: Actor, type: InventoryDocType, raw: 
         status,
         subtype: input.subtype ?? null,
         partyName: input.partyName ?? null,
-        reference: input.reference ?? null,
+        reference: input.reference ?? request?.reference ?? null,
         meta: input.meta ?? undefined,
         remarks: input.remarks ?? null,
         createdBy: name,
@@ -339,7 +339,25 @@ export async function createDocument(actor: Actor, type: InventoryDocType, raw: 
     if (request) {
       const qty = new Map<string, number>();
       for (const l of input.lines) qty.set(l.itemId, (qty.get(l.itemId) ?? 0) + l.qty);
-      await fulfil(tx, request, qty);
+      await fulfil(tx, request, new Map(qty));
+
+      if (type === "STORE_ISSUE" && request.reference) {
+        const prodOrder = await tx.productionOrder.findFirst({
+          where: { businessUnitId, number: request.reference },
+          select: { id: true, materials: { select: { id: true, itemId: true } } },
+        });
+        if (prodOrder) {
+          const lineByItem = new Map(prodOrder.materials.map((m) => [m.itemId, m.id]));
+          for (const [itemId, issued] of qty) {
+            const materialId = lineByItem.get(itemId);
+            if (!materialId || issued <= 0) continue;
+            await tx.productionOrderMaterial.update({
+              where: { id: materialId },
+              data: { issueQty: { increment: round3(issued) } },
+            });
+          }
+        }
+      }
     }
     return doc;
   });

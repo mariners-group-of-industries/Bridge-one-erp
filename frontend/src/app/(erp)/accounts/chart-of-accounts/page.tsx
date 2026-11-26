@@ -798,7 +798,7 @@ export default function ChartOfAccountsPage() {
   }, [ledgerAccount, vouchers]);
 
   return (
-    <div className="space-y-3 font-sans bg-surface flex flex-col md:h-[calc(100dvh-3.5rem)] md:overflow-hidden print:block print:h-auto print:overflow-visible">
+    <div className="space-y-2 p-3 font-sans bg-surface flex flex-col md:h-[calc(100dvh-3.5rem)] md:overflow-hidden print:block print:h-auto print:overflow-visible">
       {/* 1. TOP HEADER — Contextual buttons match Screenshots 2, 3, 4 */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-4 py-3 bg-surface border-b border-line print:hidden shrink-0">
         <div className="flex items-center gap-3">

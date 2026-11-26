@@ -171,6 +171,39 @@ async function issueNumber(
   throw badRequest(`Could not issue a ${prefix} number; check the document sequence.`);
 }
 
+/**
+ * Purchase document number in the company format: prefix + company initials +
+ * 2-digit year + 2-digit month + 5-digit serial that restarts every month,
+ * e.g. "PO" in Nov 2026 for Mariners Group → "PO-MG261100016".
+ */
+async function issueCompanyNumber(
+  tx: Tx,
+  businessUnitId: string,
+  docType: string,
+  prefix: string,
+  date: Date,
+  taken: (number: string) => Promise<boolean>,
+): Promise<string> {
+  const unit = await tx.businessUnit.findUniqueOrThrow({ where: { id: businessUnitId }, select: { company: { select: { name: true } } } });
+  const initials =
+    unit.company.name
+      .split(/\s+/)
+      .map((word) => word.replace(/[^A-Za-z]/g, "").charAt(0))
+      .join("")
+      .slice(0, 3)
+      .toUpperCase() || "BO";
+  const year = date.getUTCFullYear();
+  const month = date.getUTCMonth() + 1;
+  // The sequence's year column holds yyyymm so the serial restarts every month.
+  const period = year * 100 + month;
+  const stem = `${prefix}-${initials}${String(year).slice(-2)}${String(month).padStart(2, "0")}`;
+  for (let attempt = 0; attempt < 500; attempt++) {
+    const number = `${stem}${String(await nextNumber(tx, businessUnitId, docType, period)).padStart(5, "0")}`;
+    if (!(await taken(number))) return number;
+  }
+  throw badRequest(`Could not issue a ${prefix} number; check the document sequence.`);
+}
+
 function toDateStr(d: Date | string | null | undefined): string {
   if (!d) return new Date().toISOString().split("T")[0];
   if (typeof d === "string") return d.split("T")[0];
@@ -889,7 +922,7 @@ class PurchaseDataStore {
     if (requiredDate < requisitionDate) throw badRequest("The required delivery date cannot be before the request date.");
 
     const created = await db().$transaction(async (tx) => {
-      const number = await issueNumber(tx, businessUnitId, "PURCHASE_REQUISITION", "REQ", requisitionDate, async (n) =>
+      const number = await issueCompanyNumber(tx, businessUnitId, "PURCHASE_REQUISITION", "PR", requisitionDate, async (n) =>
         Boolean(await tx.purchaseRequisition.findFirst({ where: { businessUnitId, number: n }, select: { id: true } })),
       );
       return tx.purchaseRequisition.create({
@@ -974,6 +1007,8 @@ class PurchaseDataStore {
         : req.notes;
 
     await db().$transaction(async (tx) => {
+      // Stage approvals given before the edit no longer stand: approval starts over.
+      if (req.status === "PENDING" || req.status === "REJECTED") await resetApproval(tx, "Purchase Requisition", req.id);
       if (built) {
         await tx.purchaseRequisitionLine.deleteMany({ where: { requisitionId: req.id } });
         await tx.purchaseRequisitionLine.createMany({ data: built.lines.map((l) => ({ ...l, requisitionId: req.id })) });
@@ -1217,7 +1252,7 @@ class PurchaseDataStore {
     const expectedDeliveryDate = parseDate(input.expectedDeliveryDate || input.orderDate, "Expected delivery date");
     if (expectedDeliveryDate < orderDate) throw badRequest("The expected delivery date cannot be before the order date.");
 
-    const number = await issueNumber(tx, place.businessUnitId, "PURCHASE_ORDER", "PO", orderDate, async (n) =>
+    const number = await issueCompanyNumber(tx, place.businessUnitId, "PURCHASE_ORDER", "PO", orderDate, async (n) =>
       Boolean(await tx.purchaseOrder.findFirst({ where: { businessUnitId: place.businessUnitId, number: n }, select: { id: true } })),
     );
     const needsApproval = !options?.autoApprove && (await hasApprovalPipeline(tx, "Purchase Order"));
@@ -1288,14 +1323,19 @@ class PurchaseDataStore {
     const expectedDeliveryDate = input.expectedDeliveryDate ? parseDate(input.expectedDeliveryDate, "Expected delivery date") : po.expectedDeliveryDate;
     if (expectedDeliveryDate && expectedDeliveryDate < orderDate) throw badRequest("The expected delivery date cannot be before the order date.");
 
+    // An order in (or through) approval that is edited goes back for approval from stage 1,
+    // so the supplier, lines or amount cannot change after approvers signed off.
+    const reapprove = po.status === "PENDING" || po.status === "APPROVED";
     await db().$transaction(async (tx) => {
       if (lines) {
         await tx.purchaseOrderLine.deleteMany({ where: { orderId: po.id } });
         await tx.purchaseOrderLine.createMany({ data: lines.map((l) => ({ ...l.data, orderId: po.id })) });
       }
+      if (reapprove) await resetApproval(tx, "Purchase Order", po.id);
       await tx.purchaseOrder.update({
         where: { id: po.id },
         data: {
+          ...(reapprove ? { status: "PENDING" as const } : {}),
           supplierId,
           officeId: place.officeId,
           warehouseId: place.warehouseId,
@@ -1307,7 +1347,7 @@ class PurchaseDataStore {
           deliveryTerms: input.deliveryTerms !== undefined ? text(input.deliveryTerms, 100) : undefined,
           shippingFee: shipping,
           ...totals,
-          notes: appendNote(po.notes, historyEntry("EDITED", actorName)),
+          notes: appendNote(po.notes, historyEntry("EDITED", actorName, po.status === "APPROVED" ? "Edited after approval; sent back for approval." : undefined)),
         },
       });
     });
@@ -1442,6 +1482,45 @@ class PurchaseDataStore {
       });
   }
 
+  /**
+   * The journal voucher a goods receipt posted (Accounting tab of the receipt view).
+   * Only receipts the actor can see are answered; null when nothing is posted yet.
+   */
+  public async getGoodsReceiptAccounting(id: string, actor?: PurchaseActor) {
+    const list = await this.getGoodsReceipts({}, actor);
+    const grn = list.find((g) => g.id === id || g.grnNumber === id);
+    if (!grn) throw notFound("Goods receipt");
+    const voucher = await db().journalVoucher.findFirst({
+      where: { sourceType: "PURCHASE_RECEIPT", sourceId: grn.id },
+      select: {
+        voucherNumber: true,
+        transactionDate: true,
+        narration: true,
+        status: true,
+        totalDebit: true,
+        totalCredit: true,
+        lines: { orderBy: { lineNo: "asc" }, select: { accountCode: true, accountName: true, debit: true, credit: true, narration: true, partnerName: true } },
+      },
+    });
+    if (!voucher) return null;
+    return {
+      voucherNumber: voucher.voucherNumber,
+      transactionDate: toDateStr(voucher.transactionDate),
+      narration: voucher.narration,
+      status: voucher.status,
+      totalDebit: Number(voucher.totalDebit),
+      totalCredit: Number(voucher.totalCredit),
+      lines: voucher.lines.map((l) => ({
+        accountCode: l.accountCode,
+        accountName: l.accountName,
+        partnerName: l.partnerName ?? undefined,
+        narration: l.narration ?? undefined,
+        debit: Number(l.debit),
+        credit: Number(l.credit),
+      })),
+    };
+  }
+
   public async getApprovedOrdersForReceiving(actor?: PurchaseActor): Promise<PurchaseOrder[]> {
     const list = await this.getPurchaseOrders({}, actor);
     return list.filter((p) => (p.status === "APPROVED" || p.status === "PARTIALLY_RECEIVED") && p.items.some((i) => i.outstandingQuantity > 0));
@@ -1513,6 +1592,15 @@ class PurchaseDataStore {
         throw badRequest(`Order ${order.number} is ${order.status.toLowerCase().replace("_", " ")}; only approved orders can be received.`);
       }
 
+      // With a "Goods Receipt" approval pipeline the receipt waits (DRAFT) and books stock,
+      // the order and the supplier balance only when its last stage approves.
+      const needsApproval = await hasApprovalPipeline(tx, "Goods Receipt");
+      // Receipts still waiting for approval count against what is left to receive.
+      const pendingByItem = new Map<string, number>();
+      for (const l of await tx.goodsReceiptLine.findMany({ where: { receipt: { orderId: order.id, status: "DRAFT" } }, select: { itemId: true, acceptedQty: true } })) {
+        if (l.itemId) pendingByItem.set(l.itemId, (pendingByItem.get(l.itemId) ?? 0) + Number(l.acceptedQty));
+      }
+
       // Match each received line to its order line: by order line id, then item, then position.
       const used = new Set<string>();
       const matched = inputLines.map((it, idx) => {
@@ -1524,7 +1612,9 @@ class PurchaseDataStore {
         used.add(line.id);
         const received = round3(num(it.currentReceivedQuantity));
         const rejected = round3(num(it.rejectedDamagedQuantity));
-        const outstanding = round3(Number(line.quantity) - Number(line.receivedQuantity));
+        const pendingQty = line.itemId ? (pendingByItem.get(line.itemId) ?? 0) : 0;
+        if (line.itemId) pendingByItem.delete(line.itemId); // counted once per item
+        const outstanding = round3(Number(line.quantity) - Number(line.receivedQuantity) - pendingQty);
         const error = receiptLineError({ itemName: line.itemName, outstanding, received, rejected });
         if (error) throw badRequest(error);
         const accepted = round3(received - rejected);
@@ -1532,7 +1622,7 @@ class PurchaseDataStore {
         return { line, received, rejected, accepted, rate, remarks: text(it.remarks, 500) };
       });
 
-      const number = await issueNumber(tx, warehouse.businessUnitId, "GOODS_RECEIPT", "GRN", receivedAt, async (n) =>
+      const number = await issueCompanyNumber(tx, warehouse.businessUnitId, "GOODS_RECEIPT", "GRN", receivedAt, async (n) =>
         Boolean(await tx.goodsReceipt.findFirst({ where: { businessUnitId: warehouse.businessUnitId, number: n }, select: { id: true } })),
       );
       const linesData = matched.map((m, idx) => ({
@@ -1566,7 +1656,7 @@ class PurchaseDataStore {
           gatePassNumber: text(input.gatePassNumber ?? input.deliveryNoteNumber, 100),
           supplierInvoiceNumber: text(input.supplierInvoiceNumber, 100),
           vatChallanNumber: text(input.vatChallanNumber, 100),
-          status: "RECEIVED",
+          status: needsApproval ? "DRAFT" : "RECEIVED",
           totalReceivedQty: round3(linesData.reduce((s, l) => s + l.receivedQty, 0)),
           totalAcceptedQty: round3(linesData.reduce((s, l) => s + l.acceptedQty, 0)),
           totalRejectedQty: round3(linesData.reduce((s, l) => s + l.rejectedQty, 0)),
@@ -1576,6 +1666,7 @@ class PurchaseDataStore {
           lines: { create: linesData },
         },
       });
+      if (needsApproval) return receipt;
 
       // Accepted quantities go into the warehouse, so Sales and Production see the stock.
       await postStock(tx, warehouse, linesData.map((l) => ({ itemId: l.itemId, qty: l.acceptedQty })), {
@@ -1605,6 +1696,73 @@ class PurchaseDataStore {
     return res.find((g) => g.id === created.id)!;
   }
 
+  /**
+   * Approves or rejects a receipt waiting for approval (DRAFT). Each approve clears the
+   * actor's share of the current "Goods Receipt" stage; at the last stage the accepted
+   * goods enter stock, the order's received quantities move and the supplier is owed
+   * the amount. A rejection closes the receipt (CANCELLED) without touching stock.
+   */
+  public async decideGoodsReceipt(id: string, decision: "approve" | "reject", actorName: string, comments?: string, actor?: PurchaseActor) {
+    const receipt = await db().goodsReceipt.findFirst({ where: isUuid(id) ? { id } : { number: id }, include: { lines: { orderBy: { lineNo: "asc" } } } });
+    if (!receipt) throw notFound("Goods receipt");
+    await assertPlaceInScope(actor, { businessUnitId: receipt.businessUnitId, officeId: receipt.officeId, warehouseId: receipt.warehouseId });
+    if (receipt.status !== "DRAFT") throw badRequest(`Receipt ${receipt.number} is not waiting for approval.`);
+    if (decision === "reject" && !comments?.trim()) throw badRequest("Give a reason for rejecting the receipt.");
+    const warehouse = await stockWarehouse(receipt.warehouseId);
+    const target = { feature: "Goods Receipt", documentId: receipt.id, businessUnitId: receipt.businessUnitId, amount: Number(receipt.totalAmount), comment: comments || null };
+
+    await db().$transaction(async (tx) => {
+      await lockWarehouse(tx, warehouse.id);
+      const claim = async (data: Prisma.GoodsReceiptUpdateManyMutationInput) => {
+        const { count } = await tx.goodsReceipt.updateMany({ where: { id: receipt.id, status: "DRAFT", updatedAt: receipt.updatedAt }, data });
+        if (!count) throw badRequest(`Receipt ${receipt.number} changed meanwhile. Reload and try again.`);
+      };
+      if (decision === "reject") {
+        if (actor) await recordRejection(tx, actor, target);
+        return claim({ status: "CANCELLED", remarks: appendNote(receipt.remarks, historyEntry("REJECTED", actorName, comments), 1000) });
+      }
+      // An order cancelled, closed or sent back for approval meanwhile cannot take the receipt: say so at any stage.
+      const order = await tx.purchaseOrder.findUniqueOrThrow({ where: { id: receipt.orderId }, select: { number: true, status: true, supplierId: true } });
+      if (!orderReceivable(order.status as OrderDbStatus)) {
+        throw badRequest(`Order ${order.number} is ${order.status.toLowerCase().replace("_", " ")}; this receipt can no longer be approved. Reject it instead.`);
+      }
+      const gate = actor ? await recordApproval(tx, actor, target) : null;
+      if (gate && !gate.final) {
+        return claim({ remarks: appendNote(receipt.remarks, historyEntry("STAGE_APPROVED", actorName, [approvalNote(gate), comments].filter(Boolean).join(" ")), 1000) });
+      }
+      const orderLines = await tx.purchaseOrderLine.findMany({ where: { orderId: receipt.orderId }, orderBy: { lineNo: "asc" } });
+      const used = new Set<string>();
+      for (const l of receipt.lines) {
+        const accepted = Number(l.acceptedQty);
+        if (!(accepted > 0)) continue;
+        const line = orderLines.find((o) => !used.has(o.id) && (l.itemId ? o.itemId === l.itemId : o.itemCode === l.itemCode));
+        if (!line) throw badRequest(`${l.itemName} is no longer on order ${order.number}.`);
+        used.add(line.id);
+        const outstanding = round3(Number(line.quantity) - Number(line.receivedQuantity));
+        if (accepted > outstanding + 0.0005) throw badRequest(`Only ${outstanding} ${line.uom} of ${l.itemName} is left to receive on order ${order.number}.`);
+        await tx.purchaseOrderLine.update({ where: { id: line.id }, data: { receivedQuantity: { increment: accepted } } });
+      }
+      await postStock(tx, warehouse, receipt.lines.map((l) => ({ itemId: l.itemId, qty: Number(l.acceptedQty) })), {
+        source: "PURCHASE_RECEIPT",
+        sourceId: receipt.id,
+        postingDate: receipt.receiveDate,
+        remarks: `Goods receipt ${receipt.number}`,
+        createdBy: actorName,
+      });
+      const lines = await tx.purchaseOrderLine.findMany({ where: { orderId: receipt.orderId }, select: { quantity: true, receivedQuantity: true } });
+      await tx.purchaseOrder.update({
+        where: { id: receipt.orderId },
+        data: { status: receivingStatus(lines.map((l) => ({ ordered: Number(l.quantity), received: Number(l.receivedQuantity) }))) },
+      });
+      if (Number(receipt.totalAmount) > 0) {
+        await tx.supplier.update({ where: { id: receipt.supplierId }, data: { balance: { increment: Number(receipt.totalAmount) } } });
+      }
+      await claim({ status: "RECEIVED", remarks: appendNote(receipt.remarks, historyEntry("APPROVED", actorName, comments), 1000) });
+    });
+    const res = await this.getGoodsReceipts({});
+    return res.find((g) => g.id === receipt.id)!;
+  }
+
   /** Cancels a receipt: stock leaves again, the order is reopened and the supplier balance reduced. */
   public async cancelGoodsReceipt(id: string, actorName: string, comments?: string, actor?: PurchaseActor) {
     const prisma = db();
@@ -1612,6 +1770,11 @@ class PurchaseDataStore {
     if (!receipt) throw notFound("Goods receipt");
     await assertPlaceInScope(actor, { businessUnitId: receipt.businessUnitId, officeId: receipt.officeId, warehouseId: receipt.warehouseId });
     if (receipt.status === "CANCELLED") throw badRequest("The receipt is already cancelled.");
+    if (receipt.status === "DRAFT") {
+      // Still waiting for approval: nothing was booked, so there is nothing to reverse.
+      await prisma.goodsReceipt.update({ where: { id: receipt.id }, data: { status: "CANCELLED", remarks: appendNote(receipt.remarks, historyEntry("CANCELLED", actorName, comments), 1000) } });
+      return (await this.getGoodsReceipts({})).find((g) => g.id === receipt.id)!;
+    }
     const [returns, payments, bill] = await Promise.all([
       prisma.purchaseReturn.count({ where: { receiptId: receipt.id, status: { not: "CANCELLED" } } }),
       prisma.supplierPayment.count({ where: { receiptId: receipt.id, status: { not: "CANCELLED" } } }),
@@ -1707,7 +1870,7 @@ class PurchaseDataStore {
           totalReturnAmount: Number(pr.totalAmount),
           returnType: "REFUND_CREDIT" as const,
           remarks: pr.reason || undefined,
-          status: pr.status === "CANCELLED" ? ("CANCELLED" as const) : ("COMPLETED" as const),
+          status: pr.status === "CANCELLED" ? ("CANCELLED" as const) : pr.status === "SUBMITTED" || pr.status === "DRAFT" ? ("PENDING_APPROVAL" as const) : ("COMPLETED" as const),
           createdBy: pr.createdBy || "—",
           createdAt: pr.createdAt.toISOString(),
           inventoryReversalStatus: "SYNCED" as const,
@@ -1734,7 +1897,7 @@ class PurchaseDataStore {
     const [receipts, rows] = await Promise.all([
       this.getGoodsReceipts({}, actor),
       db().goodsReceipt.findMany({
-        where: { status: { not: "CANCELLED" } },
+        where: { status: { in: ["RECEIVED", "INSPECTED"] } },
         select: { id: true, lines: true, returns: { where: { status: { not: "CANCELLED" } }, select: { lines: true } } },
       }),
     ]);
@@ -1775,6 +1938,7 @@ class PurchaseDataStore {
       : null;
     if (withReceipt && !grn) throw badRequest("The goods receipt does not exist.");
     if (grn?.status === "CANCELLED") throw badRequest(`Receipt ${grn.number} is cancelled; nothing can be returned against it.`);
+    if (grn?.status === "DRAFT") throw badRequest(`Receipt ${grn.number} is waiting for approval; the goods are not in stock yet.`);
 
     const warehouse = await stockWarehouse(grn?.warehouseId || input.warehouseId);
     const officeId = grn?.officeId || warehouse.officeId;
@@ -1841,6 +2005,9 @@ class PurchaseDataStore {
       const number = await issueNumber(tx, warehouse.businessUnitId, "PURCHASE_RETURN", "PR", returnedAt, async (n) =>
         Boolean(await tx.purchaseReturn.findFirst({ where: { businessUnitId: warehouse.businessUnitId, number: n }, select: { id: true } })),
       );
+      // With a "Purchase Return" approval pipeline the return waits (SUBMITTED); the goods
+      // leave stock and the supplier balance drops only when its last stage approves.
+      const needsApproval = await hasApprovalPipeline(tx, "Purchase Return");
       const purchaseReturn = await tx.purchaseReturn.create({
         data: {
           businessUnitId: warehouse.businessUnitId,
@@ -1852,13 +2019,20 @@ class PurchaseDataStore {
           number,
           returnDate: returnedAt,
           reason: text(input.remarks || linesData[0]?.reason || "Defective", 500),
-          status: "COMPLETED",
+          status: needsApproval ? "SUBMITTED" : "COMPLETED",
           totalQty: round3(linesData.reduce((s, l) => s + l.qty, 0)),
           totalAmount,
           createdBy: actorName.slice(0, 150),
           lines: { create: linesData },
         },
       });
+      if (needsApproval) {
+        // Checked now so the return is not raised for goods that are not there; checked again on approval.
+        const outgoing = new Map<string, number>();
+        for (const l of linesData) if (l.itemId) outgoing.set(l.itemId, (outgoing.get(l.itemId) ?? 0) + l.qty);
+        if (outgoing.size) await assertStockAvailable(tx, warehouse.id, outgoing, new Map(linesData.filter((l) => l.itemId).map((l) => [l.itemId!, l.itemName])));
+        return purchaseReturn;
+      }
 
       // Returned goods leave the warehouse; refuses to return more than is in stock.
       await postStock(tx, warehouse, linesData.map((l) => ({ itemId: l.itemId, qty: -l.qty })), {
@@ -1879,6 +2053,51 @@ class PurchaseDataStore {
     return res.find((r) => r.id === created.id)!;
   }
 
+  /**
+   * Approves or rejects a return waiting for approval (SUBMITTED). At the last
+   * "Purchase Return" stage the goods leave stock and the supplier balance drops;
+   * a rejection closes it (CANCELLED) without touching stock.
+   */
+  public async decidePurchaseReturn(id: string, decision: "approve" | "reject", actorName: string, comments?: string, actor?: PurchaseActor) {
+    const ret = await db().purchaseReturn.findFirst({ where: isUuid(id) ? { id } : { number: id }, include: { lines: true } });
+    if (!ret) throw notFound("Purchase return");
+    await assertPlaceInScope(actor, { businessUnitId: ret.businessUnitId, officeId: ret.officeId, warehouseId: ret.warehouseId });
+    if (ret.status !== "SUBMITTED") throw badRequest(`Return ${ret.number} is not waiting for approval.`);
+    if (decision === "reject" && !comments?.trim()) throw badRequest("Give a reason for rejecting the return.");
+    const warehouse = await stockWarehouse(ret.warehouseId);
+    const target = { feature: "Purchase Return", documentId: ret.id, businessUnitId: ret.businessUnitId, amount: Number(ret.totalAmount), comment: comments || null };
+
+    await db().$transaction(async (tx) => {
+      await lockWarehouse(tx, warehouse.id);
+      const claim = async (data: Prisma.PurchaseReturnUpdateManyMutationInput) => {
+        const { count } = await tx.purchaseReturn.updateMany({ where: { id: ret.id, status: "SUBMITTED", updatedAt: ret.updatedAt }, data });
+        if (!count) throw badRequest(`Return ${ret.number} changed meanwhile. Reload and try again.`);
+      };
+      if (decision === "reject") {
+        if (actor) await recordRejection(tx, actor, target);
+        return claim({ status: "CANCELLED", reason: appendNote(ret.reason, historyEntry("REJECTED", actorName, comments), 500) });
+      }
+      const gate = actor ? await recordApproval(tx, actor, target) : null;
+      if (gate && !gate.final) {
+        return claim({ reason: appendNote(ret.reason, historyEntry("STAGE_APPROVED", actorName, [approvalNote(gate), comments].filter(Boolean).join(" ")), 500) });
+      }
+      // Refuses when the goods are no longer in stock.
+      await postStock(tx, warehouse, ret.lines.map((l) => ({ itemId: l.itemId, qty: -Number(l.qty) })), {
+        source: "PURCHASE_RETURN",
+        sourceId: ret.id,
+        postingDate: ret.returnDate,
+        remarks: `Purchase return ${ret.number}`,
+        createdBy: actorName,
+      });
+      if (Number(ret.totalAmount) > 0) {
+        await tx.supplier.update({ where: { id: ret.supplierId }, data: { balance: { decrement: Number(ret.totalAmount) } } });
+      }
+      await claim({ status: "COMPLETED", reason: appendNote(ret.reason, historyEntry("APPROVED", actorName, comments), 500) });
+    });
+    const res = await this.getPurchaseReturns({});
+    return res.find((r) => r.id === ret.id)!;
+  }
+
   /** Cancels a return: the goods come back into stock and the supplier balance goes up again. */
   public async cancelPurchaseReturn(id: string, actorName: string, comments?: string, actor?: PurchaseActor) {
     const prisma = db();
@@ -1886,6 +2105,11 @@ class PurchaseDataStore {
     if (!ret) throw notFound("Purchase return");
     await assertPlaceInScope(actor, { businessUnitId: ret.businessUnitId, officeId: ret.officeId, warehouseId: ret.warehouseId });
     if (ret.status === "CANCELLED") throw badRequest("The return is already cancelled.");
+    if (ret.status === "SUBMITTED" || ret.status === "DRAFT") {
+      // Still waiting for approval: no stock left and the supplier balance was not touched.
+      await prisma.purchaseReturn.update({ where: { id: ret.id }, data: { status: "CANCELLED", reason: appendNote(ret.reason, historyEntry("CANCELLED", actorName, comments), 500) } });
+      return (await this.getPurchaseReturns({})).find((r) => r.id === ret.id)!;
+    }
     await prisma.$transaction(async (tx) => {
       if (ret.warehouseId) {
         await lockWarehouse(tx, ret.warehouseId);
@@ -1969,6 +2193,9 @@ class PurchaseDataStore {
       // One payment per supplier at a time, so two payments cannot both settle the same due amount.
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`supplier-payment:${supplierId}`}))`;
       await validatePaymentLink(supplierId, receiptId, billId, amount, actor, tx);
+      // With a "Payment Approval" pipeline, money leaves only after its last stage (DRAFT until then).
+      // A payment against a bill is the exception: that same pipeline already approved the bill.
+      const needsApproval = !billId && (await hasApprovalPipeline(tx, "Payment Approval"));
       const number = await issueNumber(tx, supplier.businessUnitId, "SUPPLIER_PAYMENT", "PAY", paymentDate, async (n) =>
         Boolean(await tx.supplierPayment.findFirst({ where: { businessUnitId: supplier.businessUnitId, number: n }, select: { id: true } })),
       );
@@ -1988,11 +2215,12 @@ class PurchaseDataStore {
           amount,
           method,
           referenceNumber: text(input.referenceNumber, 100),
-          status: "PAID",
+          status: needsApproval ? "DRAFT" : "PAID",
           remarks: text(input.narration, 500),
           createdBy: actorName,
         },
       });
+      if (needsApproval) return payment;
       await tx.supplier.update({ where: { id: supplierId }, data: { balance: { decrement: amount } } });
       if (bankAccountId) {
         await tx.bankAccount.update({ where: { id: bankAccountId }, data: { currentBalance: { decrement: amount } } });
@@ -2001,16 +2229,41 @@ class PurchaseDataStore {
     });
   }
 
-  public async approveSupplierPayment(id: string, actor?: PurchaseActor) {
+  /**
+   * Approves or rejects a payment waiting for approval (DRAFT). At the last "Payment Approval"
+   * stage it is paid: the due amount is checked again, then the supplier balance and the bank
+   * account go down. A rejection cancels it; no money moved.
+   */
+  public async decideSupplierPayment(id: string, decision: "approve" | "reject", actorName: string, comments?: string, actor?: PurchaseActor) {
     const payment = await db().supplierPayment.findFirst({ where: isUuid(id) ? { id } : { number: id } });
     if (!payment) throw notFound("Supplier payment");
     await assertPlaceInScope(actor, { businessUnitId: payment.businessUnitId, officeId: payment.officeId });
-    if (payment.status === "CANCELLED") throw badRequest("A cancelled payment cannot be approved.");
+    if (payment.status !== "DRAFT") throw badRequest(`Payment ${payment.number} is not waiting for approval.`);
+    if (decision === "reject" && !comments?.trim()) throw badRequest("Give a reason for rejecting the payment.");
+    const amount = Number(payment.amount);
+    const target = { feature: "Payment Approval", documentId: payment.id, businessUnitId: payment.businessUnitId, amount, comment: comments || null };
     return db().$transaction(async (tx) => {
-      // Multilayer approval: the payment is paid only after the last "Payment Approval" stage.
-      const gate = actor ? await recordApproval(tx, actor, { feature: "Payment Approval", documentId: payment.id, businessUnitId: payment.businessUnitId, amount: Number(payment.amount) }) : null;
-      if (gate && !gate.final) return tx.supplierPayment.findUniqueOrThrow({ where: { id: payment.id } });
-      return tx.supplierPayment.update({ where: { id: payment.id }, data: { status: "PAID" } });
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`supplier-payment:${payment.supplierId}`}))`;
+      const claim = async (data: Prisma.SupplierPaymentUpdateManyMutationInput) => {
+        const { count } = await tx.supplierPayment.updateMany({ where: { id: payment.id, status: "DRAFT", updatedAt: payment.updatedAt }, data });
+        if (!count) throw badRequest(`Payment ${payment.number} changed meanwhile. Reload and try again.`);
+        return tx.supplierPayment.findUniqueOrThrow({ where: { id: payment.id } });
+      };
+      if (decision === "reject") {
+        if (actor) await recordRejection(tx, actor, target);
+        return claim({ status: "CANCELLED", remarks: appendNote(payment.remarks, historyEntry("REJECTED", actorName, comments), 500) });
+      }
+      const gate = actor ? await recordApproval(tx, actor, target) : null;
+      if (gate && !gate.final) {
+        return claim({ remarks: appendNote(payment.remarks, historyEntry("STAGE_APPROVED", actorName, [approvalNote(gate), comments].filter(Boolean).join(" ")), 500) });
+      }
+      // Another payment may have settled the invoice while this one waited.
+      await validatePaymentLink(payment.supplierId, payment.receiptId, payment.billId, amount, actor, tx);
+      await tx.supplier.update({ where: { id: payment.supplierId }, data: { balance: { decrement: amount } } });
+      if (payment.bankAccountId) {
+        await tx.bankAccount.update({ where: { id: payment.bankAccountId }, data: { currentBalance: { decrement: amount } } });
+      }
+      return claim({ status: "PAID", remarks: appendNote(payment.remarks, historyEntry("APPROVED", actorName, comments), 500) });
     });
   }
 
@@ -2050,10 +2303,10 @@ class PurchaseDataStore {
       this.getSupplierInvoices({}, actor),
       this.getItems(),
       db().goodsReceipt.findMany({
-        where: { status: { not: "CANCELLED" } },
+        where: { status: { in: ["RECEIVED", "INSPECTED"] } },
         select: { id: true, orderId: true, businessUnitId: true, officeId: true, warehouseId: true, receiveDate: true, totalReceivedQty: true, totalAcceptedQty: true, totalRejectedQty: true, totalAmount: true },
       }),
-      db().purchaseReturn.findMany({ where: { status: { not: "CANCELLED" } }, select: { businessUnitId: true, officeId: true, warehouseId: true, returnDate: true, totalAmount: true } }),
+      db().purchaseReturn.findMany({ where: { status: "COMPLETED" }, select: { businessUnitId: true, officeId: true, warehouseId: true, returnDate: true, totalAmount: true } }),
       db().supplierPayment.findMany({
         where: { status: "PAID", OR: [{ receiptId: { not: null } }, { bill: { receiptId: { not: null } } }] },
         select: { paymentDate: true, receiptId: true, bill: { select: { receiptId: true } } },

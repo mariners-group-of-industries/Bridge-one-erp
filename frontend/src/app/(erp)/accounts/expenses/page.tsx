@@ -881,11 +881,11 @@ export default function ExpenseAdvancePage() {
   }
 
   return (
-    <div className="space-y-2.5 font-sans flex flex-col md:h-[calc(100dvh-3.5rem)] md:overflow-hidden print:block print:h-auto print:overflow-visible">
+    <div className="space-y-2 font-sans bg-surface p-3 flex flex-col md:h-[calc(100dvh-3.5rem)] md:overflow-hidden print:block print:h-auto print:overflow-visible">
       {/* ------------------------------------------------------------- */}
       {/* 1. TOP HEADER: TITLE + SEARCH + ACTION BUTTON */}
       {/* ------------------------------------------------------------- */}
-      <div className="bg-surface rounded border border-line/90 shadow-2xs p-3 shrink-0">
+      <div className="shrink-0">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <h1 className="text-base font-semibold text-ink">Expense/Advance</h1>
 

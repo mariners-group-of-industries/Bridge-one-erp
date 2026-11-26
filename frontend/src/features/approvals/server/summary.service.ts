@@ -132,14 +132,28 @@ const SOURCES: readonly Source[] = [
       (await db().purchaseOrder.findMany({ ...pick(take), where: { ...inUnits(units), status: "PENDING" }, select: { id: true, number: true, createdAt: true } })).map((r) => ({ id: r.id, reference: r.number, createdAt: r.createdAt })),
   },
   {
+    // Waits in DRAFT only when a "Goods Receipt" pipeline is set up.
+    id: "goods-receipt",
+    module: "Purchase",
+    label: "Goods Receipt",
+    href: "/purchase/receive",
+    pipelineFeature: "Goods Receipt",
+    pending: ["DRAFT"],
+    approved: ["RECEIVED", "INSPECTED"],
+    rejected: [],
+    counts: async (units) => rows(await db().goodsReceipt.groupBy({ ...groupArgs, where: inUnits(units) })),
+    oldest: async (units, take) =>
+      (await db().goodsReceipt.findMany({ ...pick(take), where: { ...inUnits(units), status: "DRAFT" }, select: { id: true, number: true, createdAt: true } })).map((r) => ({ id: r.id, reference: r.number, createdAt: r.createdAt })),
+  },
+  {
     id: "purchase-return",
     module: "Purchase",
     label: "Purchase Return",
     href: "/purchase/returns",
     pipelineFeature: "Purchase Return",
-    pending: ["SUBMITTED", "PENDING"],
+    pending: ["SUBMITTED"],
     approved: ["COMPLETED"],
-    rejected: ["CANCELLED"],
+    rejected: [],
     counts: async (units) => rows(await db().purchaseReturn.groupBy({ ...groupArgs, where: inUnits(units) })),
     oldest: async (units, take) =>
       (await db().purchaseReturn.findMany({ ...pick(take), where: { ...inUnits(units), status: "SUBMITTED" }, select: { id: true, number: true, createdAt: true } })).map((r) => ({ id: r.id, reference: r.number, createdAt: r.createdAt })),
@@ -156,6 +170,20 @@ const SOURCES: readonly Source[] = [
     counts: async (units) => rows(await db().supplierBill.groupBy({ ...groupArgs, where: inUnits(units) })),
     oldest: async (units, take) =>
       (await db().supplierBill.findMany({ ...pick(take), where: { ...inUnits(units), status: "PENDING" }, select: { id: true, number: true, createdAt: true } })).map((r) => ({ id: r.id, reference: r.number, createdAt: r.createdAt })),
+  },
+  {
+    // Advances, on-account payments and payments against a receipt: DRAFT while a "Payment Approval" pipeline runs.
+    id: "supplier-payment",
+    module: "Purchase",
+    label: "Supplier Payment",
+    href: "/purchase/supplier-payments",
+    pipelineFeature: "Payment Approval",
+    pending: ["DRAFT"],
+    approved: ["PAID"],
+    rejected: [],
+    counts: async (units) => rows(await db().supplierPayment.groupBy({ ...groupArgs, where: inUnits(units) })),
+    oldest: async (units, take) =>
+      (await db().supplierPayment.findMany({ ...pick(take), where: { ...inUnits(units), status: "DRAFT" }, select: { id: true, number: true, createdAt: true } })).map((r) => ({ id: r.id, reference: r.number, createdAt: r.createdAt })),
   },
   // ── Sales ──
   {
