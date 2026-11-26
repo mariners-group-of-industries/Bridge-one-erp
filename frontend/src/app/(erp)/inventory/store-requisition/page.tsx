@@ -221,7 +221,7 @@ export default function StoreRequisitionPage() {
   };
 
   return (
-    <div className="space-y-3 p-1 flex flex-col md:h-[calc(100dvh-3.5rem)] md:overflow-hidden print:block print:h-auto print:overflow-visible">
+    <div className="bg-surface space-y-2 p-3 flex flex-col md:h-[calc(100dvh-3.5rem)] md:overflow-hidden print:block print:h-auto print:overflow-visible">
       <InventoryTabBar
         title="Store Requisition"
         tabs={[
@@ -246,7 +246,7 @@ export default function StoreRequisitionPage() {
       {/* 2. SUMMARY FILTER BAR (When on SUMMARY TAB)        */}
       {/* ─────────────────────────────────────────────────── */}
       {activeTab === "REQUISITION_SUMMARY" && (
-        <div className="flex flex-wrap items-end gap-3 text-xs bg-canvas/70 p-3 rounded border border-line shrink-0">
+        <div className="flex flex-wrap items-end gap-3 text-xs py-1.5 shrink-0">
           {/* Office */}
           <div className="min-w-[180px]">
             <label className="block text-[11px] text-ink-muted mb-1 font-semibold">

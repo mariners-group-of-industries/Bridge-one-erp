@@ -114,7 +114,7 @@ describe("purchase flow: requisition → order → receipt → return", () => {
       ACTOR,
     );
     requisitionId = req.id;
-    expect(req.requisitionNumber).toBe("REQ-2026-00001");
+    expect(req.requisitionNumber).toMatch(/^PR-[A-Z]{2,3}26\d{7}$/);
     expect(req.status).toBe("SUBMITTED");
     expect(req.totalEstimatedAmount).toBe(7000);
     // Item code and name come from the item master.
@@ -172,7 +172,7 @@ describe("purchase flow: requisition → order → receipt → return", () => {
       ACTOR,
     );
     orderId = po.id;
-    expect(po.poNumber).toBe("PO-2026-00001");
+    expect(po.poNumber).toMatch(/^PO-[A-Z]{2,3}26\d{7}$/);
     expect(po.subtotal).toBe(7000);
     expect(po.totalDiscount).toBe(500);
     expect(po.totalTax).toBe(225);
@@ -200,7 +200,7 @@ describe("purchase flow: requisition → order → receipt → return", () => {
       ACTOR,
     );
     receiptId = grn.id;
-    expect(grn.grnNumber).toBe("GRN-2026-00001");
+    expect(grn.grnNumber).toMatch(/^GRN-[A-Z]{2,3}26\d{7}$/);
     expect(grn.challanNumber).toBe("CH-77");
     // 60 accepted × 47.25 effective unit cost
     expect(grn.totalReceivedAmount).toBe(2835);
@@ -277,7 +277,7 @@ describe("purchase flow: requisition → order → receipt → return", () => {
       ACTOR,
     );
     expect(grn.totalReceivedAmount).toBe(550);
-    expect(grn.poNumber).toBe("PO-2026-00002");
+    expect(grn.poNumber).toMatch(/^PO-[A-Z]{2,3}26\d{7}$/);
     expect(await stockOf(sugarId)).toBe(5);
     expect((await purchaseStore.getPurchaseOrderById(grn.purchaseOrderId))?.status).toBe("COMPLETED");
   });

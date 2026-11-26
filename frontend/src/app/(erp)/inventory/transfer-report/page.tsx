@@ -252,7 +252,7 @@ export default function TransferReportPage() {
   const nestedCols = applied ? columnsFor(applied.view as View, "details") : [];
 
   return (
-    <div className="space-y-3 p-1 text-ink flex flex-col md:h-[calc(100dvh-3.5rem)] md:overflow-hidden print:block print:h-auto print:overflow-visible">
+    <div className="bg-surface space-y-2 p-3 text-ink flex flex-col md:h-[calc(100dvh-3.5rem)] md:overflow-hidden print:block print:h-auto print:overflow-visible">
       <InventoryTabBar
         title="Transfer Report"
         tabs={[{ id: "REPORT", label: "Transfer Report" }]}

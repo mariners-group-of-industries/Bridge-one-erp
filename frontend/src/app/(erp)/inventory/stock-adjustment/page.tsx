@@ -193,7 +193,7 @@ export default function StockUpdatePage() {
   };
 
   return (
-    <div className="space-y-3 p-1 flex flex-col md:h-[calc(100dvh-3.5rem)] md:overflow-hidden print:block print:h-auto print:overflow-visible">
+    <div className="bg-surface space-y-2 p-3 flex flex-col md:h-[calc(100dvh-3.5rem)] md:overflow-hidden print:block print:h-auto print:overflow-visible">
       <InventoryTabBar
         title="Stock Update"
         tabs={[{ id: "STOCK_UPDATE", label: "Stock Update" }]}
@@ -214,7 +214,7 @@ export default function StockUpdatePage() {
       />
       {/* 2. FILTER BAR                                       */}
       {/* ─────────────────────────────────────────────────── */}
-      <div className="bg-canvas/70 p-3 rounded border border-line space-y-3 text-xs shrink-0">
+      <div className="py-1.5 space-y-2.5 text-xs shrink-0">
         <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
           {/* Office */}
           <div>

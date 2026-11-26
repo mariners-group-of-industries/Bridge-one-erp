@@ -204,6 +204,16 @@ async function handleGET(
       route.length === 4 &&
       route[0] === "purchase" &&
       (route[1] === "receive" || route[1] === "receipts") &&
+      route[3] === "accounting"
+    ) {
+      const voucher = await purchaseStore.getGoodsReceiptAccounting(route[2], pActor);
+      return NextResponse.json({ success: true, data: voucher });
+    }
+
+    if (
+      route.length === 4 &&
+      route[0] === "purchase" &&
+      (route[1] === "receive" || route[1] === "receipts") &&
       route[3] === "pdf"
     ) {
       const { filename, bytes } = await goodsReceiptPdf(route[2], pActor);

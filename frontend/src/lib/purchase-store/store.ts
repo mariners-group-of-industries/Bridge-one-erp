@@ -171,6 +171,39 @@ async function issueNumber(
   throw badRequest(`Could not issue a ${prefix} number; check the document sequence.`);
 }
 
+/**
+ * Purchase document number in the company format: prefix + company initials +
+ * 2-digit year + 2-digit month + 5-digit serial that restarts every month,
+ * e.g. "PO" in Nov 2026 for Mariners Group → "PO-MG261100016".
+ */
+async function issueCompanyNumber(
+  tx: Tx,
+  businessUnitId: string,
+  docType: string,
+  prefix: string,
+  date: Date,
+  taken: (number: string) => Promise<boolean>,
+): Promise<string> {
+  const unit = await tx.businessUnit.findUniqueOrThrow({ where: { id: businessUnitId }, select: { company: { select: { name: true } } } });
+  const initials =
+    unit.company.name
+      .split(/\s+/)
+      .map((word) => word.replace(/[^A-Za-z]/g, "").charAt(0))
+      .join("")
+      .slice(0, 3)
+      .toUpperCase() || "BO";
+  const year = date.getUTCFullYear();
+  const month = date.getUTCMonth() + 1;
+  // The sequence's year column holds yyyymm so the serial restarts every month.
+  const period = year * 100 + month;
+  const stem = `${prefix}-${initials}${String(year).slice(-2)}${String(month).padStart(2, "0")}`;
+  for (let attempt = 0; attempt < 500; attempt++) {
+    const number = `${stem}${String(await nextNumber(tx, businessUnitId, docType, period)).padStart(5, "0")}`;
+    if (!(await taken(number))) return number;
+  }
+  throw badRequest(`Could not issue a ${prefix} number; check the document sequence.`);
+}
+
 function toDateStr(d: Date | string | null | undefined): string {
   if (!d) return new Date().toISOString().split("T")[0];
   if (typeof d === "string") return d.split("T")[0];
@@ -889,7 +922,7 @@ class PurchaseDataStore {
     if (requiredDate < requisitionDate) throw badRequest("The required delivery date cannot be before the request date.");
 
     const created = await db().$transaction(async (tx) => {
-      const number = await issueNumber(tx, businessUnitId, "PURCHASE_REQUISITION", "REQ", requisitionDate, async (n) =>
+      const number = await issueCompanyNumber(tx, businessUnitId, "PURCHASE_REQUISITION", "PR", requisitionDate, async (n) =>
         Boolean(await tx.purchaseRequisition.findFirst({ where: { businessUnitId, number: n }, select: { id: true } })),
       );
       return tx.purchaseRequisition.create({
@@ -1219,7 +1252,7 @@ class PurchaseDataStore {
     const expectedDeliveryDate = parseDate(input.expectedDeliveryDate || input.orderDate, "Expected delivery date");
     if (expectedDeliveryDate < orderDate) throw badRequest("The expected delivery date cannot be before the order date.");
 
-    const number = await issueNumber(tx, place.businessUnitId, "PURCHASE_ORDER", "PO", orderDate, async (n) =>
+    const number = await issueCompanyNumber(tx, place.businessUnitId, "PURCHASE_ORDER", "PO", orderDate, async (n) =>
       Boolean(await tx.purchaseOrder.findFirst({ where: { businessUnitId: place.businessUnitId, number: n }, select: { id: true } })),
     );
     const needsApproval = !options?.autoApprove && (await hasApprovalPipeline(tx, "Purchase Order"));
@@ -1449,6 +1482,45 @@ class PurchaseDataStore {
       });
   }
 
+  /**
+   * The journal voucher a goods receipt posted (Accounting tab of the receipt view).
+   * Only receipts the actor can see are answered; null when nothing is posted yet.
+   */
+  public async getGoodsReceiptAccounting(id: string, actor?: PurchaseActor) {
+    const list = await this.getGoodsReceipts({}, actor);
+    const grn = list.find((g) => g.id === id || g.grnNumber === id);
+    if (!grn) throw notFound("Goods receipt");
+    const voucher = await db().journalVoucher.findFirst({
+      where: { sourceType: "PURCHASE_RECEIPT", sourceId: grn.id },
+      select: {
+        voucherNumber: true,
+        transactionDate: true,
+        narration: true,
+        status: true,
+        totalDebit: true,
+        totalCredit: true,
+        lines: { orderBy: { lineNo: "asc" }, select: { accountCode: true, accountName: true, debit: true, credit: true, narration: true, partnerName: true } },
+      },
+    });
+    if (!voucher) return null;
+    return {
+      voucherNumber: voucher.voucherNumber,
+      transactionDate: toDateStr(voucher.transactionDate),
+      narration: voucher.narration,
+      status: voucher.status,
+      totalDebit: Number(voucher.totalDebit),
+      totalCredit: Number(voucher.totalCredit),
+      lines: voucher.lines.map((l) => ({
+        accountCode: l.accountCode,
+        accountName: l.accountName,
+        partnerName: l.partnerName ?? undefined,
+        narration: l.narration ?? undefined,
+        debit: Number(l.debit),
+        credit: Number(l.credit),
+      })),
+    };
+  }
+
   public async getApprovedOrdersForReceiving(actor?: PurchaseActor): Promise<PurchaseOrder[]> {
     const list = await this.getPurchaseOrders({}, actor);
     return list.filter((p) => (p.status === "APPROVED" || p.status === "PARTIALLY_RECEIVED") && p.items.some((i) => i.outstandingQuantity > 0));
@@ -1550,7 +1622,7 @@ class PurchaseDataStore {
         return { line, received, rejected, accepted, rate, remarks: text(it.remarks, 500) };
       });
 
-      const number = await issueNumber(tx, warehouse.businessUnitId, "GOODS_RECEIPT", "GRN", receivedAt, async (n) =>
+      const number = await issueCompanyNumber(tx, warehouse.businessUnitId, "GOODS_RECEIPT", "GRN", receivedAt, async (n) =>
         Boolean(await tx.goodsReceipt.findFirst({ where: { businessUnitId: warehouse.businessUnitId, number: n }, select: { id: true } })),
       );
       const linesData = matched.map((m, idx) => ({

@@ -7,7 +7,7 @@ import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, Res
 import { Spinner } from "@/components/ui/spinner";
 import { fetchApi } from "@/lib/api";
 import { formatCurrency } from "@/lib/utils";
-import { downloadCsv, localDate, localToday } from "@/features/purchase/lib/client";
+import { downloadCsv, localDate, localToday, tableDate } from "@/features/purchase/lib/client";
 import { usePurchasePermissions } from "@/features/purchase/lib/usePurchasePermissions";
 import type { DashboardAnalytics, Office } from "@bridgeone/contracts";
 import { NativeDateInput } from "@/components/ui/date-input";
@@ -126,11 +126,11 @@ export default function PurchaseAnalyticsPage() {
   };
 
   return (
-    <div className="space-y-4">
+    <div className="bg-surface p-3 space-y-3">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-surface p-3 rounded border border-line/90 shadow-2xs">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-line pb-2.5">
         <div>
-          <h1 className="text-xl font-bold text-ink tracking-tight">Purchase Analytics</h1>
+          <h1 className="text-lg font-semibold text-ink tracking-tight">Purchase Analytics</h1>
           <p className="text-[11px] text-ink-faint">
             {fromDate || "Start"} to {toDate || "today"} · {selectedOffice === "ALL" ? "All offices" : offices?.find((o) => o.id === selectedOffice)?.name}
           </p>
@@ -450,7 +450,7 @@ export default function PurchaseAnalyticsPage() {
                   <tr key={row.id}>
                     <td className="text-center font-mono text-ink-muted">{i + 1}</td>
                     <td className="font-mono font-semibold text-blue-700 dark:text-blue-300">{row.poNumber}</td>
-                    <td>{row.orderDate}</td>
+                    <td className="whitespace-nowrap">{tableDate(row.orderDate)}</td>
                     <td className="font-medium text-ink">{row.supplierName}</td>
                     <td className="text-ink-muted">
                       {row.officeName} · {row.warehouseName}

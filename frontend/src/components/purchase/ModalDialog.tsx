@@ -9,7 +9,7 @@ interface ModalDialogProps {
   title: string;
   subtitle?: string;
   children: React.ReactNode;
-  maxWidth?: "sm" | "md" | "lg" | "xl" | "2xl" | "4xl";
+  maxWidth?: "sm" | "md" | "lg" | "xl" | "2xl" | "4xl" | "6xl";
 }
 
 export function ModalDialog({
@@ -43,6 +43,7 @@ export function ModalDialog({
     xl: "max-w-xl",
     "2xl": "max-w-2xl",
     "4xl": "max-w-4xl",
+    "6xl": "max-w-6xl",
   }[maxWidth];
 
   return (

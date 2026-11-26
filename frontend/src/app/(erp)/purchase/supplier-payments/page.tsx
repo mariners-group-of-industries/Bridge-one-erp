@@ -30,7 +30,7 @@ import { toast } from "@/components/purchase/Toast";
 import { Spinner } from "@/components/ui/spinner";
 import { fetchApi } from "@/lib/api";
 import { formatCurrency } from "@/lib/utils";
-import { PURCHASE_QUERY_KEYS, downloadCsv, localToday, uploadPurchaseBulk } from "@/features/purchase/lib/client";
+import { PURCHASE_QUERY_KEYS, downloadCsv, localToday, uploadPurchaseBulk, tableDate } from "@/features/purchase/lib/client";
 import { BulkUploadDialog } from "@/features/configuration/entity-master-data/components/BulkUploadDialog";
 import { usePurchasePermissions } from "@/features/purchase/lib/usePurchasePermissions";
 import {
@@ -718,15 +718,15 @@ export default function SupplierPaymentsPage() {
   const ledgerPage = usePage(filteredLedgerReconList, rowsPerPage6);
 
   return (
-    <div className="flex flex-col md:h-[calc(100dvh-3.5rem)] md:overflow-hidden font-sans p-3 space-y-2">
+    <div className="flex flex-col md:h-[calc(100dvh-3.5rem)] md:overflow-hidden font-sans bg-surface p-3 space-y-2">
       {/* Fixed Top Controls (header + tabs) */}
       <div className="shrink-0 space-y-2">
       {/* ------------------------------------------------------------- */}
-      {/* 1. TOP HEADER (Exact Unified Box Layout) */}
+      {/* 1. TOP HEADER */}
       {/* ------------------------------------------------------------- */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-surface p-3 rounded border border-line/90 shadow-2xs">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h1 className="text-xl font-bold text-ink tracking-tight">Supplier Payment</h1>
+          <h1 className="text-lg font-semibold text-ink tracking-tight">Supplier Payment</h1>
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
@@ -1152,7 +1152,7 @@ export default function SupplierPaymentsPage() {
                       <tr key={bill.billNo} className="hover:bg-sky-50/40 dark:hover:bg-sky-500/10 transition-colors border-b border-line">
                         <td className="p-2 border border-line text-center font-mono text-ink-faint">{idx + 1}</td>
                         <td className="p-2 border border-line font-mono font-bold text-sky-700 dark:text-sky-300">{bill.billNo}</td>
-                        <td className="p-2 border border-line font-mono text-ink-muted">{bill.billDate}</td>
+                        <td className="p-2 border border-line font-mono text-ink-muted whitespace-nowrap">{tableDate(bill.billDate)}</td>
                         <td className="p-2 border border-line font-medium text-ink">
                           <div>{bill.supplierName}</div>
                           <div className="text-[10px] text-ink-faint font-mono">{bill.supplierCode}</div>
@@ -1165,7 +1165,7 @@ export default function SupplierPaymentsPage() {
                         <td className="p-2 border border-line text-right font-mono">{formatCurrency(bill.grossAmount)}</td>
                         <td className="p-2 border border-line text-right font-mono text-ink-faint">{formatCurrency(bill.taxVat)}</td>
                         <td className="p-2 border border-line text-right font-mono font-bold text-ink">{formatCurrency(bill.netPayable)}</td>
-                        <td className="p-2 border border-line font-mono text-ink-muted">{bill.dueDate}</td>
+                        <td className="p-2 border border-line font-mono text-ink-muted whitespace-nowrap">{tableDate(bill.dueDate)}</td>
                         <td className="p-2 border border-line text-center">
                           <span
                             className={`px-2 py-0.5 rounded text-[10px] font-bold ${
@@ -1337,11 +1337,11 @@ export default function SupplierPaymentsPage() {
 
                     {/* Actions: View, Receipt, Print */}
                     <td className="p-2 border border-line-strong text-center whitespace-nowrap">
-                      <div className="row-actions flex items-center justify-center gap-2 text-ink-muted">
+                      <div className="flex items-center justify-center gap-0.5">
                         <button
                           type="button"
                           onClick={() => setViewPaidVoucher(row)}
-                          className="p-0.5 hover:text-blue-600 dark:hover:text-blue-400 transition"
+                          className="inline-flex size-6 items-center justify-center rounded transition-colors hover:bg-control text-ink-muted hover:text-ink"
                           title="View Details"
                         >
                           <Eye className="w-3.5 h-3.5" />
@@ -1351,7 +1351,7 @@ export default function SupplierPaymentsPage() {
                           onClick={() => {
                             setPrintPaidVoucher(row);
                           }}
-                          className="p-0.5 hover:text-blue-600 dark:hover:text-blue-400 transition"
+                          className="inline-flex size-6 items-center justify-center rounded transition-colors hover:bg-control text-ink-muted hover:text-ink"
                           title="Money Receipt"
                         >
                           <FileText className="w-3.5 h-3.5" />
@@ -1359,7 +1359,7 @@ export default function SupplierPaymentsPage() {
                         <button
                           type="button"
                           onClick={() => setPrintPaidVoucher(row)}
-                          className="p-0.5 hover:text-blue-600 dark:hover:text-blue-400 transition"
+                          className="inline-flex size-6 items-center justify-center rounded transition-colors hover:bg-control text-ink-muted hover:text-ink"
                           title="Print Payment Voucher"
                         >
                           <Printer className="w-3.5 h-3.5" />
@@ -1371,7 +1371,7 @@ export default function SupplierPaymentsPage() {
                             setCancelPayment(row);
                             setCancelPaymentReason("");
                           }}
-                          className="p-0.5 hover:text-rose-600 dark:hover:text-rose-400 disabled:opacity-30 disabled:pointer-events-none transition"
+                          className="inline-flex size-6 items-center justify-center rounded transition-colors disabled:opacity-30 disabled:pointer-events-none text-ink-muted hover:bg-rose-100 dark:hover:bg-rose-500/15 hover:text-rose-700 dark:hover:text-rose-300"
                           title={!perms.payments.delete ? "Requires Delete permission in Configuration" : "Cancel payment"}
                           aria-label={`Cancel payment ${row.moneyReceiptNo}`}
                         >
@@ -1381,7 +1381,7 @@ export default function SupplierPaymentsPage() {
                     </td>
 
                     <td className="p-2 border border-line-strong text-ink-muted whitespace-nowrap">
-                      {row.paidDate}
+                      {tableDate(row.paidDate)}
                     </td>
                     <td className="p-2 border border-line-strong font-mono text-ink max-w-sm truncate" title={row.invoiceNo}>
                       {row.invoiceNo}
@@ -1519,7 +1519,7 @@ export default function SupplierPaymentsPage() {
                       {row.sl}
                     </td>
                     <td className="p-2 border border-line-strong text-ink-muted whitespace-nowrap">
-                      {row.receDate}
+                      {tableDate(row.receDate)}
                     </td>
                     <td className="p-2 border border-line-strong font-mono text-ink whitespace-nowrap">
                       {row.invoice}
@@ -1534,7 +1534,7 @@ export default function SupplierPaymentsPage() {
                       {row.creditDays.toFixed(2)}
                     </td>
                     <td className="p-2 border border-line-strong text-ink-muted whitespace-nowrap">
-                      {row.exPaymentDate}
+                      {tableDate(row.exPaymentDate)}
                     </td>
                     <td className="p-2 border border-line-strong text-right font-mono text-ink whitespace-nowrap">
                       {formatCurrency(row.totalAmount)}
@@ -1671,7 +1671,7 @@ export default function SupplierPaymentsPage() {
                       <tr key={row.id} className="hover:bg-canvas/80 transition-colors">
                         <td className="p-2 border border-line-strong text-center font-mono text-ink-muted">{idx + 1}</td>
                         <td className="p-2 border border-line-strong font-mono text-sky-700 dark:text-sky-300 font-semibold">{row.number}</td>
-                        <td className="p-2 border border-line-strong font-mono text-ink-muted">{row.paymentDate}</td>
+                        <td className="p-2 border border-line-strong font-mono text-ink-muted whitespace-nowrap">{tableDate(row.paymentDate)}</td>
                         <td className="p-2 border border-line-strong text-ink font-medium">{row.supplierName}</td>
                         <td className="p-2 border border-line-strong font-mono text-ink-muted">{row.orderNumber || "—"}</td>
                         <td className="p-2 border border-line-strong">{row.method}</td>
@@ -2060,7 +2060,7 @@ export default function SupplierPaymentsPage() {
                         />
                       </td>
                       <td className="p-2 font-mono font-bold text-ink">{inv.invoiceNumber}</td>
-                      <td className="p-2 text-ink-muted">{inv.invoiceDate}</td>
+                      <td className="p-2 text-ink-muted whitespace-nowrap">{tableDate(inv.invoiceDate)}</td>
                       <td className="p-2 text-right font-mono">{formatCurrency(inv.totalAmount)}</td>
                       <td className="p-2 text-right font-mono font-bold text-sky-800 dark:text-sky-300">{formatCurrency(inv.dueAmount)}</td>
                     </tr>

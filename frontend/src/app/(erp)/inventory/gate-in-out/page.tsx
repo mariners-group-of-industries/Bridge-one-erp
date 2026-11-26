@@ -204,7 +204,7 @@ export default function GateInOutPage() {
   }, [visitorRows, fromDate, toDate, searchTerm]);
 
   return (
-    <div className="space-y-3 p-1 flex flex-col md:h-[calc(100dvh-3.5rem)] md:overflow-hidden print:block print:h-auto print:overflow-visible">
+    <div className="bg-surface space-y-2 p-3 flex flex-col md:h-[calc(100dvh-3.5rem)] md:overflow-hidden print:block print:h-auto print:overflow-visible">
       <InventoryTabBar
         title="Gate In Out"
         tabs={tabs}
@@ -228,7 +228,7 @@ export default function GateInOutPage() {
       />
       {/* 3. FILTER BAR (Matches Screenshots)                */}
       {/* ─────────────────────────────────────────────────── */}
-      <div className="bg-canvas/70 p-3 rounded border border-line flex flex-wrap items-end gap-4 text-xs shrink-0">
+      <div className="py-1.5 flex flex-wrap items-end gap-4 text-xs shrink-0">
         {/* Reference Type (Shown for GATE IN & GATE OUT) */}
         {(activeTab === "GATE_IN" || activeTab === "GATE_OUT") && (
           <div className="min-w-[200px]">

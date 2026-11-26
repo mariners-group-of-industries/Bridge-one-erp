@@ -28,7 +28,7 @@ import { toast } from "@/components/purchase/Toast";
 import { Spinner } from "@/components/ui/spinner";
 import { fetchApi } from "@/lib/api";
 import { formatCurrency } from "@/lib/utils";
-import { PURCHASE_QUERY_KEYS, downloadCsv, localToday, uploadPurchaseBulk } from "@/features/purchase/lib/client";
+import { PURCHASE_QUERY_KEYS, downloadCsv, localToday, uploadPurchaseBulk, tableDate } from "@/features/purchase/lib/client";
 import { BulkUploadDialog } from "@/features/configuration/entity-master-data/components/BulkUploadDialog";
 import { usePurchasePermissions } from "@/features/purchase/lib/usePurchasePermissions";
 import {
@@ -387,15 +387,15 @@ export default function PurchaseReturnsPage() {
   };
 
   return (
-    <div className="flex flex-col md:h-[calc(100dvh-3.5rem)] md:overflow-hidden font-sans p-3 space-y-2.5">
+    <div className="flex flex-col md:h-[calc(100dvh-3.5rem)] md:overflow-hidden font-sans bg-surface p-3 space-y-2">
       {/* Fixed Top Controls (header + tabs) */}
-      <div className="shrink-0 space-y-2.5">
+      <div className="shrink-0 space-y-2">
       {/* ------------------------------------------------------------- */}
-      {/* 1. TOP HEADER (Exact Unified Box Layout) */}
+      {/* 1. TOP HEADER */}
       {/* ------------------------------------------------------------- */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-surface p-3 rounded border border-line/90 shadow-2xs">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h1 className="text-xl font-bold text-ink tracking-tight">Purchase Return</h1>
+          <h1 className="text-lg font-semibold text-ink tracking-tight">Purchase Return</h1>
         </div>
 
         <div className="flex items-center gap-2">
@@ -488,7 +488,7 @@ export default function PurchaseReturnsPage() {
         <div className="flex-1 min-h-0 flex flex-col space-y-2">
           {/* Table Container with All Borders (Only Table Scrolls) */}
           <div className="flex-1 min-h-0 border border-line-strong bg-surface rounded shadow-2xs overflow-auto">
-            <table className="erp-table erp-table-compact w-full text-left text-xs border-collapse">
+            <table className="erp-table erp-table-compact w-full text-left border-collapse">
               <thead className="bg-grid-head text-ink font-semibold text-[11px] border-b border-line-strong select-none">
                 <tr>
                   <th className="p-2 border border-line-strong w-10 text-center">SL</th>
@@ -517,7 +517,7 @@ export default function PurchaseReturnsPage() {
                           {serialNo}
                         </td>
                         <td className="p-2 border border-line-strong whitespace-nowrap text-ink-muted">
-                          {row.receiveDate}
+                          {tableDate(row.receiveDate)}
                         </td>
                         <td className="p-2 border border-line-strong font-mono text-ink whitespace-nowrap">
                           {row.poNo}
@@ -694,7 +694,7 @@ export default function PurchaseReturnsPage() {
 
           {/* Table Container with All Borders (Only Table Scrolls) */}
           <div className="flex-1 min-h-0 border border-line-strong bg-surface rounded shadow-2xs overflow-auto">
-            <table className="erp-table erp-table-compact w-full text-left text-xs border-collapse">
+            <table className="erp-table erp-table-compact w-full text-left border-collapse">
               <thead className="bg-grid-head text-ink font-semibold text-[11px] border-b border-line-strong select-none">
                 <tr>
                   <th className="p-2 border border-line-strong w-10 text-center">SL</th>
@@ -728,11 +728,11 @@ export default function PurchaseReturnsPage() {
 
                         {/* Actions: View, Print, Edit */}
                         <td className="p-2 border border-line-strong text-center whitespace-nowrap">
-                          <div className="row-actions flex items-center justify-center gap-2 text-ink-muted">
+                          <div className="flex items-center justify-center gap-0.5">
                             <button
                               type="button"
                               onClick={() => setViewReturnTarget(row)}
-                              className="p-1 hover:text-blue-600 dark:hover:text-blue-400 transition"
+                              className="inline-flex size-6 items-center justify-center rounded transition-colors hover:bg-control text-ink-muted hover:text-ink"
                               title="View Return Note"
                             >
                               <Eye className="w-3.5 h-3.5" />
@@ -740,7 +740,7 @@ export default function PurchaseReturnsPage() {
                             <button
                               type="button"
                               onClick={() => setPrintReturnTarget(row)}
-                              className="p-1 hover:text-blue-600 dark:hover:text-blue-400 transition"
+                              className="inline-flex size-6 items-center justify-center rounded transition-colors hover:bg-control text-ink-muted hover:text-ink"
                               title="Print Debit Note / Return Voucher"
                             >
                               <Printer className="w-3.5 h-3.5" />
@@ -752,7 +752,7 @@ export default function PurchaseReturnsPage() {
                                 setCancelReason("");
                               }}
                               disabled={row.status === "Cancelled" || !perms.returns.delete}
-                              className="p-1 hover:text-rose-600 dark:hover:text-rose-400 transition disabled:opacity-30 disabled:pointer-events-none"
+                              className="inline-flex size-6 items-center justify-center rounded transition-colors disabled:opacity-30 disabled:pointer-events-none text-ink-muted hover:bg-rose-100 dark:hover:bg-rose-500/15 hover:text-rose-700 dark:hover:text-rose-300"
                               title={!perms.returns.delete ? "Requires Delete permission in Configuration" : "Cancel return (goods come back into stock)"}
                               aria-label={`Cancel return ${row.returnNo}`}
                             >
@@ -765,7 +765,7 @@ export default function PurchaseReturnsPage() {
                           {row.officeName}
                         </td>
                         <td className="p-2 border border-line-strong whitespace-nowrap text-ink-muted">
-                          {row.returnDate}
+                          {tableDate(row.returnDate)}
                         </td>
                         <td className="p-2 border border-line-strong font-mono text-ink whitespace-nowrap">
                           {row.poNo}

@@ -78,7 +78,7 @@ function ShellInner({ children }: { children: ReactNode }) {
       <div className="flex">
         <aside
           className={cn(
-            "sticky top-14 hidden h-[calc(100dvh-3.5rem)] w-64 shrink-0 overflow-y-auto border-r border-accent-line bg-surface print:hidden",
+            "sticky top-14 hidden h-[calc(100dvh-3.5rem)] w-52 shrink-0 overflow-y-auto border-r border-accent-line bg-surface print:hidden",
             !sidebarHidden && "lg:block",
           )}
         >

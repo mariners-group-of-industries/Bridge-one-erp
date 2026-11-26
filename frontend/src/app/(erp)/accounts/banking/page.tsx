@@ -1586,11 +1586,11 @@ export default function FinanceBankingPage() {
   }
 
   return (
-    <div className="space-y-2.5 font-sans bg-canvas flex flex-col md:h-[calc(100dvh-3.5rem)] md:overflow-hidden print:block print:h-auto print:overflow-visible">
+    <div className="space-y-2 font-sans bg-surface p-3 flex flex-col md:h-[calc(100dvh-3.5rem)] md:overflow-hidden print:block print:h-auto print:overflow-visible">
       {/* ------------------------------------------------------------- */}
       {/* 1. TOP BAR: Title & Tab-Specific Action Buttons */}
       {/* ------------------------------------------------------------- */}
-      <div className="bg-surface px-4 py-3 rounded-t border-b border-line flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs shrink-0">
+      <div className="pb-2 border-b border-line flex flex-col sm:flex-row sm:items-center justify-between gap-3 shrink-0">
         <div>
           <h1 className="text-lg font-bold text-ink tracking-tight">Finance and Banking</h1>
         </div>
