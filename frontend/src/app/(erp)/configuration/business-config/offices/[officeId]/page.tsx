@@ -5,6 +5,9 @@ import { OfficeFormView } from "@/features/configuration/business-config/company
 
 export const metadata: Metadata = { title: "Office" };
 
+// Rendered only after the session loads in the browser; instant-navigation validation cannot run.
+export const instant = false;
+
 export default async function OfficePage({ params }: { params: Promise<{ officeId: string }> }) {
   const { officeId } = await params;
   return (
