@@ -20,6 +20,7 @@ import { badRequest, notFound } from "@/lib/api/errors";
 import { approvalNote, hasApprovalPipeline, recordApproval, recordRejection, resetApproval } from "@/lib/approval/engine";
 import { db } from "@/lib/prisma/client";
 import { assertStockAvailable, lockWarehouse } from "@/features/sales/deliveries/services/stock.service";
+import { absorbInflowCost, releaseInflowCost } from "@/lib/inventory/moving-cost";
 import { formatNumber, nextNumber } from "@/features/sales/lib/sequence";
 import { listSupplierInvoices, listSupplierPayables, validatePaymentLink } from "./payables";
 import {
@@ -1257,7 +1258,7 @@ class PurchaseDataStore {
     const number = await issueCompanyNumber(tx, place.businessUnitId, "PURCHASE_ORDER", "PO", orderDate, async (n) =>
       Boolean(await tx.purchaseOrder.findFirst({ where: { businessUnitId: place.businessUnitId, number: n }, select: { id: true } })),
     );
-    const needsApproval = !options?.autoApprove && (await hasApprovalPipeline(tx, "Purchase Order"));
+    const needsApproval = !options?.autoApprove && (await hasApprovalPipeline(tx, "Purchase Order", { businessUnitId: place.businessUnitId, amount: totals.totalAmount }));
     const order = await tx.purchaseOrder.create({
       data: {
         businessUnitId: place.businessUnitId,
@@ -1594,9 +1595,6 @@ class PurchaseDataStore {
         throw badRequest(`Order ${order.number} is ${order.status.toLowerCase().replace("_", " ")}; only approved orders can be received.`);
       }
 
-      // With a "Goods Receipt" approval pipeline the receipt waits (DRAFT) and books stock,
-      // the order and the supplier balance only when its last stage approves.
-      const needsApproval = await hasApprovalPipeline(tx, "Goods Receipt");
       // Receipts still waiting for approval count against what is left to receive.
       const pendingByItem = new Map<string, number>();
       for (const l of await tx.goodsReceiptLine.findMany({ where: { receipt: { orderId: order.id, status: "DRAFT" } }, select: { itemId: true, acceptedQty: true } })) {
@@ -1643,6 +1641,9 @@ class PurchaseDataStore {
         remarks: m.remarks,
       }));
       const totalAmount = round2(linesData.reduce((s, l) => s + l.lineTotal, 0));
+      // With a "Goods Receipt" approval pipeline the receipt waits (DRAFT) and books stock,
+      // the order and the supplier balance only when its last stage approves.
+      const needsApproval = await hasApprovalPipeline(tx, "Goods Receipt", { businessUnitId: warehouse.businessUnitId, amount: totalAmount });
 
       const receipt = await tx.goodsReceipt.create({
         data: {
@@ -1670,6 +1671,8 @@ class PurchaseDataStore {
       });
       if (needsApproval) return receipt;
 
+      // The item cost moves to include this purchase (Production and the GL value stock at it).
+      await absorbInflowCost(tx, warehouse.businessUnitId, linesData.map((l) => ({ itemId: l.itemId, qty: l.acceptedQty, unitCost: l.unitPrice })));
       // Accepted quantities go into the warehouse, so Sales and Production see the stock.
       await postStock(tx, warehouse, linesData.map((l) => ({ itemId: l.itemId, qty: l.acceptedQty })), {
         source: "PURCHASE_RECEIPT",
@@ -1744,6 +1747,7 @@ class PurchaseDataStore {
         if (accepted > outstanding + 0.0005) throw badRequest(`Only ${outstanding} ${line.uom} of ${l.itemName} is left to receive on order ${order.number}.`);
         await tx.purchaseOrderLine.update({ where: { id: line.id }, data: { receivedQuantity: { increment: accepted } } });
       }
+      await absorbInflowCost(tx, warehouse.businessUnitId, receipt.lines.map((l) => ({ itemId: l.itemId, qty: Number(l.acceptedQty), unitCost: Number(l.unitPrice) })));
       await postStock(tx, warehouse, receipt.lines.map((l) => ({ itemId: l.itemId, qty: Number(l.acceptedQty) })), {
         source: "PURCHASE_RECEIPT",
         sourceId: receipt.id,
@@ -1789,6 +1793,8 @@ class PurchaseDataStore {
     await prisma.$transaction(async (tx) => {
       if (receipt.warehouseId) {
         await lockWarehouse(tx, receipt.warehouseId);
+        // The receipt leaves the item average cost too, while its stock is still counted.
+        await releaseInflowCost(tx, receipt.businessUnitId, receipt.lines.map((l) => ({ itemId: l.itemId, qty: Number(l.acceptedQty), unitCost: Number(l.unitPrice) })));
         await unpostStock(tx, receipt.warehouseId, "PURCHASE_RECEIPT", receipt.id);
       }
       const orderLines = await tx.purchaseOrderLine.findMany({ where: { orderId: receipt.orderId } });
@@ -2009,7 +2015,7 @@ class PurchaseDataStore {
       );
       // With a "Purchase Return" approval pipeline the return waits (SUBMITTED); the goods
       // leave stock and the supplier balance drops only when its last stage approves.
-      const needsApproval = await hasApprovalPipeline(tx, "Purchase Return");
+      const needsApproval = await hasApprovalPipeline(tx, "Purchase Return", { businessUnitId: warehouse.businessUnitId, amount: totalAmount });
       const purchaseReturn = await tx.purchaseReturn.create({
         data: {
           businessUnitId: warehouse.businessUnitId,
@@ -2197,7 +2203,7 @@ class PurchaseDataStore {
       await validatePaymentLink(supplierId, receiptId, billId, amount, actor, tx);
       // With a "Payment Approval" pipeline, money leaves only after its last stage (DRAFT until then).
       // A payment against a bill is the exception: that same pipeline already approved the bill.
-      const needsApproval = !billId && (await hasApprovalPipeline(tx, "Payment Approval"));
+      const needsApproval = !billId && (await hasApprovalPipeline(tx, "Payment Approval", { businessUnitId: supplier.businessUnitId, amount }));
       const number = await issueNumber(tx, supplier.businessUnitId, "SUPPLIER_PAYMENT", "PAY", paymentDate, async (n) =>
         Boolean(await tx.supplierPayment.findFirst({ where: { businessUnitId: supplier.businessUnitId, number: n }, select: { id: true } })),
       );
