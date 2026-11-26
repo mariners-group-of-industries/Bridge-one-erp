@@ -1142,8 +1142,9 @@ export function ItemEntry({
   );
   /** "is Customer": search by the printed / customer item code and name. */
   const [byCustomer, setByCustomer] = useState(false);
+  /** The item's code and name, then its unit from the Item Profile (PCS, KG, JAR …). */
   const label = (item: ItemOption) =>
-    byCustomer ? `${item.printedCode || item.code} — ${item.printedName || item.name}` : `${item.code} — ${item.name}`;
+    `${byCustomer ? `${item.printedCode || item.code} — ${item.printedName || item.name}` : `${item.code} — ${item.name}`}${item.uom ? ` [${item.uom}]` : ""}`;
   const item = visible.find((candidate) => label(candidate) === itemText) ?? items.find((candidate) => label(candidate) === itemText);
   const pending = useResource(item ? `pending:${item.id}` : null, () => fetchItemPending(item!.id));
   // ERP Login "Hide Stock In Sales": no stock is read or shown for this user.

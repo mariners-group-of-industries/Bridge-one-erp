@@ -219,7 +219,7 @@ function OrderList({ today }: { today: string }) {
     { id: "invoice", header: "Ref Invoice", cell: (row) => text(row.refInvoice), hideBelow: "lg" },
     { id: "amount", header: "Amount (BDT)", cell: (row) => <span className="text-ink">{formatAmount(row.salesTotal)}</span>, sortValue: (row) => row.salesTotal, className: "text-right tabular-nums" },
     { id: "by", header: "Order By", cell: (row) => <span className="line-clamp-2 min-w-44" title={row.salesPersonName ?? undefined}>{text(row.salesPersonName)}</span>, hideBelow: "md" },
-    { id: "territory", header: "Territory Name", cell: (row) => <span className="block min-w-28">{text(row.territory)}</span>, hideBelow: "md" },
+    { id: "territory", header: "Base Name", cell: (row) => <span className="block min-w-28">{text(row.territory)}</span>, hideBelow: "md" },
     { id: "orderType", header: "Type", cell: (row) => <span className="font-medium text-success">{ORDER_TYPE_LABELS[row.orderType]}</span>, hideBelow: "lg" },
     { id: "payment", header: "Payment Method", cell: (row) => PAYMENT_METHOD_LABELS[row.paymentMethod], hideBelow: "lg" },
   ];
@@ -263,7 +263,7 @@ function OrderList({ today }: { today: string }) {
         >
           <form onSubmit={view} className="grid items-end gap-3 border-b border-line p-4 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6">
             <SelectField label="Office" options={[all, ...offices.map((office) => ({ value: office.id, label: office.name }))]} {...field("officeId")} />
-            <SelectField label="Territory" options={areaOptions("TERRITORY")} {...field("territoryId")} />
+            <SelectField label="Base" options={areaOptions("TERRITORY")} {...field("territoryId")} />
             <SelectField label="Customer Group" options={[all, ...groups.map((group) => ({ value: group.id, label: group.name }))]} {...field("customerGroupId")} />
             <SelectField label="Sales Force" options={[all, ...persons.map((person) => ({ value: person.id, label: person.name }))]} {...field("salesPersonId")} />
             <SelectField label="Order By" hint="Who entered the order." options={[all, ...(list.data?.creators ?? []).map((user) => ({ value: user.id, label: user.name }))]} {...field("createdBy")} />

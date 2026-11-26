@@ -342,7 +342,7 @@ function ApprovedOrdersTab({ today, search, onQuery }: { today: string; search: 
     { id: "section", header: "Section", cell: (row) => text(row.section), hideBelow: "lg" },
     { id: "po", header: "Customer PO/Ref", cell: (row) => text(row.refCustomerPo), hideBelow: "lg" },
     { id: "by", header: "Order By", cell: (row) => text(row.salesPersonName), hideBelow: "md" },
-    { id: "territory", header: "Territory", cell: (row) => text(row.territory), hideBelow: "md" },
+    { id: "territory", header: "Base", cell: (row) => text(row.territory), hideBelow: "md" },
     { id: "type", header: "Type", cell: (row) => ORDER_TYPE_LABELS[row.orderType], hideBelow: "lg" },
     {
       id: "reason",
@@ -390,7 +390,7 @@ function ApprovedOrdersTab({ today, search, onQuery }: { today: string; search: 
       >
         <SelectField label="Office" options={filterLists.offices} {...field("officeId")} />
         <SelectField label="Customer Group" options={filterLists.groups} {...field("customerGroupId")} />
-        <SelectField label="Territory" options={filterLists.areaOptions("TERRITORY")} {...field("territoryId")} />
+        <SelectField label="Base" options={filterLists.areaOptions("TERRITORY")} {...field("territoryId")} />
         <SelectField label="Status" options={options(APPROVED_ORDER_STATUSES, APPROVED_ORDER_STATUS_LABELS)} {...field("status")} />
         <SelectField label="Zone" options={filterLists.areaOptions("ZONE")} {...field("zoneId")} />
         <SelectField label="Route" options={filterLists.areaOptions("ROUTE")} {...field("routeId")} />
@@ -703,7 +703,7 @@ function DeliveriesTab({ tab, today, search, onQuery }: { tab: Exclude<Tab, "app
             onPick={(id) => setFilters((current) => ({ ...current, customerId: id ?? "" }))}
           />
         )}
-        {!challans && <SelectField label="Territory" options={filterLists.areaOptions("TERRITORY")} {...field("territoryId")} />}
+        {!challans && <SelectField label="Base" options={filterLists.areaOptions("TERRITORY")} {...field("territoryId")} />}
         {tab === "deliveries" && <SelectField label="Zone" options={filterLists.areaOptions("ZONE")} {...field("zoneId")} />}
         {tab === "deliveries" && <SelectField label="Route" options={filterLists.areaOptions("ROUTE")} {...field("routeId")} />}
         {tab === "deliveries" && <SelectField label="Section" options={filterLists.areaOptions("SECTION")} {...field("sectionId")} />}

@@ -251,7 +251,7 @@ function OrderDetailBody({
               <Detail label="Customer Code" value={order.customerCode} />
               <Detail label="Customer Group Name" value={order.customerGroup} />
               <Detail label="Referred By" value={order.referredBy} />
-              <Detail label="Territory Name" value={order.territory} />
+              <Detail label="Base Name" value={order.territory} />
               <Detail label="Billing Address" value={order.billingAddress} />
               <Detail label="Shipping Address" value={order.shippingAddress} />
               <Detail label="Customer PO/Ref." value={order.refCustomerPo} />
