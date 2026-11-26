@@ -192,10 +192,21 @@ async function assertCodeFree(tx: Tx, businessUnitId: string, code: string, exce
 
 // ─── Items ────────────────────────────────────────────────────────────────────
 
-/** Current stock, last cost and average cost from opening stock receipts. */
+interface StockFigures {
+  /** On hand: the stock ledger (every receipt, delivery, issue …), as Inventory and Sales show it. */
+  stock: Prisma.Decimal;
+  /** Quantity and value of opening stock receipts, for the average cost. */
+  openingQty: Prisma.Decimal;
+  amount: Prisma.Decimal;
+  last: Prisma.Decimal | null;
+}
+
+/** Current stock from the stock ledger; last and average cost from opening stock receipts. */
 async function stockFigures(itemIds: string[]) {
-  if (itemIds.length === 0) return new Map<string, { stock: Prisma.Decimal; amount: Prisma.Decimal; last: Prisma.Decimal | null }>();
-  const [sums, latest] = await Promise.all([
+  if (itemIds.length === 0) return new Map<string, StockFigures>();
+  const zero = new Prisma.Decimal(0);
+  const [ledger, sums, latest] = await Promise.all([
+    db().stockEntry.groupBy({ by: ["itemId"], where: { itemId: { in: itemIds } }, _sum: { qty: true } }),
     db().openingStockLine.groupBy({ by: ["itemId"], where: { itemId: { in: itemIds } }, _sum: { quantity: true, amount: true } }),
     db().openingStockLine.findMany({
       where: { itemId: { in: itemIds } },
@@ -205,12 +216,19 @@ async function stockFigures(itemIds: string[]) {
     }),
   ]);
   const lastRate = new Map(latest.map((line) => [line.itemId, line.rate]));
-  return new Map(
-    sums.map((sum) => [
-      sum.itemId,
-      { stock: sum._sum.quantity ?? new Prisma.Decimal(0), amount: sum._sum.amount ?? new Prisma.Decimal(0), last: lastRate.get(sum.itemId) ?? null },
-    ]),
-  );
+  const onHand = new Map(ledger.map((row) => [row.itemId, row._sum.qty ?? zero]));
+  const opening = new Map(sums.map((sum) => [sum.itemId, sum]));
+  const figures = new Map<string, StockFigures>();
+  for (const itemId of new Set([...onHand.keys(), ...opening.keys()])) {
+    const sum = opening.get(itemId);
+    figures.set(itemId, {
+      stock: onHand.get(itemId) ?? zero,
+      openingQty: sum?._sum.quantity ?? zero,
+      amount: sum?._sum.amount ?? zero,
+      last: lastRate.get(itemId) ?? null,
+    });
+  }
+  return figures;
 }
 
 /** The Item Profile filters as Prisma conditions; a category also matches the categories under it. */
@@ -275,7 +293,7 @@ export async function listItems(actor: Actor, query: ItemListQuery): Promise<Ite
   const rows: ItemListRow[] = records.map((record) => {
     const chain = chainByLevel(record.category);
     const figures = stock.get(record.id);
-    const average = figures && !figures.stock.isZero() ? figures.amount.div(figures.stock).toDecimalPlaces(2) : null;
+    const average = figures && !figures.openingQty.isZero() ? figures.amount.div(figures.openingQty).toDecimalPlaces(2) : null;
     return {
       id: record.id,
       isActive: record.isActive,
@@ -519,7 +537,7 @@ export async function createOpeningStock(actor: Actor, input: OpeningStockInput)
 
   const receipt = await db().$transaction(async (tx) => {
     const number = formatNumber("OS", year, await nextNumber(tx, office.businessUnitId, "OPENING_STOCK", year));
-    return tx.openingStockReceipt.create({
+    const created = await tx.openingStockReceipt.create({
       data: {
         businessUnitId: office.businessUnitId,
         number,
@@ -535,6 +553,21 @@ export async function createOpeningStock(actor: Actor, input: OpeningStockInput)
       },
       select: { id: true, number: true },
     });
+    // Opening stock goes into the stock ledger, so it is on hand everywhere (Item Profile, Inventory, Sales).
+    await tx.stockEntry.createMany({
+      data: lines.map((line) => ({
+        businessUnitId: office.businessUnitId,
+        warehouseId: warehouse.id,
+        itemId: line.itemId,
+        qty: line.quantity,
+        source: "OPENING" as const,
+        sourceId: created.id,
+        postingDate: new Date(`${data.receiptDate}T00:00:00.000Z`),
+        remarks: `Opening stock ${number}`,
+        createdBy: actor.id,
+      })),
+    });
+    return created;
   });
   const total = lines.reduce((sum, line) => sum.add(line.amount), new Prisma.Decimal(0));
   return { id: receipt.id, number: receipt.number, lineCount: lines.length, totalAmount: total.toFixed(2) };
