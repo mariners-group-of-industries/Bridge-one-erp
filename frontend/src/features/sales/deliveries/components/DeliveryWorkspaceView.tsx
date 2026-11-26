@@ -130,6 +130,8 @@ export function DeliveryWorkspaceView() {
     <PageContainer className="max-w-none">
       <PageHead
         title="Sales Delivery"
+        // Joined to the card below so the header, tabs, filters and table read as one card.
+        className="mb-0 pb-0 [&>div]:rounded-b-none [&>div]:border-b-0 [&>div]:shadow-none"
         actions={
           <>
             <label className="relative w-56">
@@ -145,7 +147,7 @@ export function DeliveryWorkspaceView() {
           </>
         }
       />
-      <Card>
+      <Card className="rounded-t-none border-t-0">
         <Tabs<Tab> label="Delivery lists" tabs={TABS} value={tab} onChange={(next) => router.replace(`${pathname}?tab=${next}`)}>
           {!today ? (
             <LoadingState />
