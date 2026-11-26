@@ -7,6 +7,7 @@ import { toDbDate } from "../../lib/dates";
 import { customerBalances } from "../../lib/receivables";
 import { requireBusinessUnit, scopedBusinessUnitIds } from "../../lib/scope";
 import { formatNumber, nextNumber } from "../../lib/sequence";
+import { packingOf } from "../../orders/lib/packing";
 import {
   customerGroupInputSchema,
   deliveryReasonInputSchema,
@@ -392,7 +393,8 @@ function toItem({ purchasePrice, ...record }: Prisma.ItemGetPayload<{ select: ty
   return {
     ...record,
     costPrice: purchasePrice?.toNumber() ?? null,
-    altUomFactor: record.altUomFactor?.toNumber() ?? null,
+    // Pack size from the master, else from the name ("… (1x48)" → 1 Box = 48 PCS).
+    ...packingOf({ name: record.name, altUom: record.altUom, altUomFactor: record.altUomFactor?.toNumber() ?? null }),
     mrp: record.mrp?.toNumber() ?? null,
     vatPercent: record.vatPercent.toNumber(),
     deliveryTolerancePercent: record.deliveryTolerancePercent.toNumber(),

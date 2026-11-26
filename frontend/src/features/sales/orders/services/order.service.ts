@@ -13,6 +13,7 @@ import { userNames } from "../../lib/users";
 import { openOrderValue } from "../../masters/services/masters.service";
 import { assertMinPrices, salesPricing } from "../../pricing/services/pricing.service";
 import { orderTotals } from "../lib/order-totals";
+import { packingOf } from "../lib/packing";
 import {
   orderActionSchema,
   orderInputSchema,
@@ -320,7 +321,7 @@ async function prepare(actor: Actor, input: ParsedInput, currentOrderId?: string
       : null,
     db().item.findMany({
       where: { id: { in: itemIds }, businessUnitId },
-      select: { id: true, uom: true, altUom: true, altUomFactor: true, mrp: true, isActive: true },
+      select: { id: true, name: true, uom: true, altUom: true, altUomFactor: true, mrp: true, isActive: true },
     }),
   ]);
 
@@ -360,7 +361,7 @@ async function prepare(actor: Actor, input: ParsedInput, currentOrderId?: string
   if (freeIds.length) {
     const extra = await db().item.findMany({
       where: { id: { in: freeIds }, businessUnitId },
-      select: { id: true, uom: true, altUom: true, altUomFactor: true, mrp: true, isActive: true },
+      select: { id: true, name: true, uom: true, altUom: true, altUomFactor: true, mrp: true, isActive: true },
     });
     for (const item of extra) itemById.set(item.id, item);
   }
@@ -418,8 +419,7 @@ async function prepare(actor: Actor, input: ParsedInput, currentOrderId?: string
         lineNo: index + 1,
         itemId: line.itemId,
         uom: item.uom,
-        altUom: item.altUom,
-        altUomFactor: item.altUomFactor,
+        ...packingOf(item),
         mrp: item.mrp,
         qty: line.qty,
         unitPrice: line.unitPrice,

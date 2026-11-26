@@ -26,7 +26,7 @@
  * ─────────────────────────────────────────────────────────────────────────────
  */
 
-import * as ExcelJS from "exceljs";
+import ExcelJS from "exceljs";
 import * as path from "path";
 import { db } from "../src/lib/prisma/client";
 
@@ -178,9 +178,9 @@ async function main() {
     const deptMap = new Map<string, string>();   // deptName  → id
     const secMap  = new Map<string, string>();   // "deptId:secName" → id
 
-    const uniqueDepts = Array.from(
-      new Set(excelRows.map((r) => r.department).filter(Boolean))
-    );
+    const uniqueDepts = [
+      ...new Set(excelRows.map((r) => r.department).filter(Boolean)),
+    ];
     for (const deptName of uniqueDepts) {
       let dept = await prisma.productionDepartment.findFirst({
         where: { businessUnitId: businessUnit.id, name: deptName },
@@ -194,13 +194,13 @@ async function main() {
       deptMap.set(deptName, dept.id);
     }
 
-    const uniqueSecs = Array.from(
-      new Set(
+    const uniqueSecs = [
+      ...new Set(
         excelRows
           .filter((r) => r.section && r.department)
           .map((r) => `${r.department}|||${r.section}`)
-      )
-    );
+      ),
+    ];
     for (const key of uniqueSecs) {
       const [deptName, secName] = key.split("|||");
       const deptId = deptMap.get(deptName);
@@ -219,7 +219,7 @@ async function main() {
 
     // ── 5. Item lookup ─────────────────────────────────────────────────────
     console.log("\n[5/7] Looking up items...");
-    const itemCodes = Array.from(new Set(excelRows.map((r) => r.itemCode).filter(Boolean)));
+    const itemCodes = [...new Set(excelRows.map((r) => r.itemCode).filter(Boolean))];
     const items = await prisma.item.findMany({
       where: { code: { in: itemCodes } },
       select: { id: true, code: true, name: true },
@@ -246,6 +246,7 @@ async function main() {
       const item    = itemMap.get(row.itemCode);
 
       try {
+        let isUpdate = false;
         await prisma.$transaction(async (tx) => {
           // ── BOM ──
           const existing = await tx.productionBom.findFirst({
@@ -256,6 +257,7 @@ async function main() {
           let bomId: string;
 
           if (existing) {
+            isUpdate = true;
             // Update — only fields that may have changed
             await tx.productionBom.update({
               where: { id: existing.id },
@@ -269,7 +271,6 @@ async function main() {
               },
             });
             bomId = existing.id;
-            updated++;
           } else {
             // Insert
             const created = await tx.productionBom.create({
@@ -289,12 +290,11 @@ async function main() {
               },
             });
             bomId = created.id;
-            inserted++;
           }
 
           // ── BOM Output (only if item exists) ──
           if (item) {
-            const existingOutput: { id: string } | null = await tx.productionBomOutput.findFirst({
+            const existingOutput = await tx.productionBomOutput.findFirst({
               where: { bomId, itemId: item.id },
               select: { id: true },
             });
@@ -325,11 +325,16 @@ async function main() {
             noItem++;
           }
         });
+
+        if (isUpdate) {
+          updated++;
+        } else {
+          inserted++;
+        }
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
         console.error(`      FAILED row ${row.sl} "${row.bomName}": ${msg}`);
         failedRows.push(row.bomName);
-        // Transaction rolled back automatically — no counter to undo
       }
     }
 
@@ -360,7 +365,7 @@ async function main() {
     // Cross-check: which Excel names are in DB
     const dbNames = new Set(dbBoms.map((b) => b.name));
     const excelNames = new Set(excelRows.map((r) => r.bomName));
-    const missingFromDb = Array.from(excelNames).filter((n) => !dbNames.has(n));
+    const missingFromDb = [...excelNames].filter((n) => !dbNames.has(n));
 
     // ── Report ─────────────────────────────────────────────────────────────
     console.log("\n========================================");
