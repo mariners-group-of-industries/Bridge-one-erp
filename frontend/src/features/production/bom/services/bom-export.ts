@@ -14,7 +14,7 @@ const day = (iso: string) => {
 
 /** List columns shared by the Excel and PDF exports; `details` gives one row per production item. */
 function listTable(rows: BomRow[], details: boolean) {
-  const headers = ["SL", "Date", "BOM Name", "Item Name", "Department", "Section", "UoM", "Alt. UoM", "Lot Size", "Tolerance (%)", "BOM Value", "Created By", "Status"];
+  const headers = ["SL", "Date", "BOM Name", "Item Name", "Department", "Section", "UoM", "Alt. UoM", "Lot Size", "Tolerance (%)", "BOM Value", "UoM Value", "Created By", "Status"];
   const body: (string | number)[][] = [];
   for (const row of rows) {
     const outputs = details ? row.outputs : row.outputs.slice(0, 1);
@@ -31,6 +31,7 @@ function listTable(rows: BomRow[], details: boolean) {
         details && output ? output.lotSizeQty : row.lotSize,
         row.tolerancePercent ?? "",
         row.totalCost,
+        row.lotSize > 0 ? Math.round((row.totalCost / row.lotSize) * 100) / 100 : 0,
         row.createdByName,
         row.isActive ? "Active" : "Inactive",
       ]);
@@ -47,12 +48,13 @@ export async function bomListExcel(actor: Actor, raw: Record<string, string>): P
   sheet.addRow(headers).font = { bold: true };
   sheet.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFDBEAFE" } };
   for (const row of body) sheet.addRow(row);
-  const widths = [6, 12, 34, 44, 16, 18, 8, 9, 10, 12, 14, 20, 10];
+  const widths = [6, 12, 34, 44, 16, 18, 8, 9, 10, 12, 14, 12, 20, 10];
   widths.forEach((width, index) => (sheet.getColumn(index + 1).width = width));
   sheet.getColumn(11).numFmt = "#,##0.00";
+  sheet.getColumn(12).numFmt = "#,##0.00";
   sheet.views = [{ state: "frozen", ySplit: 1 }];
   const total = body.reduce((sum, row) => sum + Number(row[10]), 0);
-  const footer = sheet.addRow(["", "", "Total", "", "", "", "", "", "", "", Math.round(total * 100) / 100, "", ""]);
+  const footer = sheet.addRow(["", "", "Total", "", "", "", "", "", "", "", Math.round(total * 100) / 100, "", "", ""]);
   footer.font = { bold: true };
   return new Uint8Array(await workbook.xlsx.writeBuffer());
 }
@@ -63,12 +65,12 @@ export async function bomListPdf(actor: Actor, raw: Record<string, string>): Pro
   const { headers, body } = listTable(rows, details === "true");
   const { doc, pdf } = await pdfWriter(true);
   pdf.title("Bill Of Material");
-  const widths = [4, 8, 20, 26, 10, 11, 5, 6, 7, 7, 10, 12, 7];
-  const right = new Set([0, 8, 9, 10]);
+  const widths = [4, 8, 19, 24, 10, 11, 5, 6, 7, 7, 9, 8, 11, 7];
+  const right = new Set([0, 8, 9, 10, 11]);
   pdf.table(
     headers.map((header, index) => ({ header, width: widths[index], align: right.has(index) ? "right" : "left" })),
-    body.map((row) => row.map((cell, index) => (index === 10 ? money(Number(cell)) : String(cell)))),
-    [["", "", "Total", "", "", "", "", "", "", "", money(body.reduce((sum, row) => sum + Number(row[10]), 0)), "", ""]],
+    body.map((row) => row.map((cell, index) => (index === 10 || index === 11 ? money(Number(cell)) : String(cell)))),
+    [["", "", "Total", "", "", "", "", "", "", "", money(body.reduce((sum, row) => sum + Number(row[10]), 0)), "", "", ""]],
   );
   return doc.save();
 }

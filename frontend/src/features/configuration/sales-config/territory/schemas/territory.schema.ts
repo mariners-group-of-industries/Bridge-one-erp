@@ -30,10 +30,10 @@ const name = (max: number) => z.string().trim().min(1, "Name is required.").max(
 
 export const layerInputSchema = z.object({ code: code(20), name: name(50) });
 export const nodeInputSchema = z.object({
-  businessUnitId: z.uuid("Select a business unit."),
+  businessUnitId: z.guid("Select a business unit."),
   /** Empty for a top-layer node. */
   parentId: z
-    .union([z.uuid(), z.literal("")])
+    .union([z.guid(), z.literal("")])
     .optional()
     .default(""),
   /** Optional: left empty, a code like "REG-001" is made from the layer code. */
@@ -43,7 +43,7 @@ export const nodeInputSchema = z.object({
 /** An empty code keeps the current one. */
 export const nodeUpdateSchema = z.object({ code: optionalCode, name: name(100) });
 export const assignEmployeeSchema = z.object({
-  employeeId: z.uuid("Select an employee."),
+  employeeId: z.guid("Select an employee."),
   distributionChannel: z.string().trim().max(100).optional().default(""),
 });
 export const assignmentUpdateSchema = z.object({ distributionChannel: z.string().trim().max(100).optional().default("") });
@@ -55,10 +55,10 @@ export type AssignEmployeeInput = z.input<typeof assignEmployeeSchema>;
 export type AssignmentUpdateInput = z.input<typeof assignmentUpdateSchema>;
 
 export const customerListQuerySchema = z.object({
-  businessUnitId: z.uuid(),
-  nodeId: z.uuid(),
+  businessUnitId: z.guid(),
+  nodeId: z.guid(),
   customerId: z
-    .union([z.uuid(), z.literal("")])
+    .union([z.guid(), z.literal("")])
     .optional()
     .default(""),
   search: z.string().trim().max(100).optional(),
@@ -147,19 +147,19 @@ export interface TerritoryImportResult {
 
 /** Territory Wise Customer List: every territory (or those under `nodeId`), each with its customers. */
 export const customerGroupQuerySchema = z.object({
-  businessUnitId: z.uuid(),
+  businessUnitId: z.guid(),
   /** One Sales territory (the territory customers are linked to). */
   territoryId: z
-    .union([z.uuid(), z.literal("")])
+    .union([z.guid(), z.literal("")])
     .optional()
     .default(""),
   /** A tree entry: the Sales territories linked below it. */
   nodeId: z
-    .union([z.uuid(), z.literal("")])
+    .union([z.guid(), z.literal("")])
     .optional()
     .default(""),
   customerId: z
-    .union([z.uuid(), z.literal("")])
+    .union([z.guid(), z.literal("")])
     .optional()
     .default(""),
   search: z.string().trim().max(100).optional(),

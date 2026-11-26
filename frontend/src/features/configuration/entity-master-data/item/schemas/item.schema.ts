@@ -122,16 +122,35 @@ export const itemListQuerySchema = z.object({
     .int()
     .refine((value) => [10, 25, 50, 100].includes(value), "Invalid page size.")
     .default(10),
+  // Item Profile filters ("View" applies them). Empty values mean "all".
+  /** Items bought from this supplier (on its purchase orders). */
+  supplierId: z.guid().optional().catch(undefined),
+  /** Items sold to this customer (sales orders) or priced for it (Customer Price Setup). */
+  customerId: z.guid().optional().catch(undefined),
+  itemType: z.string().trim().max(30).optional(),
+  divisionId: z.guid().optional().catch(undefined),
+  /** Each category filter includes the categories under it. */
+  categoryId: z.guid().optional().catch(undefined),
+  subCategoryId: z.guid().optional().catch(undefined),
+  minorCategoryId: z.guid().optional().catch(undefined),
+  status: z.enum(["active", "inactive"]).optional().catch(undefined),
 });
 
 export type ItemListQuery = z.output<typeof itemListQuerySchema>;
+/** The Item Profile filters, as the list view keeps them. */
+export type ItemFilters = Partial<Omit<ItemListQuery, "page" | "pageSize">>;
+
+export interface ItemFilterOptions {
+  suppliers: { id: string; code: string; name: string }[];
+  customers: { id: string; code: string; name: string }[];
+}
 
 // ─── Categories, divisions, units ─────────────────────────────────────────────
 
 export const CATEGORY_LEVELS = ["", "Category", "Sub Category", "Minor Category"] as const;
 
 export const createCategorySchema = z.object({
-  businessUnitId: z.uuid("Select a business unit."),
+  businessUnitId: z.guid("Select a business unit."),
   parentId: optionalId,
   name: text(100).min(1, "Name is required."),
   description: optionalText(300),
@@ -143,7 +162,7 @@ export const updateCategorySchema = z.object({
 });
 
 export const createNamedOptionSchema = z.object({
-  businessUnitId: z.uuid("Select a business unit."),
+  businessUnitId: z.guid("Select a business unit."),
   name: text(100).min(1, "Name is required."),
 });
 
@@ -159,7 +178,7 @@ export const OPENING_ITEM_TYPES = [
 ] as const;
 
 export const openingStockLineSchema = z.object({
-  itemId: z.uuid("Select an item."),
+  itemId: z.guid("Select an item."),
   quantity: z
     .string()
     .trim()
@@ -172,8 +191,8 @@ export const openingStockLineSchema = z.object({
 
 export const openingStockSchema = z.object({
   receiptDate: z.iso.date("Enter a valid date."),
-  officeId: z.uuid("Select an office."),
-  warehouseId: z.uuid("Select a warehouse."),
+  officeId: z.guid("Select an office."),
+  warehouseId: z.guid("Select a warehouse."),
   itemType: z.enum(["INVENTORY", "ASSET"], { error: "Select an item type." }),
   challanNo: optionalText(50),
   remarks: optionalText(500),

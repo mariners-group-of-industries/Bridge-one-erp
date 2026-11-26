@@ -1,817 +1,493 @@
 "use client";
 
-import React, { useState, useMemo } from "react";
+import { Fragment, useMemo, useState } from "react";
+import { ChevronDown, ChevronRight, FileSpreadsheet, FileText } from "lucide-react";
+import { Spinner } from "@/components/ui/spinner";
 import { useResource } from "@/hooks/use-resource";
-import type { InventoryDocument } from "@/features/inventory/schemas/document.schema";
-import { inventoryApi, monthAgo, today } from "@/features/inventory/services/inventory.api";
-import {
-  Search,
-  Download,
-  Printer,
-} from "lucide-react";
+import { InventoryTabBar, tabBarOutlineButton } from "@/features/inventory/components/InventoryTabBar";
+import type { InventoryDocument, InventoryDocumentLine } from "@/features/inventory/schemas/document.schema";
+import { dmy, inventoryApi, monthAgo, today, type ItemOption } from "@/features/inventory/services/inventory.api";
+import { useFeaturePermissions } from "@/lib/permissions/useFeaturePermissions";
+import { NativeDateInput } from "@/components/ui/date-input";
 
-// ============================================================================
-// TYPES
-// ============================================================================
-type TransferReportMode = "Transfer Out" | "Transfer Received" | "Transfer In Transit";
+// iBOS Transfer Report: View By × Based On, with "Is Details" for one row per item line.
+const VIEWS = ["Transfer Out", "Transfer Received", "Transfer In Transit"] as const;
+const BASED_ON = ["Transfer", "Item", "Supplier", "Category"] as const;
+type View = (typeof VIEWS)[number];
+type Based = (typeof BASED_ON)[number];
 
-interface TransferOutRecord {
-  sl: number;
-  transferDate: string;
+interface Filters {
+  view: View | "";
+  basedOn: Based | "";
   transferCode: string;
-  requestCode: string;
-  fromOffice: string;
-  fromWarehouse: string;
-  receiveOffice: string;
-  receiveWarehouse: string;
-  itemCode: string;
-  itemName: string;
-  uom: string;
-  totalQty: number;
-  receivedQty: number;
-  returnQty: number;
-  inTransitQty: number;
-  status: "Completed" | "Partial" | "In Transit" | "Pending";
+  itemId: string;
+  supplierId: string;
+  category: string;
+  fromOfficeId: string;
+  fromWarehouseId: string;
+  toOfficeId: string;
+  toWarehouseId: string;
+  from: string;
+  to: string;
+  details: boolean;
 }
 
-interface TransferReceivedRecord {
-  sl: number;
-  receiveDate: string;
-  transferDate: string;
-  transferCode: string;
-  fromOffice: string;
-  fromWarehouse: string;
-  receiveWarehouse: string;
-  itemCode: string;
-  itemName: string;
-  uom: string;
-  receivedQty: number;
-  loadingTemp: string;
-  chillingTemp: string;
-  vehicleNo: string;
-  receivedBy: string;
-  status: "Accepted" | "Quality Checked" | "Discrepancy";
+type Cell = string | number | null;
+type Row = Record<string, Cell> & { _key: string };
+interface Col {
+  key: string;
+  label: string;
+  kind?: "qty" | "money";
 }
 
-interface TransferInTransitRecord {
-  sl: number;
-  dispatchDate: string;
-  transferCode: string;
-  requestCode: string;
-  fromWarehouse: string;
-  destinationWarehouse: string;
-  itemCode: string;
-  itemName: string;
-  uom: string;
-  dispatchedQty: number;
-  inTransitQty: number;
-  vehicleNo: string;
-  driverName: string;
-  driverContact: string;
-  estArrival: string;
-  status: "On Highway" | "At Factory Gate" | "Customs Clearance";
+const r3 = (n: number) => Math.round(n * 1000) / 1000;
+const r2 = (n: number) => Math.round(n * 100) / 100;
+const fmt = (v: Cell, kind?: Col["kind"]) =>
+  v === null || v === undefined || v === ""
+    ? ""
+    : kind === "qty"
+      ? Number(v).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 3 })
+      : kind === "money"
+        ? Number(v).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+        : String(v);
+
+const Q = (key: string, label: string): Col => ({ key, label, kind: "qty" });
+const M = (key: string, label: string): Col => ({ key, label, kind: "money" });
+const T = (key: string, label: string): Col => ({ key, label });
+
+const PLACES = [T("fromOffice", "Sending/Issue Office"), T("fromWarehouse", "Sending/Issue Warehouse"), T("toOffice", "Requesting/Receive Office"), T("toWarehouse", "Requesting/Receive Warehouse")];
+const ITEM_INFO = [T("barcode", "Barcode"), T("itemName", "Item Name"), T("category", "Category"), T("subCategory", "Sub Category"), T("minorCategory", "Minor Category"), T("supplier", "Supplier Name")];
+
+/** Columns iBOS shows for each view: per transfer, per item, or per line (Is Details). */
+function columnsFor(view: View, mode: "transfer" | "item" | "details"): Col[] {
+  const received = view === "Transfer Received";
+  const transit = view === "Transfer In Transit";
+  if (mode === "transfer") {
+    if (received)
+      return [T("date", "Transfer Receive Date"), T("requestNo", "Request No."), T("transferNo", "Transfer No."), ...PLACES, Q("qty", "Transfer Qty."), Q("returned", "Returned Qty."), Q("received", "Received Qty."), Q("remaining", "Remaining Qty."), M("receivedCost", "Received Amt.(Cost)"), M("receivedSale", "Received Amt.(Sale)")];
+    return [T("date", "Transfer Date"), T("requestNo", "Request No."), T("transferNo", "Transfer No."), ...PLACES, Q("qty", "Transfer Qty."), ...(transit ? [Q("inTransit", "In Transit Qty.")] : []), M("cost", "Transfer Amt.(Cost)"), M("sale", "Transfer Amt.(Sale)")];
+  }
+  if (mode === "item") {
+    if (received) return [...ITEM_INFO, Q("qty", "Transfer Qty."), Q("returned", "Returned Qty."), Q("received", "Received Qty."), M("receivedCost", "Received Amt.(Cost)"), M("receivedSale", "Received Amt.(Sale)")];
+    return [...ITEM_INFO, Q("qty", "Transfer Qty."), ...(transit ? [Q("inTransit", "In Transit Qty.")] : []), M("cost", "Transfer Amt.(Cost)"), M("sale", "Transfer Amt.(Sale)")];
+  }
+  if (received)
+    return [T("date", "Transfer Receive Date"), T("requestNo", "Request No."), T("transferNo", "Transfer No."), ...ITEM_INFO, Q("requestQty", "Request Qty."), Q("qty", "Transfer Qty."), Q("returned", "Return Qty."), Q("received", "Receive Qty."), M("receivedCost", "Receive Amt.(Cost)"), M("receivedSale", "Receive Amt.(Sale)"), Q("remaining", "Remaining Qty.")];
+  return [T("date", "Transfer Date"), T("requestNo", "Request No."), T("transferNo", "Transfer No."), ...ITEM_INFO, Q("qty", "Transfer Qty."), ...(transit ? [Q("inTransit", "In Transit Qty.")] : []), M("cost", "Transfer Amt.(Cost)"), M("sale", "Transfer Amt.(Sale)"), T("remarks", "Remarks")];
 }
 
-// ============================================================================
-// ROWS FROM TRANSFERS (one per item line)
-// ============================================================================
-const round3 = (n: number) => Math.round(n * 1000) / 1000;
+/** Dates and document numbers stay on one line. */
+const NOWRAP = new Set(["date", "requestNo", "transferNo", "barcode"]);
 
-function outRecords(transfers: InventoryDocument[]): TransferOutRecord[] {
-  return transfers.flatMap((d) =>
-    d.lines.map((l) => {
-      const done = d.status === "COMPLETED";
-      const received = done ? l.processedQty : 0;
-      return {
-        sl: 0,
-        transferDate: d.docDate,
-        transferCode: d.number,
-        requestCode: d.request?.number ?? "Direct",
-        fromOffice: d.warehouse?.officeName ?? "",
-        fromWarehouse: d.warehouse?.name ?? "",
-        receiveOffice: d.toWarehouse?.officeName ?? "",
-        receiveWarehouse: d.toWarehouse?.name ?? "",
-        itemCode: l.itemCode,
-        itemName: l.itemName,
-        uom: l.uom,
-        totalQty: l.qty,
-        receivedQty: received,
-        returnQty: done ? round3(l.qty - received) : 0,
-        inTransitQty: d.status === "IN_TRANSIT" ? l.qty : 0,
-        status: (d.status === "IN_TRANSIT" ? "In Transit" : !done ? "Pending" : received + 1e-9 >= l.qty ? "Completed" : "Partial") as TransferOutRecord["status"],
-      };
-    }),
-  ).map((r, i) => ({ ...r, sl: i + 1 }));
-}
+const SUMMED = ["qty", "inTransit", "returned", "received", "remaining", "requestQty", "cost", "sale", "receivedCost", "receivedSale"];
 
-function receivedRecords(transfers: InventoryDocument[]): TransferReceivedRecord[] {
-  return transfers
-    .filter((d) => d.status === "COMPLETED")
-    .flatMap((d) =>
-      d.lines.map((l) => ({
-        sl: 0,
-        receiveDate: d.completedAt?.slice(0, 10) ?? d.docDate,
-        transferDate: d.docDate,
-        transferCode: d.number,
-        fromOffice: d.warehouse?.officeName ?? "",
-        fromWarehouse: d.warehouse?.name ?? "",
-        receiveWarehouse: d.toWarehouse?.name ?? "",
-        itemCode: l.itemCode,
-        itemName: l.itemName,
-        uom: l.uom,
-        receivedQty: l.processedQty,
-        loadingTemp: d.meta?.loadingTemp ?? "",
-        chillingTemp: d.meta?.chillingTemp ?? "",
-        vehicleNo: d.reference ?? "",
-        receivedBy: "",
-        status: (l.processedQty + 1e-9 >= l.qty ? "Accepted" : "Discrepancy") as TransferReceivedRecord["status"],
-      })),
-    )
-    .map((r, i) => ({ ...r, sl: i + 1 }));
-}
+const blank = (): Filters => ({
+  view: "",
+  basedOn: "",
+  transferCode: "",
+  itemId: "",
+  supplierId: "",
+  category: "",
+  fromOfficeId: "",
+  fromWarehouseId: "",
+  toOfficeId: "",
+  toWarehouseId: "",
+  from: monthAgo(),
+  to: today(),
+  details: false,
+});
 
-function inTransitRecords(transfers: InventoryDocument[]): TransferInTransitRecord[] {
-  return transfers
-    .filter((d) => d.status === "IN_TRANSIT")
-    .flatMap((d) =>
-      d.lines.map((l) => ({
-        sl: 0,
-        dispatchDate: d.docDate,
-        transferCode: d.number,
-        requestCode: d.request?.number ?? "Direct",
-        fromWarehouse: d.warehouse?.name ?? "",
-        destinationWarehouse: d.toWarehouse?.name ?? "",
-        itemCode: l.itemCode,
-        itemName: l.itemName,
-        uom: l.uom,
-        dispatchedQty: l.qty,
-        inTransitQty: l.qty,
-        vehicleNo: d.reference ?? "",
-        driverName: d.meta?.driverName ?? "",
-        driverContact: d.meta?.driverPhone ?? "",
-        estArrival: d.expectedDate ?? "",
-        status: "On Highway" as const,
-      })),
-    )
-    .map((r, i) => ({ ...r, sl: i + 1 }));
-}
-
-const distinct = (placeholder: string, values: string[]) => [placeholder, ...[...new Set(values.filter(Boolean))].sort()];
+const field = "h-8 w-full rounded border border-line bg-surface px-2.5 text-xs text-ink focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:bg-control";
+const labelCls = "mb-1 block text-xs font-medium text-ink";
+const Req = () => <span className="mr-0.5 text-rose-600 dark:text-rose-400">*</span>;
 
 export default function TransferReportPage() {
-  // Screenshot 2 Primary View Selector: "View By *"
-  const [viewBy, setViewBy] = useState<TransferReportMode>("Transfer Out");
+  const perms = useFeaturePermissions("/inventory/transfer-report");
+  const [form, setForm] = useState<Filters>(blank);
+  const [applied, setApplied] = useState<Filters | null>(null);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const set = <K extends keyof Filters>(key: K, value: Filters[K]) => setForm((f) => ({ ...f, [key]: value }));
 
-  // Filter criteria
-  const [searchTerm, setSearchTerm] = useState("");
-  const [fromOffice, setFromOffice] = useState("All Offices");
-  const [toOffice] = useState("All Offices");
-  const [fromWarehouse, setFromWarehouse] = useState("All Warehouses");
-  const [toWarehouse, setToWarehouse] = useState("All Warehouses");
-  const [fromDate, setFromDate] = useState(monthAgo());
-  const [toDate, setToDate] = useState(today());
-  const [period, setPeriod] = useState({ from: fromDate, to: toDate });
-  const report = useResource(`transfer-report-${period.from}-${period.to}`, () => inventoryApi.transferReport(period));
-  const transfers = useMemo(() => report.data?.transfers ?? [], [report.data]);
-  const outRows = useMemo(() => outRecords(transfers), [transfers]);
-  const receivedRows = useMemo(() => receivedRecords(transfers), [transfers]);
-  const inTransitRows = useMemo(() => inTransitRecords(transfers), [transfers]);
-  const OFFICE_OPTIONS = distinct("All Offices", transfers.flatMap((d) => [d.warehouse?.officeName ?? "", d.toWarehouse?.officeName ?? ""]));
-  const WAREHOUSE_OPTIONS = distinct("All Warehouses", transfers.flatMap((d) => [d.warehouse?.name ?? "", d.toWarehouse?.name ?? ""]));
+  const masters = useResource("inventory-masters", inventoryApi.masters);
+  // Transfers sent up to the To date (a receipt in the period may belong to an earlier transfer).
+  const report = useResource(applied ? `transfer-report-${applied.to}` : null, () => inventoryApi.transferReport({ to: applied!.to }));
 
-  // Pagination
-  const [, setPage] = useState(1);
+  const data = masters.data;
+  const warehouses = useMemo(() => data?.warehouses ?? [], [data]);
+  const offices = useMemo(() => [...new Map(warehouses.map((w) => [w.officeId, w.officeName])).entries()].sort((a, b) => a[1].localeCompare(b[1])), [warehouses]);
+  const itemById = useMemo(() => new Map((data?.items ?? []).map((i) => [i.id, i])), [data]);
+  const supplierName = useMemo(() => new Map((data?.suppliers ?? []).map((s) => [s.id, s.name])), [data]);
+  const categories = useMemo(() => [...new Set((data?.items ?? []).map((i) => i.category))].sort(), [data]);
+  const officeOfWarehouse = useMemo(() => new Map(warehouses.map((w) => [w.id, w.officeId])), [warehouses]);
 
-  // Filter Transfer Out Data
-  const filteredTransferOut = useMemo(() => {
-    return outRows.filter((r) => {
-      if (fromOffice !== "All Offices" && r.fromOffice !== fromOffice) return false;
-      if (toOffice !== "All Offices" && r.receiveOffice !== toOffice) return false;
-      if (fromWarehouse !== "All Warehouses" && r.fromWarehouse !== fromWarehouse) return false;
-      if (toWarehouse !== "All Warehouses" && r.receiveWarehouse !== toWarehouse) return false;
-      if (fromDate && r.transferDate < fromDate) return false;
-      if (toDate && r.transferDate > toDate) return false;
-      if (searchTerm) {
-        const q = searchTerm.toLowerCase();
-        return (
-          r.transferCode.toLowerCase().includes(q) ||
-          r.requestCode.toLowerCase().includes(q) ||
-          r.itemName.toLowerCase().includes(q) ||
-          r.fromWarehouse.toLowerCase().includes(q) ||
-          r.receiveWarehouse.toLowerCase().includes(q)
-        );
-      }
+  const byPlace = form.basedOn !== "" && form.basedOn !== "Transfer";
+  const canView = !!form.view && !!form.basedOn && (!byPlace || (form.from && form.to && form.from <= form.to));
+
+  const { rows, columns, linesOf } = useMemo(() => {
+    if (!applied || !report.data || !data || !applied.view) return { rows: [] as Row[], columns: [] as Col[], linesOf: new Map<string, Row[]>() };
+    const view = applied.view;
+    const placeFilters = applied.basedOn !== "Transfer";
+    const mode: "transfer" | "item" | "details" = applied.details ? "details" : applied.basedOn === "Transfer" ? "transfer" : "item";
+    const requests = new Map(report.data.requests.map((r) => [r.id, r]));
+
+    const dateOf = (d: InventoryDocument) => (view === "Transfer Received" ? (d.completedAt?.slice(0, 10) ?? "") : d.docDate);
+    const docs = report.data.transfers
+      .filter((d) => (view === "Transfer Received" ? d.status === "COMPLETED" : view === "Transfer In Transit" ? d.status === "IN_TRANSIT" : d.status !== "CANCELLED"))
+      .filter((d) => !applied.transferCode.trim() || d.number.toLowerCase().includes(applied.transferCode.trim().toLowerCase()))
+      .filter((d) => {
+        if (!placeFilters) return true;
+        const date = dateOf(d);
+        if (!date || date < applied.from || date > applied.to) return false;
+        if (applied.fromWarehouseId && d.warehouse?.id !== applied.fromWarehouseId) return false;
+        if (applied.toWarehouseId && d.toWarehouse?.id !== applied.toWarehouseId) return false;
+        if (applied.fromOfficeId && officeOfWarehouse.get(d.warehouse?.id ?? "") !== applied.fromOfficeId) return false;
+        if (applied.toOfficeId && officeOfWarehouse.get(d.toWarehouse?.id ?? "") !== applied.toOfficeId) return false;
+        return true;
+      });
+
+    const lineMatches = (l: InventoryDocumentLine) => {
+      const item = itemById.get(l.itemId);
+      if (applied.basedOn === "Item" && applied.itemId && l.itemId !== applied.itemId) return false;
+      if ((applied.basedOn === "Supplier" || applied.basedOn === "Category") && applied.supplierId && !item?.supplierIds.includes(applied.supplierId)) return false;
+      if ((applied.basedOn === "Supplier" || applied.basedOn === "Category") && applied.category && (item?.category ?? l.category) !== applied.category) return false;
       return true;
+    };
+    const itemInfo = (l: InventoryDocumentLine, item: ItemOption | undefined) => ({
+      barcode: item?.barcode || l.itemCode,
+      itemName: l.itemName,
+      category: item?.category ?? l.category,
+      subCategory: item?.subCategory ?? "N/A",
+      minorCategory: item?.minorCategory ?? "N/A",
+      supplier: (item?.supplierIds ?? []).map((id) => supplierName.get(id)).filter(Boolean).join(", "),
     });
-  }, [outRows, fromOffice, toOffice, fromWarehouse, toWarehouse, fromDate, toDate, searchTerm]);
+    // One line's figures: quantities and their value at cost and sale price.
+    const lineRow = (d: InventoryDocument, l: InventoryDocumentLine): Row => {
+      const item = itemById.get(l.itemId);
+      const cost = item?.costPrice ?? 0;
+      const sale = item?.tradePrice ?? item?.mrp ?? 0;
+      const done = d.status === "COMPLETED";
+      const received = done ? l.processedQty : 0;
+      const request = d.request ? requests.get(d.request.id) : undefined;
+      const requestLine = request?.lines.find((x) => x.itemId === l.itemId);
+      return {
+        _key: `${d.id}:${l.id}`,
+        date: dmy(dateOf(d)),
+        requestNo: d.request?.number ?? "",
+        transferNo: d.number,
+        fromOffice: d.warehouse?.officeName ?? "",
+        fromWarehouse: d.warehouse?.name ?? "",
+        toOffice: d.toWarehouse?.officeName ?? "",
+        toWarehouse: d.toWarehouse?.name ?? "",
+        ...itemInfo(l, item),
+        requestQty: requestLine ? requestLine.qty : null,
+        qty: l.qty,
+        inTransit: d.status === "IN_TRANSIT" ? l.qty : 0,
+        returned: done ? r3(l.qty - l.processedQty) : 0,
+        received,
+        remaining: requestLine ? r3(Math.max(0, requestLine.qty - requestLine.processedQty)) : 0,
+        cost: r2(l.qty * cost),
+        sale: r2(l.qty * sale),
+        receivedCost: r2(received * cost),
+        receivedSale: r2(received * sale),
+        remarks: l.remarks ?? "",
+      };
+    };
+    const sumInto = (target: Row, add: Row) => {
+      for (const k of SUMMED) if (add[k] !== null && add[k] !== undefined) target[k] = r3(Number(target[k] ?? 0) + Number(add[k]));
+    };
 
-  // Filter Transfer Received Data
-  const filteredReceived = useMemo(() => {
-    return receivedRows.filter((r) => {
-      if (fromOffice !== "All Offices" && r.fromOffice !== fromOffice) return false;
-      if (fromWarehouse !== "All Warehouses" && r.fromWarehouse !== fromWarehouse) return false;
-      if (toWarehouse !== "All Warehouses" && r.receiveWarehouse !== toWarehouse) return false;
-      if (fromDate && r.receiveDate < fromDate) return false;
-      if (toDate && r.receiveDate > toDate) return false;
-      if (searchTerm) {
-        const q = searchTerm.toLowerCase();
-        return (
-          r.transferCode.toLowerCase().includes(q) ||
-          r.itemName.toLowerCase().includes(q) ||
-          r.vehicleNo.toLowerCase().includes(q) ||
-          r.receivedBy.toLowerCase().includes(q)
-        );
+    const lines = docs.flatMap((d) => d.lines.filter(lineMatches).map((l) => lineRow(d, l)));
+    // The lines behind each summary row (shown with its Action toggle).
+    const linesOf = new Map<string, Row[]>();
+    let rows: Row[];
+    if (mode === "details") rows = lines;
+    else if (mode === "transfer") {
+      const byDoc = new Map<string, Row>();
+      for (const line of lines) {
+        const id = line._key.split(":")[0];
+        const row: Row = byDoc.get(id) ?? { ...line, _key: id, ...Object.fromEntries(SUMMED.map((k) => [k, 0])) };
+        sumInto(row, line);
+        linesOf.set(id, [...(linesOf.get(id) ?? []), line]);
+        byDoc.set(id, row);
       }
-      return true;
-    });
-  }, [receivedRows, fromOffice, fromWarehouse, toWarehouse, fromDate, toDate, searchTerm]);
-
-  // Filter Transfer In Transit Data
-  const filteredInTransit = useMemo(() => {
-    return inTransitRows.filter((r) => {
-      if (fromWarehouse !== "All Warehouses" && r.fromWarehouse !== fromWarehouse) return false;
-      if (toWarehouse !== "All Warehouses" && r.destinationWarehouse !== toWarehouse) return false;
-      if (fromDate && r.dispatchDate < fromDate) return false;
-      if (toDate && r.dispatchDate > toDate) return false;
-      if (searchTerm) {
-        const q = searchTerm.toLowerCase();
-        return (
-          r.transferCode.toLowerCase().includes(q) ||
-          r.requestCode.toLowerCase().includes(q) ||
-          r.itemName.toLowerCase().includes(q) ||
-          r.vehicleNo.toLowerCase().includes(q) ||
-          r.driverName.toLowerCase().includes(q)
-        );
-      }
-      return true;
-    });
-  }, [inTransitRows, fromWarehouse, toWarehouse, fromDate, toDate, searchTerm]);
-
-  // Current active data list
-  const currentCount =
-    viewBy === "Transfer Out"
-      ? filteredTransferOut.length
-      : viewBy === "Transfer Received"
-      ? filteredReceived.length
-      : filteredInTransit.length;
-
-
-  // Format Date for report display
-  const formatDateDisplay = (d: string) => {
-    if (!d) return "";
-    const p = d.split("-");
-    if (p.length === 3) {
-      return `${p[2]}-${p[1]}-${p[0]}`;
-    }
-    return d;
-  };
-
-  // CSV Export for Transfer Report
-  const handleExportCSV = () => {
-    let headers: string[] = [];
-    let rows: (string | number)[][] = [];
-
-    if (viewBy === "Transfer Out") {
-      headers = [
-        "SL",
-        "Transfer Date",
-        "Transfer Code",
-        "Request Code",
-        "From Office",
-        "From Warehouse",
-        "Receive Office",
-        "Receive Warehouse",
-        "Item Name",
-        "Total Qty",
-        "Received Qty",
-        "In Transit Qty",
-        "Status",
-      ];
-      rows = filteredTransferOut.map((r, i) => [
-        i + 1,
-        r.transferDate,
-        r.transferCode,
-        r.requestCode,
-        `"${r.fromOffice}"`,
-        `"${r.fromWarehouse}"`,
-        `"${r.receiveOffice}"`,
-        `"${r.receiveWarehouse}"`,
-        `"${r.itemName}"`,
-        r.totalQty,
-        r.receivedQty,
-        r.inTransitQty,
-        r.status,
-      ]);
-    } else if (viewBy === "Transfer Received") {
-      headers = [
-        "SL",
-        "Receive Date",
-        "Transfer Date",
-        "Transfer Code",
-        "From Warehouse",
-        "Receive Warehouse",
-        "Item Name",
-        "Received Qty",
-        "Loading Temp",
-        "Chilling Temp",
-        "Vehicle No",
-        "Received By",
-        "Status",
-      ];
-      rows = filteredReceived.map((r, i) => [
-        i + 1,
-        r.receiveDate,
-        r.transferDate,
-        r.transferCode,
-        `"${r.fromWarehouse}"`,
-        `"${r.receiveWarehouse}"`,
-        `"${r.itemName}"`,
-        r.receivedQty,
-        r.loadingTemp,
-        r.chillingTemp,
-        `"${r.vehicleNo}"`,
-        `"${r.receivedBy}"`,
-        r.status,
-      ]);
+      rows = [...byDoc.values()];
     } else {
-      headers = [
-        "SL",
-        "Dispatch Date",
-        "Transfer Code",
-        "Request Code",
-        "From Warehouse",
-        "Destination Warehouse",
-        "Item Name",
-        "In Transit Qty",
-        "Vehicle No",
-        "Driver Name",
-        "Driver Contact",
-        "Est Arrival",
-        "Status",
-      ];
-      rows = filteredInTransit.map((r, i) => [
-        i + 1,
-        r.dispatchDate,
-        r.transferCode,
-        r.requestCode,
-        `"${r.fromWarehouse}"`,
-        `"${r.destinationWarehouse}"`,
-        `"${r.itemName}"`,
-        r.inTransitQty,
-        `"${r.vehicleNo}"`,
-        `"${r.driverName}"`,
-        `"${r.driverContact}"`,
-        r.estArrival,
-        r.status,
-      ]);
+      const byItem = new Map<string, Row>();
+      for (const line of lines) {
+        const id = String(line.barcode) + "|" + String(line.itemName);
+        const row: Row = byItem.get(id) ?? { ...line, _key: id, ...Object.fromEntries(SUMMED.map((k) => [k, 0])) };
+        sumInto(row, line);
+        linesOf.set(id, [...(linesOf.get(id) ?? []), line]);
+        byItem.set(id, row);
+      }
+      rows = [...byItem.values()].sort((a, b) => String(a.itemName).localeCompare(String(b.itemName)));
     }
+    return { rows, columns: columnsFor(view, mode), linesOf };
+  }, [applied, report.data, data, itemById, supplierName, officeOfWarehouse]);
 
-    const csvContent =
-      "data:text/csv;charset=utf-8," +
-      [headers.join(","), ...rows.map((e) => e.join(","))].join("\n");
+  const totals = Object.fromEntries(columns.filter((c) => c.kind).map((c) => [c.key, rows.reduce((t, r) => t + Number(r[c.key] ?? 0), 0)]));
+  const firstNumeric = columns.findIndex((c) => c.kind);
+  const hasAction = applied && !applied.details;
+  // Prices, categories and suppliers come from the item list, so wait for it too.
+  const loading = !!applied && (report.loading || masters.loading);
 
-    const link = document.createElement("a");
-    link.setAttribute("href", encodeURI(csvContent));
-    link.setAttribute(
-      "download",
-      `transfer_report_${viewBy.toLowerCase().replace(/\s+/g, "_")}_${new Date().toISOString().slice(0, 10)}.csv`
-    );
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+  const toggle = (key: string) =>
+    setExpanded((all) => {
+      const next = new Set(all);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+
+  const exportCsv = () => {
+    const esc = (v: string) => `"${v.replace(/"/g, '""')}"`;
+    const lines = [["SL", ...columns.map((c) => c.label)].map(esc).join(","), ...rows.map((r, i) => [String(i + 1), ...columns.map((c) => fmt(r[c.key], c.kind))].map(esc).join(","))];
+    const url = URL.createObjectURL(new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8" }));
+    Object.assign(document.createElement("a"), { href: url, download: `transfer_report_${(applied?.view ?? "").replace(/\W+/g, "_").toLowerCase()}_${today()}.csv` }).click();
+    URL.revokeObjectURL(url);
   };
 
-  // KPI Calculations
-  const totalOutSum = filteredTransferOut.reduce((sum, r) => sum + r.totalQty, 0);
-  const totalReceivedSum = filteredTransferOut.reduce((sum, r) => sum + r.receivedQty, 0);
-  const totalInTransitSum = filteredTransferOut.reduce((sum, r) => sum + r.inTransitQty, 0);
+  const officeName = (id: string) => offices.find(([o]) => o === id)?.[1] ?? "";
+  const warehouseName = (id: string) => warehouses.find((w) => w.id === id)?.name ?? "";
+  const nestedCols = applied ? columnsFor(applied.view as View, "details") : [];
 
   return (
-    <div className="space-y-3 p-1 font-sans text-slate-800">
-      {/* ───────────────────────────────────────────────────────────────── */}
-      {/* 1. TOP HEADER (Exact to Screenshot 2)                            */}
-      {/* ───────────────────────────────────────────────────────────────── */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-3 rounded border border-slate-200/90 shadow-2xs">
+    <div className="bg-surface space-y-2 p-3 text-ink flex flex-col md:h-[calc(100dvh-3.5rem)] md:overflow-hidden print:block print:h-auto print:overflow-visible">
+      <InventoryTabBar
+        title="Transfer Report"
+        tabs={[{ id: "REPORT", label: "Transfer Report" }]}
+        active="REPORT"
+        onChange={() => {}}
+        actions={
+          <>
+            {perms.export && (<button type="button" className={tabBarOutlineButton} onClick={() => window.print()} disabled={!rows.length}>
+              <FileText /> PDF
+            </button>)}
+            {perms.export && (<button type="button" className={tabBarOutlineButton} onClick={exportCsv} disabled={!rows.length}>
+              <FileSpreadsheet /> Excel
+            </button>)}
+          </>
+        }
+      />
+
+      {/* Filters */}
+      <div className="grid grid-cols-1 items-end gap-3 rounded-lg border border-line bg-surface p-3 shadow-2xs sm:grid-cols-3 lg:grid-cols-6 print:hidden shrink-0">
         <div>
-          <h1 className="text-xl font-bold text-slate-900 tracking-tight">
-            Transfer Report
-          </h1>
+          <label className={labelCls} htmlFor="tr-view"><Req />View By</label>
+          <select id="tr-view" className={field} value={form.view} onChange={(e) => set("view", e.target.value as View)}>
+            <option value="">Select View By</option>
+            {VIEWS.map((v) => <option key={v}>{v}</option>)}
+          </select>
         </div>
-
-        <div className="flex items-center gap-2">
-          {/* Search bar */}
-          <div className="relative">
-            <input
-              type="text"
-              placeholder="Search...."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-56 sm:w-64 h-9 pl-3 pr-8 text-xs border border-slate-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white placeholder-slate-400"
-            />
-            <Search className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+        {form.view && (
+          <div>
+            <label className={labelCls} htmlFor="tr-based"><Req />Based On</label>
+            <select id="tr-based" className={field} value={form.basedOn} onChange={(e) => set("basedOn", e.target.value as Based)}>
+              <option value="">Select Based On</option>
+              {BASED_ON.map((v) => <option key={v}>{v}</option>)}
+            </select>
           </div>
-
-          {/* EXCEL Button */}
-          <button
-            type="button"
-            onClick={handleExportCSV}
-            className="h-9 px-3.5 bg-white hover:bg-slate-50 text-[#1976d2] border border-[#1976d2] font-semibold text-xs rounded flex items-center gap-1.5 shadow-2xs transition"
-          >
-            <Download className="w-3.5 h-3.5" />
-            <span>EXCEL</span>
-          </button>
-
-          {/* PRINT/PDF Button */}
-          <button
-            type="button"
-            onClick={() => window.print()}
-            className="h-9 px-3.5 bg-white hover:bg-slate-50 text-[#1976d2] border border-[#1976d2] font-semibold text-xs rounded flex items-center gap-1.5 shadow-2xs transition"
-          >
-            <Printer className="w-3.5 h-3.5" />
-            <span>PRINT/PDF</span>
-          </button>
-        </div>
-      </div>
-
-      {/* ───────────────────────────────────────────────────────────────── */}
-      {/* 2. PRIMARY VIEW SELECTOR: View By * (Screenshot 2)               */}
-      {/* ───────────────────────────────────────────────────────────────── */}
-      <div className="bg-white p-4 rounded border border-slate-200 space-y-4 text-xs">
-        <div className="max-w-md">
-          <label className="block text-[11px] font-semibold text-slate-700 mb-1">
-            View By <span className="text-rose-500 font-bold">*</span>
-          </label>
-          <div className="relative">
-            <select
-              value={viewBy}
-              onChange={(e) => {
-                setViewBy(e.target.value as TransferReportMode);
-                setPage(1);
+        )}
+        {form.basedOn === "Transfer" && (
+          <div>
+            <label className={labelCls} htmlFor="tr-code">Transfer Code</label>
+            <input id="tr-code" className={field} placeholder="Search Transfer Code" value={form.transferCode} onChange={(e) => set("transferCode", e.target.value)} />
+          </div>
+        )}
+        {form.basedOn === "Item" && (
+          <div className="sm:col-span-2">
+            <label className={labelCls} htmlFor="tr-item">Item</label>
+            <select id="tr-item" className={field} value={form.itemId} onChange={(e) => set("itemId", e.target.value)}>
+              <option value="">All Items</option>
+              {(data?.items ?? []).map((i) => <option key={i.id} value={i.id}>{i.code} - {i.name}</option>)}
+            </select>
+          </div>
+        )}
+        {(form.basedOn === "Supplier" || form.basedOn === "Category") &&
+          (form.basedOn === "Supplier" ? ["supplier", "category"] : ["category", "supplier"]).map((k) =>
+            k === "supplier" ? (
+              <div key={k}>
+                <label className={labelCls} htmlFor="tr-sup">Supplier</label>
+                <select id="tr-sup" className={field} value={form.supplierId} onChange={(e) => set("supplierId", e.target.value)}>
+                  <option value="">All Suppliers</option>
+                  {(data?.suppliers ?? []).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                </select>
+              </div>
+            ) : (
+              <div key={k}>
+                <label className={labelCls} htmlFor="tr-cat">Category</label>
+                <select id="tr-cat" className={field} value={form.category} onChange={(e) => set("category", e.target.value)}>
+                  <option value="">All Categories</option>
+                  {categories.map((c) => <option key={c}>{c}</option>)}
+                </select>
+              </div>
+            ),
+          )}
+        {byPlace && (
+          <>
+            <div>
+              <label className={labelCls} htmlFor="tr-fo">From Office</label>
+              <select id="tr-fo" className={field} value={form.fromOfficeId} onChange={(e) => setForm((f) => ({ ...f, fromOfficeId: e.target.value, fromWarehouseId: "" }))}>
+                <option value="">All Offices</option>
+                {offices.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className={labelCls} htmlFor="tr-fw">From Warehouse</label>
+              <select id="tr-fw" className={`${field} disabled:bg-control disabled:text-ink-faint disabled:cursor-not-allowed`} value={form.fromWarehouseId} onChange={(e) => set("fromWarehouseId", e.target.value)} disabled={!form.fromOfficeId}>
+                <option value="">{form.fromOfficeId ? "All Warehouses" : "Select From Office first"}</option>
+                {warehouses.filter((w) => !!form.fromOfficeId && w.officeId === form.fromOfficeId).map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className={labelCls} htmlFor="tr-to">To Office</label>
+              <select id="tr-to" className={field} value={form.toOfficeId} onChange={(e) => setForm((f) => ({ ...f, toOfficeId: e.target.value, toWarehouseId: "" }))}>
+                <option value="">All Offices</option>
+                {offices.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className={labelCls} htmlFor="tr-tw">To Warehouse</label>
+              <select id="tr-tw" className={`${field} disabled:bg-control disabled:text-ink-faint disabled:cursor-not-allowed`} value={form.toWarehouseId} onChange={(e) => set("toWarehouseId", e.target.value)} disabled={!form.toOfficeId}>
+                <option value="">{form.toOfficeId ? "All Warehouses" : "Select To Office first"}</option>
+                {warehouses.filter((w) => !!form.toOfficeId && w.officeId === form.toOfficeId).map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className={labelCls} htmlFor="tr-from"><Req />From Date</label>
+              <NativeDateInput id="tr-from" type="date" className={field} value={form.from} onChange={(e) => set("from", e.target.value)} />
+            </div>
+            <div>
+              <label className={labelCls} htmlFor="tr-todate"><Req />To Date</label>
+              <NativeDateInput id="tr-todate" type="date" className={field} value={form.to} onChange={(e) => set("to", e.target.value)} />
+            </div>
+          </>
+        )}
+        {form.basedOn && (
+          <div className="flex items-center gap-4">
+            <label className="inline-flex min-h-8 cursor-pointer items-center gap-2 text-xs font-medium">
+              <input type="checkbox" className="size-4 accent-primary" checked={form.details} onChange={(e) => set("details", e.target.checked)} />
+              Is Details
+            </label>
+            <button
+              type="button"
+              disabled={!canView || loading}
+              onClick={() => {
+                setApplied({ ...form });
+                setExpanded(new Set());
               }}
-              className="w-full border-2 border-blue-500 rounded px-3 py-2 bg-white text-xs text-slate-800 font-medium focus:outline-none focus:ring-2 focus:ring-blue-400"
+              className="inline-flex h-8 min-w-20 items-center justify-center gap-2 rounded bg-blue-600 px-4 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/30"
             >
-              <option value="Transfer Out">Transfer Out</option>
-              <option value="Transfer Received">Transfer Received</option>
-              <option value="Transfer In Transit">Transfer In Transit</option>
-            </select>
+              {loading && <Spinner className="size-3.5" />} View
+            </button>
           </div>
-        </div>
-
-        {/* Secondary Filter Controls */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-3 pt-2 border-t border-slate-100">
-          <div>
-            <label className="block text-[11px] text-slate-600 mb-1 font-medium">From Office</label>
-            <select
-              value={fromOffice}
-              onChange={(e) => setFromOffice(e.target.value)}
-              className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white text-xs text-slate-700"
-            >
-              {OFFICE_OPTIONS.map((o) => (
-                <option key={o} value={o}>{o}</option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-[11px] text-slate-600 mb-1 font-medium">From Warehouse</label>
-            <select
-              value={fromWarehouse}
-              onChange={(e) => setFromWarehouse(e.target.value)}
-              className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white text-xs text-slate-700"
-            >
-              {WAREHOUSE_OPTIONS.map((w) => (
-                <option key={w} value={w}>{w}</option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-[11px] text-slate-600 mb-1 font-medium">To Warehouse</label>
-            <select
-              value={toWarehouse}
-              onChange={(e) => setToWarehouse(e.target.value)}
-              className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white text-xs text-slate-700"
-            >
-              {WAREHOUSE_OPTIONS.map((w) => (
-                <option key={w} value={w}>{w}</option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-[11px] text-slate-600 mb-1 font-medium">From Date</label>
-            <input
-              type="date"
-              value={fromDate}
-              onChange={(e) => setFromDate(e.target.value)}
-              className="w-full border border-slate-300 rounded px-2.5 py-1 bg-white text-xs text-slate-700"
-            />
-          </div>
-
-          <div>
-            <label className="block text-[11px] text-slate-600 mb-1 font-medium">To Date</label>
-            <div className="flex items-center gap-2">
-              <input
-                type="date"
-                value={toDate}
-                onChange={(e) => setToDate(e.target.value)}
-                className="w-full border border-slate-300 rounded px-2.5 py-1 bg-white text-xs text-slate-700"
-              />
-              <button
-                type="button"
-                onClick={() => {
-                  setPeriod({ from: fromDate, to: toDate });
-                  setPage(1);
-                }}
-                className="h-8 px-4 bg-[#1976d2] hover:bg-[#1565c0] text-white font-semibold text-xs rounded transition"
-              >
-                {report.loading ? "Loading…" : "View"}
-              </button>
-            </div>
-          </div>
-        </div>
+        )}
       </div>
 
-      {/* ───────────────────────────────────────────────────────────────── */}
-      {/* 3. REPORT DOCUMENT AREA (Mariners Group Layout)                  */}
-      {/* ───────────────────────────────────────────────────────────────── */}
-      <div className="bg-white rounded border border-slate-200 p-6 shadow-xs space-y-6">
-        {/* Centered Organization Header */}
-        <div className="text-center space-y-1">
-          <h2 className="text-xl font-bold text-slate-900 tracking-tight">
-            Transfer Report - {viewBy}
-          </h2>
-          <h3 className="text-sm font-semibold text-slate-800">
-            Mariners Group
-          </h3>
-          <p className="text-xs text-slate-600">
-            10th Floor, MG SAM Center, 12 Bir Uttam A. K. Khandakar Road, Mohakhali C/A, Dhaka-1212, Bangladesh
-          </p>
-          <p className="text-xs font-medium text-slate-700 pt-1">
-            From: {formatDateDisplay(fromDate)} &nbsp; To: {formatDateDisplay(toDate)}
-          </p>
+      {/* Report */}
+      {!applied ? (
+        <p className="py-16 text-center text-sm text-ink-faint shrink-0">Select View By and Based On, then View.</p>
+      ) : loading ? (
+        <div className="py-16 text-center shrink-0">
+          <Spinner label="Loading report…" />
         </div>
-
-        {/* Highlight KPI Summary Cards */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 print:hidden">
-          <div className="bg-slate-50 border border-slate-200 rounded p-3 text-center">
-            <div className="text-[11px] font-medium text-slate-500 uppercase tracking-wide">
-              Total Dispatched Qty
+      ) : (
+        <div className="space-y-3 flex-1 min-h-0 flex flex-col print:block">
+          <h2 className="hidden text-center text-lg font-bold print:block">Transfer Report — {applied.view}</h2>
+          {applied.basedOn !== "Transfer" && (applied.fromOfficeId || applied.fromWarehouseId || applied.toOfficeId || applied.toWarehouseId) && (
+            <div className="grid gap-3 text-xs sm:grid-cols-2 shrink-0">
+              <dl className="rounded-lg border border-line bg-surface px-3 py-2">
+                <div className="flex gap-1"><dt className="font-semibold">Sending/Issue Office:</dt><dd>{officeName(applied.fromOfficeId) || "All"}</dd></div>
+                <div className="flex gap-1"><dt className="font-semibold">Sending/Issue Warehouse:</dt><dd>{warehouseName(applied.fromWarehouseId) || "All"}</dd></div>
+              </dl>
+              <dl className="rounded-lg border border-line bg-surface px-3 py-2">
+                <div className="flex gap-1"><dt className="font-semibold">Requesting/Received Office:</dt><dd>{officeName(applied.toOfficeId) || "All"}</dd></div>
+                <div className="flex gap-1"><dt className="font-semibold">Requesting/Received Warehouse:</dt><dd>{warehouseName(applied.toWarehouseId) || "All"}</dd></div>
+              </dl>
             </div>
-            <div className="text-base font-bold text-slate-900 mt-0.5">
-              {totalOutSum.toLocaleString()} Units
-            </div>
-          </div>
-          <div className="bg-slate-50 border border-slate-200 rounded p-3 text-center">
-            <div className="text-[11px] font-medium text-slate-500 uppercase tracking-wide">
-              Total Received Qty
-            </div>
-            <div className="text-base font-bold text-emerald-700 mt-0.5">
-              {totalReceivedSum.toLocaleString()} Units
-            </div>
-          </div>
-          <div className="bg-slate-50 border border-slate-200 rounded p-3 text-center">
-            <div className="text-[11px] font-medium text-slate-500 uppercase tracking-wide">
-              Total In-Transit Qty
-            </div>
-            <div className="text-base font-bold text-blue-700 mt-0.5">
-              {totalInTransitSum.toLocaleString()} Units
-            </div>
-          </div>
-          <div className="bg-slate-50 border border-slate-200 rounded p-3 text-center">
-            <div className="text-[11px] font-medium text-slate-500 uppercase tracking-wide">
-              Transfer Records Found
-            </div>
-            <div className="text-base font-bold text-slate-800 mt-0.5">
-              {currentCount} Entries
-            </div>
-          </div>
-        </div>
-
-        {/* ───────────────────────────────────────────────────────────── */}
-        {/* VIEW BY 1: TRANSFER OUT TABLE                                 */}
-        {/* ───────────────────────────────────────────────────────────── */}
-        {viewBy === "Transfer Out" && (
-          <div className="border border-slate-200 rounded overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs text-left border-collapse">
-                <thead>
-                  <tr className="bg-slate-100 border-b border-slate-200 text-slate-800 font-semibold uppercase text-[11px]">
-                    <th className="py-2.5 px-3 w-10 text-center">SL</th>
-                    <th className="py-2.5 px-3">Date</th>
-                    <th className="py-2.5 px-3">Transfer Code</th>
-                    <th className="py-2.5 px-3">Request Code</th>
-                    <th className="py-2.5 px-3">From Warehouse</th>
-                    <th className="py-2.5 px-3">To Warehouse</th>
-                    <th className="py-2.5 px-3">Item Description</th>
-                    <th className="py-2.5 px-3 text-right">Total Qty</th>
-                    <th className="py-2.5 px-3 text-right">Received</th>
-                    <th className="py-2.5 px-3 text-right">In Transit</th>
-                    <th className="py-2.5 px-3 text-center">Status</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-200">
-                  {filteredTransferOut.map((r, i) => (
-                    <tr key={r.transferCode} className="hover:bg-slate-50/80 transition-colors">
-                      <td className="py-2 px-3 text-center text-slate-500 font-medium">{i + 1}</td>
-                      <td className="py-2 px-3 whitespace-nowrap text-slate-600">
-                        {formatDateDisplay(r.transferDate)}
-                      </td>
-                      <td className="py-2 px-3 font-semibold text-blue-700 whitespace-nowrap">
-                        {r.transferCode}
-                      </td>
-                      <td className="py-2 px-3 text-slate-600 whitespace-nowrap font-mono text-[11px]">
-                        {r.requestCode || "-"}
-                      </td>
-                      <td className="py-2 px-3 text-slate-700">{r.fromWarehouse}</td>
-                      <td className="py-2 px-3 text-slate-700">{r.receiveWarehouse}</td>
-                      <td className="py-2 px-3 font-medium text-slate-900 max-w-xs">
-                        {r.itemName}
-                      </td>
-                      <td className="py-2 px-3 text-right font-bold text-slate-900">
-                        {r.totalQty.toFixed(1)} {r.uom}
-                      </td>
-                      <td className="py-2 px-3 text-right text-emerald-700 font-medium">
-                        {r.receivedQty.toFixed(1)} {r.uom}
-                      </td>
-                      <td className="py-2 px-3 text-right text-blue-700 font-medium">
-                        {r.inTransitQty > 0 ? `${r.inTransitQty.toFixed(1)} ${r.uom}` : "-"}
-                      </td>
-                      <td className="py-2 px-3 text-center whitespace-nowrap">
-                        <span
-                          className={`px-2 py-0.5 rounded text-[10px] font-semibold ${
-                            r.status === "Completed"
-                              ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
-                              : "bg-blue-50 text-blue-700 border border-blue-200"
-                          }`}
-                        >
-                          {r.status}
-                        </span>
-                      </td>
-                    </tr>
+          )}
+          <div className="rounded-lg border border-line bg-surface shadow-2xs flex-1 min-h-0 overflow-auto print:overflow-visible [&_thead]:sticky [&_thead]:top-0 [&_thead]:z-10">
+            <table className="w-full border-collapse text-xs">
+              <thead>
+                <tr className="bg-blue-100/70 text-left font-semibold text-ink dark:bg-blue-500/15 dark:text-ink">
+                  <th className="border-b border-line px-2.5 py-2">SL</th>
+                  {hasAction && <th className="border-b border-line px-2.5 py-2 text-center">Action</th>}
+                  {columns.map((c) => (
+                    <th key={c.key} className={`border-b border-line px-2.5 py-2 ${c.kind ? "text-right" : ""}`}>{c.label}</th>
                   ))}
-                </tbody>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.length === 0 && (
+                  <tr>
+                    <td colSpan={columns.length + 2} className="py-14 text-center text-ink-faint">No Data Found</td>
+                  </tr>
+                )}
+                {rows.map((row, i) => {
+                  const open = expanded.has(row._key);
+                  const nested = linesOf.get(row._key);
+                  return (
+                    <Fragment key={row._key}>
+                      <tr className="hover:bg-canvas">
+                        <td className="border-b border-line px-2.5 py-2 text-ink-muted">{i + 1}</td>
+                        {hasAction && (
+                          <td className="border-b border-line px-1 py-1 text-center">
+                            <button
+                              type="button"
+                              onClick={() => toggle(row._key)}
+                              aria-expanded={open}
+                              aria-label={`${open ? "Hide" : "Show"} lines of ${row.transferNo ?? row.itemName}`}
+                              className="inline-flex size-6 items-center justify-center rounded text-ink-muted hover:bg-control hover:text-blue-600 dark:hover:text-blue-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/30"
+                            >
+                              {open ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />}
+                            </button>
+                          </td>
+                        )}
+                        {columns.map((c) => (
+                          <td key={c.key} className={`border-b border-line px-2.5 py-2 ${c.kind ? "whitespace-nowrap text-right tabular-nums" : NOWRAP.has(c.key) ? "whitespace-nowrap" : ""}`}>{fmt(row[c.key], c.kind)}</td>
+                        ))}
+                      </tr>
+                      {open && nested && (
+                        <tr>
+                          <td colSpan={columns.length + 2} className="border-b border-line bg-canvas px-4 py-2">
+                            <table className="w-full text-[11px]">
+                              <thead>
+                                <tr className="text-left text-ink-muted">
+                                  {nestedCols.map((c) => <th key={c.key} className={`px-2 py-1 font-semibold ${c.kind ? "text-right" : ""}`}>{c.label}</th>)}
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {nested.map((l) => (
+                                  <tr key={l._key}>
+                                    {nestedCols.map((c) => <td key={c.key} className={`px-2 py-1 ${c.kind ? "whitespace-nowrap text-right tabular-nums" : NOWRAP.has(c.key) ? "whitespace-nowrap" : ""}`}>{fmt(l[c.key], c.kind)}</td>)}
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
+                  );
+                })}
+              </tbody>
+              {rows.length > 0 && firstNumeric >= 0 && (
                 <tfoot>
-                  <tr className="bg-slate-100 font-bold text-slate-900 border-t-2 border-slate-300">
-                    <td colSpan={7} className="py-2.5 px-3 text-right">
-                      Grand Total:
-                    </td>
-                    <td className="py-2.5 px-3 text-right text-slate-900">
-                      {totalOutSum.toLocaleString(undefined, { minimumFractionDigits: 1 })}
-                    </td>
-                    <td className="py-2.5 px-3 text-right text-emerald-800">
-                      {totalReceivedSum.toLocaleString(undefined, { minimumFractionDigits: 1 })}
-                    </td>
-                    <td className="py-2.5 px-3 text-right text-blue-800">
-                      {totalInTransitSum.toLocaleString(undefined, { minimumFractionDigits: 1 })}
-                    </td>
-                    <td className="py-2.5 px-3 text-center">-</td>
+                  <tr className="bg-control font-semibold">
+                    <td className="px-2.5 py-2" />
+                    {hasAction && <td />}
+                    {columns.map((c, ci) => (
+                      <td key={c.key} className={`px-2.5 py-2 ${c.kind ? "whitespace-nowrap text-right tabular-nums" : ""}`}>
+                        {ci === firstNumeric - 1 ? "Total" : c.kind ? fmt(totals[c.key], c.kind) : ""}
+                      </td>
+                    ))}
                   </tr>
                 </tfoot>
-              </table>
-            </div>
-          </div>
-        )}
-
-        {/* ───────────────────────────────────────────────────────────── */}
-        {/* VIEW BY 2: TRANSFER RECEIVED TABLE                            */}
-        {/* ───────────────────────────────────────────────────────────── */}
-        {viewBy === "Transfer Received" && (
-          <div className="border border-slate-200 rounded overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs text-left border-collapse">
-                <thead>
-                  <tr className="bg-slate-100 border-b border-slate-200 text-slate-800 font-semibold uppercase text-[11px]">
-                    <th className="py-2.5 px-3 w-10 text-center">SL</th>
-                    <th className="py-2.5 px-3">Receive Date</th>
-                    <th className="py-2.5 px-3">Transfer Code</th>
-                    <th className="py-2.5 px-3">From Warehouse</th>
-                    <th className="py-2.5 px-3">Receive Warehouse</th>
-                    <th className="py-2.5 px-3">Item Description</th>
-                    <th className="py-2.5 px-3 text-right">Received Qty</th>
-                    <th className="py-2.5 px-3 text-center">Chilling Temp</th>
-                    <th className="py-2.5 px-3">Transport Vehicle</th>
-                    <th className="py-2.5 px-3">Received By</th>
-                    <th className="py-2.5 px-3 text-center">Quality Status</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-200">
-                  {filteredReceived.map((r, i) => (
-                    <tr key={r.transferCode + i} className="hover:bg-slate-50/80 transition-colors">
-                      <td className="py-2 px-3 text-center text-slate-500 font-medium">{i + 1}</td>
-                      <td className="py-2 px-3 whitespace-nowrap text-slate-600">
-                        {formatDateDisplay(r.receiveDate)}
-                      </td>
-                      <td className="py-2 px-3 font-semibold text-blue-700 whitespace-nowrap">
-                        {r.transferCode}
-                      </td>
-                      <td className="py-2 px-3 text-slate-700">{r.fromWarehouse}</td>
-                      <td className="py-2 px-3 text-slate-700">{r.receiveWarehouse}</td>
-                      <td className="py-2 px-3 font-medium text-slate-900">{r.itemName}</td>
-                      <td className="py-2 px-3 text-right font-bold text-emerald-800">
-                        {r.receivedQty.toFixed(1)} {r.uom}
-                      </td>
-                      <td className="py-2 px-3 text-center font-mono text-[11px] text-blue-800">
-                        {r.chillingTemp}
-                      </td>
-                      <td className="py-2 px-3 text-slate-600 font-mono text-[11px]">
-                        {r.vehicleNo}
-                      </td>
-                      <td className="py-2 px-3 text-slate-700">{r.receivedBy}</td>
-                      <td className="py-2 px-3 text-center">
-                        <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                          {r.status}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
-
-        {/* ───────────────────────────────────────────────────────────── */}
-        {/* VIEW BY 3: TRANSFER IN TRANSIT TABLE                          */}
-        {/* ───────────────────────────────────────────────────────────── */}
-        {viewBy === "Transfer In Transit" && (
-          <div className="border border-slate-200 rounded overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs text-left border-collapse">
-                <thead>
-                  <tr className="bg-slate-100 border-b border-slate-200 text-slate-800 font-semibold uppercase text-[11px]">
-                    <th className="py-2.5 px-3 w-10 text-center">SL</th>
-                    <th className="py-2.5 px-3">Dispatch Date</th>
-                    <th className="py-2.5 px-3">Transfer Code</th>
-                    <th className="py-2.5 px-3">Origin Warehouse</th>
-                    <th className="py-2.5 px-3">Destination Warehouse</th>
-                    <th className="py-2.5 px-3">Item Description</th>
-                    <th className="py-2.5 px-3 text-right">In Transit Qty</th>
-                    <th className="py-2.5 px-3">Carrier / Vehicle</th>
-                    <th className="py-2.5 px-3">Driver Contact</th>
-                    <th className="py-2.5 px-3">Est. Delivery</th>
-                    <th className="py-2.5 px-3 text-center">Status</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-200">
-                  {filteredInTransit.map((r, i) => (
-                    <tr key={r.transferCode + i} className="hover:bg-slate-50/80 transition-colors">
-                      <td className="py-2 px-3 text-center text-slate-500 font-medium">{i + 1}</td>
-                      <td className="py-2 px-3 whitespace-nowrap text-slate-600">
-                        {formatDateDisplay(r.dispatchDate)}
-                      </td>
-                      <td className="py-2 px-3 font-semibold text-blue-700 whitespace-nowrap">
-                        {r.transferCode}
-                      </td>
-                      <td className="py-2 px-3 text-slate-700">{r.fromWarehouse}</td>
-                      <td className="py-2 px-3 text-slate-700">{r.destinationWarehouse}</td>
-                      <td className="py-2 px-3 font-medium text-slate-900">{r.itemName}</td>
-                      <td className="py-2 px-3 text-right font-bold text-blue-700">
-                        {r.inTransitQty.toFixed(1)} {r.uom}
-                      </td>
-                      <td className="py-2 px-3 text-slate-700 font-medium">{r.vehicleNo}</td>
-                      <td className="py-2 px-3 text-slate-600">
-                        <div>{r.driverName}</div>
-                        <div className="font-mono text-[10px] text-slate-500">{r.driverContact}</div>
-                      </td>
-                      <td className="py-2 px-3 font-medium text-slate-700">{r.estArrival}</td>
-                      <td className="py-2 px-3 text-center whitespace-nowrap">
-                        <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-amber-50 text-amber-700 border border-amber-200">
-                          {r.status}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
-
-        {/* Print Signatures Block */}
-        <div className="pt-12 grid grid-cols-4 gap-6 text-center text-xs text-slate-600 border-t border-slate-200">
-          <div>
-            <div className="border-t border-dashed border-slate-400 pt-1 font-medium">
-              Dispatched By
-            </div>
-          </div>
-          <div>
-            <div className="border-t border-dashed border-slate-400 pt-1 font-medium">
-              Vehicle Driver / Carrier
-            </div>
-          </div>
-          <div>
-            <div className="border-t border-dashed border-slate-400 pt-1 font-medium">
-              Warehouse In-Charge (Receiver)
-            </div>
-          </div>
-          <div>
-            <div className="border-t border-dashed border-slate-400 pt-1 font-medium">
-              Inventory Controller
-            </div>
+              )}
+            </table>
           </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

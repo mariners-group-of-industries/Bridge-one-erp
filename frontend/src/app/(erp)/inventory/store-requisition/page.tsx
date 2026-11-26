@@ -4,16 +4,21 @@ import React, { useState, useMemo } from "react";
 import { useToast } from "@/components/ui/toast";
 import { useResource } from "@/hooks/use-resource";
 import { errorMessage } from "@/lib/api/client";
+import { InventoryTabBar, tabBarButton } from "@/features/inventory/components/InventoryTabBar";
 import { InventoryDocumentDialog } from "@/features/inventory/components/InventoryDocumentDialog";
+import { useInventoryOffices } from "@/features/inventory/components/OfficeFilter";
 import { dmy, inventoryApi, today } from "@/features/inventory/services/inventory.api";
 import {
-  Search,
   Plus,
   Printer,
   Eye,
   X,
   FileSpreadsheet,
+  Upload,
 } from "lucide-react";
+import { useFeaturePermissions, needsPermission } from "@/lib/permissions/useFeaturePermissions";
+import { BulkUploadDialog } from "@/features/configuration/entity-master-data/components/BulkUploadDialog";
+import { NativeDateInput } from "@/components/ui/date-input";
 
 // ============================================================================
 // TYPES
@@ -43,10 +48,8 @@ interface SummaryRow {
   pendingQty: number;
 }
 
-/** Who a requisition can be for; issues against it record the same user type. */
-const REQUISITION_USER_TYPES = ["Department", "Production", "Employee", "Maintenance", "Other"] as const;
-
 export default function StoreRequisitionPage() {
+  const perms = useFeaturePermissions("/inventory/store-requisition");
   const toast = useToast();
   const [activeTab, setActiveTab] = useState<StoreRequisitionTab>("REQUISITION_LIST");
   const docs = useResource("store-requisition-all", () => inventoryApi.list("store-requisition"));
@@ -66,10 +69,9 @@ export default function StoreRequisitionPage() {
       })),
     [allRequisitions],
   );
-  const OFFICE_OPTIONS = useMemo(
-    () => [{ value: "All", label: "All" }, ...[...new Set(allRequisitions.map((d) => d.warehouse?.officeName ?? ""))].filter(Boolean).sort().map((o) => ({ value: o, label: o }))],
-    [allRequisitions],
-  );
+  // Offices come from Configuration (offices with warehouses), not only those with documents.
+  const offices = useInventoryOffices();
+  const OFFICE_OPTIONS = useMemo(() => [{ value: "All", label: "All" }, ...offices.map((o) => ({ value: o, label: o }))], [offices]);
   const [busyId, setBusyId] = useState<string | null>(null);
   const review = async (row: RequisitionRow, decision: "approve" | "reject") => {
     const comment = window.prompt(decision === "approve" ? "Approval comment (optional)" : "Why is it rejected?") ?? undefined;
@@ -94,6 +96,7 @@ export default function StoreRequisitionPage() {
 
   // Modal for new requisition
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [bulkOpen, setBulkOpen] = useState(false);
 
 
   // Filtered requisition list
@@ -141,15 +144,15 @@ export default function StoreRequisitionPage() {
   const renderStatus = (status: RequisitionRow["status"]) => {
     switch (status) {
       case "Approved":
-        return <span className="text-emerald-600 font-semibold text-[11px]">Approved</span>;
+        return <span className="text-emerald-600 dark:text-emerald-400 font-semibold text-[11px]">Approved</span>;
       case "Completed":
-        return <span className="text-blue-600 font-semibold text-[11px]">Completed</span>;
+        return <span className="text-blue-600 dark:text-blue-400 font-semibold text-[11px]">Completed</span>;
       case "Closed":
-        return <span className="text-slate-700 font-semibold text-[11px]">Closed</span>;
+        return <span className="text-ink-muted font-semibold text-[11px]">Closed</span>;
       case "Pending":
-        return <span className="text-amber-600 font-semibold text-[11px]">Pending</span>;
+        return <span className="text-amber-600 dark:text-amber-400 font-semibold text-[11px]">Pending</span>;
       default:
-        return <span className="text-slate-500 font-semibold text-[11px]">{status}</span>;
+        return <span className="text-ink-faint font-semibold text-[11px]">{status}</span>;
     }
   };
 
@@ -218,57 +221,42 @@ export default function StoreRequisitionPage() {
   };
 
   return (
-    <div className="space-y-3 p-1">
-      {/* ─────────────────────────────────────────────────── */}
-      {/* 1. TOP HEADER                                      */}
-      {/* ─────────────────────────────────────────────────── */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-3 rounded border border-slate-200/90 shadow-2xs">
-        <div>
-          <h1 className="text-xl font-bold text-slate-900 tracking-tight">
-            Store Requisition
-          </h1>
-        </div>
-
-        <div className="flex items-center gap-2">
-          {/* Search */}
-          <div className="relative">
-            <input
-              type="text"
-              placeholder="Search...."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-56 sm:w-64 h-9 pl-3 pr-8 text-xs border border-slate-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 bg-white placeholder-slate-400"
-            />
-            <Search className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-          </div>
-
-          {/* + Requisition Button */}
-          <button
-            type="button"
-            onClick={() => setIsModalOpen(true)}
-            className="h-9 px-4 bg-[#2563eb] hover:bg-blue-700 text-white font-semibold text-xs rounded flex items-center gap-1.5 shadow-xs transition"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Requisition</span>
-          </button>
-        </div>
-      </div>
-
-      {/* ─────────────────────────────────────────────────── */}
+    <div className="bg-surface space-y-2 p-3 flex flex-col md:h-[calc(100dvh-3.5rem)] md:overflow-hidden print:block print:h-auto print:overflow-visible">
+      <InventoryTabBar
+        title="Store Requisition"
+        tabs={[
+          { id: "REQUISITION_LIST", label: "Requisition List" },
+          { id: "REQUISITION_SUMMARY", label: "Store Requisition Summary" },
+        ]}
+        active={activeTab}
+        onChange={setActiveTab}
+        search={searchTerm}
+        onSearch={setSearchTerm}
+        actions={
+          <>
+            {perms.import && (<button type="button" onClick={() => setBulkOpen(true)} className={tabBarButton} title="Bulk upload from Excel">
+              <Upload /> Bulk Upload
+            </button>)}
+            {perms.create ? (<button type="button" onClick={() => setIsModalOpen(true)} className={tabBarButton}>
+            <Plus /> Requisition
+          </button>) : null}
+          </>
+        }
+      />
       {/* 2. SUMMARY FILTER BAR (When on SUMMARY TAB)        */}
       {/* ─────────────────────────────────────────────────── */}
       {activeTab === "REQUISITION_SUMMARY" && (
-        <div className="flex flex-wrap items-end gap-3 text-xs bg-slate-50/70 p-3 rounded border border-slate-200">
+        <div className="flex flex-wrap items-end gap-3 text-xs py-1.5 shrink-0">
           {/* Office */}
           <div className="min-w-[180px]">
-            <label className="block text-[11px] text-slate-700 mb-1 font-semibold">
+            <label className="block text-[11px] text-ink-muted mb-1 font-semibold">
               Office <span className="text-red-500">*</span>
             </label>
             <div className="relative">
               <select
                 value={summaryOffice}
                 onChange={(e) => setSummaryOffice(e.target.value)}
-                className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white text-xs focus:ring-1 focus:ring-blue-500 appearance-none pr-7"
+                className="w-full border border-line-strong rounded px-2.5 py-1.5 bg-surface text-xs focus:ring-1 focus:ring-blue-500 appearance-none pr-7"
               >
                 {OFFICE_OPTIONS.map((o) => (
                   <option key={o.value} value={o.value}>
@@ -280,7 +268,7 @@ export default function StoreRequisitionPage() {
                 <button
                   type="button"
                   onClick={() => setSummaryOffice("")}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-ink-faint hover:text-ink-muted"
                 >
                   <X className="w-3 h-3" />
                 </button>
@@ -290,27 +278,27 @@ export default function StoreRequisitionPage() {
 
           {/* From Date */}
           <div>
-            <label className="block text-[11px] text-slate-700 mb-1 font-semibold">
+            <label className="block text-[11px] text-ink-muted mb-1 font-semibold">
               From Date <span className="text-red-500">*</span>
             </label>
-            <input
+            <NativeDateInput
               type="date"
               value={summaryFromDate}
               onChange={(e) => setSummaryFromDate(e.target.value)}
-              className="border border-slate-300 rounded px-2.5 py-1.5 bg-white text-xs focus:ring-1 focus:ring-blue-500"
+              className="border border-line-strong rounded px-2.5 py-1.5 bg-surface text-xs focus:ring-1 focus:ring-blue-500"
             />
           </div>
 
           {/* To Date */}
           <div>
-            <label className="block text-[11px] text-slate-700 mb-1 font-semibold">
+            <label className="block text-[11px] text-ink-muted mb-1 font-semibold">
               To Date <span className="text-red-500">*</span>
             </label>
-            <input
+            <NativeDateInput
               type="date"
               value={summaryToDate}
               onChange={(e) => setSummaryToDate(e.target.value)}
-              className="border border-slate-300 rounded px-2.5 py-1.5 bg-white text-xs focus:ring-1 focus:ring-blue-500"
+              className="border border-line-strong rounded px-2.5 py-1.5 bg-surface text-xs focus:ring-1 focus:ring-blue-500"
             />
           </div>
 
@@ -329,69 +317,41 @@ export default function StoreRequisitionPage() {
             >
               Print
             </button>
-            <button
+            {perms.export && (<button
               type="button"
               onClick={handleExportCSV}
               className="px-5 py-1.5 bg-[#2563eb] hover:bg-blue-700 text-white font-semibold text-xs rounded shadow-xs transition"
             >
               Excel
-            </button>
+            </button>)}
           </div>
         </div>
       )}
 
       {/* ─────────────────────────────────────────────────── */}
-      {/* 3. TABS NAVIGATION                                 */}
-      {/* ─────────────────────────────────────────────────── */}
-      <div className="flex border-b border-slate-200 gap-8 text-xs font-bold uppercase tracking-wider">
-        <button
-          type="button"
-          onClick={() => setActiveTab("REQUISITION_LIST")}
-          className={`pb-2 transition ${
-            activeTab === "REQUISITION_LIST"
-              ? "border-b-2 border-blue-600 text-blue-600 font-extrabold"
-              : "text-slate-500 hover:text-slate-800"
-          }`}
-        >
-          REQUISITION LIST
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveTab("REQUISITION_SUMMARY")}
-          className={`pb-2 transition ${
-            activeTab === "REQUISITION_SUMMARY"
-              ? "border-b-2 border-blue-600 text-blue-600 font-extrabold"
-              : "text-slate-500 hover:text-slate-800"
-          }`}
-        >
-          STORE REQUISITION SUMMARY
-        </button>
-      </div>
-
-      {/* ─────────────────────────────────────────────────── */}
       {/* 4. TAB 1: REQUISITION LIST TABLE                   */}
       {/* ─────────────────────────────────────────────────── */}
       {activeTab === "REQUISITION_LIST" && (
-        <div className="space-y-2">
-          <div className="border border-slate-300 bg-white rounded shadow-2xs overflow-x-auto">
+        <div className="space-y-2 flex-1 min-h-0 flex flex-col print:block">
+          <div className="border border-line-strong bg-surface rounded shadow-2xs flex-1 min-h-0 overflow-auto print:overflow-visible [&_thead]:sticky [&_thead]:top-0 [&_thead]:z-10">
             <table className="erp-table w-full text-left text-xs border-collapse">
-              <thead className="bg-[#e6f2fb] text-slate-800 font-semibold text-[11px] border-b border-slate-300 select-none">
+              <thead className="bg-blue-100/70 dark:bg-blue-500/15 text-ink font-semibold text-xs select-none">
                 <tr>
-                  <th className="p-2 border border-slate-300 w-12 text-center">SL</th>
-                  <th className="p-2 border border-slate-300 w-36">Requisition Code</th>
-                  <th className="p-2 border border-slate-300 w-24">Date</th>
-                  <th className="p-2 border border-slate-300 w-24">User Type</th>
-                  <th className="p-2 border border-slate-300 w-24">User</th>
-                  <th className="p-2 border border-slate-300">Remarks</th>
-                  <th className="p-2 border border-slate-300 w-24 text-center">Status</th>
-                  <th className="p-2 border border-slate-300 w-32">Review Comment</th>
-                  <th className="p-2 border border-slate-300 w-20 text-center">Actions</th>
+                  <th className="px-2.5 py-2 border-b border-line w-12 text-center">SL</th>
+                  <th className="px-2.5 py-2 border-b border-line w-20 text-center">Action</th>
+                  <th className="px-2.5 py-2 border-b border-line w-36">Requisition Code</th>
+                  <th className="px-2.5 py-2 border-b border-line w-24">Date</th>
+                  <th className="px-2.5 py-2 border-b border-line w-24">User Type</th>
+                  <th className="px-2.5 py-2 border-b border-line w-24">User</th>
+                  <th className="px-2.5 py-2 border-b border-line">Remarks</th>
+                  <th className="px-2.5 py-2 border-b border-line w-24 text-center">Status</th>
+                  <th className="px-2.5 py-2 border-b border-line w-32">Review Comment</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-200 text-[11px] text-slate-800">
+              <tbody className="divide-y divide-line text-[11px] text-ink">
                 {filteredRequisitions.length === 0 ? (
                   <tr>
-                    <td colSpan={9} className="p-12 text-center text-slate-400">
+                    <td colSpan={9} className="p-12 text-center text-ink-faint">
                       <div className="flex flex-col items-center gap-2">
                         <FileSpreadsheet className="w-8 h-8 stroke-[1.5] text-slate-300" />
                         <span className="text-sm font-medium">No store requisitions found.</span>
@@ -400,48 +360,27 @@ export default function StoreRequisitionPage() {
                   </tr>
                 ) : (
                   filteredRequisitions.map((row) => (
-                    <tr key={row.id} className="hover:bg-slate-50/80 transition-colors">
-                      <td className="p-2 border border-slate-300 text-center font-mono text-slate-600">
+                    <tr key={row.id} className="hover:bg-canvas/80 transition-colors">
+                      <td className="px-2.5 py-2 border-b border-line text-center font-mono text-ink-muted">
                         {row.sl}
                       </td>
-                      <td className="p-2 border border-slate-300 font-mono font-medium text-slate-900 whitespace-nowrap">
-                        {row.reqCode}
-                      </td>
-                      <td className="p-2 border border-slate-300 whitespace-nowrap text-slate-700">
-                        {row.date}
-                      </td>
-                      <td className="p-2 border border-slate-300 text-slate-700">
-                        {row.userType}
-                      </td>
-                      <td className="p-2 border border-slate-300 text-slate-700">
-                        {row.user}
-                      </td>
-                      <td className="p-2 border border-slate-300 text-slate-800">
-                        {row.remarks}
-                      </td>
-                      <td className="p-2 border border-slate-300 text-center">
-                        {renderStatus(row.status)}
-                      </td>
-                      <td className="p-2 border border-slate-300 text-slate-600">
-                        {row.reviewComment}
-                      </td>
-                      <td className="p-2 border border-slate-300 text-center">
-                        <div className="flex items-center justify-center gap-1 text-slate-600">
+                      <td className="px-2.5 py-2 border-b border-line text-center">
+                        <div className="row-actions flex items-center justify-center gap-1 text-ink-muted">
                           {row.status === "Pending" && (
                             <>
-                              <button
+                              <button title={!perms.approve ? needsPermission("approve") : undefined}
                                 type="button"
-                                disabled={busyId === row.id}
+                                disabled={(busyId === row.id) || !perms.approve}
                                 onClick={() => review(row, "approve")}
                                 className="px-1.5 py-0.5 rounded bg-emerald-600 text-white text-[10px] font-semibold disabled:opacity-50"
                               >
                                 Approve
                               </button>
-                              <button
+                              <button title={!perms.approve ? needsPermission("approve") : undefined}
                                 type="button"
-                                disabled={busyId === row.id}
+                                disabled={(busyId === row.id) || !perms.approve}
                                 onClick={() => review(row, "reject")}
-                                className="px-1.5 py-0.5 rounded border border-red-300 text-red-600 text-[10px] font-semibold disabled:opacity-50"
+                                className="px-1.5 py-0.5 rounded border border-red-300 dark:border-red-500/30 text-red-600 dark:text-red-400 text-[10px] font-semibold disabled:opacity-50"
                               >
                                 Reject
                               </button>
@@ -449,19 +388,40 @@ export default function StoreRequisitionPage() {
                           )}
                           <button
                             type="button"
-                            className="p-1 hover:text-blue-600"
+                            className="p-1 hover:text-blue-600 dark:hover:text-blue-400"
                             title="Print"
                           >
                             <Printer className="w-3.5 h-3.5" />
                           </button>
                           <button
                             type="button"
-                            className="p-1 hover:text-blue-600"
+                            className="p-1 hover:text-blue-600 dark:hover:text-blue-400"
                             title="View"
                           >
                             <Eye className="w-3.5 h-3.5" />
                           </button>
                         </div>
+                      </td>
+                      <td className="px-2.5 py-2 border-b border-line font-mono font-medium text-ink whitespace-nowrap">
+                        {row.reqCode}
+                      </td>
+                      <td className="px-2.5 py-2 border-b border-line whitespace-nowrap text-ink-muted">
+                        {row.date}
+                      </td>
+                      <td className="px-2.5 py-2 border-b border-line text-ink-muted">
+                        {row.userType}
+                      </td>
+                      <td className="px-2.5 py-2 border-b border-line text-ink-muted">
+                        {row.user}
+                      </td>
+                      <td className="px-2.5 py-2 border-b border-line text-ink">
+                        {row.remarks}
+                      </td>
+                      <td className="px-2.5 py-2 border-b border-line text-center">
+                        {renderStatus(row.status)}
+                      </td>
+                      <td className="px-2.5 py-2 border-b border-line text-ink-muted">
+                        {row.reviewComment}
                       </td>
                     </tr>
                   ))
@@ -476,26 +436,26 @@ export default function StoreRequisitionPage() {
       {/* 5. TAB 2: STORE REQUISITION SUMMARY TABLE          */}
       {/* ─────────────────────────────────────────────────── */}
       {activeTab === "REQUISITION_SUMMARY" && (
-        <div className="space-y-2">
-          <div className="border border-slate-300 bg-white rounded shadow-2xs overflow-x-auto">
+        <div className="space-y-2 flex-1 min-h-0 flex flex-col print:block">
+          <div className="border border-line-strong bg-surface rounded shadow-2xs flex-1 min-h-0 overflow-auto print:overflow-visible [&_thead]:sticky [&_thead]:top-0 [&_thead]:z-10">
             <table className="erp-table w-full text-left text-xs border-collapse">
-              <thead className="bg-[#e6f2fb] text-slate-800 font-semibold text-[11px] border-b border-slate-300 select-none">
+              <thead className="bg-blue-100/70 dark:bg-blue-500/15 text-ink font-semibold text-xs select-none">
                 <tr>
-                  <th className="p-2 border border-slate-300 w-12 text-center">SL</th>
-                  <th className="p-2 border border-slate-300 w-32">Item Code</th>
-                  <th className="p-2 border border-slate-300">Item Name</th>
-                  <th className="p-2 border border-slate-300">Item Category</th>
-                  <th className="p-2 border border-slate-300 w-20 text-center">UOM</th>
-                  <th className="p-2 border border-slate-300 w-28 text-right">Total Req. Qty</th>
-                  <th className="p-2 border border-slate-300 w-28 text-right">Issued Qty</th>
-                  <th className="p-2 border border-slate-300 w-28 text-right">Pending Qty</th>
-                  <th className="p-2 border border-slate-300 w-20 text-center">Actions</th>
+                  <th className="px-2.5 py-2 border-b border-line w-12 text-center">SL</th>
+                  <th className="px-2.5 py-2 border-b border-line w-32">Item Code</th>
+                  <th className="px-2.5 py-2 border-b border-line">Item Name</th>
+                  <th className="px-2.5 py-2 border-b border-line">Item Category</th>
+                  <th className="px-2.5 py-2 border-b border-line w-20 text-center">UOM</th>
+                  <th className="px-2.5 py-2 border-b border-line w-28 text-right">Total Req. Qty</th>
+                  <th className="px-2.5 py-2 border-b border-line w-28 text-right">Issued Qty</th>
+                  <th className="px-2.5 py-2 border-b border-line w-28 text-right">Pending Qty</th>
+                  <th className="px-2.5 py-2 border-b border-line w-20 text-center">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-200 text-[11px] text-slate-800">
+              <tbody className="divide-y divide-line text-[11px] text-ink">
                 {filteredSummary.length === 0 ? (
                   <tr>
-                    <td colSpan={9} className="p-12 text-center text-slate-400">
+                    <td colSpan={9} className="p-12 text-center text-ink-faint">
                       <div className="flex flex-col items-center gap-2">
                         <FileSpreadsheet className="w-8 h-8 stroke-[1.5] text-slate-300" />
                         <span className="text-sm font-medium">No summary data found.</span>
@@ -504,35 +464,35 @@ export default function StoreRequisitionPage() {
                   </tr>
                 ) : (
                   filteredSummary.map((row) => (
-                    <tr key={row.sl} className="hover:bg-slate-50/80 transition-colors">
-                      <td className="p-2 border border-slate-300 text-center font-mono text-slate-600">
+                    <tr key={row.sl} className="hover:bg-canvas/80 transition-colors">
+                      <td className="px-2.5 py-2 border-b border-line text-center font-mono text-ink-muted">
                         {row.sl}
                       </td>
-                      <td className="p-2 border border-slate-300 font-mono font-medium text-slate-900">
+                      <td className="px-2.5 py-2 border-b border-line font-mono font-medium text-ink">
                         {row.itemCode}
                       </td>
-                      <td className="p-2 border border-slate-300 font-medium text-slate-900">
+                      <td className="px-2.5 py-2 border-b border-line font-medium text-ink">
                         {row.itemName}
                       </td>
-                      <td className="p-2 border border-slate-300 text-slate-700">
+                      <td className="px-2.5 py-2 border-b border-line text-ink-muted">
                         {row.itemCategory}
                       </td>
-                      <td className="p-2 border border-slate-300 text-center text-slate-700">
+                      <td className="px-2.5 py-2 border-b border-line text-center text-ink-muted">
                         {row.uom}
                       </td>
-                      <td className="p-2 border border-slate-300 text-right font-mono font-medium">
+                      <td className="px-2.5 py-2 border-b border-line text-right font-mono font-medium">
                         {row.totalReqQty.toFixed(2)}
                       </td>
-                      <td className="p-2 border border-slate-300 text-right font-mono">
+                      <td className="px-2.5 py-2 border-b border-line text-right font-mono">
                         {row.issuedQty.toFixed(2)}
                       </td>
-                      <td className="p-2 border border-slate-300 text-right font-mono text-amber-700 font-medium">
+                      <td className="px-2.5 py-2 border-b border-line text-right font-mono text-amber-700 dark:text-amber-300 font-medium">
                         {row.pendingQty.toFixed(2)}
                       </td>
-                      <td className="p-2 border border-slate-300 text-center">
+                      <td className="px-2.5 py-2 border-b border-line text-center">
                         <button
                           type="button"
-                          className="p-1 hover:text-blue-600 text-slate-600"
+                          className="p-1 hover:text-blue-600 dark:hover:text-blue-400 text-ink-muted"
                           title="View"
                         >
                           <Eye className="w-3.5 h-3.5" />
@@ -547,6 +507,16 @@ export default function StoreRequisitionPage() {
         </div>
       )}
 
+      <BulkUploadDialog
+        open={bulkOpen}
+        onClose={() => setBulkOpen(false)}
+        onImported={() => docs.reload()}
+        noun="store requisitions"
+        templateUrl={inventoryApi.importTemplateUrl("store-requisition")}
+        maxRows={2000}
+        matchHint="Warehouse names must match existing warehouses; Item Code must match an active item; Party / For is the employee, department or project. Rows with the same Ref are saved as one document."
+        upload={(file) => inventoryApi.importFile("store-requisition", file)}
+      />
       {/* ─────────────────────────────────────────────────── */}
       {/* 6. + REQUISITION MODAL                              */}
       {/* ─────────────────────────────────────────────────── */}
@@ -556,11 +526,21 @@ export default function StoreRequisitionPage() {
         onSaved={() => docs.reload()}
         config={{
           slug: "store-requisition",
-          title: "New Store Requisition",
+          title: "Create Store Requisition",
           warehouses: "one",
-          warehouseLabel: "Store (warehouse)",
-          subtype: { label: "User type", options: REQUISITION_USER_TYPES },
-          partyLabel: "Requested for (user / department)",
+          offices: true,
+          dateLabel: "Create Date",
+          expectedDateLabel: "Expected Date",
+          // iBOS: Employee / Department / Project, then that one person, department or project.
+          subtype: { label: "User Type", options: ["Employee", "Department", "Project"], radio: true },
+          fields: [
+            { key: "employee", label: "Employee", kind: "employee", required: true, saveAs: "partyName", when: ["Employee"] },
+            { key: "department", label: "Department", kind: "department", required: true, saveAs: "partyName", when: ["Department"] },
+            { key: "project", label: "Project", kind: "project", required: true, saveAs: "partyName", when: ["Project"] },
+          ],
+          columns: ["code", "name", "uom", "qty"],
+          columnLabels: { code: "Code", name: "Item", qty: "Quantity" },
+          qtyLabel: "Request Quantity",
         }}
       />
     </div>

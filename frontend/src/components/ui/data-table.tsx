@@ -42,6 +42,11 @@ interface DataTableProps<T> {
   serverPage?: ServerPage;
   /** Page the rows here with numbered pages ("Rows per page", "1–50 of N") instead of "Load more". */
   pages?: readonly number[];
+  /**
+   * Report grid (Managerium-style lists): no selection column and no sort bar — a sortable
+   * column sorts from its header — with sentence-case headings and a ruled total row.
+   */
+  sheet?: boolean;
 }
 
 export interface ServerPage {
@@ -78,6 +83,7 @@ export function DataTable<T>({
   footer,
   serverPage,
   pages,
+  sheet = false,
 }: DataTableProps<T>) {
   const router = useRouter();
   const [query, setQuery] = useState("");
@@ -139,6 +145,12 @@ export function DataTable<T>({
     router.push(rowHref(row));
   }
 
+  /** Sheet headers: the active column flips direction, another column becomes the sort. */
+  const sortFromHeader = (id: string) => {
+    if (sortBy === id) setDescending((value) => !value);
+    else setSortBy(id);
+  };
+
   const sortOptions = [
     ...(modifiedAt ? [{ id: MODIFIED, label: "Last Updated On" }] : []),
     ...sortable.map((column) => ({ id: column.id, label: column.header })),
@@ -146,51 +158,53 @@ export function DataTable<T>({
 
   return (
     <div className="flex flex-col">
-      <div className="flex flex-wrap items-center gap-2 border-b border-line px-4 py-2.5">
-        {search && (
-          <label className="relative w-full sm:w-56">
-            <span className="sr-only">{search.placeholder}</span>
-            <Search aria-hidden="true" className="pointer-events-none absolute top-1.5 left-2 size-4 text-ink-faint" />
-            <input
-              type="search"
-              value={query}
-              placeholder={search.placeholder}
-              onChange={(event) => {
-                setQuery(event.target.value);
-                setVisible(pageSize);
-              }}
-              className={cn(CONTROL, "h-7 pl-7")}
-            />
-          </label>
-        )}
-        {sortOptions.length > 0 && (
-          <div className="ml-auto flex items-center">
-            <Button
-              size="icon"
-              className="rounded-r-none"
-              aria-label={descending ? "Sorted descending, switch to ascending" : "Sorted ascending, switch to descending"}
-              onClick={() => setDescending((value) => !value)}
-            >
-              {descending ? <ArrowDownNarrowWide /> : <ArrowUpNarrowWide />}
-            </Button>
-            <label className="relative">
-              <span className="sr-only">Sort by</span>
-              <select
-                value={sortBy}
-                onChange={(event) => setSortBy(event.target.value)}
-                className="h-7 appearance-none rounded-l-none rounded-r border border-l-0 border-line-strong bg-surface pr-7 pl-2 text-xs font-medium text-ink hover:bg-hover focus-visible:outline-2"
-              >
-                {sortOptions.map((option) => (
-                  <option key={option.id} value={option.id}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-              <ChevronDown aria-hidden="true" className="pointer-events-none absolute top-1.5 right-2 size-4 text-ink-faint" />
+      {(search || (!sheet && sortOptions.length > 0)) && (
+        <div className="flex flex-wrap items-center gap-2 border-b border-line px-4 py-2.5">
+          {search && (
+            <label className="relative w-full sm:w-56">
+              <span className="sr-only">{search.placeholder}</span>
+              <Search aria-hidden="true" className="pointer-events-none absolute top-1.5 left-2 size-4 text-ink-faint" />
+              <input
+                type="search"
+                value={query}
+                placeholder={search.placeholder}
+                onChange={(event) => {
+                  setQuery(event.target.value);
+                  setVisible(pageSize);
+                }}
+                className={cn(CONTROL, "h-7 pl-7")}
+              />
             </label>
-          </div>
-        )}
-      </div>
+          )}
+          {!sheet && sortOptions.length > 0 && (
+            <div className="ml-auto flex items-center">
+              <Button
+                size="icon"
+                className="rounded-r-none"
+                aria-label={descending ? "Sorted descending, switch to ascending" : "Sorted ascending, switch to descending"}
+                onClick={() => setDescending((value) => !value)}
+              >
+                {descending ? <ArrowDownNarrowWide /> : <ArrowUpNarrowWide />}
+              </Button>
+              <label className="relative">
+                <span className="sr-only">Sort by</span>
+                <select
+                  value={sortBy}
+                  onChange={(event) => setSortBy(event.target.value)}
+                  className="h-7 appearance-none rounded-l-none rounded-r border border-l-0 border-line-strong bg-surface pr-7 pl-2 text-xs font-medium text-ink hover:bg-hover focus-visible:outline-2"
+                >
+                  {sortOptions.map((option) => (
+                    <option key={option.id} value={option.id}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown aria-hidden="true" className="pointer-events-none absolute top-1.5 right-2 size-4 text-ink-faint" />
+              </label>
+            </div>
+          )}
+        </div>
+      )}
 
       {rows.length === 0 || filtered.length === 0 ? (
         rows.length === 0 ? (
@@ -201,22 +215,35 @@ export function DataTable<T>({
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full border-collapse text-left text-[12px]">
-            <thead className="bg-grid-head text-[11px] tracking-wide text-grid-head-ink uppercase">
-              <tr className="border-b-2 border-grid-head-rule">
-                <th scope="col" className="w-10 border-r border-grid-head-line px-2.5 py-2">
-                  <Checkbox
-                    aria-label="Select all rows"
-                    checked={allShownSelected}
-                    onChange={(event) => toggleAll(event.target.checked)}
-                  />
-                </th>
+            <thead className={cn("bg-grid-head text-grid-head-ink", sheet ? "text-xs" : "text-[11px] tracking-wide uppercase")}>
+              <tr className={sheet ? "border-y border-grid-head-line" : "border-b-2 border-grid-head-rule"}>
+                {!sheet && (
+                  <th scope="col" className="w-10 border-r border-grid-head-line px-2.5 py-2">
+                    <Checkbox
+                      aria-label="Select all rows"
+                      checked={allShownSelected}
+                      onChange={(event) => toggleAll(event.target.checked)}
+                    />
+                  </th>
+                )}
                 {columns.map((column, index) => (
                   <th
                     key={column.id}
                     scope="col"
-                    className={cn("border-r border-grid-head-line px-2.5 py-2 font-bold whitespace-nowrap", column.hideBelow && HIDE[column.hideBelow], column.className)}
+                    aria-sort={sheet && column.sortValue && sortBy === column.id ? (descending ? "descending" : "ascending") : undefined}
+                    className={cn(
+                      "border-r border-grid-head-line px-2.5 py-2 font-bold whitespace-nowrap",
+                      sheet && "first:border-l last:border-r",
+                      column.hideBelow && HIDE[column.hideBelow],
+                      column.className,
+                    )}
                   >
-                    {index === 0 && selectedCount > 0 ? (
+                    {sheet && column.sortValue ? (
+                      <button type="button" onClick={() => sortFromHeader(column.id)} className="inline-flex items-center gap-1 font-bold hover:underline focus-visible:outline-2">
+                        {column.header}
+                        {sortBy === column.id && (descending ? <ArrowDownNarrowWide aria-hidden="true" className="size-3.5" /> : <ArrowUpNarrowWide aria-hidden="true" className="size-3.5" />)}
+                      </button>
+                    ) : index === 0 && selectedCount > 0 ? (
                       <span className="flex items-center gap-3">
                         <span className="font-bold normal-case">{selectedCount} selected</span>
                         {bulkActions && (
@@ -258,18 +285,21 @@ export function DataTable<T>({
                       isSelected && "bg-accent-soft",
                     )}
                   >
-                    <td className="border-r border-grid-line px-2.5 py-2 align-top">
-                      <Checkbox
-                        aria-label={`Select ${getRowLabel(row)}`}
-                        checked={isSelected}
-                        onChange={(event) => toggleRow(id, event.target.checked)}
-                      />
-                    </td>
+                    {!sheet && (
+                      <td className="border-r border-grid-line px-2.5 py-2 align-top">
+                        <Checkbox
+                          aria-label={`Select ${getRowLabel(row)}`}
+                          checked={isSelected}
+                          onChange={(event) => toggleRow(id, event.target.checked)}
+                        />
+                      </td>
+                    )}
                     {columns.map((column) => (
                       <td
                         key={column.id}
                         className={cn(
                           "border-r border-grid-line px-2.5 py-2 align-top text-ink",
+                          sheet && "first:border-l",
                           column.hideBelow && HIDE[column.hideBelow],
                           column.className,
                         )}
@@ -289,11 +319,14 @@ export function DataTable<T>({
               })}
             </tbody>
             {footerCells && (
-              <tfoot className="border-t border-line-strong bg-canvas font-medium text-ink">
+              <tfoot className={cn("bg-canvas text-ink", sheet ? "border-y border-grid-line font-bold" : "border-t border-line-strong font-medium")}>
                 <tr>
-                  <td className="py-2.5 pl-4" />
+                  {!sheet && <td className="py-2.5 pl-4" />}
                   {columns.map((column) => (
-                    <td key={column.id} className={cn("py-2.5 pr-4", column.hideBelow && HIDE[column.hideBelow], column.className)}>
+                    <td
+                      key={column.id}
+                      className={cn(sheet ? "border-r border-grid-line px-2.5 py-1.5 first:border-l" : "py-2.5 pr-4", column.hideBelow && HIDE[column.hideBelow], column.className)}
+                    >
                       {footerCells[column.id]}
                     </td>
                   ))}

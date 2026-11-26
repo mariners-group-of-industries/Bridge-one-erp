@@ -13,7 +13,7 @@ export const POST = apiHandler("configuration:write", async (request, _context, 
     throw badRequest("Expected a multipart/form-data upload.");
   }
   const file = form.get("file");
-  const businessUnitId = z.uuid().safeParse(form.get("businessUnitId"));
+  const businessUnitId = z.guid().safeParse(form.get("businessUnitId"));
   if (!businessUnitId.success) throw badRequest("Select a business unit.");
   if (!(file instanceof File)) throw badRequest("Choose an Excel file to upload.");
   if (file.size === 0) throw badRequest("The selected file is empty.");

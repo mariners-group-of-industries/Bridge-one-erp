@@ -16,6 +16,7 @@ export const POSTING_KEYS = {
   BANK: "Bank / card / mobile money",
   PURCHASE_EXPENSE: "Purchase expense (bills without goods)",
   STOCK_ADJUSTMENT: "Stock adjustment & consumption",
+  WORK_IN_PROGRESS: "Work in progress (materials issued to production)",
   SALARY_EXPENSE: "Salary expense",
   SALARY_PAYABLE: "Salary payable",
 } as const;
@@ -92,11 +93,28 @@ export function collectionLines(input: {
 export const receiptLines = (amount: number) => clean([dr("INVENTORY", amount), cr("PAYABLE", amount)]);
 /** A bill without goods (services, utilities): expense against payable. */
 export const billLines = (amount: number) => clean([dr("PURCHASE_EXPENSE", amount), cr("PAYABLE", amount)]);
-/** Paying a supplier: payable against cash or bank. */
-export const supplierPaymentLines = (amount: number, method: string) => clean([dr("PAYABLE", amount), cr(method === "CASH" ? "CASH" : "BANK", amount)]);
+/** Paying a supplier: payable against the chosen cash/bank GL account (or default cash/bank role). */
+export const supplierPaymentLines = (amount: number, method: string, cashAccountId?: string | null) =>
+  clean([
+    dr("PAYABLE", amount),
+    cashAccountId ? { accountId: cashAccountId, debit: 0, credit: r2(amount) } : cr(method === "CASH" ? "CASH" : "BANK", amount),
+  ]);
 /** Stock found (+) or lost / used (−), at cost. */
 export const stockValueLines = (value: number) =>
   clean(value >= 0 ? [dr("INVENTORY", value), cr("STOCK_ADJUSTMENT", value)] : [dr("STOCK_ADJUSTMENT", -value), cr("INVENTORY", -value)]);
+/** Materials issued to a production order: out of stores into work in progress, at cost. */
+export const productionIssueLines = (value: number) => clean([dr("WORK_IN_PROGRESS", value), cr("INVENTORY", value)]);
+/**
+ * A production entry: finished goods into inventory at the cost of the materials used.
+ * Materials issued to the order earlier leave work in progress; those the entry took
+ * straight from the warehouse leave inventory.
+ */
+export const productionLines = (input: { fromWip: number; direct: number }) =>
+  clean([
+    dr("INVENTORY", input.fromWip + input.direct, "Finished goods produced"),
+    cr("WORK_IN_PROGRESS", input.fromWip, "Issued materials used"),
+    cr("INVENTORY", input.direct, "Materials consumed from stock"),
+  ]);
 /** A processed payroll: salary expense against salary payable (net pay). */
 export const payrollLines = (net: number) => clean([dr("SALARY_EXPENSE", net), cr("SALARY_PAYABLE", net)]);
 

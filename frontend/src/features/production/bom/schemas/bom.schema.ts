@@ -16,7 +16,7 @@ const finite = (label: string) => z.number({ error: `${label} is required.` }).r
 const MAX = 9_999_999_999;
 
 const outputSchema = z.object({
-  itemId: z.uuid({ error: "Choose the FG/SFG item." }),
+  itemId: z.guid({ error: "Choose the FG/SFG item." }),
   outputType: z.enum(OUTPUT_TYPES, { error: "Choose the item type." }),
   netWeight: finite("Net Weight").min(0, { error: "Net Weight cannot be negative." }).max(MAX),
   lotSizeQty: finite("Lot Size").gt(0, { error: "Lot Size must be more than 0." }).max(MAX),
@@ -27,7 +27,7 @@ const outputSchema = z.object({
 });
 
 const materialSchema = z.object({
-  itemId: z.uuid({ error: "Choose the material item." }),
+  itemId: z.guid({ error: "Choose the material item." }),
   materialType: z.string().trim().max(50).nullish(),
   excludeFromScrap: z.boolean().default(false),
   qty: finite("Quantity").gt(0, { error: "Quantity must be more than 0." }).max(MAX),
@@ -36,7 +36,7 @@ const materialSchema = z.object({
 });
 
 const wastageSchema = z.object({
-  itemId: z.uuid({ error: "Choose the wastage / by-product item." }),
+  itemId: z.guid({ error: "Choose the wastage / by-product item." }),
   itemType: z.string().trim().max(50).nullish(),
   outputType: z.enum(WASTAGE_TYPES, { error: "Choose the output type." }),
   ratioPercent: finite("Ratio Qty (%)").gt(0, { error: "Ratio Qty (%) must be more than 0." }).max(100, { error: "Ratio Qty (%) cannot be over 100." }),
@@ -48,7 +48,7 @@ const wastageSchema = z.object({
 /** Overhead booked to an expense account: a % of the material cost, or a fixed amount. */
 const overheadSchema = z
   .object({
-    accountId: z.uuid({ error: "Choose the overhead account." }),
+    accountId: z.guid({ error: "Choose the overhead account." }),
     percentage: finite("Percentage").gt(0, { error: "Percentage must be more than 0." }).max(1000, { error: "Percentage is too large." }).nullish(),
     amount: finite("Amount").min(0, { error: "Amount cannot be negative." }).max(MAX).default(0),
   })
@@ -60,12 +60,12 @@ const distinct = (ids: readonly string[]) => new Set(ids).size === ids.length;
 export const bomInputSchema = z
   .object({
     /** Needed only when the user has more than one business unit. */
-    businessUnitId: z.uuid().optional(),
+    businessUnitId: z.guid().optional(),
     name: z.string({ error: "BoM Name is required." }).trim().min(1, { error: "BoM Name is required." }).max(150, { error: "BoM Name is too long." }),
     bomType: z.enum(BOM_TYPES),
     /** Required for a multiple output BOM; optional for a single output one (as in Managerium). */
-    departmentId: z.uuid().nullish(),
-    departmentSectionId: z.uuid().nullish(),
+    departmentId: z.guid().nullish(),
+    departmentSectionId: z.guid().nullish(),
     remarks: z.string().trim().max(500).nullish(),
     outputs: z.array(outputSchema).min(1, { error: "Add at least one production item." }).max(50),
     materials: z.array(materialSchema).min(1, { error: "Add at least one input material." }).max(300),
@@ -110,7 +110,7 @@ export const bomChildrenSchema = z.object({
   links: z
     .array(
       z.object({
-        childBomId: z.uuid({ error: "Choose the child BOM." }),
+        childBomId: z.guid({ error: "Choose the child BOM." }),
         stage: z.string().trim().min(1, { error: "Stage/Level is required." }).max(50, { error: "Stage/Level is too long." }),
       }),
     )
@@ -123,8 +123,8 @@ export const BOM_STATUSES = ["ACTIVE", "INACTIVE"] as const;
 
 /** Filters of GET /api/production/bill-of-materials. */
 export const bomListQuerySchema = z.object({
-  departmentId: z.uuid().optional(),
-  departmentSectionId: z.uuid().optional(),
+  departmentId: z.guid().optional(),
+  departmentSectionId: z.guid().optional(),
   status: z.enum(BOM_STATUSES).optional(),
   search: z.string().trim().max(100).optional(),
 });
@@ -141,7 +141,7 @@ export const bomOptionsQuerySchema = z.object({
     .max(100)
     .default("")
     .refine((search) => search.length === 0 || search.length >= 3, { error: "Type at least 3 letters." }),
-  exclude: z.uuid().optional(),
+  exclude: z.guid().optional(),
 });
 
 export interface BomOption {

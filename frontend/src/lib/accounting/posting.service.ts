@@ -8,6 +8,8 @@ import {
   fiscalYearOf,
   isBalanced,
   payrollLines,
+  productionIssueLines,
+  productionLines,
   receiptLines,
   reverse,
   saleLines,
@@ -164,6 +166,8 @@ const SOURCES: SourceDef[] = [
         id: r.id,
         journal: { date: r.returnDate, number: r.number, narration: `Purchase return ${r.number}`, officeId: r.officeId, lines: reverse(receiptLines(num(r.totalAmount))) },
       })),
+    cancelled: async (posted) =>
+      posted.length ? (await db().purchaseReturn.findMany({ where: { id: { in: posted }, status: "CANCELLED" }, select: { id: true } })).map((r) => r.id) : [],
   },
   {
     type: "SUPPLIER_BILL",
@@ -186,12 +190,18 @@ const SOURCES: SourceDef[] = [
       (
         await db().supplierPayment.findMany({
           where: { status: "PAID", ...notIn(posted) },
-          select: { id: true, number: true, paymentDate: true, amount: true, method: true },
+          select: { id: true, number: true, paymentDate: true, officeId: true, amount: true, method: true, cashAccountId: true, bankAccount: { select: { glAccountId: true } } },
           take: BATCH,
         })
       ).map((p) => ({
         id: p.id,
-        journal: { date: p.paymentDate, number: p.number, narration: `Supplier payment ${p.number}`, lines: supplierPaymentLines(num(p.amount), p.method) },
+        journal: {
+          date: p.paymentDate,
+          number: p.number,
+          narration: `Supplier payment ${p.number}`,
+          officeId: p.officeId,
+          lines: supplierPaymentLines(num(p.amount), p.method, p.cashAccountId ?? p.bankAccount?.glAccountId),
+        },
       })),
     cancelled: async (posted) =>
       posted.length ? (await db().supplierPayment.findMany({ where: { id: { in: posted }, status: "CANCELLED" }, select: { id: true } })).map((d) => d.id) : [],
@@ -233,6 +243,7 @@ const SOURCES: SourceDef[] = [
             number: true,
             docDate: true,
             warehouse: { select: { officeId: true } },
+            request: { select: { meta: true } },
             lines: { select: { qty: true, toQty: true, item: { select: { purchasePrice: true } }, toItem: { select: { purchasePrice: true } } } },
           },
           take: BATCH,
@@ -245,17 +256,71 @@ const SOURCES: SourceDef[] = [
           if (d.type === "CONVERSION") return t + num(l.toQty) * num(l.toItem?.purchasePrice) - out;
           return t + out;
         }, 0);
-        return { id: d.id, journal: { date: d.docDate, number: d.number, narration: `Inventory ${d.number}`, officeId: d.warehouse?.officeId, lines: stockValueLines(value) } };
+        // An issue against a production order's requisition moves the materials into work in progress, not to expense.
+        const meta = d.request?.meta as { productionOrderId?: unknown } | null | undefined;
+        const toProduction = d.type === "STORE_ISSUE" && typeof meta?.productionOrderId === "string";
+        return {
+          id: d.id,
+          journal: {
+            date: d.docDate,
+            number: d.number,
+            narration: toProduction ? `Store issue ${d.number} to production` : `Inventory ${d.number}`,
+            officeId: d.warehouse?.officeId,
+            lines: toProduction ? productionIssueLines(-value) : stockValueLines(value),
+          },
+        };
       }),
+  },
+  {
+    type: "PRODUCTION_ENTRY",
+    label: "Production entries",
+    pending: async (posted) => {
+      const entries = await db().productionEntry.findMany({
+        where: { status: "POSTED", ...notIn(posted) },
+        select: { id: true, number: true, productionDate: true, officeId: true, materials: { select: { itemId: true, actualQty: true, item: { select: { purchasePrice: true } } } } },
+        take: BATCH,
+      });
+      if (!entries.length) return [];
+      // What the entry took straight from the warehouse (beyond what was issued to the order). Cancellations add positive rows: skip them.
+      const directRows = await db().stockEntry.findMany({
+        where: { source: "PRODUCTION_CONSUMPTION", sourceId: { in: entries.map((e) => e.id) }, qty: { lt: 0 } },
+        select: { sourceId: true, itemId: true, qty: true },
+      });
+      const directQty = new Map<string, number>();
+      for (const row of directRows) directQty.set(`${row.sourceId}:${row.itemId}`, (directQty.get(`${row.sourceId}:${row.itemId}`) ?? 0) - num(row.qty));
+      return entries.map((e) => {
+        let fromWip = 0;
+        let direct = 0;
+        for (const m of e.materials) {
+          const used = num(m.actualQty);
+          const fromStock = Math.min(used, directQty.get(`${e.id}:${m.itemId}`) ?? 0);
+          const price = num(m.item.purchasePrice);
+          direct += fromStock * price;
+          fromWip += (used - fromStock) * price;
+        }
+        return {
+          id: e.id,
+          journal: { date: e.productionDate, number: e.number, narration: `Production entry ${e.number}`, officeId: e.officeId, lines: productionLines({ fromWip, direct }) },
+        };
+      });
+    },
+    cancelled: async (posted) =>
+      posted.length ? (await db().productionEntry.findMany({ where: { id: { in: posted }, status: "CANCELLED" }, select: { id: true } })).map((e) => e.id) : [],
   },
   {
     type: "PAYROLL",
     label: "Processed payroll",
-    pending: async (posted) =>
-      (await db().payrollRun.findMany({ where: notIn(posted), select: { id: true, month: true, toDate: true, officeId: true, netAmount: true }, take: BATCH })).map((p) => ({
+    // Legacy processed runs, and salary batches once their last approval stage is done.
+    pending: async (posted) => [
+      ...(await db().payrollRun.findMany({ where: notIn(posted), select: { id: true, month: true, toDate: true, officeId: true, netAmount: true }, take: BATCH })).map((p) => ({
         id: p.id,
         journal: { date: p.toDate, number: `PAY-${p.month}`, narration: `Payroll ${p.month}`, officeId: p.officeId, lines: payrollLines(num(p.netAmount)) },
       })),
+      ...(await db().payrollBatch.findMany({ where: { status: "Approved", ...notIn(posted) }, select: { id: true, reference: true, month: true, payrollDate: true, officeId: true, totalNet: true }, take: BATCH })).map((p) => ({
+        id: p.id,
+        journal: { date: p.payrollDate, number: p.reference, narration: `Payroll ${p.month} (${p.reference})`, officeId: p.officeId, lines: payrollLines(num(p.totalNet)) },
+      })),
+    ],
   },
 ];
 

@@ -2,12 +2,15 @@
 
 import { useState, useRef, useEffect } from "react";
 import {
+  CalendarRange,
   ChevronDown,
+  Eraser,
   Info,
   RefreshCw,
 } from "lucide-react";
 import type { EmployeeRosterItem, RosterGridData } from "../types";
-import { CALENDAR_DEFINITIONS, CALENDAR_CODE_MAP } from "../constants";
+import { useCalendars } from "../use-calendars";
+import { CalendarQuickDetails } from "./CalendarQuickDetails";
 
 interface DateInfo {
   dateStr: string; // YYYY-MM-DD
@@ -22,6 +25,8 @@ interface DynamicCalendarGridProps {
   gridData: RosterGridData;
   onCellChange: (employeeId: string, dateStr: string, newShiftCode: string) => void;
   onColumnBulkAssign: (dateStr: string, shiftCode: string) => void;
+  /** Row-wise assign: one shift on every date of one employee (optionally skipping weekends). */
+  onRowBulkAssign: (employeeId: string, shiftCode: string, skipWeekends: boolean) => void;
   selectedEmployeeIds: Set<string>;
   onToggleSelectAll: () => void;
   onToggleSelectEmployee: (id: string) => void;
@@ -29,6 +34,8 @@ interface DynamicCalendarGridProps {
   isLoadingMore?: boolean;
   hasMore?: boolean;
   totalCount?: number;
+  /** View only (no HRM › Calendar Assign › Create): shifts are shown, nothing can be changed. */
+  readOnly?: boolean;
 }
 
 export function DynamicCalendarGrid({
@@ -37,6 +44,7 @@ export function DynamicCalendarGrid({
   gridData,
   onCellChange,
   onColumnBulkAssign,
+  onRowBulkAssign,
   selectedEmployeeIds,
   onToggleSelectAll,
   onToggleSelectEmployee,
@@ -44,7 +52,9 @@ export function DynamicCalendarGrid({
   isLoadingMore = false,
   hasMore = false,
   totalCount,
+  readOnly = false,
 }: DynamicCalendarGridProps) {
+  const { calendars, byCode, forOffice } = useCalendars();
   // Active cell popover state
   const [activeCell, setActiveCell] = useState<{
     employeeId: string;
@@ -55,14 +65,49 @@ export function DynamicCalendarGrid({
   // Column header popover state
   const [activeColMenu, setActiveColMenu] = useState<string | null>(null);
 
+  // Row (employee) bulk-assign menu: anchored to the row's Assign button and drawn
+  // above the table (position: fixed), so the scroll area can never clip it.
+  const [rowMenu, setRowMenu] = useState<{ employeeId: string; top: number; left: number } | null>(null);
+  const [rowSkipWeekends, setRowSkipWeekends] = useState(true);
+  const rowMenuEmployee = rowMenu ? employees.find((e) => e.id === rowMenu.employeeId) : undefined;
+
+  const openRowMenu = (employeeId: string, button: HTMLElement) => {
+    setActiveCell(null);
+    setActiveColMenu(null);
+    if (rowMenu?.employeeId === employeeId) return setRowMenu(null);
+    const rect = button.getBoundingClientRect();
+    const width = 240;
+    const height = 340;
+    setRowMenu({
+      employeeId,
+      left: Math.max(8, Math.min(rect.left, window.innerWidth - width - 8)),
+      top: rect.bottom + height + 8 > window.innerHeight ? Math.max(8, rect.top - height - 4) : rect.bottom + 4,
+    });
+  };
+
+  // A fixed menu would drift from its row when the page scrolls or resizes: close it instead.
+  useEffect(() => {
+    if (!rowMenu) return;
+    const close = () => setRowMenu(null);
+    window.addEventListener("scroll", close, true);
+    window.addEventListener("resize", close);
+    return () => {
+      window.removeEventListener("scroll", close, true);
+      window.removeEventListener("resize", close);
+    };
+  }, [rowMenu]);
+
   const popoverRef = useRef<HTMLDivElement>(null);
 
   // Close popover on outside click
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
+      // The Assign buttons toggle their own menu.
+      if ((e.target as Element | null)?.closest?.("[data-row-assign]")) return;
       if (popoverRef.current && !popoverRef.current.contains(e.target as Node)) {
         setActiveCell(null);
         setActiveColMenu(null);
+        setRowMenu(null);
       }
     }
     document.addEventListener("mousedown", handleClickOutside);
@@ -81,9 +126,9 @@ export function DynamicCalendarGrid({
         <span className="font-semibold text-ink flex items-center gap-1.5 pr-2 border-r border-line">
           <Info className="size-3.5 text-primary" /> Shift Legend:
         </span>
-        {CALENDAR_DEFINITIONS.map((c) => (
+        {calendars.map((c) => (
           <div
-            key={c.shortCode}
+            key={c.id}
             className="flex items-center gap-1.5 rounded-full border border-line bg-canvas px-2.5 py-0.5"
             title={`${c.calendarName} (${c.startTime} - ${c.endTime}) - Office: ${c.office}`}
           >
@@ -105,6 +150,7 @@ export function DynamicCalendarGrid({
       {/* Matrix Table with sticky headers and sticky left columns */}
       <div
         onScroll={(e) => {
+          if (rowMenu) setRowMenu(null);
           if (!hasMore || isLoadingMore || !onLoadMore) return;
           const el = e.currentTarget;
           if (el.scrollHeight - el.scrollTop - el.clientHeight < 120) {
@@ -131,23 +177,28 @@ export function DynamicCalendarGrid({
                 />
               </th>
 
+              {/* Row-wise assign */}
+              <th className="sticky left-10 z-40 bg-grid-head px-1.5 py-2.5 w-[76px] min-w-[76px] text-center font-bold border-r border-grid-line" title="Assign one shift to every date of an employee">
+                Row
+              </th>
+
               {/* SL # */}
-              <th className="sticky left-10 z-40 bg-grid-head px-2 py-2.5 w-12 text-center font-bold border-r border-grid-line">
+              <th className="sticky left-[116px] z-40 bg-grid-head px-2 py-2.5 w-12 text-center font-bold border-r border-grid-line">
                 SL
               </th>
 
               {/* Employee ID */}
-              <th className="sticky left-22 z-40 bg-grid-head px-3 py-2.5 min-w-[110px] font-bold border-r border-grid-line">
+              <th className="sticky left-[164px] z-40 bg-grid-head px-3 py-2.5 min-w-[110px] font-bold border-r border-grid-line">
                 Emp. Code
               </th>
 
               {/* Employee Name */}
-              <th className="sticky left-[198px] z-40 bg-grid-head px-3 py-2.5 min-w-[190px] font-bold border-r border-grid-line">
+              <th className="sticky left-[274px] z-40 bg-grid-head px-3 py-2.5 min-w-[190px] font-bold border-r border-grid-line">
                 Employee Name
               </th>
 
               {/* Designation & Office */}
-              <th className="sticky left-[388px] z-40 bg-grid-head px-3 py-2.5 min-w-[200px] font-bold border-r-2 border-primary/40 shadow-[4px_0_6px_-2px_rgba(0,0,0,0.06)]">
+              <th className="sticky left-[464px] z-40 bg-grid-head px-3 py-2.5 min-w-[200px] font-bold border-r-2 border-primary/40 shadow-[4px_0_6px_-2px_rgba(0,0,0,0.06)]">
                 Office & Designation
               </th>
 
@@ -169,6 +220,7 @@ export function DynamicCalendarGrid({
                   </div>
 
                   {/* Quick bulk button on column header */}
+                  {!readOnly && (
                   <button
                     type="button"
                     onClick={() =>
@@ -179,6 +231,7 @@ export function DynamicCalendarGrid({
                   >
                     <ChevronDown className="size-2.5" />
                   </button>
+                  )}
 
                   {/* Column Header Dropdown Menu */}
                   {activeColMenu === date.dateStr && (
@@ -190,9 +243,9 @@ export function DynamicCalendarGrid({
                         Assign {date.dateStr} to all:
                       </div>
                       <div className="max-h-48 overflow-y-auto space-y-0.5">
-                        {CALENDAR_DEFINITIONS.map((c) => (
+                        {calendars.map((c) => (
                           <button
-                            key={c.shortCode}
+                            key={c.id}
                             type="button"
                             onClick={() => {
                               onColumnBulkAssign(date.dateStr, c.shortCode);
@@ -228,7 +281,7 @@ export function DynamicCalendarGrid({
             {employees.length === 0 ? (
               <tr>
                 <td
-                  colSpan={dates.length + 7}
+                  colSpan={dates.length + 8}
                   className="py-12 text-center text-ink-muted text-sm font-medium"
                 >
                   No employees found matching the filter criteria.
@@ -268,13 +321,37 @@ export function DynamicCalendarGrid({
                       />
                     </td>
 
+                    {/* Row-wise assign */}
+                    <td className="sticky left-10 z-20 bg-surface px-1.5 py-2 text-center border-r border-grid-line">
+                      {!readOnly && (
+                      <button
+                        type="button"
+                        onClick={(e) => openRowMenu(emp.id, e.currentTarget)}
+                        data-row-assign
+                        aria-haspopup="menu"
+                        aria-expanded={rowMenu?.employeeId === emp.id}
+                        aria-label={`Assign one shift to all dates for ${emp.name}`}
+                        title={`Assign one shift to all dates for ${emp.name}`}
+                        className={`inline-flex h-6 items-center gap-0.5 rounded border px-1.5 text-[11px] font-semibold transition-colors ${
+                          rowMenu?.employeeId === emp.id
+                            ? "border-primary bg-primary text-white"
+                            : "border-primary/30 bg-primary/10 text-primary hover:bg-primary/20"
+                        }`}
+                      >
+                        <CalendarRange className="size-3" aria-hidden="true" />
+                        Assign
+                        <ChevronDown className="size-3" aria-hidden="true" />
+                      </button>
+                      )}
+                    </td>
+
                     {/* SL # */}
-                    <td className="sticky left-10 z-20 bg-surface px-2 py-2 text-center text-ink-muted font-mono text-[11px] border-r border-grid-line">
+                    <td className="sticky left-[116px] z-20 bg-surface px-2 py-2 text-center text-ink-muted font-mono text-[11px] border-r border-grid-line">
                       {index + 1}
                     </td>
 
                     {/* Employee Code & Attendance ID */}
-                    <td className="sticky left-22 z-20 bg-surface px-3 py-2 border-r border-grid-line whitespace-nowrap">
+                    <td className="sticky left-[164px] z-20 bg-surface px-3 py-2 border-r border-grid-line whitespace-nowrap">
                       <div className="font-semibold text-ink font-mono text-[11px]">
                         {emp.employeeCode}
                       </div>
@@ -284,7 +361,7 @@ export function DynamicCalendarGrid({
                     </td>
 
                     {/* Employee Name */}
-                    <td className="sticky left-[198px] z-20 bg-surface px-3 py-2 border-r border-grid-line whitespace-nowrap">
+                    <td className="sticky left-[274px] z-20 bg-surface px-3 py-2 border-r border-grid-line whitespace-nowrap">
                       <div className="font-semibold text-ink truncate max-w-[170px]" title={emp.name}>
                         {emp.name}
                       </div>
@@ -294,7 +371,7 @@ export function DynamicCalendarGrid({
                     </td>
 
                     {/* Office & Designation */}
-                    <td className="sticky left-[388px] z-20 bg-surface px-3 py-2 border-r-2 border-primary/40 shadow-[4px_0_6px_-2px_rgba(0,0,0,0.06)] whitespace-nowrap">
+                    <td className="sticky left-[464px] z-20 bg-surface px-3 py-2 border-r-2 border-primary/40 shadow-[4px_0_6px_-2px_rgba(0,0,0,0.06)] whitespace-nowrap">
                       <div className="font-medium text-ink truncate max-w-[180px]">
                         {emp.designation}
                       </div>
@@ -306,7 +383,7 @@ export function DynamicCalendarGrid({
                     {/* Date Shift Cells */}
                     {dates.map((date) => {
                       const code = empGrid[date.dateStr] || "";
-                      const cal = code ? CALENDAR_CODE_MAP.get(code) : undefined;
+                      const cal = code ? byCode.get(code) : undefined;
                       const isCellActive =
                         activeCell?.employeeId === emp.id &&
                         activeCell?.dateStr === date.dateStr;
@@ -322,13 +399,16 @@ export function DynamicCalendarGrid({
                         >
                           <button
                             type="button"
-                            onClick={() =>
+                            disabled={readOnly}
+                            onClick={() => {
+                              if (readOnly) return;
+                              setRowMenu(null);
                               setActiveCell(
                                 isCellActive
                                   ? null
                                   : { employeeId: emp.id, dateStr: date.dateStr },
-                              )
-                            }
+                              );
+                            }}
                             className="w-full h-9 flex items-center justify-center font-bold text-xs transition-all hover:bg-hover/80 hover:z-10 focus:z-10 focus:outline-none"
                             title={
                               code
@@ -371,9 +451,9 @@ export function DynamicCalendarGrid({
                               </div>
 
                               <div className="grid grid-cols-3 gap-1 mb-2">
-                                {CALENDAR_DEFINITIONS.map((c) => (
+                                {forOffice(emp.officeName).map((c) => (
                                   <button
-                                    key={c.shortCode}
+                                    key={c.id}
                                     type="button"
                                     onClick={() => {
                                       onCellChange(emp.id, date.dateStr, c.shortCode);
@@ -394,14 +474,9 @@ export function DynamicCalendarGrid({
                                 ))}
                               </div>
 
-                              {cal && cal.startTime !== "-" && (
-                                <div className="text-[9px] text-ink-faint bg-canvas p-1.5 rounded border border-line/60">
-                                  <div>
-                                    Time: <strong className="text-ink">{cal.startTime} - {cal.endTime}</strong>
-                                  </div>
-                                  <div>
-                                    Grace: <strong className="text-ink">{cal.graceTime}</strong> | Break: <strong className="text-ink">{cal.breakStartTime}-{cal.breakEndTime}</strong>
-                                  </div>
+                              {cal && (
+                                <div className="rounded border border-line/60 bg-canvas p-1.5">
+                                  <CalendarQuickDetails calendar={cal} compact />
                                 </div>
                               )}
                             </div>
@@ -459,6 +534,65 @@ export function DynamicCalendarGrid({
           </tbody>
         </table>
       </div>
+
+      {/* Row-wise assign menu */}
+      {rowMenu && rowMenuEmployee && (
+        <div
+          ref={popoverRef}
+          role="menu"
+          aria-label={`Assign shift for ${rowMenuEmployee.name}`}
+          style={{ position: "fixed", top: rowMenu.top, left: rowMenu.left }}
+          className="z-[60] w-60 rounded-lg border border-line bg-surface p-2 text-left shadow-2xl"
+        >
+          <div className="mb-1.5 border-b border-line pb-1.5">
+            <div className="text-[11px] font-bold text-ink truncate">{rowMenuEmployee.name}</div>
+            <div className="text-[10px] text-ink-muted">
+              Assign one shift to every date ({dates[0]?.dateStr ?? ""} – {dates[dates.length - 1]?.dateStr ?? ""})
+            </div>
+          </div>
+          <label className="flex cursor-pointer items-center gap-1.5 px-1 py-1 text-[11px] text-ink">
+            <input
+              type="checkbox"
+              checked={rowSkipWeekends}
+              onChange={(e) => setRowSkipWeekends(e.target.checked)}
+              className="size-3 accent-primary"
+            />
+            Skip Fridays
+          </label>
+          <div className="max-h-56 space-y-0.5 overflow-y-auto">
+            {forOffice(rowMenuEmployee.officeName).map((c) => (
+              <button
+                key={c.id}
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  onRowBulkAssign(rowMenuEmployee.id, c.shortCode, rowSkipWeekends);
+                  setRowMenu(null);
+                }}
+                className="flex w-full items-center gap-2 rounded px-1.5 py-1 text-xs text-ink hover:bg-hover"
+              >
+                <span className={`flex h-5 min-w-[26px] items-center justify-center rounded border px-1 text-[10px] font-bold ${c.badgeBg} ${c.badgeText} ${c.badgeBorder}`}>
+                  {c.shortCode}
+                </span>
+                <span className="truncate">{c.calendarName}</span>
+                {c.startTime !== "-" && <span className="ml-auto shrink-0 text-[10px] text-ink-faint">{c.startTime}</span>}
+              </button>
+            ))}
+          </div>
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              onRowBulkAssign(rowMenuEmployee.id, "", false);
+              setRowMenu(null);
+            }}
+            className="mt-1.5 flex w-full items-center gap-1.5 rounded border-t border-line px-1.5 pt-1.5 pb-1 text-xs text-danger hover:bg-danger/10"
+          >
+            <Eraser className="size-3.5" aria-hidden="true" />
+            Clear this row
+          </button>
+        </div>
+      )}
 
       {/* Scroll Pagination Footer Bar */}
       <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 rounded-md border border-line bg-canvas text-xs text-ink-muted">

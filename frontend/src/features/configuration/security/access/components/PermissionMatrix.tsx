@@ -50,6 +50,9 @@ export function TriCheckbox({ checked, mixed, disabled, label, onChange }: { che
   );
 }
 
+/** Header cells stick to the top of the scroll box; the shadow draws the header rule (collapsed borders scroll away). */
+const HEAD_CELL = "sticky top-0 bg-grid-head py-2 align-bottom shadow-[inset_0_-2px_0_var(--grid-head-rule)]";
+
 const SOURCE_TEXT = { group: "From group", allow: "Allowed individually", deny: "Denied individually", none: "Not granted", master: "Master account" } as const;
 
 export function PermissionMatrix(props: Props) {
@@ -135,8 +138,23 @@ export function PermissionMatrix(props: Props) {
 
   // ── Cells ──
   function renderCell(f: PermissionFeature, a: PermissionAction) {
-    if (!f.actions.includes(a)) return <span className="text-ink-faint" aria-hidden="true">—</span>;
     const label = `${ACTION_LABELS[a]} · ${f.moduleLabel} › ${f.label}`;
+    if (!f.actions.includes(a)) {
+      // Action not applicable to this page — render a disabled placeholder so the grid stays uniform.
+      if (props.mode === "grant") {
+        return (
+          <input
+            type="checkbox"
+            aria-label={`${label} (not applicable)`}
+            title="This action does not apply to this page."
+            checked={false}
+            disabled
+            className="size-4 cursor-not-allowed opacity-20"
+          />
+        );
+      }
+      return <span className="inline-block size-6" aria-hidden="true" />;
+    }
     if (props.mode === "grant") {
       const allowed = can(f, a);
       return (
@@ -258,23 +276,59 @@ export function PermissionMatrix(props: Props) {
         </p>
       )}
 
-      <div className="overflow-x-auto rounded border border-grid-line">
+      {/* The grid scrolls inside this box (both ways), so the action header and the Module / Page column stay fixed. */}
+      <div className="max-h-[calc(100dvh-13rem)] min-h-80 overflow-auto rounded border border-grid-line">
         <table className="w-full min-w-max border-collapse text-[12px]">
-          <thead className="border-b-2 border-grid-head-rule bg-grid-head text-[11px] tracking-wide text-grid-head-ink uppercase">
+          <thead className="text-[11px] tracking-wide text-grid-head-ink uppercase">
             <tr>
-              <th scope="col" className="sticky left-0 z-10 min-w-64 bg-grid-head px-2.5 py-2 text-left">
-                Module / Page
+              <th scope="col" className={cn(HEAD_CELL, "left-0 z-30 min-w-64 px-2.5 text-left")}>
+                <span className="flex flex-col gap-1">
+                  <span>Module / Page</span>
+                  {props.mode === "grant" && <span className="text-[10px] font-medium tracking-normal normal-case opacity-80">Tick a column to select it on every page</span>}
+                </span>
               </th>
-              {columns.map((a) => (
-                <th key={a} scope="col" className="w-20 px-1.5 py-2 text-center">
-                  {ACTION_LABELS[a]}
-                </th>
-              ))}
-              {props.mode === "grant" && (
-                <th scope="col" className="w-14 px-1.5 py-2 text-center">
-                  All
-                </th>
-              )}
+              {columns.map((a) => {
+                const allFeatures = visibleModules.flatMap((m) => m.features).filter((f) => f.actions.includes(a));
+                const on = allFeatures.filter((f) => granted(f, a)).length;
+                return (
+                  <th key={a} scope="col" className={cn(HEAD_CELL, "z-20 w-20 px-1.5 text-center")}>
+                    <span className="flex flex-col items-center gap-1">
+                      <span className="leading-tight">{ACTION_LABELS[a]}</span>
+                      {props.mode === "grant" && (
+                        <label className="flex size-6 cursor-pointer items-center justify-center">
+                          <TriCheckbox
+                            label={`${ACTION_LABELS[a]} on every page${needle || filter !== "all" ? " shown" : ""}`}
+                            checked={allFeatures.length > 0 && on === allFeatures.length}
+                            mixed={on > 0 && on < allFeatures.length}
+                            disabled={readOnly || allFeatures.length === 0}
+                            onChange={(checked) => setGrant(allFeatures, a, checked)}
+                          />
+                        </label>
+                      )}
+                    </span>
+                  </th>
+                );
+              })}
+              {props.mode === "grant" && (() => {
+                const allFeatures = visibleModules.flatMap((m) => m.features);
+                const allPermissions = allFeatures.flatMap((f) => f.actions.map((a) => granted(f, a)));
+                return (
+                  <th scope="col" className={cn(HEAD_CELL, "z-20 w-14 px-1.5 text-center")}>
+                    <span className="flex flex-col items-center gap-1">
+                      <span>All</span>
+                      <label className="flex size-6 cursor-pointer items-center justify-center">
+                        <TriCheckbox
+                          label="Select all permissions across every page"
+                          checked={allPermissions.length > 0 && allPermissions.every(Boolean)}
+                          mixed={allPermissions.some(Boolean) && !allPermissions.every(Boolean)}
+                          disabled={readOnly}
+                          onChange={(checked) => setGrant(allFeatures, "all", checked)}
+                        />
+                      </label>
+                    </span>
+                  </th>
+                );
+              })()}
             </tr>
           </thead>
           <tbody>

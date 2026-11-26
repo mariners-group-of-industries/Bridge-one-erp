@@ -11,6 +11,7 @@ import {
   FileSpreadsheet,
   CheckCircle,
 } from "lucide-react";
+import { NativeDateInput } from "@/components/ui/date-input";
 
 type PosReportTabId =
   | "INVENTORY_REPORT"
@@ -205,34 +206,36 @@ export default function PosReportsPage() {
       )}
 
       {/* Page Title & Subtitle */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100">
-            {currentTab.pageTitle}
-          </h1>
-          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-            BridgeOne POS Retail & Restaurant Intelligence Hub
-          </p>
-        </div>
+      <div data-sticky-head className="sticky top-14 z-20 -mx-4 -mt-4 px-4 pt-4 pb-3 sm:-mx-6 sm:-mt-6 sm:px-6 sm:pt-6 bg-white dark:bg-slate-950">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <div>
+            <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100">
+              {currentTab.pageTitle}
+            </h1>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+              BridgeOne POS Retail & Restaurant Intelligence Hub
+            </p>
+          </div>
 
-        {/* Action Buttons (EXCEL | PRINT/PDF) */}
-        <div className="flex items-center gap-2.5">
-          <button
-            type="button"
-            onClick={handleExportExcel}
-            className="flex items-center gap-1.5 rounded border border-[#0d6efd] bg-white dark:bg-slate-900 hover:bg-blue-50 dark:hover:bg-slate-800 px-3.5 py-1.5 text-xs font-bold text-[#0d6efd] uppercase transition-colors cursor-pointer shadow-2xs"
-          >
-            <FileSpreadsheet className="size-3.5" />
-            <span>EXCEL</span>
-          </button>
-          <button
-            type="button"
-            onClick={handlePrint}
-            className="flex items-center gap-1.5 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 px-3.5 py-1.5 text-xs font-bold text-slate-700 dark:text-slate-200 uppercase transition-colors cursor-pointer shadow-2xs"
-          >
-            <Printer className="size-3.5" />
-            <span>PRINT / PDF</span>
-          </button>
+          {/* Action Buttons (EXCEL | PRINT/PDF) */}
+          <div className="flex items-center gap-2.5">
+            <button
+              type="button"
+              onClick={handleExportExcel}
+              className="flex items-center gap-1.5 rounded border border-[#0d6efd] bg-white dark:bg-slate-900 hover:bg-blue-50 dark:hover:bg-slate-800 px-3.5 py-1.5 text-xs font-bold text-[#0d6efd] uppercase transition-colors cursor-pointer shadow-2xs"
+            >
+              <FileSpreadsheet className="size-3.5" />
+              <span>EXCEL</span>
+            </button>
+            <button
+              type="button"
+              onClick={handlePrint}
+              className="flex items-center gap-1.5 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 px-3.5 py-1.5 text-xs font-bold text-slate-700 dark:text-slate-200 uppercase transition-colors cursor-pointer shadow-2xs"
+            >
+              <Printer className="size-3.5" />
+              <span>PRINT / PDF</span>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -289,7 +292,7 @@ export default function PosReportsPage() {
               From Date
             </label>
             <div className="relative flex items-center">
-              <input
+              <NativeDateInput
                 type="date"
                 value={fromDate}
                 onChange={(e) => setFromDate(e.target.value)}
@@ -305,7 +308,7 @@ export default function PosReportsPage() {
               To Date
             </label>
             <div className="relative flex items-center">
-              <input
+              <NativeDateInput
                 type="date"
                 value={toDate}
                 onChange={(e) => setToDate(e.target.value)}

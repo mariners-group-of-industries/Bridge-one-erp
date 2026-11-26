@@ -2,6 +2,7 @@ import type { Prisma } from "@/generated/prisma/client";
 import { badRequest, notFound } from "@/lib/api/errors";
 import { actorUserId, type Actor } from "@/lib/auth/actor";
 import { db } from "@/lib/prisma/client";
+import { decideAttendanceAdjustment, listAttendanceAdjustments } from "../../attendance/services/attendance.service";
 import { decideBonus, decideIncrement, listBonusRuns, listIncrements } from "../../compensation/server/compensation.service";
 import { grossOf } from "../../payroll/server/payroll.service";
 import { decideLeave, decideMovement, listLeaves, listMovements } from "../../self-service/leave-movement/server/leave-movement.service";
@@ -50,17 +51,50 @@ export async function policyGrid(actor: Actor, tab: PolicyTab, filter: PolicyFil
       };
     }
     case "salary": {
+      // Each employee's own salary structure (Employee › Salary): what Salary Generate pays.
       const list = await employees();
+      const amount = (v: Prisma.Decimal | null | undefined) => (v === null || v === undefined ? "—" : money(Number(v)));
+      const source = (option: string | undefined) =>
+        option === "structure-gross" || option === "structure-basic" ? "Employee structure" : option === "gross" ? "Gross only (split by the structure above)" : "—";
       return {
         configured: true,
-        columns: [...EMPLOYEE_COLS, col("salaryType", "Salary Type"), col("gross", "Gross Salary", "right"), col("mode", "Disbursement"), col("hold", "Salary Hold")],
-        rows: list.map((e) => ({
-          ...base(e),
-          salaryType: e.salary?.salaryType === "day-basis" ? "Day basis" : e.salary ? "Regular" : "Not set",
-          gross: money(grossOf(e.salary)),
-          mode: e.salary?.disbursementMode ?? "—",
-          hold: yesNo(e.holdSalary),
-        })),
+        note: "Salary structure of each employee from Employee › Salary. Salary Generate uses these amounts; a gross-only salary is split by the salary structure in force for the office.",
+        columns: [
+          ...EMPLOYEE_COLS,
+          col("designation", "Designation"),
+          col("salaryType", "Salary Type"),
+          col("source", "Structure"),
+          col("gross", "Gross Salary", "right"),
+          col("basic", "Basic", "right"),
+          col("houseRent", "House Rent", "right"),
+          col("medical", "Medical", "right"),
+          col("conveyance", "Conveyance", "right"),
+          col("mobile", "Mobile", "right"),
+          col("food", "Food", "right"),
+          col("extra", "Other", "right"),
+          col("mode", "Disbursement"),
+          col("hold", "Salary Hold"),
+        ],
+        rows: list.map((e) => {
+          const sal = e.salary;
+          const own = sal && sal.salaryOption !== "gross";
+          return {
+            ...base(e),
+            designation: e.designation ?? "—",
+            salaryType: sal?.salaryType === "day-basis" ? "Day basis" : sal ? "Regular" : "Not set",
+            source: source(sal?.salaryOption),
+            gross: money(grossOf(sal)),
+            basic: own ? amount(sal.sgBasic ?? sal.structBasic) : "—",
+            houseRent: own ? amount(sal.sgHouseRent) : "—",
+            medical: own ? amount(sal.sgMedical) : "—",
+            conveyance: own ? amount(sal.sgConveyance) : "—",
+            mobile: own ? amount(sal.sgMobile) : "—",
+            food: own ? amount(sal.sgFood) : "—",
+            extra: own ? amount(sal.sgExtra) : "—",
+            mode: sal?.disbursementMode ?? "—",
+            hold: yesNo(e.holdSalary),
+          };
+        }),
       };
     }
     case "bonus": {
@@ -220,6 +254,30 @@ const money2 = (value: number) => value.toFixed(2);
 export async function pendingApprovals(actor: Actor, kind: PendingKind): Promise<PendingList> {
   requireHr(actor);
   switch (kind) {
+    case "attendance": {
+      const rows = await listAttendanceAdjustments(actor, "Pending");
+      return {
+        columns: [
+          col("employee", "Employee"),
+          col("date", "Date"),
+          col("current", "Current Status"),
+          col("requested", "Requested Status"),
+          col("time", "In / Out"),
+          col("remarks", "Remarks"),
+          col("by", "Requested By"),
+        ],
+        rows: rows.map((r) => ({
+          id: r.id,
+          employee: `${r.employeeCode} — ${r.employeeName}`,
+          date: r.date,
+          current: r.originalStatus ?? "—",
+          requested: r.requestedStatus,
+          time: r.inTime || r.outTime ? `${r.inTime ?? "—"} / ${r.outTime ?? "—"}` : "—",
+          remarks: r.remarks ?? "—",
+          by: r.requestedBy ?? "—",
+        })),
+      };
+    }
     case "leave": {
       const rows = (await listLeaves(actor)).filter((r) => r.status === "Pending");
       return {
@@ -294,6 +352,6 @@ export async function pendingApprovals(actor: Actor, kind: PendingKind): Promise
 
 export async function decidePending(actor: Actor, kind: PendingKind, id: string, status: "Approved" | "Rejected") {
   requireHr(actor);
-  const decide = { leave: decideLeave, movement: decideMovement, bonus: decideBonus, increment: decideIncrement }[kind];
+  const decide = { attendance: decideAttendanceAdjustment, leave: decideLeave, movement: decideMovement, bonus: decideBonus, increment: decideIncrement }[kind];
   await decide(actor, id, status);
 }

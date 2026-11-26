@@ -1,6 +1,6 @@
-import { salesLayers, transferLayer } from "@/features/rtm/server/field.service";
+import { createLayerTransfer, listLayerTransfers } from "@/features/rtm/server/field.service";
 import { get, write } from "@/features/rtm/server/routes";
 
-/** Sales layers with their employees; POST moves an employee or outlets. */
-export const GET = get((actor) => salesLayers(actor));
-export const POST = write((actor, body) => transferLayer(actor, body));
+/** Sales layer transfers (?status&layerLevel&type&from&to); POST raises one for approval. */
+export const GET = get((actor, q) => listLayerTransfers(actor, q));
+export const POST = write((actor, body) => createLayerTransfer(actor, body), 201);

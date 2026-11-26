@@ -3,10 +3,10 @@
 import { ArrowLeft, Printer } from "lucide-react";
 import Link from "next/link";
 import { Button, buttonClasses } from "@/components/ui/button";
+import { PrintFrame, PrintPageFooter } from "@/components/ui/print-frame";
 import { ErrorState, LoadingState } from "@/components/ui/section";
 import { useResource } from "@/hooks/use-resource";
 import { errorMessage } from "@/lib/api/client";
-import { formatDateTime } from "@/lib/format";
 import { formatAmount, formatQty } from "../../dashboard/lib/format";
 import { amountInWords } from "../../lib/amount-in-words";
 import { formatDay } from "../../lib/use-today";
@@ -87,6 +87,7 @@ function ChallanOrInvoice({ delivery, doc }: { delivery: DeliveryDetail; doc: Ex
   const priced = doc === "invoice";
   const altTotal = delivery.lines.reduce((sum, line) => sum + (altQty(line.qty, line.altUomFactor) ?? 0), 0);
   return (
+    <PrintFrame>
     <article className="mx-auto flex max-w-[210mm] flex-col gap-4 px-6 pb-10 text-[11px] leading-snug print:px-0 print:pb-0">
       {doc === "challan-plain" ? (
         // Pre-printed letterhead: leave room for it and print only the title.
@@ -223,14 +224,16 @@ function ChallanOrInvoice({ delivery, doc }: { delivery: DeliveryDetail; doc: Ex
           </p>
         ))}
       </footer>
-      <p className="text-right text-[9px] text-ink-faint">Printed {formatDateTime(new Date())}</p>
+      <PrintPageFooter />
     </article>
+    </PrintFrame>
   );
 }
 
 /** NBR Mushak-6.3 tax invoice layout (seller/buyer BIN, per-line SD and VAT). */
 function Mushak({ delivery }: { delivery: DeliveryDetail }) {
   return (
+    <PrintFrame>
     <article className="mx-auto flex max-w-[210mm] flex-col gap-3 px-6 pb-10 text-[10.5px] leading-snug print:px-0 print:pb-0">
       <header className="flex items-start justify-between">
         <div className="w-24" />
@@ -326,7 +329,8 @@ function Mushak({ delivery }: { delivery: DeliveryDetail }) {
         </div>
         <p className="w-48 border-t border-line-strong pt-1 text-center">Signature</p>
       </footer>
-      <p className="text-right text-[9px] text-ink-faint">Printed {formatDateTime(new Date())}</p>
+      <PrintPageFooter />
     </article>
+    </PrintFrame>
   );
 }

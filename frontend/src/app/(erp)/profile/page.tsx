@@ -5,6 +5,7 @@ import { User, Lock, Phone, BadgeCheck, Calendar, ShieldCheck } from "lucide-rea
 import { PageContainer, PageHead } from "@/components/layout/page";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
+import { formatDate } from "@/lib/format";
 
 interface Profile {
   id: string;
@@ -92,7 +93,7 @@ export default function ProfilePage() {
   return (
     <>
       <PageHead title="My Profile" subtitle="View and update your account information." />
-      <PageContainer>
+      <PageContainer full>
         <div className="mt-4 grid gap-6 lg:grid-cols-3">
 
           {/* Avatar card */}
@@ -107,7 +108,7 @@ export default function ProfilePage() {
             <div className="w-full space-y-2.5 border-t border-line pt-4 text-sm">
               <InfoRow icon={<BadgeCheck />} label="Role" value={profile.role} />
               {profile.isMaster && <InfoRow icon={<ShieldCheck />} label="Access" value="Master Account" />}
-              <InfoRow icon={<Calendar />} label="Member since" value={new Date(profile.createdAt).toLocaleDateString()} />
+              <InfoRow icon={<Calendar />} label="Member since" value={formatDate(profile.createdAt)} />
               {profile.lastLoginAt && (
                 <InfoRow icon={<Calendar />} label="Last login" value={new Date(profile.lastLoginAt).toLocaleString()} />
               )}

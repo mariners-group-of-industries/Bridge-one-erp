@@ -15,8 +15,11 @@ export interface DialogProps {
   footer?: ReactNode;
   /** When set, the dialog body is a form and the footer's submit button triggers this. */
   onSubmit?: (event: FormEvent<HTMLFormElement>) => void;
-  size?: "md" | "lg" | "xl";
+  /** "2xl" fits wide entry forms (iBOS-style item grids). */
+  size?: "md" | "lg" | "xl" | "2xl";
   className?: string;
+  /** Extra classes for the title (e.g. a larger title on report-style dialogs). */
+  titleClassName?: string;
 }
 
 /**
@@ -36,6 +39,7 @@ export function Dialog({
   onSubmit,
   size = "md",
   className,
+  titleClassName,
 }: DialogProps) {
   const ref = useRef<HTMLDialogElement>(null);
   const titleId = useId();
@@ -68,7 +72,7 @@ export function Dialog({
       <div className="mb-4 flex items-center gap-3 border-b border-line bg-canvas px-5 py-3">
         <div className="flex flex-1 flex-col gap-0.5">
           {title && (
-            <h2 id={titleId} className="text-sm font-bold tracking-tight text-ink">
+            <h2 id={titleId} className={cn("text-sm font-bold tracking-tight text-ink", titleClassName)}>
               {title}
             </h2>
           )}
@@ -78,7 +82,7 @@ export function Dialog({
           <X className="size-4" />
         </Button>
       </div>
-      <div className={cn("overflow-x-hidden overflow-y-auto px-5 pb-4", size === "xl" ? "max-h-[75vh]" : "max-h-[65vh]")}>
+      <div className={cn("overflow-x-hidden overflow-y-auto px-5 pb-4", size === "xl" || size === "2xl" ? "max-h-[75vh]" : "max-h-[65vh]")}>
         {children}
       </div>
       {footer && <div className="flex flex-wrap justify-end gap-2 border-t border-line bg-canvas px-5 py-3">{footer}</div>}
@@ -112,7 +116,7 @@ export function Dialog({
       className={cn(
         // The body scrolls, not the <dialog> itself (avoids a second scrollbar).
         "m-auto w-[calc(100%-2rem)] overflow-hidden rounded-lg border border-line bg-surface p-0 text-ink shadow-dropdown backdrop:bg-slate-900/50",
-        size === "xl" ? "max-w-5xl" : size === "lg" ? "max-w-2xl" : "max-w-lg",
+        size === "2xl" ? "max-w-7xl" : size === "xl" ? "max-w-5xl" : size === "lg" ? "max-w-2xl" : "max-w-lg",
         className,
       )}
     >

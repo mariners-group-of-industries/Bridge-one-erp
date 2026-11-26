@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import {
+  ArrowLeft,
   Bell,
   Building2,
   ChevronDown,
@@ -19,12 +20,16 @@ import {
   User,
 } from "lucide-react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Kbd } from "@/components/ui/kbd";
+import { useResource } from "@/hooks/use-resource";
+import { apiRequest } from "@/lib/api/client";
+import type { EssNotifications } from "@/features/ess/types";
 import { useSession } from "@/lib/auth/session";
 import { applyTheme, readTheme } from "@/lib/theme";
 import { cn } from "@/lib/cn";
+import { formatDateTime } from "@/lib/format";
 
 interface NavbarProps {
   onToggleSidebar: () => void;
@@ -39,10 +44,14 @@ export function Navbar({ onToggleSidebar, sidebarHidden, onOpenSearch }: NavbarP
   const [favOpen, setFavOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [qrOpen, setQrOpen] = useState(false);
+  // Personal notifications of this login (Employee Self Service), refreshed every minute.
+  const notifications = useResource(user ? "navbar-notifications" : null, () => apiRequest<EssNotifications>("/api/ess/notifications?limit=6"), { refreshInterval: 60_000, refreshOnFocus: true });
+  const markRead = (id: string) => apiRequest("/api/ess/notifications/read", { method: "POST", body: JSON.stringify({ id }) }).then(notifications.reload, () => undefined);
+  const markAllRead = () => apiRequest("/api/ess/notifications/read", { method: "POST", body: JSON.stringify({}) }).then(notifications.reload, () => undefined);
 
   function handleLogout() {
-    logout();
-    router.push("/login");
+    // logout() ends the session on the server, then loads the sign-in page itself.
+    void logout();
   }
 
   return (
@@ -55,6 +64,8 @@ export function Navbar({ onToggleSidebar, sidebarHidden, onOpenSearch }: NavbarP
         <PanelLeft className="size-4" />
       </NavIconBtn>
 
+      <BackButton />
+
       {/* Logo */}
       <Link href="/" className="flex shrink-0 items-center rounded-lg px-1 focus-visible:outline-2" title="BridgeOne ERP">
         <Image
@@ -62,16 +73,19 @@ export function Navbar({ onToggleSidebar, sidebarHidden, onOpenSearch }: NavbarP
           width={8452}
           height={1738}
           alt="BridgeOne"
-          className="h-7 w-auto max-w-[140px] object-contain"
+          loading="eager"
+          className="h-6 w-auto max-w-[104px] object-contain sm:h-7 sm:max-w-[140px]"
         />
       </Link>
 
-      <div className="ml-auto flex items-center gap-0.5">
+      {/* On phones only search, notifications, business unit and profile stay; the rest are on wider screens (theme is also in the profile menu). */}
+      <div className="ml-auto flex min-w-0 items-center gap-0.5">
         {/* Search bar */}
         <button
           type="button"
           onClick={onOpenSearch}
-          className="mr-1 flex h-8 w-48 items-center gap-2 rounded-lg border border-accent-line bg-accent-soft px-3 text-sm text-ink-faint hover:bg-control focus-visible:outline-2 sm:w-56"
+          aria-label="Search"
+          className="flex size-11 shrink-0 items-center justify-center gap-2 rounded-lg border border-accent-line bg-accent-soft text-sm text-ink-faint hover:bg-control focus-visible:outline-2 sm:mr-1 sm:h-8 sm:w-56 sm:justify-start sm:px-3"
         >
           <Search className="size-3.5 shrink-0 text-accent" />
           <span className="hidden flex-1 text-left sm:inline">Search…</span>
@@ -80,18 +94,61 @@ export function Navbar({ onToggleSidebar, sidebarHidden, onOpenSearch }: NavbarP
 
         {/* Notification */}
         <div className="relative">
-          <NavIconBtn aria-label="Notifications" onClick={() => setNotifOpen((v) => !v)}>
+          <NavIconBtn
+            aria-label={notifications.data?.unread ? `Notifications, ${notifications.data.unread} unread` : "Notifications"}
+            aria-expanded={notifOpen}
+            onClick={() => setNotifOpen((v) => !v)}
+          >
             <Bell className="size-4" />
-            <span className="absolute top-1 right-1 size-1.5 rounded-full bg-danger" />
+            {!!notifications.data?.unread && (
+              <span aria-hidden="true" className="absolute top-1.5 right-1.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-danger px-0.5 text-[9px] leading-none font-bold text-white sm:top-0.5 sm:right-0.5">
+                {notifications.data.unread > 9 ? "9+" : notifications.data.unread}
+              </span>
+            )}
           </NavIconBtn>
           {notifOpen && (
-            <Popover onClose={() => setNotifOpen(false)} className="right-0 w-72">
-              <p className="px-4 py-3 text-sm font-semibold text-ink border-b border-line">Notifications</p>
-              <p className="px-4 py-6 text-center text-sm text-ink-faint">No new notifications.</p>
+            <Popover onClose={() => setNotifOpen(false)} className="right-0 w-80">
+              <div className="flex items-center justify-between gap-2 border-b border-line px-4 py-2">
+                <p className="text-sm font-semibold text-ink">Notifications</p>
+                {!!notifications.data?.unread && (
+                  <button type="button" onClick={() => void markAllRead()} className="min-h-6 rounded px-1.5 text-xs font-medium text-accent-strong hover:bg-accent-soft focus-visible:outline-2 dark:text-accent">
+                    Mark all read
+                  </button>
+                )}
+              </div>
+              {!notifications.data?.items.length ? (
+                <p className="px-4 py-6 text-center text-sm text-ink-faint">{notifications.loading && !notifications.data ? "Loading…" : "No notifications yet."}</p>
+              ) : (
+                <ul className="max-h-80 overflow-y-auto py-1">
+                  {notifications.data.items.map((item) => (
+                    <li key={item.id}>
+                      <Link
+                        href={item.link ?? "/employee/notifications"}
+                        onClick={() => {
+                          setNotifOpen(false);
+                          if (!item.read) void markRead(item.id);
+                        }}
+                        className="flex gap-2.5 px-4 py-2 hover:bg-control focus-visible:outline-2"
+                      >
+                        <span aria-hidden="true" className={cn("mt-1.5 size-1.5 shrink-0 rounded-full", item.read ? "bg-transparent" : "bg-accent-strong dark:bg-accent")} />
+                        <span className="min-w-0 flex-1">
+                          <span className={cn("block truncate text-[13px]", item.read ? "text-ink-muted" : "font-semibold text-ink")}>{item.title}</span>
+                          {item.body && <span className="line-clamp-2 text-xs text-ink-faint">{item.body}</span>}
+                          <span className="text-[11px] text-ink-faint">{formatDateTime(item.createdAt)}</span>
+                        </span>
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <Link href="/employee/notifications" onClick={() => setNotifOpen(false)} className="block border-t border-line px-4 py-2.5 text-center text-xs font-semibold text-accent-strong hover:bg-control focus-visible:outline-2 dark:text-accent">
+                View all notifications
+              </Link>
             </Popover>
           )}
         </div>
 
+        <div className="hidden items-center gap-0.5 sm:flex">
         {/* Report Issue */}
         <NavIconBtn aria-label="Report issue" onClick={() => alert("Report issue — coming soon.")}>
           <Flag className="size-4" />
@@ -142,11 +199,12 @@ export function Navbar({ onToggleSidebar, sidebarHidden, onOpenSearch }: NavbarP
         </NavIconBtn>
 
         <div className="mx-1 h-5 w-px bg-line" />
+        </div>
 
         {/* Business unit switcher */}
         <BusinessUnitSwitcher />
 
-        <div className="mx-1 h-5 w-px bg-line" />
+        <div className="mx-1 hidden h-5 w-px bg-line sm:block" />
 
         {/* Profile */}
         <div className="relative">
@@ -154,13 +212,13 @@ export function Navbar({ onToggleSidebar, sidebarHidden, onOpenSearch }: NavbarP
             type="button"
             aria-label="Profile menu"
             onClick={() => setProfileOpen((v) => !v)}
-            className="flex items-center gap-1.5 rounded-lg px-2 py-1 text-sm hover:bg-control focus-visible:outline-2"
+            className="flex min-h-11 items-center gap-1.5 rounded-lg px-2 py-1 text-sm hover:bg-control focus-visible:outline-2 sm:min-h-0"
           >
             <span className="flex size-7 items-center justify-center rounded-full bg-accent-strong text-xs font-semibold text-white">
               {user?.initials ?? "?"}
             </span>
             <span className="hidden max-w-24 truncate text-sm text-ink sm:inline">{user?.name ?? "Guest"}</span>
-            <ChevronDown className="size-3 text-ink-faint" />
+            <ChevronDown className="hidden size-3 text-ink-faint sm:block" aria-hidden />
           </button>
 
           {profileOpen && (
@@ -209,11 +267,12 @@ function BusinessUnitSwitcher() {
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="flex items-center gap-1.5 rounded-lg px-2 py-1 hover:bg-control focus-visible:outline-2"
+        aria-label="Business unit"
+        className="flex min-h-11 min-w-11 items-center justify-center gap-1.5 rounded-lg px-2 py-1 hover:bg-control focus-visible:outline-2 sm:min-h-0 sm:min-w-0"
       >
         <Building2 className="size-4 text-ink-faint" />
         <span className="hidden max-w-28 truncate text-sm text-ink sm:inline">{selected.name}</span>
-        <ChevronDown className="size-3 text-ink-faint" />
+        <ChevronDown className="hidden size-3 text-ink-faint sm:block" aria-hidden />
       </button>
       {open && (
         <Popover onClose={() => setOpen(false)} className="right-0 w-56">
@@ -240,12 +299,34 @@ function BusinessUnitSwitcher() {
   );
 }
 
+/**
+ * Back on every page: the previous page in this tab, or Home when the page was
+ * opened directly (new tab, bookmark, link). Hidden on Home itself.
+ */
+function BackButton() {
+  const router = useRouter();
+  const pathname = usePathname();
+  if (pathname === "/") return null;
+  return (
+    <button
+      type="button"
+      aria-label="Go back"
+      title="Back (Alt+←)"
+      onClick={() => (window.history.length > 1 ? router.back() : router.push("/"))}
+      className="flex h-11 min-w-11 shrink-0 items-center justify-center gap-1 rounded-lg px-1.5 text-ink-faint transition-colors hover:bg-control hover:text-ink focus-visible:outline-2 sm:h-8 sm:min-w-8 sm:pr-2.5"
+    >
+      <ArrowLeft className="size-4" aria-hidden="true" />
+      <span className="hidden text-xs font-medium sm:inline">Back</span>
+    </button>
+  );
+}
+
 function NavIconBtn({ children, className, ...props }: React.ButtonHTMLAttributes<HTMLButtonElement>) {
   return (
     <button
       type="button"
       className={cn(
-        "relative flex size-8 items-center justify-center rounded-lg text-ink-faint transition-colors hover:bg-control hover:text-ink focus-visible:outline-2",
+        "relative flex size-11 shrink-0 items-center justify-center rounded-lg sm:size-8 text-ink-faint transition-colors hover:bg-control hover:text-ink focus-visible:outline-2",
         className,
       )}
       {...props}
@@ -269,7 +350,8 @@ function Popover({ children, onClose, className }: { children: ReactNode; onClos
   return (
     <div
       ref={ref}
-      className={cn("absolute top-full z-50 mt-1 rounded-lg border border-line bg-surface shadow-dropdown", className)}
+      // On phones the menu spans the screen under the bar, so a menu of a middle button cannot hang off the edge.
+      className={cn("absolute top-full z-50 mt-1 rounded-lg border border-line bg-surface shadow-dropdown max-sm:fixed max-sm:inset-x-2 max-sm:top-14 max-sm:w-auto", className)}
     >
       {children}
     </div>

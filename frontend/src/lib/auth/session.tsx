@@ -15,6 +15,10 @@ export interface SessionUser {
   isMaster?: boolean;
   /** Effective permission keys from /api/auth/me (["*"] = everything). */
   permissions?: string[];
+  /** ERP Login "Hide Stock In Sales": Sales screens do not show stock levels. */
+  hideStockInSales?: boolean;
+  /** The employee record linked to this login (Employee Self Service), if any. */
+  employee?: { code: string; name: string } | null;
 }
 
 interface SessionCtx {
@@ -31,12 +35,15 @@ interface SessionCtx {
 
 const Ctx = createContext<SessionCtx | null>(null);
 
+/** Sign-in, sign-out and session checks give up after this long instead of spinning forever. */
+const AUTH_TIMEOUT_MS = 20_000;
+
 export function SessionProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<SessionUser | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch("/api/auth/me")
+    fetch("/api/auth/me", { cache: "no-store", signal: AbortSignal.timeout(AUTH_TIMEOUT_MS) })
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => setUser(data ?? null))
       .catch(() => setUser(null))
@@ -44,11 +51,22 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, []);
 
   async function login(phone: string, password: string) {
-    const res = await fetch("/api/auth/login", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ phone, password }),
-    });
+    let res: Response;
+    try {
+      res = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone, password }),
+        cache: "no-store",
+        signal: AbortSignal.timeout(AUTH_TIMEOUT_MS),
+      });
+    } catch (err) {
+      throw new Error(
+        err instanceof DOMException && err.name === "TimeoutError"
+          ? "The server is taking too long to answer. Please try again."
+          : "Could not reach the server. Check your connection and try again.",
+      );
+    }
     let data;
     try {
       data = await res.json();
@@ -57,15 +75,21 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     }
     if (!res.ok) throw new Error(data?.error ?? "Login failed.");
     // The login response has no permissions; load them so menus and pages work without a reload.
-    const me = await fetch("/api/auth/me")
+    const me = await fetch("/api/auth/me", { cache: "no-store", signal: AbortSignal.timeout(AUTH_TIMEOUT_MS) })
       .then((r) => (r.ok ? r.json() : null))
       .catch(() => null);
     setUser((me ?? data) as SessionUser);
   }
 
+  /**
+   * Ends the session on the server first, then reloads the sign-in page. A full
+   * load drops every in-memory session and cached page of the signed-in user, so
+   * the sign-in page can never see the old cookie or state.
+   */
   async function logout() {
-    await fetch("/api/auth/logout", { method: "POST" });
+    await fetch("/api/auth/logout", { method: "POST", cache: "no-store", signal: AbortSignal.timeout(AUTH_TIMEOUT_MS) }).catch(() => undefined);
     setUser(null);
+    window.location.replace("/login");
   }
 
   const grants = useMemo(() => (user?.permissions ? grantsFromList(user.permissions) : NO_ACCESS), [user]);

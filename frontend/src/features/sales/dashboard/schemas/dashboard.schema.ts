@@ -11,7 +11,9 @@ export const dashboardQuerySchema = z
   .object({
     from: isoDate,
     to: isoDate,
-    businessUnitId: z.uuid().optional(),
+    businessUnitId: z.guid().optional(),
+    /** Only this office's sales, returns, collections and customers' dues. */
+    officeId: z.guid().optional(),
   })
   .refine((query) => query.from <= query.to, { error: "From Date must be on or before To Date.", path: ["to"] })
   .refine((query) => (Date.parse(query.to) - Date.parse(query.from)) / DAY_MS < MAX_RANGE_DAYS, {

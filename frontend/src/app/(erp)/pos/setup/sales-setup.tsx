@@ -15,6 +15,7 @@ import {
   Upload,
   Paperclip,
 } from "lucide-react";
+import { NativeDateInput } from "@/components/ui/date-input";
 
 type SalesSetupTab =
   | "SELLING_PRICE_UPDATE"
@@ -1369,7 +1370,7 @@ export function SalesSetupSection({ onBack }: SalesSetupSectionProps) {
                 <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
                   Start Time <span className="text-red-500">*</span>
                 </label>
-                <input
+                <NativeDateInput
                   type="datetime-local"
                   value={vatStartTime}
                   onChange={(e) => setVatStartTime(e.target.value)}
@@ -1381,7 +1382,7 @@ export function SalesSetupSection({ onBack }: SalesSetupSectionProps) {
                 <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
                   End Time <span className="text-red-500">*</span>
                 </label>
-                <input
+                <NativeDateInput
                   type="datetime-local"
                   value={vatEndTime}
                   onChange={(e) => setVatEndTime(e.target.value)}
@@ -1555,7 +1556,7 @@ export function SalesSetupSection({ onBack }: SalesSetupSectionProps) {
                 <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
                   From Date <span className="text-red-500">*</span>
                 </label>
-                <input
+                <NativeDateInput
                   type="date"
                   value={trgFromDate}
                   onChange={(e) => setTrgFromDate(e.target.value)}
@@ -1567,7 +1568,7 @@ export function SalesSetupSection({ onBack }: SalesSetupSectionProps) {
                 <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
                   To Date <span className="text-red-500">*</span>
                 </label>
-                <input
+                <NativeDateInput
                   type="date"
                   value={trgToDate}
                   onChange={(e) => setTrgToDate(e.target.value)}

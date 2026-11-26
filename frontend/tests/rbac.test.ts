@@ -34,7 +34,7 @@ import {
 import { AppError } from "@/lib/api/errors";
 import { requireActor, resolveActor, type Actor } from "@/lib/auth/actor";
 import { actionForRequest, checkApiAccess, ruleForRequest } from "@/lib/permissions/api-rules";
-import { featureForPath, grantsFromList, pathAllowed, permissionFeatures, PERMISSION_ADMIN_FEATURE } from "@/lib/permissions/registry";
+import { featureForPath, grantsFromList, pathAllowed, PERMISSION_ACTIONS, permissionFeatures, PERMISSION_ADMIN_FEATURE } from "@/lib/permissions/registry";
 import { resetTestDb, startTestDb, stopTestDb, testPrisma } from "./helpers/test-db";
 
 const ORDERS = "/sales/orders";
@@ -104,7 +104,8 @@ describe("permission registry and API rules", () => {
     const features = permissionFeatures();
     expect(new Set(features.map((f) => f.key)).size).toBe(features.length);
     expect(features.find((f) => f.key === ORDERS)).toMatchObject({ permKey: "sales.orders", moduleId: "sales", submodule: "Transactions" });
-    expect(features.find((f) => f.key === "/sales/dashboard")?.actions).toEqual(["view", "export"]);
+    expect(features.find((f) => f.key === "/sales/dashboard")?.actions).toEqual([...PERMISSION_ACTIONS]);
+    expect(features.every((f) => f.actions.length === PERMISSION_ACTIONS.length)).toBe(true);
     expect(features.find((f) => f.key === PERMISSION_ADMIN_FEATURE)?.actions).toContain("manage");
   });
 
@@ -229,7 +230,7 @@ describe("groups, overrides and effective permissions", () => {
     const g = await group({ [ORDERS]: ["view", "approve"], [JOURNAL]: [] });
     expect((await getPermissionGroup(MASTER, g.id)).grants).toEqual({ [ORDERS]: ["view", "approve"] });
     await expect(group({ "/nope": ["view"] })).rejects.toThrow(/Unknown page/);
-    await expect(group({ "/sales/dashboard": ["delete"] })).rejects.toThrow(/does not apply/);
+    await expect(group({ "/sales/dashboard": ["fly" as never] })).rejects.toThrow();
     const copy = await duplicatePermissionGroup(MASTER, g.id);
     expect(copy).toMatchObject({ name: `${g.name} (Copy)`, code: `${g.code}_COPY`, status: "INACTIVE", grants: { [ORDERS]: ["view", "approve"] } });
     const alice = await user();

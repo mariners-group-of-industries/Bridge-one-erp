@@ -19,9 +19,25 @@ export const ORDER_STATUS_LABELS: Record<OrderStatus, string> = {
 /** Rows per page of the order list, as in Managerium. */
 export const ORDER_PAGE_SIZES = [25, 50, 100, 200] as const;
 
-export const ORDER_TYPES = ["SALES", "SAMPLE", "EXPORT"] as const;
-export type OrderType = (typeof ORDER_TYPES)[number];
-export const ORDER_TYPE_LABELS: Record<OrderType, string> = { SALES: "Sales", SAMPLE: "Sample", EXPORT: "Export" };
+/** "Type" offered on the order and delivery forms, as in Managerium. */
+export const ORDER_TYPES = ["SALES", "SAMPLE", "GIFT", "RND", "WARRANTY", "REPLACEMENT", "SERVICE", "MOCK_UP", "OPENING", "PROJECT"] as const;
+/** EXPORT is no longer offered but old records may carry it. */
+export type OrderType = (typeof ORDER_TYPES)[number] | "EXPORT";
+/** Every stored type, for validation (an old EXPORT order can still be saved). */
+export const ALL_ORDER_TYPES = [...ORDER_TYPES, "EXPORT"] as const;
+export const ORDER_TYPE_LABELS: Record<OrderType, string> = {
+  SALES: "Sales",
+  SAMPLE: "Sample",
+  GIFT: "Gift",
+  RND: "R&D",
+  WARRANTY: "Warranty",
+  REPLACEMENT: "Replacement",
+  SERVICE: "Service",
+  MOCK_UP: "Mock Up",
+  OPENING: "Opening",
+  PROJECT: "Project",
+  EXPORT: "Export",
+};
 
 export const PAYMENT_METHODS = ["CASH", "CREDIT", "BANK", "CHEQUE", "MOBILE_BANKING"] as const;
 export type PaymentMethod = (typeof PAYMENT_METHODS)[number];
@@ -59,10 +75,10 @@ const money = (label: string) =>
   z.number({ error: `${label} must be a number.` }).min(0, `${label} cannot be negative.`).max(MAX_AMOUNT);
 const percent = (label: string) =>
   z.number({ error: `${label} must be a number.` }).min(0, `${label} cannot be negative.`).max(100, `${label} can be at most 100.`);
-const optionalId = z.uuid().nullish().transform((value) => value ?? null);
+const optionalId = z.guid().nullish().transform((value) => value ?? null);
 
 export const orderLineSchema = z.object({
-  itemId: z.uuid({ error: "Select an item." }),
+  itemId: z.guid({ error: "Select an item." }),
   qty: z.number({ error: "Quantity must be a number." }).gt(0, "Quantity must be more than 0.").max(MAX_AMOUNT),
   unitPrice: money("Unit price"),
   discountPercent: percent("Discount %"),
@@ -73,15 +89,15 @@ export type OrderLineInputValues = z.input<typeof orderLineSchema>;
 
 export const orderInputSchema = z
   .object({
-    officeId: z.uuid({ error: "Select an office." }),
-    customerId: z.uuid({ error: "Select a customer." }),
+    officeId: z.guid({ error: "Select an office." }),
+    customerId: z.guid({ error: "Select a customer." }),
     salesPersonId: optionalId,
     quotationId: optionalId,
     priceListId: optionalId,
     /** Custom Offer: apply only this offer; every applicable offer when empty. */
     offerId: optionalId,
     shipToAddressId: optionalId,
-    orderType: z.enum(ORDER_TYPES),
+    orderType: z.enum(ALL_ORDER_TYPES),
     paymentMethod: z.enum(PAYMENT_METHODS),
     orderDate: isoDate("Create date"),
     expectedDeliveryDate: isoDate("Exp. delivery date"),
@@ -137,7 +153,7 @@ export const orderActionSchema = z.object({
   today: z.iso.date(),
 });
 
-const optionalUuid = z.uuid().optional();
+const optionalUuid = z.guid().optional();
 export const orderListQuerySchema = z
   .object({
     officeId: optionalUuid,
@@ -154,7 +170,7 @@ export const orderListQuerySchema = z
     /** "Order By": the user who entered the order. */
     createdBy: z.string().trim().min(1).max(100).optional(),
     paymentMethod: z.enum(PAYMENT_METHODS).optional(),
-    orderType: z.enum(ORDER_TYPES).optional(),
+    orderType: z.enum(ALL_ORDER_TYPES).optional(),
     customerId: optionalUuid,
     /** SO no, customer name / code, customer PO or project/outlet. */
     search: z.string().trim().max(100).optional(),

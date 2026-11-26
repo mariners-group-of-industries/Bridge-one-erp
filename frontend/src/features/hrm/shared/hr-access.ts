@@ -29,13 +29,13 @@ export const officeScope = (actor: Actor): Prisma.OfficeWhereInput => (actor.com
 export const employeeScope = (actor: Actor): Prisma.EmployeeWhereInput => (actor.companyScope === "ALL" ? {} : { office: officeScope(actor) });
 
 export interface HrOptions {
-  offices: { id: string; name: string; businessUnit: string }[];
+  offices: { id: string; name: string; businessUnit: string; businessUnitId: string }[];
 }
 
 export async function hrOptions(actor: Actor): Promise<HrOptions> {
   requireHr(actor);
-  const offices = await db().office.findMany({ where: officeScope(actor), orderBy: { name: "asc" }, select: { id: true, name: true, businessUnit: { select: { name: true } } } });
-  return { offices: offices.map((o) => ({ id: o.id, name: o.name, businessUnit: o.businessUnit.name })) };
+  const offices = await db().office.findMany({ where: officeScope(actor), orderBy: { name: "asc" }, select: { id: true, name: true, businessUnitId: true, businessUnit: { select: { name: true } } } });
+  return { offices: offices.map((o) => ({ id: o.id, name: o.name, businessUnit: o.businessUnit.name, businessUnitId: o.businessUnitId })) };
 }
 
 /** Offices the actor may see, optionally narrowed to one. */

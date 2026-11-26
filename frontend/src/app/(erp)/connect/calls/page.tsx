@@ -11,6 +11,7 @@ import {
   Search,
   RefreshCw,
 } from "lucide-react";
+import { formatDateTime } from "@/lib/format";
 
 interface CallLogItem {
   id: string;
@@ -77,7 +78,7 @@ export default function BrgConnectCallsPage() {
             type: c.type?.toLowerCase() === "video" ? "video" : "audio",
             direction: c.status === "MISSED" ? "missed" : "outgoing",
             durationSec: c.durationSec || 0,
-            timestamp: new Date(c.startedAt).toLocaleString([], { dateStyle: "short", timeStyle: "short" }),
+            timestamp: formatDateTime(c.startedAt),
             quality: "Excellent",
           })
         );
@@ -119,43 +120,45 @@ export default function BrgConnectCallsPage() {
   return (
     <div className="p-6 space-y-6 max-w-7xl mx-auto">
       {/* Top Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-4 border-b border-line">
-        <div>
+      <div data-sticky-head className="sticky top-14 z-20 -mx-6 -mt-6 px-6 pt-6 pb-2 bg-canvas">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-4 border-b border-line">
+          <div>
+            <div className="flex items-center gap-2">
+              <Link
+                href="/connect"
+                className="text-xs text-blue-600 hover:underline font-semibold"
+              >
+                &larr; Back to Chat
+              </Link>
+            </div>
+            <h1 className="text-xl font-bold text-ink mt-1 flex items-center gap-2">
+              <PhoneCall className="size-5 text-emerald-600" />
+              <span>Calls &amp; Meetings History</span>
+            </h1>
+            <p className="text-xs text-ink-muted mt-0.5">
+              Enterprise WebRTC audio and video calling records stored in Neon PostgreSQL database.
+            </p>
+          </div>
+
           <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={fetchCalls}
+              disabled={isLoading}
+              className="h-8 px-2.5 rounded border border-line bg-surface hover:bg-control text-ink text-xs font-medium flex items-center gap-1.5 transition cursor-pointer"
+              title="Refresh database"
+            >
+              <RefreshCw className={`size-3.5 ${isLoading ? "animate-spin" : ""}`} />
+              <span>Sync DB</span>
+            </button>
             <Link
               href="/connect"
-              className="text-xs text-blue-600 hover:underline font-semibold"
+              className="h-8 px-3 rounded bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs flex items-center gap-1.5 transition"
             >
-              &larr; Back to Chat
+              <Phone className="size-3.5" />
+              <span>Start New Call</span>
             </Link>
           </div>
-          <h1 className="text-xl font-bold text-ink mt-1 flex items-center gap-2">
-            <PhoneCall className="size-5 text-emerald-600" />
-            <span>Calls &amp; Meetings History</span>
-          </h1>
-          <p className="text-xs text-ink-muted mt-0.5">
-            Enterprise WebRTC audio and video calling records stored in Neon PostgreSQL database.
-          </p>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={fetchCalls}
-            disabled={isLoading}
-            className="h-8 px-2.5 rounded border border-line bg-surface hover:bg-control text-ink text-xs font-medium flex items-center gap-1.5 transition cursor-pointer"
-            title="Refresh database"
-          >
-            <RefreshCw className={`size-3.5 ${isLoading ? "animate-spin" : ""}`} />
-            <span>Sync DB</span>
-          </button>
-          <Link
-            href="/connect"
-            className="h-8 px-3 rounded bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs flex items-center gap-1.5 transition"
-          >
-            <Phone className="size-3.5" />
-            <span>Start New Call</span>
-          </Link>
         </div>
       </div>
 

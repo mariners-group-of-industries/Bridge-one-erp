@@ -16,7 +16,7 @@ import { employeeApi } from "../services/employee.api";
 import { personalInfoApi } from "../services/personal-info.api";
 import { AccountSettingsSection } from "./AccountSettingsSection";
 import { ErpAccessSection } from "./ErpAccessSection";
-import { Field, FormGrid, Input, Panel, PanelSection, ReadValue, SaveState, Select, TextArea } from "./kit";
+import { AddableSelect, Field, FormGrid, Input, Panel, PanelSection, ReadValue, SaveState, Select, TextArea } from "./kit";
 
 function toForm(d: PersonalInfoDto): UpdatePersonalInfoInput {
   return {
@@ -51,6 +51,8 @@ function toForm(d: PersonalInfoDto): UpdatePersonalInfoInput {
     lineManager: d.lineManager ?? "",
   };
 }
+
+type AddableKey = "designation" | "hrPosition" | "department" | "departmentSection" | "serviceCategory" | "employeePolicy";
 
 /** Keeps the saved value selectable even when it is no longer in the option list. */
 const withCurrent = (list: string[] | undefined, current: string) => {
@@ -103,6 +105,24 @@ export function PersonalInfoTab({ employeeId, data, onSaved }: PersonalInfoTabPr
     </Field>
   );
 
+  // Free-text masters: pick a value already in use, or add a new one with +.
+  const [extra, setExtra] = useState<Partial<Record<AddableKey, string[]>>>({});
+  const addable = (key: AddableKey, label: string, list: string[] | undefined) => {
+    const options = withCurrent([...(list ?? []), ...(extra[key] ?? [])], v[key] ?? "");
+    return (
+      <AddableSelect
+        label={label}
+        error={e[key]}
+        value={v[key] ?? ""}
+        options={options}
+        onChange={(value) => {
+          set(key, value);
+          if (value && !options.includes(value)) setExtra((prev) => ({ ...prev, [key]: [...(prev[key] ?? []), value] }));
+        }}
+      />
+    );
+  };
+
   return (
     <div className="flex flex-col gap-4 pb-6">
       <Panel
@@ -140,13 +160,13 @@ export function PersonalInfoTab({ employeeId, data, onSaved }: PersonalInfoTabPr
               </Field>
               <ReadValue label="Attendance ID" value={data.attendanceId} />
               <ReadValue label="Office" value={data.officeName} />
-              {select("designation", "Designation", opts?.designations)}
-              {select("hrPosition", "HR Position", opts?.hrPositions)}
-              {select("department", "Department", opts?.departments)}
-              {select("departmentSection", "Department Section", opts?.departmentSections)}
+              {addable("designation", "Designation", opts?.designations)}
+              {addable("hrPosition", "HR Position", opts?.hrPositions)}
+              {addable("department", "Department", opts?.departments)}
+              {addable("departmentSection", "Department Section", opts?.departmentSections)}
               {select("employeeType", "Employee Type", opts?.employeeTypes)}
-              {select("serviceCategory", "Service Category", opts?.serviceCategories)}
-              {select("employeePolicy", "Employee Policy", opts?.employeePolicies)}
+              {addable("serviceCategory", "Service Category", opts?.serviceCategories)}
+              {addable("employeePolicy", "Employee Policy", opts?.employeePolicies)}
               <Field label="Location" error={e.location}>
                 {(id) => <Input id={id} value={v.location ?? ""} placeholder="City / Area" onChange={(ev) => set("location", ev.target.value)} />}
               </Field>

@@ -1,15 +1,37 @@
 import { NextResponse } from "next/server";
+import { AppError } from "@/lib/api/errors";
 import { apiHandler } from "@/lib/api/handler";
 import type { Actor } from "@/lib/auth/actor";
 import { purchaseStore } from "@/lib/purchase-store/store";
 import {
   approvePendingSupplierBills,
   approveSupplierBill,
+  cancelSupplierBill,
   createSupplierBill,
   listPaymentHistory,
+  listSupplierAdvanceDetails,
   listSupplierAdvances,
   listSupplierBills,
 } from "@/lib/purchase-store/payables";
+import {
+  goodsReceiptPdf,
+  payablesDueListPdf,
+  purchaseOrderPdf,
+  purchaseReportPdf,
+  purchaseReturnPdf,
+  requisitionPdf,
+  supplierPaymentPdf,
+} from "@/lib/purchase-store/purchase-pdf";
+
+function pdfResponse(filename: string, bytes: Uint8Array, searchParams: URLSearchParams) {
+  const disposition = searchParams.has("download") ? "attachment" : "inline";
+  return new Response(Buffer.from(bytes), {
+    headers: {
+      "Content-Type": "application/pdf",
+      "Content-Disposition": `${disposition}; filename="${encodeURIComponent(filename)}"`,
+    },
+  });
+}
 import {
   CreateRequisitionSchema,
   CreatePurchaseOrderSchema,
@@ -18,23 +40,39 @@ import {
   ReportQuerySchema,
 } from "@bridgeone/contracts";
 
+/** Client-facing error: business-rule messages keep their status; Zod issues are made readable. */
+function errorResponse(err: unknown, fallbackStatus: number) {
+  if (err instanceof AppError) return NextResponse.json({ error: { code: err.code, message: err.message } }, { status: err.status });
+  // Contracts are validated with their own zod copy, so match the error by shape.
+  const issues = (err as { name?: string; issues?: { path?: (string | number)[]; message?: string }[] })?.issues;
+  if ((err as Error)?.name === "ZodError" && Array.isArray(issues)) {
+    const issue = issues[0];
+    const where = issue?.path?.length ? `${issue.path.join(".")}: ` : "";
+    return NextResponse.json({ error: { code: "VALIDATION_ERROR", message: `${where}${issue?.message ?? "Invalid input"}` } }, { status: 400 });
+  }
+  const message = err instanceof Error && err.message ? err.message : "Internal server error";
+  return NextResponse.json({ error: { message } }, { status: fallbackStatus });
+}
+
 async function handleGET(
   request: Request,
-  { params }: { params: Promise<{ route: string[] }> }
+  { params }: { params: Promise<{ route: string[] }> },
+  actor: Actor
 ) {
   const { route } = await params;
   const path = route.join("/");
   const searchParams = new URL(request.url).searchParams;
+  const pActor = { id: actor.id, name: actor.name ?? actor.id, isMaster: actor.isMaster, via: actor.via };
 
   try {
     // 1. MASTER DATA
     if (path === "master/offices") {
-      const data = await purchaseStore.getOffices();
+      const data = await purchaseStore.getOffices(pActor);
       return NextResponse.json({ success: true, data });
     }
     if (path === "master/warehouses") {
       const officeId = searchParams.get("officeId") || undefined;
-      const data = await purchaseStore.getWarehouses(officeId);
+      const data = await purchaseStore.getWarehouses(officeId, pActor);
       return NextResponse.json({ success: true, data });
     }
     if (path === "master/suppliers") {
@@ -45,8 +83,12 @@ async function handleGET(
       const data = await purchaseStore.getItems();
       return NextResponse.json({ success: true, data });
     }
+    if (path === "master/purchase-form-options") {
+      const data = await purchaseStore.getPurchaseFormOptions(pActor);
+      return NextResponse.json({ success: true, data });
+    }
     if (path === "master/context") {
-      const data = await purchaseStore.getContext();
+      const data = await purchaseStore.getContext({ ...actor, ...pActor });
       return NextResponse.json({ success: true, data });
     }
 
@@ -56,7 +98,7 @@ async function handleGET(
         fromDate: searchParams.get("fromDate") || undefined,
         toDate: searchParams.get("toDate") || undefined,
         officeId: searchParams.get("officeId") || undefined,
-      });
+      }, pActor);
       return NextResponse.json({ success: true, data: analytics });
     }
 
@@ -71,16 +113,28 @@ async function handleGET(
         toDate: searchParams.get("toDate") || undefined,
         requestType: searchParams.get("requestType") || undefined,
         section: searchParams.get("section") || undefined,
-      });
+      }, pActor);
       return NextResponse.json({
         success: true,
         data: list,
         meta: { total: list.length },
       });
     }
+    if (path === "purchase/requisitions/summary") {
+      const data = await purchaseStore.getRequisitionSummary({
+        officeId: searchParams.get("officeId") || undefined,
+        fromDate: searchParams.get("fromDate") || undefined,
+        toDate: searchParams.get("toDate") || undefined,
+      }, pActor);
+      return NextResponse.json({ success: true, data, meta: { total: data.length } });
+    }
+    if (route.length === 4 && route[0] === "purchase" && route[1] === "requisitions" && route[3] === "pdf") {
+      const { filename, bytes } = await requisitionPdf(route[2], pActor);
+      return pdfResponse(filename, bytes, searchParams);
+    }
     if (path.startsWith("purchase/requisitions/") && route.length === 3) {
       const id = route[2];
-      const item = await purchaseStore.getRequisitionById(id);
+      const item = await purchaseStore.getRequisitionById(id, pActor);
       if (!item) {
         return NextResponse.json(
           { error: { message: `Requisition '${id}' not found` } },
@@ -99,16 +153,20 @@ async function handleGET(
         search: searchParams.get("search") || undefined,
         fromDate: searchParams.get("fromDate") || undefined,
         toDate: searchParams.get("toDate") || undefined,
-      });
+      }, pActor);
       return NextResponse.json({
         success: true,
         data: list,
         meta: { total: list.length },
       });
     }
+    if (route.length === 4 && route[0] === "purchase" && route[1] === "orders" && route[3] === "pdf") {
+      const { filename, bytes } = await purchaseOrderPdf(route[2], pActor);
+      return pdfResponse(filename, bytes, searchParams);
+    }
     if (path.startsWith("purchase/orders/") && route.length === 3) {
       const id = route[2];
-      const po = await purchaseStore.getPurchaseOrderById(id);
+      const po = await purchaseStore.getPurchaseOrderById(id, pActor);
       if (!po) {
         return NextResponse.json(
           { error: { message: `Purchase Order '${id}' not found` } },
@@ -123,7 +181,7 @@ async function handleGET(
       const list = await purchaseStore.getGoodsReceipts({
         search: searchParams.get("search") || undefined,
         status: searchParams.get("status") || undefined,
-      });
+      }, pActor);
       return NextResponse.json({
         success: true,
         data: list,
@@ -134,7 +192,7 @@ async function handleGET(
       path === "purchase/receive/approved-orders" ||
       path === "purchase/receipts/approved-orders"
     ) {
-      const list = await purchaseStore.getApprovedOrdersForReceiving();
+      const list = await purchaseStore.getApprovedOrdersForReceiving(pActor);
       return NextResponse.json({
         success: true,
         data: list,
@@ -142,12 +200,36 @@ async function handleGET(
       });
     }
 
+    if (
+      route.length === 4 &&
+      route[0] === "purchase" &&
+      (route[1] === "receive" || route[1] === "receipts") &&
+      route[3] === "accounting"
+    ) {
+      const voucher = await purchaseStore.getGoodsReceiptAccounting(route[2], pActor);
+      return NextResponse.json({ success: true, data: voucher });
+    }
+
+    if (
+      route.length === 4 &&
+      route[0] === "purchase" &&
+      (route[1] === "receive" || route[1] === "receipts") &&
+      route[3] === "pdf"
+    ) {
+      const { filename, bytes } = await goodsReceiptPdf(route[2], pActor);
+      return pdfResponse(filename, bytes, searchParams);
+    }
+
     // 6. PURCHASE RETURNS
+    if (route.length === 4 && route[0] === "purchase" && route[1] === "returns" && route[3] === "pdf") {
+      const { filename, bytes } = await purchaseReturnPdf(route[2], pActor);
+      return pdfResponse(filename, bytes, searchParams);
+    }
     if (path === "purchase/returns") {
       const list = await purchaseStore.getPurchaseReturns({
         search: searchParams.get("search") || undefined,
         status: searchParams.get("status") || undefined,
-      });
+      }, pActor);
       return NextResponse.json({
         success: true,
         data: list,
@@ -155,7 +237,7 @@ async function handleGET(
       });
     }
     if (path === "purchase/returns/eligible-receipts") {
-      const list = await purchaseStore.getEligibleReceiptsForReturn();
+      const list = await purchaseStore.getEligibleReceiptsForReturn(pActor);
       return NextResponse.json({
         success: true,
         data: list,
@@ -169,7 +251,9 @@ async function handleGET(
         search: searchParams.get("search") || undefined,
         status: searchParams.get("status") || undefined,
         category: searchParams.get("category") || undefined,
-      });
+        fromDate: searchParams.get("fromDate") || undefined,
+        toDate: searchParams.get("toDate") || undefined,
+      }, pActor);
       return NextResponse.json({
         success: true,
         data: list,
@@ -181,7 +265,7 @@ async function handleGET(
         search: searchParams.get("search") || undefined,
         status: searchParams.get("status") || undefined,
         type: searchParams.get("type") || undefined,
-      });
+      }, pActor);
       return NextResponse.json({
         success: true,
         data: list,
@@ -190,15 +274,32 @@ async function handleGET(
     }
 
     if (path === "purchase/supplier-payments/history") {
-      const data = await listPaymentHistory();
+      const data = await listPaymentHistory(pActor);
       return NextResponse.json({ success: true, data, meta: { total: data.length } });
     }
     if (path === "purchase/supplier-payments/advances") {
-      const data = await listSupplierAdvances();
+      const fromDate = searchParams.get("fromDate") || undefined;
+      const toDate = searchParams.get("toDate") || undefined;
+      const details = searchParams.get("details") === "true";
+      const data = details
+        ? await listSupplierAdvanceDetails({ fromDate, toDate }, pActor)
+        : await listSupplierAdvances({ fromDate, toDate }, pActor);
       return NextResponse.json({ success: true, data, meta: { total: data.length } });
     }
+    if (path === "purchase/supplier-payments/payables-pdf") {
+      const { filename, bytes } = await payablesDueListPdf({
+        fromDate: searchParams.get("fromDate") || undefined,
+        toDate: searchParams.get("toDate") || undefined,
+        search: searchParams.get("search") || undefined,
+      }, pActor);
+      return pdfResponse(filename, bytes, searchParams);
+    }
+    if (route.length === 4 && route[0] === "purchase" && route[1] === "supplier-payments" && route[3] === "pdf") {
+      const { filename, bytes } = await supplierPaymentPdf(route[2], pActor);
+      return pdfResponse(filename, bytes, searchParams);
+    }
     if (path === "purchase/supplier-bills") {
-      const data = await listSupplierBills();
+      const data = await listSupplierBills(pActor);
       return NextResponse.json({ success: true, data, meta: { total: data.length } });
     }
 
@@ -213,8 +314,21 @@ async function handleGET(
         status: searchParams.get("status") || undefined,
         isSummary: searchParams.get("isSummary") === "true",
       });
-      const report = await purchaseStore.generateReport(query);
+      const report = await purchaseStore.generateReport(query, pActor);
       return NextResponse.json({ success: true, data: report });
+    }
+    if (path === "purchase/reports/pdf") {
+      const query = ReportQuerySchema.parse({
+        reportType: searchParams.get("reportType") || "REQUISITION_REPORT",
+        officeId: searchParams.get("officeId") || undefined,
+        supplierId: searchParams.get("supplierId") || undefined,
+        fromDate: searchParams.get("fromDate") || undefined,
+        toDate: searchParams.get("toDate") || undefined,
+        status: searchParams.get("status") || undefined,
+        isSummary: searchParams.get("isSummary") === "true",
+      });
+      const { filename, bytes } = await purchaseReportPdf(query, pActor);
+      return pdfResponse(filename, bytes, searchParams);
     }
     if (path === "purchase/reports/export-csv") {
       const query = ReportQuerySchema.parse({
@@ -226,7 +340,7 @@ async function handleGET(
         status: searchParams.get("status") || undefined,
         isSummary: searchParams.get("isSummary") === "true",
       });
-      const report = await purchaseStore.generateReport(query);
+      const report = await purchaseStore.generateReport(query, pActor);
       const headers = report.columns.join(",");
       const rows = report.rows.map((row) =>
         report.columns
@@ -249,11 +363,8 @@ async function handleGET(
       { error: { message: `Route not found: ${path}` } },
       { status: 404 }
     );
-  } catch (err: any) {
-    return NextResponse.json(
-      { error: { message: err?.message || "Internal server error" } },
-      { status: 500 }
-    );
+  } catch (err) {
+    return errorResponse(err, 500);
   }
 }
 
@@ -269,11 +380,22 @@ async function handlePOST(
     const body = await request.json().catch(() => ({}));
     // Recorded as "prepared by" / "received by": the signed-in user.
     const actorName = actor.name ?? actor.id;
+    const pActor = { id: actor.id, name: actorName, isMaster: actor.isMaster, via: actor.via };
+
+    // Quick-create Master Data (Supplier & Item) from Purchase forms
+    if (path === "master/suppliers") {
+      const created = await purchaseStore.quickCreateSupplier(body);
+      return NextResponse.json({ success: true, data: created }, { status: 201 });
+    }
+    if (path === "master/items") {
+      const created = await purchaseStore.quickCreateItem(body);
+      return NextResponse.json({ success: true, data: created }, { status: 201 });
+    }
 
     // Create Requisition
     if (path === "purchase/requisitions") {
       const validated = CreateRequisitionSchema.parse(body);
-      const created = await purchaseStore.createRequisition(validated, actorName);
+      const created = await purchaseStore.createRequisition(validated, actorName, pActor);
       return NextResponse.json({ success: true, data: created }, { status: 201 });
     }
 
@@ -292,7 +414,8 @@ async function handlePOST(
           id,
           "APPROVE",
           actorName,
-          comments
+          comments,
+          pActor
         );
         return NextResponse.json({ success: true, data: updated });
       }
@@ -301,7 +424,8 @@ async function handlePOST(
           id,
           "REJECT",
           actorName,
-          comments
+          comments,
+          pActor
         );
         return NextResponse.json({ success: true, data: updated });
       }
@@ -310,7 +434,8 @@ async function handlePOST(
           id,
           "CANCEL",
           actorName,
-          comments
+          comments,
+          pActor
         );
         return NextResponse.json({ success: true, data: updated });
       }
@@ -319,8 +444,13 @@ async function handlePOST(
           id,
           "REVERSE",
           actorName,
-          comments || "Requisition reversed to submitted status."
+          comments || "Requisition reversed to submitted status.",
+          pActor
         );
+        return NextResponse.json({ success: true, data: updated });
+      }
+      if (action === "method") {
+        const updated = await purchaseStore.setRequisitionMethod(id, String(body?.purchaseMethod ?? ""), actorName, pActor);
         return NextResponse.json({ success: true, data: updated });
       }
     }
@@ -328,7 +458,7 @@ async function handlePOST(
     // Create Purchase Order
     if (path === "purchase/orders") {
       const validated = CreatePurchaseOrderSchema.parse(body);
-      const created = await purchaseStore.createPurchaseOrder(validated, actorName);
+      const created = await purchaseStore.createPurchaseOrder(validated, actorName, pActor);
       return NextResponse.json({ success: true, data: created }, { status: 201 });
     }
 
@@ -342,7 +472,8 @@ async function handlePOST(
           id,
           "APPROVE",
           actorName,
-          comments
+          comments,
+          pActor
         );
         return NextResponse.json({ success: true, data: updated });
       }
@@ -351,7 +482,8 @@ async function handlePOST(
           id,
           "CLOSE",
           actorName,
-          comments
+          comments,
+          pActor
         );
         return NextResponse.json({ success: true, data: updated });
       }
@@ -360,7 +492,8 @@ async function handlePOST(
           id,
           "REVERSE",
           actorName,
-          comments
+          comments,
+          pActor
         );
         return NextResponse.json({ success: true, data: updated });
       }
@@ -369,7 +502,8 @@ async function handlePOST(
           id,
           "CANCEL",
           actorName,
-          comments
+          comments,
+          pActor
         );
         return NextResponse.json({ success: true, data: updated });
       }
@@ -387,8 +521,15 @@ async function handlePOST(
           supplierId: body.supplierId,
           officeId: body.officeId,
           warehouseId: body.warehouseId,
+          challanNumber: body.challanNumber,
+          challanDate: body.challanDate,
+          gatePassNumber: body.gatePassNumber,
+          paymentTerms: body.paymentTerms,
+          deliveryTerms: body.deliveryTerms,
+          shippingFee: body.shippingFee,
         },
-        actorName
+        actorName,
+        pActor
       );
       return NextResponse.json({ success: true, data: created }, { status: 201 });
     }
@@ -406,52 +547,72 @@ async function handlePOST(
           officeId: body.officeId,
           warehouseId: body.warehouseId,
         },
-        actorName
+        actorName,
+        pActor
       );
       return NextResponse.json({ success: true, data: created }, { status: 201 });
     }
 
     // Create Supplier Payment / Bill / Advance
     if (path === "purchase/supplier-payments") {
-      const created = await purchaseStore.createSupplierPayment(body, actorName);
+      const created = await purchaseStore.createSupplierPayment(body, actorName, pActor);
       return NextResponse.json({ success: true, data: created }, { status: 201 });
     }
 
     // Supplier bills: book, approve one, approve every pending bill
     if (path === "purchase/supplier-bills") {
-      const created = await createSupplierBill(body, actorName);
+      const created = await createSupplierBill(body, actorName, pActor);
       return NextResponse.json({ success: true, data: created }, { status: 201 });
     }
     if (path === "purchase/supplier-bills/approve-pending") {
-      const result = await approvePendingSupplierBills(actorName);
+      const result = await approvePendingSupplierBills(actorName, pActor);
       return NextResponse.json({ success: true, data: result });
     }
     if (route[0] === "purchase" && route[1] === "supplier-bills" && route.length === 4 && route[3] === "approve") {
-      const updated = await approveSupplierBill(route[2], actorName);
+      const updated = await approveSupplierBill(route[2], actorName, pActor);
       return NextResponse.json({ success: true, data: updated });
     }
 
-    // Approve Supplier Bill / Payment
-    if (
-      route[0] === "purchase" &&
-      route[1] === "supplier-payments" &&
-      route.length === 4 &&
-      route[3] === "approve"
-    ) {
+    // Cancel a goods receipt, purchase return, supplier payment or supplier bill
+    if (route[0] === "purchase" && route.length === 4 && route[3] === "cancel") {
       const id = route[2];
-      const updated = await purchaseStore.approveSupplierPayment(id);
-      return NextResponse.json({ success: true, data: updated });
+      const comments = body?.comments || "";
+      if (route[1] === "receipts" || route[1] === "receive") {
+        return NextResponse.json({ success: true, data: await purchaseStore.cancelGoodsReceipt(id, actorName, comments, pActor) });
+      }
+      if (route[1] === "returns") {
+        return NextResponse.json({ success: true, data: await purchaseStore.cancelPurchaseReturn(id, actorName, comments, pActor) });
+      }
+      if (route[1] === "supplier-payments") {
+        return NextResponse.json({ success: true, data: await purchaseStore.cancelSupplierPayment(id, actorName, comments, pActor) });
+      }
+      if (route[1] === "supplier-bills") {
+        return NextResponse.json({ success: true, data: await cancelSupplierBill(id, actorName, comments, pActor) });
+      }
+    }
+
+    // Multilayer approval of a goods receipt, purchase return or supplier payment waiting for it
+    if (route[0] === "purchase" && route.length === 4 && (route[3] === "approve" || route[3] === "reject")) {
+      const id = route[2];
+      const decision = route[3];
+      const comments = String(body?.comments ?? body?.comment ?? "");
+      if (route[1] === "receipts" || route[1] === "receive") {
+        return NextResponse.json({ success: true, data: await purchaseStore.decideGoodsReceipt(id, decision, actorName, comments, pActor) });
+      }
+      if (route[1] === "returns") {
+        return NextResponse.json({ success: true, data: await purchaseStore.decidePurchaseReturn(id, decision, actorName, comments, pActor) });
+      }
+      if (route[1] === "supplier-payments") {
+        return NextResponse.json({ success: true, data: await purchaseStore.decideSupplierPayment(id, decision, actorName, comments, pActor) });
+      }
     }
 
     return NextResponse.json(
       { error: { message: `POST route not found: ${path}` } },
       { status: 404 }
     );
-  } catch (err: any) {
-    return NextResponse.json(
-      { error: { message: err?.message || "Internal server error" } },
-      { status: 400 }
-    );
+  } catch (err) {
+    return errorResponse(err, 400);
   }
 }
 
@@ -466,6 +627,7 @@ async function handlePUT(
     const body = await request.json().catch(() => ({}));
     // Recorded as "prepared by" / "received by": the signed-in user.
     const actorName = actor.name ?? actor.id;
+    const pActor = { id: actor.id, name: actorName, isMaster: actor.isMaster, via: actor.via };
 
     // Update Requisition
     if (
@@ -474,14 +636,14 @@ async function handlePUT(
       route.length === 3
     ) {
       const id = route[2];
-      const updated = await purchaseStore.updateRequisition(id, body, actorName);
+      const updated = await purchaseStore.updateRequisition(id, body, actorName, pActor);
       return NextResponse.json({ success: true, data: updated });
     }
 
     // Update Purchase Order
     if (route[0] === "purchase" && route[1] === "orders" && route.length === 3) {
       const id = route[2];
-      const updated = await purchaseStore.updatePurchaseOrder(id, body, actorName);
+      const updated = await purchaseStore.updatePurchaseOrder(id, body, actorName, pActor);
       return NextResponse.json({ success: true, data: updated });
     }
 
@@ -489,11 +651,8 @@ async function handlePUT(
       { error: { message: `PUT route not found: ${route.join("/")}` } },
       { status: 404 }
     );
-  } catch (err: any) {
-    return NextResponse.json(
-      { error: { message: err?.message || "Internal server error" } },
-      { status: 400 }
-    );
+  } catch (err) {
+    return errorResponse(err, 400);
   }
 }
 

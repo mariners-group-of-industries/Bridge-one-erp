@@ -3,8 +3,9 @@ import { cellText, describe } from "@/features/configuration/entity-master-data/
 import { AppError, badRequest } from "@/lib/api/errors";
 import type { Actor } from "@/lib/auth/actor";
 import { db } from "@/lib/prisma/client";
-import type { TerritoryImportResult } from "../schemas/territory.schema";
+import type { LayerDto, TerritoryImportResult } from "../schemas/territory.schema";
 import { createNode, ensureLayers, getTree, updateNode } from "./territory.service";
+import { loadWorkbook } from "@/lib/excel/load-workbook";
 
 /** Sales Setup Excel download/upload: the territory tree and territory-wise customers. */
 
@@ -30,12 +31,7 @@ async function book(sheetName: string, headers: string[], rows: string[][]) {
 }
 
 async function readRows(bytes: Uint8Array) {
-  const workbook = new ExcelJS.Workbook();
-  try {
-    await workbook.xlsx.load(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer);
-  } catch {
-    throw new AppError(400, "VALIDATION_ERROR", "The file is not a valid Excel (.xlsx) workbook.");
-  }
+  const workbook = await loadWorkbook(bytes);
   const sheet = workbook.worksheets[0];
   if (!sheet) throw new AppError(400, "VALIDATION_ERROR", "The workbook has no sheets.");
   const headers = new Map<string, number>();
@@ -58,7 +54,7 @@ async function readRows(bytes: Uint8Array) {
     if ([...headers.keys()].every((header) => get(header) === "")) return;
     rows.push({ row: rowNumber, get });
   });
-  if (rows.length > 5000) throw new AppError(400, "VALIDATION_ERROR", "Upload at most 5000 rows per file.");
+  if (rows.length > 10000) throw new AppError(400, "VALIDATION_ERROR", "Upload at most 10000 rows per file.");
   return { headers, rows };
 }
 
@@ -98,7 +94,9 @@ export async function importTree(actor: Actor, businessUnitId: string, bytes: Ui
   await ensureLayers(businessUnitId);
   const tree = await getTree(actor, businessUnitId);
   if (tree.businessUnitId !== businessUnitId) throw badRequest("Select a business unit you can access.");
-  const { rows } = await readRows(bytes);
+  const { headers, rows } = await readRows(bytes);
+  // Without any "<Layer> Code" column the sheet is a names-only outline (see importOutline).
+  if (![...headers.keys()].some((header) => header.endsWith(" code"))) return importOutline(businessUnitId, tree.layers, headers, rows);
   const result: TerritoryImportResult = { created: 0, updated: 0, errors: [] };
 
   for (const { row, get } of rows) {
@@ -107,7 +105,10 @@ export async function importTree(actor: Actor, businessUnitId: string, bytes: Ui
       for (const layer of tree.layers) {
         const code = get(`${layer.name} Code`);
         const name = get(`${layer.name} Name`);
-        if (!code) break;
+        if (!code) {
+          if (!parentId) throw new Error(`${layer.name} Code is empty.`);
+          break;
+        }
         const existing = await db().salesTerritoryNode.findFirst({
           where: {
             businessUnitId,
@@ -133,6 +134,168 @@ export async function importTree(actor: Actor, businessUnitId: string, bytes: Ui
       result.errors.push({ row, message: describe(error) });
     }
   }
+  return result;
+}
+
+type SheetRow = Awaited<ReturnType<typeof readRows>>["rows"][number];
+
+/**
+ * Names-only outline: one column per layer (headers named after the layers, or else taken in layer
+ * order), and a blank cell means "same as the row above" — the way a tree is usually typed in Excel.
+ * Entries are matched by name under their parent; new ones get an automatic code ("MKT-0042").
+ * Everything is written in one transaction with bulk inserts, so 10 000 rows take seconds.
+ */
+async function importOutline(businessUnitId: string, layers: LayerDto[], headers: Map<string, number>, rows: SheetRow[]): Promise<TerritoryImportResult> {
+  const names = [...headers.keys()];
+  if (names.length === 0) throw new AppError(400, "VALIDATION_ERROR", "The first row must hold the column headers.");
+  if (names.length > layers.length) {
+    throw new AppError(400, "VALIDATION_ERROR", `The sheet has ${names.length} columns but there are only ${layers.length} layers. Add the missing layers in Layer Setup first.`);
+  }
+  // Headers named after the layers are matched by name; otherwise columns go in layer order.
+  const byName = names.map((header) => layers.find((layer) => layer.name.toLowerCase() === header));
+  const named = byName.every((layer): layer is LayerDto => layer !== undefined);
+  const columnLayers = named ? [...byName].sort((a, b) => a.level - b.level) : layers.slice(0, names.length);
+  const columns = named ? columnLayers.map((layer) => layer.name) : names;
+  if (columnLayers.some((layer, index) => layer.level !== index + 1)) {
+    throw new AppError(400, "VALIDATION_ERROR", `Columns must start at ${layers[0]?.name} and follow the layer order without gaps.`);
+  }
+
+  const result: TerritoryImportResult = { created: 0, updated: 0, errors: [] };
+  const key = (path: string[]) => path.map((name) => name.toLowerCase()).join("\u0000");
+
+  // 1. Turn the rows into full paths, filling blanks from the row above.
+  const paths: { row: number; path: string[] }[] = [];
+  let carry: string[] = [];
+  for (const { row, get } of rows) {
+    const cells = columns.map((column) => get(column).replace(/\s+/g, " ").trim());
+    const filled = cells.flatMap((cell, index) => (cell ? [index] : []));
+    const first = filled[0];
+    const last = filled[filled.length - 1];
+    if (first === undefined || last === undefined) continue;
+    if (filled.length !== last - first + 1) {
+      result.errors.push({ row, message: "Leave no blank cells between names in a row." });
+      continue;
+    }
+    if (carry.length < first) {
+      result.errors.push({ row, message: `${columnLayers[carry.length]?.name} is empty and there is no row above to take it from.` });
+      continue;
+    }
+    const tooLong = cells.find((cell) => cell.length > 100);
+    if (tooLong) {
+      result.errors.push({ row, message: `"${tooLong.slice(0, 40)}…" is longer than 100 characters.` });
+      continue;
+    }
+    carry = [...carry.slice(0, first), ...cells.slice(first, last + 1)];
+    paths.push({ row, path: carry });
+  }
+
+  // 2. Every distinct entry (path prefix), in tree order.
+  const wanted = new Map<string, { path: string[]; row: number }>();
+  for (const { row, path } of paths)
+    for (let depth = 1; depth <= path.length; depth++) {
+      const prefix = path.slice(0, depth);
+      if (!wanted.has(key(prefix))) wanted.set(key(prefix), { path: prefix, row });
+    }
+
+  const failed = new Map<string, string>();
+  await db().$transaction(
+    async (tx) => {
+      const existing = await tx.salesTerritoryNode.findMany({
+        where: { businessUnitId },
+        select: { id: true, parentId: true, name: true, code: true, layerId: true },
+      });
+      const childKey = (parentId: string | null, name: string) => `${parentId ?? ""}\u0000${name.toLowerCase()}`;
+      const children = new Map(existing.map((node) => [childKey(node.parentId, node.name), node]));
+      const codes = new Set(existing.map((node) => node.code.toLowerCase()));
+      const resolved = new Map<string, string>(); // path key → node id
+
+      for (const [depth, layer] of columnLayers.entries()) {
+        const create: { pathKey: string; parentId: string | null; name: string }[] = [];
+        for (const [pathKey, { path }] of wanted) {
+          if (path.length !== depth + 1) continue;
+          const parentKey = key(path.slice(0, -1));
+          if (depth > 0 && !resolved.has(parentKey)) continue; // its parent failed
+          const parentId = depth > 0 ? resolved.get(parentKey)! : null;
+          const name = path[depth];
+          const found = children.get(childKey(parentId, name));
+          if (found) {
+            if (found.layerId !== layer.id) failed.set(pathKey, `"${name}" already exists on a different layer.`);
+            else resolved.set(pathKey, found.id);
+          } else create.push({ pathKey, parentId, name });
+        }
+        if (create.length === 0) continue;
+
+        // Territory-layer entries link to the Sales territory of the same name (created when missing).
+        const salesAreaIds = new Map<string, string>();
+        if (layer.isTerritory) {
+          const areas = await tx.salesArea.findMany({
+            where: { businessUnitId, kind: "TERRITORY" },
+            select: { id: true, name: true, territoryNode: { select: { id: true } } },
+          });
+          const areaByName = new Map(areas.map((area) => [area.name.toLowerCase(), area]));
+          const missing: string[] = [];
+          const claimed = new Set<string>();
+          for (const item of create) {
+            const lower = item.name.toLowerCase();
+            const area = areaByName.get(lower);
+            if (claimed.has(lower) || area?.territoryNode) {
+              failed.set(item.pathKey, `The Sales territory "${item.name}" is already in the tree under another parent.`);
+              continue;
+            }
+            claimed.add(lower);
+            if (area) salesAreaIds.set(lower, area.id);
+            else missing.push(item.name);
+          }
+          if (missing.length) {
+            const made = await tx.salesArea.createManyAndReturn({
+              data: missing.map((name) => ({ businessUnitId, kind: "TERRITORY" as const, name })),
+              select: { id: true, name: true },
+            });
+            for (const area of made) salesAreaIds.set(area.name.toLowerCase(), area.id);
+          }
+        }
+
+        let next = existing.filter((node) => node.layerId === layer.id).length + 1;
+        const nextCode = () => {
+          let code: string;
+          do code = `${layer.code}-${String(next++).padStart(4, "0")}`;
+          while (codes.has(code.toLowerCase()));
+          codes.add(code.toLowerCase());
+          return code;
+        };
+        const toCreate = create.filter((item) => !failed.has(item.pathKey));
+        const made = await tx.salesTerritoryNode.createManyAndReturn({
+          data: toCreate.map((item) => ({
+            businessUnitId,
+            layerId: layer.id,
+            parentId: item.parentId,
+            code: nextCode(),
+            name: item.name,
+            salesAreaId: layer.isTerritory ? (salesAreaIds.get(item.name.toLowerCase()) ?? null) : null,
+          })),
+          select: { id: true, parentId: true, name: true },
+        });
+        const pathKeys = new Map(toCreate.map((item) => [childKey(item.parentId, item.name), item.pathKey]));
+        for (const node of made) {
+          const pathKey = pathKeys.get(childKey(node.parentId, node.name));
+          if (pathKey) resolved.set(pathKey, node.id);
+        }
+        result.created += made.length;
+      }
+    },
+    { timeout: 120_000, maxWait: 15_000 },
+  );
+
+  // 3. Report each row whose path hit a failed entry (once, at the first failure).
+  for (const { row, path } of paths)
+    for (let depth = 1; depth <= path.length; depth++) {
+      const message = failed.get(key(path.slice(0, depth)));
+      if (message) {
+        result.errors.push({ row, message });
+        break;
+      }
+    }
+  result.errors.sort((a, b) => a.row - b.row);
   return result;
 }
 

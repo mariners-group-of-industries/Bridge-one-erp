@@ -55,7 +55,11 @@ export async function getSalesDashboard(actor: Actor, query: DashboardQuery): Pr
   const from = day(query.from);
   const to = day(query.to);
   const monthStart = day(`${query.to.slice(0, 7)}-01`);
-  const scope = { businessUnitId: { in: unitIds }, status: SUBMITTED };
+  const scope = { businessUnitId: { in: unitIds }, status: SUBMITTED, ...(query.officeId ? { officeId: query.officeId } : {}) };
+  // Dues are per customer: with an office chosen, only that office's customers.
+  const officeCustomerIds = query.officeId
+    ? (await db().customer.findMany({ where: { businessUnitId: { in: unitIds }, officeId: query.officeId }, select: { id: true } })).map((c) => c.id)
+    : undefined;
   const inRange = { gte: from, lte: to };
 
   const deliveriesIn = (range: Prisma.DateTimeFilter) =>
@@ -118,7 +122,7 @@ export async function getSalesDashboard(actor: Actor, query: DashboardQuery): Pr
       where: { businessUnitId: { in: unitIds }, month: { in: monthStarts(query.from, query.to).map(day) } },
       _sum: { amount: true },
     }),
-    customerBalances({ businessUnitIds: unitIds, asOf: to }),
+    customerBalances({ businessUnitIds: unitIds, asOf: to, ...(officeCustomerIds ? { customerIds: officeCustomerIds } : {}) }),
   ]);
 
   // ── Receivables as of the To Date ──

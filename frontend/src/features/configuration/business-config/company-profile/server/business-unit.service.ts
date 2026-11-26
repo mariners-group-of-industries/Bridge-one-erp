@@ -4,6 +4,7 @@ import { db, type Prisma } from "@/lib/prisma/client";
 import type { BusinessUnitInput } from "../schemas/business-unit.schema";
 import type { BusinessUnitDto } from "../types";
 import { findActorCompany, loadBusinessUnit, requireActorCompany, sameName } from "./access";
+import { grantToAllAccessUsers } from "@/features/configuration/entity-master-data/employee/server/org-access-all";
 
 type BusinessUnitRow = Prisma.BusinessUnitGetPayload<{
   include: { _count: { select: { offices: true } } };
@@ -56,10 +57,12 @@ export async function createBusinessUnit(
   const unit = await db().$transaction(async (tx) => {
     const company = await requireActorCompany(actor, tx);
     await assertUniqueName(tx, company.id, input.name);
-    return tx.businessUnit.create({
+    const created = await tx.businessUnit.create({
       data: { ...input, companyId: company.id },
       include: withCounts,
     });
+    await grantToAllAccessUsers(tx, { businessUnitId: created.id });
+    return created;
   });
   return toDto(unit);
 }

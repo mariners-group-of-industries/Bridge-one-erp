@@ -1,6 +1,7 @@
 import { Prisma } from "@/generated/prisma/client";
 import { AppError, badRequest, conflict, notFound } from "@/lib/api/errors";
 import { canOn, assertCompanyAccess, type Actor } from "@/lib/auth/actor";
+import { recordApproval } from "@/lib/approval/engine";
 import { db } from "@/lib/prisma/client";
 import { money } from "../../dashboard/lib/aggregate";
 import { assertStockAvailable, lockWarehouse, requireWarehouse } from "../../deliveries/services/stock.service";
@@ -227,7 +228,8 @@ export async function listReturns(actor: Actor, raw: unknown): Promise<ReturnLis
   };
   const where: Prisma.SalesReturnWhereInput = {
     businessUnitId: { in: unitIds },
-    status: query.status ?? LIVE,
+    // "All" lists deleted returns too, as in Managerium.
+    ...(query.status ? { status: query.status } : {}),
     ...(query.kind ? { kind: query.kind } : {}),
     ...(query.mode ? { mode: query.mode } : {}),
     ...(query.officeId ? { officeId: query.officeId } : {}),
@@ -726,6 +728,9 @@ export async function approveReturn(actor: Actor, id: string, raw: unknown): Pro
   const existing = await loadReturn(actor, id);
   await db().$transaction(async (tx) => {
     await claim(tx, actor, id, version, { status: "DRAFT" }, onlyStatus(["DRAFT"], "approved"));
+    // Multilayer approval: the return stays pending until its last pipeline stage approves.
+    const gate = await recordApproval(tx, actor, { feature: "Sales Return", documentId: id, businessUnitId: existing.businessUnitId, amount: num(existing.totalAmount) });
+    if (!gate.final) return;
     const approved = await tx.salesReturn.update({
       where: { id },
       data: { status: "SUBMITTED", approvedAt: new Date(), approvedBy: actor.id },

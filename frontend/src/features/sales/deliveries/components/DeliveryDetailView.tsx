@@ -15,6 +15,7 @@ import { Tabs } from "@/components/ui/tabs";
 import { useToast } from "@/components/ui/toast";
 import { useResource } from "@/hooks/use-resource";
 import { errorMessage } from "@/lib/api/client";
+import { useSession } from "@/lib/auth/session";
 import { cn } from "@/lib/cn";
 import { formatDateTime } from "@/lib/format";
 import { formatAmount, formatQty } from "../../dashboard/lib/format";
@@ -63,6 +64,8 @@ export function DeliveryDetailView({ id }: { id: string }) {
 type References = { vatChallanNo: string; refCustomerPo: string; refCustomerPoDate: string; refInvoice: string; remarks: string };
 
 function DeliveryBody({ today, delivery, onChanged, onReload }: { today: string; delivery: DeliveryDetail; onChanged: (next: DeliveryDetail) => void; onReload: () => void }) {
+  // ERP Login "Hide Stock In Sales": the server sends no stock either.
+  const hideStock = useSession().user?.hideStockInSales ?? false;
   const router = useRouter();
   const toast = useToast();
   const [tab, setTab] = useState<"items" | "accounting" | "transport">("items");
@@ -273,7 +276,7 @@ function DeliveryBody({ today, delivery, onChanged, onReload }: { today: string;
                 <table className="w-full min-w-[1000px] text-xs">
                   <thead className="bg-accent-soft font-semibold text-ink">
                     <tr>
-                      {["Item Code", "Name", "Return QTY", "Delivery QTY", "Pack Qty", "Stock", "Price", "VAT", "AIT", "Total Amount"].map((label, index) => (
+                      {["Item Code", "Name", "Return QTY", "Delivery QTY", "Pack Qty", ...(hideStock ? [] : ["Stock"]), "Price", "VAT", "AIT", "Total Amount"].map((label, index) => (
                         <th key={label} scope="col" className={cn("px-3 py-2", index >= 2 ? "text-right" : "text-left")}>
                           {label}
                         </th>
@@ -314,7 +317,7 @@ function DeliveryBody({ today, delivery, onChanged, onReload }: { today: string;
                             {formatQty(line.qty)} {line.uom}
                           </td>
                           <td className="px-3 py-1.5 text-right whitespace-nowrap tabular-nums">{alt === null ? "0" : `${formatQty(alt)} ${line.altUom ?? ""}`}</td>
-                          <td className="px-3 py-1.5 text-right tabular-nums">{line.stock === null ? "—" : formatQty(line.stock)}</td>
+                          {!hideStock && <td className="px-3 py-1.5 text-right tabular-nums">{line.stock === null ? "—" : formatQty(line.stock)}</td>}
                           <td className="px-3 py-1.5 text-right tabular-nums">{line.rate.toFixed(2)}</td>
                           <td className="px-3 py-1.5 text-right tabular-nums">{line.vatPercent.toFixed(2)}</td>
                           <td className="px-3 py-1.5 text-right tabular-nums">{line.aitPercent.toFixed(2)}</td>
@@ -330,7 +333,7 @@ function DeliveryBody({ today, delivery, onChanged, onReload }: { today: string;
                       <td className="px-3 py-2 text-right tabular-nums">{formatQty(returnedTotal)}</td>
                       <td className="px-3 py-2 text-right tabular-nums">{formatQty(delivery.totalQty)}</td>
                       <td className="px-3 py-2 text-right tabular-nums">{formatQty(Math.round(altTotal * 1000) / 1000)}</td>
-                      <td colSpan={4} />
+                      <td colSpan={hideStock ? 3 : 4} />
                       <td className="px-3 py-2 text-right tabular-nums">{formatAmount(delivery.itemsTotal)}</td>
                     </tr>
                   </tfoot>

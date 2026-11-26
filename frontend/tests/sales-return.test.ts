@@ -166,7 +166,9 @@ describe("sales return", () => {
     await deleteReturn(clerk, edited.id, { version: edited.updatedAt, reason: "Entered twice" });
     expect((await getReturn(adminActor, edited.id)).status).toBe("CANCELLED");
     expect((await getDeliveryForReturn(adminActor, delivery.id)).lines[0].returnable).toBe(240);
-    expect((await listReturns(adminActor, {})).rows).toHaveLength(0);
+    // "All" shows deleted returns too (as in Managerium); a status narrows the list.
+    expect((await listReturns(adminActor, {})).rows.map((row) => row.status)).toEqual(["CANCELLED"]);
+    expect((await listReturns(adminActor, { status: "DRAFT" })).rows).toHaveLength(0);
     expect((await listReturns(adminActor, { status: "CANCELLED" })).rows).toHaveLength(1);
 
     // An approved return: only approvers delete it, and its goods must still be in stock.

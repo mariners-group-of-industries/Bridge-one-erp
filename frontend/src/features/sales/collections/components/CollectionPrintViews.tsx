@@ -4,6 +4,7 @@ import { ArrowLeft, Printer } from "lucide-react";
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { Button, buttonClasses } from "@/components/ui/button";
+import { PrintFrame, PrintPageFooter } from "@/components/ui/print-frame";
 import { ErrorState, LoadingState } from "@/components/ui/section";
 import { useResource } from "@/hooks/use-resource";
 import { errorMessage } from "@/lib/api/client";
@@ -60,13 +61,16 @@ function Header({ company, office, address, title, number }: { company: string; 
 
 function Signatures({ labels }: { labels: string[] }) {
   return (
-    <footer className="mt-12 grid grid-cols-3 gap-6 text-center break-inside-avoid">
-      {labels.map((label) => (
-        <p key={label} className="border-t border-line-strong pt-1">
-          {label}
-        </p>
-      ))}
-    </footer>
+    <>
+      <footer className="mt-12 grid grid-cols-3 gap-6 text-center break-inside-avoid">
+        {labels.map((label) => (
+          <p key={label} className="border-t border-line-strong pt-1">
+            {label}
+          </p>
+        ))}
+      </footer>
+      <PrintPageFooter />
+    </>
   );
 }
 
@@ -84,6 +88,7 @@ export function CollectionPrintView({ id }: { id: string }) {
       ) : !data ? (
         <LoadingState />
       ) : (
+        <PrintFrame>
         <article className={ARTICLE}>
           <Header company={data.companyName} office={data.officeName} address={data.officeAddress} title="Money Receipt" number={data.number} />
           {data.status === "CANCELLED" && <p className="font-semibold text-danger uppercase">Cancelled: {data.cancelReason}</p>}
@@ -136,6 +141,7 @@ export function CollectionPrintView({ id }: { id: string }) {
           </p>
           <Signatures labels={["Received By", "Checked By", "Customer Signature"]} />
         </article>
+        </PrintFrame>
       )}
     </Frame>
   );
@@ -152,6 +158,7 @@ export function BillPrintView({ id }: { id: string }) {
       ) : !data ? (
         <LoadingState />
       ) : (
+        <PrintFrame>
         <article className={ARTICLE}>
           <Header company={data.companyName} office={data.officeName} address={data.officeAddress} title="Bill" number={data.number} />
           {data.status === "CANCELLED" && <p className="font-semibold text-danger uppercase">Cancelled: {data.cancelReason}</p>}
@@ -207,6 +214,7 @@ export function BillPrintView({ id }: { id: string }) {
           </p>
           <Signatures labels={["Prepared By", "Authorised By", "Received By (Customer)"]} />
         </article>
+        </PrintFrame>
       )}
     </Frame>
   );

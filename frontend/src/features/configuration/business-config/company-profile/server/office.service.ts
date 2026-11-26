@@ -5,6 +5,7 @@ import { getStorage } from "@/lib/storage";
 import { ASSET_KIND_SLUGS, OFFICE_ASSET_KINDS, type OfficeData } from "../schemas/office.schema";
 import type { OfficeAssetDto, OfficeDto } from "../types";
 import { loadBusinessUnit, loadOffice, sameName } from "./access";
+import { grantToAllAccessUsers } from "@/features/configuration/entity-master-data/employee/server/org-access-all";
 
 const officeInclude = {
   assets: true,
@@ -80,7 +81,9 @@ export async function createOffice(
   const office = await db().$transaction(async (tx) => {
     await loadBusinessUnit(actor, businessUnitId, tx);
     await assertUniqueName(tx, businessUnitId, input.name);
-    return tx.office.create({ data: { ...input, businessUnitId }, include: officeInclude });
+    const created = await tx.office.create({ data: { ...input, businessUnitId }, include: officeInclude });
+    await grantToAllAccessUsers(tx, { officeId: created.id });
+    return created;
   });
   return toDto(office);
 }

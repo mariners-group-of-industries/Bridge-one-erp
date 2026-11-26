@@ -35,6 +35,11 @@ function day(iso: string) {
   return `${date}-${month}-${year}`;
 }
 
+/** Cost of one unit of output: BOM value ÷ lot size. */
+function uomValue(bom: BomRow) {
+  return bom.lotSize > 0 ? bom.totalCost / bom.lotSize : 0;
+}
+
 /** /production/bill-of-materials: Managerium's Bill Of Material list. */
 export function BomListView() {
   const toast = useToast();
@@ -172,6 +177,13 @@ export function BomListView() {
       sortValue: ({ bom }) => bom.totalCost,
       className: "text-right tabular-nums",
     },
+    {
+      id: "uomValue",
+      header: "UoM Value",
+      cell: ({ bom }) => money(uomValue(bom)),
+      sortValue: ({ bom }) => uomValue(bom),
+      className: "text-right tabular-nums",
+    },
     { id: "createdBy", header: "Created By", cell: ({ bom }) => bom.createdByName, sortValue: ({ bom }) => bom.createdByName, hideBelow: "md" },
   ];
 
@@ -223,7 +235,7 @@ export function BomListView() {
             onChange={(event) => setFilters({ ...filters, details: event.target.checked })}
           />
           <div className="flex flex-wrap gap-2">
-            <Button type="submit" variant="primary" disabled={list.loading}>
+            <Button type="submit" variant="primary" loading={list.loading}>
               <RefreshCw aria-hidden="true" />
               View
             </Button>

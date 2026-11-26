@@ -3,7 +3,7 @@ import { badRequest, conflict, notFound } from "@/lib/api/errors";
 import type { Actor } from "@/lib/auth/actor";
 import { db } from "@/lib/prisma/client";
 import { decisionBy, isoDate, money, num, officeScope, requireHr, scopedOffices } from "../../shared/hr-access";
-import { monthSchema, type PayrollRow, type SalaryLine, type SalarySheet } from "../types";
+import { monthSchema, type PayrollRow, type SalaryLine, type LegacySalarySheet as SalarySheet } from "../types";
 
 const DAY_MS = 86_400_000;
 

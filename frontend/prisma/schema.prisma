@@ -62,6 +62,12 @@ model User {
   /// May sign in to the ERP. New accounts start without access (and without permissions).
   erpAccess    Boolean    @default(false)
   status       UserStatus @default(ACTIVE)
+  /// User Permission "All": every business unit / office / warehouse, including ones created later.
+  allBusinessUnits Boolean @default(false)
+  allOffices       Boolean @default(false)
+  allWarehouses    Boolean @default(false)
+  /// Sales users with this set do not see stock levels in the Sales module.
+  hideStockInSales Boolean @default(false)
   lastLoginAt  DateTime? @db.Timestamptz(3)
   createdAt    DateTime  @default(now()) @db.Timestamptz(3)
   updatedAt    DateTime  @updatedAt @db.Timestamptz(3)
@@ -71,6 +77,7 @@ model User {
 
   employee            Employee?  @relation("EmployeeUser")
   employeeLastActions Employee[] @relation("EmployeeLastActionBy")
+  notifications       UserNotification[]
 
   businessUnitAccess UserBusinessUnitAccess[]
   officeAccess       UserOfficeAccess[]
@@ -209,6 +216,40 @@ model ApprovalStageApprover {
 
   @@index([stageId])
   @@map("approval_stage_approvers")
+}
+
+/// One approval stage of any document (Purchase Requisition, Sales Order …),
+/// copied from the feature's approval pipeline when the document is first
+/// approved or rejected (src/lib/approval/engine.ts). Production orders keep
+/// their own `production_order_approvals`.
+model DocumentApproval {
+  id                  String    @id @default(uuid()) @db.Uuid
+  /// Approval Setup feature name ("Purchase Requisition" …).
+  feature             String    @db.VarChar(60)
+  documentId          String    @db.VarChar(100)
+  businessUnitId      String?   @db.Uuid
+  stageNo             Int
+  stageName           String    @db.VarChar(150)
+  /// ANY or SEQUENTIAL (approvers in list order).
+  approvalOrder       String    @db.VarChar(20)
+  requiredCount       Int       @default(1)
+  /// Users who may act; empty = anyone with the page's Approve permission.
+  approverUserIds     String[]  @db.Uuid
+  /// Actor ids that approved this stage so far.
+  approvedUserIds     String[]  @default([]) @db.VarChar(100)
+  /// The pipeline's super approver when the stages were copied; may act at any stage.
+  superApproverUserId String?   @db.Uuid
+  /// PENDING, APPROVED or REJECTED.
+  status              String    @default("PENDING") @db.VarChar(20)
+  actedBy             String?   @db.VarChar(100)
+  comment             String?   @db.VarChar(500)
+  actedAt             DateTime? @db.Timestamptz(3)
+  createdAt           DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt           DateTime  @updatedAt @db.Timestamptz(3)
+
+  @@unique([feature, documentId, stageNo])
+  @@index([feature, status])
+  @@map("document_approvals")
 }
 
 // ─── Configuration › Identity & Security › User Group / Permission Group ────
@@ -426,6 +467,54 @@ model AttendancePunch {
   @@map("attendance_punches")
 }
 
+/// Admin configuration for automatic WhatsApp Group attendance notifications.
+model AttendanceNotificationSetting {
+  id                String   @id @default(uuid()) @db.Uuid
+  enabled           Boolean  @default(false)
+  notifyCheckIn     Boolean  @default(true)
+  notifyLate        Boolean  @default(true)
+  notifyCheckOut    Boolean  @default(false)
+  whatsappGroupId   String?  @db.VarChar(120)
+  whatsappGroupName String?  @db.VarChar(200)
+  departmentFilter  String?  @db.VarChar(500)
+  messageTemplate   String   @db.Text
+  updatedBy         String?  @db.VarChar(150)
+  createdAt         DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime @updatedAt @db.Timestamptz(3)
+
+  @@map("attendance_notification_settings")
+}
+
+/// Persistent idempotent outbox for attendance notifications sent to WhatsApp.
+/// Unique per (employeeId, attendanceDate, eventType) so re-synced punches never duplicate.
+model AttendanceNotificationOutbox {
+  id               String    @id @default(uuid()) @db.Uuid
+  employeeId       String?   @db.Uuid
+  employeeCode     String    @db.VarChar(30)
+  employeeName     String    @db.VarChar(150)
+  designation      String?   @db.VarChar(120)
+  department       String?   @db.VarChar(100)
+  attendanceDate   String    @db.VarChar(10)
+  eventType        String    @db.VarChar(20)
+  attendanceStatus String    @db.VarChar(30)
+  punchTime        DateTime  @db.Timestamptz(3)
+  groupId          String    @db.VarChar(120)
+  messageText      String    @db.Text
+  status           String    @default("PENDING") @db.VarChar(20)
+  attempts         Int       @default(0)
+  gatewayMessageId String?   @db.VarChar(150)
+  lastError        String?   @db.VarChar(500)
+  nextRetryAt      DateTime? @db.Timestamptz(3)
+  sentAt           DateTime? @db.Timestamptz(3)
+  createdAt        DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt        DateTime  @updatedAt @db.Timestamptz(3)
+
+  @@unique([employeeId, attendanceDate, eventType])
+  @@index([status, nextRetryAt])
+  @@index([createdAt])
+  @@map("attendance_notification_outbox")
+}
+
 // ─── Configuration › Business Configuration › Company Profile ───────────────
 
 enum DateFormat {
@@ -518,6 +607,7 @@ model BusinessUnit {
   inventoryDocuments   InventoryDocument[]
   posCounters          PosCounter[]
   posSales             PosSale[]
+  payrollBatches       PayrollBatch[]
   supplierGroups       SupplierGroup[]
   taxBrackets          TaxBracket[]
   itemDivisions        ItemDivision[]
@@ -556,6 +646,7 @@ model BusinessUnit {
   rtmTourPlans         RtmTourPlan[]
   rtmVisits            RtmVisit[]
   rtmOffers            RtmOffer[]
+  rtmLayerTransfers    RtmLayerTransfer[]
   rtmTargets           RtmTarget[]
   rtmSettings          RtmSetting[]
   @@unique([companyId, name])
@@ -577,6 +668,7 @@ model Office {
   warehouses   Warehouse[]
   assets       OfficeAsset[]
   employees    Employee[]
+  overtimeEntries OvertimeEntry[]
   userAccess   UserOfficeAccess[]
   quotations   SalesQuotation[]
   salesOrders  SalesOrder[]
@@ -589,6 +681,7 @@ model Office {
   purchaseOrders       PurchaseOrder[]
   goodsReceipts        GoodsReceipt[]
   purchaseReturns      PurchaseReturn[]
+  supplierPayments     SupplierPayment[]
   suppliers            Supplier[]
   customers            Customer[]
   openingStockReceipts OpeningStockReceipt[]
@@ -596,6 +689,7 @@ model Office {
   salesWallets         SalesWallet[]
   attendanceDevices    AttendanceDevice[]
   payrollRuns          PayrollRun[]
+  payrollBatches       PayrollBatch[]
   bonusRuns            BonusRun[]
   hrPolicyRecords      HrPolicyRecord[]
   workCenters       ProductionWorkCenter[]
@@ -1893,8 +1987,9 @@ model SalesTerritoryLayer {
   isTerritory    Boolean  @default(false)
   createdAt      DateTime @default(now()) @db.Timestamptz(3)
 
-  businessUnit BusinessUnit         @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
-  nodes        SalesTerritoryNode[]
+  businessUnit      BusinessUnit         @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  nodes             SalesTerritoryNode[]
+  rtmLayerTransfers RtmLayerTransfer[]
 
   @@unique([businessUnitId, level])
   @@unique([businessUnitId, code])
@@ -1920,6 +2015,10 @@ model SalesTerritoryNode {
   children     SalesTerritoryNode[]     @relation("TerritoryTree")
   salesArea    SalesArea?               @relation(fields: [salesAreaId], references: [id], onDelete: SetNull)
   employees    SalesTerritoryEmployee[]
+  rtmLayerTransfersOut RtmLayerTransfer[] @relation("RtmLayerTransferSource")
+  rtmLayerTransfersIn  RtmLayerTransfer[] @relation("RtmLayerTransferDestination")
+  rtmTourPlans         RtmTourPlan[]      @relation("RtmTourPlanPoint")
+  rtmOutletAreas       RtmOutletArea[]    @relation("RtmOutletAreaNode")
 
   @@unique([businessUnitId, code])
   @@index([parentId])
@@ -2251,7 +2350,16 @@ enum SalesOrderStatus {
 enum SalesOrderType {
   SALES
   SAMPLE
+  /// Kept for old records; not offered on the forms.
   EXPORT
+  GIFT
+  RND
+  WARRANTY
+  REPLACEMENT
+  SERVICE
+  MOCK_UP
+  OPENING
+  PROJECT
 }
 
 enum PaymentMethod {
@@ -2686,6 +2794,7 @@ model District {
   suppliers         Supplier[]
   customers         Customer[]
   customerAddresses CustomerAddress[]
+  rtmOutlets        RtmOutlet[]
 
   @@map("districts")
 }
@@ -2701,6 +2810,7 @@ model Thana {
   suppliers         Supplier[]
   customers         Customer[]
   customerAddresses CustomerAddress[]
+  rtmOutlets        RtmOutlet[]
 
   @@unique([districtId, name])
   @@map("thanas")
@@ -2843,6 +2953,8 @@ model PurchaseOrder {
   expectedDeliveryDate DateTime?           @db.Date
   referenceNumber      String?             @db.VarChar(100)
   projectCostCenter    String?             @db.VarChar(100)
+  paymentTerms         String?             @db.VarChar(100)
+  deliveryTerms        String?             @db.VarChar(100)
   status               PurchaseOrderStatus @default(PENDING)
   subtotal             Decimal             @default(0) @db.Decimal(14, 2)
   totalDiscount        Decimal             @default(0) @db.Decimal(14, 2)
@@ -2912,6 +3024,8 @@ model GoodsReceipt {
   challanDate      DateTime?          @db.Date
   receiveDate      DateTime           @db.Date
   gatePassNumber   String?            @db.VarChar(100)
+  supplierInvoiceNumber String?       @db.VarChar(100)
+  vatChallanNumber String?            @db.VarChar(100)
   status           GoodsReceiptStatus @default(RECEIVED)
   totalReceivedQty Decimal            @default(0) @db.Decimal(14, 3)
   totalAcceptedQty Decimal            @default(0) @db.Decimal(14, 3)
@@ -2982,6 +3096,7 @@ model PurchaseReturn {
   status         PurchaseReturnStatus @default(SUBMITTED)
   totalQty       Decimal              @default(0) @db.Decimal(14, 3)
   totalAmount    Decimal              @default(0) @db.Decimal(14, 2)
+  createdBy      String?              @db.VarChar(150)
   createdAt      DateTime             @default(now()) @db.Timestamptz(3)
   updatedAt      DateTime             @updatedAt @db.Timestamptz(3)
 
@@ -3046,6 +3161,10 @@ model SupplierPayment {
   /// The goods receipt or supplier bill this payment settles; neither = on account.
   receiptId       String?               @db.Uuid
   billId          String?               @db.Uuid
+  /// Office, Bank Account & GL cash/bank account chosen on the payment voucher.
+  officeId        String?               @db.Uuid
+  bankAccountId   String?               @db.Uuid
+  cashAccountId   String?               @db.Uuid
   /// Paid before goods or a bill; shown under Payment Advance until used up.
   isAdvance       Boolean               @default(false)
   createdBy       String?               @db.VarChar(150)
@@ -3057,6 +3176,9 @@ model SupplierPayment {
   order           PurchaseOrder?        @relation(fields: [orderId], references: [id], onDelete: SetNull)
   receipt         GoodsReceipt?         @relation(fields: [receiptId], references: [id], onDelete: SetNull)
   bill            SupplierBill?         @relation(fields: [billId], references: [id], onDelete: SetNull)
+  office          Office?               @relation(fields: [officeId], references: [id], onDelete: SetNull)
+  bankAccount     BankAccount?          @relation(fields: [bankAccountId], references: [id], onDelete: SetNull)
+  cashAccount     Account?              @relation("SupplierPaymentCashAccount", fields: [cashAccountId], references: [id], onDelete: SetNull)
 
   @@unique([businessUnitId, number])
   @@index([businessUnitId, paymentDate])
@@ -3126,8 +3248,10 @@ model Account {
   collectionCashAccounts   SalesCollection[]          @relation("CollectionCashAccount")
   collectionAdjustAccounts SalesCollection[]          @relation("CollectionAdjustAccount")
   collectionDeductions     SalesCollectionDeduction[]
+  supplierPaymentCash      SupplierPayment[]          @relation("SupplierPaymentCashAccount")
 
   postingRoles             PostingAccount[]
+  coaPermissions           CoaPermission[]
   @@map("accounts")
 }
 
@@ -3174,10 +3298,17 @@ model JournalVoucher {
   preparedBy      String?              @db.VarChar(150)
   approvedBy      String?              @db.VarChar(150)
   postedAt        DateTime?            @db.Timestamptz(3)
+  /// Manual vouchers (iBOS Journal Voucher Create): the employee the voucher is for, the project (a cost center) and one attached file.
+  employeeId      String?              @db.Uuid
+  employeeName    String?              @db.VarChar(150)
+  projectId       String?              @db.Uuid
+  projectName     String?              @db.VarChar(150)
+  attachmentId    String?              @db.Uuid
   createdAt       DateTime             @default(now()) @db.Timestamptz(3)
   updatedAt       DateTime             @updatedAt @db.Timestamptz(3)
 
   lines           JournalVoucherLine[]
+  attachment      AccountsAttachment?  @relation(fields: [attachmentId], references: [id], onDelete: SetNull)
 
   @@unique([sourceType, sourceId])
   @@map("journal_vouchers")
@@ -3194,6 +3325,10 @@ model JournalVoucherLine {
   credit       Decimal        @default(0) @db.Decimal(14, 2)
   narration    String?        @db.VarChar(500)
   costCenterId String?        @db.Uuid
+  /// The customer, supplier or employee the line is for (iBOS Customer/Supplier/Employee column).
+  partnerType  String?        @db.VarChar(20)
+  partnerId    String?        @db.Uuid
+  partnerName  String?        @db.VarChar(150)
 
   voucher      JournalVoucher @relation(fields: [voucherId], references: [id], onDelete: Cascade)
   account      Account?       @relation(fields: [accountId], references: [id], onDelete: SetNull)
@@ -3205,13 +3340,17 @@ model JournalVoucherLine {
 model ExpenseRecord {
   id              String    @id @default(uuid()) @db.Uuid
   expenseNumber   String    @unique @db.VarChar(50)
+  recordKind      String    @default("EXPENSE") @db.VarChar(30)
   officeId        String?   @db.Uuid
   officeName      String?   @db.VarChar(150)
   expenseType     String    @db.VarChar(100)
   accountId       String?   @db.Uuid
+  accountCode     String?   @db.VarChar(50)
   accountName     String    @db.VarChar(150)
   payeeName       String    @db.VarChar(150)
   amount          Decimal   @db.Decimal(14, 2)
+  settledAmount   Decimal   @default(0) @db.Decimal(14, 2)
+  effectivePeriod String?   @db.VarChar(100)
   date            DateTime  @db.Date
   paymentMethod   String    @default("BANK") @db.VarChar(30)
   referenceNumber String?   @db.VarChar(100)
@@ -3219,10 +3358,57 @@ model ExpenseRecord {
   status          String    @default("APPROVED") @db.VarChar(30)
   approvedBy      String?   @db.VarChar(150)
   paidAt          DateTime? @db.Timestamptz(3)
+  /// iBOS Create Expense header: who the expense is for, the order or supplier it belongs to, and one attached file.
+  employeeId      String?   @db.Uuid
+  employeeName    String?   @db.VarChar(150)
+  department      String?   @db.VarChar(100)
+  salesOrderId    String?   @db.Uuid
+  salesOrderNo    String?   @db.VarChar(30)
+  supplierId      String?   @db.Uuid
+  supplierName    String?   @db.VarChar(150)
+  attachmentId    String?   @db.Uuid
   createdAt       DateTime  @default(now()) @db.Timestamptz(3)
   updatedAt       DateTime  @updatedAt @db.Timestamptz(3)
 
+  lines           ExpenseLine[]
+  attachment      AccountsAttachment? @relation(fields: [attachmentId], references: [id], onDelete: SetNull)
+
   @@map("expense_records")
+}
+
+/// One GL line of an expense (iBOS Create Expense grid); the expense amount is their total.
+model ExpenseLine {
+  id          String        @id @default(uuid()) @db.Uuid
+  expenseId   String        @db.Uuid
+  lineNo      Int           @default(1)
+  date        DateTime      @db.Date
+  accountId   String?       @db.Uuid
+  accountCode String        @db.VarChar(50)
+  accountName String        @db.VarChar(150)
+  subGl       String?       @db.VarChar(150)
+  remarks     String?       @db.VarChar(500)
+  amount      Decimal       @db.Decimal(14, 2)
+
+  expense     ExpenseRecord @relation(fields: [expenseId], references: [id], onDelete: Cascade)
+
+  @@index([expenseId])
+  @@map("expense_lines")
+}
+
+/// A file attached to a journal voucher or an expense; the bytes live in object storage.
+model AccountsAttachment {
+  id           String           @id @default(uuid()) @db.Uuid
+  storageKey   String           @unique @db.VarChar(300)
+  originalName String           @db.VarChar(255)
+  mimeType     String           @db.VarChar(100)
+  size         Int
+  createdBy    String           @db.VarChar(150)
+  createdAt    DateTime         @default(now()) @db.Timestamptz(3)
+
+  journalVouchers JournalVoucher[]
+  expenses        ExpenseRecord[]
+
+  @@map("accounts_attachments")
 }
 
 model FundTransfer {
@@ -3344,6 +3530,10 @@ model Budget {
   status            String       @default("Approved") @db.VarChar(50)
   version           Int          @default(1)
   createdBy         String       @db.VarChar(150)
+  /// iBOS Create Budget: the period the budget covers and its remarks.
+  fromPeriod        DateTime?    @db.Date
+  toPeriod          DateTime?    @db.Date
+  remarks           String?      @db.VarChar(500)
   createdAt         DateTime     @default(now()) @db.Timestamptz(3)
   updatedAt         DateTime     @updatedAt @db.Timestamptz(3)
 
@@ -3362,6 +3552,10 @@ model BudgetLine {
   utilizedAmount  Decimal  @default(0) @db.Decimal(14, 2)
   remainingAmount Decimal  @default(0) @db.Decimal(14, 2)
   remarks         String?  @db.VarChar(500)
+  /// iBOS budget line: the account head (group) the expense GL sits under, and the amount per month ("2026-11": 1000, …).
+  headCode        String?  @db.VarChar(50)
+  headName        String?  @db.VarChar(150)
+  monthlyAmounts  Json?
 
   budget          Budget   @relation(fields: [budgetId], references: [id], onDelete: Cascade)
 
@@ -3382,12 +3576,68 @@ model BankAccount {
   currentBalance       Decimal  @default(0) @db.Decimal(14, 2)
   reconciliationStatus String   @default("RECONCILED") @db.VarChar(50)
   isActive             Boolean  @default(true)
+  /// iBOS Create Bank Account: short name shown in lists, and who signs for the account.
+  shortName            String?  @db.VarChar(50)
+  signatory            String?  @db.VarChar(500)
   createdAt            DateTime @default(now()) @db.Timestamptz(3)
   updatedAt            DateTime @updatedAt @db.Timestamptz(3)
 
-  salesWallets SalesWallet[]
+  salesWallets     SalesWallet[]
+  supplierPayments SupplierPayment[]
 
   @@map("bank_accounts")
+}
+
+model CoaPermission {
+  id              String   @id @default(uuid()) @db.Uuid
+  employeeUuid    String?  @db.Uuid
+  employeeId      String   @db.VarChar(50)
+  employeeName    String   @db.VarChar(150)
+  voucherType     String   @db.VarChar(50)
+  accountId       String?  @db.Uuid
+  accountHeadCode String   @db.VarChar(50)
+  accountHeadName String   @db.VarChar(150)
+  status          String   @default("ACTIVE") @db.VarChar(30)
+  createdAt       DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime @updatedAt @db.Timestamptz(3)
+
+  account  Account?  @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  employee Employee? @relation(fields: [employeeUuid], references: [id], onDelete: SetNull)
+
+  @@unique([employeeId, voucherType, accountHeadCode])
+  @@index([accountHeadCode])
+  @@index([voucherType])
+  @@map("coa_permissions")
+}
+
+model BankFacility {
+  id                   String    @id @default(uuid()) @db.Uuid
+  facilityKind         String    @db.VarChar(30) // DEPOSIT | LOAN | PARTNER
+  facilityNumber       String    @unique @db.VarChar(50)
+  bankAccountId        String?   @db.Uuid
+  officeId             String?   @db.Uuid
+  officeName           String?   @db.VarChar(150)
+  partyName            String    @db.VarChar(150)
+  facilityType         String    @db.VarChar(100)
+  category             String?   @db.VarChar(50)
+  partnerGroup         String?   @db.VarChar(100)
+  glAccountId          String?   @db.Uuid
+  glAccountName        String?   @db.VarChar(150)
+  principalAmount      Decimal   @default(0) @db.Decimal(14, 2)
+  interestRate         Decimal   @default(0) @db.Decimal(6, 2)
+  openingDate          DateTime? @db.Date
+  maturityDate         DateTime? @db.Date
+  maturityValue        Decimal   @default(0) @db.Decimal(14, 2)
+  installmentAmount    Decimal   @default(0) @db.Decimal(14, 2)
+  outstandingPrincipal Decimal   @default(0) @db.Decimal(14, 2)
+  accruedInterest      Decimal   @default(0) @db.Decimal(14, 2)
+  tenureMonths         Int?
+  status               String    @default("ACTIVE") @db.VarChar(30)
+  createdAt            DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt            DateTime  @updatedAt @db.Timestamptz(3)
+
+  @@index([facilityKind])
+  @@map("bank_facilities")
 }
 
 // ─── Configuration › Entity Master Data › Employee ──────────────────────────
@@ -3460,7 +3710,11 @@ model Employee {
   attendancePunches    AttendancePunch[]
   leaveApplications    LeaveApplication[]
   movementApplications MovementApplication[]
+  attendanceAdjustments AttendanceAdjustment[]
+  calendarDays          EmployeeCalendarDay[]
+  overtimeEntries      OvertimeEntry[]
   payrollRunLines      PayrollRunLine[]
+  payrollBatchLines    PayrollBatchLine[]
   bonusLines           BonusLine[]
   salaryIncrements     SalaryIncrement[]
   hrPolicyRecords      HrPolicyRecord[]
@@ -3472,7 +3726,9 @@ model Employee {
   rtmCalendarDays      RtmSrCalendarDay[]
   rtmTourPlans         RtmTourPlan[]         @relation("RtmTourPlanSr")
   rtmVisits            RtmVisit[]
+  rtmLayerTransfers    RtmLayerTransfer[]    @relation("RtmLayerTransferEmployee")
   rtmTargets           RtmTarget[]           @relation("RtmTargetSr")
+  coaPermissions       CoaPermission[]
   @@index([officeId])
   @@index([employeeCode])
   @@index([attendanceId])
@@ -4179,6 +4435,91 @@ model MovementApplication {
   @@map("movement_applications")
 }
 
+/// HRM › Attendance: a manual change to one employee's attendance on one day.
+/// It stays Pending until HR approves it (Approval Setup feature "Employee
+/// Attendance"); only an approved adjustment changes the day's status.
+model AttendanceAdjustment {
+  id              String    @id @default(uuid()) @db.Uuid
+  employeeId      String    @db.Uuid
+  date            DateTime  @db.Date
+  /// Status before the change (from device punches), for the approver.
+  originalStatus  String?   @db.VarChar(20)
+  requestedStatus String    @db.VarChar(20)
+  /// As typed, e.g. "09:00 AM".
+  inTime          String?   @db.VarChar(20)
+  outTime         String?   @db.VarChar(20)
+  remarks         String?   @db.VarChar(500)
+  status          String    @default("Pending") @db.VarChar(20)
+  createdById     String?   @db.Uuid
+  createdByName   String?   @db.VarChar(150)
+  decidedByName   String?   @db.VarChar(150)
+  decidedAt       DateTime? @db.Timestamptz(3)
+  createdAt       DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime  @updatedAt @db.Timestamptz(3)
+
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([employeeId, date])
+  @@index([date])
+  @@index([status])
+  @@map("attendance_adjustments")
+}
+
+/// HRM › Calendar Assign: the calendar (shift) an employee works on one day,
+/// or OFF (weekly off) / HOL (holiday). Overrides Roster, Holidays and Off Day.
+model EmployeeCalendarDay {
+  id            String   @id @default(uuid()) @db.Uuid
+  employeeId    String   @db.Uuid
+  date          DateTime @db.Date
+  /// The calendar's short code as assigned ("G", "A" …), or OFF / HOL.
+  code          String   @db.VarChar(20)
+  /// The Calendar Setup record (HR Governance); null for OFF / HOL.
+  calendarId    String?  @db.Uuid
+  updatedByName String?  @db.VarChar(150)
+  createdAt     DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime @updatedAt @db.Timestamptz(3)
+
+  employee Employee        @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  calendar HrPolicyRecord? @relation(fields: [calendarId], references: [id], onDelete: SetNull)
+
+  @@unique([employeeId, date])
+  @@index([date])
+  @@index([calendarId])
+  @@map("employee_calendar_days")
+}
+
+/// HRM › Overtime: one employee's overtime on one day, from attendance punches or entered by hand.
+/// It is paid (Monthly OT Summary) once approved.
+model OvertimeEntry {
+  id            String    @id @default(uuid()) @db.Uuid
+  employeeId    String    @db.Uuid
+  officeId      String    @db.Uuid
+  date          DateTime  @db.Date
+  /// Overtime claimed, in minutes.
+  minutes       Int
+  /// "Attendance" (from device punches) or "Manual".
+  source        String    @db.VarChar(20)
+  /// First / last punch of the day, local "HH:MM" (attendance entries).
+  inTime        String?   @db.VarChar(5)
+  outTime       String?   @db.VarChar(5)
+  workedMinutes Int?
+  reason        String?   @db.VarChar(500)
+  status        String    @default("Pending") @db.VarChar(20)
+  createdByName String?   @db.VarChar(150)
+  decidedByName String?   @db.VarChar(150)
+  decidedAt     DateTime? @db.Timestamptz(3)
+  createdAt     DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime  @updatedAt @db.Timestamptz(3)
+
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  office   Office   @relation(fields: [officeId], references: [id], onDelete: Restrict)
+
+  @@unique([employeeId, date])
+  @@index([officeId, date])
+  @@index([status, date])
+  @@map("overtime_entries")
+}
+
 /// HRM › Payroll: a processed (locked) payroll for one office and month. Unprocessed months are calculated live.
 model PayrollRun {
   id              String    @id @default(uuid()) @db.Uuid
@@ -4227,6 +4568,138 @@ model PayrollRunLine {
   @@index([payrollRunId])
   @@index([employeeId])
   @@map("payroll_run_lines")
+}
+
+/// HRM › Payroll › Salary Generate: one office's salary batch for a month and
+/// salary type. Draft → Under Processing (submitted; figures frozen) → Approved
+/// (last approval stage of the "Salary Sheet" pipeline), or Rejected / Cancelled.
+/// `periodKey` ("YYYY-MM|Monthly") is set while the batch is live and cleared when
+/// it is cancelled, so the unique keys allow one live batch per office and period.
+model PayrollBatch {
+  id                       String    @id @default(uuid()) @db.Uuid
+  reference                String    @unique @db.VarChar(30)
+  businessUnitId           String    @db.Uuid
+  officeId                 String    @db.Uuid
+  salaryType               String    @db.VarChar(30)
+  /// YYYY-MM
+  month                    String    @db.VarChar(7)
+  fromDate                 DateTime  @db.Date
+  toDate                   DateTime  @db.Date
+  payrollDate              DateTime  @db.Date
+  description              String?   @db.VarChar(500)
+  status                   String    @default("Draft") @db.VarChar(20)
+  periodKey                String?   @db.VarChar(40)
+  eligibleCount            Int       @default(0)
+  employeeCount            Int       @default(0)
+  totalGross               Decimal   @default(0) @db.Decimal(14, 2)
+  totalBasic               Decimal   @default(0) @db.Decimal(14, 2)
+  totalAllowances          Decimal   @default(0) @db.Decimal(14, 2)
+  totalEarned              Decimal   @default(0) @db.Decimal(14, 2)
+  totalAdditions           Decimal   @default(0) @db.Decimal(14, 2)
+  totalAttendanceDeduction Decimal   @default(0) @db.Decimal(14, 2)
+  totalOtherDeduction      Decimal   @default(0) @db.Decimal(14, 2)
+  totalNet                 Decimal   @default(0) @db.Decimal(14, 2)
+  warningCount             Int       @default(0)
+  errorCount               Int       @default(0)
+  /// Employees left out (no salary set …) with the reason, for reconciliation.
+  excluded                 Json      @default("[]")
+  /// Policy records (id, tab, updatedAt) the calculation used.
+  policySnapshot           Json      @default("[]")
+  /// Hash of every input of the calculation; a different hash later means the sources changed.
+  sourceHash               String    @db.VarChar(64)
+  calculatedAt             DateTime  @db.Timestamptz(3)
+  submittedAt              DateTime? @db.Timestamptz(3)
+  submittedByName          String?   @db.VarChar(150)
+  decidedAt                DateTime? @db.Timestamptz(3)
+  decidedByName            String?   @db.VarChar(150)
+  rejectionReason          String?   @db.VarChar(500)
+  cancelReason             String?   @db.VarChar(500)
+  /// Payslips become visible to employees (Employee Self Service) only once an Approved batch is published.
+  payslipsPublishedAt      DateTime? @db.Timestamptz(3)
+  payslipsPublishedByName  String?   @db.VarChar(150)
+  createdById              String?   @db.VarChar(100)
+  createdByName            String?   @db.VarChar(150)
+  updatedByName            String?   @db.VarChar(150)
+  /// Bumped on every change; writes check it so concurrent edits do not overwrite each other.
+  version                  Int       @default(1)
+  createdAt                DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt                DateTime  @updatedAt @db.Timestamptz(3)
+
+  businessUnit BusinessUnit        @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  office       Office              @relation(fields: [officeId], references: [id], onDelete: Restrict)
+  lines        PayrollBatchLine[]
+  events       PayrollBatchEvent[]
+
+  @@unique([officeId, periodKey])
+  @@index([month, officeId])
+  @@index([status])
+  @@map("payroll_batches")
+}
+
+/// One employee's calculated salary in a batch: a snapshot, so later salary or
+/// attendance changes do not alter it until the batch is recalculated.
+model PayrollBatchLine {
+  id                  String   @id @default(uuid()) @db.Uuid
+  batchId             String   @db.Uuid
+  employeeId          String   @db.Uuid
+  /// The batch's period key while the batch is live: one live salary per employee and period.
+  periodKey           String?  @db.VarChar(40)
+  sl                  Int
+  employeeCode        String   @db.VarChar(50)
+  employeeName        String   @db.VarChar(150)
+  joiningDate         DateTime @db.Date
+  designation         String?  @db.VarChar(150)
+  department          String?  @db.VarChar(150)
+  grossSalary         Decimal  @db.Decimal(14, 2)
+  basic               Decimal? @db.Decimal(14, 2)
+  houseRent           Decimal? @db.Decimal(14, 2)
+  medical             Decimal? @db.Decimal(14, 2)
+  transport           Decimal? @db.Decimal(14, 2)
+  /// Allowance and deduction columns by code (MA, FA, EA, PFD, TAA, TDA, NPA …).
+  components          Json     @default("{}")
+  earnedGross         Decimal  @db.Decimal(14, 2)
+  additions           Decimal  @db.Decimal(14, 2)
+  attendanceDeduction Decimal  @db.Decimal(14, 2)
+  otherDeduction      Decimal  @db.Decimal(14, 2)
+  totalDeduction      Decimal  @db.Decimal(14, 2)
+  netPayable          Decimal  @db.Decimal(14, 2)
+  payMethod           String   @db.VarChar(20)
+  bankOrProvider      String?  @db.VarChar(150)
+  accountNo           String?  @db.VarChar(50)
+  /// Day counts: working, present, absent, leave by type, weekly off, holidays, lates …
+  attendance          Json     @default("{}")
+  /// Read-only steps showing how the net payable was reached.
+  trace               Json     @default("[]")
+  warnings            Json     @default("[]")
+  errors              Json     @default("[]")
+  sourceHash          String   @db.VarChar(64)
+
+  batch    PayrollBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  employee Employee     @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+
+  @@unique([employeeId, periodKey])
+  @@index([batchId, sl])
+  @@map("payroll_batch_lines")
+}
+
+/// Audit trail of a payroll batch: generation, recalculation, submission, each approval stage, rejection, cancellation.
+model PayrollBatchEvent {
+  id         String   @id @default(uuid()) @db.Uuid
+  batchId    String   @db.Uuid
+  action     String   @db.VarChar(30)
+  fromStatus String?  @db.VarChar(20)
+  toStatus   String   @db.VarChar(20)
+  stageNo    Int?
+  stageName  String?  @db.VarChar(150)
+  actorId    String?  @db.VarChar(100)
+  actorName  String   @db.VarChar(150)
+  remarks    String?  @db.VarChar(500)
+  createdAt  DateTime @default(now()) @db.Timestamptz(3)
+
+  batch PayrollBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+
+  @@index([batchId, createdAt])
+  @@map("payroll_batch_events")
 }
 
 /// HRM › Compensation Adjustments › Bonus: a bonus for one office (or all), as a percentage of gross salary.
@@ -4298,6 +4771,27 @@ model SalaryIncrement {
   @@map("salary_increments")
 }
 
+/// A personal notification for one user (Employee Self Service › Notifications and
+/// the navbar bell): leave and attendance decisions, published payslips, calendar changes.
+model UserNotification {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @db.Uuid
+  /// leave, attendance, payslip, calendar …
+  kind      String    @db.VarChar(30)
+  title     String    @db.VarChar(200)
+  body      String?   @db.VarChar(500)
+  /// In-app path to open, e.g. /employee/leave.
+  link      String?   @db.VarChar(300)
+  readAt    DateTime? @db.Timestamptz(3)
+  createdAt DateTime  @default(now()) @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([userId, readAt])
+  @@map("user_notifications")
+}
+
 /// HRM › HR Governance › Settings / Policies: one setup record of a tab (holiday,
 /// calendar, PF rule, …). The tab's own fields are in `data`, validated by the
 /// field definitions in features/hrm/governance/policy-fields.ts.
@@ -4317,11 +4811,14 @@ model HrPolicyRecord {
 
   office   Office?   @relation(fields: [officeId], references: [id], onDelete: Restrict)
   employee Employee? @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  /// Calendar Setup records: the days employees are assigned to this calendar.
+  calendarDays EmployeeCalendarDay[]
 
   @@index([tab, effectiveFrom])
   @@index([employeeId])
   @@map("hr_policy_records")
 }
+
 
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -4754,6 +5251,30 @@ model RtmOutlet {
   longitude      Decimal? @db.Decimal(10, 7)
   creditLimit    Decimal? @db.Decimal(14, 2)
   isActive       Boolean  @default(true)
+  // ── Outlet profile (Outlet Setup) ──
+  nameBn          String?      @db.VarChar(150)
+  partnerCode     String?      @db.VarChar(30)
+  category        String?      @db.VarChar(60)
+  businessType    String?      @db.VarChar(60)
+  outletGroup     String?      @db.VarChar(60)
+  districtId      Int?
+  thanaId         String?      @db.Uuid
+  ownerPhone      String?      @db.VarChar(30)
+  contactPerson   String?      @db.VarChar(150)
+  tradeLicense    String?      @db.VarChar(60)
+  nid             String?      @db.VarChar(30)
+  email           String?      @db.VarChar(150)
+  dateOfBirth     DateTime?    @db.Date
+  serial          Int?
+  maritalStatus   String?      @db.VarChar(20)
+  competitors     String?      @db.VarChar(300)
+  competitorItems String?      @db.VarChar(300)
+  regularSales    Decimal?     @db.Decimal(14, 2)
+  /// DAILY or MONTHLY: the period `regularSales` is for.
+  salesPeriod     String?      @db.VarChar(10)
+  /// Outlet Setup Approval: new outlets wait for approval before they can order.
+  approvalStatus  RtmDocStatus @default(APPROVED)
+  approvedBy      String?      @db.VarChar(150)
   createdBy      String   @db.VarChar(150)
   createdAt      DateTime @default(now()) @db.Timestamptz(3)
   updatedAt      DateTime @updatedAt @db.Timestamptz(3)
@@ -4762,6 +5283,10 @@ model RtmOutlet {
   channel      RtmChannel?     @relation(fields: [channelId], references: [id], onDelete: SetNull)
   distributor  Customer        @relation("RtmOutletDistributor", fields: [distributorId], references: [id], onDelete: Restrict)
   route        SalesArea?      @relation(fields: [routeId], references: [id], onDelete: SetNull)
+  district     District?       @relation(fields: [districtId], references: [id], onDelete: SetNull)
+  thana        Thana?          @relation(fields: [thanaId], references: [id], onDelete: SetNull)
+  areas        RtmOutletArea[]
+  attachments  RtmOutletAttachment[]
   orders       RtmOrder[]
   deliveries   RtmDelivery[]
   collections  RtmCollection[]
@@ -4774,6 +5299,39 @@ model RtmOutlet {
 }
 
 /// An order taken from an outlet; delivered (in full or part) by the distributor.
+/// Where an outlet is served: Sales Territory nodes (a market, or the deepest node picked). Line 1 is the main one.
+model RtmOutletArea {
+  id       String @id @default(uuid()) @db.Uuid
+  outletId String @db.Uuid
+  nodeId   String @db.Uuid
+  lineNo   Int
+
+  outlet RtmOutlet          @relation(fields: [outletId], references: [id], onDelete: Cascade)
+  node   SalesTerritoryNode @relation("RtmOutletAreaNode", fields: [nodeId], references: [id], onDelete: Restrict)
+
+  @@unique([outletId, nodeId])
+  @@index([nodeId])
+  @@map("rtm_outlet_areas")
+}
+
+/// Outlet image or other document (trade license, NID copy …).
+model RtmOutletAttachment {
+  id           String   @id @default(uuid()) @db.Uuid
+  outletId     String   @db.Uuid
+  /// IMAGE or DOCUMENT
+  kind         String   @db.VarChar(10)
+  storageKey   String   @unique @db.VarChar(300)
+  originalName String   @db.VarChar(255)
+  mimeType     String   @db.VarChar(100)
+  size         Int
+  createdAt    DateTime @default(now()) @db.Timestamptz(3)
+
+  outlet RtmOutlet @relation(fields: [outletId], references: [id], onDelete: Cascade)
+
+  @@index([outletId])
+  @@map("rtm_outlet_attachments")
+}
+
 model RtmOrder {
   id             String       @id @default(uuid()) @db.Uuid
   businessUnitId String       @db.Uuid
@@ -5016,6 +5574,9 @@ model RtmStockAdjustment {
   status         RtmDocStatus @default(PENDING)
   createdBy      String       @db.VarChar(150)
   approvedBy     String?      @db.VarChar(150)
+  /// Rolled back: the stock entries were reversed and the status set to CANCELLED.
+  rolledBackBy   String?      @db.VarChar(150)
+  rolledBackAt   DateTime?    @db.Timestamptz(3)
   createdAt      DateTime     @default(now()) @db.Timestamptz(3)
 
   businessUnit BusinessUnit             @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
@@ -5032,7 +5593,9 @@ model RtmStockAdjustmentLine {
   lineNo       Int
   itemId       String  @db.Uuid
   /// + found / opening, − lost.
-  qty          Decimal @db.Decimal(14, 3)
+  qty          Decimal  @db.Decimal(14, 3)
+  /// Dealer price when the adjustment was made (valuation impact = qty × rate).
+  rate         Decimal? @db.Decimal(14, 2)
 
   adjustment RtmStockAdjustment @relation(fields: [adjustmentId], references: [id], onDelete: Cascade)
   item       Item               @relation(fields: [itemId], references: [id], onDelete: Restrict)
@@ -5066,13 +5629,23 @@ model RtmTourPlan {
   routeId        String?      @db.Uuid
   distributorId  String?      @db.Uuid
   purpose        String?      @db.VarChar(300)
+  /// Monthly tour plan (Tour Plan Setup › Generate): HIGH / MEDIUM / LOW.
+  priority       String?      @db.VarChar(10)
+  activity       String?      @db.VarChar(60)
+  /// The Sales Territory node visited (base point, route, market …).
+  pointNodeId    String?      @db.Uuid
+  /// HH:mm, local time.
+  startTime      String?      @db.VarChar(5)
+  endTime        String?      @db.VarChar(5)
+  remarks        String?      @db.VarChar(300)
   status         RtmDocStatus @default(PENDING)
   createdBy      String       @db.VarChar(150)
   approvedBy     String?      @db.VarChar(150)
   createdAt      DateTime     @default(now()) @db.Timestamptz(3)
 
-  businessUnit BusinessUnit @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
-  employee     Employee     @relation("RtmTourPlanSr", fields: [employeeId], references: [id], onDelete: Cascade)
+  businessUnit BusinessUnit        @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  employee     Employee            @relation("RtmTourPlanSr", fields: [employeeId], references: [id], onDelete: Cascade)
+  point        SalesTerritoryNode? @relation("RtmTourPlanPoint", fields: [pointNodeId], references: [id], onDelete: SetNull)
   route        SalesArea?   @relation(fields: [routeId], references: [id], onDelete: SetNull)
   distributor  Customer?    @relation("RtmTourPlanDistributor", fields: [distributorId], references: [id], onDelete: SetNull)
 
@@ -5081,6 +5654,43 @@ model RtmTourPlan {
 }
 
 /// A field visit: check-in / check-out of the day, or an outlet visit (with location).
+enum RtmLayerTransferType {
+  /// One sales person moves from the source node to the destination node.
+  EMPLOYEE
+  /// Everything under the source node (child nodes and their people) moves to the destination node.
+  AREA
+}
+
+/// A move in the Sales Territory tree (Sales Layer Transfer). Applied once approved.
+model RtmLayerTransfer {
+  id                String               @id @default(uuid()) @db.Uuid
+  businessUnitId    String               @db.Uuid
+  number            String               @db.VarChar(30)
+  transferDate      DateTime             @db.Date
+  type              RtmLayerTransferType
+  layerId           String               @db.Uuid
+  sourceNodeId      String               @db.Uuid
+  destinationNodeId String               @db.Uuid
+  employeeId        String?              @db.Uuid
+  remarks           String?              @db.VarChar(500)
+  status            RtmDocStatus         @default(PENDING)
+  requestedBy       String               @db.VarChar(150)
+  approvedBy        String?              @db.VarChar(150)
+  appliedAt         DateTime?            @db.Timestamptz(3)
+  createdAt         DateTime             @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime             @updatedAt @db.Timestamptz(3)
+
+  businessUnit    BusinessUnit        @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  layer           SalesTerritoryLayer @relation(fields: [layerId], references: [id], onDelete: Restrict)
+  sourceNode      SalesTerritoryNode  @relation("RtmLayerTransferSource", fields: [sourceNodeId], references: [id], onDelete: Restrict)
+  destinationNode SalesTerritoryNode  @relation("RtmLayerTransferDestination", fields: [destinationNodeId], references: [id], onDelete: Restrict)
+  employee        Employee?           @relation("RtmLayerTransferEmployee", fields: [employeeId], references: [id], onDelete: SetNull)
+
+  @@unique([businessUnitId, number])
+  @@index([businessUnitId, transferDate])
+  @@map("rtm_layer_transfers")
+}
+
 model RtmVisit {
   id             String       @id @default(uuid()) @db.Uuid
   businessUnitId String       @db.Uuid

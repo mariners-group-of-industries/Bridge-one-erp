@@ -205,7 +205,7 @@ export function CustomerListView() {
                 value={draft.territoryId ?? ""}
                 placeholder="All territories"
                 disabled={!options.data}
-                options={territories.map((territory) => ({ value: territory.id, label: territory.name }))}
+                options={territories.map((territory) => ({ value: territory.id, label: territory.path ? `${territory.path} › ${territory.name}` : territory.name }))}
                 onChange={(e) => changeDraft({ territoryId: e.target.value || undefined })}
               />
             )}
@@ -436,7 +436,7 @@ const LIST_COLUMNS: ColumnId[] = [
 ];
 
 const createdDate = (iso: string) =>
-  new Date(iso).toLocaleDateString("en-GB", { day: "2-digit", month: "2-digit", year: "numeric" }).replace(/\//g, "-");
+  new Date(iso).toLocaleDateString("en-GB", { day: "2-digit", month: "2-digit", year: "numeric" });
 
 const COLUMN_DEFS: Record<ColumnId, { header: string; className?: string; cell: (row: CustomerListRow) => ReactNode }> = {
   code: { header: "Partner Code", className: "font-medium text-ink whitespace-nowrap", cell: (row) => row.code },

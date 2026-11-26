@@ -31,6 +31,7 @@ import {
 import { deliverySettlements } from "../../collections/services/collection.service";
 import { approveReturn, createReturn, lockDeliveryReturns, returnNumber } from "../../returns/services/return.service";
 import { assertStockAvailable, lockWarehouse, requireWarehouse, stockLevels } from "./stock.service";
+import { packingOf } from "../../orders/lib/packing";
 import { requireDriver } from "./vehicle.service";
 
 /** Rows a list returns; totals cover every match. */
@@ -621,7 +622,7 @@ async function loadDelivery(actor: Actor, id: string): Promise<DeliveryRecord> {
 
 export async function getDelivery(actor: Actor, id: string): Promise<DeliveryDetail> {
   const detail = toDetail(await loadDelivery(actor, id));
-  if (detail.warehouseId) {
+  if (detail.warehouseId && !actor.hideStockInSales) {
     const levels = await stockLevels(detail.warehouseId, [...new Set(detail.lines.map((line) => line.itemId))]);
     for (const line of detail.lines) line.stock = levels.get(line.itemId) ?? 0;
   }
@@ -752,13 +753,14 @@ async function plan(actor: Actor, input: ParsedInput): Promise<Plan> {
     lines = input.lines.map((line, index) => {
       const item = itemById.get(line.itemId)!;
       const amounts = orderLineAmounts(line, priceIncludesVat);
+      const pack = packingOf(item);
       return {
         lineNo: index + 1,
         itemId: line.itemId,
         orderLineId: null,
         uom: item.uom,
-        altUom: item.altUom,
-        altUomFactor: item.altUomFactor,
+        altUom: pack.altUom,
+        altUomFactor: pack.altUomFactor === null ? null : new Prisma.Decimal(pack.altUomFactor),
         qty: line.qty,
         rate: line.unitPrice,
         discountPercent: line.discountPercent,

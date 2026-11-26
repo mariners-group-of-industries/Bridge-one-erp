@@ -7,9 +7,8 @@ import type { Workspace } from "@/lib/navigation/types";
  * truth for the permission matrix, the server's authorization and the menus.
  *
  * Adding a feature: register its page in the module's `navigation.ts`; it then
- * appears here with View / Create / Edit / Delete / Export. List it below only
- * when it needs other actions (reports, approvals, imports), and map its API in
- * `api-rules.ts` if the API path does not start with the page path.
+ * appears here with every action. Map its API in `api-rules.ts` if the API path
+ * does not start with the page path.
  */
 
 export const PERMISSION_ACTIONS = ["view", "create", "edit", "delete", "approve", "export", "import", "assign", "manage"] as const;
@@ -60,76 +59,12 @@ export interface PermissionModule {
   features: PermissionFeature[];
 }
 
-const CRUD: readonly PermissionAction[] = ["view", "create", "edit", "delete", "export"];
-const REPORT: readonly PermissionAction[] = ["view", "export"];
-const WITH_APPROVE: readonly PermissionAction[] = ["view", "create", "edit", "delete", "approve", "export"];
-const WITH_IMPORT: readonly PermissionAction[] = ["view", "create", "edit", "delete", "export", "import"];
-
-/** Pages whose actions differ from the default CRUD + Export. */
-const FEATURE_ACTIONS: Record<string, readonly PermissionAction[]> = {
-  // Overviews, dashboards and reports: read and download only.
-  "/accounts": REPORT,
-  "/accounts/financial-reports": REPORT,
-  "/accounts/other-reports": REPORT,
-  "/inventory": REPORT,
-  "/inventory/inventory-reports": REPORT,
-  "/inventory/transfer-report": REPORT,
-  "/rtm/dashboard": REPORT,
-  "/rtm/distributor-dashboard": REPORT,
-  "/rtm/sales-executive-dashboard": REPORT,
-  "/rtm/sales-analytics": REPORT,
-  "/rtm/outlet-ledger": REPORT,
-  "/rtm/outlet-tracking": REPORT,
-  "/production/dashboard": REPORT,
-  "/production/reports": REPORT,
-  "/purchase/analytics": REPORT,
-  "/purchase/reports": REPORT,
-  "/sales/dashboard": REPORT,
-  "/sales/reports": REPORT,
-  "/sales/analytics": REPORT,
-  "/configuration/system-logs/audit-logs": REPORT,
-  // Documents that go through approval.
-  "/accounts/journal": WITH_APPROVE,
-  "/accounts/budget": WITH_APPROVE,
-  "/accounts/fund-transfers": WITH_APPROVE,
-  "/accounts/expenses": WITH_APPROVE,
-  "/purchase/requisitions": WITH_APPROVE,
-  "/purchase/orders": WITH_APPROVE,
-  "/purchase/receive": WITH_APPROVE,
-  "/purchase/returns": WITH_APPROVE,
-  "/purchase/supplier-payments": WITH_APPROVE,
-  "/production/orders": WITH_APPROVE,
-  "/inventory/stock-adjustment": WITH_APPROVE,
-  "/rtm/distributor-stock-transfer-request": WITH_APPROVE,
-  "/rtm/distributor-stock-adjustment": WITH_APPROVE,
-  "/rtm/tour-plan-setup": WITH_APPROVE,
-  "/inventory/item-stock-conversion": WITH_APPROVE,
-  "/inventory/transfer-request": WITH_APPROVE,
-  "/inventory/store-requisition": WITH_APPROVE,
-  "/sales/quotations": WITH_APPROVE,
-  "/sales/orders": WITH_APPROVE,
-  "/sales/returns": WITH_APPROVE,
-  "/sales/collections": WITH_APPROVE,
-  "/hrm/self-service/leave-movement": WITH_APPROVE,
-  "/hrm/compensation/bonus": WITH_APPROVE,
-  "/hrm/talent/increment": WITH_APPROVE,
-  "/hrm/payroll": WITH_APPROVE,
-  "/hrm/governance/pending-approval": ["view", "approve"],
-  // Master data with Excel import.
-  "/configuration/entity-master-data/employee": WITH_IMPORT,
-  "/configuration/entity-master-data/item-profile": WITH_IMPORT,
-  "/configuration/entity-master-data/customer-profile": WITH_IMPORT,
-  "/configuration/entity-master-data/supplier-profile": WITH_IMPORT,
-  "/configuration/sales-config/customer-price-setup": WITH_IMPORT,
-  "/configuration/sales-config/standard-price-setup": WITH_IMPORT,
-  "/configuration/sales-config/sales-return": WITH_IMPORT,
-  "/configuration/sales-config/sales-setup": ["view", "create", "edit", "delete", "export", "import", "assign"],
-  // One record per company / per person.
-  "/configuration/business-config/company-profile": ["view", "edit"],
-  "/hrm/self-service/profile": ["view", "edit"],
-  // Access control: "Manage Permissions" edits users' access; "Assign" puts users in groups.
-  "/configuration/security/permission-group": ["view", "create", "edit", "delete", "assign", "manage"],
-};
+/**
+ * Every page offers every action, so the matrix is a full grid and an
+ * administrator can grant any action anywhere. An action a page has no use for
+ * (e.g. Approve on a report) is harmless: nothing checks it there.
+ */
+const ALL_ACTIONS: readonly PermissionAction[] = PERMISSION_ACTIONS;
 
 /** The page that grants permission administration (users' ERP access and overrides). */
 export const PERMISSION_ADMIN_FEATURE = "/configuration/security/permission-group";
@@ -144,7 +79,7 @@ function moduleFeatures(workspace: Workspace): PermissionFeature[] {
     const key = href.split("?")[0];
     if (seen.has(key)) return;
     seen.add(key);
-    features.push({ key, permKey: permKeyOf(key), moduleId: workspace.id, moduleLabel: workspace.label, submodule, label, actions: FEATURE_ACTIONS[key] ?? CRUD });
+    features.push({ key, permKey: permKeyOf(key), moduleId: workspace.id, moduleLabel: workspace.label, submodule, label, actions: ALL_ACTIONS });
   };
   // Cards first, so pages carry their card as submodule; then shortcuts and flat links not in any card.
   for (const card of workspace.cards ?? []) for (const link of card.links) add(link.href, link.label, card.label.trim() || null);

@@ -38,7 +38,7 @@ export const storeIssue: NavLink = {
 };
 
 export const stockAdjustment: NavLink = {
-  label: "Stock Update",
+  label: "Stock Adjustment",
   href: paths.stockAdjustment,
   description: "Physical audit reconciliation, write-offs, shrinkage, and corrections.",
   keywords: ["stock update", "stock adjustment", "physical audit", "reconciliation", "variance"],

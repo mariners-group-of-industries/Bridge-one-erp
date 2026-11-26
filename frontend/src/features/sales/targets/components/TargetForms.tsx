@@ -893,9 +893,13 @@ function CommissionEditor({ today, lookups, existing }: { today: string; lookups
   const [entry, setEntry] = useState({ itemText: "", all: false, basis: "AMOUNT" as CommissionBasis, value: "" });
   const set = <K extends keyof typeof header>(key: K, value: (typeof header)[K]) => setHeader((current) => ({ ...current, [key]: value }));
 
-  const masters = useUnitMasters(businessUnitId || null);
-  const items = useMemo(() => masters.data?.items ?? [], [masters.data]);
-  const categories = useMemo(() => masters.data?.setup.categories ?? [], [masters.data]);
+  // Loaded separately so one slow or failed list does not leave every dropdown empty.
+  const setup = useResource(businessUnitId && `commission-setup:${businessUnitId}`, () => fetchSetupLookups(businessUnitId));
+  const itemList = useResource(businessUnitId && `commission-items:${businessUnitId}`, () => fetchItems(businessUnitId, true));
+  const setupLoading = !setup.data && !setup.error;
+  const itemsLoading = !itemList.data && !itemList.error;
+  const items = useMemo(() => itemList.data ?? [], [itemList.data]);
+  const categories = useMemo(() => setup.data?.categories ?? [], [setup.data]);
   const chosen = category[2] || category[1] || category[0];
   const allowed = useMemo(() => {
     if (!chosen) return null;
@@ -947,12 +951,12 @@ function CommissionEditor({ today, lookups, existing }: { today: string; lookups
     const parent = depth === 0 ? null : category[depth - 1];
     const choices = categories.filter((candidate) => candidate.level === depth + 1 && (depth === 0 || candidate.parentId === parent));
     const label = depth === 0 ? "Selling Item Category" : depth === 1 ? "Selling Item Sub Category" : "Selling Item Minor Category";
-    const placeholder = depth === 0 ? "Select" : depth === 1 ? "Select" : "Minor Category";
+    const placeholder = setupLoading ? "Loading…" : depth === 2 ? "Minor Category" : "Select";
     return (
       <SelectField
         label={label}
         value={category[depth]}
-        disabled={depth > 0 && !parent}
+        disabled={setupLoading || (depth > 0 && !parent)}
         options={[{ value: "", label: placeholder }, ...choices.map((candidate) => ({ value: candidate.id, label: candidate.name }))]}
         onChange={(event) => {
           const next = [...category] as [string, string, string];
@@ -975,6 +979,17 @@ function CommissionEditor({ today, lookups, existing }: { today: string; lookups
       }
     >
       <div className="flex flex-col gap-4">
+        {(setup.error || itemList.error) && (
+          <Card>
+            <ErrorState
+              message={errorMessage(setup.error ?? itemList.error)}
+              onRetry={() => {
+                if (setup.error) setup.reload();
+                if (itemList.error) itemList.reload();
+              }}
+            />
+          </Card>
+        )}
         <Card>
           <Section>
             <div className="rounded border border-line bg-canvas p-3">
@@ -1001,7 +1016,8 @@ function CommissionEditor({ today, lookups, existing }: { today: string; lookups
               <SelectField
                 label="Customer Group"
                 value={header.customerGroupId}
-                options={[{ value: "", label: "Customer Group" }, ...(masters.data?.setup.customerGroups ?? []).map((group) => ({ value: group.id, label: group.name }))]}
+                disabled={setupLoading}
+                options={[{ value: "", label: setupLoading ? "Loading…" : "Customer Group" }, ...(setup.data?.customerGroups ?? []).map((group) => ({ value: group.id, label: group.name }))]}
                 onChange={(event) => set("customerGroupId", event.target.value)}
               />
               <SelectField
@@ -1009,7 +1025,8 @@ function CommissionEditor({ today, lookups, existing }: { today: string; lookups
                 required
                 value={header.salesPersonId}
                 error={errors.salesPersonId}
-                options={[{ value: "", label: "Select employee" }, ...(masters.data?.setup.salesPersons ?? []).map((person) => ({ value: person.id, label: `${person.name}${person.designation ? ` (${person.designation})` : ""}` }))]}
+                disabled={setupLoading}
+                options={[{ value: "", label: setupLoading ? "Loading…" : "Select employee" }, ...(setup.data?.salesPersons ?? []).map((person) => ({ value: person.id, label: `${person.name}${person.designation ? ` (${person.designation})` : ""}` }))]}
                 onChange={(event) => set("salesPersonId", event.target.value)}
               />
               <TextField label="Commission Name" required placeholder="Commission Name" value={header.name} error={errors.name} onChange={(event) => set("name", event.target.value)} />
@@ -1046,8 +1063,8 @@ function CommissionEditor({ today, lookups, existing }: { today: string; lookups
                   id={`${listId}-item`}
                   list={listId}
                   value={entry.all ? "" : entry.itemText}
-                  disabled={entry.all || !masters.data}
-                  placeholder="Select/Search Item (min 3 letters)"
+                  disabled={entry.all || !itemList.data}
+                  placeholder={itemsLoading ? "Loading items…" : "Select/Search Item"}
                   onChange={(event) => setEntry({ ...entry, itemText: event.target.value })}
                   className={cn(CONTROL, "h-7")}
                 />

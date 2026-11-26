@@ -134,13 +134,13 @@ export async function getApprovalFormOptions(actor: Actor): Promise<ApprovalForm
     db().employee.findMany({
       where: { isActive: true, office: { businessUnit: unitScope(actor) } },
       orderBy: { name: "asc" },
-      select: { id: true, name: true, employeeCode: true, designation: true, office: { select: { businessUnitId: true } } },
+      select: { id: true, name: true, employeeCode: true, designation: true, userId: true, office: { select: { businessUnitId: true } } },
     }),
   ]);
   return {
     businessUnits,
     users: users.map((u) => ({ id: u.id, name: u.name, businessUnitIds: u.businessUnitAccess.map((a) => a.businessUnitId) })),
-    employees: employees.map((e) => ({ id: e.id, name: e.name, code: e.employeeCode, designation: e.designation, businessUnitId: e.office.businessUnitId })),
+    employees: employees.map((e) => ({ id: e.id, name: e.name, code: e.employeeCode, designation: e.designation, businessUnitId: e.office.businessUnitId, userId: e.userId })),
   };
 }
 

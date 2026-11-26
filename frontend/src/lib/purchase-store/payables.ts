@@ -1,6 +1,17 @@
 import type { SupplierInvoiceItem, SupplierPaymentRecord } from "@bridgeone/contracts";
-import { badRequest, notFound } from "@/lib/api/errors";
+import { AppError, badRequest, notFound } from "@/lib/api/errors";
+import { recordApproval } from "@/lib/approval/engine";
 import { db } from "@/lib/prisma/client";
+import type { Prisma } from "@/lib/prisma/client";
+import {
+  assertPlaceInScope,
+  isPlaceInOrgScope,
+  resolvePurchaseOrgScope,
+  type PurchaseActor,
+  type PurchaseOrgScope,
+} from "./governance";
+
+type Client = ReturnType<typeof db> | Prisma.TransactionClient;
 
 /**
  * Supplier payables. What is owed comes from documents: goods receipts (less the
@@ -72,22 +83,57 @@ function paymentStatus(amount: number, paid: number): SupplierInvoiceItem["statu
   return paid > 0 ? "PARTIALLY_PAID" : "UNPAID";
 }
 
-/** Everything payables reports read, with the allocation applied. */
-async function loadPayables() {
-  const prisma = db();
+export interface PayablesDateFilter {
+  fromDate?: string;
+  toDate?: string;
+}
+
+function dateRangeWhere(fromDate?: string, toDate?: string) {
+  const f: { gte?: Date; lte?: Date } = {};
+  if (fromDate) {
+    const d = new Date(`${fromDate.slice(0, 10)}T00:00:00.000Z`);
+    if (!Number.isNaN(d.getTime())) f.gte = d;
+  }
+  if (toDate) {
+    const d = new Date(`${toDate.slice(0, 10)}T00:00:00.000Z`);
+    if (!Number.isNaN(d.getTime())) f.lte = d;
+  }
+  return Object.keys(f).length ? f : undefined;
+}
+
+/** A supplier row is shown when its business unit is one the user may access. */
+const supplierInScope = (scope: PurchaseOrgScope, s: { businessUnitId: string }) =>
+  isPlaceInOrgScope(scope, { businessUnitId: s.businessUnitId });
+
+/**
+ * Everything payables reports read, with the allocation applied. The allocation
+ * always runs over every document, so a restricted user sees the same due amounts
+ * as everyone else; callers filter the rows they return by the user's scope.
+ */
+async function loadPayables(filters?: PayablesDateFilter, prisma: Client = db()) {
+  const range = dateRangeWhere(filters?.fromDate, filters?.toDate);
   const [suppliers, receipts, returns, bills, payments] = await Promise.all([
     prisma.supplier.findMany({ where: { isActive: true }, orderBy: { name: "asc" } }),
     prisma.goodsReceipt.findMany({
-      where: { status: { not: "CANCELLED" } },
+      where: { status: { in: ["RECEIVED", "INSPECTED"] }, ...(range ? { receiveDate: range } : {}) },
       select: {
         id: true, supplierId: true, number: true, receiveDate: true, totalAmount: true, challanNumber: true,
+        businessUnitId: true, officeId: true, warehouseId: true,
         order: { select: { number: true } },
         bill: { select: { id: true, number: true, status: true, dueDate: true } },
       },
     }),
-    prisma.purchaseReturn.findMany({ where: { status: { not: "CANCELLED" } }, select: { supplierId: true, receiptId: true, totalAmount: true } }),
-    prisma.supplierBill.findMany({ where: { receiptId: null, status: { not: "CANCELLED" } } }),
-    prisma.supplierPayment.findMany({ where: { status: "PAID" }, select: { supplierId: true, amount: true, receiptId: true, billId: true, isAdvance: true, paymentDate: true } }),
+    prisma.purchaseReturn.findMany({
+      where: { status: "COMPLETED", ...(range ? { returnDate: range } : {}) },
+      select: { supplierId: true, receiptId: true, totalAmount: true },
+    }),
+    prisma.supplierBill.findMany({
+      where: { receiptId: null, status: { not: "CANCELLED" }, ...(range ? { billDate: range } : {}) },
+    }),
+    prisma.supplierPayment.findMany({
+      where: { status: "PAID", ...(range ? { paymentDate: range } : {}) },
+      select: { supplierId: true, businessUnitId: true, officeId: true, amount: true, receiptId: true, billId: true, isAdvance: true, paymentDate: true },
+    }),
   ]);
 
   const returnedByReceipt = new Map<string, number>();
@@ -111,12 +157,20 @@ async function loadPayables() {
   return { suppliers, receipts, returns, bills, payments, documents, allocation };
 }
 
-export async function listSupplierPayables(): Promise<SupplierPaymentRecord[]> {
-  const { suppliers, receipts, returns, bills, payments, allocation } = await loadPayables();
+export async function listSupplierPayables(filters?: PayablesDateFilter, actor?: PurchaseActor): Promise<SupplierPaymentRecord[]> {
+  const [{ suppliers, receipts, returns, bills, payments, documents, allocation }, scope] = await Promise.all([
+    loadPayables(filters),
+    resolvePurchaseOrgScope(actor),
+  ]);
+  // Documents with something still to pay, per supplier.
+  const openBySupplier = new Map<string, number>();
+  for (const d of documents) {
+    if (d.amount - (allocation.paidByDocument.get(d.key) ?? 0) > 0.005) openBySupplier.set(d.supplierId, (openBySupplier.get(d.supplierId) ?? 0) + 1);
+  }
   const sumBy = <T extends { supplierId: string }>(rows: T[], supplierId: string, value: (row: T) => number) =>
     rows.filter((r) => r.supplierId === supplierId).reduce((total, r) => total + value(r), 0);
 
-  return suppliers.map((s) => {
+  return suppliers.filter((s) => supplierInScope(scope, s)).map((s) => {
     const totalPurchasedAmount = round2(sumBy(receipts, s.id, (g) => num(g.totalAmount)) + sumBy(bills, s.id, (b) => num(b.amount)));
     const returnedAmount = round2(sumBy(returns, s.id, (r) => num(r.totalAmount)));
     const own = payments.filter((p) => p.supplierId === s.id);
@@ -136,7 +190,7 @@ export async function listSupplierPayables(): Promise<SupplierPaymentRecord[]> {
       dueAmount,
       lastPaymentDate: last ? dateStr(last) : undefined,
       paymentStatus: paymentStatus(totalPurchasedAmount - returnedAmount, paidAmount),
-      openInvoicesCount: receipts.filter((g) => g.supplierId === s.id).length + bills.filter((b) => b.supplierId === s.id).length,
+      openInvoicesCount: openBySupplier.get(s.id) ?? 0,
       currency: "BDT",
       ledgerBalance: round2(num(s.balance)),
       advanceBalance: allocation.unappliedBySupplier.get(s.id) ?? 0,
@@ -144,9 +198,14 @@ export async function listSupplierPayables(): Promise<SupplierPaymentRecord[]> {
   });
 }
 
-/** One row per receipt and ad-hoc bill, with what is still due on it. */
-export async function listSupplierInvoices(): Promise<SupplierInvoiceItem[]> {
-  const { suppliers, receipts, bills, documents, allocation } = await loadPayables();
+/** One row per receipt and ad-hoc bill the user may access, with what is still due on it. */
+export async function listSupplierInvoices(actor?: PurchaseActor, client: Client = db()): Promise<SupplierInvoiceItem[]> {
+  const [{ suppliers, receipts: allReceipts, bills: allBills, documents, allocation }, scope] = await Promise.all([
+    loadPayables(undefined, client),
+    resolvePurchaseOrgScope(actor, client),
+  ]);
+  const receipts = allReceipts.filter((g) => isPlaceInOrgScope(scope, g));
+  const bills = allBills.filter((b) => isPlaceInOrgScope(scope, { businessUnitId: b.businessUnitId }));
   const supplier = new Map(suppliers.map((s) => [s.id, s]));
   const amount = new Map(documents.map((d) => [d.key, d.amount]));
   const row = (key: string, base: Omit<SupplierInvoiceItem, "totalAmount" | "paidAmount" | "dueAmount" | "status" | "type" | "supplierName" | "supplierCode">) => {
@@ -197,12 +256,12 @@ export async function listSupplierInvoices(): Promise<SupplierInvoiceItem[]> {
 }
 
 /** Booked bills (against a receipt or ad-hoc), newest first. */
-export async function listSupplierBills() {
-  const invoices = await listSupplierInvoices();
+export async function listSupplierBills(actor?: PurchaseActor) {
+  const invoices = await listSupplierInvoices(actor);
   return invoices.filter((inv) => inv.billId);
 }
 
-export async function createSupplierBill(input: Record<string, unknown>, actorName: string) {
+export async function createSupplierBill(input: Record<string, unknown>, actorName: string, actor?: PurchaseActor) {
   const prisma = db();
   const supplierId = String(input.supplierId ?? "");
   const receiptId = input.receiptId ? String(input.receiptId) : null;
@@ -210,19 +269,37 @@ export async function createSupplierBill(input: Record<string, unknown>, actorNa
   if (!number) throw badRequest("Enter the supplier's bill / invoice number.");
   const supplier = await prisma.supplier.findUnique({ where: { id: supplierId }, select: { id: true, businessUnitId: true } }).catch(() => null);
   if (!supplier) throw badRequest("Select the supplier.");
+  await assertPlaceInScope(actor, { businessUnitId: supplier.businessUnitId });
 
   let amount = Number(input.amount);
   if (receiptId) {
-    const receipt = await prisma.goodsReceipt.findUnique({ where: { id: receiptId }, select: { supplierId: true, totalAmount: true, bill: { select: { id: true } } } }).catch(() => null);
+    const receipt = await prisma.goodsReceipt
+      .findUnique({
+        where: { id: receiptId },
+        select: { supplierId: true, status: true, totalAmount: true, businessUnitId: true, officeId: true, warehouseId: true, bill: { select: { id: true } } },
+      })
+      .catch(() => null);
     if (!receipt || receipt.supplierId !== supplierId) throw badRequest("The goods receipt does not belong to this supplier.");
+    if (receipt.status === "CANCELLED") throw badRequest("The goods receipt is cancelled; a bill cannot be booked for it.");
+    if (receipt.status === "DRAFT") throw badRequest("The goods receipt is waiting for approval; book the bill once it is approved.");
+    await assertPlaceInScope(actor, receipt);
     if (receipt.bill) throw badRequest("A bill is already booked for this goods receipt.");
     // The receipt already made its value payable; the bill records the invoice for it.
     amount = num(receipt.totalAmount);
   }
   if (!(amount > 0)) throw badRequest("Enter a bill amount greater than 0.");
-  const billDate = new Date(String(input.billDate || dateStr(new Date())));
-  const dueDate = new Date(String(input.dueDate || input.billDate || dateStr(new Date())));
+  const billDate = new Date(`${String(input.billDate || dateStr(new Date())).slice(0, 10)}T00:00:00.000Z`);
+  const dueDate = new Date(`${String(input.dueDate || input.billDate || dateStr(new Date())).slice(0, 10)}T00:00:00.000Z`);
+  if (Number.isNaN(billDate.getTime()) || Number.isNaN(dueDate.getTime())) throw badRequest("Enter valid bill and due dates.");
   if (dueDate < billDate) throw badRequest("The due date is before the bill date.");
+  const sameNumber = await prisma.supplierBill.findFirst({ where: { supplierId, number }, select: { status: true } });
+  if (sameNumber) {
+    throw badRequest(
+      sameNumber.status === "CANCELLED"
+        ? `Bill number ${number} belongs to a cancelled bill of this supplier; enter it with a suffix (e.g. ${number}-R).`
+        : `Bill number ${number} is already booked for this supplier.`,
+    );
+  }
 
   return prisma.$transaction(async (tx) => {
     const bill = await tx.supplierBill.create({
@@ -244,25 +321,112 @@ export async function createSupplierBill(input: Record<string, unknown>, actorNa
   });
 }
 
-export async function approveSupplierBill(id: string, actorName: string) {
+const BILL_FEATURE = "Payment Approval";
+const billTarget = (bill: { id: string; businessUnitId: string; amount: { toString(): string } }) => ({
+  feature: BILL_FEATURE,
+  documentId: bill.id,
+  businessUnitId: bill.businessUnitId,
+  amount: Number(bill.amount.toString()),
+});
+
+/** Approves a bill; with an `actor`, through the multilayer approval pipeline (stays PENDING until the last stage). */
+export async function approveSupplierBill(id: string, actorName: string, actor?: PurchaseActor) {
   const bill = await db().supplierBill.findUnique({ where: { id } }).catch(() => null);
   if (!bill) throw notFound("Bill");
+  await assertPlaceInScope(actor, { businessUnitId: bill.businessUnitId });
   if (bill.status !== "PENDING") throw badRequest(`Bill ${bill.number} is already ${bill.status.toLowerCase()}.`);
-  return db().supplierBill.update({ where: { id }, data: { status: "APPROVED", approvedBy: actorName, approvedAt: new Date() } });
+  return db().$transaction(async (tx) => {
+    if (actor && !(await recordApproval(tx, actor, billTarget(bill))).final) return tx.supplierBill.findUniqueOrThrow({ where: { id } });
+    return tx.supplierBill.update({ where: { id }, data: { status: "APPROVED", approvedBy: actorName, approvedAt: new Date() } });
+  });
 }
 
-export async function approvePendingSupplierBills(actorName: string) {
-  const result = await db().supplierBill.updateMany({ where: { status: "PENDING" }, data: { status: "APPROVED", approvedBy: actorName, approvedAt: new Date() } });
-  return { approved: result.count };
+/**
+ * Approves every pending bill. With an `actor`, each bill goes through its
+ * pipeline; bills where the actor is not the current stage's approver are skipped
+ * (refused with 403 when the actor can act on none of them).
+ */
+export async function approvePendingSupplierBills(actorName: string, actor?: PurchaseActor) {
+  if (!actor) {
+    const result = await db().supplierBill.updateMany({ where: { status: "PENDING" }, data: { status: "APPROVED", approvedBy: actorName, approvedAt: new Date() } });
+    return { approved: result.count };
+  }
+  const [allPending, scope] = await Promise.all([
+    db().supplierBill.findMany({ where: { status: "PENDING" }, select: { id: true, businessUnitId: true, amount: true } }),
+    resolvePurchaseOrgScope(actor),
+  ]);
+  // Only the bills of business units the user may access.
+  const pending = allPending.filter((b) => isPlaceInOrgScope(scope, { businessUnitId: b.businessUnitId }));
+  if (pending.length === 0) return { approved: 0, advanced: 0, skipped: 0 };
+  let approved = 0;
+  let advanced = 0;
+  let skipped = 0;
+  for (const bill of pending) {
+    try {
+      await db().$transaction(async (tx) => {
+        const gate = await recordApproval(tx, actor, billTarget(bill));
+        if (!gate.final) {
+          advanced += 1;
+          return;
+        }
+        await tx.supplierBill.update({ where: { id: bill.id }, data: { status: "APPROVED", approvedBy: actorName, approvedAt: new Date() } });
+        approved += 1;
+      });
+    } catch (error) {
+      if (error instanceof AppError && error.status === 403) skipped += 1;
+      else throw error;
+    }
+  }
+  if (skipped > 0 && approved + advanced === 0) {
+    throw new AppError(403, "FORBIDDEN", "You are not the current approver of any pending bill in the approval pipeline.");
+  }
+  return { approved, advanced, skipped };
 }
 
-/** Posted payments, newest first, with what each settled. */
-export async function listPaymentHistory() {
-  const rows = await db().supplierPayment.findMany({
+/**
+ * Cancels a supplier bill. A bill that payments were made against stays until those
+ * payments are cancelled. An ad-hoc bill no longer adds to what is owed (the GL
+ * posts a reversal); a bill booked against a receipt only drops the invoice record,
+ * because the receipt itself is the debt. The receipt is released so it can be
+ * billed again or cancelled.
+ */
+export async function cancelSupplierBill(id: string, actorName: string, comments?: string, actor?: PurchaseActor) {
+  const prisma = db();
+  const bill = await prisma.supplierBill.findUnique({ where: { id } }).catch(() => null);
+  if (!bill) throw notFound("Bill");
+  await assertPlaceInScope(actor, { businessUnitId: bill.businessUnitId });
+  if (bill.status === "CANCELLED") throw badRequest(`Bill ${bill.number} is already cancelled.`);
+  const reason = String(comments ?? "").trim();
+  if (!reason) throw badRequest("Give a reason for cancelling the bill.");
+  const payments = await prisma.supplierPayment.count({ where: { billId: bill.id, status: { not: "CANCELLED" } } });
+  if (payments) throw badRequest(`Payments have been made against bill ${bill.number}; cancel those payments first.`);
+
+  const receiptNumber = bill.receiptId
+    ? ((await prisma.goodsReceipt.findUnique({ where: { id: bill.receiptId }, select: { number: true } }))?.number ?? null)
+    : null;
+  const stamp = new Date().toISOString().slice(0, 16).replace("T", " ");
+  const note = `[${stamp}] CANCELLED by ${actorName}${receiptNumber ? ` (was for ${receiptNumber})` : ""}: ${reason}`;
+  const remarks = (bill.remarks ? `${bill.remarks}\n${note}` : note).slice(-500);
+
+  return prisma.$transaction(async (tx) => {
+    const updated = await tx.supplierBill.update({
+      where: { id: bill.id },
+      data: { status: "CANCELLED", receiptId: null, remarks },
+    });
+    if (!bill.receiptId) await tx.supplier.update({ where: { id: bill.supplierId }, data: { balance: { decrement: num(bill.amount) } } });
+    return updated;
+  });
+}
+
+/** Posted payments the user may access, newest first, with what each settled. */
+export async function listPaymentHistory(actor?: PurchaseActor) {
+  const scope = await resolvePurchaseOrgScope(actor);
+  const all = await db().supplierPayment.findMany({
     where: { status: "PAID" },
     include: { supplier: { select: { name: true, code: true } }, receipt: { select: { number: true } }, bill: { select: { number: true } } },
     orderBy: [{ paymentDate: "desc" }, { createdAt: "desc" }],
   });
+  const rows = all.filter((p) => isPlaceInOrgScope(scope, p));
   return rows.map((p) => ({
     id: p.id,
     number: p.number,
@@ -279,9 +443,10 @@ export async function listPaymentHistory() {
 }
 
 /** Advances per supplier: paid as advance, and what is still unused. */
-export async function listSupplierAdvances() {
-  const { suppliers, payments, allocation } = await loadPayables();
+export async function listSupplierAdvances(filters?: PayablesDateFilter, actor?: PurchaseActor) {
+  const [{ suppliers, payments, allocation }, scope] = await Promise.all([loadPayables(filters), resolvePurchaseOrgScope(actor)]);
   return suppliers
+    .filter((s) => supplierInScope(scope, s))
     .map((s) => {
       const advanceAmount = round2(payments.filter((p) => p.supplierId === s.id && p.isAdvance).reduce((t, p) => t + num(p.amount), 0));
       const remainingAdvance = Math.min(advanceAmount, allocation.unappliedBySupplier.get(s.id) ?? 0);
@@ -290,11 +455,49 @@ export async function listSupplierAdvances() {
     .filter((a) => a.advanceAmount > 0);
 }
 
-/** Checks a payment's link and amount before it is posted. */
-export async function validatePaymentLink(supplierId: string, receiptId: string | null, billId: string | null, amount: number) {
+/** Individual advance payment vouchers, newest first, for Tab 5 Details view. */
+export async function listSupplierAdvanceDetails(filters?: PayablesDateFilter, actor?: PurchaseActor) {
+  const range = dateRangeWhere(filters?.fromDate, filters?.toDate);
+  const scope = await resolvePurchaseOrgScope(actor);
+  const all = await db().supplierPayment.findMany({
+    where: { status: "PAID", isAdvance: true, ...(range ? { paymentDate: range } : {}) },
+    include: { supplier: { select: { name: true, code: true } }, order: { select: { number: true } } },
+    orderBy: [{ paymentDate: "desc" }, { createdAt: "desc" }],
+  });
+  const rows = all.filter((p) => isPlaceInOrgScope(scope, p));
+  return rows.map((p) => ({
+    id: p.id,
+    number: p.number,
+    paymentDate: dateStr(p.paymentDate),
+    supplierId: p.supplierId,
+    supplierCode: p.supplier.code,
+    supplierName: p.supplier.name,
+    orderNumber: p.order?.number ?? "",
+    method: p.method,
+    referenceNumber: p.referenceNumber ?? "",
+    remarks: p.remarks ?? "",
+    amount: num(p.amount),
+  }));
+}
+
+/**
+ * Checks a payment's link and amount before it is posted. Run it inside the
+ * payment's transaction, after locking the supplier, so two payments cannot both
+ * see the same amount as still due.
+ */
+export async function validatePaymentLink(
+  supplierId: string,
+  receiptId: string | null,
+  billId: string | null,
+  amount: number,
+  actor?: PurchaseActor,
+  client: Client = db(),
+) {
   if (!receiptId && !billId) return;
-  const invoices = await listSupplierInvoices();
+  const invoices = await listSupplierInvoices(actor, client);
   const target = invoices.find((inv) => (receiptId ? inv.receiptId === receiptId : inv.billId === billId));
   if (!target || target.supplierId !== supplierId) throw badRequest("The invoice does not belong to this supplier.");
+  // A booked bill is released for payment by approving it.
+  if (target.billStatus === "PENDING") throw badRequest(`Bill ${target.billNumber ?? target.invoiceNumber} is not approved yet; approve it before paying.`);
   if (amount > target.dueAmount + 0.005) throw badRequest(`Only ${target.dueAmount.toFixed(2)} is due on ${target.invoiceNumber}.`);
 }

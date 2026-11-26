@@ -8,10 +8,10 @@ import type { InventoryKpis, MovingFrequencyItem, TransactionValueItem, Turnover
 /** What each ledger movement is called on inventory screens. */
 export const STOCK_SOURCE_LABELS: Record<StockSource, string> = {
   OPENING: "Opening Balance",
-  ADJUSTMENT: "Stock Update",
+  ADJUSTMENT: "Stock Adjustment",
   SALES_DELIVERY: "Sales Delivery",
   SALES_RETURN: "Sales Return",
-  PRODUCTION_CONSUMPTION: "Production Consumption",
+  PRODUCTION_CONSUMPTION: "Issue for Production",
   PRODUCTION_OUTPUT: "Receive from Production",
   PURCHASE_RECEIPT: "Purchase",
   PURCHASE_RETURN: "Purchase Return",
@@ -33,6 +33,9 @@ export interface InventoryOverview {
   to: string;
   kpis: InventoryKpis;
   valuationData: ValuationCategory[];
+  /** Closing stock value by item type (iBOS "Valuation"), at the end of the period. */
+  valuationByType: { name: string; value: number }[];
+  totalValuation: number;
   topTransactions: TransactionValueItem[];
   movingFrequencies: MovingFrequencyItem[];
   turnoverRatios: TurnoverRatioItem[];
@@ -65,7 +68,7 @@ export async function inventoryOverview(actor: Actor, filters: OverviewFilters):
         qty: true,
         source: true,
         postingDate: true,
-        item: { select: { id: true, name: true, uom: true, purchasePrice: true, salesRate: true, category: { select: { name: true } } } },
+        item: { select: { id: true, name: true, uom: true, itemType: true, purchasePrice: true, salesRate: true, category: { select: { name: true } } } },
       },
     }),
   ]);
@@ -79,6 +82,7 @@ export async function inventoryOverview(actor: Actor, filters: OverviewFilters):
   let inflow = 0;
   let outflow = 0;
   const closingByCategory = new Map<string, number>();
+  const closingByType = new Map<string, number>();
   const openingByCategory = new Map<string, number>();
   const outByCategory = new Map<string, number>();
   const bySource = new Map<StockSource, number>();
@@ -90,6 +94,8 @@ export async function inventoryOverview(actor: Actor, filters: OverviewFilters):
     const v = value(e);
     const category = categoryOf(e);
     closingByCategory.set(category, (closingByCategory.get(category) ?? 0) + v);
+    const type = e.item.itemType || "Other";
+    closingByType.set(type, (closingByType.get(type) ?? 0) + v);
     if (e.postingDate < from) {
       opening += v;
       openingByCategory.set(category, (openingByCategory.get(category) ?? 0) + v);
@@ -103,7 +109,7 @@ export async function inventoryOverview(actor: Actor, filters: OverviewFilters):
       outByCategory.set(category, (outByCategory.get(category) ?? 0) - v);
       outByDay.set(day, (outByDay.get(day) ?? 0) - v);
     }
-    bySource.set(e.source, (bySource.get(e.source) ?? 0) + Math.abs(v));
+    bySource.set(e.source, (bySource.get(e.source) ?? 0) + v);
     const m = moves.get(e.item.id) ?? { name: e.item.name, category, uom: e.item.uom, count: 0 };
     m.count += 1;
     moves.set(e.item.id, m);
@@ -149,8 +155,14 @@ export async function inventoryOverview(actor: Actor, filters: OverviewFilters):
     to: filters.to,
     kpis: { openingBalance: round(opening), inventoryIn: round(inflow), inventoryOut: round(outflow), totalBalance: round(closing) },
     valuationData,
-    topTransactions: [...bySource]
+    valuationByType: [...closingByType]
+      .filter(([, v]) => v > 0)
       .sort((a, b) => b[1] - a[1])
+      .map(([name, v]) => ({ name, value: round(v) })),
+    totalValuation: round([...closingByType.values()].filter((v) => v > 0).reduce((t, v) => t + v, 0)),
+    // Largest movements first, whichever their direction (issues are negative).
+    topTransactions: [...bySource]
+      .sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]))
       .slice(0, 5)
       .map(([source, amount], i) => ({ id: i + 1, rank: i + 1, name: STOCK_SOURCE_LABELS[source], amount: round(amount) })),
     movingFrequencies: [...moves.values()]
@@ -236,72 +248,223 @@ export async function stockOnHand(actor: Actor, warehouseId?: string) {
     .filter((s) => Math.abs(s.qty) > 1e-9);
 }
 
+/** Closing quantity by how long ago it was received (first in, first out), in days. */
+export interface AgingBuckets {
+  d0_30: number;
+  d31_60: number;
+  d61_90: number;
+  d91_180: number;
+  d181: number;
+}
+
 export interface InventoryReportRow {
+  warehouseId: string;
+  officeId: string;
   itemId: string;
   itemCode: string;
   itemName: string;
   itemType: string;
+  /** Category path: Category → Sub Category → Minor Category. */
   category: string;
+  subCategory: string;
+  minorCategory: string;
+  /** Supplier of the item's latest goods receipt. */
+  supplier: string;
+  tracking: string;
   warehouse: string;
   office: string;
   uom: string;
+  altUom: string;
+  altUomFactor: number;
   openingQty: number;
   inQty: number;
   outQty: number;
+  /** Issued to users (store issue) within the period; part of outQty. */
+  issueQty: number;
   closingQty: number;
   netWeight: number;
   rate: number;
   value: number;
+  lastInDate: string | null;
+  lastOutDate: string | null;
+  aging: AgingBuckets;
+  /** Ordered from suppliers but not received yet, for this warehouse. */
+  pendingPoQty: number;
+  /** Sent from another warehouse, not received here yet. */
+  inTransitQty: number;
 }
 
-/** Opening, in, out and closing per warehouse and item for a period (stock ledger). */
+const WAREHOUSE_SELECT = { id: true, name: true, officeId: true, office: { select: { name: true } } } as const;
+const ITEM_SELECT = {
+  id: true,
+  code: true,
+  name: true,
+  uom: true,
+  itemType: true,
+  tracking: true,
+  categoryId: true,
+  altUom: true,
+  altUomFactor: true,
+  netWeight: true,
+  purchasePrice: true,
+  salesRate: true,
+} as const;
+
+const daysBetween = (later: Date, earlier: Date) => Math.max(0, Math.round((later.getTime() - earlier.getTime()) / DAY));
+
+/**
+ * Opening, in, out and closing per warehouse and item for a period (stock ledger), with
+ * what the iBOS report views need: category path, last supplier, alternate unit, the
+ * last in/out dates, FIFO aging of the closing stock and the supply pipeline.
+ */
 export async function inventoryReport(actor: Actor, filters: OverviewFilters): Promise<InventoryReportRow[]> {
   const unitIds = await scopedBusinessUnitIds(actor);
   const from = toDbDate(filters.from);
-  const entries = await db().stockEntry.findMany({
-    where: { businessUnitId: { in: unitIds }, postingDate: { lte: toDbDate(filters.to) }, ...(filters.warehouseId ? { warehouseId: filters.warehouseId } : {}) },
-    select: {
-      qty: true,
-      postingDate: true,
-      warehouse: { select: { id: true, name: true, office: { select: { name: true } } } },
-      item: {
-        select: { id: true, code: true, name: true, uom: true, itemType: true, netWeight: true, purchasePrice: true, salesRate: true, category: { select: { name: true } } },
+  const to = toDbDate(filters.to);
+  const prisma = db();
+  const [entries, categories, receipts, openOrders, inTransit] = await Promise.all([
+    prisma.stockEntry.findMany({
+      where: { businessUnitId: { in: unitIds }, postingDate: { lte: to }, ...(filters.warehouseId ? { warehouseId: filters.warehouseId } : {}) },
+      select: {
+        qty: true,
+        source: true,
+        postingDate: true,
+        warehouse: { select: WAREHOUSE_SELECT },
+        item: { select: ITEM_SELECT },
       },
-    },
-  });
-  const rows = new Map<string, InventoryReportRow>();
+      orderBy: { postingDate: "asc" },
+    }),
+    prisma.itemCategory.findMany({ where: { businessUnitId: { in: unitIds } }, select: { id: true, parentId: true, name: true } }),
+    prisma.goodsReceiptLine.findMany({
+      where: { itemId: { not: null }, receipt: { businessUnitId: { in: unitIds }, receiveDate: { lte: to } } },
+      select: { itemId: true, receipt: { select: { supplier: { select: { name: true } } } } },
+      orderBy: { receipt: { receiveDate: "desc" } },
+    }),
+    prisma.purchaseOrderLine.findMany({
+      where: { itemId: { not: null }, order: { businessUnitId: { in: unitIds }, warehouseId: { not: null }, status: { in: ["APPROVED", "PARTIAL_RECEIVED"] } } },
+      select: { itemId: true, quantity: true, receivedQuantity: true, order: { select: { warehouseId: true } } },
+    }),
+    prisma.inventoryDocumentLine.findMany({
+      where: { document: { businessUnitId: { in: unitIds }, type: "TRANSFER", status: "IN_TRANSIT", toWarehouseId: { not: null } } },
+      select: { itemId: true, qty: true, document: { select: { toWarehouseId: true } } },
+    }),
+  ]);
+
+  const byId = new Map(categories.map((c) => [c.id, c]));
+  const pathOf = (id: string | null) => {
+    const chain: string[] = [];
+    let current = id ? byId.get(id) : undefined;
+    for (let guard = 0; current && guard < 6; guard++) {
+      chain.unshift(current.name);
+      current = current.parentId ? byId.get(current.parentId) : undefined;
+    }
+    return { category: chain[0] ?? "Uncategorised", subCategory: chain[1] ?? "", minorCategory: chain[2] ?? "" };
+  };
+  const supplierOf = new Map<string, string>();
+  for (const r of receipts) if (r.itemId && !supplierOf.has(r.itemId)) supplierOf.set(r.itemId, r.receipt.supplier.name);
+  const pipeline = new Map<string, number>();
+  const add = (key: string, qty: number) => pipeline.set(key, (pipeline.get(key) ?? 0) + qty);
+  for (const l of openOrders) {
+    const open = Number(l.quantity) - Number(l.receivedQuantity);
+    if (l.itemId && l.order.warehouseId && open > 0) add(`po:${l.order.warehouseId}:${l.itemId}`, open);
+  }
+  for (const l of inTransit) if (l.document.toWarehouseId) add(`tr:${l.document.toWarehouseId}:${l.itemId}`, Number(l.qty));
+
+  type Wh = (typeof entries)[number]["warehouse"];
+  type It = (typeof entries)[number]["item"];
+  const rows = new Map<string, InventoryReportRow & { inflows: { date: Date; qty: number }[] }>();
+  const rowOf = (w: Wh, it: It) => {
+    const key = `${w.id}:${it.id}`;
+    let row = rows.get(key);
+    if (!row) {
+      row = {
+        warehouseId: w.id,
+        officeId: w.officeId,
+        itemId: it.id,
+        itemCode: it.code,
+        itemName: it.name,
+        itemType: it.itemType ?? "",
+        ...pathOf(it.categoryId),
+        supplier: supplierOf.get(it.id) ?? "",
+        tracking: it.tracking,
+        warehouse: w.name,
+        office: w.office.name,
+        uom: it.uom,
+        altUom: it.altUom ?? "",
+        altUomFactor: Number(it.altUomFactor ?? 0),
+        openingQty: 0,
+        inQty: 0,
+        outQty: 0,
+        issueQty: 0,
+        closingQty: 0,
+        netWeight: Number(it.netWeight ?? 0),
+        rate: Number(it.purchasePrice ?? it.salesRate ?? 0),
+        value: 0,
+        lastInDate: null,
+        lastOutDate: null,
+        aging: { d0_30: 0, d31_60: 0, d61_90: 0, d91_180: 0, d181: 0 },
+        pendingPoQty: round(pipeline.get(`po:${w.id}:${it.id}`) ?? 0, 3),
+        inTransitQty: round(pipeline.get(`tr:${w.id}:${it.id}`) ?? 0, 3),
+        inflows: [],
+      };
+      rows.set(key, row);
+    }
+    return row;
+  };
   for (const e of entries) {
-    const key = `${e.warehouse.id}:${e.item.id}`;
-    const rate = Number(e.item.purchasePrice ?? e.item.salesRate ?? 0);
-    const row = rows.get(key) ?? {
-      itemId: e.item.id,
-      itemCode: e.item.code,
-      itemName: e.item.name,
-      itemType: e.item.itemType ?? "",
-      category: e.item.category?.name ?? "Uncategorised",
-      warehouse: e.warehouse.name,
-      office: e.warehouse.office.name,
-      uom: e.item.uom,
-      openingQty: 0,
-      inQty: 0,
-      outQty: 0,
-      closingQty: 0,
-      netWeight: Number(e.item.netWeight ?? 0),
-      rate,
-      value: 0,
-    };
+    const row = rowOf(e.warehouse, e.item);
     const qty = Number(e.qty);
+    if (qty > 0) {
+      row.inflows.push({ date: e.postingDate, qty });
+      row.lastInDate = fromDbDate(e.postingDate);
+    } else if (qty < 0) row.lastOutDate = fromDbDate(e.postingDate);
     if (e.postingDate < from) row.openingQty += qty;
     else if (qty >= 0) row.inQty += qty;
-    else row.outQty -= qty;
-    rows.set(key, row);
+    else {
+      row.outQty -= qty;
+      if (e.source === "STORE_ISSUE") row.issueQty -= qty;
+    }
   }
+
+  // Items with nothing on hand yet but on order or on the road still belong in the pipeline views.
+  const waiting = [...pipeline.keys()]
+    .map((k) => k.split(":").slice(1) as [string, string])
+    .filter(([w, i]) => !rows.has(`${w}:${i}`) && (!filters.warehouseId || w === filters.warehouseId));
+  if (waiting.length) {
+    const [ws, its] = await Promise.all([
+      prisma.warehouse.findMany({ where: { id: { in: [...new Set(waiting.map(([w]) => w))] }, office: { businessUnitId: { in: unitIds } } }, select: WAREHOUSE_SELECT }),
+      prisma.item.findMany({ where: { id: { in: [...new Set(waiting.map(([, i]) => i))] }, businessUnitId: { in: unitIds } }, select: ITEM_SELECT }),
+    ]);
+    const wMap = new Map(ws.map((w) => [w.id, w]));
+    const iMap = new Map(its.map((i) => [i.id, i]));
+    for (const [w, i] of waiting) if (wMap.has(w) && iMap.has(i)) rowOf(wMap.get(w)!, iMap.get(i)!);
+  }
+
   return [...rows.values()]
-    .map((r) => {
+    .map(({ inflows, ...r }) => {
       const closing = r.openingQty + r.inQty - r.outQty;
-      return { ...r, openingQty: round(r.openingQty, 3), inQty: round(r.inQty, 3), outQty: round(r.outQty, 3), closingQty: round(closing, 3), value: round(closing * r.rate) };
+      // FIFO: what is still on hand came from the latest receipts.
+      const aging = { ...r.aging };
+      let left = closing;
+      for (let i = inflows.length - 1; i >= 0 && left > 1e-9; i--) {
+        const take = Math.min(left, inflows[i].qty);
+        left -= take;
+        const age = daysBetween(to, inflows[i].date);
+        const bucket: keyof AgingBuckets = age <= 30 ? "d0_30" : age <= 60 ? "d31_60" : age <= 90 ? "d61_90" : age <= 180 ? "d91_180" : "d181";
+        aging[bucket] = round(aging[bucket] + take, 3);
+      }
+      return {
+        ...r,
+        openingQty: round(r.openingQty, 3),
+        inQty: round(r.inQty, 3),
+        outQty: round(r.outQty, 3),
+        issueQty: round(r.issueQty, 3),
+        closingQty: round(closing, 3),
+        value: round(closing * r.rate),
+        aging,
+      };
     })
     .filter((r) => !filters.category || r.category === filters.category)
-    .filter((r) => r.openingQty || r.inQty || r.outQty || r.closingQty)
+    .filter((r) => r.openingQty || r.inQty || r.outQty || r.closingQty || r.pendingPoQty || r.inTransitQty)
     .sort((a, b) => a.warehouse.localeCompare(b.warehouse) || a.itemName.localeCompare(b.itemName));
 }

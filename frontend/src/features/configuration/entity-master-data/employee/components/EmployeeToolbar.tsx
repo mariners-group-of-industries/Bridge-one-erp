@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/cn";
 import type { EmployeeFilterOptions, EmployeeStatus } from "../schemas/employee.schema";
 import { CONTROL_CLASS, Select } from "./kit";
+import { NativeDateInput } from "@/components/ui/date-input";
 
 const ALL = "";
 /** Filter controls share one row, so they stay narrow. */
@@ -159,7 +160,7 @@ export function EmployeeToolbar({ search, onSearchChange, filters, onFiltersChan
           onChange={(event) => set("status", event.target.value)}
         />
         <span>Joined</span>
-        <input
+        <NativeDateInput
           type="date"
           aria-label="Joined from"
           value={filters.joinedFrom ?? ""}
@@ -168,7 +169,7 @@ export function EmployeeToolbar({ search, onSearchChange, filters, onFiltersChan
           className={cn(CONTROL_CLASS, FILTER_WIDTH)}
         />
         <span>to</span>
-        <input
+        <NativeDateInput
           type="date"
           aria-label="Joined to"
           value={filters.joinedTo ?? ""}

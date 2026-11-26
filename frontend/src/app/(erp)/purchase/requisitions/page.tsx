@@ -1,7 +1,8 @@
 "use client";
 
-import Image from "next/image";
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
+import { useRouter } from "next/navigation";
+import { Spinner } from "@/components/ui/spinner";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Plus,
@@ -11,16 +12,44 @@ import {
   History,
   Pencil,
   Printer,
-  RotateCcw,
   PlusCircle,
   Search,
+  Check,
+  Ban,
+  Upload,
+  Info,
 } from "lucide-react";
+import { PURCHASE_QUERY_KEYS, downloadCsv, localToday, uploadPurchaseBulk } from "@/features/purchase/lib/client";
+import { BulkUploadDialog } from "@/features/configuration/entity-master-data/components/BulkUploadDialog";
+import { usePurchasePermissions } from "@/features/purchase/lib/usePurchasePermissions";
+
+type ReqStatus = PurchaseRequisition["status"];
+const AWAITING_APPROVAL: ReqStatus[] = ["DRAFT", "SUBMITTED", "PENDING_APPROVAL"];
+/** What each requisition status allows (mirrors requisitionTransition / requisitionEditable on the server). */
+const can = {
+  approve: (s: ReqStatus) => AWAITING_APPROVAL.includes(s),
+  edit: (s: ReqStatus) => AWAITING_APPROVAL.includes(s) || s === "REJECTED",
+  cancel: (s: ReqStatus) => AWAITING_APPROVAL.includes(s) || s === "APPROVED" || s === "REJECTED",
+  // As in the reference ERP: only an approved (or rejected) requisition is reversed; a closed one is not.
+  reverse: (s: ReqStatus) => s === "APPROVED" || s === "REJECTED",
+};
+const actionBtn =
+  "inline-flex size-6 items-center justify-center rounded transition-colors disabled:opacity-30 disabled:pointer-events-none hover:bg-control text-ink-muted hover:text-ink";
 import { DataTable } from "@/components/purchase/DataTable";
 import { StatusBadge } from "@/components/purchase/StatusBadge";
 import { ModalDialog } from "@/components/purchase/ModalDialog";
+import { ConfirmPrompt } from "@/components/purchase/ConfirmPrompt";
+import {
+  PrintablePurchaseDoc,
+  PurchasePrintToolbar,
+  fmtPrintDate,
+  fmtPrintNum,
+  type PrintHeaderContext,
+} from "@/components/purchase/PrintablePurchaseDoc";
 import { toast } from "@/components/purchase/Toast";
 import { fetchApi } from "@/lib/api";
 import { formatCurrency } from "@/lib/utils";
+import type { PurchaseFormOptions } from "@/features/purchase/components/PurchaseFormShared";
 import {
   PurchaseRequisition,
   Office,
@@ -28,9 +57,12 @@ import {
   Item,
   CreateRequisitionInput,
 } from "@bridgeone/contracts";
+import { NativeDateInput } from "@/components/ui/date-input";
 
 export default function PurchaseRequisitionsPage() {
+  const router = useRouter();
   const queryClient = useQueryClient();
+  const perms = usePurchasePermissions();
 
   // Tab state (supporting direct URL / tab param)
   const [activeTab, setActiveTab] = useState<"PURCHASE_REQUISITION" | "REQUISITION_SUMMARY">(() => {
@@ -61,20 +93,31 @@ export default function PurchaseRequisitionsPage() {
   const [selectedWarehouse, setSelectedWarehouse] = useState("ALL");
   const [selectedRequestType, setSelectedRequestType] = useState("ALL");
   const [selectedSection, setSelectedSection] = useState("ALL");
+  const [selectedInventoryType, setSelectedInventoryType] = useState("ALL");
   const [selectedStatus, setSelectedStatus] = useState("ALL");
   const [selectedBuyerOffice, setSelectedBuyerOffice] = useState("ALL");
+  const [summaryCategory, setSummaryCategory] = useState("ALL");
+  const [summarySubCategory, setSummarySubCategory] = useState("ALL");
+  const [isRemainingDetails, setIsRemainingDetails] = useState(false);
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
 
   // Modals state
   const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [bulkOpen, setBulkOpen] = useState(false);
   const [viewReq, setViewReq] = useState<PurchaseRequisition | null>(null);
-  const [editReq, setEditReq] = useState<PurchaseRequisition | null>(null);
+  const [viewReqTab, setViewReqTab] = useState<"ITEM_LIST" | "APPROVAL_STATUS">("ITEM_LIST");
+  const [selectedViewItems, setSelectedViewItems] = useState<string[]>([]);
+  const [stockModalItem, setStockModalItem] = useState<{
+    itemId: string;
+    itemCode: string;
+    itemName: string;
+    uom: string;
+  } | null>(null);
   const [printReq, setPrintReq] = useState<PurchaseRequisition | null>(null);
   const [closeModal, setCloseModal] = useState<PurchaseRequisition | null>(null);
-  const [closeComment, setCloseComment] = useState("");
+  const [newPrFrom, setNewPrFrom] = useState<PurchaseRequisition | null>(null);
   const [reverseModal, setReverseModal] = useState<PurchaseRequisition | null>(null);
-  const [reverseComment, setReverseComment] = useState("");
   const [templateNotification, setTemplateNotification] = useState<string | null>(null);
 
   // Approval modal state (for view details or quick review)
@@ -83,18 +126,6 @@ export default function PurchaseRequisitionsPage() {
     action: "APPROVE" | "REJECT" | "CANCEL";
   } | null>(null);
   const [approvalComment, setApprovalComment] = useState("");
-
-  // Edit Requisition form state
-  const [editOfficeId, setEditOfficeId] = useState("off-01");
-  const [editWarehouseId, setEditWarehouseId] = useState("wh-01");
-  const [editRequestType, setEditRequestType] = useState<"LOCAL" | "IMPORT" | "INTER_BRANCH" | "URGENT">("LOCAL");
-  const [editDepartment, setEditDepartment] = useState("Operations");
-  const [editRequester, setEditRequester] = useState("Mahfuz Rahman");
-  const [editPurchaseMethod, setEditPurchaseMethod] = useState<"DIRECT" | "QUOTATION" | "TENDER" | "CONTRACT">("DIRECT");
-  const [editDeliveryDate, setEditDeliveryDate] = useState("2026-10-25");
-  const [editJustification, setEditJustification] = useState("");
-  const [editRemarks, setEditRemarks] = useState("");
-  const [editLineItems, setEditLineItems] = useState<any[]>([]);
 
   // Master data queries
   const { data: offices } = useQuery<Office[]>({
@@ -108,21 +139,62 @@ export default function PurchaseRequisitionsPage() {
       return fetchApi(`/master/warehouses${p}`);
     },
   });
+  // Every warehouse, for the edit / duplicate dialogs (filtered by the office chosen there).
+  const { data: allWarehouses } = useQuery<Warehouse[]>({
+    queryKey: ["warehouses", "ALL"],
+    queryFn: () => fetchApi("/master/warehouses"),
+  });
+
+  // Dynamically filter warehouses in-memory according to the selected Office.
+  // When no office is selected (ALL), no warehouses should be available/selectable.
+  const isOfficeSelected = Boolean(selectedOffice && selectedOffice !== "ALL");
+
+  const filteredWarehouses = useMemo(() => {
+    if (!isOfficeSelected) return [];
+    const list = allWarehouses ?? warehouses ?? [];
+    return list.filter((w) => w.officeId === selectedOffice);
+  }, [allWarehouses, warehouses, selectedOffice, isOfficeSelected]);
+
+  // When office filter changes, update office and reset warehouse filter to ALL
+  const handleOfficeChange = (newOffice: string) => {
+    setSelectedOffice(newOffice);
+    setSelectedWarehouse("ALL");
+  };
+
+  // If no office is selected or selected warehouse is not valid for chosen office, treat as ALL
+  const effectiveWarehouse = useMemo(() => {
+    if (!isOfficeSelected || selectedWarehouse === "ALL") return "ALL";
+    if (filteredWarehouses.length > 0 && !filteredWarehouses.some((w) => w.id === selectedWarehouse)) {
+      return "ALL";
+    }
+    return selectedWarehouse;
+  }, [isOfficeSelected, selectedWarehouse, filteredWarehouses]);
   const { data: itemsCatalog } = useQuery<Item[]>({
     queryKey: ["items"],
     queryFn: () => fetchApi("/master/items"),
   });
+  const { data: context } = useQuery<PrintHeaderContext>({ queryKey: ["context"], queryFn: () => fetchApi("/master/context") });
+  // Departments come from Configuration › Employee profiles (same list the requisition form uses).
+  const { data: formOptions } = useQuery<PurchaseFormOptions>({
+    queryKey: ["purchase-form-options"],
+    queryFn: () => fetchApi("/master/purchase-form-options"),
+  });
+
+  const { data: stockOnHandRows = [] } = useQuery<{ warehouseId: string; itemId: string; qty: number }[]>({
+    queryKey: ["inventory-stock-on-hand"],
+    queryFn: () => fetchApi("/inventory/stock"),
+    enabled: !!viewReq,
+  });
 
   // Requisitions query with full ERP filters
-  const { data: requisitions, isLoading, refetch } = useQuery<PurchaseRequisition[]>({
+  const { data: requisitions, isLoading, isFetching, refetch } = useQuery<PurchaseRequisition[]>({
     queryKey: [
       "requisitions",
       selectedOffice,
-      selectedWarehouse,
+      effectiveWarehouse,
       selectedStatus,
       selectedRequestType,
       selectedSection,
-      selectedBuyerOffice,
       search,
       fromDate,
       toDate,
@@ -130,11 +202,10 @@ export default function PurchaseRequisitionsPage() {
     queryFn: () => {
       const params = new URLSearchParams();
       if (selectedOffice !== "ALL") params.append("officeId", selectedOffice);
-      if (selectedWarehouse !== "ALL") params.append("warehouseId", selectedWarehouse);
+      if (effectiveWarehouse !== "ALL") params.append("warehouseId", effectiveWarehouse);
       if (selectedStatus !== "ALL") params.append("status", selectedStatus);
       if (selectedRequestType !== "ALL") params.append("requestType", selectedRequestType);
       if (selectedSection !== "ALL") params.append("section", selectedSection);
-      if (selectedBuyerOffice !== "ALL") params.append("buyerOfficeId", selectedBuyerOffice);
       if (search) params.append("search", search);
       if (fromDate) params.append("fromDate", fromDate);
       if (toDate) params.append("toDate", toDate);
@@ -142,28 +213,34 @@ export default function PurchaseRequisitionsPage() {
     },
   });
 
-  // Create Requisition form state
-  const [formOfficeId, setFormOfficeId] = useState("off-01");
-  const [formWarehouseId, setFormWarehouseId] = useState("wh-01");
-  const [formRequestType, setFormRequestType] = useState<"LOCAL" | "IMPORT" | "INTER_BRANCH" | "URGENT">("LOCAL");
-  const [formDepartment, setFormDepartment] = useState("Operations");
-  const [formRequester, setFormRequester] = useState("Mahfuz Rahman");
+  // "New PR from this one" form state (filled from the source requisition when the dialog opens)
+  const [formOfficeId, setFormOfficeId] = useState("");
+  const [formWarehouseId, setFormWarehouseId] = useState("");
+  const [formRequestType] = useState<"LOCAL" | "IMPORT" | "INTER_BRANCH" | "URGENT">("LOCAL");
+  const [formDepartment, setFormDepartment] = useState("");
+  const [formRequester, setFormRequester] = useState("");
   const [formPurchaseMethod, setFormPurchaseMethod] = useState<"DIRECT" | "QUOTATION" | "TENDER" | "CONTRACT">("DIRECT");
-  const [formDeliveryDate, setFormDeliveryDate] = useState("2026-10-25");
-  const [formJustification, setFormJustification] = useState("Quarterly buffer replenishment for production.");
-  const [formRemarks, setFormRemarks] = useState("");
-  const [formLineItems, setFormLineItems] = useState([
-    {
-      itemId: "itm-01",
-      itemCode: "PPE-HLM-01",
-      itemName: "Industrial Safety Helmet ANSI Z89.1",
-      uom: "Pcs",
-      quantity: 50,
-      estimatedUnitPrice: 450,
-      lineTotal: 22500,
-      remarks: "",
-    },
-  ]);
+  const [formDeliveryDate, setFormDeliveryDate] = useState(localToday);
+  const [formJustification, setFormJustification] = useState("");
+  const [formRemarks] = useState("");
+  const [formLineItems, setFormLineItems] = useState<
+    { itemId: string; itemCode: string; itemName: string; uom: string; quantity: number; estimatedUnitPrice: number; lineTotal: number; remarks: string }[]
+  >([]);
+
+  // Default office with warehouses for Quick Requisition
+  const defaultFormOfficeId = useMemo(() => {
+    if (!offices?.length) return "";
+    const withWh = offices.find((o) => (allWarehouses ?? []).some((w) => w.officeId === o.id));
+    return withWh?.id || offices[0]?.id || "";
+  }, [offices, allWarehouses]);
+
+  const activeFormOfficeId = formOfficeId || defaultFormOfficeId;
+  const activeFormWarehouseId =
+    formWarehouseId || (allWarehouses?.find((w) => w.officeId === activeFormOfficeId)?.id ?? "");
+
+  const invalidateAll = () => {
+    for (const key of PURCHASE_QUERY_KEYS) queryClient.invalidateQueries({ queryKey: [key] });
+  };
 
   // Mutations
   const createMutation = useMutation({
@@ -173,8 +250,7 @@ export default function PurchaseRequisitionsPage() {
         body: JSON.stringify(payload),
       }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["requisitions"] });
-      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+      invalidateAll();
       setIsCreateOpen(false);
       toast.success("Purchase requisition created and submitted successfully!", {
         title: "Requisition Created",
@@ -194,39 +270,18 @@ export default function PurchaseRequisitionsPage() {
         body: JSON.stringify({ comments }),
       }),
     onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: ["requisitions"] });
-      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+      invalidateAll();
       setApprovalModal(null);
       setApprovalComment("");
       if (viewReq) setViewReq(null);
-      toast.success(`Requisition ${variables.action.toLowerCase()}d successfully!`, {
+      const done: Record<string, string> = { APPROVE: "approved", REJECT: "rejected" };
+      toast.success(`Requisition ${done[variables.action] ?? "updated"} successfully.`, {
         title: "Status Updated",
       });
     },
     onError: (err: any) => {
       toast.error(`Action failed: ${err.message}`, {
         title: "Action Failed",
-      });
-    },
-  });
-
-  const editMutation = useMutation({
-    mutationFn: ({ id, data }: { id: string; data: Partial<CreateRequisitionInput> }) =>
-      fetchApi(`/purchase/requisitions/${id}`, {
-        method: "PUT",
-        body: JSON.stringify(data),
-      }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["requisitions"] });
-      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
-      setEditReq(null);
-      toast.success("Requisition updated successfully!", {
-        title: "Changes Saved",
-      });
-    },
-    onError: (err: any) => {
-      toast.error(`Update failed: ${err.message}`, {
-        title: "Update Failed",
       });
     },
   });
@@ -238,10 +293,8 @@ export default function PurchaseRequisitionsPage() {
         body: JSON.stringify({ comments }),
       }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["requisitions"] });
-      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+      invalidateAll();
       setReverseModal(null);
-      setReverseComment("");
       toast.success("Requisition status successfully reversed to Submitted for review!", {
         title: "Reversal Successful",
       });
@@ -260,10 +313,8 @@ export default function PurchaseRequisitionsPage() {
         body: JSON.stringify({ comments }),
       }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["requisitions"] });
-      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+      invalidateAll();
       setCloseModal(null);
-      setCloseComment("");
       toast.success("Requisition closed/cancelled successfully.", {
         title: "Requisition Closed",
       });
@@ -275,133 +326,9 @@ export default function PurchaseRequisitionsPage() {
     },
   });
 
-  // Open Edit Modal with pre-filled row values
-  const handleOpenEdit = (req: PurchaseRequisition) => {
-    if (req.status === "CONVERTED_TO_PO") {
-      toast.warning("Cannot edit requisition that has already been converted to a Purchase Order.", {
-        title: "Action Not Allowed",
-      });
-      return;
-    }
-    setEditReq(req);
-    setEditOfficeId(req.officeId);
-    setEditWarehouseId(req.warehouseId);
-    setEditRequestType((req.requestType as any) || "LOCAL");
-    setEditDepartment(req.department);
-    setEditRequester(req.requesterName);
-    setEditPurchaseMethod((req.purchaseMethod as any) || "DIRECT");
-    setEditDeliveryDate(req.requiredDeliveryDate || "2026-10-25");
-    setEditJustification(req.businessJustification || "");
-    setEditRemarks(req.remarks || "");
-    setEditLineItems(
-      req.items.map((it) => ({
-        itemId: it.itemId,
-        itemCode: it.itemCode,
-        itemName: it.itemName,
-        uom: it.uom,
-        quantity: it.quantity,
-        estimatedUnitPrice: it.estimatedUnitPrice,
-        lineTotal: it.lineTotal,
-        remarks: it.remarks || "",
-      }))
-    );
-  };
-
-  const handleEditItemChange = (index: number, itemId: string) => {
-    const selected = itemsCatalog?.find((i) => i.id === itemId);
-    if (!selected) return;
-    const updated = [...editLineItems];
-    updated[index].itemId = selected.id;
-    updated[index].itemCode = selected.code;
-    updated[index].itemName = selected.name;
-    updated[index].uom = selected.uom;
-    updated[index].estimatedUnitPrice = Number(selected.standardPrice) || 100;
-    updated[index].lineTotal = updated[index].quantity * (Number(selected.standardPrice) || 100);
-    setEditLineItems(updated);
-  };
-
-  const handleEditQtyChange = (index: number, qty: number) => {
-    const updated = [...editLineItems];
-    updated[index].quantity = qty;
-    updated[index].lineTotal = qty * updated[index].estimatedUnitPrice;
-    setEditLineItems(updated);
-  };
-
-  const handleEditPriceChange = (index: number, price: number) => {
-    const updated = [...editLineItems];
-    updated[index].estimatedUnitPrice = price;
-    updated[index].lineTotal = updated[index].quantity * price;
-    setEditLineItems(updated);
-  };
-
-  const handleEditAddItem = () => {
-    const first = itemsCatalog?.[0];
-    if (!first) return;
-    setEditLineItems([
-      ...editLineItems,
-      {
-        itemId: first.id,
-        itemCode: first.code,
-        itemName: first.name,
-        uom: first.uom,
-        quantity: 1,
-        estimatedUnitPrice: Number(first.standardPrice) || 100,
-        lineTotal: Number(first.standardPrice) || 100,
-        remarks: "",
-      },
-    ]);
-  };
-
-  const handleEditRemoveItem = (index: number) => {
-    if (editLineItems.length === 1) return;
-    setEditLineItems(editLineItems.filter((_, i) => i !== index));
-  };
-
-  const handleSaveEdit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!editReq) return;
-    editMutation.mutate({
-      id: editReq.id,
-      data: {
-        officeId: editOfficeId,
-        warehouseId: editWarehouseId,
-        requestType: editRequestType,
-        department: editDepartment,
-        requesterName: editRequester,
-        purchaseMethod: editPurchaseMethod,
-        requiredDeliveryDate: editDeliveryDate,
-        businessJustification: editJustification,
-        remarks: editRemarks,
-        items: editLineItems,
-      },
-    });
-  };
-
   // Duplicate existing Requisition to create a New PR quickly
   const handleDuplicateAsNew = (req: PurchaseRequisition) => {
-    setFormOfficeId(req.officeId);
-    setFormWarehouseId(req.warehouseId);
-    setFormRequestType((req.requestType as any) || "LOCAL");
-    setFormDepartment(req.department);
-    setFormRequester(req.requesterName);
-    setFormPurchaseMethod((req.purchaseMethod as any) || "DIRECT");
-    setFormDeliveryDate(req.requiredDeliveryDate || "2026-10-25");
-    setFormJustification(`Re-order based on previous requisition ${req.requisitionNumber}`);
-    setFormRemarks(`Cloned from ${req.requisitionNumber}`);
-    setFormLineItems(
-      req.items.map((it) => ({
-        itemId: it.itemId,
-        itemCode: it.itemCode,
-        itemName: it.itemName,
-        uom: it.uom,
-        quantity: it.quantity,
-        estimatedUnitPrice: it.estimatedUnitPrice,
-        lineTotal: it.lineTotal,
-        remarks: it.remarks || "",
-      }))
-    );
-    setTemplateNotification(`Template pre-filled from ${req.requisitionNumber}`);
-    setIsCreateOpen(true);
+    router.push(`/purchase/requisitions/create?fromId=${req.id}`);
   };
 
   const handleAddItem = () => {
@@ -458,13 +385,13 @@ export default function PurchaseRequisitionsPage() {
     e.preventDefault();
     createMutation.mutate({
       companyId: "comp-bridgeone-01",
-      officeId: formOfficeId,
-      warehouseId: formWarehouseId,
+      officeId: activeFormOfficeId,
+      warehouseId: activeFormWarehouseId,
       requestType: formRequestType,
       department: formDepartment,
       requesterName: formRequester,
       purchaseMethod: formPurchaseMethod,
-      requestDate: new Date().toISOString().split("T")[0],
+      requestDate: localToday(),
       requiredDeliveryDate: formDeliveryDate,
       businessJustification: formJustification,
       remarks: formRemarks,
@@ -472,87 +399,216 @@ export default function PurchaseRequisitionsPage() {
     });
   };
 
-  // Export CSV
-  const handleExport = () => {
-    const params = new URLSearchParams();
-    params.append("reportType", "REQUISITION_REPORT");
-    if (selectedOffice !== "ALL") params.append("officeId", selectedOffice);
-    window.open(`${process.env.NEXT_PUBLIC_API_URL || "/api/v1"}/purchase/reports/export-csv?${params.toString()}`, "_blank");
+  const openApproval = (req: PurchaseRequisition, action: "APPROVE" | "REJECT") => {
+    setApprovalComment("");
+    setApprovalModal({ req, action });
   };
 
+  const officeName = (id: string) => offices?.find((o) => o.id === id)?.name ?? "";
+  const warehouseName = (id: string) => allWarehouses?.find((w) => w.id === id)?.name ?? warehouses?.find((w) => w.id === id)?.name ?? "";
+
+  // Export CSV: exactly the rows on screen (all filters applied).
+  const handleExport = () => {
+    const rows = requisitions ?? [];
+    if (!rows.length) {
+      toast.info("No requisitions to export.");
+      return;
+    }
+    downloadCsv(
+      `purchase_requisitions_${localToday()}.csv`,
+      [
+        "SL",
+        "Requisition Code",
+        "Reference Document",
+        "Date",
+        "Office",
+        "Warehouse",
+        "Buyer Office",
+        "Request Type",
+        "Employee/Department/Project",
+        "Section",
+        "Buyer Name",
+        "Method",
+        "Budget",
+        "Created By",
+        "Status",
+        "Remarks",
+        "Review Comment",
+      ],
+      rows.map((r, i) => [
+        i + 1,
+        r.requisitionNumber,
+        r.referenceDocument ?? "",
+        r.requestDate,
+        officeName(r.officeId),
+        warehouseName(r.warehouseId),
+        officeName(r.officeId),
+        r.requestType,
+        r.requesterName,
+        r.department,
+        r.requesterName,
+        r.purchaseMethod,
+        r.totalEstimatedAmount,
+        r.createdBy,
+        r.status,
+        r.remarks ?? "",
+        r.approvalHistory?.[r.approvalHistory.length - 1]?.comments ?? "",
+      ]),
+    );
+  };
+
+  // Section filter: the departments configured on employee profiles, plus any older ones still on requisitions.
+  const sectionOptions = React.useMemo(
+    () =>
+      [...new Set([...(formOptions?.employees ?? []).map((e) => e.department), ...(requisitions ?? []).map((r) => r.department), selectedSection])]
+        .filter((s) => s && s !== "ALL")
+        .sort(),
+    [formOptions, requisitions, selectedSection],
+  );
+
   // Table Columns (Exact columns as in Managerium screenshots)
+  const formatTableDate = (dateStr?: string) => {
+    if (!dateStr) return "—";
+    const parts = dateStr.split("T")[0].split("-");
+    if (parts.length === 3) {
+      return `${parts[2]}-${parts[1]}-${parts[0]}`;
+    }
+    return dateStr;
+  };
+
+  const formatRequestType = (type?: string) => {
+    if (!type) return "department";
+    const lower = type.toLowerCase();
+    if (lower === "local" || lower === "department") return "department";
+    if (lower === "employee") return "Employee";
+    if (lower === "project") return "Project";
+    return lower;
+  };
+
+  const formatMethod = (method?: string) => {
+    if (!method || method === "DIRECT" || method === "PURCHASE_ORDER") return "Purchase Order Method";
+    const label = method.replace(/_/g, " ").toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
+    return label.endsWith("Method") ? label : `${label} Method`;
+  };
+
+  // Status as a small pill with a dot (DESIGN.md semantic colours).
+  const renderStatus = (status: string) => {
+    const pill = (label: string, tone: string, dot: string) => (
+      <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${tone}`}>
+        <span className={`size-1.5 rounded-full ${dot}`} aria-hidden />
+        {label}
+      </span>
+    );
+    switch (status) {
+      case "PENDING_APPROVAL":
+      case "SUBMITTED":
+      case "DRAFT":
+        return pill("Pending", "bg-amber-500/10 text-amber-700 dark:text-amber-300", "bg-amber-500");
+      case "APPROVED":
+        return pill("Approved", "bg-blue-500/10 text-blue-700 dark:text-blue-300", "bg-blue-600");
+      case "CONVERTED_TO_PO":
+        return pill("Ordered", "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300", "bg-emerald-600");
+      case "REJECTED":
+        return pill("Rejected", "bg-rose-500/10 text-rose-700 dark:text-rose-300", "bg-rose-600");
+      case "CANCELLED":
+      case "CLOSED":
+        return pill("Closed", "bg-slate-500/10 text-slate-600 dark:text-slate-300", "bg-slate-400");
+      default:
+        return pill(status, "bg-slate-500/10 text-ink-muted", "bg-slate-400");
+    }
+  };
+
   const columns = [
     {
       header: "SL",
-      cell: (_: any, idx: number) => <span className="font-mono text-slate-500">{idx + 1}</span>,
+      className: "w-7 text-center font-mono text-[11px] text-ink-faint",
+      cell: (_: any, idx: number) => idx + 1,
     },
     {
       header: "Actions",
-      className: "bg-sky-50/70 text-slate-800 font-semibold w-[170px] text-center",
+      className: "w-[125px] min-w-[125px] text-center whitespace-nowrap",
       cell: (row: PurchaseRequisition) => (
-        <div className="flex items-center justify-center gap-1.5 text-slate-700">
-          {/* 1. Edit */}
+        <div className="flex items-center justify-center gap-0.5 text-ink-muted">
+          {/* Edit */}
           <button
             type="button"
-            onClick={() => handleOpenEdit(row)}
-            className="p-1 rounded hover:bg-slate-200/80 hover:text-slate-950 transition-colors"
-            title="Edit Requisition"
+            disabled={!can.edit(row.status) || !perms.requisitions.edit}
+            onClick={() => router.push(`/purchase/requisitions/edit/${row.id}`)}
+            className={`${actionBtn} hover:bg-hover/80 hover:text-ink`}
+            title={
+              !perms.requisitions.edit
+                ? "Requires Edit permission in Configuration"
+                : can.edit(row.status)
+                  ? "Edit requisition"
+                  : "Approved, ordered or cancelled requisitions cannot be edited; reverse it first"
+            }
+            aria-label={`Edit ${row.requisitionNumber}`}
           >
             <Pencil className="w-3.5 h-3.5" />
           </button>
 
-          {/* 2. Print */}
+          {/* Print */}
           <button
             type="button"
             onClick={() => setPrintReq(row)}
-            className="p-1 rounded hover:bg-slate-200/80 hover:text-slate-950 transition-colors"
-            title="Print Requisition Voucher"
+            className={`${actionBtn} hover:bg-hover/80 hover:text-ink`}
+            title="Print requisition voucher"
+            aria-label={`Print ${row.requisitionNumber}`}
           >
             <Printer className="w-3.5 h-3.5" />
           </button>
 
-          {/* 3. Close / Cancel */}
+          {/* Close / Cancel */}
           <button
             type="button"
+            disabled={!can.cancel(row.status) || !perms.requisitions.delete}
             onClick={() => {
               setCloseModal(row);
-              setCloseComment("");
             }}
-            className="p-1 rounded hover:bg-rose-100 hover:text-rose-700 transition-colors"
-            title="Close / Cancel Requisition"
+            className={`${actionBtn} hover:bg-rose-100 dark:hover:bg-rose-500/15 hover:text-rose-700 dark:hover:text-rose-300`}
+            title={!perms.requisitions.delete ? "Requires Delete permission in Configuration" : "Close / cancel requisition"}
+            aria-label={`Cancel ${row.requisitionNumber}`}
           >
             <X className="w-3.5 h-3.5" />
           </button>
 
-          {/* 4. Reverse */}
+          {/* Reverse / Audit History */}
           <button
             type="button"
+            disabled={!can.reverse(row.status) || !perms.requisitions.edit}
             onClick={() => {
               setReverseModal(row);
-              setReverseComment("");
             }}
-            className="p-1 rounded hover:bg-amber-100 hover:text-amber-800 transition-colors"
-            title="Reverse Requisition Status"
+            className={`${actionBtn} hover:bg-amber-100 dark:hover:bg-amber-500/15 hover:text-amber-800 dark:hover:text-amber-300`}
+            title={!perms.requisitions.edit ? "Requires Edit permission in Configuration" : "Reverse to submitted"}
+            aria-label={`Reverse ${row.requisitionNumber}`}
           >
-            <RotateCcw className="w-3.5 h-3.5" />
+            <History className="w-3.5 h-3.5" />
           </button>
 
-          {/* 5. New PR (Duplicate / Template) */}
+          {/* New PR (Duplicate / Template) */}
           <button
             type="button"
-            onClick={() => handleDuplicateAsNew(row)}
-            className="p-1 rounded hover:bg-sky-100 hover:text-sky-700 transition-colors"
-            title="New PR (Duplicate from Template)"
+            disabled={!perms.requisitions.create}
+            onClick={() => setNewPrFrom(row)}
+            className={`${actionBtn} hover:bg-sky-100 dark:hover:bg-sky-500/15 hover:text-sky-700 dark:hover:text-sky-300`}
+            title={!perms.requisitions.create ? "Requires Create permission in Configuration" : "New PR (Duplicate from Template)"}
+            aria-label={`New requisition from ${row.requisitionNumber}`}
           >
             <PlusCircle className="w-3.5 h-3.5" />
           </button>
 
-          {/* 6. View Requisition */}
+          {/* View Requisition */}
           <button
             type="button"
-            onClick={() => setViewReq(row)}
-            className="p-1 rounded hover:bg-slate-200/80 hover:text-slate-950 transition-colors"
-            title="View Requisition Details"
+            onClick={() => {
+              setViewReqTab("ITEM_LIST");
+              setSelectedViewItems([]);
+              setViewReq(row);
+            }}
+            className={`${actionBtn} hover:bg-hover/80 hover:text-ink`}
+            title="View requisition details"
+            aria-label={`View ${row.requisitionNumber}`}
           >
             <Eye className="w-3.5 h-3.5" />
           </button>
@@ -560,64 +616,98 @@ export default function PurchaseRequisitionsPage() {
       ),
     },
     {
-      header: "Requisition No.",
+      header: "Requisition Code",
+      className: "whitespace-nowrap font-mono font-semibold text-sky-700 dark:text-sky-300 text-left",
       cell: (row: PurchaseRequisition) => (
-        <span className="font-semibold text-sky-700 font-mono">{row.requisitionNumber}</span>
+        <span className="font-semibold text-sky-700 dark:text-sky-300 font-mono">{row.requisitionNumber}</span>
       ),
     },
     {
-      header: "Reference",
-      accessorKey: "referenceDocument",
-    },
-    {
       header: "Date",
-      accessorKey: "requestDate",
+      className: "whitespace-nowrap font-mono text-center text-[11px]",
+      cell: (row: PurchaseRequisition) => (
+        <span className="whitespace-nowrap">{formatTableDate(row.requestDate)}</span>
+      ),
     },
     {
       header: "Office",
-      cell: (row: PurchaseRequisition) => {
-        const off = offices?.find((o) => o.id === row.officeId);
-        return <span>{off?.name || row.officeId}</span>;
-      },
+      className: "text-left leading-tight",
+      cell: (row: PurchaseRequisition) => <span>{officeName(row.officeId) || "—"}</span>,
     },
     {
       header: "Warehouse",
-      cell: (row: PurchaseRequisition) => {
-        const wh = warehouses?.find((w) => w.id === row.warehouseId);
-        return <span>{wh?.name || row.warehouseId}</span>;
-      },
+      className: "text-left leading-tight",
+      cell: (row: PurchaseRequisition) => <span>{warehouseName(row.warehouseId) || "—"}</span>,
     },
     {
-      header: "Section",
-      accessorKey: "department",
-    },
-    {
-      header: "Buyer / Requester",
-      accessorKey: "requesterName",
+      header: "Buyer Office",
+      className: "text-left leading-tight",
+      cell: (row: PurchaseRequisition) => <span>{officeName(row.officeId) || "—"}</span>,
     },
     {
       header: "Request Type",
-      accessorKey: "requestType",
+      className: "text-center leading-tight",
+      cell: (row: PurchaseRequisition) => <span>{formatRequestType(row.requestType)}</span>,
     },
     {
-      header: "Purchase Method",
-      accessorKey: "purchaseMethod",
+      header: "Inventory Type",
+      className: "text-left leading-tight whitespace-nowrap",
+      cell: () => <span>Inventory Item</span>,
     },
     {
-      header: "Est. Amount",
+      header: "Employee/Department/Project",
+      className: "text-left leading-tight max-w-[150px]",
+      cell: (row: PurchaseRequisition) => <span>{row.requesterName || row.department || ""}</span>,
+    },
+    {
+      header: "Section",
+      className: "text-center leading-tight",
+      cell: (row: PurchaseRequisition) => <span>{row.section || row.department || ""}</span>,
+    },
+    {
+      header: "Buyer Name",
+      className: "text-left leading-tight",
+      cell: (row: PurchaseRequisition) => <span>{row.requesterName || ""}</span>,
+    },
+    {
+      header: "Method",
+      className: "text-left leading-tight",
+      cell: (row: PurchaseRequisition) => <span>{formatMethod(row.purchaseMethod)}</span>,
+    },
+    {
+      header: "Budget",
+      className: "text-right whitespace-nowrap font-mono font-semibold",
       cell: (row: PurchaseRequisition) => (
-        <span className="font-bold font-mono text-slate-900">
-          {formatCurrency(row.totalEstimatedAmount)}
+        <span className="font-mono font-semibold text-ink">
+          {(row.totalEstimatedAmount || 0).toLocaleString("en-US", {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+          })}
         </span>
       ),
     },
     {
+      header: "Created By",
+      className: "text-left leading-tight",
+      cell: (row: PurchaseRequisition) => <span>{row.createdBy || row.requesterName || ""}</span>,
+    },
+    {
       header: "Status",
-      cell: (row: PurchaseRequisition) => <StatusBadge status={row.status} />,
+      className: "text-center whitespace-nowrap",
+      cell: (row: PurchaseRequisition) => renderStatus(row.status),
     },
     {
       header: "Remarks",
-      accessorKey: "remarks",
+      className: "text-left leading-tight min-w-[140px]",
+      cell: (row: PurchaseRequisition) => <span>{row.remarks || ""}</span>,
+    },
+    {
+      header: "Review Comment",
+      className: "text-left leading-tight min-w-[140px]",
+      cell: (row: PurchaseRequisition) => {
+        const lastComment = [...(row.approvalHistory ?? [])].reverse().find((h) => h.comments)?.comments;
+        return <span>{lastComment || ""}</span>;
+      },
     },
   ];
 
@@ -722,13 +812,24 @@ export default function PurchaseRequisitionsPage() {
     });
 
     return Array.from(itemMap.values())
-      .map((it) => ({
-        ...it,
-        deptList: Array.from(it.departments).join(", "),
-        reqList: Array.from(it.reqNumbers).join(", "),
-      }))
+      .map((it) => {
+        const cat = itemsCatalog?.find((c) => c.id === it.itemId || c.code === it.itemCode);
+        return {
+          ...it,
+          category: cat?.category || "General",
+          subCategory: cat?.subCategory || "",
+          deptList: Array.from(it.departments).join(", "),
+          reqList: Array.from(it.reqNumbers).join(", "),
+        };
+      })
+      .filter((it) => {
+        if (summaryCategory !== "ALL" && it.category !== summaryCategory) return false;
+        if (summarySubCategory !== "ALL" && it.subCategory !== summarySubCategory) return false;
+        if (isRemainingDetails && it.totalBalanceQty <= 0) return false;
+        return true;
+      })
       .sort((a, b) => b.totalAmount - a.totalAmount);
-  }, [requisitions]);
+  }, [requisitions, itemsCatalog, summaryCategory, summarySubCategory, isRemainingDetails]);
 
   const totalSummaryMetrics = React.useMemo(() => {
     if (!requisitions) return { count: 0, amount: 0, pending: 0, approved: 0, converted: 0 };
@@ -742,327 +843,525 @@ export default function PurchaseRequisitionsPage() {
   }, [requisitions]);
 
   return (
-    <div className="space-y-3">
-      {/* 1. TOP HEADER (Exact Unified Box Layout) */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-3 rounded border border-slate-200/90 shadow-2xs">
-        <div>
-          <h1 className="text-xl font-bold text-slate-900 tracking-tight">
-            Purchase Requisition
-          </h1>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <div className="relative">
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search...."
-              className="w-56 sm:w-64 h-9 pl-3 pr-8 text-xs border border-slate-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 bg-white placeholder-slate-400"
-            />
-            <Search className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-          </div>
-
-          <button
-            type="button"
-            onClick={() => setIsCreateOpen(true)}
-            className="h-9 px-4 bg-[#2563eb] hover:bg-blue-700 text-white font-semibold text-xs rounded flex items-center gap-1.5 shadow-xs transition"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Requisition</span>
-          </button>
-        </div>
-      </div>
-
-      {/* Navigation Tabs (PURCHASE REQUISITION | REQUISITION SUMMARY) */}
-      <div className="flex items-center gap-8 border-b border-slate-200 mb-3 bg-white px-2">
-        <button
-          type="button"
-          onClick={() => handleTabChange("PURCHASE_REQUISITION")}
-          className={`pb-2.5 text-xs font-bold tracking-wide transition-colors relative flex items-center gap-2 uppercase ${
-            activeTab === "PURCHASE_REQUISITION"
-              ? "text-blue-600 border-b-2 border-blue-600 -mb-[1px]"
-              : "text-slate-500 hover:text-slate-800"
-          }`}
-        >
-          <span>PURCHASE REQUISITION</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => handleTabChange("REQUISITION_SUMMARY")}
-          className={`pb-2.5 text-xs font-bold tracking-wide transition-colors relative flex items-center gap-2 uppercase ${
-            activeTab === "REQUISITION_SUMMARY"
-              ? "text-blue-600 border-b-2 border-blue-600 -mb-[1px]"
-              : "text-slate-500 hover:text-slate-800"
-          }`}
-        >
-          <span>REQUISITION SUMMARY</span>
-        </button>
-      </div>
-
-      {/* Enterprise Filter Card (Exact Managerium Layout) */}
-      <div className="bg-white rounded border border-slate-200/90 p-4 shadow-2xs mb-4">
-        {/* Row 1: 5 Columns */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3.5 mb-3.5">
-          {/* 1. Office */}
+    <div className="flex flex-col md:h-[calc(100dvh-3.5rem)] md:overflow-hidden font-sans bg-surface p-3 space-y-2.5">
+      {/* 1. TOP HEADER */}
+      <div className="shrink-0 space-y-2">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-              Office
-            </label>
-            <select
-              value={selectedOffice}
-              onChange={(e) => setSelectedOffice(e.target.value)}
-              className="w-full h-9 border border-slate-300 rounded px-2.5 py-1.5 text-xs text-slate-700 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
-            >
-              <option value="ALL">Office</option>
-              {offices?.map((o) => (
-                <option key={o.id} value={o.id}>
-                  {o.name}
-                </option>
-              ))}
-            </select>
+            <h1 className="text-lg font-semibold text-ink tracking-tight">
+              Purchase Requisition
+            </h1>
           </div>
 
-          {/* 2. Warehouse */}
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-              Warehouse
-            </label>
-            <select
-              value={selectedWarehouse}
-              onChange={(e) => setSelectedWarehouse(e.target.value)}
-              className="w-full h-9 border border-slate-300 rounded px-2.5 py-1.5 text-xs text-slate-700 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
-            >
-              <option value="ALL">Warehouse</option>
-              {warehouses?.map((w) => (
-                <option key={w.id} value={w.id}>
-                  {w.name}
-                </option>
-              ))}
-            </select>
-          </div>
+          <div className="flex items-center gap-2">
+            <div className="relative">
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search...."
+                className="w-56 sm:w-64 h-8 pl-3 pr-8 text-xs border border-line-strong rounded focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 bg-surface placeholder:text-ink-faint"
+              />
+              <Search className="w-3.5 h-3.5 text-ink-faint absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+            </div>
 
-          {/* 3. Request Type */}
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-              Request Type
-            </label>
-            <select
-              value={selectedRequestType}
-              onChange={(e) => setSelectedRequestType(e.target.value)}
-              className="w-full h-9 border border-slate-300 rounded px-2.5 py-1.5 text-xs text-slate-700 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
-            >
-              <option value="ALL">Request Type</option>
-              <option value="LOCAL">LOCAL</option>
-              <option value="IMPORT">IMPORT</option>
-              <option value="URGENT">URGENT</option>
-              <option value="INTER_BRANCH">INTER_BRANCH</option>
-            </select>
-          </div>
-
-          {/* 4. Section */}
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-              Section
-            </label>
-            <select
-              value={selectedSection}
-              onChange={(e) => setSelectedSection(e.target.value)}
-              className="w-full h-9 border border-slate-300 rounded px-2.5 py-1.5 text-xs text-slate-700 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
-            >
-              <option value="ALL">Section</option>
-              <option value="Operations">Operations</option>
-              <option value="Production">Production</option>
-              <option value="Administration">Administration</option>
-              <option value="IT">IT</option>
-              <option value="Logistics">Logistics</option>
-              <option value="Maintenance">Maintenance</option>
-              <option value="Procurement">Procurement</option>
-            </select>
-          </div>
-
-          {/* 5. From Date */}
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-              From Date
-            </label>
-            <input
-              type="date"
-              value={fromDate}
-              onChange={(e) => setFromDate(e.target.value)}
-              className="w-full h-9 border border-slate-300 rounded px-2.5 py-1.5 text-xs text-slate-700 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
-            />
-          </div>
-        </div>
-
-        {/* Row 2: 4 Columns with Clean Actions */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3.5 items-end">
-          {/* 1. To Date */}
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-              To Date
-            </label>
-            <input
-              type="date"
-              value={toDate}
-              onChange={(e) => setToDate(e.target.value)}
-              className="w-full h-9 border border-slate-300 rounded px-2.5 py-1.5 text-xs text-slate-700 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
-            />
-          </div>
-
-          {/* 2. Status */}
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-              Status
-            </label>
-            <select
-              value={selectedStatus}
-              onChange={(e) => setSelectedStatus(e.target.value)}
-              className="w-full h-9 border border-slate-300 rounded px-2.5 py-1.5 text-xs text-slate-700 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
-            >
-              <option value="ALL">Status</option>
-              <option value="DRAFT">Draft</option>
-              <option value="SUBMITTED">Submitted</option>
-              <option value="PENDING_APPROVAL">Pending Approval</option>
-              <option value="APPROVED">Approved</option>
-              <option value="CONVERTED_TO_PO">Converted to PO</option>
-              <option value="REJECTED">Rejected</option>
-              <option value="CANCELLED">Cancelled</option>
-            </select>
-          </div>
-
-          {/* 3. Buyer Office */}
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-              Buyer Office
-            </label>
-            <select
-              value={selectedBuyerOffice}
-              onChange={(e) => setSelectedBuyerOffice(e.target.value)}
-              className="w-full h-9 border border-slate-300 rounded px-2.5 py-1.5 text-xs text-slate-700 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
-            >
-              <option value="ALL">Buyer Office</option>
-              {offices?.map((o) => (
-                <option key={o.id} value={o.id}>
-                  {o.name}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* 4. Action Buttons (View & EXCEL) */}
-          <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={() => refetch()}
-              className="h-9 px-6 bg-[#2563eb] hover:bg-blue-700 text-white font-bold text-xs uppercase rounded shadow-xs transition flex items-center justify-center min-w-[70px]"
-            >
-              View
-            </button>
-            <button
-              type="button"
-              onClick={handleExport}
-              className="h-9 px-5 border border-[#2563eb] text-[#2563eb] hover:bg-blue-50 font-bold text-xs uppercase rounded shadow-xs transition flex items-center justify-center min-w-[75px]"
-            >
-              EXCEL
-            </button>
-            {(selectedOffice !== "ALL" ||
-              selectedWarehouse !== "ALL" ||
-              selectedRequestType !== "ALL" ||
-              selectedSection !== "ALL" ||
-              selectedStatus !== "ALL" ||
-              selectedBuyerOffice !== "ALL" ||
-              fromDate !== "" ||
-              toDate !== "" ||
-              search !== "") && (
+            {perms.requisitions.import && (
               <button
                 type="button"
-                onClick={() => {
-                  setSelectedOffice("ALL");
-                  setSelectedWarehouse("ALL");
-                  setSelectedRequestType("ALL");
-                  setSelectedSection("ALL");
-                  setSelectedStatus("ALL");
-                  setSelectedBuyerOffice("ALL");
-                  setFromDate("");
-                  setToDate("");
-                  setSearch("");
-                }}
-                className="h-9 px-2 text-xs text-slate-500 hover:text-slate-800 underline transition"
-                title="Reset Filters"
+                onClick={() => setBulkOpen(true)}
+                className="h-8 px-3 border border-line-strong rounded text-ink-muted hover:bg-canvas font-medium text-xs inline-flex items-center gap-1.5 transition"
+                title="Bulk upload requisitions from an Excel file"
               >
-                Clear
+                <Upload className="w-3.5 h-3.5" />
+                <span>Bulk Upload</span>
+              </button>
+            )}
+            {perms.requisitions.create && (
+              <button
+                type="button"
+                onClick={() => router.push("/purchase/requisitions/create")}
+                className="h-8 px-3.5 bg-[#2563eb] hover:bg-blue-700 text-white font-semibold text-xs rounded flex items-center gap-1.5 shadow-2xs transition"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>Requisition</span>
               </button>
             )}
           </div>
         </div>
+
+        {/* Navigation Tabs (PURCHASE REQUISITION | REQUISITION SUMMARY) */}
+        <div className="flex items-center gap-6 border-b border-line pt-1">
+          <button
+            type="button"
+            onClick={() => handleTabChange("PURCHASE_REQUISITION")}
+            className={`pb-2 text-xs font-bold tracking-wide transition-colors relative flex items-center gap-2 uppercase ${activeTab === "PURCHASE_REQUISITION"
+              ? "text-blue-600 dark:text-blue-400 border-b-2 border-blue-600 -mb-[1px]"
+              : "text-ink-faint hover:text-ink"
+              }`}
+          >
+            <span>PURCHASE REQUISITION</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => handleTabChange("REQUISITION_SUMMARY")}
+            className={`pb-2 text-xs font-bold tracking-wide transition-colors relative flex items-center gap-2 uppercase ${activeTab === "REQUISITION_SUMMARY"
+              ? "text-blue-600 dark:text-blue-400 border-b-2 border-blue-600 -mb-[1px]"
+              : "text-ink-faint hover:text-ink"
+              }`}
+          >
+            <span>REQUISITION SUMMARY</span>
+          </button>
+        </div>
       </div>
 
-      {/* Content: Requisitions List or Summary Matrix */}
-      {activeTab === "PURCHASE_REQUISITION" ? (
-        /* Requisitions Data Table */
-        <DataTable
-          columns={columns}
-          data={requisitions || []}
-          loading={isLoading}
-          emptyMessage="No requisitions found matching the selected criteria."
-        />
-      ) : (
-        /* Requisition Summary View */
-        <div className="space-y-4">
+      {/* TAB 1: PURCHASE REQUISITION */}
+      {activeTab === "PURCHASE_REQUISITION" && (
+        <div className="flex-1 min-h-0 flex flex-col space-y-2">
+          <div className="shrink-0 py-1.5">
+          {/* Row 1: Office | Warehouse | Request Type | Section | Inventory Type */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 mb-2.5">
+            {/* 1. Office */}
+            <div>
+              <label className="block text-[11px] font-medium text-ink-muted mb-1">
+                Office
+              </label>
+              <select
+                value={selectedOffice}
+                onChange={(e) => handleOfficeChange(e.target.value)}
+                className="w-full h-8 border border-line-strong rounded px-2.5 py-1 text-xs text-ink-muted bg-surface focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+              >
+                <option value="ALL">Office</option>
+                {offices?.map((o) => (
+                  <option key={o.id} value={o.id}>
+                    {o.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* 2. Warehouse */}
+            <div>
+              <label className="block text-[11px] font-medium text-ink-muted mb-1">
+                Warehouse
+              </label>
+              <select
+                value={effectiveWarehouse}
+                onChange={(e) => setSelectedWarehouse(e.target.value)}
+                disabled={!isOfficeSelected}
+                className="w-full h-8 border border-line-strong rounded px-2.5 py-1 text-xs text-ink-muted bg-surface focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 disabled:bg-control disabled:text-ink-faint disabled:cursor-not-allowed disabled:border-line"
+              >
+                <option value="ALL">Warehouse</option>
+                {filteredWarehouses.map((w) => (
+                  <option key={w.id} value={w.id}>
+                    {w.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* 3. Request Type */}
+            <div>
+              <label className="block text-[11px] font-medium text-ink-muted mb-1">
+                Request Type
+              </label>
+              <select
+                value={selectedRequestType}
+                onChange={(e) => setSelectedRequestType(e.target.value)}
+                className="w-full h-8 border border-line-strong rounded px-2.5 py-1 text-xs text-ink-muted bg-surface focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+              >
+                <option value="ALL">Request Type</option>
+                <option value="LOCAL">LOCAL</option>
+                <option value="IMPORT">IMPORT</option>
+                <option value="URGENT">URGENT</option>
+                <option value="INTER_BRANCH">INTER_BRANCH</option>
+              </select>
+            </div>
+
+            {/* 4. Section */}
+            <div>
+              <label className="block text-[11px] font-medium text-ink-muted mb-1">
+                Section
+              </label>
+              <select
+                value={selectedSection}
+                onChange={(e) => setSelectedSection(e.target.value)}
+                className="w-full h-8 border border-line-strong rounded px-2.5 py-1 text-xs text-ink-muted bg-surface focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+              >
+                <option value="ALL">Section</option>
+                {sectionOptions.map((s) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* 5. Inventory Type */}
+            <div>
+              <label className="block text-[11px] font-medium text-ink-muted mb-1">
+                Inventory Type
+              </label>
+              <div className="relative">
+                <select
+                  value={selectedInventoryType}
+                  onChange={(e) => setSelectedInventoryType(e.target.value)}
+                  className="w-full h-8 border border-line-strong rounded px-2.5 pr-7 py-1 text-xs text-ink bg-surface focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                >
+                  <option value="ALL">All</option>
+                  <option value="Inventory Item">Inventory Item</option>
+                </select>
+                {selectedInventoryType !== "ALL" && (
+                  <button
+                    type="button"
+                    onClick={() => setSelectedInventoryType("ALL")}
+                    className="absolute right-6 top-1/2 -translate-y-1/2 text-ink-faint hover:text-ink"
+                    aria-label="Clear inventory type"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Row 2: From Date | To Date | Status | Buyer Office | View & EXCEL */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 items-end">
+            {/* 1. From Date */}
+            <div>
+              <label className="block text-[11px] font-medium text-ink-muted mb-1">
+                From Date
+              </label>
+              <NativeDateInput
+                type="date"
+                value={fromDate}
+                onChange={(e) => setFromDate(e.target.value)}
+                className="w-full h-8 border border-line-strong rounded px-2.5 py-1 text-xs text-ink bg-surface focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+              />
+            </div>
+
+            {/* 2. To Date */}
+            <div>
+              <label className="block text-[11px] font-medium text-ink-muted mb-1">
+                To Date
+              </label>
+              <NativeDateInput
+                type="date"
+                value={toDate}
+                onChange={(e) => setToDate(e.target.value)}
+                className="w-full h-8 border border-line-strong rounded px-2.5 py-1 text-xs text-ink bg-surface focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+              />
+            </div>
+
+            {/* 3. Status */}
+            <div>
+              <label className="block text-[11px] font-medium text-ink-muted mb-1">
+                Status
+              </label>
+              <select
+                value={selectedStatus}
+                onChange={(e) => setSelectedStatus(e.target.value)}
+                className="w-full h-8 border border-line-strong rounded px-2.5 py-1 text-xs text-ink-muted bg-surface focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+              >
+                <option value="ALL">Status</option>
+                <option value="DRAFT">Draft</option>
+                <option value="SUBMITTED">Submitted</option>
+                <option value="PENDING_APPROVAL">Pending Approval</option>
+                <option value="APPROVED">Approved</option>
+                <option value="CONVERTED_TO_PO">Converted to PO</option>
+                <option value="REJECTED">Rejected</option>
+                <option value="CANCELLED">Cancelled</option>
+              </select>
+            </div>
+
+            {/* 4. Buyer Office */}
+            <div>
+              <label className="block text-[11px] font-medium text-ink-muted mb-1">
+                Buyer Office
+              </label>
+              <select
+                value={selectedBuyerOffice}
+                onChange={(e) => {
+                  setSelectedBuyerOffice(e.target.value);
+                }}
+                className="w-full h-8 border border-line-strong rounded px-2.5 py-1 text-xs text-ink-muted bg-surface focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+              >
+                <option value="ALL">Buyer Office</option>
+                {offices?.map((o) => (
+                  <option key={o.id} value={o.id}>
+                    {o.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* 5. Action Buttons (View & EXCEL) */}
+            <div className="flex items-center gap-2.5">
+              <button
+                type="button"
+                onClick={() => refetch()}
+                disabled={isFetching}
+                className="h-8 px-5 bg-[#2563eb] hover:bg-blue-700 disabled:opacity-70 text-white font-semibold text-xs rounded shadow-2xs transition flex items-center justify-center gap-1.5"
+              >
+                {isFetching && <Spinner className="size-3.5" />}
+                View
+              </button>
+              <button
+                type="button"
+                onClick={handleExport}
+                disabled={!perms.requisitions.export}
+                title={!perms.requisitions.export ? "Requires Export permission in Configuration" : "Export Excel (CSV)"}
+                className="h-8 px-4 border border-[#2563eb] text-primary hover:bg-blue-50 dark:hover:bg-blue-500/10 disabled:opacity-40 disabled:pointer-events-none font-semibold text-xs uppercase rounded shadow-2xs transition flex items-center justify-center"
+              >
+                EXCEL
+              </button>
+              {(selectedOffice !== "ALL" ||
+                selectedWarehouse !== "ALL" ||
+                selectedRequestType !== "ALL" ||
+                selectedSection !== "ALL" ||
+                selectedInventoryType !== "ALL" ||
+                selectedStatus !== "ALL" ||
+                fromDate !== "" ||
+                toDate !== "" ||
+                search !== "") && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedOffice("ALL");
+                      setSelectedWarehouse("ALL");
+                      setSelectedRequestType("ALL");
+                      setSelectedSection("ALL");
+                      setSelectedInventoryType("ALL");
+                      setSelectedStatus("ALL");
+                      setSelectedBuyerOffice("ALL");
+                      setFromDate("");
+                      setToDate("");
+                      setSearch("");
+                    }}
+                    className="h-8 px-2 text-xs text-ink-faint hover:text-ink underline transition"
+                    title="Reset Filters"
+                  >
+                    Clear
+                  </button>
+                )}
+            </div>
+          </div>
+        </div>
+
+        {/* Requisitions Data Table (Only Table Scrolls) */}
+        <div className="flex-1 min-h-0">
+          <DataTable
+            columns={columns}
+            data={requisitions || []}
+            loading={isLoading}
+            pageSize={50}
+            emptyMessage="No requisitions found matching the selected criteria."
+            compact
+          />
+        </div>
+      </div>
+    )}
+
+    {/* TAB 2: REQUISITION SUMMARY */}
+    {activeTab === "REQUISITION_SUMMARY" && (
+      <div className="flex-1 min-h-0 flex flex-col space-y-2.5">
+        <div className="shrink-0 bg-surface rounded border border-line/90 p-4 shadow-2xs">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3.5 mb-3.5">
+            <div>
+              <label className="block text-xs font-semibold text-ink-muted mb-1.5">Office</label>
+              <select
+                value={selectedOffice}
+                onChange={(e) => handleOfficeChange(e.target.value)}
+                className="w-full h-9 border border-line-strong rounded px-2.5 py-1.5 text-xs text-ink-muted bg-surface focus:outline-none focus:ring-1 focus:ring-blue-500"
+              >
+                <option value="ALL">All</option>
+                {offices?.map((o) => (
+                  <option key={o.id} value={o.id}>
+                    {o.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-ink-muted mb-1.5">Warehouse</label>
+              <select
+                value={effectiveWarehouse}
+                onChange={(e) => setSelectedWarehouse(e.target.value)}
+                disabled={!isOfficeSelected}
+                className="w-full h-9 border border-line-strong rounded px-2.5 py-1.5 text-xs text-ink-muted bg-surface focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:bg-control disabled:text-ink-faint disabled:cursor-not-allowed disabled:border-line"
+              >
+                <option value="ALL">All</option>
+                {filteredWarehouses.map((w) => (
+                  <option key={w.id} value={w.id}>
+                    {w.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-ink-muted mb-1.5">From Date</label>
+              <NativeDateInput
+                type="date"
+                value={fromDate}
+                onChange={(e) => setFromDate(e.target.value)}
+                className="w-full h-9 border border-line-strong rounded px-2.5 py-1.5 text-xs text-ink-muted bg-surface focus:outline-none focus:ring-1 focus:ring-blue-500"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-ink-muted mb-1.5">To Date</label>
+              <NativeDateInput
+                type="date"
+                value={toDate}
+                onChange={(e) => setToDate(e.target.value)}
+                className="w-full h-9 border border-line-strong rounded px-2.5 py-1.5 text-xs text-ink-muted bg-surface focus:outline-none focus:ring-1 focus:ring-blue-500"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-ink-muted mb-1.5">Category</label>
+              <select
+                value={summaryCategory}
+                onChange={(e) => {
+                  setSummaryCategory(e.target.value);
+                  setSummarySubCategory("ALL");
+                }}
+                className="w-full h-9 border border-line-strong rounded px-2.5 py-1.5 text-xs text-ink-muted bg-surface focus:outline-none focus:ring-1 focus:ring-blue-500"
+              >
+                <option value="ALL">All</option>
+                {Array.from(new Set((itemsCatalog ?? []).map((i) => i.category).filter(Boolean))).sort().map((cat) => (
+                  <option key={cat} value={cat}>
+                    {cat}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3.5 items-end">
+            <div>
+              <label className="block text-xs font-semibold text-ink-muted mb-1.5">Sub Category</label>
+              <select
+                value={summarySubCategory}
+                onChange={(e) => setSummarySubCategory(e.target.value)}
+                className="w-full h-9 border border-line-strong rounded px-2.5 py-1.5 text-xs text-ink-muted bg-surface focus:outline-none focus:ring-1 focus:ring-blue-500"
+              >
+                <option value="ALL">All</option>
+                {Array.from(
+                  new Set(
+                    (itemsCatalog ?? [])
+                      .filter((i) => summaryCategory === "ALL" || i.category === summaryCategory)
+                      .map((i) => i.subCategory || "")
+                      .filter(Boolean)
+                  )
+                )
+                  .sort()
+                  .map((sub) => (
+                    <option key={sub} value={sub}>
+                      {sub}
+                    </option>
+                  ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-ink-muted mb-1.5">Buyer Office</label>
+              <select
+                value={selectedBuyerOffice}
+                onChange={(e) => {
+                  setSelectedBuyerOffice(e.target.value);
+                }}
+                className="w-full h-9 border border-line-strong rounded px-2.5 py-1.5 text-xs text-ink-muted bg-surface focus:outline-none focus:ring-1 focus:ring-blue-500"
+              >
+                <option value="ALL">Buyer Office</option>
+                {offices?.map((o) => (
+                  <option key={o.id} value={o.id}>
+                    {o.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <label className="flex h-9 cursor-pointer items-center gap-2 text-xs text-ink-muted">
+              <input
+                type="checkbox"
+                checked={isRemainingDetails}
+                onChange={(e) => setIsRemainingDetails(e.target.checked)}
+                className="h-4 w-4 rounded border-line-strong text-blue-600 dark:text-blue-400"
+              />
+              <span>Is Remaining Details</span>
+            </label>
+            <div className="flex items-center gap-3 lg:col-span-2">
+              <button
+                type="button"
+                onClick={() => refetch()}
+                disabled={isFetching}
+                className="h-9 px-6 bg-[#2563eb] hover:bg-blue-700 disabled:opacity-70 text-white font-bold text-xs uppercase rounded shadow-xs transition flex items-center justify-center gap-1.5 min-w-[70px]"
+              >
+                {isFetching && <Spinner className="size-3.5" />}
+                View
+              </button>
+              <button
+                type="button"
+                onClick={handleExport}
+                disabled={!perms.requisitions.export}
+                title={!perms.requisitions.export ? "Requires Export permission in Configuration" : "Export Excel (CSV)"}
+                className="h-9 px-5 border border-[#2563eb] text-primary hover:bg-blue-50 dark:hover:bg-blue-500/10 disabled:opacity-40 disabled:pointer-events-none font-bold text-xs uppercase rounded shadow-xs transition flex items-center justify-center min-w-[75px]"
+              >
+                EXCEL
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Requisition Summary View (Scrollable) */}
+        <div className="flex-1 min-h-0 overflow-y-auto space-y-4">
           {/* KPI Stat Cards */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <div className="bg-white rounded border border-slate-200/90 p-4 shadow-2xs">
-              <span className="text-xs font-semibold text-slate-500 uppercase">Total Requisitions</span>
-              <p className="text-2xl font-bold font-mono text-slate-900 mt-1">{totalSummaryMetrics.count}</p>
-              <span className="text-[11px] text-slate-400">All matching filter criteria</span>
+            <div className="bg-surface rounded border border-line/90 p-4 shadow-2xs">
+              <span className="text-xs font-semibold text-ink-faint uppercase">Total Requisitions</span>
+              <p className="text-2xl font-bold font-mono text-ink mt-1">{totalSummaryMetrics.count}</p>
+              <span className="text-[11px] text-ink-faint">All matching filter criteria</span>
             </div>
 
-            <div className="bg-white rounded border border-slate-200/90 p-4 shadow-2xs">
-              <span className="text-xs font-semibold text-slate-500 uppercase">Estimated Budget</span>
-              <p className="text-2xl font-bold font-mono text-blue-700 mt-1">
+            <div className="bg-surface rounded border border-line/90 p-4 shadow-2xs">
+              <span className="text-xs font-semibold text-ink-faint uppercase">Estimated Budget</span>
+              <p className="text-2xl font-bold font-mono text-blue-700 dark:text-blue-300 mt-1">
                 {formatCurrency(totalSummaryMetrics.amount)}
               </p>
-              <span className="text-[11px] text-slate-400">Total estimated outlay</span>
+              <span className="text-[11px] text-ink-faint">Total estimated outlay</span>
             </div>
 
-            <div className="bg-white rounded border border-slate-200/90 p-4 shadow-2xs">
-              <span className="text-xs font-semibold text-amber-600 uppercase">Pending Approval</span>
-              <p className="text-2xl font-bold font-mono text-amber-600 mt-1">{totalSummaryMetrics.pending}</p>
-              <span className="text-[11px] text-slate-400">Awaiting management verification</span>
+            <div className="bg-surface rounded border border-line/90 p-4 shadow-2xs">
+              <span className="text-xs font-semibold text-amber-600 dark:text-amber-400 uppercase">Pending Approval</span>
+              <p className="text-2xl font-bold font-mono text-amber-600 dark:text-amber-400 mt-1">{totalSummaryMetrics.pending}</p>
+              <span className="text-[11px] text-ink-faint">Awaiting management verification</span>
             </div>
 
-            <div className="bg-white rounded border border-slate-200/90 p-4 shadow-2xs">
-              <span className="text-xs font-semibold text-emerald-600 uppercase">Approved / In-PO</span>
-              <p className="text-2xl font-bold font-mono text-emerald-600 mt-1">
+            <div className="bg-surface rounded border border-line/90 p-4 shadow-2xs">
+              <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 uppercase">Approved / In-PO</span>
+              <p className="text-2xl font-bold font-mono text-emerald-600 dark:text-emerald-400 mt-1">
                 {totalSummaryMetrics.approved + totalSummaryMetrics.converted}
               </p>
-              <span className="text-[11px] text-slate-400">Converted or cleared for PO</span>
+              <span className="text-[11px] text-ink-faint">Converted or cleared for PO</span>
             </div>
           </div>
 
           {/* View Mode Switcher */}
-          <div className="flex items-center gap-2 border-b border-slate-200 bg-white px-3 py-2 rounded-t-md">
+          <div className="flex items-center gap-2 border-b border-line bg-surface px-3 py-2 rounded-t-md">
             <button
               type="button"
               onClick={() => setSummaryViewMode("ITEM_WISE")}
-              className={`px-3 py-1.5 text-xs font-bold rounded transition ${
-                summaryViewMode === "ITEM_WISE"
-                  ? "bg-blue-600 text-white shadow-xs"
-                  : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-              }`}
+              className={`px-3 py-1.5 text-xs font-bold rounded transition ${summaryViewMode === "ITEM_WISE"
+                ? "bg-blue-600 text-white shadow-xs"
+                : "bg-control text-ink-muted hover:bg-hover"
+                }`}
             >
               Item-Wise Summary ({itemWiseSummary.length} Items)
             </button>
             <button
               type="button"
               onClick={() => setSummaryViewMode("DEPARTMENT_WISE")}
-              className={`px-3 py-1.5 text-xs font-bold rounded transition ${
-                summaryViewMode === "DEPARTMENT_WISE"
-                  ? "bg-blue-600 text-white shadow-xs"
-                  : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-              }`}
+              className={`px-3 py-1.5 text-xs font-bold rounded transition ${summaryViewMode === "DEPARTMENT_WISE"
+                ? "bg-blue-600 text-white shadow-xs"
+                : "bg-control text-ink-muted hover:bg-hover"
+                }`}
             >
               Department / Section Matrix ({departmentSummary.length} Departments)
             </button>
@@ -1070,21 +1369,21 @@ export default function PurchaseRequisitionsPage() {
 
           {summaryViewMode === "ITEM_WISE" ? (
             /* Item-Wise Requisition Summary Table */
-            <div className="bg-white rounded border border-slate-200/90 overflow-hidden shadow-2xs">
-              <div className="px-4 py-3 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
+            <div className="bg-surface rounded border border-line/90 overflow-hidden shadow-2xs">
+              <div className="px-4 py-3 border-b border-line bg-canvas flex items-center justify-between">
                 <div>
-                  <h3 className="font-bold text-slate-800 text-sm">Item-Wise Requisition Summary</h3>
-                  <p className="text-xs text-slate-500">
+                  <h3 className="font-bold text-ink text-sm">Item-Wise Requisition Summary</h3>
+                  <p className="text-xs text-ink-faint">
                     Aggregated material demand, approved quantities, PO converted volume, and remaining balances
                   </p>
                 </div>
-                <span className="text-xs font-semibold text-slate-600 font-mono">
+                <span className="text-xs font-semibold text-ink-muted font-mono">
                   {itemWiseSummary.length} Unique Items
                 </span>
               </div>
 
               <div className="erp-table-container">
-                <table className="erp-table">
+                <table className="erp-table erp-table-compact">
                   <thead>
                     <tr>
                       <th>SL</th>
@@ -1104,35 +1403,35 @@ export default function PurchaseRequisitionsPage() {
                   <tbody>
                     {itemWiseSummary.length === 0 ? (
                       <tr>
-                        <td colSpan={12} className="text-center py-8 text-slate-400">
+                        <td colSpan={12} className="text-center py-8 text-ink-faint">
                           No requisition items found matching criteria.
                         </td>
                       </tr>
                     ) : (
                       itemWiseSummary.map((it, idx) => (
-                        <tr key={it.itemId || idx} className="hover:bg-slate-50 transition-colors">
-                          <td className="text-center font-mono text-slate-500">{idx + 1}</td>
-                          <td className="font-mono font-semibold text-blue-700">{it.itemCode}</td>
-                          <td className="font-semibold text-slate-800">{it.itemName}</td>
-                          <td className="text-xs text-slate-600 max-w-[140px] truncate" title={it.deptList}>
+                        <tr key={it.itemId || idx} className="hover:bg-canvas transition-colors">
+                          <td className="text-center font-mono text-ink-faint">{idx + 1}</td>
+                          <td className="font-mono font-semibold text-blue-700 dark:text-blue-300">{it.itemCode}</td>
+                          <td className="font-semibold text-ink">{it.itemName}</td>
+                          <td className="text-xs text-ink-muted max-w-[140px] truncate" title={it.deptList}>
                             {it.deptList}
                           </td>
-                          <td className="font-mono text-xs text-slate-500 max-w-[150px] truncate" title={it.reqList}>
+                          <td className="font-mono text-xs text-ink-faint max-w-[150px] truncate" title={it.reqList}>
                             {it.reqList}
                           </td>
-                          <td className="text-center text-slate-600 font-medium">{it.uom}</td>
-                          <td className="text-center font-mono font-bold text-slate-900">{it.totalReqQty}</td>
-                          <td className="text-center font-mono font-medium text-emerald-600">
+                          <td className="text-center text-ink-muted font-medium">{it.uom}</td>
+                          <td className="text-center font-mono font-bold text-ink">{it.totalReqQty}</td>
+                          <td className="text-center font-mono font-medium text-emerald-600 dark:text-emerald-400">
                             {it.totalApprovedQty}
                           </td>
-                          <td className="text-center font-mono font-medium text-blue-600">{it.totalPOQty}</td>
-                          <td className="text-center font-mono font-bold text-amber-600">
+                          <td className="text-center font-mono font-medium text-blue-600 dark:text-blue-400">{it.totalPOQty}</td>
+                          <td className="text-center font-mono font-bold text-amber-600 dark:text-amber-400">
                             {it.totalBalanceQty}
                           </td>
-                          <td className="text-right font-mono text-slate-700">
+                          <td className="text-right font-mono text-ink-muted">
                             {formatCurrency(it.unitPrice)}
                           </td>
-                          <td className="text-right font-mono font-bold text-slate-900">
+                          <td className="text-right font-mono font-bold text-ink">
                             {formatCurrency(it.totalAmount)}
                           </td>
                         </tr>
@@ -1144,19 +1443,19 @@ export default function PurchaseRequisitionsPage() {
             </div>
           ) : (
             /* Department / Section Summary Matrix Table */
-            <div className="bg-white rounded border border-slate-200/90 overflow-hidden shadow-2xs">
-              <div className="px-4 py-3 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
+            <div className="bg-surface rounded border border-line/90 overflow-hidden shadow-2xs">
+              <div className="px-4 py-3 border-b border-line bg-canvas flex items-center justify-between">
                 <div>
-                  <h3 className="font-bold text-slate-800 text-sm">Department / Section Requisition Summary</h3>
-                  <p className="text-xs text-slate-500">Breakdown of requests, total expenditure and approval status</p>
+                  <h3 className="font-bold text-ink text-sm">Department / Section Requisition Summary</h3>
+                  <p className="text-xs text-ink-faint">Breakdown of requests, total expenditure and approval status</p>
                 </div>
-                <span className="text-xs font-medium text-slate-500 font-mono">
+                <span className="text-xs font-medium text-ink-faint font-mono">
                   {departmentSummary.length} Departments Active
                 </span>
               </div>
 
               <div className="erp-table-container">
-                <table className="erp-table">
+                <table className="erp-table erp-table-compact">
                   <thead>
                     <tr>
                       <th>SL</th>
@@ -1174,23 +1473,23 @@ export default function PurchaseRequisitionsPage() {
                   <tbody>
                     {departmentSummary.length === 0 ? (
                       <tr>
-                        <td colSpan={10} className="text-center py-8 text-slate-400">
+                        <td colSpan={10} className="text-center py-8 text-ink-faint">
                           No summary records found.
                         </td>
                       </tr>
                     ) : (
                       departmentSummary.map((d, idx) => (
-                        <tr key={d.department} className="hover:bg-slate-50 transition-colors">
-                          <td className="text-center font-mono text-slate-500">{idx + 1}</td>
-                          <td className="font-semibold text-slate-800">{d.department}</td>
+                        <tr key={d.department} className="hover:bg-canvas transition-colors">
+                          <td className="text-center font-mono text-ink-faint">{idx + 1}</td>
+                          <td className="font-semibold text-ink">{d.department}</td>
                           <td className="text-center font-mono font-medium">{d.totalCount}</td>
-                          <td className="text-right font-mono font-bold text-slate-900">
+                          <td className="text-right font-mono font-bold text-ink">
                             {formatCurrency(d.totalAmount)}
                           </td>
-                          <td className="text-center font-mono text-sky-600">{d.submitted}</td>
-                          <td className="text-center font-mono text-amber-600">{d.pending}</td>
-                          <td className="text-center font-mono text-emerald-600 font-semibold">{d.approved}</td>
-                          <td className="text-center font-mono text-blue-600 font-semibold">{d.converted}</td>
+                          <td className="text-center font-mono text-sky-600 dark:text-sky-400">{d.submitted}</td>
+                          <td className="text-center font-mono text-amber-600 dark:text-amber-400">{d.pending}</td>
+                          <td className="text-center font-mono text-emerald-600 dark:text-emerald-400 font-semibold">{d.approved}</td>
+                          <td className="text-center font-mono text-blue-600 dark:text-blue-400 font-semibold">{d.converted}</td>
                           <td className="text-center font-mono text-rose-500">{d.rejected}</td>
                           <td className="text-center">
                             <button
@@ -1199,7 +1498,7 @@ export default function PurchaseRequisitionsPage() {
                                 setSelectedSection(d.department);
                                 handleTabChange("PURCHASE_REQUISITION");
                               }}
-                              className="px-2.5 py-1 text-xs text-blue-600 hover:text-blue-800 hover:underline font-semibold"
+                              className="px-2.5 py-1 text-xs text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 hover:underline font-semibold"
                             >
                               View List &rarr;
                             </button>
@@ -1213,9 +1512,10 @@ export default function PurchaseRequisitionsPage() {
             </div>
           )}
         </div>
-      )}
+      </div>
+    )}
 
-      {/* CREATE REQUISITION MODAL */}
+    {/* CREATE REQUISITION MODAL */}
       <ModalDialog
         isOpen={isCreateOpen}
         onClose={() => setIsCreateOpen(false)}
@@ -1225,29 +1525,32 @@ export default function PurchaseRequisitionsPage() {
       >
         <form onSubmit={handleCreateSubmit} className="space-y-4">
           {templateNotification && (
-            <div className="flex items-center justify-between px-3 py-2 bg-sky-50 border border-sky-200 text-sky-800 rounded text-xs">
+            <div className="flex items-center justify-between px-3 py-2 bg-sky-50 dark:bg-sky-500/10 border border-sky-200 dark:border-sky-500/30 text-sky-800 dark:text-sky-300 rounded text-xs">
               <div className="flex items-center gap-1.5 font-medium">
-                <PlusCircle className="w-3.5 h-3.5 text-sky-600" />
+                <PlusCircle className="w-3.5 h-3.5 text-sky-600 dark:text-sky-400" />
                 <span>{templateNotification}</span>
               </div>
               <button
                 type="button"
                 onClick={() => setTemplateNotification(null)}
-                className="text-sky-500 hover:text-sky-700 font-bold"
+                className="text-sky-500 hover:text-sky-700 dark:hover:text-sky-300 font-bold"
               >
                 ✕
               </button>
             </div>
           )}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-slate-50 p-3 rounded border border-slate-200 text-xs">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-canvas p-3 rounded border border-line text-xs">
             <div>
-              <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+              <label className="block text-[11px] font-semibold text-ink-muted mb-1">
                 Office / Branch *
               </label>
               <select
-                value={formOfficeId}
-                onChange={(e) => setFormOfficeId(e.target.value)}
-                className="w-full border border-slate-300 rounded px-2 py-1.5 bg-white text-xs"
+                value={activeFormOfficeId}
+                onChange={(e) => {
+                  setFormOfficeId(e.target.value);
+                  setFormWarehouseId(allWarehouses?.find((w) => w.officeId === e.target.value)?.id ?? "");
+                }}
+                className="w-full border border-line-strong rounded px-2 py-1.5 bg-surface text-xs"
                 required
               >
                 {offices?.map((o) => (
@@ -1259,16 +1562,24 @@ export default function PurchaseRequisitionsPage() {
             </div>
 
             <div>
-              <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+              <label className="block text-[11px] font-semibold text-ink-muted mb-1">
                 Authorized Delivery Warehouse *
               </label>
               <select
-                value={formWarehouseId}
+                value={activeFormWarehouseId}
                 onChange={(e) => setFormWarehouseId(e.target.value)}
-                className="w-full border border-slate-300 rounded px-2 py-1.5 bg-white text-xs"
+                disabled={!activeFormOfficeId}
+                className="w-full border border-line-strong rounded px-2 py-1.5 bg-surface text-xs disabled:bg-control disabled:text-ink-faint disabled:cursor-not-allowed"
                 required
               >
-                {warehouses?.map((w) => (
+                <option value="">
+                  {!activeFormOfficeId
+                    ? "Select Office first"
+                    : allWarehouses?.filter((w) => w.officeId === activeFormOfficeId).length === 0
+                      ? "No warehouse for this office"
+                      : "Select warehouse"}
+                </option>
+                {allWarehouses?.filter((w) => w.officeId === activeFormOfficeId).map((w) => (
                   <option key={w.id} value={w.id}>
                     {w.name}
                   </option>
@@ -1277,52 +1588,52 @@ export default function PurchaseRequisitionsPage() {
             </div>
 
             <div>
-              <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+              <label className="block text-[11px] font-semibold text-ink-muted mb-1">
                 Required Delivery Date *
               </label>
-              <input
+              <NativeDateInput
                 type="date"
                 value={formDeliveryDate}
                 onChange={(e) => setFormDeliveryDate(e.target.value)}
-                className="w-full border border-slate-300 rounded px-2 py-1.5 bg-white text-xs"
+                className="w-full border border-line-strong rounded px-2 py-1.5 bg-surface text-xs"
                 required
               />
             </div>
 
             <div>
-              <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+              <label className="block text-[11px] font-semibold text-ink-muted mb-1">
                 Requesting Department *
               </label>
               <input
                 type="text"
                 value={formDepartment}
                 onChange={(e) => setFormDepartment(e.target.value)}
-                className="w-full border border-slate-300 rounded px-2 py-1.5 bg-white text-xs"
+                className="w-full border border-line-strong rounded px-2 py-1.5 bg-surface text-xs"
                 required
               />
             </div>
 
             <div>
-              <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+              <label className="block text-[11px] font-semibold text-ink-muted mb-1">
                 Requester Name *
               </label>
               <input
                 type="text"
                 value={formRequester}
                 onChange={(e) => setFormRequester(e.target.value)}
-                className="w-full border border-slate-300 rounded px-2 py-1.5 bg-white text-xs"
+                className="w-full border border-line-strong rounded px-2 py-1.5 bg-surface text-xs"
                 required
               />
             </div>
 
             <div>
-              <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+              <label className="block text-[11px] font-semibold text-ink-muted mb-1">
                 Purchase Method
               </label>
               <select
                 value={formPurchaseMethod}
                 onChange={(e) => setFormPurchaseMethod(e.target.value as any)}
-                className="w-full border border-slate-300 rounded px-2 py-1.5 bg-white text-xs"
+                className="w-full border border-line-strong rounded px-2 py-1.5 bg-surface text-xs"
               >
                 <option value="DIRECT">Direct Purchase</option>
                 <option value="QUOTATION">Quotation / RFP</option>
@@ -1332,14 +1643,14 @@ export default function PurchaseRequisitionsPage() {
             </div>
 
             <div className="sm:col-span-3">
-              <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+              <label className="block text-[11px] font-semibold text-ink-muted mb-1">
                 Business Justification *
               </label>
               <textarea
                 value={formJustification}
                 onChange={(e) => setFormJustification(e.target.value)}
                 rows={2}
-                className="w-full border border-slate-300 rounded p-2 text-xs bg-white"
+                className="w-full border border-line-strong rounded p-2 text-xs bg-surface"
                 placeholder="Explain why this purchase is needed..."
                 required
               />
@@ -1349,22 +1660,22 @@ export default function PurchaseRequisitionsPage() {
           {/* Requested Items Table */}
           <div>
             <div className="flex items-center justify-between mb-2">
-              <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wide">
+              <h4 className="text-xs font-bold text-ink uppercase tracking-wide">
                 Requested Line Items
               </h4>
               <button
                 type="button"
                 onClick={handleAddItem}
-                className="flex items-center gap-1 text-xs text-sky-600 font-semibold hover:underline"
+                className="flex items-center gap-1 text-xs text-sky-600 dark:text-sky-400 font-semibold hover:underline"
               >
                 <Plus className="w-3.5 h-3.5" />
                 <span>Add Item</span>
               </button>
             </div>
 
-            <div className="border border-slate-200 rounded overflow-hidden">
+            <div className="border border-line rounded overflow-hidden">
               <table className="w-full text-left text-xs">
-                <thead className="bg-slate-100 text-slate-600 font-semibold text-[11px]">
+                <thead className="bg-control text-ink-muted font-semibold text-[11px]">
                   <tr>
                     <th className="p-2">Item</th>
                     <th className="p-2 w-20">UOM</th>
@@ -1374,14 +1685,14 @@ export default function PurchaseRequisitionsPage() {
                     <th className="p-2 w-10 text-center"></th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100">
+                <tbody className="divide-y divide-line">
                   {formLineItems.map((item, idx) => (
-                    <tr key={idx} className="hover:bg-slate-50">
+                    <tr key={idx} className="hover:bg-canvas">
                       <td className="p-2">
                         <select
                           value={item.itemId}
                           onChange={(e) => handleItemChange(idx, e.target.value)}
-                          className="w-full border border-slate-200 rounded p-1 text-xs"
+                          className="w-full border border-line rounded p-1 text-xs"
                         >
                           {itemsCatalog?.map((it) => (
                             <option key={it.id} value={it.id}>
@@ -1390,14 +1701,14 @@ export default function PurchaseRequisitionsPage() {
                           ))}
                         </select>
                       </td>
-                      <td className="p-2 text-slate-500 font-mono text-[11px]">{item.uom}</td>
+                      <td className="p-2 text-ink-faint font-mono text-[11px]">{item.uom}</td>
                       <td className="p-2">
                         <input
                           type="number"
                           min={1}
                           value={item.quantity}
                           onChange={(e) => handleQtyChange(idx, Number(e.target.value))}
-                          className="w-full border border-slate-200 rounded p-1 text-xs text-center font-mono"
+                          className="w-full border border-line rounded p-1 text-xs text-center font-mono"
                           required
                         />
                       </td>
@@ -1407,18 +1718,18 @@ export default function PurchaseRequisitionsPage() {
                           min={0}
                           value={item.estimatedUnitPrice}
                           onChange={(e) => handlePriceChange(idx, Number(e.target.value))}
-                          className="w-full border border-slate-200 rounded p-1 text-xs text-right font-mono"
+                          className="w-full border border-line rounded p-1 text-xs text-right font-mono"
                           required
                         />
                       </td>
-                      <td className="p-2 text-right font-mono font-bold text-slate-900">
+                      <td className="p-2 text-right font-mono font-bold text-ink">
                         {formatCurrency(item.lineTotal)}
                       </td>
                       <td className="p-2 text-center">
                         <button
                           type="button"
                           onClick={() => handleRemoveItem(idx)}
-                          className="text-slate-400 hover:text-rose-600 transition"
+                          className="text-ink-faint hover:text-rose-600 dark:hover:text-rose-400 transition"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
@@ -1426,12 +1737,12 @@ export default function PurchaseRequisitionsPage() {
                     </tr>
                   ))}
                 </tbody>
-                <tfoot className="bg-slate-50 font-bold border-t border-slate-200">
+                <tfoot className="bg-canvas font-bold border-t border-line">
                   <tr>
-                    <td colSpan={4} className="p-2 text-right text-slate-700">
+                    <td colSpan={4} className="p-2 text-right text-ink-muted">
                       Total Estimated Budget:
                     </td>
-                    <td className="p-2 text-right font-mono text-sm text-sky-700">
+                    <td className="p-2 text-right font-mono text-sm text-sky-700 dark:text-sky-300">
                       {formatCurrency(
                         formLineItems.reduce((acc, it) => acc + (it.lineTotal || 0), 0)
                       )}
@@ -1444,11 +1755,11 @@ export default function PurchaseRequisitionsPage() {
           </div>
 
           {/* Action buttons */}
-          <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-200">
+          <div className="flex items-center justify-end gap-2 pt-3 border-t border-line">
             <button
               type="button"
               onClick={() => setIsCreateOpen(false)}
-              className="px-3 py-1.5 border border-slate-200 rounded text-xs text-slate-600 hover:bg-slate-100"
+              className="px-3 py-1.5 border border-line rounded text-xs text-ink-muted hover:bg-control"
             >
               Cancel
             </button>
@@ -1467,91 +1778,445 @@ export default function PurchaseRequisitionsPage() {
       <ModalDialog
         isOpen={!!viewReq}
         onClose={() => setViewReq(null)}
-        title={`Requisition Details: ${viewReq?.requisitionNumber}`}
-        subtitle={`Requested by ${viewReq?.requesterName} on ${viewReq?.requestDate}`}
+        title="View Requisition"
+        maxWidth="4xl"
+      >
+        {viewReq && (() => {
+          const approveEntry = [...(viewReq.approvalHistory ?? [])].reverse().find((h) => h.action === "APPROVED");
+          const lastReviewComment = [...(viewReq.approvalHistory ?? [])].reverse().find((h) => h.comments)?.comments;
+          const fmtStamp = (iso?: string) => {
+            if (!iso) return "N/A";
+            const d = new Date(iso);
+            if (Number.isNaN(d.getTime())) return iso;
+            const datePart = `${String(d.getDate()).padStart(2, "0")}-${String(d.getMonth() + 1).padStart(2, "0")}-${d.getFullYear()}`;
+            return `${datePart} ${d.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}`;
+          };
+          const fmtNum = (n: number) =>
+            (n || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+          return (
+            <div className="space-y-4 text-xs">
+              {/* 2-Column Header Summary Card */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-1.5 bg-surface p-4 rounded border border-line shadow-2xs">
+                <div className="space-y-1.5">
+                  <div className="grid grid-cols-[130px_10px_1fr] items-center">
+                    <span className="text-ink-muted font-medium">Requisition No</span>
+                    <span className="text-ink-faint">:</span>
+                    <span className="font-semibold text-ink font-mono">{viewReq.requisitionNumber}</span>
+                  </div>
+                  <div className="grid grid-cols-[130px_10px_1fr] items-center">
+                    <span className="text-ink-muted font-medium">Department</span>
+                    <span className="text-ink-faint">:</span>
+                    <span className="text-ink">{viewReq.department || "N/A"}</span>
+                  </div>
+                  <div className="grid grid-cols-[130px_10px_1fr] items-center">
+                    <span className="text-ink-muted font-medium">Buyer Name</span>
+                    <span className="text-ink-faint">:</span>
+                    <span className="text-ink">{viewReq.requesterName || "N/A"}</span>
+                  </div>
+                  <div className="grid grid-cols-[130px_10px_1fr] items-center">
+                    <span className="text-ink-muted font-medium">Buyer Office</span>
+                    <span className="text-ink-faint">:</span>
+                    <span className="text-ink">{officeName(viewReq.officeId) || "N/A"}</span>
+                  </div>
+                  <div className="grid grid-cols-[130px_10px_1fr] items-center">
+                    <span className="text-ink-muted font-medium">Office</span>
+                    <span className="text-ink-faint">:</span>
+                    <span className="text-ink">{officeName(viewReq.officeId) || "N/A"}</span>
+                  </div>
+                  <div className="grid grid-cols-[130px_10px_1fr] items-center">
+                    <span className="text-ink-muted font-medium">Purchase Method</span>
+                    <span className="text-ink-faint">:</span>
+                    <span className="text-ink">{formatMethod(viewReq.purchaseMethod)}</span>
+                  </div>
+                  <div className="grid grid-cols-[130px_10px_1fr] items-center">
+                    <span className="text-ink-muted font-medium">Remarks</span>
+                    <span className="text-ink-faint">:</span>
+                    <span className="text-ink">{viewReq.remarks || viewReq.businessJustification || "N/A"}</span>
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <div className="grid grid-cols-[130px_10px_1fr] items-center">
+                    <span className="text-ink-muted font-medium">Request Date</span>
+                    <span className="text-ink-faint">:</span>
+                    <span className="text-ink font-mono">{formatTableDate(viewReq.requestDate)}</span>
+                  </div>
+                  <div className="grid grid-cols-[130px_10px_1fr] items-center">
+                    <span className="text-ink-muted font-medium">Expected Date</span>
+                    <span className="text-ink-faint">:</span>
+                    <span className="text-ink font-mono">{formatTableDate(viewReq.requiredDeliveryDate)}</span>
+                  </div>
+                  <div className="grid grid-cols-[130px_10px_1fr] items-center">
+                    <span className="text-ink-muted font-medium">Create Date Time</span>
+                    <span className="text-ink-faint">:</span>
+                    <span className="text-ink font-mono">{fmtStamp(viewReq.createdAt)}</span>
+                  </div>
+                  <div className="grid grid-cols-[130px_10px_1fr] items-center">
+                    <span className="text-ink-muted font-medium">Created By</span>
+                    <span className="text-ink-faint">:</span>
+                    <span className="text-ink">{viewReq.createdBy || viewReq.requesterName || "N/A"}</span>
+                  </div>
+                  <div className="grid grid-cols-[130px_10px_1fr] items-center">
+                    <span className="text-ink-muted font-medium">Approve Date Time</span>
+                    <span className="text-ink-faint">:</span>
+                    <span className="text-ink font-mono">{approveEntry ? fmtStamp(approveEntry.timestamp) : "N/A"}</span>
+                  </div>
+                  <div className="grid grid-cols-[130px_10px_1fr] items-center">
+                    <span className="text-ink-muted font-medium">Approved By</span>
+                    <span className="text-ink-faint">:</span>
+                    <span className="text-ink">{approveEntry?.actorName || "N/A"}</span>
+                  </div>
+                  <div className="grid grid-cols-[130px_10px_1fr] items-center">
+                    <span className="text-ink-muted font-medium">Review Comment</span>
+                    <span className="text-ink-faint">:</span>
+                    <span className="text-ink">{lastReviewComment || "N/A"}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Tabs: ITEM LIST | APPROVAL STATUS */}
+              <div className="flex items-center gap-6 border-b border-line">
+                <button
+                  type="button"
+                  onClick={() => setViewReqTab("ITEM_LIST")}
+                  className={`pb-2 text-xs font-bold uppercase tracking-wide transition-colors ${
+                    viewReqTab === "ITEM_LIST"
+                      ? "text-blue-600 dark:text-blue-400 border-b-2 border-blue-600 -mb-[1px]"
+                      : "text-ink-faint hover:text-ink"
+                  }`}
+                >
+                  ITEM LIST
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewReqTab("APPROVAL_STATUS")}
+                  className={`pb-2 text-xs font-bold uppercase tracking-wide transition-colors ${
+                    viewReqTab === "APPROVAL_STATUS"
+                      ? "text-blue-600 dark:text-blue-400 border-b-2 border-blue-600 -mb-[1px]"
+                      : "text-ink-faint hover:text-ink"
+                  }`}
+                >
+                  APPROVAL STATUS
+                </button>
+              </div>
+
+              {viewReqTab === "ITEM_LIST" ? (
+                <div className="space-y-2">
+                  {selectedViewItems.length > 0 && (
+                    <div className="flex items-center justify-end gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const itemsParam = encodeURIComponent(selectedViewItems.join(","));
+                          setViewReq(null);
+                          router.push(`/purchase/orders/create?requisitionId=${viewReq.id}&items=${itemsParam}`);
+                        }}
+                        className="px-3 py-1 text-xs font-medium text-primary border border-primary rounded hover:bg-primary/10 transition-colors"
+                      >
+                        ({selectedViewItems.length}) Add To Purchase Order (Local)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const itemsParam = encodeURIComponent(selectedViewItems.join(","));
+                          setViewReq(null);
+                          router.push(`/purchase/orders/create?requisitionId=${viewReq.id}&type=FOREIGN&items=${itemsParam}`);
+                        }}
+                        className="px-3 py-1 text-xs font-medium text-primary border border-primary rounded hover:bg-primary/10 transition-colors"
+                      >
+                        ({selectedViewItems.length}) Add To Purchase Order (Foreign)
+                      </button>
+                    </div>
+                  )}
+                  <div className="border border-grid-line rounded overflow-x-auto">
+                    <table className="w-full border-collapse text-left text-xs">
+                      <thead>
+                        <tr className="bg-grid-head text-grid-head-ink font-semibold text-[11px] border-b border-grid-head-line">
+                          <th className="px-2.5 py-2 border-r border-grid-head-line w-8 text-center">
+                            <input
+                              type="checkbox"
+                              className="size-3.5 cursor-pointer accent-primary"
+                              aria-label="Select all items"
+                              checked={
+                                viewReq.items.length > 0 &&
+                                viewReq.items.every((it) => selectedViewItems.includes(it.itemId))
+                              }
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setSelectedViewItems(viewReq.items.map((it) => it.itemId));
+                                } else {
+                                  setSelectedViewItems([]);
+                                }
+                              }}
+                            />
+                          </th>
+                          <th className="px-2.5 py-2 border-r border-grid-head-line whitespace-nowrap">Code</th>
+                          <th className="px-2.5 py-2 border-r border-grid-head-line min-w-[160px]">Item</th>
+                          <th className="px-2.5 py-2 border-r border-grid-head-line whitespace-nowrap">UoM</th>
+                          <th className="px-2.5 py-2 border-r border-grid-head-line min-w-[160px]">Description</th>
+                          <th className="px-2.5 py-2 border-r border-grid-head-line text-right whitespace-nowrap">Requested Quantity</th>
+                          <th className="px-2.5 py-2 border-r border-grid-head-line text-right whitespace-nowrap">Rate</th>
+                          <th className="px-2.5 py-2 border-r border-grid-head-line text-right whitespace-nowrap">Total</th>
+                          <th className="px-2.5 py-2 border-r border-grid-head-line text-right whitespace-nowrap">Current Stock</th>
+                          <th className="px-2.5 py-2 text-right whitespace-nowrap">Shortage</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {viewReq.items.map((it, idx) => {
+                          const currentStock = stockOnHandRows
+                            .filter((s) => s.itemId === it.itemId)
+                            .reduce((sum, s) => sum + Number(s.qty || 0), 0);
+                          const shortage = Math.max(0, Number(it.quantity || 0) - currentStock);
+                          const isChecked = selectedViewItems.includes(it.itemId);
+                          return (
+                            <tr key={idx} className="border-b border-grid-line hover:bg-grid-hover">
+                              <td className="px-2.5 py-1.5 border-r border-grid-line text-center">
+                                <input
+                                  type="checkbox"
+                                  className="size-3.5 cursor-pointer accent-primary"
+                                  aria-label={`Select ${it.itemCode}`}
+                                  checked={isChecked}
+                                  onChange={(e) => {
+                                    if (e.target.checked) {
+                                      setSelectedViewItems((prev) =>
+                                        prev.includes(it.itemId) ? prev : [...prev, it.itemId]
+                                      );
+                                    } else {
+                                      setSelectedViewItems((prev) => prev.filter((id) => id !== it.itemId));
+                                    }
+                                  }}
+                                />
+                              </td>
+                              <td className="px-2.5 py-1.5 border-r border-grid-line font-mono text-ink-muted whitespace-nowrap">
+                                {it.itemCode}
+                              </td>
+                              <td className="px-2.5 py-1.5 border-r border-grid-line font-medium text-ink">{it.itemName}</td>
+                              <td className="px-2.5 py-1.5 border-r border-grid-line text-ink-muted whitespace-nowrap">{it.uom}</td>
+                              <td className="px-2.5 py-1.5 border-r border-grid-line text-ink-muted">{it.remarks || ""}</td>
+                              <td className="px-2.5 py-1.5 border-r border-grid-line text-right font-mono">{fmtNum(it.quantity)}</td>
+                              <td className="px-2.5 py-1.5 border-r border-grid-line text-right font-mono">
+                                <span className="inline-flex items-center justify-end gap-1">
+                                  <span>{fmtNum(it.estimatedUnitPrice)}</span>
+                                  <Info className="w-3.5 h-3.5 text-ink-muted" />
+                                </span>
+                              </td>
+                              <td className="px-2.5 py-1.5 border-r border-grid-line text-right font-mono">{fmtNum(it.lineTotal)}</td>
+                              <td className="px-2.5 py-1.5 border-r border-grid-line text-right font-mono">
+                                <span className="inline-flex items-center justify-end gap-1">
+                                  <span>{fmtNum(currentStock)}</span>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setStockModalItem({
+                                        itemId: it.itemId,
+                                        itemCode: it.itemCode,
+                                        itemName: it.itemName,
+                                        uom: it.uom,
+                                      })
+                                    }
+                                    className="text-ink-muted hover:text-primary transition-colors"
+                                    title="View Warehouse Stock"
+                                    aria-label={`View warehouse stock for ${it.itemCode}`}
+                                  >
+                                    <Info className="w-3.5 h-3.5" />
+                                  </button>
+                                </span>
+                              </td>
+                              <td className="px-2.5 py-1.5 text-right font-mono">{fmtNum(shortage)}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                      <tfoot>
+                        <tr className="bg-surface font-semibold">
+                          <td colSpan={7} className="px-2.5 py-2 text-right border-r border-grid-line text-ink">
+                            Budget
+                          </td>
+                          <td className="px-2.5 py-2 text-right font-mono border-r border-grid-line text-ink">
+                            {fmtNum(viewReq.totalEstimatedAmount)}
+                          </td>
+                          <td colSpan={2} className="px-2.5 py-2" />
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+                </div>
+              ) : (
+                <div className="border border-grid-line rounded overflow-hidden">
+                  <table className="w-full border-collapse text-left text-xs">
+                    <thead>
+                      <tr className="bg-grid-head text-grid-head-ink font-semibold text-[11px] border-b border-grid-head-line">
+                        <th className="px-3 py-2 border-r border-grid-head-line w-10 text-center">SL</th>
+                        <th className="px-3 py-2 border-r border-grid-head-line">Stage Name</th>
+                        <th className="px-3 py-2 border-r border-grid-head-line">Approver Name</th>
+                        <th className="px-3 py-2 border-r border-grid-head-line">Order Type</th>
+                        <th className="px-3 py-2 border-r border-grid-head-line">Status</th>
+                        <th className="px-3 py-2 border-r border-grid-head-line">Comment</th>
+                        <th className="px-3 py-2">Time</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {viewReq.approvalHistory.length === 0 ? (
+                        <tr>
+                          <td colSpan={7} className="px-3 py-6 text-center text-ink-muted">
+                            No approval history recorded yet.
+                          </td>
+                        </tr>
+                      ) : (
+                        viewReq.approvalHistory.map((h, i) => {
+                          const upperAction = h.action.toUpperCase();
+                          const statusText = upperAction.includes("REJECT")
+                            ? "Rejected"
+                            : upperAction.includes("APPROVE")
+                              ? "Approved"
+                              : "Pending";
+                          const statusColor =
+                            statusText === "Approved"
+                              ? "text-emerald-600 dark:text-emerald-400 font-medium"
+                              : statusText === "Rejected"
+                                ? "text-rose-600 dark:text-rose-400 font-medium"
+                                : "text-amber-600 dark:text-amber-400 font-medium";
+                          return (
+                            <tr key={i} className="border-b border-grid-line">
+                              <td className="px-3 py-2 border-r border-grid-line text-center">{i + 1}</td>
+                              <td className="px-3 py-2 border-r border-grid-line text-ink">Purchase Requisition</td>
+                              <td className="px-3 py-2 border-r border-grid-line text-ink">{h.actorName}</td>
+                              <td className="px-3 py-2 border-r border-grid-line text-ink-muted">Any_Person</td>
+                              <td className={`px-3 py-2 border-r border-grid-line ${statusColor}`}>{statusText}</td>
+                              <td className="px-3 py-2 border-r border-grid-line text-ink-muted">{h.comments || "N/A"}</td>
+                              <td className="px-3 py-2 font-mono text-ink-muted">
+                                {statusText === "Pending" ? "N/A" : fmtStamp(h.timestamp)}
+                              </td>
+                            </tr>
+                          );
+                        })
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {viewReq.referenceDocument && (
+                <p className="text-ink-muted">
+                  Purchase order: <span className="font-mono font-semibold text-sky-700 dark:text-sky-300">{viewReq.referenceDocument}</span>
+                </p>
+              )}
+
+              <div className="flex flex-wrap justify-end gap-2 pt-2 print:hidden">
+                <button
+                  type="button"
+                  onClick={() => setViewReq(null)}
+                  className="h-8 px-4 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded font-bold uppercase text-xs"
+                >
+                  CLOSE
+                </button>
+              </div>
+            </div>
+          );
+        })()}
+      </ModalDialog>
+
+      {/* VIEW WAREHOUSE STOCK MODAL */}
+      <ModalDialog
+        isOpen={!!stockModalItem}
+        onClose={() => setStockModalItem(null)}
+        title="View Warehouse Stock"
         maxWidth="2xl"
       >
-        {viewReq && (
-          <div className="space-y-4 text-xs">
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 bg-slate-50 p-3 rounded border border-slate-200">
-              <div>
-                <span className="text-slate-400 text-[11px] block">Status</span>
-                <StatusBadge status={viewReq.status} />
-              </div>
-              <div>
-                <span className="text-slate-400 text-[11px] block">Department</span>
-                <span className="font-semibold text-slate-800">{viewReq.department}</span>
-              </div>
-              <div>
-                <span className="text-slate-400 text-[11px] block">Delivery Due</span>
-                <span className="font-semibold text-slate-800">{viewReq.requiredDeliveryDate}</span>
-              </div>
-              <div>
-                <span className="text-slate-400 text-[11px] block">Total Amount</span>
-                <span className="font-bold text-sky-700 font-mono">
-                  {formatCurrency(viewReq.totalEstimatedAmount)}
-                </span>
-              </div>
-              <div className="col-span-2">
-                <span className="text-slate-400 text-[11px] block">Business Justification</span>
-                <span className="text-slate-700">{viewReq.businessJustification}</span>
-              </div>
-            </div>
+        {stockModalItem && viewReq && (() => {
+          const itemStocks = (stockOnHandRows ?? []).filter((s) => s.itemId === stockModalItem.itemId);
+          const fromRows = itemStocks
+            .map((s) => {
+              const wh = allWarehouses?.find((w) => w.id === s.warehouseId);
+              return { officeId: wh?.officeId ?? "", officeName: officeName(wh?.officeId ?? ""), warehouseName: wh?.name ?? "Warehouse", qty: s.qty };
+            })
+            .filter((r) => r.officeId === viewReq.officeId);
+          const toRows = itemStocks
+            .map((s) => {
+              const wh = allWarehouses?.find((w) => w.id === s.warehouseId);
+              return { officeId: wh?.officeId ?? "", officeName: officeName(wh?.officeId ?? ""), warehouseName: wh?.name ?? "Warehouse", qty: s.qty };
+            })
+            .filter((r) => r.officeId !== viewReq.officeId);
 
-            {/* Line items list */}
-            <div>
-              <h4 className="font-bold text-slate-800 uppercase text-[11px] mb-2">Item Specifications</h4>
-              <div className="border border-slate-200 rounded overflow-hidden">
-                <table className="w-full text-left text-xs">
-                  <thead className="bg-slate-100 text-slate-600 font-semibold">
-                    <tr>
-                      <th className="p-2">Code</th>
-                      <th className="p-2">Item Name</th>
-                      <th className="p-2 text-center">Qty</th>
-                      <th className="p-2 text-right">Unit Price</th>
-                      <th className="p-2 text-right">Line Total</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {viewReq.items.map((it, idx) => (
-                      <tr key={idx}>
-                        <td className="p-2 font-mono text-slate-500">{it.itemCode}</td>
-                        <td className="p-2 font-medium text-slate-800">{it.itemName}</td>
-                        <td className="p-2 text-center font-mono">
-                          {it.quantity} {it.uom}
-                        </td>
-                        <td className="p-2 text-right font-mono">{formatCurrency(it.estimatedUnitPrice)}</td>
-                        <td className="p-2 text-right font-mono font-bold text-slate-900">
-                          {formatCurrency(it.lineTotal)}
-                        </td>
+          return (
+            <div className="space-y-4 text-xs">
+              <div>
+                <h4 className="text-sm font-medium text-ink mb-2">From Office</h4>
+                <div className="border border-grid-line rounded overflow-hidden">
+                  <table className="w-full border-collapse text-left text-xs">
+                    <thead>
+                      <tr className="bg-grid-head text-grid-head-ink font-semibold text-[11px] border-b border-grid-head-line">
+                        <th className="px-3 py-2 border-r border-grid-head-line w-12">SL</th>
+                        <th className="px-3 py-2 border-r border-grid-head-line">Office Name</th>
+                        <th className="px-3 py-2 border-r border-grid-head-line">Warehouse</th>
+                        <th className="px-3 py-2 text-right">Quantity</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {fromRows.length === 0 ? (
+                        <tr>
+                          <td colSpan={4} className="px-3 py-3 text-center text-ink-muted">No stock in this office.</td>
+                        </tr>
+                      ) : (
+                        fromRows.map((r, idx) => (
+                          <tr key={idx} className="border-b border-grid-line">
+                            <td className="px-3 py-1.5 border-r border-grid-line">{idx + 1}</td>
+                            <td className="px-3 py-1.5 border-r border-grid-line">{r.officeName}</td>
+                            <td className="px-3 py-1.5 border-r border-grid-line">{r.warehouseName}</td>
+                            <td className="px-3 py-1.5 text-right font-mono">{r.qty}</td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
               </div>
-            </div>
 
-            {/* Audit & Approval Timeline */}
-            <div>
-              <div className="flex items-center gap-1.5 font-bold text-slate-800 uppercase text-[11px] mb-2">
-                <History className="w-3.5 h-3.5 text-slate-500" />
-                <span>Approval Audit History</span>
+              <div>
+                <h4 className="text-sm font-medium text-ink mb-2">To Office</h4>
+                <div className="border border-grid-line rounded overflow-hidden">
+                  <table className="w-full border-collapse text-left text-xs">
+                    <thead>
+                      <tr className="bg-grid-head text-grid-head-ink font-semibold text-[11px] border-b border-grid-head-line">
+                        <th className="px-3 py-2 border-r border-grid-head-line w-12">SL</th>
+                        <th className="px-3 py-2 border-r border-grid-head-line">Office Name</th>
+                        <th className="px-3 py-2 border-r border-grid-head-line">Warehouse</th>
+                        <th className="px-3 py-2 text-right">Quantity</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {toRows.length === 0 ? (
+                        <tr>
+                          <td colSpan={4} className="px-3 py-3 text-center text-ink-muted">No stock in other offices.</td>
+                        </tr>
+                      ) : (
+                        toRows.map((r, idx) => (
+                          <tr key={idx} className="border-b border-grid-line">
+                            <td className="px-3 py-1.5 border-r border-grid-line">{idx + 1}</td>
+                            <td className="px-3 py-1.5 border-r border-grid-line">{r.officeName}</td>
+                            <td className="px-3 py-1.5 border-r border-grid-line">{r.warehouseName}</td>
+                            <td className="px-3 py-1.5 text-right font-mono">{r.qty}</td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
               </div>
-              <div className="space-y-2 border-l-2 border-slate-200 pl-3 ml-2">
-                {viewReq.approvalHistory.map((h, i) => (
-                  <div key={i} className="text-xs">
-                    <div className="flex items-center gap-2">
-                      <span className="font-semibold text-slate-800">{h.action}</span>
-                      <span className="text-[10px] text-slate-400">by {h.actorName}</span>
-                      <span className="text-[10px] text-slate-400">({new Date(h.timestamp).toLocaleDateString()})</span>
-                    </div>
-                    {h.comments && <p className="text-slate-600 italic mt-0.5">{h.comments}</p>}
-                  </div>
-                ))}
+
+              <div className="flex justify-end pt-1">
+                <button
+                  type="button"
+                  onClick={() => setStockModalItem(null)}
+                  className="h-8 px-4 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded font-bold uppercase text-xs"
+                >
+                  CLOSE
+                </button>
               </div>
             </div>
-          </div>
-        )}
+          );
+        })()}
       </ModalDialog>
 
       {/* APPROVAL ACTION MODAL */}
@@ -1563,21 +2228,21 @@ export default function PurchaseRequisitionsPage() {
         maxWidth="md"
       >
         <div className="space-y-3 text-xs">
-          <p className="text-slate-600">
+          <p className="text-ink-muted">
             Are you sure you want to <strong>{approvalModal?.action}</strong> requisition{" "}
             <strong>{approvalModal?.req.requisitionNumber}</strong> for amount{" "}
             <strong>{formatCurrency(approvalModal?.req.totalEstimatedAmount ?? 0)}</strong>?
           </p>
 
           <div>
-            <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+            <label className="block text-[11px] font-semibold text-ink-muted mb-1">
               Comments / Reason
             </label>
             <textarea
               value={approvalComment}
               onChange={(e) => setApprovalComment(e.target.value)}
               rows={2}
-              className="w-full border border-slate-300 rounded p-2 text-xs"
+              className="w-full border border-line-strong rounded p-2 text-xs"
               placeholder="Enter approval or rejection comments..."
             />
           </div>
@@ -1586,7 +2251,7 @@ export default function PurchaseRequisitionsPage() {
             <button
               type="button"
               onClick={() => setApprovalModal(null)}
-              className="px-3 py-1.5 border border-slate-200 rounded text-slate-600"
+              className="px-3 py-1.5 border border-line rounded text-ink-muted"
             >
               Cancel
             </button>
@@ -1595,273 +2260,26 @@ export default function PurchaseRequisitionsPage() {
               disabled={approvalMutation.isPending}
               onClick={() => {
                 if (!approvalModal) return;
+                if (approvalModal.action === "REJECT" && !approvalComment.trim()) {
+                  toast.error("Give a reason for rejecting the requisition.", { title: "Reason Required" });
+                  return;
+                }
                 approvalMutation.mutate({
                   id: approvalModal.req.id,
                   action: approvalModal.action,
                   comments: approvalComment,
                 });
               }}
-              className={`px-4 py-1.5 rounded text-white font-semibold ${
-                approvalModal?.action === "APPROVE"
-                  ? "bg-emerald-600 hover:bg-emerald-700"
-                  : "bg-rose-600 hover:bg-rose-700"
-              }`}
+              className={`px-4 py-1.5 rounded text-white font-semibold inline-flex items-center gap-1.5 disabled:opacity-60 ${approvalModal?.action === "APPROVE"
+                ? "bg-emerald-600 hover:bg-emerald-700"
+                : "bg-rose-600 hover:bg-rose-700"
+                }`}
             >
+              {approvalMutation.isPending && <Spinner className="size-3.5" />}
               Confirm {approvalModal?.action}
             </button>
           </div>
         </div>
-      </ModalDialog>
-
-      {/* EDIT REQUISITION MODAL */}
-      <ModalDialog
-        isOpen={!!editReq}
-        onClose={() => setEditReq(null)}
-        title={`Edit Purchase Requisition: ${editReq?.requisitionNumber}`}
-        subtitle="Modify requisition details, delivery requirements, or line item quantities"
-        maxWidth="4xl"
-      >
-        {editReq && (
-          <form onSubmit={handleSaveEdit} className="space-y-4">
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-slate-50 p-3 rounded border border-slate-200 text-xs">
-              <div>
-                <label className="block text-[11px] font-semibold text-slate-600 mb-1">
-                  Office / Branch *
-                </label>
-                <select
-                  value={editOfficeId}
-                  onChange={(e) => setEditOfficeId(e.target.value)}
-                  className="w-full border border-slate-300 rounded px-2 py-1.5 bg-white text-xs"
-                  required
-                >
-                  {offices?.map((o) => (
-                    <option key={o.id} value={o.id}>
-                      {o.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-semibold text-slate-600 mb-1">
-                  Delivery Warehouse *
-                </label>
-                <select
-                  value={editWarehouseId}
-                  onChange={(e) => setEditWarehouseId(e.target.value)}
-                  className="w-full border border-slate-300 rounded px-2 py-1.5 bg-white text-xs"
-                  required
-                >
-                  {warehouses?.map((w) => (
-                    <option key={w.id} value={w.id}>
-                      {w.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-semibold text-slate-600 mb-1">
-                  Request Priority *
-                </label>
-                <select
-                  value={editRequestType}
-                  onChange={(e) => setEditRequestType(e.target.value as any)}
-                  className="w-full border border-slate-300 rounded px-2 py-1.5 bg-white text-xs"
-                >
-                  <option value="LOCAL">Local Purchase</option>
-                  <option value="IMPORT">Import LC</option>
-                  <option value="URGENT">Urgent Production</option>
-                  <option value="INTER_BRANCH">Inter-Branch</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-semibold text-slate-600 mb-1">
-                  Department *
-                </label>
-                <input
-                  type="text"
-                  value={editDepartment}
-                  onChange={(e) => setEditDepartment(e.target.value)}
-                  className="w-full border border-slate-300 rounded px-2 py-1.5 bg-white text-xs"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-semibold text-slate-600 mb-1">
-                  Buyer / Requester *
-                </label>
-                <input
-                  type="text"
-                  value={editRequester}
-                  onChange={(e) => setEditRequester(e.target.value)}
-                  className="w-full border border-slate-300 rounded px-2 py-1.5 bg-white text-xs"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-semibold text-slate-600 mb-1">
-                  Required Delivery Date *
-                </label>
-                <input
-                  type="date"
-                  value={editDeliveryDate}
-                  onChange={(e) => setEditDeliveryDate(e.target.value)}
-                  className="w-full border border-slate-300 rounded px-2 py-1.5 bg-white text-xs"
-                  required
-                />
-              </div>
-            </div>
-
-            {/* Edit Line Items */}
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-slate-700 uppercase">
-                  Requisition Items ({editLineItems.length})
-                </span>
-                <button
-                  type="button"
-                  onClick={handleEditAddItem}
-                  className="inline-flex items-center gap-1 text-xs px-2.5 py-1 bg-sky-50 text-sky-700 hover:bg-sky-100 rounded border border-sky-200 font-medium"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>Add Line Item</span>
-                </button>
-              </div>
-
-              <div className="border border-slate-200 rounded overflow-hidden">
-                <table className="w-full text-left text-xs">
-                  <thead className="bg-slate-100 text-slate-700 font-semibold">
-                    <tr>
-                      <th className="p-2 w-10">SL</th>
-                      <th className="p-2">Item Selection</th>
-                      <th className="p-2 w-20 text-center">UOM</th>
-                      <th className="p-2 w-24 text-right">Qty</th>
-                      <th className="p-2 w-28 text-right">Est. Unit Price</th>
-                      <th className="p-2 w-32 text-right">Line Total</th>
-                      <th className="p-2 w-12 text-center">Action</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {editLineItems.map((item, index) => (
-                      <tr key={index} className="hover:bg-slate-50/50">
-                        <td className="p-2 text-slate-400 font-mono">{index + 1}</td>
-                        <td className="p-2">
-                          <select
-                            value={item.itemId}
-                            onChange={(e) => handleEditItemChange(index, e.target.value)}
-                            className="w-full border border-slate-300 rounded px-2 py-1 bg-white text-xs"
-                          >
-                            {itemsCatalog?.map((it) => (
-                              <option key={it.id} value={it.id}>
-                                [{it.code}] {it.name}
-                              </option>
-                            ))}
-                          </select>
-                        </td>
-                        <td className="p-2 text-center text-slate-500 font-mono">{item.uom}</td>
-                        <td className="p-2">
-                          <input
-                            type="number"
-                            min="1"
-                            value={item.quantity}
-                            onChange={(e) =>
-                              handleEditQtyChange(index, Math.max(1, Number(e.target.value) || 1))
-                            }
-                            className="w-full text-right border border-slate-300 rounded px-2 py-1 text-xs"
-                          />
-                        </td>
-                        <td className="p-2">
-                          <input
-                            type="number"
-                            min="0"
-                            step="0.01"
-                            value={item.estimatedUnitPrice}
-                            onChange={(e) =>
-                              handleEditPriceChange(index, Math.max(0, Number(e.target.value) || 0))
-                            }
-                            className="w-full text-right border border-slate-300 rounded px-2 py-1 text-xs"
-                          />
-                        </td>
-                        <td className="p-2 text-right font-mono font-semibold text-slate-800">
-                          {formatCurrency(item.lineTotal)}
-                        </td>
-                        <td className="p-2 text-center">
-                          <button
-                            type="button"
-                            onClick={() => handleEditRemoveItem(index)}
-                            disabled={editLineItems.length === 1}
-                            className="text-slate-400 hover:text-rose-600 disabled:opacity-30"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                  <tfoot className="bg-slate-50 font-semibold border-t border-slate-200">
-                    <tr>
-                      <td colSpan={5} className="p-2 text-right text-slate-600">
-                        Total Estimated Amount:
-                      </td>
-                      <td className="p-2 text-right font-mono text-sky-700 text-sm">
-                        {formatCurrency(
-                          editLineItems.reduce((acc, curr) => acc + (curr.lineTotal || 0), 0)
-                        )}
-                      </td>
-                      <td></td>
-                    </tr>
-                  </tfoot>
-                </table>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-              <div>
-                <label className="block text-[11px] font-semibold text-slate-600 mb-1">
-                  Business Justification
-                </label>
-                <textarea
-                  value={editJustification}
-                  onChange={(e) => setEditJustification(e.target.value)}
-                  rows={2}
-                  className="w-full border border-slate-300 rounded p-2 text-xs"
-                />
-              </div>
-              <div>
-                <label className="block text-[11px] font-semibold text-slate-600 mb-1">
-                  Remarks / Special Instructions
-                </label>
-                <textarea
-                  value={editRemarks}
-                  onChange={(e) => setEditRemarks(e.target.value)}
-                  rows={2}
-                  className="w-full border border-slate-300 rounded p-2 text-xs"
-                />
-              </div>
-            </div>
-
-            <div className="flex justify-end gap-2 pt-2 border-t border-slate-200">
-              <button
-                type="button"
-                onClick={() => setEditReq(null)}
-                className="px-3 py-1.5 border border-slate-200 rounded text-slate-600 hover:bg-slate-50 text-xs"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={editMutation.isPending}
-                className="px-4 py-1.5 bg-sky-600 hover:bg-sky-700 text-white rounded font-semibold text-xs"
-              >
-                {editMutation.isPending ? "Saving..." : "Save Changes"}
-              </button>
-            </div>
-          </form>
-        )}
       </ModalDialog>
 
       {/* PRINT REQUISITION VOUCHER MODAL */}
@@ -1872,294 +2290,106 @@ export default function PurchaseRequisitionsPage() {
         subtitle="Official Purchase Requisition Document for Physical Archival & Multi-level Signatures"
         maxWidth="4xl"
       >
-        {printReq && (
-          <div className="space-y-4 text-xs">
-            {/* Printable Document Sheet */}
-            <div className="bg-white p-6 border border-slate-200 rounded shadow-sm text-slate-800 space-y-4 print:p-0 print:border-none">
-              {/* Organization Header */}
-              <div className="flex justify-between items-start border-b border-slate-200 pb-3">
-                <div className="flex items-center gap-3.5">
-                  <Image
-                    src="/logo.png"
-                    width={8452}
-                    height={1738}
-                    alt="BridgeOne Logo"
-                    className="h-10 w-auto object-contain"
-                  />
-                  <div>
-                    <h2 className="text-base font-bold text-slate-900 tracking-wide uppercase">
-                      BridgeOne Technologies Ltd.
-                    </h2>
-                    <p className="text-[11px] text-slate-500">
-                      Plot 18, Road 11, Gulshan-2, Dhaka-1212, Bangladesh
-                    </p>
-                    <p className="text-[11px] text-slate-500">
-                      Phone: +880 2 988-1234 | Web: erp.bridgeone.com
-                    </p>
-                  </div>
-                </div>
-                <div className="text-right">
-                  <div className="inline-block px-2.5 py-1 bg-slate-100 rounded text-[11px] font-bold text-slate-700 border border-slate-300">
-                    PURCHASE REQUISITION
-                  </div>
-                  <p className="text-xs font-mono font-bold text-sky-800 mt-1">
-                    {printReq.requisitionNumber}
-                  </p>
-                  <p className="text-[10px] text-slate-500">Date: {printReq.requestDate}</p>
-                </div>
-              </div>
-
-              {/* Metadata Grid */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 bg-slate-50/80 p-3 rounded border border-slate-200 text-[11px]">
-                <div>
-                  <span className="text-slate-400 block text-[10px]">Department:</span>
-                  <span className="font-semibold text-slate-800">{printReq.department}</span>
-                </div>
-                <div>
-                  <span className="text-slate-400 block text-[10px]">Requester / Buyer:</span>
-                  <span className="font-semibold text-slate-800">{printReq.requesterName}</span>
-                </div>
-                <div>
-                  <span className="text-slate-400 block text-[10px]">Delivery Office:</span>
-                  <span className="font-semibold text-slate-800">
-                    {offices?.find((o) => o.id === printReq.officeId)?.name || printReq.officeId}
-                  </span>
-                </div>
-                <div>
-                  <span className="text-slate-400 block text-[10px]">Required Delivery:</span>
-                  <span className="font-semibold text-slate-800 font-mono">
-                    {printReq.requiredDeliveryDate || "Immediate"}
-                  </span>
-                </div>
-              </div>
-
-              {/* Line Items Table */}
-              <div className="border border-slate-200 rounded overflow-hidden">
-                <table className="w-full text-left text-xs">
-                  <thead className="bg-slate-100 text-slate-700 font-semibold border-b border-slate-200">
-                    <tr>
-                      <th className="p-2 w-10 text-center">SL</th>
-                      <th className="p-2 w-28">Item Code</th>
-                      <th className="p-2">Description / Specifications</th>
-                      <th className="p-2 w-20 text-center">UOM</th>
-                      <th className="p-2 w-20 text-right">Quantity</th>
-                      <th className="p-2 w-28 text-right">Est. Unit Price</th>
-                      <th className="p-2 w-32 text-right">Total (BDT)</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {printReq.items.map((it, idx) => (
-                      <tr key={idx}>
-                        <td className="p-2 text-center text-slate-400 font-mono">{idx + 1}</td>
-                        <td className="p-2 font-mono text-slate-600">{it.itemCode}</td>
-                        <td className="p-2 font-medium text-slate-800">{it.itemName}</td>
-                        <td className="p-2 text-center font-mono text-slate-600">{it.uom}</td>
-                        <td className="p-2 text-right font-mono font-semibold">{it.quantity}</td>
-                        <td className="p-2 text-right font-mono">
-                          {formatCurrency(it.estimatedUnitPrice)}
-                        </td>
-                        <td className="p-2 text-right font-mono font-bold text-slate-900">
-                          {formatCurrency(it.lineTotal)}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                  <tfoot className="bg-slate-50/80 font-semibold border-t border-slate-200">
-                    <tr>
-                      <td colSpan={6} className="p-2 text-right text-slate-700 uppercase text-[11px]">
-                        Grand Total Estimated Value:
-                      </td>
-                      <td className="p-2 text-right font-mono text-sm font-bold text-slate-900">
-                        {formatCurrency(printReq.totalEstimatedAmount)}
-                      </td>
-                    </tr>
-                  </tfoot>
-                </table>
-              </div>
-
-              {/* Justification & Remarks */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px] bg-slate-50/60 p-2.5 rounded border border-slate-200">
-                <div>
-                  <span className="font-semibold text-slate-700 block">Justification:</span>
-                  <p className="text-slate-600 italic">
-                    {printReq.businessJustification || "Standard replenishment."}
-                  </p>
-                </div>
-                <div>
-                  <span className="font-semibold text-slate-700 block">Remarks:</span>
-                  <p className="text-slate-600 italic">{printReq.remarks || "N/A"}</p>
-                </div>
-              </div>
-
-              {/* 4 Official Authorization Signatures */}
-              <div className="grid grid-cols-4 gap-4 pt-12 text-center text-[10px] text-slate-600 border-t border-slate-200 mt-6">
-                <div>
-                  <div className="border-t border-slate-400 pt-1 font-semibold text-slate-800">
-                    {printReq.createdBy}
-                  </div>
-                  <span>Prepared By</span>
-                </div>
-                <div>
-                  <div className="border-t border-slate-400 pt-1 font-semibold text-slate-800">
-                    Department Head
-                  </div>
-                  <span>Verified By</span>
-                </div>
-                <div>
-                  <div className="border-t border-slate-400 pt-1 font-semibold text-slate-800">
-                    Procurement Manager
-                  </div>
-                  <span>Checked & Sourced</span>
-                </div>
-                <div>
-                  <div className="border-t border-slate-400 pt-1 font-semibold text-slate-800">
-                    Managing Director
-                  </div>
-                  <span>Final Approval</span>
-                </div>
-              </div>
-            </div>
-
-            {/* Print & Close Toolbar */}
-            <div className="flex justify-end gap-2 pt-2 border-t border-slate-200">
-              <button
-                type="button"
-                onClick={() => setPrintReq(null)}
-                className="px-3 py-1.5 border border-slate-200 rounded text-slate-600 hover:bg-slate-50 text-xs"
-              >
-                Close
-              </button>
-              <button
-                type="button"
-                onClick={() => window.print()}
-                className="inline-flex items-center gap-1.5 px-4 py-1.5 bg-slate-800 hover:bg-slate-900 text-white rounded font-semibold text-xs"
-              >
-                <Printer className="w-3.5 h-3.5" />
-                <span>Print Document</span>
-              </button>
-            </div>
-          </div>
-        )}
-      </ModalDialog>
-
-      {/* CLOSE / CANCEL REQUISITION MODAL */}
-      <ModalDialog
-        isOpen={!!closeModal}
-        onClose={() => setCloseModal(null)}
-        title={`Close Requisition: ${closeModal?.requisitionNumber}`}
-        subtitle="Terminate active requisition lifecycle with an audited reason"
-        maxWidth="md"
-      >
-        {closeModal && (
-          <div className="space-y-3 text-xs">
-            <p className="text-slate-700">
-              Are you sure you want to <strong>Close / Cancel</strong> requisition{" "}
-              <strong className="text-rose-700 font-mono">{closeModal.requisitionNumber}</strong>?
-            </p>
-            <p className="text-[11px] text-slate-500">
-              This action terminates the approval process and stops any subsequent Purchase Order
-              creation.
-            </p>
-
-            <div>
-              <label className="block text-[11px] font-semibold text-slate-600 mb-1">
-                Reason for Closure / Cancellation *
-              </label>
-              <textarea
-                value={closeComment}
-                onChange={(e) => setCloseComment(e.target.value)}
-                rows={2}
-                className="w-full border border-slate-300 rounded p-2 text-xs"
-                placeholder="Enter cancellation reason..."
-                required
+        {printReq && (() => {
+          const officeName = offices?.find((o) => o.id === printReq.officeId)?.name || printReq.officeId;
+          const warehouseName = allWarehouses?.find((w) => w.id === printReq.warehouseId)?.name || printReq.warehouseId || "-";
+          const approvedEntry = [...(printReq.approvalHistory || [])].reverse().find((h) => /approv/i.test(h.action));
+          const totalQty = printReq.items.reduce((s, it) => s + Number(it.quantity || 0), 0);
+          const totalIssued = printReq.status === "CONVERTED_TO_PO" ? totalQty : 0;
+          return (
+            <div className="space-y-4 text-xs">
+              <PrintablePurchaseDoc
+                context={context}
+                officeId={printReq.officeId}
+                officeName={officeName}
+                title="Purchase Requisition"
+                metaLeft={[
+                  ["Requisition No", printReq.requisitionNumber],
+                  ["Req. Office Name", officeName],
+                  ["Req. Warehouse Name", warehouseName],
+                  ["Remarks", printReq.remarks || ""],
+                ]}
+                metaRight={[
+                  ["Req. Date", fmtPrintDate(printReq.requestDate)],
+                  ["Expected Date", fmtPrintDate(printReq.requiredDeliveryDate || printReq.requestDate)],
+                  ["Production Order No", printReq.referenceDocument || "Direct"],
+                  ["Review Comment", approvedEntry?.comments || ""],
+                ]}
+                columns={[
+                  { header: "SL", align: "center", widthClass: "w-10" },
+                  { header: "Item Code/Model", align: "left", widthClass: "w-28" },
+                  { header: "Item Name", align: "left" },
+                  { header: "Item Description", align: "left" },
+                  { header: "UOM", align: "center", widthClass: "w-14" },
+                  { header: "Req. Qty", align: "right", widthClass: "w-24" },
+                  { header: "Issue Qty", align: "right", widthClass: "w-24" },
+                  { header: "Remain Qty", align: "right", widthClass: "w-24" },
+                ]}
+                // A requisition is ordered as a whole: once converted to a PO its full quantity is issued.
+                rows={printReq.items.map((it, idx) => {
+                  const issued = printReq.status === "CONVERTED_TO_PO" ? Number(it.quantity || 0) : 0;
+                  return [
+                    idx + 1,
+                    it.itemCode,
+                    it.itemName,
+                    it.remarks || "",
+                    it.uom || "PCS",
+                    fmtPrintNum(it.quantity),
+                    fmtPrintNum(issued),
+                    fmtPrintNum(Number(it.quantity || 0) - issued),
+                  ];
+                })}
+                totalRows={[["", "", "", "", "Total", fmtPrintNum(totalQty), fmtPrintNum(totalIssued), fmtPrintNum(totalQty - totalIssued)]]}
+                signatures={[
+                  { roleLabel: "Prepared By", name: printReq.requesterName || printReq.createdBy },
+                  { roleLabel: "Approved By", name: approvedEntry?.actorName },
+                  { roleLabel: "Received By" },
+                ]}
+              />
+              <PurchasePrintToolbar
+                pdfUrl={`/api/v1/purchase/requisitions/${encodeURIComponent(printReq.id)}/pdf`}
+                onClose={() => setPrintReq(null)}
+                canExportPdf={perms.requisitions.export}
               />
             </div>
-
-            <div className="flex justify-end gap-2 pt-2 border-t border-slate-200">
-              <button
-                type="button"
-                onClick={() => setCloseModal(null)}
-                className="px-3 py-1.5 border border-slate-200 rounded text-slate-600"
-              >
-                Back
-              </button>
-              <button
-                type="button"
-                disabled={cancelMutation.isPending}
-                onClick={() => {
-                  cancelMutation.mutate({
-                    id: closeModal.id,
-                    comments: closeComment || "Cancelled by user via Action toolbar",
-                  });
-                }}
-                className="px-4 py-1.5 bg-rose-600 hover:bg-rose-700 text-white font-semibold rounded"
-              >
-                {cancelMutation.isPending ? "Closing..." : "Confirm Close"}
-              </button>
-            </div>
-          </div>
-        )}
+          );
+        })()}
       </ModalDialog>
 
-      {/* REVERSE REQUISITION STATUS MODAL */}
-      <ModalDialog
-        isOpen={!!reverseModal}
-        onClose={() => setReverseModal(null)}
-        title={`Reverse Status: ${reverseModal?.requisitionNumber}`}
-        subtitle="Revert approved or finalized requisition back to Submitted for revision"
-        maxWidth="md"
-      >
-        {reverseModal && (
-          <div className="space-y-3 text-xs">
-            <p className="text-slate-700">
-              You are about to reverse requisition{" "}
-              <strong className="text-amber-700 font-mono">{reverseModal.requisitionNumber}</strong>{" "}
-              (Current Status: <strong>{reverseModal.status}</strong>).
-            </p>
-            <p className="text-[11px] text-slate-500">
-              The status will be reset back to <strong>SUBMITTED</strong>, allowing procurement
-              managers to re-evaluate prices, change item quantities, or request revisions.
-            </p>
-
-            <div>
-              <label className="block text-[11px] font-semibold text-slate-600 mb-1">
-                Revision / Reversal Comments *
-              </label>
-              <textarea
-                value={reverseComment}
-                onChange={(e) => setReverseComment(e.target.value)}
-                rows={2}
-                className="w-full border border-slate-300 rounded p-2 text-xs"
-                placeholder="Enter reason for reverting status..."
-                required
-              />
-            </div>
-
-            <div className="flex justify-end gap-2 pt-2 border-t border-slate-200">
-              <button
-                type="button"
-                onClick={() => setReverseModal(null)}
-                className="px-3 py-1.5 border border-slate-200 rounded text-slate-600"
-              >
-                Back
-              </button>
-              <button
-                type="button"
-                disabled={reverseMutation.isPending}
-                onClick={() => {
-                  reverseMutation.mutate({
-                    id: reverseModal.id,
-                    comments: reverseComment || "Reversed for revision",
-                  });
-                }}
-                className="px-4 py-1.5 bg-amber-600 hover:bg-amber-700 text-white font-semibold rounded"
-              >
-                {reverseMutation.isPending ? "Reversing..." : "Confirm Reversal"}
-              </button>
-            </div>
-          </div>
-        )}
-      </ModalDialog>
+      {/* CLOSE / REVERSE / NEW PR: simple confirmations, as in the reference ERP */}
+      <ConfirmPrompt
+        open={!!closeModal}
+        question="Do you want to close?"
+        pending={cancelMutation.isPending}
+        onNo={() => setCloseModal(null)}
+        onYes={() => closeModal && cancelMutation.mutate({ id: closeModal.id, comments: "Closed from the requisition list" })}
+      />
+      <ConfirmPrompt
+        open={!!reverseModal}
+        question="Do you want to reverse?"
+        pending={reverseMutation.isPending}
+        onNo={() => setReverseModal(null)}
+        onYes={() => reverseModal && reverseMutation.mutate({ id: reverseModal.id, comments: "Reversed from the requisition list" })}
+      />
+      <ConfirmPrompt
+        open={!!newPrFrom}
+        question="Do you want to create a new purchase requisition?"
+        onNo={() => setNewPrFrom(null)}
+        onYes={() => {
+          if (newPrFrom) handleDuplicateAsNew(newPrFrom);
+          setNewPrFrom(null);
+        }}
+      />
+      <BulkUploadDialog
+        open={bulkOpen}
+        onClose={() => setBulkOpen(false)}
+        onImported={invalidateAll}
+        noun="requisitions"
+        templateUrl="/api/v1/purchase/requisitions/import"
+        maxRows={2000}
+        matchHint="Office and Warehouse must match existing names; Item Code must match an active item. Rows with the same Ref are saved as one requisition."
+        upload={(file) => uploadPurchaseBulk("/api/v1/purchase/requisitions/import", file)}
+      />
     </div>
   );
 }

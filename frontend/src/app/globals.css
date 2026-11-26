@@ -9,7 +9,14 @@
  * colours, so the theme and dark mode can change in one place.
  */
 
-@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+/* Dark styles apply on screen only: printing from dark mode still gives a white page. */
+@custom-variant dark {
+  @media screen {
+    &:where([data-theme="dark"], [data-theme="dark"] *) {
+      @slot;
+    }
+  }
+}
 
 :root,
 [data-theme="light"] {
@@ -42,6 +49,7 @@
   color-scheme: light;
 }
 
+@media screen {
 [data-theme="dark"] {
   --canvas: #020617;
   --surface: #0f172a;
@@ -69,6 +77,7 @@
   --grid-line: #334155;
   --grid-hover: #1e293b;
   color-scheme: dark;
+}
 }
 
 @theme inline {
@@ -98,8 +107,10 @@
   --color-grid-line: var(--grid-line);
   --color-grid-hover: var(--grid-hover);
 
-  --font-sans: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-sans: var(--font-inter), "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  /* One typeface everywhere: `font-mono` (codes, numbers, amounts) is Inter too;
+     its tabular figures (below) keep columns of digits aligned. */
+  --font-mono: var(--font-sans);
 }
 
 /* Dense ERP type scale: 13px body text, like ERPNext desk. */
@@ -116,6 +127,13 @@
   --text-xl--line-height: 1.75rem;
 
   --shadow-dropdown: 0 0 1px rgb(0 0 0 / 0.2), 0 8px 24px -4px rgb(0 0 0 / 0.16);
+
+  /* Inter is variable, so weights sit a step deeper than the defaults
+     (400 / 500 / 600 / 700) for crisper, easier-to-read text at the dense 13px scale. */
+  --font-weight-normal: 450;
+  --font-weight-medium: 550;
+  --font-weight-semibold: 630;
+  --font-weight-bold: 720;
 }
 
 @layer base {
@@ -124,10 +142,180 @@
     color: var(--ink);
     font-size: var(--text-sm);
     line-height: var(--text-sm--line-height);
+    font-weight: var(--font-weight-normal);
+    /* Inter's open digits and disambiguated letters (1/l/I) read better in data-heavy screens. */
+    font-feature-settings: "cv05", "cv08";
+    font-optical-sizing: auto;
+  }
+
+  /* Former monospace text (codes, quantities, amounts) keeps equal-width digits. */
+  .font-mono,
+  code,
+  kbd,
+  samp,
+  pre {
+    font-family: var(--font-sans);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Form controls do not inherit the font by default. */
+  input,
+  select,
+  textarea,
+  button {
+    font-family: inherit;
+    font-weight: inherit;
   }
 
   :focus-visible {
     outline-color: var(--accent);
+  }
+}
+
+/*
+ * Printing while a dialog (data-print-modal) is open prints only the dialog's
+ * content: the page behind it, the overlay and the dialog chrome are left out,
+ * and the scroll box is released so long documents print on every page.
+ */
+/* Default paper: A4 portrait. Margin 0 keeps the browser from printing its own URL/date
+   header and footer; per-page margins come from .print-frame below. Top level (not nested
+   in @media print) so every print path picks it up. */
+@page {
+  size: A4 portrait;
+  margin: 0;
+}
+
+/* Print frame (components/ui/print-frame.tsx): a plain block on screen; when printed, its
+   thead/tfoot spacers repeat on every page so each A4 page gets a top margin and room at the
+   bottom for the pinned "Made by BridgeOne" footer. */
+.print-frame,
+.print-frame > tbody,
+.print-frame > tbody > tr,
+.print-frame > tbody > tr > td {
+  display: block;
+  width: 100%;
+}
+.print-frame > thead,
+.print-frame > tfoot {
+  display: none;
+}
+
+@media print {
+  .print-frame {
+    display: table;
+    width: 100%;
+    border-collapse: collapse;
+  }
+  .print-frame > thead {
+    display: table-header-group;
+  }
+  .print-frame > tfoot {
+    display: table-footer-group;
+  }
+  .print-frame > tbody {
+    display: table-row-group;
+  }
+  .print-frame > * > tr {
+    display: table-row;
+  }
+  .print-frame > * > tr > td {
+    display: table-cell;
+    padding: 0 14mm;
+  }
+  .print-frame-top {
+    height: 10mm;
+  }
+  .print-frame-bottom {
+    height: 18mm;
+  }
+  /* Fixed elements are printed on every page, at the same spot: the very bottom. */
+  .print-page-footer {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    margin: 0 !important;
+    padding: 2mm 14mm 7mm !important;
+    border-top: 0 !important;
+    background: #ffffff;
+  }
+  .print-page-footer::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 14mm;
+    right: 14mm;
+    border-top: 1px solid #cbd5e1;
+  }
+  /* The frame owns the page margins inside print dialogs. */
+  body:has([data-print-modal]) [data-print-sheet]:has(.print-frame) {
+    padding: 0 !important;
+  }
+}
+
+@media print {
+  * {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  /* Collapse background ERP chrome & tables completely so short print modals never spill onto a blank 2nd page. */
+  html:has([data-print-modal]),
+  body:has([data-print-modal]) {
+    background: #ffffff !important;
+    height: auto !important;
+    min-height: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: visible !important;
+  }
+  body:has([data-print-modal]) :not([data-print-modal]):not(:has([data-print-modal])):not([data-print-modal] *) {
+    display: none !important;
+  }
+  body:has([data-print-modal]) :has([data-print-modal]) {
+    display: block !important;
+    position: static !important;
+    width: 100% !important;
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    overflow: visible !important;
+  }
+  body:has([data-print-modal]) [data-print-modal] {
+    position: static !important;
+    inset: auto !important;
+    width: 100% !important;
+    height: auto !important;
+    min-height: 0 !important;
+    display: block !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    background: #ffffff !important;
+    backdrop-filter: none !important;
+    animation: none !important;
+  }
+  body:has([data-print-modal]) [data-print-sheet] {
+    max-width: none !important;
+    width: 100% !important;
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    overflow: visible !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    display: block !important;
+    padding: 10mm 14mm !important;
+  }
+  body:has([data-print-modal]) [data-print-body] {
+    overflow: visible !important;
+    padding: 0 !important;
+    height: auto !important;
+    flex: none !important;
   }
 }
 
@@ -142,7 +330,7 @@
   width: 100%;
   border-collapse: separate;
   border-spacing: 0;
-  font-size: 12px;
+  font-size: 11px;
 }
 
 .erp-table th {
@@ -150,15 +338,16 @@
   top: 0;
   background-color: var(--grid-head);
   z-index: 10;
-  font-weight: 700;
+  font-weight: 600;
   color: var(--grid-head-ink);
-  text-transform: uppercase;
-  letter-spacing: 0.025em;
-  padding: 8px 10px;
+  letter-spacing: normal;
+  padding: 5px 6px;
   border-top: 1px solid var(--grid-head-line);
   border-right: 1px solid var(--grid-head-line);
   border-bottom: 2px solid var(--grid-head-rule);
-  white-space: nowrap;
+  white-space: normal;
+  line-height: 1.25;
+  vertical-align: middle;
 }
 
 .erp-table th:first-child {
@@ -166,11 +355,13 @@
 }
 
 .erp-table td {
-  padding: 8px 10px;
+  padding: 5px 6px;
   border-right: 1px solid var(--grid-line);
   border-bottom: 1px solid var(--grid-line);
   color: var(--ink);
-  white-space: nowrap;
+  white-space: normal;
+  line-height: 1.25;
+  vertical-align: middle;
 }
 
 .erp-table td:first-child {
@@ -179,6 +370,88 @@
 
 .erp-table tr:hover td {
   background-color: var(--grid-hover);
+}
+
+/* Accounts: icon and table buttons are at least 24 px to hit, and every button 44 px on phones. */
+.accounts-module-root button:has(> svg:only-child),
+.accounts-module-root td button {
+  min-width: 24px;
+  min-height: 24px;
+}
+
+@media (max-width: 639px) {
+  .accounts-module-root button,
+  .accounts-module-root td button,
+  .accounts-module-root button:has(> svg:only-child) {
+    min-width: 44px;
+    min-height: 44px;
+  }
+}
+
+/* Inventory lists follow iBOS (Managerium): light-blue header, row dividers only, no cell grid. */
+.inventory-module-root .erp-table th {
+  border-top: 0;
+  border-left: 0;
+  border-right: 0;
+  border-bottom: 1px solid var(--grid-head-line);
+  padding: 8px 10px;
+  font-size: 12px;
+}
+
+.inventory-module-root .erp-table td {
+  border-left: 0;
+  border-right: 0;
+  padding: 7px 10px;
+}
+
+/* Compact Managerium-style dense ERP table */
+.erp-table-compact {
+  font-size: 11px;
+  line-height: 1.25;
+}
+
+.erp-table-compact th {
+  padding: 4px 6px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: normal;
+  white-space: normal;
+  line-height: 1.2;
+  vertical-align: middle;
+  background-color: #dbeafe;
+  color: #1e3a8a;
+  border-top: 1px solid #93c5fd;
+  border-right: 1px solid #bfdbfe;
+  border-bottom: 2px solid #60a5fa;
+}
+
+.erp-table-compact th:first-child {
+  border-left: 1px solid #93c5fd;
+}
+
+.erp-table-compact td {
+  padding: 4px 6px;
+  font-size: 11px;
+  line-height: 1.25;
+  white-space: normal;
+  vertical-align: middle;
+  border-right: 1px solid #e2e8f0;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.erp-table-compact td:first-child {
+  border-left: 1px solid #e2e8f0;
+}
+
+[data-theme="dark"] .erp-table-compact th {
+  background-color: var(--grid-head);
+  color: var(--grid-head-ink);
+  border-color: var(--grid-head-line);
+}
+
+[data-theme="dark"] .erp-table-compact td {
+  border-color: var(--grid-line);
 }
 
 /*
@@ -281,4 +554,30 @@
   float: left;
   height: 0;
   pointer-events: none;
+}
+
+/* Compact row actions: the Action column of list tables (accounts, purchase, inventory).
+   Icon-only buttons are 20px boxes painting an 18px chip with an 11px icon, packed edge to edge.
+   NOTE: 20px is below the CLAUDE.md 24px hit-target minimum; the user chose this density
+   explicitly for these dense ERP tables (2026-11-16). Text buttons (px-*) keep their own size.
+   Deliberately unlayered so it overrides the per-page utility sizes (p-1, w-6, w-3.5…). */
+.row-actions {
+  gap: 0;
+}
+.row-actions > :is(button, a):not([class*="px-"]):not(.hidden) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  padding: 1px;
+  background-clip: content-box;
+}
+.row-actions > :is(button, a):not([class*="px-"]) > svg {
+  width: 11px;
+  height: 11px;
+}
+.row-actions > :is(button, a)[class*="px-"] {
+  margin-inline: 1px;
 }

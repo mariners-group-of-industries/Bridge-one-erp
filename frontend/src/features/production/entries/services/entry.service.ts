@@ -138,7 +138,8 @@ export async function entryForm(actor: Actor, orderId: string): Promise<EntryFor
       code: line.item.code,
       name: line.item.name,
       uom: line.uom,
-      perUnit: round4(num(line.bomQty) / lotSize),
+      // Kept precise: with lot sizes in the thousands a 4-decimal per-unit figure loses small ingredients.
+      perUnit: num(line.bomQty) / lotSize,
       rate: rateOf.get(line.itemId) ?? 0,
       stock: stock.get(line.itemId) ?? 0,
     })),
@@ -281,10 +282,17 @@ export async function getEntry(actor: Actor, id: string): Promise<EntryDetail> {
  * produced quantity, material usage and status move on (closed once fully produced).
  */
 export async function createEntry(actor: Actor, raw: unknown): Promise<EntryDetail> {
-  const input = entryInputSchema.parse(raw);
+  const parsed = entryInputSchema.parse(raw);
+  // Quantities are stored (and stock is kept) to 3 decimals: round once so the entry, the order and stock agree.
+  const input = { ...parsed, totalQty: round3(parsed.totalQty), rejectQty: round3(parsed.rejectQty) };
+  if (input.totalQty <= 0) throw badRequest("Total QTY must be more than 0.");
+  if (input.rejectQty > input.totalQty) throw badRequest("Reject QTY cannot be more than the Total QTY.");
   const order = await openOrder(actor, input.orderId);
   const businessUnitId = order.businessUnitId;
   if (input.entryDate < fromDbDate(order.orderDate)) throw badRequest("Production Entry Date cannot be before the order date.");
+  // One day of slack: the server clock is UTC, users are ahead of it.
+  const latest = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
+  if (input.entryDate > latest) throw badRequest("Production Entry Date cannot be in the future.");
 
   const orderMaterialIds = order.materials.map((line) => line.itemId).sort();
   const inputIds = input.materials.map((line) => line.itemId).sort();
@@ -307,7 +315,7 @@ export async function createEntry(actor: Actor, raw: unknown): Promise<EntryDeta
   const lotSize = num(order.bomLotSize);
   const rateOf = new Map(order.bom.materials.map((line) => [line.itemId, num(line.rate)]));
   const orderLine = new Map(order.materials.map((line) => [line.itemId, line]));
-  const netQty = round4(input.totalQty - input.rejectQty);
+  const netQty = round3(input.totalQty - input.rejectQty);
   const materials = input.materials.map((line, index) => {
     const base = orderLine.get(line.itemId)!;
     return {
@@ -328,13 +336,29 @@ export async function createEntry(actor: Actor, raw: unknown): Promise<EntryDeta
   const id = await db().$transaction(async (tx) => {
     await lockOrder(tx, order.id);
     await lockWarehouses(tx, [order.warehouseId, outputWarehouse.id]);
-    const current = await tx.productionOrder.findUniqueOrThrow({ where: { id: order.id }, select: { status: true, orderQty: true, producedQty: true } });
+    const current = await tx.productionOrder.findUniqueOrThrow({
+      where: { id: order.id },
+      select: {
+        status: true,
+        orderQty: true,
+        producedQty: true,
+        materials: { select: { id: true, itemId: true, issueQty: true, usedQty: true } },
+      },
+    });
     if (!(OPEN_STATUSES as readonly string[]).includes(current.status)) throw conflict(`Production order ${order.number} was closed meanwhile.`);
     const remaining = Math.max(round4(num(current.orderQty) - num(current.producedQty)), 0);
     const producedAfter = round4(num(current.producedQty) + netQty);
 
-    const needs = new Map(materials.filter((line) => line.actualQty > 0).map((line) => [line.itemId, line.actualQty]));
-    await assertStockAvailable(tx, order.warehouseId, needs, new Map(order.materials.map((line) => [line.itemId, `${line.item.code} - ${line.item.name}`])));
+    const freshOrderLine = new Map(current.materials.map((line) => [line.itemId, line]));
+    const directConsumeByItem = new Map<string, number>();
+    for (const line of materials) {
+      const fresh = freshOrderLine.get(line.itemId);
+      const unconsumedIssued = fresh ? Math.max(0, round3(num(fresh.issueQty) - num(fresh.usedQty))) : 0;
+      const directConsumeQty = Math.max(0, round3(line.actualQty - unconsumedIssued));
+      if (directConsumeQty > 0) directConsumeByItem.set(line.itemId, directConsumeQty);
+    }
+
+    await assertStockAvailable(tx, order.warehouseId, directConsumeByItem, new Map(order.materials.map((line) => [line.itemId, `${line.item.code} - ${line.item.name}`])));
 
     const entry = await tx.productionEntry.create({
       data: {
@@ -370,12 +394,12 @@ export async function createEntry(actor: Actor, raw: unknown): Promise<EntryDeta
     await tx.stockEntry.createMany({
       data: [
         ...materials
-          .filter((line) => line.actualQty > 0)
+          .filter((line) => (directConsumeByItem.get(line.itemId) ?? 0) > 0)
           .map((line) => ({
             businessUnitId,
             warehouseId: order.warehouseId,
             itemId: line.itemId,
-            qty: -line.actualQty,
+            qty: -(directConsumeByItem.get(line.itemId) ?? 0),
             source: "PRODUCTION_CONSUMPTION" as const,
             sourceId: entry.id,
             postingDate,
@@ -405,9 +429,13 @@ export async function createEntry(actor: Actor, raw: unknown): Promise<EntryDeta
       data: { producedQty: producedAfter, status: producedAfter >= num(current.orderQty) ? "CLOSED" : "IN_PROGRESS" },
     });
     for (const line of materials) {
+      const directConsumeQty = directConsumeByItem.get(line.itemId) ?? 0;
       await tx.productionOrderMaterial.update({
         where: { id: orderLine.get(line.itemId)!.id },
-        data: { issueQty: { increment: line.actualQty }, usedQty: { increment: line.actualQty } },
+        data: {
+          ...(directConsumeQty > 0 ? { issueQty: { increment: directConsumeQty } } : {}),
+          usedQty: { increment: line.actualQty },
+        },
       });
     }
     return entry.id;
@@ -441,23 +469,31 @@ export async function cancelEntry(actor: Actor, id: string, raw: unknown): Promi
     });
     if (count === 0) throw conflict(STALE);
 
+    const consumedDirectly = await tx.stockEntry.findMany({
+      where: { source: "PRODUCTION_CONSUMPTION", sourceId: entry.id },
+      select: { itemId: true, qty: true },
+    });
+    const directConsumeByItem = new Map<string, number>();
+    for (const row of consumedDirectly) {
+      const reversed = round3(-num(row.qty));
+      if (reversed > 0) directConsumeByItem.set(row.itemId, round3((directConsumeByItem.get(row.itemId) ?? 0) + reversed));
+    }
+
     const postingDate = new Date(`${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`);
     const remarks = `Cancelled production entry ${entry.number}`;
     await tx.stockEntry.createMany({
       data: [
-        ...entry.materials
-          .filter((line) => num(line.actualQty) > 0)
-          .map((line) => ({
-            businessUnitId: entry.businessUnitId,
-            warehouseId: entry.sourceWarehouseId,
-            itemId: line.itemId,
-            qty: num(line.actualQty),
-            source: "PRODUCTION_CONSUMPTION" as const,
-            sourceId: entry.id,
-            postingDate,
-            remarks,
-            createdBy: actor.id,
-          })),
+        ...[...directConsumeByItem.entries()].map(([itemId, qty]) => ({
+          businessUnitId: entry.businessUnitId,
+          warehouseId: entry.sourceWarehouseId,
+          itemId,
+          qty,
+          source: "PRODUCTION_CONSUMPTION" as const,
+          sourceId: entry.id,
+          postingDate,
+          remarks,
+          createdBy: actor.id,
+        })),
         ...(netQty > 0
           ? [
               {
@@ -486,9 +522,13 @@ export async function cancelEntry(actor: Actor, id: string, raw: unknown): Promi
     for (const line of entry.materials) {
       const lineId = orderLine.get(line.itemId);
       if (!lineId) continue;
+      const directQty = directConsumeByItem.get(line.itemId) ?? 0;
       await tx.productionOrderMaterial.update({
         where: { id: lineId },
-        data: { issueQty: { decrement: num(line.actualQty) }, usedQty: { decrement: num(line.actualQty) } },
+        data: {
+          ...(directQty > 0 ? { issueQty: { decrement: directQty } } : {}),
+          usedQty: { decrement: num(line.actualQty) },
+        },
       });
     }
   });

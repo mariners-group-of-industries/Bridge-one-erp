@@ -5,6 +5,7 @@ import type { InventoryOverview, InventoryReportRow, LedgerRow } from "../server
 export interface WarehouseOption {
   id: string;
   name: string;
+  officeId: string;
   officeName: string;
   businessUnitId: string;
 }
@@ -15,12 +16,39 @@ export interface ItemOption {
   name: string;
   uom: string;
   businessUnitId: string;
+  itemType: string | null;
+  /** Category path: Category → Sub Category → Minor Category. */
   category: string;
+  subCategory: string | null;
+  minorCategory: string | null;
+  costPrice: number | null;
+  tradePrice: number | null;
+  mrp: number | null;
+  altUom: string | null;
+  altUomFactor: number | null;
+  /** Suppliers this item was received from (goods receipts). */
+  supplierIds: string[];
+  barcode: string | null;
+}
+
+export interface NamedOption {
+  id: string;
+  code: string;
+  name: string;
 }
 
 export interface InventoryMasters {
   warehouses: WarehouseOption[];
   items: ItemOption[];
+  employees: Array<{ id: string; code: string; name: string; department: string | null; phone: string | null }>;
+  salesOrders: Array<{ id: string; number: string }>;
+  suppliers: NamedOption[];
+  projects: NamedOption[];
+  expenseHeads: NamedOption[];
+  /** Company name and address for report headers. */
+  company: { name: string; address: string } | null;
+  /** Vehicles entered on earlier gate passes. */
+  vehicles: { number: string; name: string }[];
 }
 
 export interface StockOnHand {
@@ -65,6 +93,20 @@ export const inventoryApi = {
     apiRequest<InventoryDocument>(`/api/inventory/${slug}/${id}/${decision}`, json("POST", { comment })),
   receive: (id: string, lines: { lineId: string; receivedQty: number }[], receiveDate?: string) =>
     apiRequest<InventoryDocument>(`/api/inventory/transfer/${id}/receive`, json("POST", { lines, receiveDate })),
+  /** URL of the Excel bulk-import template for a page. */
+  importTemplateUrl: (slug: InventoryDocSlug) => `/api/inventory/${slug}/import`,
+  /** Uploads a filled template; rows that fail validation are skipped and reported. */
+  importFile: (slug: InventoryDocSlug, file: File) => {
+    const form = new FormData();
+    form.set("file", file);
+    return apiRequest<{ created: number; errors: { row: number; message: string }[] }>(`/api/inventory/${slug}/import`, { method: "POST", body: form });
+  },
+  /** Uploads a store issue attachment (PDF or image, at most 5 MB). */
+  uploadIssueAttachment: (file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    return apiRequest<{ id: string; originalName: string; mimeType: string; size: number }>("/api/inventory/store-issue/attachments", { method: "POST", body: form });
+  },
   completeGatePass: (id: string) => apiRequest<InventoryDocument>(`/api/inventory/gate-in-out/${id}/complete`, json("POST", {})),
   overview: (q: { from: string; to: string; warehouseId?: string; category?: string }) =>
     apiRequest<InventoryOverview>(`/api/inventory/overview?${query(q)}`),
@@ -85,6 +127,9 @@ export const STATUS_LABEL: Record<InventoryDocument["status"], string> = {
   COMPLETED: "Completed",
   CANCELLED: "Cancelled",
 };
+
+/** Pending, but some approval stages have already signed (iBOS "In Review"). */
+export const inReview = (d: Pick<InventoryDocument, "status" | "reviewComment">) => d.status === "PENDING" && !!d.reviewComment;
 
 /** "YYYY-MM-DD" → "DD-MM-YYYY", as the inventory tables show dates. */
 export const dmy = (date: string | null | undefined) => (date ? date.split("-").reverse().join("-") : "");

@@ -6,7 +6,6 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useId, useMemo, useState, type ReactNode } from "react";
 import { PageContainer, PageHead } from "@/components/layout/page";
 import { Button, buttonClasses } from "@/components/ui/button";
-import { Dialog } from "@/components/ui/dialog";
 import { CONTROL, CheckboxField, SelectField, TextField } from "@/components/ui/form-field";
 import { Card, ErrorState, LoadingState, Section } from "@/components/ui/section";
 import { EmptyState } from "@/features/sales/components/EmptyState";
@@ -19,6 +18,7 @@ import { formatAmount, formatQty } from "../../dashboard/lib/format";
 import type { WarehouseOption } from "../../deliveries/schemas/delivery.schema";
 import { fetchWarehouses } from "../../deliveries/services/delivery.api";
 import { issuesToErrors, numberText, optionalNumber, requiredNumber } from "../../lib/form";
+import { itemTypeList } from "../../lib/item-types";
 import { formatDay, useToday } from "../../lib/use-today";
 import { CATEGORY_LEVEL_LABELS, type ItemOption, type SalesLookups, type SetupLookups } from "../../masters/schemas/masters.schema";
 import { fetchCustomers, fetchItems, fetchSalesLookups, fetchSetupLookups } from "../../masters/services/masters.api";
@@ -27,7 +27,8 @@ import { SearchPick } from "../../components/SearchPick";
 import { returnRateFor } from "../../pricing/schemas/pricing.schema";
 import { fetchReturnRates } from "../../pricing/services/pricing.api";
 import { round2 } from "../../quotations/lib/totals";
-import { SimpleMastersPanel } from "../../setup/components/SimpleMastersPanel";
+import { salesConfigPaths } from "@/features/configuration/sales-config/paths";
+import { ManagedInConfigurationDialog } from "../../components/ManagedInConfigurationDialog";
 import { discountShare, returnLineAmounts } from "../lib/return-totals";
 import {
   RETURN_KINDS,
@@ -225,7 +226,7 @@ function ReasonSelect({
     <div className={cn("flex items-end gap-1.5", className)}>
       <SelectField label={label} className="min-w-0 flex-1" value={value} options={options} onChange={(event) => onChange(event.target.value)} />
       {onManage && (
-        <Button size="icon" aria-label="Manage return reasons" title="Add or edit return reasons" onClick={onManage}>
+        <Button size="icon" aria-label="Manage return reasons" title="Return reasons are set up in Configuration" onClick={onManage}>
           <Settings2 />
         </Button>
       )}
@@ -233,12 +234,17 @@ function ReasonSelect({
   );
 }
 
-function ReasonsDialog({ open, businessUnitId, onClose }: { open: boolean; businessUnitId: string; onClose: () => void }) {
-  const setup = useResource(open ? `setup:${businessUnitId}:return-reasons` : null, () => fetchSetupLookups(businessUnitId));
+/** Return reasons are maintained in Configuration › Sales Setup; this points there. */
+function ReasonsDialog({ open, onClose }: { open: boolean; businessUnitId?: string; onClose: () => void }) {
   return (
-    <Dialog open={open} size="lg" title="Return Reasons" onClose={onClose}>
-      {setup.data ? <SimpleMastersPanel kind="return-reasons" businessUnitId={businessUnitId} lookups={setup.data} onChanged={setup.reload} /> : <LoadingState />}
-    </Dialog>
+    <ManagedInConfigurationDialog
+      open={open}
+      title="Return Reasons"
+      what="Return reasons"
+      where="Configuration › Sales Config › Sales Setup › Return Reasons"
+      href={salesConfigPaths.salesSetupTab("return-reasons")}
+      onClose={onClose}
+    />
   );
 }
 
@@ -381,7 +387,11 @@ function ReferencedEditor({
 
       {(nothingLeft || fullBlocked) && (
         <p role="alert" className="mb-3 rounded-lg bg-control px-3 py-2 text-sm text-ink">
-          {nothingLeft ? "Everything on this delivery is already returned (pending or approved)." : "Part of this delivery is already returned. "}
+          {delivery.lines.length === 0
+            ? "This delivery has no item lines, so there is nothing to return."
+            : nothingLeft
+              ? "Everything on this delivery is already returned (pending or approved)."
+              : "Part of this delivery is already returned. "}
           {fullBlocked && !nothingLeft && (
             <Link href={paths.returnDelivery(delivery.id, "partial")} className="underline underline-offset-2">
               Make a partial return instead.
@@ -1024,7 +1034,7 @@ function ReturnItemEntry({
   const [itemText, setItemText] = useState("");
   const [entry, setEntry] = useState({ qty: "", rate: "", vatPercent: "", reason: "" });
   const distinct = (values: (string | null)[]) => [...new Set(values.filter((value): value is string => Boolean(value)))].sort();
-  const itemTypes = useMemo(() => distinct(items.map((candidate) => candidate.itemType)), [items]);
+  const itemTypes = useMemo(() => itemTypeList(items), [items]);
   const brands = useMemo(() => distinct(items.map((candidate) => candidate.brand)), [items]);
   const [error, setError] = useState<string>();
 
@@ -1052,8 +1062,6 @@ function ReturnItemEntry({
       (!itemType || candidate.itemType === itemType) &&
       (!brand || candidate.brand === brand),
   );
-  // As in Managerium, suggestions start after 3 letters.
-  const searching = itemText.trim().length >= 3;
   const label = (item: ItemOption) => `${item.code} — ${item.name}`;
   const item = items.find((candidate) => label(candidate) === itemText);
   const tp = item ? rateFor(item, effectivePriceList) : null;
@@ -1155,12 +1163,12 @@ function ReturnItemEntry({
             list={listId}
             value={itemText}
             disabled={disabled}
-            placeholder={loading ? "Loading items…" : disabled ? "Select an office first" : "Select/Search Item (min 3 letters)"}
+            placeholder={loading ? "Loading items…" : disabled ? "Select an office first" : "Select/Search Item"}
             onChange={(event) => pick(event.target.value)}
             className={cn(CONTROL, "h-7")}
           />
           <datalist id={listId}>
-            {(searching ? visible : []).map((candidate) => (
+            {visible.map((candidate) => (
               <option key={candidate.id} value={label(candidate)} />
             ))}
           </datalist>

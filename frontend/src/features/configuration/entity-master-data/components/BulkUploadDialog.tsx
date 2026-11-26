@@ -14,6 +14,8 @@ export interface ImportResult {
   created: number;
   /** Spreadsheet row numbers (header is row 1). */
   errors: { row: number; message: string }[];
+  /** Things the upload set up along the way (e.g. partner groups it created). */
+  notes?: string[];
 }
 
 interface BulkUploadDialogProps {
@@ -145,6 +147,11 @@ export function BulkUploadDialog({
               {result.created} added
               {result.errors.length > 0 && `, ${result.errors.length} row${result.errors.length === 1 ? "" : "s"} skipped`}.
             </Notice>
+            {result.notes?.map((note) => (
+              <p key={note} className="text-xs text-ink-muted">
+                {note}
+              </p>
+            ))}
             {result.errors.length > 0 && (
               <div className={`${TABLE.wrap} max-h-60 overflow-y-auto`}>
                 <table className={TABLE.table}>

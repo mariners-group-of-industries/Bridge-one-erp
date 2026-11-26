@@ -6,6 +6,7 @@ import type { Actor } from "@/lib/auth/actor";
 import { db } from "@/lib/prisma/client";
 import { etpOf, type StandardPriceFilter, type StandardPriceImportResult, type StandardPriceRow, type StandardPriceRowInput } from "../schemas/standard-price.schema";
 import { allStandardPrices, loadUnit, saveStandardPrices } from "./standard-price.service";
+import { loadWorkbook } from "@/lib/excel/load-workbook";
 
 /**
  * Excel download / bulk upload and PDF print for Standard Price Setup. The
@@ -61,12 +62,7 @@ const normal = (value: string) =>
 const amount = (value: string) => value.replace(/,/g, "").trim();
 
 export async function importStandardPrices(actor: Actor, businessUnitId: string, bytes: Uint8Array): Promise<StandardPriceImportResult> {
-  const workbook = new ExcelJS.Workbook();
-  try {
-    await workbook.xlsx.load(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer);
-  } catch {
-    throw new AppError(400, "VALIDATION_ERROR", "The file is not a valid Excel (.xlsx) workbook.");
-  }
+  const workbook = await loadWorkbook(bytes);
   const sheet = workbook.worksheets[0];
   if (!sheet) throw new AppError(400, "VALIDATION_ERROR", "The workbook has no sheets.");
   const index = new Map<string, number>();

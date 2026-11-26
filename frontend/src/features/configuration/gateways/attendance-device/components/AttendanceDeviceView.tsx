@@ -27,7 +27,7 @@ const STALE_MS = 30 * 60_000;
 function syncStatus(row: DeviceRow): { label: string; tone: string } {
   if (!row.isActive) return { label: "Inactive", tone: "border-line bg-control text-ink-faint" };
   if (row.lastError) return { label: "Error", tone: "border-danger/40 bg-danger/10 text-danger" };
-  if (!row.lastSyncAt) return { label: "Waiting for agent", tone: "border-warning/40 bg-warning/10 text-warning" };
+  if (!row.lastSyncAt) return { label: "Waiting for device", tone: "border-warning/40 bg-warning/10 text-warning" };
   if (Date.now() - Date.parse(row.lastSyncAt) > STALE_MS) return { label: "Not syncing", tone: "border-warning/40 bg-warning/10 text-warning" };
   return { label: "Syncing", tone: "border-success/40 bg-success/10 text-success" };
 }
@@ -39,12 +39,13 @@ export function AttendanceDeviceView() {
   const [deleting, setDeleting] = useState<DeviceRow | null>(null);
   const [busy, setBusy] = useState(false);
   const origin = typeof window === "undefined" ? "https://your-erp-domain" : window.location.origin;
+  const host = new URL(origin).hostname;
 
   return (
     <PageContainer full>
       <PageHead
         title="Attendance Devices"
-        subtitle="Biometric terminals on your office network. The attendance agent reads them and their punches appear in HRM › Attendance."
+        subtitle="Biometric terminals. They send their punches to the ERP directly (or through the attendance agent), and the punches appear in HRM › Attendance."
         breadcrumbs={BREADCRUMBS}
         actions={
           <Button variant="accent" onClick={() => setEditing("new")}>
@@ -123,11 +124,40 @@ export function AttendanceDeviceView() {
         )}
       </section>
 
-      <section aria-label="Agent setup" className="rounded border border-line bg-surface p-4 shadow-xs">
-        <h2 className="text-sm font-semibold text-ink">Connect a device (attendance agent)</h2>
+      <section aria-label="Direct push setup" className="rounded border border-line bg-surface p-4 shadow-xs">
+        <h2 className="text-sm font-semibold text-ink">Connect a device directly (recommended)</h2>
         <p className="mt-1 text-xs text-ink-faint">
-          The agent runs on any always-on PC in the same office network as the device. It reads new punches over the LAN every few minutes and uploads them here. The device keeps sending to
-          its cloud server (e.g. iBOS) as before.
+          The device sends every punch straight to this ERP over the internet, within seconds. No office PC is needed. The device can send to only one cloud server, so it stops sending to iBOS
+          (Managerium) once you point it here.
+        </p>
+        <ol className="mt-3 flex list-decimal flex-col gap-2 pl-5 text-sm text-ink">
+          <li>
+            Add the device above with its <strong>Serial Number</strong> (Device › System Info › Device Info, or the label on the back) and its office. The serial number is how the ERP recognises
+            the device; punches from unregistered serial numbers are refused.
+          </li>
+          <li>
+            In each employee&apos;s profile, set <strong>Attendance ID</strong> to their user number on the device.
+          </li>
+          <li>
+            On the device, open <strong>Comm. › Cloud Server Setting</strong> and set:
+            <pre className="mt-1.5 overflow-x-auto rounded border border-line bg-canvas px-3 py-2 text-xs text-ink">
+              <code>{`Server Mode    : ADMS
+Enable Domain  : ON
+Server Address : ${host}
+Server Port    : ${origin.startsWith("https") ? "443 (HTTPS ON), or 80 if the device has no HTTPS option" : "80"}
+Proxy Server   : OFF`}</code>
+            </pre>
+            The device also needs a gateway and DNS server under Comm. › Ethernet so it can reach the internet, and its date, time and time zone must be right.
+          </li>
+          <li>Restart the device. Within a minute its status above changes to “Syncing”; it then uploads the punches it holds, and every new punch as it happens.</li>
+        </ol>
+      </section>
+
+      <section aria-label="Agent setup" className="rounded border border-line bg-surface p-4 shadow-xs">
+        <h2 className="text-sm font-semibold text-ink">Or: read the device from an office PC (attendance agent)</h2>
+        <p className="mt-1 text-xs text-ink-faint">
+          Use this when the device cannot reach the internet. The agent runs on an always-on PC in the same office network as the device, reads new punches over the LAN every few minutes and
+          uploads them here. The device keeps sending to its cloud server (e.g. iBOS) as before.
         </p>
         <ol className="mt-3 flex list-decimal flex-col gap-2 pl-5 text-sm text-ink">
           <li>Add the device above with its IP address (Device › Comm. › Ethernet) and TCP port (normally 4370). Choose its office so punches are matched to that business unit.</li>
@@ -255,11 +285,11 @@ function DeviceDialog({ value, onClose, onSaved }: { value: DeviceRow | "new" | 
               <Select id={id} value={form.officeId ?? ""} placeholder="Any office" options={(options.data?.offices ?? []).map((o) => ({ value: o.id, label: o.name }))} onChange={(e) => setForm({ ...form, officeId: e.target.value })} />
             )}
           </Field>
-          <Field label="Serial Number" error={errors.serialNumber} hint="Optional, for your reference.">
+          <Field label="Serial Number" error={errors.serialNumber} hint="Required for a device that sends to the ERP directly (Device Info › Serial Number).">
             {(id) => <Input id={id} value={form.serialNumber ?? ""} maxLength={60} className="font-mono" onChange={(e) => setForm({ ...form, serialNumber: e.target.value })} />}
           </Field>
         </FormGrid>
-        <Checkbox label="Active (the agent reads this device)" checked={form.isActive ?? true} onChange={(e) => setForm({ ...form, isActive: e.target.checked })} />
+        <Checkbox label="Active (punches from this device are accepted)" checked={form.isActive ?? true} onChange={(e) => setForm({ ...form, isActive: e.target.checked })} />
       </div>
     </Dialog>
   );

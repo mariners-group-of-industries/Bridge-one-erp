@@ -350,6 +350,10 @@ export async function deleteBom(actor: Actor, id: string, raw: unknown): Promise
     if (parents.length) {
       throw inUse(`This BOM is tagged as a child of ${parents.map((link) => link.parent.name).join(", ")}. Remove it there first.`);
     }
+    const orders = await tx.productionOrder.count({ where: { bomId: id } });
+    if (orders) {
+      throw inUse(`This BOM is used by ${orders} production order${orders === 1 ? "" : "s"} and cannot be deleted. Make it inactive instead.`);
+    }
     const { count } = await tx.productionBom.deleteMany({ where: { id, updatedAt: new Date(version) } });
     if (count === 0) throw conflict(STALE);
   });

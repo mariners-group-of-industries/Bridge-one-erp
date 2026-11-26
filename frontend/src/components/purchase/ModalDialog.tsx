@@ -9,7 +9,7 @@ interface ModalDialogProps {
   title: string;
   subtitle?: string;
   children: React.ReactNode;
-  maxWidth?: "sm" | "md" | "lg" | "xl" | "2xl" | "4xl";
+  maxWidth?: "sm" | "md" | "lg" | "xl" | "2xl" | "4xl" | "6xl";
 }
 
 export function ModalDialog({
@@ -43,30 +43,42 @@ export function ModalDialog({
     xl: "max-w-xl",
     "2xl": "max-w-2xl",
     "4xl": "max-w-4xl",
+    "6xl": "max-w-6xl",
   }[maxWidth];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs animate-in fade-in duration-150">
+    // data-print-modal: while a dialog is open, printing prints only its content (see globals.css).
+    <div
+      data-print-modal
+      role="dialog"
+      aria-modal="true"
+      aria-label={title}
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs animate-in fade-in duration-150"
+    >
       <div
-        className={`bg-white rounded-lg border border-slate-200 shadow-xl w-full ${widthClass} max-h-[90vh] flex flex-col overflow-hidden`}
+        data-print-sheet
+        className={`bg-surface rounded-lg border border-line shadow-xl w-full ${widthClass} max-h-[90vh] flex flex-col overflow-hidden`}
       >
         {/* Header */}
-        <div className="px-5 py-3.5 border-b border-slate-200 flex items-center justify-between bg-slate-50/70 shrink-0">
-          <div>
-            <h3 className="text-sm font-bold text-slate-900 tracking-tight">{title}</h3>
-            {subtitle && <p className="text-[11px] text-slate-500 mt-0.5">{subtitle}</p>}
+        <div className="px-5 py-3.5 border-b border-line flex items-center justify-between gap-3 bg-canvas/70 shrink-0 print:hidden">
+          <div className="min-w-0">
+            <h3 className="text-sm font-bold text-ink tracking-tight">{title}</h3>
+            {subtitle && <p className="text-[11px] text-ink-faint mt-0.5">{subtitle}</p>}
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="p-1 rounded text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 transition"
+            aria-label="Close dialog"
+            className="inline-flex size-8 shrink-0 items-center justify-center rounded text-ink-faint hover:text-ink-muted hover:bg-hover/60 transition"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
 
         {/* Content Body */}
-        <div className="p-5 overflow-y-auto flex-1">{children}</div>
+        <div data-print-body className="p-5 overflow-y-auto flex-1">
+          {children}
+        </div>
       </div>
     </div>
   );

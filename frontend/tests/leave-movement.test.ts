@@ -13,12 +13,16 @@ import {
   decideLeave,
   decideMovement,
   deleteLeave,
+  getLeave,
+  getMovement,
   leaveBalance,
   listLeaves,
   listMovements,
   readLeaveAttachment,
 } from "@/features/hrm/self-service/leave-movement/server/leave-movement.service";
+import { createPipeline } from "@/features/configuration/security/approval/server/approval.service";
 import type { Actor } from "@/lib/auth/actor";
+import { FULL_ACCESS } from "@/lib/permissions/registry";
 import { setStorage } from "@/lib/storage";
 import { MemoryStorage, adminActor, businessUnitInput, companyInput, officeInput } from "./helpers/fixtures";
 import { resetTestDb, startTestDb, stopTestDb, testPrisma } from "./helpers/test-db";
@@ -56,7 +60,7 @@ describe("Leave", () => {
   it("holds pending days in the balance, counts them as taken once approved, and refuses overlaps and over-quota", async () => {
     const { id } = await applyLeave(rahim, leave(), [{ name: "note.pdf", type: "application/pdf", size: PDF.byteLength, bytes: PDF }]);
     const casual = async () => (await leaveBalance(rahim, undefined, 2026)).find((b) => b.leaveType === "Casual Leave");
-    expect(await casual()).toEqual({ leaveType: "Casual Leave", quota: 10, taken: 0, pending: 3, remaining: 7 });
+    expect(await casual()).toMatchObject({ leaveType: "Casual Leave", quota: 10, taken: 0, pending: 3, remaining: 7 });
 
     await expect(applyLeave(rahim, leave({ leaveType: "Sick Leave", fromDate: "2026-03-03", toDate: "2026-03-04" }))).rejects.toThrow(/overlap/);
     await expect(applyLeave(rahim, leave({ fromDate: "2026-04-01", toDate: "2026-04-08" }))).rejects.toThrow(/Only 7 day/);
@@ -64,7 +68,7 @@ describe("Leave", () => {
 
     await expect(decideLeave(rahim, id, "Approved")).rejects.toThrow(/Only HR/);
     await decideLeave(adminActor, id, "Approved");
-    expect(await casual()).toEqual({ leaveType: "Casual Leave", quota: 10, taken: 3, pending: 0, remaining: 7 });
+    expect(await casual()).toMatchObject({ leaveType: "Casual Leave", quota: 10, taken: 3, pending: 0, remaining: 7 });
     await expect(decideLeave(adminActor, id, "Rejected")).rejects.toThrow(/already been decided/);
     await expect(deleteLeave(rahim, id)).rejects.toThrow(/Only pending/);
 
@@ -107,5 +111,71 @@ describe("Movement", () => {
     await decideMovement(adminActor, id, "Approved");
     expect((await listMovements(adminActor))[0].status).toBe("Approved");
     expect((await leaveBalance(rahim, undefined, 2026)).every((b) => b.taken === 0 && b.pending === 0)).toBe(true);
+  });
+});
+
+describe("Leave approval notifications", () => {
+  const inbox = (userId: string) => testPrisma().userNotification.findMany({ where: { userId }, orderBy: { createdAt: "asc" }, select: { title: true, body: true, link: true } });
+  const hrUser = async () => {
+    const id = (await testPrisma().user.create({ data: { name: "HR Officer", phone: "01700000083", passwordHash: "x", erpAccess: true } })).id;
+    const group = await testPrisma().permissionGroup.create({
+      data: { name: "HR", code: "HR", entries: { create: { activityKey: "/hrm/self-service/leave-movement", moduleName: "HR", activityName: "Leave & Movement", canView: true, canApprove: true } } },
+    });
+    await testPrisma().userPermissionGroup.create({ data: { userId: id, groupId: group.id } });
+    return id;
+  };
+
+  it("tells everyone who may approve leave, with a link that opens the application", async () => {
+    const hr = await hrUser();
+    const { id } = await applyLeave(rahim, leave());
+    const link = `/hrm/self-service/leave-movement?leave=${id}`;
+    expect(await inbox(hr)).toEqual([{ title: "Leave application to approve: Casual Leave", body: "Rahim Uddin (E-1): Casual Leave, 3 day(s), 2026-03-01 to 2026-03-03.", link }]);
+    // The applicant only hears that it was submitted; a colleague without the permission hears nothing.
+    expect((await inbox(rahim.id)).map((n) => n.link)).toEqual(["/employee/leave/history"]);
+    expect(await inbox(salma.id)).toEqual([]);
+    expect(await getLeave(adminActor, id)).toMatchObject({ id, employeeName: "Rahim Uddin", status: "Pending", canDecide: true, stages: [] });
+    await expect(getLeave(salma, id)).rejects.toThrow(/not found/i);
+  });
+
+  it("with an approval pipeline, tells only the stage that has to act, and the next stage once it approves", async () => {
+    const hr = await hrUser();
+    const director = (await testPrisma().user.create({ data: { name: "Director", phone: "01700000084", passwordHash: "x", erpAccess: true } })).id;
+    const approver = (approverId: string) => ({ userType: "USER" as const, businessUnitId: "", approverId, authorizationType: "APPROVAL" as const });
+    await createPipeline(adminActor, {
+      name: "Leave approval",
+      feature: "Employee Leave",
+      userType: "USER",
+      superApproverId: director,
+      remarks: "",
+      stages: [
+        { name: "Line Manager", approvalOrder: "ANY", requiredCount: 1, approvers: [approver(salma.id)] },
+        { name: "HR", approvalOrder: "ANY", requiredCount: 1, approvers: [approver(hr)] },
+      ],
+    } as Parameters<typeof createPipeline>[1]);
+
+    const { id } = await applyLeave(rahim, leave());
+    expect((await inbox(salma.id)).map((n) => n.title)).toEqual(["Leave application to approve: Casual Leave"]);
+    // The super approver may act at any stage, so they hear of it too.
+    expect((await inbox(director)).map((n) => n.title)).toEqual(["Leave application to approve: Casual Leave"]);
+    expect(await inbox(hr)).toEqual([]);
+    expect((await getLeave(adminActor, id)).stages.map((s) => [s.name, s.status, s.approverNames])).toEqual([
+      ["Line Manager", "PENDING", ["Salma"]],
+      ["HR", "PENDING", ["HR Officer"]],
+    ]);
+
+    // Salma decides as a line manager: Approve on Leave & Movement.
+    await decideLeave({ ...salma, grants: FULL_ACCESS }, id, "Approved");
+    expect((await inbox(hr)).map((n) => [n.title, n.link])).toEqual([["Leave application to approve: Casual Leave (stage 2)", `/hrm/self-service/leave-movement?leave=${id}`]]);
+  });
+
+  it("does the same for movement applications", async () => {
+    const hr = await hrUser();
+    const { id } = await applyMovement(rahim, { movementType: "Client Visit", fromDate: "2026-03-10", toDate: "2026-03-10", startTime: "10:00", endTime: "13:30", location: "Gulshan", reason: "Client meeting" });
+    expect(await inbox(hr)).toEqual([
+      { title: "Movement application to approve: Client Visit", body: "Rahim Uddin (E-1): Client Visit, 2026-03-10, 10:00–13:30, Gulshan.", link: `/hrm/self-service/leave-movement?movement=${id}` },
+    ]);
+    expect(await inbox(rahim.id)).toEqual([]);
+    expect(await getMovement(adminActor, id)).toMatchObject({ id, movementType: "Client Visit", startTime: "10:00", status: "Pending", canDecide: true, stages: [] });
+    await expect(getMovement(salma, id)).rejects.toThrow(/not found/i);
   });
 });

@@ -4,10 +4,11 @@ import React, { useState, useMemo } from "react";
 import { useToast } from "@/components/ui/toast";
 import { useResource } from "@/hooks/use-resource";
 import { errorMessage } from "@/lib/api/client";
+import { InventoryTabBar, tabBarButton } from "@/features/inventory/components/InventoryTabBar";
 import { InventoryDocumentDialog } from "@/features/inventory/components/InventoryDocumentDialog";
-import { dmy, inventoryApi, monthAgo, STATUS_LABEL, today } from "@/features/inventory/services/inventory.api";
+import { useInventoryOffices } from "@/features/inventory/components/OfficeFilter";
+import { dmy, inReview, inventoryApi, monthAgo, today } from "@/features/inventory/services/inventory.api";
 import {
-  Search,
   Plus,
   Printer,
   Eye,
@@ -15,7 +16,11 @@ import {
   ChevronRight,
   X,
   FileSpreadsheet,
+  Upload,
 } from "lucide-react";
+import { useFeaturePermissions, needsPermission } from "@/lib/permissions/useFeaturePermissions";
+import { BulkUploadDialog } from "@/features/configuration/entity-master-data/components/BulkUploadDialog";
+import { NativeDateInput } from "@/components/ui/date-input";
 
 // ============================================================================
 // TYPES
@@ -31,26 +36,29 @@ interface StockUpdateRow {
   createdDate: string;
   entryDate: string;
   actionBy: string;
-  status: "Approved" | "Pending" | "Rejected";
+  status: "Approved" | "In Review" | "Pending" | "Closed" | "Rejected";
   reviewComment: string;
 }
 
 const TYPE_OPTIONS = [
   { value: "All", label: "All" },
-  { value: "Stock Increase", label: "Stock Increase" },
-  { value: "Stock Decrease", label: "Stock Decrease" },
-  { value: "Damage / Expiry", label: "Damage / Expiry" },
-  { value: "Audit Reconciliation", label: "Audit Reconciliation" },
+  { value: "Stock Audit", label: "Stock Audit" },
+  { value: "Stock Adjustment", label: "Stock Adjustment" },
+  { value: "Damage", label: "Damage" },
 ];
 
+// iBOS statuses, plus Rejected (a reviewer can refuse an update here).
 const STATUS_OPTIONS = [
   { value: "All", label: "All" },
   { value: "Approved", label: "Approved" },
+  { value: "In Review", label: "In Review" },
   { value: "Pending", label: "Pending" },
+  { value: "Closed", label: "Closed" },
   { value: "Rejected", label: "Rejected" },
 ];
 
 export default function StockUpdatePage() {
+  const perms = useFeaturePermissions("/inventory/stock-adjustment");
   const toast = useToast();
   const [searchTerm, setSearchTerm] = useState("");
 
@@ -77,15 +85,23 @@ export default function StockUpdatePage() {
         createdDate: dmy(d.createdAt.slice(0, 10)),
         entryDate: dmy(d.docDate),
         actionBy: d.approvedBy ?? d.createdBy,
-        status: d.status === "COMPLETED" ? "Approved" : (STATUS_LABEL[d.status] as StockUpdateRow["status"]),
+        status:
+          d.status === "COMPLETED" || d.status === "APPROVED"
+            ? "Approved"
+            : d.status === "REJECTED"
+              ? "Rejected"
+              : d.status === "CANCELLED"
+                ? "Closed"
+                : inReview(d)
+                  ? "In Review"
+                  : "Pending",
         reviewComment: d.reviewComment ?? "",
       })),
     [docs.data],
   );
-  const OFFICE_OPTIONS = useMemo(
-    () => [{ value: "All", label: "All" }, ...[...new Set(rowsAll.map((r) => r.officeName))].sort().map((o) => ({ value: o, label: o }))],
-    [rowsAll],
-  );
+  // Offices come from Configuration (offices with warehouses), not only those with documents.
+  const offices = useInventoryOffices();
+  const OFFICE_OPTIONS = useMemo(() => [{ value: "All", label: "All" }, ...offices.map((o) => ({ value: o, label: o }))], [offices]);
   /** Approve posts the update to the stock ledger; reject leaves stock as it is. */
   const review = async (row: StockUpdateRow, decision: "approve" | "reject") => {
     const comment = window.prompt(decision === "approve" ? "Approval comment (optional)" : "Why is it rejected?") ?? undefined;
@@ -108,6 +124,7 @@ export default function StockUpdatePage() {
 
   // + Create Modal State
   const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [bulkOpen, setBulkOpen] = useState(false);
 
   // Filtered rows
   const filteredRows = useMemo(() => {
@@ -176,55 +193,37 @@ export default function StockUpdatePage() {
   };
 
   return (
-    <div className="space-y-3 p-1">
-      {/* ─────────────────────────────────────────────────── */}
-      {/* 1. TOP HEADER                                      */}
-      {/* ─────────────────────────────────────────────────── */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-3 rounded border border-slate-200/90 shadow-2xs">
-        <div>
-          <h1 className="text-xl font-bold text-slate-900 tracking-tight">
-            Stock Update
-          </h1>
-        </div>
-
-        <div className="flex items-center gap-2">
-          {/* Search */}
-          <div className="relative">
-            <input
-              type="text"
-              placeholder="Search...."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-56 sm:w-64 h-9 pl-3 pr-8 text-xs border border-slate-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 bg-white placeholder-slate-400"
-            />
-            <Search className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-          </div>
-
-          {/* + Create Button */}
-          <button
-            type="button"
-            onClick={() => setIsCreateOpen(true)}
-            className="h-9 px-4 bg-[#2563eb] hover:bg-blue-700 text-white font-semibold text-xs rounded flex items-center gap-1.5 shadow-xs transition"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Create</span>
-          </button>
-        </div>
-      </div>
-
-      {/* ─────────────────────────────────────────────────── */}
+    <div className="bg-surface space-y-2 p-3 flex flex-col md:h-[calc(100dvh-3.5rem)] md:overflow-hidden print:block print:h-auto print:overflow-visible">
+      <InventoryTabBar
+        title="Stock Update"
+        tabs={[{ id: "STOCK_UPDATE", label: "Stock Update" }]}
+        active="STOCK_UPDATE"
+        onChange={() => {}}
+        search={searchTerm}
+        onSearch={setSearchTerm}
+        actions={
+          <>
+            {perms.import && (<button type="button" onClick={() => setBulkOpen(true)} className={tabBarButton} title="Bulk upload from Excel">
+              <Upload /> Bulk Upload
+            </button>)}
+            {perms.create ? (<button type="button" onClick={() => setIsCreateOpen(true)} className={tabBarButton}>
+            <Plus /> Create
+          </button>) : null}
+          </>
+        }
+      />
       {/* 2. FILTER BAR                                       */}
       {/* ─────────────────────────────────────────────────── */}
-      <div className="bg-slate-50/70 p-3 rounded border border-slate-200 space-y-3 text-xs">
+      <div className="py-1.5 space-y-2.5 text-xs shrink-0">
         <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
           {/* Office */}
           <div>
-            <label className="block text-[11px] text-slate-600 mb-1 font-medium">Office</label>
+            <label className="block text-[11px] text-ink-muted mb-1 font-medium">Office</label>
             <div className="relative">
               <select
                 value={office}
                 onChange={(e) => setOffice(e.target.value)}
-                className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white text-xs focus:ring-1 focus:ring-blue-500 appearance-none pr-7"
+                className="w-full border border-line-strong rounded px-2.5 py-1.5 bg-surface text-xs focus:ring-1 focus:ring-blue-500 appearance-none pr-7"
               >
                 {OFFICE_OPTIONS.map((o) => (
                   <option key={o.value} value={o.value}>
@@ -236,7 +235,7 @@ export default function StockUpdatePage() {
                 <button
                   type="button"
                   onClick={() => setOffice("All")}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-ink-faint hover:text-ink-muted"
                 >
                   <X className="w-3 h-3" />
                 </button>
@@ -246,12 +245,12 @@ export default function StockUpdatePage() {
 
           {/* Type */}
           <div>
-            <label className="block text-[11px] text-slate-600 mb-1 font-medium">Type</label>
+            <label className="block text-[11px] text-ink-muted mb-1 font-medium">Type</label>
             <div className="relative">
               <select
                 value={type}
                 onChange={(e) => setType(e.target.value)}
-                className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white text-xs focus:ring-1 focus:ring-blue-500 appearance-none pr-7"
+                className="w-full border border-line-strong rounded px-2.5 py-1.5 bg-surface text-xs focus:ring-1 focus:ring-blue-500 appearance-none pr-7"
               >
                 {TYPE_OPTIONS.map((o) => (
                   <option key={o.value} value={o.value}>
@@ -263,7 +262,7 @@ export default function StockUpdatePage() {
                 <button
                   type="button"
                   onClick={() => setType("All")}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-ink-faint hover:text-ink-muted"
                 >
                   <X className="w-3 h-3" />
                 </button>
@@ -273,23 +272,23 @@ export default function StockUpdatePage() {
 
           {/* From Date */}
           <div>
-            <label className="block text-[11px] text-slate-600 mb-1 font-medium">From Date</label>
-            <input
+            <label className="block text-[11px] text-ink-muted mb-1 font-medium">From Date</label>
+            <NativeDateInput
               type="date"
               value={fromDate}
               onChange={(e) => setFromDate(e.target.value)}
-              className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white text-xs focus:ring-1 focus:ring-blue-500"
+              className="w-full border border-line-strong rounded px-2.5 py-1.5 bg-surface text-xs focus:ring-1 focus:ring-blue-500"
             />
           </div>
 
           {/* To Date */}
           <div>
-            <label className="block text-[11px] text-slate-600 mb-1 font-medium">To Date</label>
-            <input
+            <label className="block text-[11px] text-ink-muted mb-1 font-medium">To Date</label>
+            <NativeDateInput
               type="date"
               value={toDate}
               onChange={(e) => setToDate(e.target.value)}
-              className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white text-xs focus:ring-1 focus:ring-blue-500"
+              className="w-full border border-line-strong rounded px-2.5 py-1.5 bg-surface text-xs focus:ring-1 focus:ring-blue-500"
             />
           </div>
         </div>
@@ -298,12 +297,12 @@ export default function StockUpdatePage() {
         <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 items-end">
           {/* Status */}
           <div>
-            <label className="block text-[11px] text-slate-600 mb-1 font-medium">Status</label>
+            <label className="block text-[11px] text-ink-muted mb-1 font-medium">Status</label>
             <div className="relative">
               <select
                 value={status}
                 onChange={(e) => setStatus(e.target.value)}
-                className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white text-xs focus:ring-1 focus:ring-blue-500 appearance-none pr-7"
+                className="w-full border border-line-strong rounded px-2.5 py-1.5 bg-surface text-xs focus:ring-1 focus:ring-blue-500 appearance-none pr-7"
               >
                 {STATUS_OPTIONS.map((o) => (
                   <option key={o.value} value={o.value}>
@@ -315,7 +314,7 @@ export default function StockUpdatePage() {
                 <button
                   type="button"
                   onClick={() => setStatus("All")}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-ink-faint hover:text-ink-muted"
                 >
                   <X className="w-3 h-3" />
                 </button>
@@ -342,40 +341,40 @@ export default function StockUpdatePage() {
       {/* ─────────────────────────────────────────────────── */}
       {/* 3. EXCEL BUTTON                                     */}
       {/* ─────────────────────────────────────────────────── */}
-      <div className="flex justify-end">
-        <button
+      <div className="flex justify-end shrink-0">
+        {perms.export && (<button
           type="button"
           onClick={handleExportCSV}
           className="px-4 py-1.5 bg-[#2563eb] hover:bg-blue-700 text-white font-semibold text-xs rounded shadow-xs transition"
         >
           Excel
-        </button>
+        </button>)}
       </div>
 
       {/* ─────────────────────────────────────────────────── */}
       {/* 4. TABLE                                            */}
       {/* ─────────────────────────────────────────────────── */}
-      <div className="border border-slate-300 bg-white rounded shadow-2xs overflow-x-auto">
+      <div className="border border-line-strong bg-surface rounded shadow-2xs flex-1 min-h-0 overflow-auto print:overflow-visible [&_thead]:sticky [&_thead]:top-0 [&_thead]:z-10">
         <table className="erp-table w-full text-left text-xs border-collapse">
-          <thead className="bg-[#e6f2fb] text-slate-800 font-semibold text-[11px] border-b border-slate-300 select-none">
+          <thead className="bg-blue-100/70 dark:bg-blue-500/15 text-ink font-semibold text-xs select-none">
             <tr>
-              <th className="p-2 border border-slate-300 w-12 text-center">SL</th>
-              <th className="p-2 border border-slate-300 w-36">Code</th>
-              <th className="p-2 border border-slate-300">Remarks</th>
-              <th className="p-2 border border-slate-300">Office Name</th>
-              <th className="p-2 border border-slate-300">Warehouse</th>
-              <th className="p-2 border border-slate-300 w-24">Created Date</th>
-              <th className="p-2 border border-slate-300 w-24">Entry Date</th>
-              <th className="p-2 border border-slate-300">Action By</th>
-              <th className="p-2 border border-slate-300 w-24 text-center">Status</th>
-              <th className="p-2 border border-slate-300 w-32">Review Comment</th>
-              <th className="p-2 border border-slate-300 w-16 text-center">Action</th>
+              <th className="px-2.5 py-2 border-b border-line w-12 text-center">SL</th>
+              <th className="px-2.5 py-2 border-b border-line w-16 text-center">Action</th>
+              <th className="px-2.5 py-2 border-b border-line w-36">Code</th>
+              <th className="px-2.5 py-2 border-b border-line">Remarks</th>
+              <th className="px-2.5 py-2 border-b border-line">Office Name</th>
+              <th className="px-2.5 py-2 border-b border-line">Warehouse</th>
+              <th className="px-2.5 py-2 border-b border-line w-24">Created Date</th>
+              <th className="px-2.5 py-2 border-b border-line w-24">Entry Date</th>
+              <th className="px-2.5 py-2 border-b border-line">Action By</th>
+              <th className="px-2.5 py-2 border-b border-line w-24 text-center">Status</th>
+              <th className="px-2.5 py-2 border-b border-line w-32">Review Comment</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-200 text-[11px] text-slate-800">
+          <tbody className="divide-y divide-line text-[11px] text-ink">
             {paginatedRows.length === 0 ? (
               <tr>
-                <td colSpan={11} className="p-12 text-center text-slate-400">
+                <td colSpan={11} className="p-12 text-center text-ink-faint">
                   <div className="flex flex-col items-center gap-2">
                     <FileSpreadsheet className="w-8 h-8 stroke-[1.5] text-slate-300" />
                     <span className="text-sm font-medium">No stock update records found.</span>
@@ -384,66 +383,29 @@ export default function StockUpdatePage() {
               </tr>
             ) : (
               paginatedRows.map((row) => (
-                <tr key={row.id} className="hover:bg-slate-50/80 transition-colors">
-                  <td className="p-2 border border-slate-300 text-center font-mono text-slate-600">
+                <tr key={row.id} className="hover:bg-canvas/80 transition-colors">
+                  <td className="px-2.5 py-2 border-b border-line text-center font-mono text-ink-muted">
                     {row.sl}
                   </td>
-                  <td className="p-2 border border-slate-300 font-mono font-medium text-slate-900 whitespace-nowrap">
-                    {row.code}
-                  </td>
-                  <td className="p-2 border border-slate-300 text-slate-800">
-                    {row.remarks}
-                  </td>
-                  <td className="p-2 border border-slate-300 text-slate-700">
-                    {row.officeName}
-                  </td>
-                  <td className="p-2 border border-slate-300 text-slate-700">
-                    {row.warehouse}
-                  </td>
-                  <td className="p-2 border border-slate-300 whitespace-nowrap text-slate-700">
-                    {row.createdDate}
-                  </td>
-                  <td className="p-2 border border-slate-300 whitespace-nowrap text-slate-700">
-                    {row.entryDate}
-                  </td>
-                  <td className="p-2 border border-slate-300 text-slate-700">
-                    {row.actionBy}
-                  </td>
-                  <td className="p-2 border border-slate-300 text-center">
-                    <span
-                      className={
-                        row.status === "Approved"
-                          ? "text-emerald-600 font-semibold text-[11px]"
-                          : row.status === "Rejected"
-                            ? "text-red-600 font-semibold text-[11px]"
-                            : "text-amber-600 font-semibold text-[11px]"
-                      }
-                    >
-                      {row.status}
-                    </span>
-                  </td>
-                  <td className="p-2 border border-slate-300 text-slate-600">
-                    {row.reviewComment}
-                  </td>
-                  <td className="p-2 border border-slate-300 text-center">
-                    <div className="flex items-center justify-center gap-1.5 text-slate-600">
-                      {row.status === "Pending" && (
+                  <td className="px-2.5 py-2 border-b border-line text-center">
+                    <div className="row-actions flex items-center justify-center gap-1.5 text-ink-muted">
+                      {(row.status === "Pending" || row.status === "In Review") && (
                         <>
                           <button
                             type="button"
-                            disabled={busyId === row.id}
+                            disabled={(busyId === row.id) || !perms.approve}
                             onClick={() => review(row, "approve")}
                             className="px-1.5 py-0.5 rounded bg-emerald-600 text-white text-[10px] font-semibold disabled:opacity-50"
-                            title="Approve and post to stock"
+                            title={!perms.approve ? needsPermission("approve") : "Approve and post to stock"}
                           >
                             Approve
                           </button>
                           <button
                             type="button"
-                            disabled={busyId === row.id}
+                            disabled={(busyId === row.id) || !perms.approve}
                             onClick={() => review(row, "reject")}
-                            className="px-1.5 py-0.5 rounded border border-red-300 text-red-600 text-[10px] font-semibold disabled:opacity-50"
-                            title="Reject"
+                            className="px-1.5 py-0.5 rounded border border-red-300 dark:border-red-500/30 text-red-600 dark:text-red-400 text-[10px] font-semibold disabled:opacity-50"
+                            title={!perms.approve ? needsPermission("approve") : "Reject"}
                           >
                             Reject
                           </button>
@@ -451,19 +413,56 @@ export default function StockUpdatePage() {
                       )}
                       <button
                         type="button"
-                        className="p-1 hover:text-blue-600"
+                        className="p-1 hover:text-blue-600 dark:hover:text-blue-400"
                         title="View"
                       >
                         <Eye className="w-3.5 h-3.5" />
                       </button>
                       <button
                         type="button"
-                        className="p-1 hover:text-blue-600"
+                        className="p-1 hover:text-blue-600 dark:hover:text-blue-400"
                         title="Print"
                       >
                         <Printer className="w-3.5 h-3.5" />
                       </button>
                     </div>
+                  </td>
+                  <td className="px-2.5 py-2 border-b border-line font-mono font-medium text-ink whitespace-nowrap">
+                    {row.code}
+                  </td>
+                  <td className="px-2.5 py-2 border-b border-line text-ink">
+                    {row.remarks}
+                  </td>
+                  <td className="px-2.5 py-2 border-b border-line text-ink-muted">
+                    {row.officeName}
+                  </td>
+                  <td className="px-2.5 py-2 border-b border-line text-ink-muted">
+                    {row.warehouse}
+                  </td>
+                  <td className="px-2.5 py-2 border-b border-line whitespace-nowrap text-ink-muted">
+                    {row.createdDate}
+                  </td>
+                  <td className="px-2.5 py-2 border-b border-line whitespace-nowrap text-ink-muted">
+                    {row.entryDate}
+                  </td>
+                  <td className="px-2.5 py-2 border-b border-line text-ink-muted">
+                    {row.actionBy}
+                  </td>
+                  <td className="px-2.5 py-2 border-b border-line text-center">
+                    <span
+                      className={
+                        row.status === "Approved"
+                          ? "text-emerald-600 dark:text-emerald-400 font-semibold text-[11px]"
+                          : row.status === "Rejected"
+                            ? "text-red-600 dark:text-red-400 font-semibold text-[11px]"
+                            : "text-amber-600 dark:text-amber-400 font-semibold text-[11px]"
+                      }
+                    >
+                      {row.status}
+                    </span>
+                  </td>
+                  <td className="px-2.5 py-2 border-b border-line text-ink-muted">
+                    {row.reviewComment}
                   </td>
                 </tr>
               ))
@@ -475,7 +474,7 @@ export default function StockUpdatePage() {
       {/* ─────────────────────────────────────────────────── */}
       {/* 5. PAGINATION                                       */}
       {/* ─────────────────────────────────────────────────── */}
-      <div className="flex flex-col sm:flex-row items-center justify-end gap-6 text-xs text-slate-600 pt-1 pb-4">
+      <div className="flex flex-col sm:flex-row items-center justify-end gap-6 text-xs text-ink-muted pt-1 shrink-0">
         <div className="flex items-center gap-2">
           <span>Rows per page:</span>
           <select
@@ -484,7 +483,7 @@ export default function StockUpdatePage() {
               setRowsPerPage(Number(e.target.value));
               setPage(1);
             }}
-            className="border border-slate-300 rounded px-1.5 py-0.5 bg-white text-xs"
+            className="border border-line-strong rounded px-1.5 py-0.5 bg-surface text-xs"
           >
             <option value={20}>20</option>
             <option value={50}>50</option>
@@ -502,7 +501,7 @@ export default function StockUpdatePage() {
               type="button"
               disabled={page <= 1}
               onClick={() => setPage((p) => Math.max(1, p - 1))}
-              className="p-1 border border-slate-200 rounded text-slate-400 hover:text-slate-700 disabled:opacity-40"
+              className="p-1 border border-line rounded text-ink-faint hover:text-ink-muted disabled:opacity-40"
             >
               <ChevronLeft className="w-4 h-4" />
             </button>
@@ -510,7 +509,7 @@ export default function StockUpdatePage() {
               type="button"
               disabled={page >= totalPages}
               onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-              className="p-1 border border-slate-200 rounded text-slate-400 hover:text-slate-700 disabled:opacity-40"
+              className="p-1 border border-line rounded text-ink-faint hover:text-ink-muted disabled:opacity-40"
             >
               <ChevronRight className="w-4 h-4" />
             </button>
@@ -521,16 +520,29 @@ export default function StockUpdatePage() {
       {/* ─────────────────────────────────────────────────── */}
       {/* 6. + CREATE MODAL                                   */}
       {/* ─────────────────────────────────────────────────── */}
+      <BulkUploadDialog
+        open={bulkOpen}
+        onClose={() => setBulkOpen(false)}
+        onImported={() => docs.reload()}
+        noun="stock updates"
+        templateUrl={inventoryApi.importTemplateUrl("stock-adjustment")}
+        maxRows={2000}
+        matchHint="Warehouse names must match existing warehouses exactly; Item Code must match an active item. Rows with the same Ref are saved as one document."
+        upload={(file) => inventoryApi.importFile("stock-adjustment", file)}
+      />
       <InventoryDocumentDialog
         open={isCreateOpen}
         onClose={() => setIsCreateOpen(false)}
         onSaved={() => docs.reload()}
         config={{
           slug: "stock-adjustment",
-          title: "New Stock Update",
+          title: "Create Stock Adjustment",
           warehouses: "one",
+          offices: true,
           signed: true,
-          subtype: { label: "Adjustment Type", options: TYPE_OPTIONS.filter((o) => o.value !== "All").map((o) => o.value) },
+          subtype: { label: "Type", options: TYPE_OPTIONS.filter((o) => o.value !== "All").map((o) => o.value) },
+          columns: ["code", "category", "name", "uom", "stock", "cost", "qty", "remarks"],
+          qtyLabel: "Adjust Qty (+/−)",
         }}
       />
     </div>

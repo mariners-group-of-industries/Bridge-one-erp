@@ -9,6 +9,11 @@ import type { PolicyTab } from "./types";
 
 export const WEEKDAYS = ["Saturday", "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday"] as const;
 
+/** Payroll Rules › Daily Rate Basis. */
+export const PAYROLL_DAY_RATE_BASES = ["Calendar days of the month", "30 days", "Assigned working days"] as const;
+/** Payroll Rules › Payroll Month Is. */
+export const PAYROLL_PERIOD_MONTHS = ["The month the period starts in", "The month the period ends in"] as const;
+
 export type PolicyFieldType = "text" | "textarea" | "number" | "percent" | "time" | "date" | "select" | "checkbox" | "weekdays" | "ref" | "lines";
 
 export interface PolicyField {
@@ -169,6 +174,8 @@ export const POLICY_TAB_DEFS: Record<PolicyTab, PolicyTabDef> = {
       num("maxCarryDays", "Max. Carry Forward (days)", { integer: true }),
       flag("encashable", "Encashable"),
       flag("halfDayAllowed", "Half day allowed"),
+      num("noticeDays", "Apply In Advance (days)", { integer: true, min: 0, hint: "Employees must apply at least this many days before the leave starts. Empty = any time." }),
+      num("attachmentAfterDays", "Attachment Required Over (days)", { integer: true, min: 0, hint: "Longer applications need a supporting document. 0 = always; empty = never." }),
     ],
     columns: cols("@office", "name", "shortCode", "yearlyQuota", "gender", "carryForward", "maxCarryDays", "encashable", ["@from", "Effective Date"]),
   },
@@ -329,7 +336,7 @@ export const POLICY_TAB_DEFS: Record<PolicyTab, PolicyTabDef> = {
     columns: cols("@office", "basis", "employeePercent", "employerPercent", "eligibleAfterMonths", "vestingYears", ["@from", "Effective Date"]),
   },
   "late-punishment": {
-    description: "How repeated late attendance is penalised.",
+    description: "How repeated late attendance is penalised. Without a rule, every 3 lates in a payroll period deduct 1 day of salary.",
     createLabel: "Create Late Rule",
     noun: "late rule",
     scope: { office: true, from: "required" },
@@ -340,6 +347,22 @@ export const POLICY_TAB_DEFS: Record<PolicyTab, PolicyTabDef> = {
       flag("halfDayCounts", "Half days count as late"),
     ],
     columns: cols("@office", "latesAllowed", "deductionDays", "deductFrom", "halfDayCounts", ["@from", "Effective Date"]),
+  },
+  "payroll-rules": {
+    description:
+      "The payroll period, and how Salary Generate turns attendance into salary deductions. Without a rule, the period is the 21st to the 20th, named after the month it ends in (21 Oct – 20 Nov is November), salaries are prorated by the days of the period and no absence is deducted (each such day is listed as a warning instead).",
+    createLabel: "Create Payroll Rule",
+    noun: "payroll rule",
+    scope: { office: true, from: "required" },
+    fields: [
+      num("periodStartDay", "Period Starts On Day", { integer: true, min: 1, max: 28, hint: "21 = the 21st to the 20th of the next month (the default). 1 = calendar month." }),
+      pick("periodMonth", "Payroll Month Is", PAYROLL_PERIOD_MONTHS, { hint: "Which month names the period; default: the month it ends in (21 Oct – 20 Nov = November)." }),
+      pick("dayRateBasis", "Daily Rate Basis", PAYROLL_DAY_RATE_BASES, { required: true, hint: "One day's salary = monthly gross ÷ these days." }),
+      flag("deductAbsentDays", "Deduct salary for absent days", { hint: "Days rated Absent by the attendance rule." }),
+      flag("deductUnrecordedDays", "Treat working days without punch or leave as absent", { hint: "Off: such days are paid and listed as warnings." }),
+      text("unpaidLeaveTypes", "Unpaid Leave Types", { hint: "Comma separated; empty = Leave Without Pay." }),
+    ],
+    columns: cols("@office", "periodStartDay", "periodMonth", "dayRateBasis", "deductAbsentDays", "deductUnrecordedDays", "unpaidLeaveTypes", ["@from", "Effective Date"]),
   },
   others: {
     description: "Any other HR setting.",
@@ -400,8 +423,8 @@ export function policyDataSchema(def: PolicyTabDef) {
 }
 
 export const policyRecordInputSchema = z.object({
-  officeId: z.union([z.uuid(), z.literal("")]).default(""),
-  employeeId: z.union([z.uuid(), z.literal("")]).default(""),
+  officeId: z.union([z.guid(), z.literal("")]).default(""),
+  employeeId: z.union([z.guid(), z.literal("")]).default(""),
   effectiveFrom: z.union([z.string().regex(/^\d{4}-\d{2}-\d{2}$/), z.literal("")]).default(""),
   effectiveTo: z.union([z.string().regex(/^\d{4}-\d{2}-\d{2}$/), z.literal("")]).default(""),
   data: z.record(z.string(), z.unknown()).default({}),

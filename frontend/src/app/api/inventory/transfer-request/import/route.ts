@@ -1,0 +1,11 @@
+import { bulkImportRoute } from "@/lib/bulk-import/route";
+import { inventoryImportTemplate, importInventoryDocuments } from "@/features/inventory/server/document-excel";
+
+/** GET: .xlsx template; POST: bulk-create Transfer Request documents (one row per line, Ref groups lines into one document). */
+export const { GET, POST } = bulkImportRoute({
+  read: "purchase:read",
+  write: "purchase:write",
+  templateName: "transfer-request-template",
+  template: () => inventoryImportTemplate("transfer-request"),
+  importFile: (actor, actorName, bytes) => importInventoryDocuments("transfer-request", actor, actorName, bytes),
+});

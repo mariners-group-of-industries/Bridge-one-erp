@@ -58,7 +58,7 @@ const STATUS_TEXT: Record<OrderStatus, string> = {
 };
 
 /** Compact, vertically centred rows like Managerium. */
-const ROW_CELL = "py-1.5! align-middle!";
+const ROW_CELL = "py-1! align-middle!";
 
 /** `value` once it has stopped changing for 400 ms. */
 function useDebounced(value: string) {
@@ -76,7 +76,7 @@ export function OrderListView() {
   if (!today) {
     return (
       <PageContainer className="max-w-none">
-        <PageHead title="Order Management" />
+        <PageHead title="Order Management" className="mb-0 pb-0" />
         <LoadingState />
       </PageContainer>
     );
@@ -155,7 +155,7 @@ function OrderList({ today }: { today: string }) {
   }
 
   const columns: Column<OrderListRow>[] = [
-    { id: "sl", header: "SL", cell: (_row, index) => <span className="text-ink-faint tabular-nums">{index + 1}</span>, className: "w-10" },
+    { id: "sl", header: "SL", cell: (_row, index) => <span className="tabular-nums">{index + 1}</span>, className: "w-10 text-center" },
     {
       id: "actions",
       header: "Action",
@@ -205,11 +205,11 @@ function OrderList({ today }: { today: string }) {
       ),
       sortValue: (row) => row.number,
     },
-    { id: "office", header: "Office Name", cell: (row) => row.officeName, hideBelow: "lg" },
+    { id: "office", header: "Office Name", cell: (row) => <span className="block min-w-28">{row.officeName}</span>, hideBelow: "lg" },
     { id: "code", header: "Customer Code", cell: (row) => row.customerCode, hideBelow: "md" },
-    { id: "customer", header: "Customer Name", cell: (row) => <span className="min-w-36">{row.customerName}</span>, sortValue: (row) => row.customerName },
+    { id: "customer", header: "Customer Name", cell: (row) => <span className="block min-w-44">{row.customerName}</span>, sortValue: (row) => row.customerName },
     { id: "outlet", header: "Project/Outlet/Ref", cell: (row) => text(row.refProjectOutlet), hideBelow: "lg" },
-    { id: "ship", header: "Shipping Address", cell: (row) => <span className="line-clamp-2 min-w-48">{text(row.shippingAddress)}</span>, hideBelow: "lg" },
+    { id: "ship", header: "Shipping Address", cell: (row) => <span className="line-clamp-2 min-w-52">{text(row.shippingAddress)}</span>, hideBelow: "lg" },
     { id: "zone", header: "Zone", cell: (row) => text(row.zone), hideBelow: "lg" },
     { id: "route", header: "Route", cell: (row) => text(row.route), hideBelow: "lg" },
     { id: "section", header: "Section", cell: (row) => text(row.section), hideBelow: "lg" },
@@ -218,9 +218,9 @@ function OrderList({ today }: { today: string }) {
     { id: "poAmount", header: "Ref Customer PO Amount", cell: (row) => formatAmount(row.refCustomerPoAmount ?? 0), className: "text-right tabular-nums", hideBelow: "lg" },
     { id: "invoice", header: "Ref Invoice", cell: (row) => text(row.refInvoice), hideBelow: "lg" },
     { id: "amount", header: "Amount (BDT)", cell: (row) => <span className="text-ink">{formatAmount(row.salesTotal)}</span>, sortValue: (row) => row.salesTotal, className: "text-right tabular-nums" },
-    { id: "by", header: "Order By", cell: (row) => text(row.salesPersonName), hideBelow: "md" },
-    { id: "territory", header: "Territory Name", cell: (row) => text(row.territory), hideBelow: "md" },
-    { id: "orderType", header: "Type", cell: (row) => <span className="text-success">{ORDER_TYPE_LABELS[row.orderType]}</span>, hideBelow: "lg" },
+    { id: "by", header: "Order By", cell: (row) => <span className="line-clamp-2 min-w-44" title={row.salesPersonName ?? undefined}>{text(row.salesPersonName)}</span>, hideBelow: "md" },
+    { id: "territory", header: "Base Name", cell: (row) => <span className="block min-w-28">{text(row.territory)}</span>, hideBelow: "md" },
+    { id: "orderType", header: "Type", cell: (row) => <span className="font-medium text-success">{ORDER_TYPE_LABELS[row.orderType]}</span>, hideBelow: "lg" },
     { id: "payment", header: "Payment Method", cell: (row) => PAYMENT_METHOD_LABELS[row.paymentMethod], hideBelow: "lg" },
   ];
 
@@ -233,6 +233,8 @@ function OrderList({ today }: { today: string }) {
     <PageContainer className="max-w-none">
       <PageHead
         title="Order Management"
+        // Joined to the card below so the header, tabs, filters and table read as one card.
+        className="mb-0 pb-0 [&>div]:rounded-b-none [&>div]:border-b-0 [&>div]:shadow-none"
         actions={
           <>
             <label className="relative w-56">
@@ -251,7 +253,7 @@ function OrderList({ today }: { today: string }) {
           </>
         }
       />
-      <Card>
+      <Card className="rounded-t-none border-t-0">
         <Tabs<OrderType>
           label="Order types"
           tabs={ORDER_TYPES.map((type) => ({ id: type, label: ORDER_TYPE_LABELS[type] }))}
@@ -263,7 +265,7 @@ function OrderList({ today }: { today: string }) {
         >
           <form onSubmit={view} className="grid items-end gap-3 border-b border-line p-4 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6">
             <SelectField label="Office" options={[all, ...offices.map((office) => ({ value: office.id, label: office.name }))]} {...field("officeId")} />
-            <SelectField label="Territory" options={areaOptions("TERRITORY")} {...field("territoryId")} />
+            <SelectField label="Base" options={areaOptions("TERRITORY")} {...field("territoryId")} />
             <SelectField label="Customer Group" options={[all, ...groups.map((group) => ({ value: group.id, label: group.name }))]} {...field("customerGroupId")} />
             <SelectField label="Sales Force" options={[all, ...persons.map((person) => ({ value: person.id, label: person.name }))]} {...field("salesPersonId")} />
             <SelectField label="Order By" hint="Who entered the order." options={[all, ...(list.data?.creators ?? []).map((user) => ({ value: user.id, label: user.name }))]} {...field("createdBy")} />
@@ -313,6 +315,7 @@ function OrderList({ today }: { today: string }) {
                 getRowId={(row) => row.id}
                 getRowLabel={(row) => row.number}
                 rowHref={(row) => paths.order(row.id)}
+                sheet
                 pages={ORDER_PAGE_SIZES}
                 footer={(rows) => ({
                   customer: "Total:",

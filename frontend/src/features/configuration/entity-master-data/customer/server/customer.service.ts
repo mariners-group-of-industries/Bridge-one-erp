@@ -22,6 +22,7 @@ import {
   type CustomerListQuery,
   type CustomerListRow,
   type SalesForceList,
+  type TerritoryLevel,
 } from "../schemas/customer.schema";
 
 type Tx = Prisma.TransactionClient;
@@ -389,11 +390,54 @@ export async function getCustomer(actor: Actor, id: string): Promise<CustomerDto
   return toDto(customer);
 }
 
+/**
+ * Customers pick their territory from Sales Setup › Territory: the active
+ * Territory-layer nodes, labelled with the path above them (National › Dhaka).
+ * Sales territories not in that tree are returned separately, only so customers
+ * that already use one still show its name.
+ */
+export function territoriesFromSetup(
+  areas: { id: string; name: string; businessUnitId: string }[],
+  nodes: { id: string; parentId: string | null; name: string; layerId: string; salesAreaId: string | null; isActive: boolean; layer: { isTerritory: boolean } }[],
+): Pick<CustomerFormOptions, "territories" | "otherTerritories"> {
+  const byId = new Map(nodes.map((node) => [node.id, node]));
+  /** The nodes above `node`, top first (National, Region …). */
+  const ancestorsOf = (node: (typeof nodes)[number]) => {
+    const levels: TerritoryLevel[] = [];
+    const seen = new Set<string>();
+    for (let parent = node.parentId ? byId.get(node.parentId) : undefined; parent && !seen.has(parent.id); parent = parent.parentId ? byId.get(parent.parentId) : undefined) {
+      seen.add(parent.id);
+      levels.unshift({ layerId: parent.layerId, name: parent.name });
+    }
+    return levels;
+  };
+  const inTree = new Map(nodes.filter((n) => n.layer.isTerritory && n.isActive && n.salesAreaId).map((n) => [n.salesAreaId!, n]));
+  const territories = areas
+    .filter((area) => inTree.has(area.id))
+    .map((area) => {
+      const levels = ancestorsOf(inTree.get(area.id)!);
+      return { ...area, path: levels.map((level) => level.name).join(" › "), levels };
+    })
+    .sort((a, b) => `${a.path} › ${a.name}`.localeCompare(`${b.path} › ${b.name}`));
+  return { territories, otherTerritories: areas.filter((area) => !inTree.has(area.id)) };
+}
+
+/** Per business unit, the Sales Setup layers above its Territory layer, top first. */
+export function layersAboveTerritory(
+  layers: { id: string; businessUnitId: string; name: string; level: number; isTerritory: boolean }[],
+): CustomerFormOptions["territoryLayers"] {
+  const territoryLevel = new Map(layers.filter((layer) => layer.isTerritory).map((layer) => [layer.businessUnitId, layer.level]));
+  return layers
+    .filter((layer) => layer.level < (territoryLevel.get(layer.businessUnitId) ?? -Infinity))
+    .sort((a, b) => a.level - b.level)
+    .map(({ id, businessUnitId, name, level }) => ({ id, businessUnitId, name, level }));
+}
+
 export async function getFormOptions(actor: Actor): Promise<CustomerFormOptions> {
   const unit = { businessUnit: businessUnitScope(actor) };
   const bu = { id: true, name: true, businessUnitId: true } as const;
   // Plain parallel reads: a transaction here hit Prisma's 20 s limit on the slow remote database.
-  const [offices, groups, areas, salesPersons, priceLists, taxBrackets, districts, thanas] = await Promise.all([
+  const [offices, groups, areas, salesPersons, priceLists, taxBrackets, districts, thanas, nodes, layers] = await Promise.all([
     db().office.findMany({ where: unit, orderBy: { name: "asc" }, select: bu }),
     db().customerGroup.findMany({ where: { ...unit, isActive: true }, orderBy: { name: "asc" }, select: { ...bu, parentId: true } }),
     db().salesArea.findMany({
@@ -406,12 +450,24 @@ export async function getFormOptions(actor: Actor): Promise<CustomerFormOptions>
     db().taxBracket.findMany({ where: unit, orderBy: { name: "asc" }, select: { ...bu, ratePercent: true } }),
     db().district.findMany({ orderBy: { name: "asc" } }),
     db().thana.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true, districtId: true } }),
+    // Sales Setup › Territory: the tree whose Territory-layer nodes are the customers' territories.
+    db().salesTerritoryNode.findMany({
+      where: unit,
+      select: { id: true, parentId: true, name: true, layerId: true, salesAreaId: true, isActive: true, layer: { select: { isTerritory: true } } },
+    }),
+    db().salesTerritoryLayer.findMany({
+      where: unit,
+      select: { id: true, businessUnitId: true, name: true, level: true, isTerritory: true },
+    }),
   ]);
   const pick = (kind: string) => areas.filter((area) => area.kind === kind).map(({ kind: _kind, ...area }) => area);
+  const { territories, otherTerritories } = territoriesFromSetup(pick("TERRITORY"), nodes);
   return {
     offices,
     groups,
-    territories: pick("TERRITORY"),
+    territories,
+    territoryLayers: layersAboveTerritory(layers),
+    otherTerritories,
     sections: pick("SECTION"),
     salesPersons,
     priceLists,

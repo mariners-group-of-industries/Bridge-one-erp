@@ -1,10 +1,10 @@
 import { z } from "zod";
 import { optionalEmail, optionalPhone, optionalText, requiredText } from "@/lib/validation/fields";
 
-const businessUnitId = z.uuid({ error: "Business unit is required." });
+const businessUnitId = z.guid({ error: "Business unit is required." });
 /** Blank code = generate the next one from the sequence. */
 const optionalCode = optionalText("Code", 30);
-const optionalId = z.uuid().nullish().transform((value) => value ?? null);
+const optionalId = z.guid().nullish().transform((value) => value ?? null);
 const MAX_AMOUNT = 999_999_999_999;
 const percent = (label: string) =>
   z.number({ error: `${label} must be a number.` }).min(0, `${label} cannot be negative.`).max(100, `${label} can be at most 100.`);
@@ -35,7 +35,7 @@ export const CATEGORY_LEVEL_LABELS = ["", "Category", "Sub Category", "Minor Cat
 // ─── Customers ───────────────────────────────────────────────────────────────
 
 export const customerAddressSchema = z.object({
-  id: z.uuid().optional(),
+  id: z.guid().optional(),
   label: requiredText("Address label", 60),
   address: requiredText("Address", 500),
   isDefault: z.boolean(),
@@ -104,7 +104,7 @@ const itemFields = {
     .transform((value) => value ?? null),
   categoryId: optionalId,
   prices: z
-    .array(z.object({ priceListId: z.uuid(), rate: z.number().min(0, "Price cannot be negative.").max(MAX_AMOUNT) }))
+    .array(z.object({ priceListId: z.guid(), rate: z.number().min(0, "Price cannot be negative.").max(MAX_AMOUNT) }))
     .max(50)
     .default([]),
   isActive: z.boolean().default(true),
@@ -162,7 +162,7 @@ export const businessUnitQuerySchema = z.object({
     .optional()
     .transform((value) => value === "true"),
 });
-export const optionalBusinessUnitQuerySchema = z.object({ businessUnitId: z.uuid().optional() });
+export const optionalBusinessUnitQuerySchema = z.object({ businessUnitId: z.guid().optional() });
 
 // ─── DTOs ────────────────────────────────────────────────────────────────────
 

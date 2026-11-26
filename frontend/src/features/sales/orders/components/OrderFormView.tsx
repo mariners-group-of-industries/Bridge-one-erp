@@ -15,9 +15,11 @@ import { useToast } from "@/components/ui/toast";
 import { useResource } from "@/hooks/use-resource";
 import { useSaveShortcut } from "@/hooks/use-save-shortcut";
 import { errorMessage } from "@/lib/api/client";
+import { useSession } from "@/lib/auth/session";
 import { cn } from "@/lib/cn";
 import { formatAmount, formatQty } from "../../dashboard/lib/format";
 import { issuesToErrors, numberText, optionalNumber, requiredNumber } from "../../lib/form";
+import { itemTypeList } from "../../lib/item-types";
 import { addDays, useToday } from "../../lib/use-today";
 import {
   CATEGORY_LEVEL_LABELS,
@@ -40,7 +42,8 @@ import { fetchPricing } from "../../pricing/services/pricing.api";
 import type { QuotationDetail } from "../../quotations/schemas/quotation.schema";
 import { fetchStock, fetchWarehouses } from "../../deliveries/services/delivery.api";
 import { fetchQuotation, fetchQuotations } from "../../quotations/services/quotation.api";
-import { CustomerDialog } from "../../setup/components/CustomerDialog";
+import { entityMasterDataPaths } from "@/features/configuration/entity-master-data/paths";
+import { ManagedInConfigurationDialog } from "../../components/ManagedInConfigurationDialog";
 import { SearchPick } from "../../components/SearchPick";
 import { altQty, orderTotals } from "../lib/order-totals";
 import {
@@ -320,7 +323,6 @@ function OrderEditor({ today, lookups, order, quotation }: EditorProps) {
   const [busy, setBusy] = useState(false);
   const [customerDialog, setCustomerDialog] = useState<CustomerOption | "new" | null>(null);
   /** Whether a customer added in the dialog is the order's customer or who referred it. */
-  const [dialogFor, setDialogFor] = useState<"customer" | "referrer">("customer");
   const [fromQuotation, setFromQuotation] = useState(Boolean(quotation));
   const initialJson = useMemo(() => JSON.stringify(initial, (name, value) => (name === "key" ? undefined : value)), [initial]);
   const dirty = !order || JSON.stringify(values, (name, value) => (name === "key" ? undefined : value)) !== initialJson;
@@ -688,7 +690,7 @@ function OrderEditor({ today, lookups, order, quotation }: EditorProps) {
                   required
                   error={err("customerId")}
                   disabled={!businessUnitId || masters.loading}
-                  placeholder={masters.loading ? "Loading…" : "Select/Search Customer (min 3 letters)"}
+                  placeholder={masters.loading ? "Loading…" : "Select/Search Customer"}
                   options={[
                     ...(order && !customers.some((candidate) => candidate.id === order.customerId)
                       ? [{ id: order.customerId, label: order.customerName }]
@@ -706,7 +708,6 @@ function OrderEditor({ today, lookups, order, quotation }: EditorProps) {
                   title="Add customer"
                   disabled={!setup}
                   onClick={() => {
-                    setDialogFor("customer");
                     setCustomerDialog("new");
                   }}
                 >
@@ -719,7 +720,7 @@ function OrderEditor({ today, lookups, order, quotation }: EditorProps) {
                   freeText
                   error={err("referredBy")}
                   disabled={!businessUnitId}
-                  placeholder="Select/Search Customer (min 3 letters)"
+                  placeholder="Select/Search Customer"
                   options={customers.filter((candidate) => candidate.id !== values.customerId).map((candidate) => ({ id: candidate.id, label: candidate.name }))}
                   text={values.referredBy}
                   onText={(text) => set("referredBy", text)}
@@ -732,7 +733,6 @@ function OrderEditor({ today, lookups, order, quotation }: EditorProps) {
                   title="Add a customer as referrer"
                   disabled={!setup}
                   onClick={() => {
-                    setDialogFor("referrer");
                     setCustomerDialog("new");
                   }}
                 >
@@ -766,7 +766,6 @@ function OrderEditor({ today, lookups, order, quotation }: EditorProps) {
                   aria-label="Edit customer addresses"
                   title="Edit customer / addresses"
                   onClick={() => {
-                    setDialogFor("customer");
                     setCustomerDialog(customer);
                   }}
                 >
@@ -1043,28 +1042,16 @@ function OrderEditor({ today, lookups, order, quotation }: EditorProps) {
         </div>
       </div>
 
-      {customerDialog && businessUnitId && setup && (
-        <CustomerDialog
-          key={customerDialog === "new" ? "new" : customerDialog.id}
+      {customerDialog && (
+        <ManagedInConfigurationDialog
           open
-          businessUnitId={businessUnitId}
-          lookups={setup}
-          customer={customerDialog === "new" ? null : customerDialog}
-          onClose={() => setCustomerDialog(null)}
-          onSaved={(saved) => {
+          title={customerDialog === "new" ? "Add Customer" : `Edit ${customerDialog.name}`}
+          what="Customers and their shipping addresses"
+          where="Configuration › Entity Master Data › Customer Profile"
+          href={customerDialog === "new" ? entityMasterDataPaths.customerCreate : entityMasterDataPaths.customerEdit(customerDialog.id)}
+          onClose={() => {
             setCustomerDialog(null);
-            masters.mutate((data) =>
-              data
-                ? {
-                    ...data,
-                    customers: [...data.customers.filter((candidate) => candidate.id !== saved.id), saved].sort((a, b) =>
-                      a.name.localeCompare(b.name),
-                    ),
-                  }
-                : data!,
-            );
-            if (dialogFor === "referrer") set("referredBy", saved.name);
-            else selectCustomer(saved);
+            masters.reload();
           }}
         />
       )}
@@ -1124,7 +1111,7 @@ export function ItemEntry({
   const listId = useId();
   const [category, setCategory] = useState<[string, string, string]>(["", "", ""]);
   const [itemType, setItemType] = useState("");
-  const itemTypes = useMemo(() => [...new Set(items.map((candidate) => candidate.itemType).filter((value): value is string => Boolean(value)))].sort(), [items]);
+  const itemTypes = useMemo(() => itemTypeList(items), [items]);
   const [itemText, setItemText] = useState("");
   const [entry, setEntry] = useState({ qty: "", unitPrice: "", discountPercent: "0", vatPercent: "0", aitPercent: "0" });
   const [warning, setWarning] = useState<string>();
@@ -1153,26 +1140,34 @@ export function ItemEntry({
   const visible = items.filter(
     (candidate) => (!allowed || (candidate.categoryId && allowed.has(candidate.categoryId))) && (!itemType || candidate.itemType === itemType),
   );
-  // As in Managerium, suggestions start after 3 letters.
-  const searching = itemText.trim().length >= 3;
   /** "is Customer": search by the printed / customer item code and name. */
   const [byCustomer, setByCustomer] = useState(false);
+  /** The item's code and name, then its unit from the Item Profile (PCS, KG, JAR …). */
   const label = (item: ItemOption) =>
-    byCustomer ? `${item.printedCode || item.code} — ${item.printedName || item.name}` : `${item.code} — ${item.name}`;
+    `${byCustomer ? `${item.printedCode || item.code} — ${item.printedName || item.name}` : `${item.code} — ${item.name}`}${item.uom ? ` [${item.uom}]` : ""}`;
   const item = visible.find((candidate) => label(candidate) === itemText) ?? items.find((candidate) => label(candidate) === itemText);
   const pending = useResource(item ? `pending:${item.id}` : null, () => fetchItemPending(item!.id));
-  const stock = useResource(item && warehouseId ? `stock:${warehouseId}:${item.id}` : null, () => fetchStock(warehouseId!, [item!.id]));
+  // ERP Login "Hide Stock In Sales": no stock is read or shown for this user.
+  const hideStock = useSession().user?.hideStockInSales ?? false;
+  /** The picked item has a packing unit (Bag, Ctn …) with a piece count. */
+  const packed = Boolean(item?.altUomFactor);
+  const stock = useResource(item && warehouseId && !hideStock ? `stock:${warehouseId}:${item.id}` : null, () => fetchStock(warehouseId!, [item!.id]));
 
   function pick(text: string) {
     setItemText(text);
     const match = items.find((candidate) => label(candidate) === text);
     if (match) {
+      // Packed items (Bag, Ctn …) default to one pack; loose items to one piece.
+      const qty = String(match.altUomFactor || 1);
       setEntry((current) => ({
         ...current,
-        qty: current.qty || "1",
+        qty,
         unitPrice: String(rateFor(match, priceListId)),
         vatPercent: String(match.vatPercent),
       }));
+      setPack(match.altUomFactor ? String(Math.round((orZero(qty) / match.altUomFactor) * 1000) / 1000) : "");
+    } else {
+      setPack("");
     }
   }
 
@@ -1233,7 +1228,10 @@ export function ItemEntry({
         {filterExtra}
       </div>
       <div
-        className="grid items-end gap-3 sm:grid-cols-4 lg:grid-cols-[minmax(16rem,2fr)_repeat(8,minmax(5rem,1fr))_auto]"
+        className={cn(
+          "grid items-end gap-3 sm:grid-cols-4",
+          packed ? "lg:grid-cols-[minmax(16rem,2fr)_repeat(8,minmax(5rem,1fr))_auto]" : "lg:grid-cols-[minmax(16rem,2fr)_repeat(7,minmax(5rem,1fr))_auto]",
+        )}
         onKeyDown={(event) => {
           if (event.key === "Enter" && (event.target as HTMLElement).tagName === "INPUT") {
             event.preventDefault();
@@ -1264,18 +1262,33 @@ export function ItemEntry({
             list={listId}
             value={itemText}
             disabled={disabled}
-            placeholder={disabled ? "Select an office first" : byCustomer ? "Search customer item code / name (min 3 letters)" : "Select/Search item (min 3 letters)"}
+            placeholder={disabled ? "Select an office first" : byCustomer ? "Select/Search customer item code / name" : "Select/Search item"}
             onChange={(event) => pick(event.target.value)}
             className={cn(CONTROL, "h-7")}
           />
           <datalist id={listId}>
-            {(searching ? visible : []).map((candidate) => (
+            {visible.map((candidate) => (
               <option key={candidate.id} value={label(candidate)} />
             ))}
           </datalist>
         </div>
+        {/* Packed item (Bag, Ctn …): enter packs first, pieces follow — e.g. 2 Bag (40 PCS) = 80 PCS. */}
+        {packed && item && (
+          <TextField
+            label={`ALT. Qty - ${item.altUom ?? "Pack"} (${formatQty(item.altUomFactor!)} ${item.uom})`}
+            type="number"
+            min={0}
+            step="any"
+            value={pack}
+            disabled={disabled}
+            onChange={(event) => {
+              setPack(event.target.value);
+              setEntry({ ...entry, qty: event.target.value ? String(Math.round(orZero(event.target.value) * item.altUomFactor! * 1000) / 1000) : "" });
+            }}
+          />
+        )}
         <TextField
-          label="Quantity"
+          label={item ? `Quantity (${item.uom})` : "Quantity"}
           required
           type="number"
           min={0}
@@ -1284,20 +1297,7 @@ export function ItemEntry({
           disabled={disabled}
           onChange={(event) => {
             setEntry({ ...entry, qty: event.target.value });
-            setPack(item?.altUomFactor && event.target.value ? String(Math.round((orZero(event.target.value) / item.altUomFactor) * 1000) / 1000) : "");
-          }}
-        />
-        <TextField
-          label={item?.altUom ? `Pack Qty (${item.altUom})` : "Pack Qty"}
-          type="number"
-          min={0}
-          step="any"
-          value={pack}
-          disabled={disabled || !item?.altUomFactor}
-          hint={item && !item.altUomFactor ? "No packing unit" : undefined}
-          onChange={(event) => {
-            setPack(event.target.value);
-            if (item?.altUomFactor) setEntry({ ...entry, qty: event.target.value ? String(Math.round(orZero(event.target.value) * item.altUomFactor * 1000) / 1000) : "" });
+            setPack(packed && event.target.value ? String(Math.round((orZero(event.target.value) / item!.altUomFactor!) * 1000) / 1000) : "");
           }}
         />
         <TextField label="Rate" type="number" min={0} step="any" value={entry.unitPrice} disabled={disabled} onChange={(event) => setEntry({ ...entry, unitPrice: event.target.value })} />
@@ -1328,9 +1328,11 @@ export function ItemEntry({
           </Indicator>
         )}
         {/* Always shown, as in Managerium; filled once an item is picked. */}
-        <Indicator color="yellow">
-          Stock : {!item ? formatQty(0) : !warehouseId ? "No warehouse" : stock.data ? formatQty(stock.data[0].qty) : "…"}
-        </Indicator>
+        {!hideStock && (
+          <Indicator color="yellow">
+            Stock : {!item ? formatQty(0) : !warehouseId ? "No warehouse" : stock.data ? formatQty(stock.data[0].qty) : "…"}
+          </Indicator>
+        )}
         <Indicator color="orange">Pending : {!item ? "" : pending.data ? formatQty(pending.data.pendingQty) : "…"}</Indicator>
         {error && (
           <p role="alert" className="text-danger">

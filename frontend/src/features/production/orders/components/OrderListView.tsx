@@ -124,7 +124,7 @@ function OrderList({ today }: { today: string }) {
           options={[{ value: "", label: "All BOMs" }, ...(lookups.data?.boms ?? []).map((bom) => ({ value: bom.id, label: bom.name }))]}
           onChange={(event) => setFilters({ ...filters, bomId: event.target.value })}
         />
-        <Button type="submit" variant="primary" disabled={list.loading}>
+        <Button type="submit" variant="primary" loading={list.loading}>
           <RefreshCw aria-hidden="true" />
           View
         </Button>

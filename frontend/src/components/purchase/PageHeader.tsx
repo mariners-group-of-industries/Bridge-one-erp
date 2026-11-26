@@ -13,29 +13,29 @@ interface PageHeaderProps {
 
 export function PageHeader({ title, subtitle, breadcrumbs, actions }: PageHeaderProps) {
   return (
-    <div className="bg-white p-3 rounded border border-slate-200/90 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3">
+    <div className="bg-surface p-3 rounded border border-line/90 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3">
       <div>
         {breadcrumbs && breadcrumbs.length > 0 && (
-          <nav className="flex items-center gap-1.5 text-[11px] text-slate-400 mb-0.5">
-            <Link href="/purchase" className="hover:text-slate-600 transition">
+          <nav className="flex items-center gap-1.5 text-[11px] text-ink-faint mb-0.5">
+            <Link href="/purchase" className="hover:text-ink-muted transition">
               Purchase
             </Link>
             {breadcrumbs.map((b, i) => (
               <React.Fragment key={i}>
                 <ChevronRight className="w-3 h-3 text-slate-300" />
                 {b.href ? (
-                  <Link href={b.href} className="hover:text-slate-600 transition">
+                  <Link href={b.href} className="hover:text-ink-muted transition">
                     {b.label}
                   </Link>
                 ) : (
-                  <span className="text-slate-600 font-medium">{b.label}</span>
+                  <span className="text-ink-muted font-medium">{b.label}</span>
                 )}
               </React.Fragment>
             ))}
           </nav>
         )}
-        <h1 className="text-xl font-bold text-slate-900 tracking-tight">{title}</h1>
-        {subtitle && <p className="text-xs text-slate-500 mt-0.5">{subtitle}</p>}
+        <h1 className="text-xl font-bold text-ink tracking-tight">{title}</h1>
+        {subtitle && <p className="text-xs text-ink-faint mt-0.5">{subtitle}</p>}
       </div>
       {actions && <div className="flex items-center gap-2 self-start sm:self-auto flex-wrap">{actions}</div>}
     </div>

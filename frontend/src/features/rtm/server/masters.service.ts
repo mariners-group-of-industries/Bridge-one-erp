@@ -5,8 +5,8 @@ import { db } from "@/lib/prisma/client";
 import { DATE, MONTH, actorName, fromDbDate, num, requireDistributor, requireEmployee, toDbDate, unitIds } from "./common";
 
 const text = (max: number) => z.string().trim().max(max).optional().transform((v) => v || undefined);
-const uuid = z.uuid();
-const optUuid = z.preprocess((v) => (v === "" ? undefined : v), z.uuid().optional());
+const uuid = z.guid();
+const optUuid = z.preprocess((v) => (v === "" ? undefined : v), z.guid().optional());
 const optNum = z.preprocess((v) => (v === "" || v === null ? undefined : v), z.coerce.number().finite().min(0).optional());
 
 // ── Settings ─────────────────────────────────────────────────────────────────
@@ -77,7 +77,8 @@ export async function lookups(actor: Actor) {
   const units = await unitIds(actor);
   const [distributors, outlets, channels, routes, srs, items] = await Promise.all([
     db().customer.findMany({ where: { businessUnitId: { in: units }, customerType: "DISTRIBUTOR", isActive: true }, select: { id: true, code: true, name: true, businessUnitId: true }, orderBy: { name: "asc" } }),
-    db().rtmOutlet.findMany({ where: { businessUnitId: { in: units }, isActive: true }, select: { id: true, code: true, name: true, distributorId: true, channelId: true, routeId: true }, orderBy: { name: "asc" } }),
+    // Only approved outlets take orders (Outlet Setup Approval).
+    db().rtmOutlet.findMany({ where: { businessUnitId: { in: units }, isActive: true, approvalStatus: "APPROVED" }, select: { id: true, code: true, name: true, distributorId: true, channelId: true, routeId: true }, orderBy: { name: "asc" } }),
     db().rtmChannel.findMany({ where: { businessUnitId: { in: units }, isActive: true }, select: { id: true, code: true, name: true }, orderBy: { name: "asc" } }),
     db().salesArea.findMany({ where: { businessUnitId: { in: units }, kind: "ROUTE", isActive: true }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
     db().employee.findMany({ where: { office: { businessUnitId: { in: units } }, isActive: true }, select: { id: true, employeeCode: true, name: true, designation: true }, orderBy: { name: "asc" } }),
@@ -116,76 +117,7 @@ export async function saveChannel(actor: Actor, raw: unknown, id?: string) {
   return listChannels(actor);
 }
 
-// ── Outlets ──────────────────────────────────────────────────────────────────
-
-const outletSchema = z.object({
-  name: z.string().trim().min(1, "Enter the outlet name.").max(150),
-  ownerName: text(150),
-  phone: text(30),
-  address: text(300),
-  channelId: optUuid,
-  distributorId: uuid,
-  routeId: optUuid,
-  latitude: z.preprocess((v) => (v === "" || v === null ? undefined : v), z.coerce.number().min(-90).max(90).optional()),
-  longitude: z.preprocess((v) => (v === "" || v === null ? undefined : v), z.coerce.number().min(-180).max(180).optional()),
-  creditLimit: optNum,
-  isActive: z.boolean().default(true),
-});
-
-export async function listOutlets(actor: Actor) {
-  const units = await unitIds(actor);
-  const rows = await db().rtmOutlet.findMany({
-    where: { businessUnitId: { in: units } },
-    include: { channel: { select: { name: true } }, distributor: { select: { name: true } }, route: { select: { name: true } } },
-    orderBy: { code: "asc" },
-  });
-  return rows.map((o) => ({
-    id: o.id,
-    code: o.code,
-    name: o.name,
-    ownerName: o.ownerName,
-    phone: o.phone,
-    address: o.address,
-    channelId: o.channelId,
-    channel: o.channel?.name ?? null,
-    distributorId: o.distributorId,
-    distributor: o.distributor.name,
-    routeId: o.routeId,
-    route: o.route?.name ?? null,
-    latitude: o.latitude === null ? null : num(o.latitude),
-    longitude: o.longitude === null ? null : num(o.longitude),
-    creditLimit: o.creditLimit === null ? null : num(o.creditLimit),
-    isActive: o.isActive,
-    updatedAt: o.updatedAt.toISOString(),
-  }));
-}
-
-export async function saveOutlet(actor: Actor, raw: unknown, id?: string) {
-  const input = outletSchema.parse(raw);
-  const distributor = await requireDistributor(actor, input.distributorId);
-  if (input.routeId && !(await db().salesArea.findFirst({ where: { id: input.routeId, kind: "ROUTE", businessUnitId: distributor.businessUnitId } }))) {
-    throw badRequest("The route belongs to another business unit.");
-  }
-  if (input.channelId && !(await db().rtmChannel.findFirst({ where: { id: input.channelId, businessUnitId: distributor.businessUnitId } }))) {
-    throw badRequest("The channel belongs to another business unit.");
-  }
-  if (id) {
-    const units = await unitIds(actor);
-    const existing = await db().rtmOutlet.findFirst({ where: { id, businessUnitId: { in: units } } });
-    if (!existing) throw notFound("Outlet");
-    if (existing.businessUnitId !== distributor.businessUnitId) throw badRequest("An outlet cannot move to another business unit's distributor.");
-    await db().rtmOutlet.update({ where: { id }, data: { ...input, channelId: input.channelId ?? null, routeId: input.routeId ?? null } });
-  } else {
-    const prefix = (await getSettings(distributor.businessUnitId)).outletCodePrefix;
-    await db().$transaction(async (tx) => {
-      const count = await tx.rtmOutlet.count({ where: { businessUnitId: distributor.businessUnitId } });
-      await tx.rtmOutlet.create({
-        data: { ...input, businessUnitId: distributor.businessUnitId, code: `${prefix}${String(count + 1).padStart(5, "0")}`, createdBy: actorName(actor) },
-      });
-    });
-  }
-  return listOutlets(actor);
-}
+// Outlets: see outlet.service.ts.
 
 // ── Offers and discounts ─────────────────────────────────────────────────────
 

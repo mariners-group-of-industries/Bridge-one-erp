@@ -18,7 +18,7 @@ import type { RichTextNode } from "@/lib/rich-text";
 import { CustomerFormView } from "@/features/configuration/entity-master-data/customer/components/CustomerFormView";
 import type { CustomerDto } from "@/features/configuration/entity-master-data/customer/schemas/customer.schema";
 import { ItemFormView } from "@/features/configuration/entity-master-data/item/components/ItemFormView";
-import type { ItemDto } from "@/features/configuration/entity-master-data/item/schemas/item.schema";
+import { ITEM_TYPES, type ItemDto } from "@/features/configuration/entity-master-data/item/schemas/item.schema";
 import { formatAmount } from "../../dashboard/lib/format";
 import { issuesToErrors } from "../../lib/form";
 import { addDays, useToday } from "../../lib/use-today";
@@ -28,8 +28,12 @@ import { paths } from "../../paths";
 import { OfferPanel, usePricing } from "../../pricing/components/OfferPanel";
 import { fetchPricing } from "../../pricing/services/pricing.api";
 import { lineFigures, quotationTotals } from "../lib/totals";
-import { QUOTATION_TYPES, quotationInputSchema, type QuotationDetail, type QuotationInput, type QuotationTerm } from "../schemas/quotation.schema";
+import { DEFAULT_QUOTATION_TYPE, QUOTATION_TYPES, quotationInputSchema, type QuotationDetail, type QuotationInput, type QuotationTerm } from "../schemas/quotation.schema";
 import { createQuotation, fetchQuotation, updateQuotation } from "../services/quotation.api";
+import { NativeDateInput } from "@/components/ui/date-input";
+
+/** Customers listed at once in the picker; typing narrows the rest. */
+const CUSTOMER_PAGE = 50;
 
 /** Days a new quotation stays valid by default. */
 const DEFAULT_VALIDITY_DAYS = 30;
@@ -160,7 +164,8 @@ function fromDetail(detail: QuotationDetail, today: string, copy: boolean): Form
     billingContactNo: detail.billingContactNo ?? "",
     reference: detail.reference ?? "",
     subject: detail.subject ?? "",
-    quotationType: detail.quotationType,
+    // Quotations saved with an earlier type list fall back to the default.
+    quotationType: (QUOTATION_TYPES as readonly string[]).includes(detail.quotationType) ? detail.quotationType : DEFAULT_QUOTATION_TYPE,
     includingVat: detail.includingVat,
     remarksBody: detail.remarksBody,
     remarksFooter: detail.remarksFooter,
@@ -266,7 +271,7 @@ function QuotationForm({ today, lookups, source, copy }: { today: string; lookup
       billingContactNo: "",
       reference: "",
       subject: "",
-      quotationType: "Quotation",
+      quotationType: DEFAULT_QUOTATION_TYPE,
       includingVat: false,
       remarksBody: null,
       remarksFooter: null,
@@ -280,6 +285,7 @@ function QuotationForm({ today, lookups, source, copy }: { today: string; lookup
   const [entry, setEntry] = useState<EntryValues>(EMPTY_ENTRY);
   const [entryError, setEntryError] = useState<Record<string, string>>({});
   const [customerTerm, setCustomerTerm] = useState("");
+  const [customerOpen, setCustomerOpen] = useState(false);
   const [dialog, setDialog] = useState<"customer" | "item" | "terms" | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -312,7 +318,12 @@ function QuotationForm({ today, lookups, source, copy }: { today: string; lookup
     return result;
   }, [categories]);
 
-  const itemTypes = [...new Set(items.map((item) => item.itemType).filter((type): type is string => !!type))].sort();
+  // Configuration's item types (Item Profile), plus any other type the items carry.
+  const itemTypes = useMemo(() => {
+    const known = new Set<string>(ITEM_TYPES);
+    const others = new Set((masters.data?.items ?? []).map((item) => item.itemType).filter((type): type is string => !!type && !known.has(type)));
+    return [...ITEM_TYPES, ...[...others].sort()];
+  }, [masters.data]);
   const matchingItems = items.filter((item) => {
     const place = item.categoryId ? ancestry.get(item.categoryId) : undefined;
     return (
@@ -353,10 +364,10 @@ function QuotationForm({ today, lookups, source, copy }: { today: string; lookup
   }
 
   const term = customerTerm.trim().toLowerCase();
-  const customerMatches =
-    term.length >= 3
-      ? customers.filter((customer) => [customer.name, customer.code, customer.phone ?? ""].some((value) => value.toLowerCase().includes(term))).slice(0, 20)
-      : [];
+  const customerFound = term
+    ? customers.filter((customer) => [customer.name, customer.code, customer.phone ?? ""].some((value) => value.toLowerCase().includes(term)))
+    : customers;
+  const customerMatches = customerFound.slice(0, CUSTOMER_PAGE);
 
   function changeOffice(officeId: string) {
     const next = lookups.offices.find((candidate) => candidate.id === officeId);
@@ -385,6 +396,7 @@ function QuotationForm({ today, lookups, source, copy }: { today: string; lookup
       billingContactNo: values.billingContactNo || customer.phone || "",
     });
     setCustomerTerm("");
+    setCustomerOpen(false);
     // This customer's rates on the lines entered so far (free offer lines keep theirs).
     void configRates(customer.id, values.lines.map((line) => ({ itemId: line.itemId, qty: n(line.qty) }))).then((rate) =>
       setValues((current) =>
@@ -564,29 +576,56 @@ function QuotationForm({ today, lookups, source, copy }: { today: string; lookup
                 <input
                   aria-label="Customer"
                   disabled={!businessUnitId}
-                  placeholder={businessUnitId ? "Select/Search Customer (min 3 letters)" : "Choose the office first"}
+                  role="combobox"
+                  aria-expanded={customerOpen}
+                  aria-controls="quotation-customers"
+                  autoComplete="off"
+                  placeholder={businessUnitId ? "Select/Search Customer" : "Choose the office first"}
                   value={customerTerm}
-                  onChange={(event) => setCustomerTerm(event.target.value)}
+                  onFocus={() => setCustomerOpen(true)}
+                  onBlur={() => setCustomerOpen(false)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Escape") setCustomerOpen(false);
+                  }}
+                  onChange={(event) => {
+                    setCustomerTerm(event.target.value);
+                    setCustomerOpen(true);
+                  }}
                   className={cn(CONTROL, "mt-1 h-7", errors.customerId && "ring-1 ring-danger")}
                 />
               )}
               {errors.customerId && <p className="mt-1 text-xs text-danger">{errors.customerId}</p>}
-              {!values.customerId && term.length >= 3 && (
-                <div role="listbox" aria-label="Matching customers" className="absolute top-14 z-10 max-h-64 w-full overflow-y-auto rounded-md border border-line bg-surface shadow-dropdown">
-                  {masters.loading && !masters.data ? (
+              {!values.customerId && customerOpen && (
+                // Keeps the input focused while the list is scrolled or clicked.
+                <div id="quotation-customers" role="listbox" aria-label="Customers" onMouseDown={(event) => event.preventDefault()} className="absolute top-14 z-10 max-h-64 w-full overflow-y-auto rounded-md border border-line bg-surface shadow-dropdown">
+                  {masters.error ? (
+                    <p className="px-3 py-2 text-xs text-danger">
+                      Customers could not be loaded: {errorMessage(masters.error)}{" "}
+                      <button type="button" className="font-medium underline" onClick={masters.reload}>
+                        Retry
+                      </button>
+                    </p>
+                  ) : masters.loading && !masters.data ? (
                     <p className="flex items-center gap-2 px-3 py-2 text-xs text-ink-faint">
                       <Search aria-hidden="true" className="size-3.5" />
                       Loading customers…
                     </p>
                   ) : customerMatches.length === 0 ? (
-                    <p className="px-3 py-2 text-xs text-ink-faint">No customer matches. Use + ADD NEW to create one.</p>
+                    <p className="px-3 py-2 text-xs text-ink-faint">{term ? "No customer matches." : "This office's business unit has no customers yet."} Use + ADD NEW to create one.</p>
                   ) : (
-                    customerMatches.map((customer) => (
-                      <button key={customer.id} type="button" role="option" aria-selected={false} onClick={() => pickCustomer(customer)} className="block w-full px-3 py-2 text-left text-sm text-ink hover:bg-hover">
-                        {customer.code} - {customer.name}
-                        {customer.phone && <span className="ml-2 text-xs text-ink-faint">{customer.phone}</span>}
-                      </button>
-                    ))
+                    <>
+                      {customerMatches.map((customer) => (
+                        <button key={customer.id} type="button" role="option" aria-selected={false} onClick={() => pickCustomer(customer)} className="block w-full px-3 py-2 text-left text-sm text-ink hover:bg-hover">
+                          {customer.code} - {customer.name}
+                          {customer.phone && <span className="ml-2 text-xs text-ink-faint">{customer.phone}</span>}
+                        </button>
+                      ))}
+                      {customerFound.length > customerMatches.length && (
+                        <p className="border-t border-line px-3 py-2 text-xs text-ink-faint">
+                          Showing {customerMatches.length} of {customerFound.length}: type a name, code or mobile to narrow.
+                        </p>
+                      )}
+                    </>
                   )}
                 </div>
               )}
@@ -692,6 +731,14 @@ function QuotationForm({ today, lookups, source, copy }: { today: string; lookup
               Add
             </Button>
           </div>
+          {masters.error && (
+            <p role="alert" className="text-sm text-danger">
+              Items and customers could not be loaded: {errorMessage(masters.error)}{" "}
+              <button type="button" className="font-medium underline" onClick={masters.reload}>
+                Retry
+              </button>
+            </p>
+          )}
           {errors.lines && (
             <p role="alert" className="text-sm text-danger">
               {errors.lines}
@@ -738,7 +785,7 @@ function QuotationForm({ today, lookups, source, copy }: { today: string; lookup
                           <input aria-label={`Warranty of ${line.name}`} maxLength={100} value={line.warranty} onChange={(event) => updateLine(line.key, { warranty: event.target.value })} className={cn(CONTROL, "h-7 w-28")} />
                         </td>
                         <td className="px-2 py-1.5">
-                          <input
+                          <NativeDateInput
                             type="date"
                             aria-label={`Delivery date of ${line.name}`}
                             min={values.quotationDate}

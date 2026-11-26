@@ -1,14 +1,28 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/prisma/client";
 import { apiHandler } from "@/lib/api/handler";
+import type { Actor } from "@/lib/auth/actor";
+import { denyUnless } from "@/lib/permissions/require";
+
+/** Approval decisions on a budget (status / approval status). */
+const DECISIONS = new Set(["APPROVED", "REJECTED"]);
 
 async function handlePUT(
   request: Request,
-  { params }: { params: Promise<{ id: string }> }
+  { params }: { params: Promise<{ id: string }> },
+  actor: Actor
 ) {
   try {
     const { id } = await params;
     const body = await request.json();
+
+    const current = await db().budget.findUnique({ where: { id }, select: { status: true, approvalStatus: true } });
+    const decides = (next: unknown, prev: string | null | undefined) =>
+      typeof next === "string" && DECISIONS.has(next.toUpperCase()) && next.toUpperCase() !== String(prev ?? "").toUpperCase();
+    if (current && (decides(body.status, current.status) || decides(body.approvalStatus, current.approvalStatus))) {
+      const denied = denyUnless(actor, "/accounts/budget", "approve");
+      if (denied) return denied;
+    }
     const prisma = db();
 
     // Check if this is a revision update

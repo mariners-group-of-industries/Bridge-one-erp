@@ -1,6 +1,7 @@
 import type { Prisma, StockSource } from "@/generated/prisma/client";
 import { badRequest, notFound } from "@/lib/api/errors";
 import type { Actor } from "@/lib/auth/actor";
+import { approvalNote, recordApproval, recordRejection } from "@/lib/approval/engine";
 import { db } from "@/lib/prisma/client";
 import { fromDbDate, toDbDate } from "@/features/sales/lib/dates";
 import { scopedBusinessUnitIds } from "@/features/sales/lib/scope";
@@ -30,6 +31,13 @@ const PREFIX: Record<InventoryDocType, string> = {
 const NEEDS_APPROVAL = new Set<InventoryDocType>(["STOCK_UPDATE", "CONVERSION", "TRANSFER_REQUEST", "STORE_REQUISITION"]);
 /** Approving these posts their stock movements. */
 const POSTS_ON_APPROVAL = new Set<InventoryDocType>(["STOCK_UPDATE", "CONVERSION"]);
+/** Approval Setup feature of each document that needs approval (multilayer approval). */
+const APPROVAL_FEATURE: Partial<Record<InventoryDocType, string>> = {
+  STOCK_UPDATE: "Stock Adjustment",
+  CONVERSION: "Inventory Item Conversion",
+  TRANSFER_REQUEST: "Transfer Request",
+  STORE_REQUISITION: "Store Requisition",
+};
 /** Gate pass kinds; a visitor pass stays open until the visitor leaves. */
 const GATE_KINDS = new Set(["Gate In", "Gate Out", "Visitor"]);
 
@@ -40,7 +48,7 @@ const actorName = (actor: Actor) => (actor.name ?? actor.id).slice(0, 150);
 const documentInclude = {
   warehouse: { select: { id: true, name: true, office: { select: { name: true } } } },
   toWarehouse: { select: { id: true, name: true, office: { select: { name: true } } } },
-  request: { select: { id: true, number: true } },
+  request: { select: { id: true, number: true, createdBy: true, meta: true } },
   fulfilments: { select: { id: true, type: true, number: true, status: true, lines: { select: { qty: true, processedQty: true } } }, orderBy: { createdAt: "asc" } },
   lines: {
     orderBy: { lineNo: "asc" },
@@ -91,7 +99,9 @@ function toDto(doc: DocumentRow): InventoryDocument {
     createdAt: doc.createdAt.toISOString(),
     warehouse: warehouse(doc.warehouse),
     toWarehouse: warehouse(doc.toWarehouse),
-    request: doc.request,
+    request: doc.request
+      ? { id: doc.request.id, number: doc.request.number, createdBy: doc.request.createdBy, requestTo: (doc.request.meta as Record<string, string> | null)?.requestTo ?? null }
+      : null,
     fulfilments: doc.fulfilments.map((f) => ({
       id: f.id,
       number: f.number,
@@ -134,15 +144,18 @@ export async function listDocuments(actor: Actor, type: InventoryDocType, filter
   return rows.map(toDto);
 }
 
-async function requireDocument(actor: Actor, type: InventoryDocType, id: string, client: Tx | ReturnType<typeof db> = db()) {
-  const unitIds = await scopedBusinessUnitIds(actor);
+/**
+ * The document if it belongs to one of the given business units (404 otherwise). The
+ * units are resolved before any transaction opens, so no query runs outside it.
+ */
+async function requireDocument(unitIds: string[], type: InventoryDocType, id: string, client: Tx | ReturnType<typeof db> = db()) {
   const doc = await client.inventoryDocument.findFirst({ where: { id, type, businessUnitId: { in: unitIds } }, include: documentInclude });
   if (!doc) throw notFound("Document");
   return doc;
 }
 
 export async function getDocument(actor: Actor, type: InventoryDocType, id: string): Promise<InventoryDocument> {
-  return toDto(await requireDocument(actor, type, id));
+  return toDto(await requireDocument(await scopedBusinessUnitIds(actor), type, id));
 }
 
 // ── Stock postings ───────────────────────────────────────────────────────────
@@ -226,20 +239,24 @@ export async function createDocument(actor: Actor, type: InventoryDocType, raw: 
   }
   if (type === "GATE_PASS") {
     if (!input.subtype || !GATE_KINDS.has(input.subtype)) throw badRequest("Choose gate in, gate out or visitor.");
-    if (!input.partyName) throw badRequest("Enter the party or visitor name.");
+    // iBOS: goods passes name no party; a visitor pass names the visitor.
+    if (input.subtype === "Visitor" && !input.partyName) throw badRequest("Enter the visitor name.");
   }
   if (type === "STORE_REQUISITION" && !input.partyName) throw badRequest("Enter who the requisition is for.");
   const twoWarehouses = type === "TRANSFER" || type === "TRANSFER_REQUEST";
-  if (type !== "GATE_PASS" && !input.warehouseId) throw badRequest(twoWarehouses ? "Select the warehouse the stock comes from." : "Select the warehouse.");
+  // A transfer request names only the requesting warehouse (iBOS); the sending one is chosen when the stock is sent out.
+  if (type === "TRANSFER_REQUEST" && !input.toWarehouseId) throw badRequest("Select the requesting warehouse.");
+  if (type !== "GATE_PASS" && type !== "TRANSFER_REQUEST" && !input.warehouseId) throw badRequest(twoWarehouses ? "Select the warehouse the stock comes from." : "Select the warehouse.");
   if (twoWarehouses && (!input.toWarehouseId || input.toWarehouseId === input.warehouseId)) {
     throw badRequest("Select a different warehouse for the stock to go to.");
   }
 
+  const unitIds = await scopedBusinessUnitIds(actor);
   const created = await db().$transaction(async (tx) => {
     const source = input.warehouseId ? await requireWarehouse(actor, input.warehouseId, tx) : null;
     const target = input.toWarehouseId ? await requireWarehouse(actor, input.toWarehouseId, tx) : null;
     if (source && target && source.businessUnitId !== target.businessUnitId) throw badRequest("Both warehouses must belong to the same business unit.");
-    const businessUnitId = source?.businessUnitId ?? (await scopedBusinessUnitIds(actor))[0];
+    const businessUnitId = source?.businessUnitId ?? target?.businessUnitId ?? unitIds[0];
     if (!businessUnitId) throw badRequest("You do not have access to any business unit.");
     await itemsOf(tx, businessUnitId, input.lines.flatMap((l) => (l.toItemId ? [l.itemId, l.toItemId] : [l.itemId])));
 
@@ -248,9 +265,10 @@ export async function createDocument(actor: Actor, type: InventoryDocType, raw: 
     if (input.requestId) {
       const requestType = type === "TRANSFER" ? "TRANSFER_REQUEST" : type === "STORE_ISSUE" ? "STORE_REQUISITION" : null;
       if (!requestType) throw badRequest("Only transfers and store issues can fulfil a request.");
-      request = await requireDocument(actor, requestType, input.requestId, tx);
+      request = await requireDocument(unitIds, requestType, input.requestId, tx);
       if (request.status !== "APPROVED") throw badRequest(`Request ${request.number} is not approved or is already completed.`);
-      if (request.warehouseId !== input.warehouseId || (type === "TRANSFER" && request.toWarehouseId !== input.toWarehouseId)) {
+      // A request without a sending warehouse may be fulfilled from any warehouse.
+      if ((request.warehouseId && request.warehouseId !== input.warehouseId) || (type === "TRANSFER" && request.toWarehouseId !== input.toWarehouseId)) {
         throw badRequest(`Request ${request.number} is for different warehouses.`);
       }
       const open = openRequestQty(request);
@@ -262,8 +280,16 @@ export async function createDocument(actor: Actor, type: InventoryDocType, raw: 
       }
     }
 
+    // iBOS "Direct Transfer in": the stock is received at once, with no in-transit step.
+    const directIn = type === "TRANSFER" && input.meta?.directTransferIn === "Yes";
     const status =
-      NEEDS_APPROVAL.has(type) ? "PENDING" : type === "TRANSFER" ? "IN_TRANSIT" : type === "GATE_PASS" && input.subtype === "Visitor" ? "PENDING" : "COMPLETED";
+      NEEDS_APPROVAL.has(type)
+        ? "PENDING"
+        : type === "TRANSFER" && !directIn
+          ? "IN_TRANSIT"
+          : type === "GATE_PASS" && input.subtype === "Visitor"
+            ? "PENDING"
+            : "COMPLETED";
     const number = await companyDocumentNumber(tx, businessUnitId, `INVENTORY_${type}`, PREFIX[type], input.docDate);
     const doc = await tx.inventoryDocument.create({
       data: {
@@ -278,7 +304,7 @@ export async function createDocument(actor: Actor, type: InventoryDocType, raw: 
         status,
         subtype: input.subtype ?? null,
         partyName: input.partyName ?? null,
-        reference: input.reference ?? null,
+        reference: input.reference ?? request?.reference ?? null,
         meta: input.meta ?? undefined,
         remarks: input.remarks ?? null,
         createdBy: name,
@@ -291,6 +317,7 @@ export async function createDocument(actor: Actor, type: InventoryDocType, raw: 
             toItemId: l.toItemId ?? null,
             toQty: l.toQty ?? null,
             remarks: l.remarks ?? null,
+            ...(directIn ? { processedQty: l.qty } : {}),
           })),
         },
       },
@@ -300,7 +327,10 @@ export async function createDocument(actor: Actor, type: InventoryDocType, raw: 
     if (source) {
       const movements: Movement[] =
         type === "TRANSFER"
-          ? input.lines.map((l) => ({ warehouseId: source.id, itemId: l.itemId, qty: -l.qty, source: "TRANSFER_OUT" }))
+          ? input.lines.flatMap((l): Movement[] => [
+              { warehouseId: source.id, itemId: l.itemId, qty: -l.qty, source: "TRANSFER_OUT" },
+              ...(directIn && target ? [{ warehouseId: target.id, itemId: l.itemId, qty: l.qty, source: "TRANSFER_IN" as const }] : []),
+            ])
           : type === "STORE_ISSUE"
             ? input.lines.map((l) => ({ warehouseId: source.id, itemId: l.itemId, qty: -l.qty, source: "STORE_ISSUE" }))
             : [];
@@ -309,7 +339,25 @@ export async function createDocument(actor: Actor, type: InventoryDocType, raw: 
     if (request) {
       const qty = new Map<string, number>();
       for (const l of input.lines) qty.set(l.itemId, (qty.get(l.itemId) ?? 0) + l.qty);
-      await fulfil(tx, request, qty);
+      await fulfil(tx, request, new Map(qty));
+
+      if (type === "STORE_ISSUE" && request.reference) {
+        const prodOrder = await tx.productionOrder.findFirst({
+          where: { businessUnitId, number: request.reference },
+          select: { id: true, materials: { select: { id: true, itemId: true } } },
+        });
+        if (prodOrder) {
+          const lineByItem = new Map(prodOrder.materials.map((m) => [m.itemId, m.id]));
+          for (const [itemId, issued] of qty) {
+            const materialId = lineByItem.get(itemId);
+            if (!materialId || issued <= 0) continue;
+            await tx.productionOrderMaterial.update({
+              where: { id: materialId },
+              data: { issueQty: { increment: round3(issued) } },
+            });
+          }
+        }
+      }
     }
     return doc;
   });
@@ -322,9 +370,16 @@ export async function createDocument(actor: Actor, type: InventoryDocType, raw: 
 export async function approveDocument(actor: Actor, type: InventoryDocType, id: string, raw: unknown): Promise<InventoryDocument> {
   if (!NEEDS_APPROVAL.has(type)) throw badRequest("This document does not need approval.");
   const { comment } = reviewSchema.parse(raw ?? {});
+  const unitIds = await scopedBusinessUnitIds(actor);
   await db().$transaction(async (tx) => {
-    const doc = await requireDocument(actor, type, id, tx);
+    const doc = await requireDocument(unitIds, type, id, tx);
     if (doc.status !== "PENDING") throw badRequest(`${doc.number} is already ${doc.status.toLowerCase().replace("_", " ")}.`);
+    // Every pipeline stage must approve before the document is approved.
+    const gate = await recordApproval(tx, actor, { feature: APPROVAL_FEATURE[type]!, documentId: id, businessUnitId: doc.businessUnitId, comment });
+    if (!gate.final) {
+      await tx.inventoryDocument.update({ where: { id }, data: { reviewComment: [approvalNote(gate), comment].filter(Boolean).join(" ") || null } });
+      return;
+    }
     const done = POSTS_ON_APPROVAL.has(type);
     await tx.inventoryDocument.update({
       where: { id },
@@ -357,11 +412,15 @@ export async function approveDocument(actor: Actor, type: InventoryDocType, id: 
 export async function rejectDocument(actor: Actor, type: InventoryDocType, id: string, raw: unknown): Promise<InventoryDocument> {
   if (!NEEDS_APPROVAL.has(type)) throw badRequest("This document does not need approval.");
   const { comment } = reviewSchema.parse(raw ?? {});
-  const doc = await requireDocument(actor, type, id);
-  if (doc.status !== "PENDING") throw badRequest(`${doc.number} is already ${doc.status.toLowerCase().replace("_", " ")}.`);
-  await db().inventoryDocument.update({
-    where: { id },
-    data: { status: "REJECTED", approvedBy: actorName(actor), approvedAt: new Date(), reviewComment: comment ?? null },
+  const unitIds = await scopedBusinessUnitIds(actor);
+  await db().$transaction(async (tx) => {
+    const doc = await requireDocument(unitIds, type, id, tx);
+    if (doc.status !== "PENDING") throw badRequest(`${doc.number} is already ${doc.status.toLowerCase().replace("_", " ")}.`);
+    await recordRejection(tx, actor, { feature: APPROVAL_FEATURE[type]!, documentId: id, businessUnitId: doc.businessUnitId, comment });
+    await tx.inventoryDocument.update({
+      where: { id },
+      data: { status: "REJECTED", approvedBy: actorName(actor), approvedAt: new Date(), reviewComment: comment ?? null },
+    });
   });
   return getDocument(actor, type, id);
 }
@@ -372,8 +431,9 @@ export async function rejectDocument(actor: Actor, type: InventoryDocType, id: s
  */
 export async function receiveTransfer(actor: Actor, id: string, raw: unknown): Promise<InventoryDocument> {
   const input = receiveSchema.parse(raw);
+  const unitIds = await scopedBusinessUnitIds(actor);
   await db().$transaction(async (tx) => {
-    const doc = await requireDocument(actor, "TRANSFER", id, tx);
+    const doc = await requireDocument(unitIds, "TRANSFER", id, tx);
     if (doc.status !== "IN_TRANSIT") throw badRequest(`${doc.number} has already been received.`);
     const received = new Map(input.lines.map((l) => [l.lineId, l.receivedQty]));
     const movements: Movement[] = [];
@@ -393,7 +453,7 @@ export async function receiveTransfer(actor: Actor, id: string, raw: unknown): P
 
 /** Marks a visitor as left. */
 export async function completeGatePass(actor: Actor, id: string): Promise<InventoryDocument> {
-  const doc = await requireDocument(actor, "GATE_PASS", id);
+  const doc = await requireDocument(await scopedBusinessUnitIds(actor), "GATE_PASS", id);
   if (doc.status !== "PENDING") throw badRequest(`${doc.number} is already closed.`);
   await db().inventoryDocument.update({ where: { id }, data: { status: "COMPLETED", completedAt: new Date() } });
   return getDocument(actor, "GATE_PASS", id);

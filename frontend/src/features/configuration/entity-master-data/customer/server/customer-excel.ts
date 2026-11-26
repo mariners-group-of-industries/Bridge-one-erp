@@ -2,6 +2,7 @@ import ExcelJS from "exceljs";
 import { cellText, describe, parseFlag } from "@/features/configuration/entity-master-data/supplier/server/supplier-excel";
 import { AppError } from "@/lib/api/errors";
 import type { Actor } from "@/lib/auth/actor";
+import { db } from "@/lib/prisma/client";
 import {
   CUSTOMER_FLAGS,
   GENDERS,
@@ -12,6 +13,7 @@ import {
   type CustomerInput,
 } from "../schemas/customer.schema";
 import { createCustomer, getFormOptions } from "./customer.service";
+import { loadWorkbook } from "@/lib/excel/load-workbook";
 
 /**
  * Bulk upload of customers from Excel. One row per customer; dropdown fields are
@@ -29,7 +31,7 @@ const COLUMNS = [
   { key: "subGroup", header: "Sub Group", width: 18 },
   { key: "creditDays", header: "Credit Days", width: 12 },
   { key: "creditLimit", header: "Credit Limit", width: 14 },
-  { key: "territory", header: "Territory *", width: 16 },
+  { key: "territory", header: "Territory", width: 16 },
   { key: "salesPerson", header: "Default Sales Representative", width: 26 },
   { key: "tolerancePercent", header: "Tolerance %", width: 12 },
   { key: "binNumber", header: "BIN Number", width: 16 },
@@ -79,12 +81,7 @@ export async function customerImportTemplate(): Promise<Uint8Array> {
 }
 
 export async function importCustomers(actor: Actor, bytes: Uint8Array): Promise<CustomerImportResult> {
-  const workbook = new ExcelJS.Workbook();
-  try {
-    await workbook.xlsx.load(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer);
-  } catch {
-    throw new AppError(400, "VALIDATION_ERROR", "The file is not a valid Excel (.xlsx) workbook.");
-  }
+  const workbook = await loadWorkbook(bytes);
   const sheet = workbook.getWorksheet("Customers") ?? workbook.worksheets[0];
   if (!sheet) throw new AppError(400, "VALIDATION_ERROR", "The workbook has no sheets.");
 
@@ -93,7 +90,7 @@ export async function importCustomers(actor: Actor, bytes: Uint8Array): Promise<
     const match = COLUMNS.find((c) => normal(c.header) === normal(cellText(cell.value)));
     if (match) headerIndex.set(match.key, column);
   });
-  for (const required of ["name", "office", "mobile", "territory"] as const) {
+  for (const required of ["name", "office", "mobile"] as const) {
     if (!headerIndex.has(required)) {
       const header = COLUMNS.find((c) => c.key === required)!.header;
       throw new AppError(400, "VALIDATION_ERROR", `Column "${header}" is missing. Use the template.`);
@@ -119,6 +116,45 @@ export async function importCustomers(actor: Actor, bytes: Uint8Array): Promise<
   const same = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
   const result: CustomerImportResult = { created: 0, errors: [] };
 
+  // Partner groups and sub groups named in the file but not set up yet are created
+  // (per business unit). Names are unique per business unit across both levels.
+  const groups = [...options.groups];
+  const createdGroups: string[] = [];
+  const createdSubGroups: string[] = [];
+  async function partnerGroup(unit: string, name: string) {
+    if (!name) return undefined;
+    const existing = groups.find((g) => g.businessUnitId === unit && same(g.name, name));
+    if (existing) {
+      if (existing.parentId) {
+        const parent = groups.find((g) => g.id === existing.parentId);
+        throw new Error(`"${name}" is a Sub Group${parent ? ` of "${parent.name}"` : ""}, not a Partner Group.`);
+      }
+      return existing;
+    }
+    const created = await db().customerGroup.create({ data: { businessUnitId: unit, name: name.trim() }, select: { id: true, name: true, businessUnitId: true, parentId: true } });
+    groups.push(created);
+    createdGroups.push(created.name);
+    return created;
+  }
+  async function subGroupOf(unit: string, parent: { id: string; name: string }, name: string) {
+    if (!name) return undefined;
+    const existing = groups.find((g) => g.businessUnitId === unit && same(g.name, name));
+    if (existing) {
+      if (existing.parentId === parent.id) return existing;
+      const owner = groups.find((g) => g.id === existing.parentId);
+      throw new Error(
+        owner ? `Sub Group "${name}" belongs to "${owner.name}", not "${parent.name}".` : `"${name}" is a Partner Group, not a Sub Group.`,
+      );
+    }
+    const created = await db().customerGroup.create({
+      data: { businessUnitId: unit, name: name.trim(), parentId: parent.id },
+      select: { id: true, name: true, businessUnitId: true, parentId: true },
+    });
+    groups.push(created);
+    createdSubGroups.push(`${created.name} (${parent.name})`);
+    return created;
+  }
+
   for (const { row, get } of rows) {
     try {
       const office = options.offices.find((o) => same(o.name, get("office")));
@@ -131,9 +167,9 @@ export async function importCustomers(actor: Actor, bytes: Uint8Array): Promise<
         if (!found) throw new Error(`${label} "${value}" not found.`);
         return found;
       };
-      const group = find(options.groups, "Partner Group", get("group"), (g) => !g.parentId && g.businessUnitId === unit);
-      if (get("subGroup") && !group) throw new Error("Sub Group needs a Partner Group.");
-      const subGroup = find(options.groups, "Sub Group", get("subGroup"), (g) => g.parentId === group?.id);
+      if (get("subGroup") && !get("group")) throw new Error("Sub Group needs a Partner Group.");
+      const group = await partnerGroup(unit, get("group"));
+      const subGroup = group ? await subGroupOf(unit, group, get("subGroup")) : undefined;
       const territory = find(options.territories, "Territory", get("territory"), (t) => t.businessUnitId === unit);
       const priceList = find(options.priceLists, "Price Type", get("priceType"), (p) => p.businessUnitId === unit);
       const taxBracket = find(options.taxBrackets, "Tax Bracket", get("taxBracket"), (t) => t.businessUnitId === unit);
@@ -201,5 +237,9 @@ export async function importCustomers(actor: Actor, bytes: Uint8Array): Promise<
       result.errors.push({ row, message: describe(error) });
     }
   }
+  const notes: string[] = [];
+  if (createdGroups.length) notes.push(`Partner Groups created: ${createdGroups.join(", ")}.`);
+  if (createdSubGroups.length) notes.push(`Sub Groups created: ${createdSubGroups.join(", ")}.`);
+  if (notes.length) result.notes = notes;
   return result;
 }

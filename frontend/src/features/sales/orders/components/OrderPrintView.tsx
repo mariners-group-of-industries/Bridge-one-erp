@@ -3,10 +3,10 @@
 import { ArrowLeft, Printer } from "lucide-react";
 import Link from "next/link";
 import { Button, buttonClasses } from "@/components/ui/button";
+import { PrintFrame, PrintPageFooter } from "@/components/ui/print-frame";
 import { ErrorState, LoadingState } from "@/components/ui/section";
 import { useResource } from "@/hooks/use-resource";
 import { errorMessage } from "@/lib/api/client";
-import { formatDateTime } from "@/lib/format";
 import { formatAmount, formatQty } from "../../dashboard/lib/format";
 import { amountInWords } from "../../lib/amount-in-words";
 import { formatDay } from "../../lib/use-today";
@@ -56,6 +56,7 @@ function Row({ label, value }: { label: string; value: string | null | undefined
 function PrintDocument({ order }: { order: OrderDetail }) {
   const altTotal = order.lines.reduce((sum, line) => sum + (altQty(line.qty, line.altUomFactor) ?? 0), 0);
   return (
+    <PrintFrame>
     <article className="mx-auto flex max-w-[210mm] flex-col gap-4 px-6 pb-10 text-[11px] leading-snug print:px-0 print:pb-0">
       <header className="flex items-start justify-between gap-4 border-b border-line-strong pb-3">
         <div>
@@ -77,7 +78,7 @@ function PrintDocument({ order }: { order: OrderDetail }) {
           <Row label="Billing Address" value={order.billingAddress} />
           <Row label="Shipping Address" value={order.shippingAddress} />
           <Row label="Contact To" value={order.contactPerson} />
-          <Row label="Territory" value={order.territory} />
+          <Row label="Base" value={order.territory} />
           <Row label="Sales Force" value={order.salesPersonName} />
         </dl>
         <dl className="flex flex-col gap-0.5">
@@ -181,7 +182,8 @@ function PrintDocument({ order }: { order: OrderDetail }) {
           </p>
         ))}
       </footer>
-      <p className="text-right text-[9px] text-ink-faint">Printed {formatDateTime(new Date())}</p>
+      <PrintPageFooter />
     </article>
+    </PrintFrame>
   );
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import { CalendarOff, Paperclip, Send } from "lucide-react";
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { ErrorState, LoadingState } from "@/components/ui/section";
 import { useToast } from "@/components/ui/toast";
@@ -16,7 +16,7 @@ const ACCEPT = "application/pdf,image/png,image/jpeg,image/webp";
 const EMPTY = { leaveType: "", fromDate: "", toDate: "", location: "", reason: "" };
 const dayCount = (from: string, to: string) => (from && to && to >= from ? Math.round((Date.parse(to) - Date.parse(from)) / 86_400_000) + 1 : 0);
 
-export function LeaveTab({ options }: { options: LeaveMovementOptions }) {
+export function LeaveTab({ options, refresh = 0 }: { options: LeaveMovementOptions; refresh?: number }) {
   const toast = useToast();
   const [employee, setEmployee] = useState<EmployeeOption | null>(options.self);
   const [form, setForm] = useState(EMPTY);
@@ -29,6 +29,15 @@ export function LeaveTab({ options }: { options: LeaveMovementOptions }) {
   const balance = useResource(employee ? `leave-balance:${employee.id}` : null, () => leaveMovementApi.balance(options.canManage ? employee?.id : undefined));
   const list = useResource("leave-list", leaveMovementApi.leaves);
   const days = dayCount(form.fromDate, form.toDate);
+  // A decision made in the notification dialog.
+  const { reload: reloadList } = list;
+  const { reload: reloadBalance } = balance;
+  useEffect(() => {
+    if (refresh) {
+      reloadList();
+      reloadBalance();
+    }
+  }, [refresh, reloadList, reloadBalance]);
   const set = (key: keyof typeof EMPTY) => (value: string) => setForm((current) => ({ ...current, [key]: value }));
 
   async function submit(event: FormEvent) {
@@ -69,7 +78,7 @@ export function LeaveTab({ options }: { options: LeaveMovementOptions }) {
       <form onSubmit={submit} noValidate>
         <Panel
           title="Apply for Leave"
-          description={days ? `${days} day${days === 1 ? "" : "s"}` : undefined}
+          description={days ? `${days} calendar day${days === 1 ? "" : "s"}; weekly offs and holidays are not charged` : undefined}
           footer={
             <Button type="submit" variant="primary" loading={saving}>
               <Send aria-hidden="true" className="size-3.5" />
@@ -84,7 +93,7 @@ export function LeaveTab({ options }: { options: LeaveMovementOptions }) {
                 {(id) => <EmployeeField id={id} options={options} value={employee} onChange={setEmployee} />}
               </Field>
               <Field label="Leave Type" required error={errors.leaveType}>
-                {(id) => <Select id={id} value={form.leaveType} onChange={(e) => set("leaveType")(e.target.value)} options={LEAVE_TYPES.map((t) => t.name)} aria-invalid={!!errors.leaveType} />}
+                {(id) => <Select id={id} value={form.leaveType} onChange={(e) => set("leaveType")(e.target.value)} options={balance.data?.length ? balance.data.map((b) => b.leaveType) : LEAVE_TYPES.map((t) => t.name)} aria-invalid={!!errors.leaveType} />}
               </Field>
               <Field label="Location" error={errors.location} hint="Where you will be during the leave.">
                 {(id) => <Input id={id} value={form.location} maxLength={150} onChange={(e) => set("location")(e.target.value)} />}

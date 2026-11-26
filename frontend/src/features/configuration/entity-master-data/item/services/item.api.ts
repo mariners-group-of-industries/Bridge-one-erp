@@ -4,6 +4,8 @@ import type {
   CreateCategoryInput,
   CreateNamedOptionInput,
   ItemDto,
+  ItemFilterOptions,
+  ItemFilters,
   ItemFormOptions,
   ItemImportResult,
   ItemInput,
@@ -19,11 +21,14 @@ const BASE = "/api/configuration/entity-master-data/items";
 const json = (method: string, body: unknown): RequestInit => ({ method, body: JSON.stringify(body) });
 
 export const itemApi = {
-  list: (params: { search?: string; page: number; pageSize: number }) => {
+  list: (params: ItemFilters & { page: number; pageSize: number }) => {
     const query = new URLSearchParams({ page: String(params.page), pageSize: String(params.pageSize) });
-    if (params.search) query.set("search", params.search);
+    for (const [key, value] of Object.entries(params)) {
+      if (key !== "page" && key !== "pageSize" && value) query.set(key, String(value));
+    }
     return apiRequest<ItemList>(`${BASE}?${query}`);
   },
+  filterOptions: () => apiRequest<ItemFilterOptions>(`${BASE}/filter-options`),
   get: (id: string) => apiRequest<ItemDto>(`${BASE}/${id}`),
   create: (input: ItemInput) => apiRequest<ItemDto>(BASE, json("POST", input)),
   update: (id: string, input: ItemInput) => apiRequest<ItemDto>(`${BASE}/${id}`, json("PUT", input)),

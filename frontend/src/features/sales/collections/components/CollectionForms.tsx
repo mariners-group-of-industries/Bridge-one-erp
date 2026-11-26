@@ -35,8 +35,9 @@ import {
   type DueInvoice,
   type GlAccountOption,
 } from "../schemas/collection.schema";
-import { createBill, createDueCollection, fetchBill, fetchCollectionWallets, fetchDueInvoices, fetchGlAccounts } from "../services/collection.api";
+import { createBill, createDueCollection, fetchBill, fetchCollectionWallets, fetchDueInvoices, fetchDueList, fetchGlAccounts } from "../services/collection.api";
 import { AdvanceCollectionForm } from "./AdvanceCollectionForm";
+import { NativeDateInput } from "@/components/ui/date-input";
 
 type Mode = "invoice" | "advance" | "bill";
 const TITLES: Record<Mode, string> = { invoice: "Due Collection", advance: "Advance Collection", bill: "Bill Create" };
@@ -156,7 +157,8 @@ function DueCollection({
   });
   const [customerId, setCustomerId] = useState(bill?.customerId ?? initialCustomerId);
   const [picked, setPicked] = useState<string[]>([]);
-  const [pickerOpen, setPickerOpen] = useState(false);
+  // Coming from the Due List with a customer: its invoices are listed at once.
+  const [pickerOpen, setPickerOpen] = useState(() => !bill && !!initialCustomerId);
   const [entryAmount, setEntryAmount] = useState("");
   const [rows, setRows] = useState<CollectRow[]>([]);
   const [deductions, setDeductions] = useState<DeductionRow[]>([]);
@@ -169,10 +171,20 @@ function DueCollection({
   const { masters } = useUnitMasters(lookups, header.officeId);
   const customers = useMemo(() => masters.data?.customers ?? [], [masters.data]);
   const customer = customers.find((candidate) => candidate.id === customerId);
+  // Customers with unpaid invoices come first in the picker, with what they owe.
+  const dueList = useResource(`due-list:${today}`, () => fetchDueList({ asOf: today }));
+  const customerOptions = useMemo(() => {
+    const dueOf = new Map((dueList.data ?? []).map((row) => [row.customerId, row.due]));
+    return customers
+      .map((candidate) => ({ candidate, due: dueOf.get(candidate.id) ?? 0 }))
+      .sort((a, b) => Number(b.due > 0) - Number(a.due > 0))
+      .map(({ candidate, due }) => ({ id: candidate.id, label: `${candidate.name} (${candidate.phone || candidate.code})${due > 0 ? ` · Due ${formatAmount(due)}` : ""}` }));
+  }, [customers, dueList.data]);
   const invoices = useResource(customerId ? `customer-dues:${customerId}:${today}` : null, () => fetchDueInvoices({ customerId, asOf: today }));
   // Invoices not yet in the table.
   const available = (invoices.data ?? []).filter((invoice) => invoice.due > 0 && !rows.some((row) => row.invoice.deliveryId === invoice.deliveryId));
   const pickedDue = round2(available.filter((invoice) => picked.includes(invoice.deliveryId)).reduce((sum, invoice) => sum + invoice.due, 0));
+  const pickedNumbers = available.filter((invoice) => picked.includes(invoice.deliveryId)).map((invoice) => invoice.number).join(", ");
 
   // A bill being collected starts with its invoices in the table.
   const [seeded, setSeeded] = useState(false);
@@ -211,6 +223,8 @@ function DueCollection({
     setCustomerId(id);
     setPicked([]);
     setEntryAmount("");
+    // Show the customer's due invoices straight away.
+    setPickerOpen(!!id);
     const match = customers.find((candidate) => candidate.id === id);
     if (match?.salesPersonId && !header.salesPersonId) set("salesPersonId", match.salesPersonId);
   }
@@ -357,7 +371,7 @@ function DueCollection({
               )}
               <SearchPick
                 label="Adjust With GL"
-                placeholder="Adjust With GL (min 3 letters)"
+                placeholder="Adjust With GL"
                 options={accountOptions}
                 selectedId={header.adjustAccountId}
                 onPick={(id) => set("adjustAccountId", id ?? "")}
@@ -392,10 +406,10 @@ function DueCollection({
           <Section>
             <div className="grid items-end gap-3 lg:grid-cols-[1fr_1fr_10rem_auto]">
               <SearchPick
-                key={customers.length}
+                key={`${customers.length}:${dueList.data?.length ?? -1}`}
                 label="Customer"
                 disabled={!header.officeId || masters.loading}
-                options={customers.map((candidate) => ({ id: candidate.id, label: `${candidate.name} (${candidate.phone || candidate.code})` }))}
+                options={customerOptions}
                 minChars={0}
                 placeholder={masters.loading ? "Loading customers…" : "Select/Search Customer"}
                 selectedId={customerId}
@@ -427,17 +441,23 @@ function DueCollection({
                   onClick={() => setPickerOpen((value) => !value)}
                   className={cn(CONTROL, "flex h-7 items-center justify-between text-left")}
                 >
-                  <span className={picked.length ? "text-ink" : "text-ink-faint"}>
-                    {picked.length ? `${picked.length} invoice${picked.length > 1 ? "s" : ""} · ${formatAmount(pickedDue)}` : "Select/Search Invoice"}
+                  <span title={picked.length ? pickedNumbers : undefined} className={cn("min-w-0 flex-1 truncate", picked.length ? "text-ink" : "text-ink-faint")}>
+                    {picked.length ? `${pickedNumbers} · ${formatAmount(pickedDue)}` : !customerId ? "Select the customer first" : invoices.loading ? "Loading invoices…" : `Select Invoice (${available.length} due)`}
                   </span>
                   <ChevronDown aria-hidden="true" className="size-3.5" />
                 </button>
                 {pickerOpen && (
                   <div className="absolute top-full right-0 left-0 z-20 mt-1 max-h-72 overflow-auto rounded border border-line bg-surface shadow-lg">
-                    {invoices.loading ? (
+                    {invoices.error ? (
+                      <ErrorState message={errorMessage(invoices.error)} onRetry={invoices.reload} />
+                    ) : invoices.loading && !invoices.data ? (
                       <LoadingState />
                     ) : available.length === 0 ? (
-                      <p className="p-3 text-xs text-ink-muted">Nothing is due from this customer.</p>
+                      <p className="p-3 text-xs text-ink-muted">
+                        {(invoices.data ?? []).some((invoice) => invoice.due > 0)
+                          ? "All due invoices of this customer are already in the table below."
+                          : "This customer has no delivered invoice with a due. An order becomes an invoice when it is delivered (Sales Delivery); for money taken before delivery use Advance Collection."}
+                      </p>
                     ) : (
                       available.map((invoice) => (
                         <label key={invoice.deliveryId} className="flex cursor-pointer items-center gap-2 border-b border-line px-3 py-1.5 text-xs last:border-0 hover:bg-canvas">
@@ -837,7 +857,7 @@ function BillCreate({ today, lookups, initialCustomerId }: { today: string; look
                         </td>
                         <td className="px-2 py-1.5 whitespace-nowrap">{formatDay(row.deliveryDate)}</td>
                         <td className="w-40 px-2 py-1">
-                          <input aria-label={`Submission date for ${row.number}`} type="date" value={values.submissionDate} onChange={(event) => setLine(row, { submissionDate: event.target.value })} className={cn(CONTROL, "h-7")} />
+                          <NativeDateInput aria-label={`Submission date for ${row.number}`} type="date" value={values.submissionDate} onChange={(event) => setLine(row, { submissionDate: event.target.value })} className={cn(CONTROL, "h-7")} />
                         </td>
                       </tr>
                     );

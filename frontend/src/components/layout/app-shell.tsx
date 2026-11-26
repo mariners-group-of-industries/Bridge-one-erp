@@ -59,14 +59,17 @@ function ShellInner({ children }: { children: ReactNode }) {
         Skip to content
       </a>
 
-      <Navbar
-        sidebarHidden={sidebarHidden}
-        onToggleSidebar={() => setSidebarHidden((v) => !v)}
-        onOpenSearch={() => setSearchOpen(true)}
-      />
+      {/* The wrapper is exactly as tall as the navbar, so the navbar's own `sticky` has no room to stick: the wrapper sticks instead. */}
+      <div className="sticky top-0 z-30 print:hidden">
+        <Navbar
+          sidebarHidden={sidebarHidden}
+          onToggleSidebar={() => setSidebarHidden((v) => !v)}
+          onOpenSearch={() => setSearchOpen(true)}
+        />
+      </div>
 
       {/* Mobile drawer toggle */}
-      <div className="fixed bottom-4 left-4 z-40 lg:hidden">
+      <div className="fixed bottom-4 left-4 z-40 lg:hidden print:hidden">
         <Button variant="ghost" size="icon" aria-label="Open menu" onClick={() => setDrawerOpen(true)}>
           <Menu />
         </Button>
@@ -75,7 +78,7 @@ function ShellInner({ children }: { children: ReactNode }) {
       <div className="flex">
         <aside
           className={cn(
-            "sticky top-14 hidden h-[calc(100dvh-3.5rem)] w-64 shrink-0 overflow-y-auto border-r border-accent-line bg-surface",
+            "sticky top-14 hidden h-[calc(100dvh-3.5rem)] w-52 shrink-0 overflow-y-auto border-r border-accent-line bg-surface print:hidden",
             !sidebarHidden && "lg:block",
           )}
         >

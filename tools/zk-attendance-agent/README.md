@@ -1,5 +1,10 @@
 # ZKTeco attendance agent
 
+> **Prefer the direct push.** Most ZKTeco devices can send their punches straight to the
+> ERP (Device › Comm. › Cloud Server Setting → ADMS, server address = the ERP domain);
+> no PC and no agent needed. See Configuration › Community & Gateways › Attendance
+> Devices for the settings. Use this agent only when the device cannot reach the internet.
+
 Reads punches from ZKTeco attendance devices on the office network and uploads them to
 BridgeOne ERP. Punches then appear in **HRM › Attendance › Daily** (first punch = in,
 last punch = out).

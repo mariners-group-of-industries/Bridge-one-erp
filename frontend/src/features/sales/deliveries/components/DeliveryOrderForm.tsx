@@ -13,6 +13,7 @@ import { useToast } from "@/components/ui/toast";
 import { useResource } from "@/hooks/use-resource";
 import { useSaveShortcut } from "@/hooks/use-save-shortcut";
 import { errorMessage } from "@/lib/api/client";
+import { useSession } from "@/lib/auth/session";
 import { cn } from "@/lib/cn";
 import { formatAmount, formatQty } from "../../dashboard/lib/format";
 import { issuesToErrors } from "../../lib/form";
@@ -119,7 +120,9 @@ function OrderDeliveryEditor({
   const [busy, setBusy] = useState(false);
 
   const itemIds = order.lines.map((line) => line.itemId);
-  const stock = useResource(header.warehouseId ? `stock:${header.warehouseId}:${itemIds.join(",")}` : null, () => fetchStock(header.warehouseId, itemIds));
+  // ERP Login "Hide Stock In Sales": no stock column; the server still checks stock on save.
+  const hideStock = useSession().user?.hideStockInSales ?? false;
+  const stock = useResource(header.warehouseId && !hideStock ? `stock:${header.warehouseId}:${itemIds.join(",")}` : null, () => fetchStock(header.warehouseId, itemIds));
   // When editing, this delivery's own quantities are already out of the stock.
   const sameWarehouse = delivery?.warehouseId === header.warehouseId;
   const stockOf = (itemId: string) => {
@@ -287,7 +290,7 @@ function OrderDeliveryEditor({
               <table className="w-full min-w-[1000px] text-sm">
                 <thead className="bg-accent-soft text-xs font-semibold text-ink">
                   <tr className="border-b border-line">
-                    {["SL", "Code", "Item Name", "Quantity", "Stock", "Tolerance", "Remaining (Alt. Qty)", "Remaining", "Pack Qty", "Delivery Alt. Qty", "Delivery Qty"].map((label, index) => (
+                    {["SL", "Code", "Item Name", "Quantity", ...(hideStock ? [] : ["Stock"]), "Tolerance", "Remaining (Alt. Qty)", "Remaining", "Pack Qty", "Delivery Alt. Qty", "Delivery Qty"].map((label, index) => (
                       <th key={label} scope="col" className={cn("px-2 py-2 font-medium", index >= 3 ? "text-right" : "text-left")}>
                         {label}
                       </th>
@@ -309,9 +312,11 @@ function OrderDeliveryEditor({
                         <td className="px-2 py-1.5 text-right whitespace-nowrap tabular-nums">
                           {formatQty(line.qty)} {line.uom}
                         </td>
-                        <td className={cn("px-2 py-1.5 text-right tabular-nums", short && "font-medium text-danger")}>
-                          {available === undefined ? (header.warehouseId ? "…" : "—") : formatQty(available)}
-                        </td>
+                        {!hideStock && (
+                          <td className={cn("px-2 py-1.5 text-right tabular-nums", short && "font-medium text-danger")}>
+                            {available === undefined ? (header.warehouseId ? "…" : "—") : formatQty(available)}
+                          </td>
+                        )}
                         <td className="px-2 py-1.5 text-right tabular-nums">{line.tolerancePercent ? `${line.tolerancePercent}%` : "0"}</td>
                         <td className="px-2 py-1.5 text-right whitespace-nowrap tabular-nums">
                           {line.altUom ? `${formatQty(altQty(line.remaining, line.altUomFactor) ?? 0)} ${line.altUom}` : "—"}
@@ -366,14 +371,14 @@ function OrderDeliveryEditor({
                       Total
                     </td>
                     <td className="px-2 py-2 text-right tabular-nums">{formatQty(order.lines.reduce((sum, line) => sum + line.qty, 0))}</td>
-                    <td colSpan={6} />
+                    <td colSpan={hideStock ? 5 : 6} />
                     <td className="px-2 py-2 text-right tabular-nums">{formatQty(totals.totalQty)}</td>
                   </tr>
                 </tfoot>
               </table>
             </div>
             {errors.lines && <p className="text-xs text-danger">{errors.lines}</p>}
-            <p className="text-xs text-ink-faint">Red rows do not have enough stock in the selected warehouse for what is left on the order.</p>
+            {!hideStock && <p className="text-xs text-ink-faint">Red rows do not have enough stock in the selected warehouse for what is left on the order.</p>}
           </Section>
         </Card>
 

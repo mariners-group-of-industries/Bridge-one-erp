@@ -87,7 +87,12 @@ export const purchaseWorkspace: Workspace = {
     },
   ],
   routes: [
+    { pattern: "/purchase/requisitions/create", label: "Create Requisition", parent: purchaseRequisitions.href },
     { pattern: "/purchase/requisitions/[requisitionId]", label: "Requisition", parent: purchaseRequisitions.href },
+    { pattern: "/purchase/orders/create", label: "Create Purchase Order", parent: purchaseOrders.href },
     { pattern: "/purchase/orders/[orderId]", label: "Purchase Order", parent: purchaseOrders.href },
+    { pattern: "/purchase/receive/create", label: "Direct Receive", parent: purchaseReceive.href },
+    { pattern: "/purchase/returns/create", label: "Create Return Without Ref.", parent: purchaseReturns.href },
+    { pattern: "/purchase/supplier-payments/payment-by-grn", label: "Payment By GRN", parent: supplierPayments.href },
   ],
 };

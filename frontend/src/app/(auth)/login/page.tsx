@@ -2,7 +2,6 @@
 
 import Image from "next/image";
 import { AlertCircle, Eye, EyeOff, Lock, Moon, Phone, Sun } from "lucide-react";
-import { useRouter } from "next/navigation";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { PageLoader } from "@/components/ui/spinner";
 import { useSession } from "@/lib/auth/session";
@@ -19,7 +18,6 @@ function subscribeTheme(onChange: () => void) {
 
 export default function LoginPage() {
   const { login, user, loading: checkingSession } = useSession();
-  const router = useRouter();
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -28,8 +26,9 @@ export default function LoginPage() {
   const theme = useSyncExternalStore(subscribeTheme, readTheme, () => "light" as const);
 
   useEffect(() => {
-    if (user) router.replace("/");
-  }, [user, router]);
+    // A full load (not a client-side route change) starts the app with only the new session's state.
+    if (user) window.location.replace("/");
+  }, [user]);
 
   function handleToggleTheme() {
     const next = theme === "dark" ? "light" : "dark";

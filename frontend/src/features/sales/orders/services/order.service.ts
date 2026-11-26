@@ -1,6 +1,7 @@
 import type { Prisma } from "@/generated/prisma/client";
 import { AppError, badRequest, conflict, notFound } from "@/lib/api/errors";
 import { assertCompanyAccess, canOn, type Actor } from "@/lib/auth/actor";
+import { approvalNote, recordApproval, recordRejection } from "@/lib/approval/engine";
 import { db } from "@/lib/prisma/client";
 import { money } from "../../dashboard/lib/aggregate";
 import { fromDbDate, toDbDate } from "../../lib/dates";
@@ -12,6 +13,7 @@ import { userNames } from "../../lib/users";
 import { openOrderValue } from "../../masters/services/masters.service";
 import { assertMinPrices, salesPricing } from "../../pricing/services/pricing.service";
 import { orderTotals } from "../lib/order-totals";
+import { packingOf } from "../lib/packing";
 import {
   orderActionSchema,
   orderInputSchema,
@@ -319,7 +321,7 @@ async function prepare(actor: Actor, input: ParsedInput, currentOrderId?: string
       : null,
     db().item.findMany({
       where: { id: { in: itemIds }, businessUnitId },
-      select: { id: true, uom: true, altUom: true, altUomFactor: true, mrp: true, isActive: true },
+      select: { id: true, name: true, uom: true, altUom: true, altUomFactor: true, mrp: true, isActive: true },
     }),
   ]);
 
@@ -359,7 +361,7 @@ async function prepare(actor: Actor, input: ParsedInput, currentOrderId?: string
   if (freeIds.length) {
     const extra = await db().item.findMany({
       where: { id: { in: freeIds }, businessUnitId },
-      select: { id: true, uom: true, altUom: true, altUomFactor: true, mrp: true, isActive: true },
+      select: { id: true, name: true, uom: true, altUom: true, altUomFactor: true, mrp: true, isActive: true },
     });
     for (const item of extra) itemById.set(item.id, item);
   }
@@ -417,8 +419,7 @@ async function prepare(actor: Actor, input: ParsedInput, currentOrderId?: string
         lineNo: index + 1,
         itemId: line.itemId,
         uom: item.uom,
-        altUom: item.altUom,
-        altUomFactor: item.altUomFactor,
+        ...packingOf(item),
         mrp: item.mrp,
         qty: line.qty,
         unitPrice: line.unitPrice,
@@ -610,18 +611,33 @@ export async function changeOrderStatus(actor: Actor, id: string, raw: unknown):
       }
       break;
     }
-    case "approve":
+    case "approve": {
       requireApprover(actor);
-      await guarded(["PENDING_APPROVAL"], "approved", { status: "APPROVED", holdReason: null, approvedAt: now }, [
-        { action: "APPROVED", to: "APPROVED", remarks },
-      ]);
+      // Multilayer approval: each pipeline stage approves in turn; the order is approved after the last one.
+      const target = { feature: "Sales Order", documentId: id, businessUnitId: order.businessUnitId, amount: order.salesTotal.toNumber(), comment: remarks };
+      await db().$transaction(async (tx) => {
+        const { count } = await tx.salesOrder.updateMany({ where: { id, status: "PENDING_APPROVAL", updatedAt: new Date(version) }, data: { updatedBy: actor.id } });
+        if (count === 0) await staleOrWrongStatus(id, ["PENDING_APPROVAL"], "approved");
+        const gate = await recordApproval(tx, actor, target);
+        if (gate.final) {
+          await tx.salesOrder.update({ where: { id }, data: { status: "APPROVED", holdReason: null, approvedAt: now } });
+          await logEvent(tx, id, actor, "APPROVED", order.status, "APPROVED", [approvalNote(gate), remarks].filter(Boolean).join(" ") || null);
+        } else {
+          await logEvent(tx, id, actor, "STAGE_APPROVED", order.status, "PENDING_APPROVAL", [approvalNote(gate), remarks].filter(Boolean).join(" ") || null);
+        }
+      });
       break;
+    }
     case "reject":
       requireApprover(actor);
       if (!remarks) throw badRequest("Enter why the order is rejected.");
-      await guarded(["PENDING_APPROVAL"], "rejected", { status: "DRAFT", holdReason: null, submittedAt: null }, [
-        { action: "REJECTED", to: "DRAFT", remarks },
-      ]);
+      await guarded(
+        ["PENDING_APPROVAL"],
+        "rejected",
+        { status: "DRAFT", holdReason: null, submittedAt: null },
+        [{ action: "REJECTED", to: "DRAFT", remarks }],
+        (tx) => recordRejection(tx, actor, { feature: "Sales Order", documentId: id, businessUnitId: order.businessUnitId, comment: remarks }),
+      );
       break;
     case "cancel": {
       if (!remarks) throw badRequest("Enter why the order is cancelled.");

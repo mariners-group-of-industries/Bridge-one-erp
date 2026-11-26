@@ -196,6 +196,25 @@ describe("getSalesDashboard", () => {
     expect(dashboard.totals).toEqual({ sales: 1400, monthSales: 1400, collection: 300 });
   });
 
+  it("narrows every figure to one office", async () => {
+    const office = await prisma.office.create({ data: { businessUnitId, name: "Bogura Depot", address: "Bogura" } });
+    const customer = await prisma.customer.create({ data: { businessUnitId, officeId: office.id, code: "C-9", name: "Bogura Store" } });
+    const delivery = await prisma.salesDelivery.create({
+      data: { businessUnitId, officeId: office.id, number: "D-9", customerId: customer.id, deliveryDate: day("2026-10-04"), dueDate: day("2026-10-05"), status: "SUBMITTED", totalQty: 1, totalAmount: 700 },
+    });
+    try {
+      const dashboard = await getSalesDashboard(adminActor, { ...query, officeId: office.id });
+      expect(dashboard.totals).toEqual({ sales: 700, monthSales: 700, collection: 0 });
+      expect(dashboard.overdue.map((row) => row.name)).toEqual(["Bogura Store"]);
+      // Without the office every office counts.
+      expect((await getSalesDashboard(adminActor, query)).totals.sales).toBe(2100);
+    } finally {
+      await prisma.salesDelivery.delete({ where: { id: delivery.id } });
+      await prisma.customer.delete({ where: { id: customer.id } });
+      await prisma.office.delete({ where: { id: office.id } });
+    }
+  });
+
   it("compares targets of the range's months with each sales person's net sales", async () => {
     const { target } = await getSalesDashboard(adminActor, query);
     expect(target.target).toBe(3000);

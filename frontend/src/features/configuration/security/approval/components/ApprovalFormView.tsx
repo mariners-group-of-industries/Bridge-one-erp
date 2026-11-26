@@ -15,6 +15,7 @@ import { errorMessage } from "@/lib/api/client";
 import { cn } from "@/lib/cn";
 import { entityMasterDataBreadcrumbs } from "@/features/configuration/entity-master-data/breadcrumbs";
 import { Checkbox, DecimalInput, Field, Input, Notice, Panel, SaveState, Select, TABLE } from "@/features/configuration/entity-master-data/employee/components/kit";
+import { Combobox } from "@/features/production/components/Combobox";
 import { securityPaths } from "../../paths";
 import {
   APPROVAL_ORDERS,
@@ -76,7 +77,8 @@ interface HeaderState {
 let counter = 0;
 const nextKey = () => `k${++counter}`;
 const blankDraft = (): StageState["draft"] => ({ approverId: "", authorizationType: "" });
-const blankStage = (businessUnitId: string): StageState => ({
+/** New stages list every employee: user type Employee, all business units. */
+const blankStage = (): StageState => ({
   key: nextKey(),
   id: "",
   name: "",
@@ -85,13 +87,13 @@ const blankStage = (businessUnitId: string): StageState => ({
   allowThreshold: false,
   thresholdMin: "",
   thresholdMax: "",
-  userType: "",
-  businessUnitId,
+  userType: "EMPLOYEE",
+  businessUnitId: "",
   approvers: [],
   draft: blankDraft(),
 });
 
-function stagesFrom(pipeline: PipelineDto, defaultUnit: string): StageState[] {
+function stagesFrom(pipeline: PipelineDto): StageState[] {
   return pipeline.stages.map((stage) => {
     const last = stage.approvers.at(-1);
     return {
@@ -103,8 +105,8 @@ function stagesFrom(pipeline: PipelineDto, defaultUnit: string): StageState[] {
       allowThreshold: stage.allowThreshold,
       thresholdMin: stage.thresholdMin,
       thresholdMax: stage.thresholdMax,
-      userType: last?.userType ?? "",
-      businessUnitId: last ? last.businessUnitId : defaultUnit,
+      userType: last?.userType ?? "EMPLOYEE",
+      businessUnitId: last ? last.businessUnitId : "",
       approvers: stage.approvers.map((a) => ({
         key: nextKey(),
         userType: a.userType,
@@ -171,23 +173,24 @@ function PipelineEditor({
   const router = useRouter();
   const toast = useToast();
   const formId = useId();
-  const defaultUnit = options.businessUnits[0]?.id ?? "";
   const [header, setHeader] = useState<HeaderState>(() =>
     saved
       ? {
           name: saved.name,
           module: saved.module,
           feature: saved.feature,
-          userType: saved.userType,
-          superApproverId: saved.superApproverId,
+          // The super approver is always an employee; older pipelines saved a user, shown as that user's employee.
+          userType: "EMPLOYEE",
+          superApproverId:
+            saved.userType === "USER" ? (options.employees.find((e) => e.userId === saved.superApproverId)?.id ?? "") : saved.superApproverId,
           remarks: saved.remarks,
           isOfficeWise: saved.isOfficeWise,
           isTerritoryWise: saved.isTerritoryWise,
           isItemCategoryWise: saved.isItemCategoryWise,
         }
-      : { name: "", module: "", feature: "", userType: "", superApproverId: "", remarks: "", isOfficeWise: false, isTerritoryWise: false, isItemCategoryWise: false },
+      : { name: "", module: "", feature: "", userType: "EMPLOYEE", superApproverId: "", remarks: "", isOfficeWise: false, isTerritoryWise: false, isItemCategoryWise: false },
   );
-  const [stages, setStages] = useState<StageState[]>(() => (saved && saved.stages.length ? stagesFrom(saved, defaultUnit) : [blankStage(defaultUnit)]));
+  const [stages, setStages] = useState<StageState[]>(() => (saved && saved.stages.length ? stagesFrom(saved) : [blankStage()]));
   const [dirty, setDirty] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState<string | null>(null);
@@ -280,6 +283,9 @@ function PipelineEditor({
   const err = (key: string) => errors[key];
   const invalid = (key: string) => !!err(key) || undefined;
   const unitOptions = options.businessUnits.map((u) => ({ value: u.id, label: u.name }));
+  /** Employees without an ERP login cannot act on an approval: the approval flow resolves approvers through their login. */
+  const employeeWithoutLogin = (employeeId: string) => !!employeeId && !options.employees.find((e) => e.id === employeeId)?.userId;
+  const superApproverWithoutLogin = employeeWithoutLogin(header.superApproverId);
 
   return (
     <>
@@ -341,30 +347,22 @@ function PipelineEditor({
                   />
                 )}
               </Field>
-              <Field label="User Type" required error={err("userType")}>
-                {(id) => (
-                  <Select
-                    id={id}
-                    value={header.userType}
-                    placeholder="Select User Type"
-                    options={USER_TYPES.map((t) => ({ value: t.value, label: t.label }))}
-                    aria-invalid={invalid("userType")}
-                    onChange={(e) => patchHeader({ userType: e.target.value as UserType | "", superApproverId: "" })}
-                  />
-                )}
-              </Field>
-              <Field label="Super Approver" required error={err("superApproverId")}>
-                {(id) => (
-                  <Select
-                    id={id}
-                    value={header.superApproverId}
-                    placeholder={header.userType ? "Super Approver" : "Select a user type first"}
-                    disabled={!header.userType}
-                    options={peopleOf(header.userType)}
-                    aria-invalid={invalid("superApproverId")}
-                    onChange={(e) => patchHeader({ superApproverId: e.target.value })}
-                  />
-                )}
+              <Field
+                label="Super Approver"
+                required
+                error={err("superApproverId")}
+                hint={superApproverWithoutLogin ? "This employee has no ERP login yet, so they cannot approve until one is created." : undefined}
+              >
+                {/* Searchable: type a name, code or designation to filter. */}
+                <Combobox
+                  label="Super Approver"
+                  hideLabel
+                  value={header.superApproverId}
+                  placeholder="Type to search employee"
+                  emptyText="No employee matches."
+                  options={peopleOf("EMPLOYEE")}
+                  onChange={(value) => patchHeader({ superApproverId: value })}
+                />
               </Field>
               <Field label="Remarks" error={err("remarks")}>
                 {(id) => <Input id={id} value={header.remarks} maxLength={500} placeholder="Remarks" onChange={(e) => patchHeader({ remarks: e.target.value })} />}
@@ -384,7 +382,7 @@ function PipelineEditor({
             variant="accent"
             disabled={stages.length >= MAX_STAGES}
             onClick={() => {
-              setStages((current) => [...current, blankStage(defaultUnit)]);
+              setStages((current) => [...current, blankStage()]);
               setDirty(true);
               clearErrors("stages");
             }}
@@ -396,7 +394,13 @@ function PipelineEditor({
         {stages.map((stage, index) => {
           const se = (key: string) => err(`stages.${index}.${key}`);
           const countOptions = Array.from({ length: Math.max(1, stage.approvers.length) }, (_, i) => String(i + 1));
-          const pickable = peopleOf(stage.userType, stage.businessUnitId).filter((p) => !stage.approvers.some((a) => a.userType === stage.userType && a.approverId === p.value));
+          // All approvers (users and employees), minus those already in the stage. Values are "TYPE:id".
+          const pickable = (["USER", "EMPLOYEE"] as const).flatMap((type) =>
+            peopleOf(type, stage.businessUnitId)
+              .filter((p) => !stage.approvers.some((a) => a.userType === type && a.approverId === p.value))
+              .map((p) => ({ value: `${type}:${p.value}`, label: `${p.label} — ${type === "USER" ? "User" : "Employee"}` })),
+          );
+          const draftWithoutLogin = stage.userType === "EMPLOYEE" && employeeWithoutLogin(stage.draft.approverId);
           return (
             <Panel
               key={stage.key}
@@ -456,7 +460,7 @@ function PipelineEditor({
                       />
                     )}
                   </Field>
-                  <Field label="Business Unit" required>
+                  <Field label="Business Unit">
                     {(id) => (
                       <Select
                         id={id}
@@ -480,17 +484,24 @@ function PipelineEditor({
                     </>
                   )}
 
-                  <Field label="Approver Name" required>
-                    {(id) => (
-                      <Select
-                        id={id}
-                        value={stage.draft.approverId}
-                        placeholder={stage.userType ? "Approver Name" : "Select a user type first"}
-                        disabled={!stage.userType}
-                        options={pickable}
-                        onChange={(e) => patchStage(index, { draft: { ...stage.draft, approverId: e.target.value } })}
-                      />
-                    )}
+                  <Field
+                    label="Approver Name"
+                    required
+                    hint={draftWithoutLogin ? "This employee has no ERP login yet, so they cannot approve until one is created." : undefined}
+                  >
+                    {/* Searchable list of every approver (users and employees); picking one also sets the stage's user type. */}
+                    <Combobox
+                      label={`Stage ${index + 1} Approver Name`}
+                      hideLabel
+                      value={stage.draft.approverId && stage.userType ? `${stage.userType}:${stage.draft.approverId}` : ""}
+                      placeholder="Type to search approver"
+                      emptyText="No approver matches."
+                      options={pickable}
+                      onChange={(value) => {
+                        const [type, approverId = ""] = value.split(":");
+                        patchStage(index, { userType: (type as UserType) || stage.userType, draft: { ...stage.draft, approverId } });
+                      }}
+                    />
                   </Field>
                   <Field label="Authorization Type" required>
                     {(id) => (
@@ -543,7 +554,14 @@ function PipelineEditor({
                             <td className={`${TABLE.td} w-12 text-right tabular-nums`}>{ai + 1}</td>
                             <td className={TABLE.td}>{labelOf(USER_TYPES, a.userType)}</td>
                             <td className={TABLE.td}>{options.businessUnits.find((u) => u.id === a.businessUnitId)?.name ?? "All"}</td>
-                            <td className={`${TABLE.td} font-medium`}>{a.approverName}</td>
+                            <td className={`${TABLE.td} font-medium`}>
+                              {a.approverName}
+                              {a.userType === "EMPLOYEE" && employeeWithoutLogin(a.approverId) && (
+                                <span className="ml-2 text-xs font-normal text-warning" title="Cannot approve until an ERP login is created for this employee.">
+                                  No login
+                                </span>
+                              )}
+                            </td>
                             <td className={TABLE.td}>{labelOf(AUTHORIZATION_TYPES, a.authorizationType)}</td>
                             <td className={`${TABLE.td} w-20 text-center`}>
                               <Button

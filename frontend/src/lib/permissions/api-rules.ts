@@ -17,6 +17,11 @@ type ModuleId = "purchase" | "inventory" | "production" | "sales" | "account" | 
 export interface ApiRule {
   /** Page whose permission writes (and, unless `read` says otherwise, reads) need. */
   feature?: string;
+  /**
+   * Other pages whose permission also opens this API (one API serving several pages).
+   * The handler then checks the exact page of each record (lib/permissions/require.ts).
+   */
+  alsoFeatures?: readonly string[];
   /** Fixed action instead of the one derived from method and path. */
   action?: PermissionAction;
   /** Who may read (GET/HEAD): any ERP user, or anyone who can view a page of these modules. */
@@ -25,6 +30,12 @@ export interface ApiRule {
   postIsRead?: boolean;
   /** Only the master account (seeding, one-off maintenance). */
   masterOnly?: boolean;
+  /**
+   * Employee Self Service: any signed-in user, every method. The handler works
+   * only on the employee linked to the session's login (features/ess/server/identity.ts),
+   * never on an id from the request, so no page permission is needed.
+   */
+  self?: boolean;
 }
 
 const PAGE = {
@@ -54,6 +65,12 @@ export const API_RULES: Record<string, ApiRule> = {
   // ── Home ──
   "/api/home": { read: "signed-in" },
 
+  // ── Employee Self Service (own records only; see ApiRule.self) ──
+  "/api/ess": { self: true },
+
+  // ── BRG Connect file downloads (only `connect/` uploads are served; see the route) ──
+  "/api/storage": { read: "signed-in" },
+
   // ── Configuration › Business Config (offices, warehouses and terms are read everywhere) ──
   "/api/configuration/company": { feature: PAGE.companyProfile, read: "signed-in" },
   "/api/configuration/business-units": { feature: PAGE.businessUnits, read: "signed-in" },
@@ -75,6 +92,7 @@ export const API_RULES: Record<string, ApiRule> = {
   "/api/configuration/entity-master-data/items/divisions": { feature: PAGE.item, read: { anyViewIn: MASTER_DATA_READERS } },
   "/api/configuration/entity-master-data/items/uoms": { feature: PAGE.item, read: { anyViewIn: MASTER_DATA_READERS } },
   "/api/configuration/entity-master-data/items/form-options": { feature: PAGE.item, read: { anyViewIn: MASTER_DATA_READERS } },
+  "/api/configuration/entity-master-data/items/filter-options": { feature: PAGE.item },
   "/api/configuration/entity-master-data/customers": { feature: PAGE.customer },
   "/api/configuration/entity-master-data/customers/form-options": { feature: PAGE.customer, read: { anyViewIn: SALES_READERS } },
   "/api/configuration/entity-master-data/customers/groups": { feature: PAGE.customer, read: { anyViewIn: SALES_READERS } },
@@ -116,12 +134,18 @@ export const API_RULES: Record<string, ApiRule> = {
   // ── Configuration › Community & Gateways ──
   "/api/configuration/gateways/api-tokens": { feature: PAGE.apiTokens },
   "/api/configuration/gateways/attendance-devices/options": { feature: "/configuration/gateways/attendance-devices", read: { anyViewIn: ["configuration", "hrm"] } },
+  "/api/configuration/gateways/attendance-notifications": { feature: "/configuration/gateways/attendance-notifications" },
 
   // ── Production ("Add new" process from the entry form) ──
   "/api/production/processes": { feature: "/production/entries" },
 
   // ── HRM ──
   "/api/hrm/options": { read: { anyViewIn: ["hrm"] } },
+  // The calendar list is read by Calendar Assign and the Attendance page's calendar info.
+  "/api/hrm/calendar-assign/calendars": { feature: "/hrm/calendar-assign", read: { anyViewIn: ["hrm"] } },
+  "/api/hrm/overtime": { feature: "/hrm/overtime" },
+  // Releasing approved payslips to employees is an approver's decision.
+  "/api/hrm/payroll/batches/*/publish": { feature: "/hrm/payroll", action: "approve" },
   "/api/hrm/bonus": { feature: "/hrm/compensation/bonus" },
   "/api/hrm/increments": { feature: "/hrm/talent/increment" },
   "/api/hrm/governance/checklist": { feature: "/hrm/governance/settings" },
@@ -130,6 +154,9 @@ export const API_RULES: Record<string, ApiRule> = {
   "/api/hrm/governance/pending": { feature: "/hrm/governance/pending-approval" },
   "/api/hrm/self-service/leaves": { feature: "/hrm/self-service/leave-movement" },
   "/api/hrm/self-service/movements": { feature: "/hrm/self-service/leave-movement" },
+  // An employee's own attendance change requests (always for themselves; HR decides in Pending Approval).
+  "/api/hrm/self-service/attendance-requests": { feature: "/hrm/self-service/leave-movement" },
+  "/api/hrm/self-service/attendance-requests/*/withdraw": { feature: "/hrm/self-service/leave-movement", action: "edit" },
 
   // ── Sales (masters are kept in Configuration › Sales Config › Sales Setup; lookups read by every sales page) ──
   "/api/sales/bills": { feature: "/sales/collections" },
@@ -150,25 +177,55 @@ export const API_RULES: Record<string, ApiRule> = {
 
   // ── Accounts (every accounts page loads the shared store; all-data filters by page itself) ──
   "/api/accounts/all-data": { read: { anyViewIn: ["account"] } },
+  "/api/accounts/dashboard": { feature: "/accounts", read: { anyViewIn: ["account"] } },
   "/api/accounts/seed": { masterOnly: true },
+  "/api/accounts/party-ledger": { feature: "/accounts/financial-reports" },
+  "/api/accounts/other-reports": { feature: "/accounts/other-reports" },
+  // Names for the journal and expense forms: any accounts page may read them.
+  "/api/accounts/parties": { read: { anyViewIn: ["account"] } },
   "/api/accounts/chart-of-accounts": { feature: "/accounts/chart-of-accounts", read: { anyViewIn: ["account"] } },
+  "/api/accounts/coa-permissions": { feature: "/accounts/chart-of-accounts", read: { anyViewIn: ["account"] } },
   "/api/accounts/cost-centers": { feature: "/accounts/center-setup", read: { anyViewIn: ["account"] } },
-  "/api/accounts/banking": { feature: "/accounts/banking", read: { anyViewIn: ["account"] } },
+  // Banking, cheque books / received cheques (Cheque Setup) and issued cheques (Cheque Issue)
+  // share one API; the handler checks the page of each record type.
+  "/api/accounts/banking": {
+    feature: "/accounts/banking",
+    alsoFeatures: ["/accounts/cheque-setup", "/accounts/cheque-issue"],
+    read: { anyViewIn: ["account"] },
+  },
 
   // ── Purchase (/api/v1) ──
   "/api/v1/master": { read: { anyViewIn: ["purchase", "inventory"] } },
+  "/api/v1/master/suppliers": { feature: PAGE.supplier, read: { anyViewIn: ["purchase", "inventory"] } },
+  "/api/v1/master/items": { feature: PAGE.item, read: { anyViewIn: ["purchase", "inventory"] } },
   "/api/v1/purchase/dashboard": { read: { anyViewIn: ["purchase"] } },
   "/api/v1/purchase/reports": { feature: "/purchase/reports" },
+  "/api/v1/purchase/reports/export-csv": { feature: "/purchase/reports", action: "export" },
   "/api/v1/purchase/requisitions": { feature: "/purchase/requisitions" },
+  "/api/v1/purchase/requisitions/*/cancel": { feature: "/purchase/requisitions", action: "delete" },
+  "/api/v1/purchase/requisitions/*/reverse": { feature: "/purchase/requisitions", action: "edit" },
+  "/api/v1/purchase/requisitions/*/method": { feature: "/purchase/requisitions", action: "edit" },
   "/api/v1/purchase/orders": { feature: "/purchase/orders" },
+  "/api/v1/purchase/orders/*/cancel": { feature: "/purchase/orders", action: "delete" },
+  "/api/v1/purchase/orders/*/close": { feature: "/purchase/orders", action: "edit" },
+  "/api/v1/purchase/orders/*/reverse": { feature: "/purchase/orders", action: "edit" },
   "/api/v1/purchase/receive": { feature: "/purchase/receive" },
+  "/api/v1/purchase/receive/*/cancel": { feature: "/purchase/receive", action: "delete" },
   "/api/v1/purchase/receipts": { feature: "/purchase/receive" },
+  "/api/v1/purchase/receipts/*/cancel": { feature: "/purchase/receive", action: "delete" },
+  "/api/v1/purchase/receive/*/accounting": { feature: "/purchase/receive" },
+  "/api/v1/purchase/receipts/*/accounting": { feature: "/purchase/receive" },
   "/api/v1/purchase/analytics": { feature: "/purchase/analytics" },
   "/api/v1/purchase/returns": { feature: "/purchase/returns" },
+  "/api/v1/purchase/returns/*/cancel": { feature: "/purchase/returns", action: "delete" },
   "/api/v1/purchase/supplier-payments": { feature: "/purchase/supplier-payments" },
+  "/api/v1/purchase/supplier-payments/payables-pdf": { feature: "/purchase/supplier-payments", action: "export" },
+  "/api/v1/purchase/supplier-payments/*/cancel": { feature: "/purchase/supplier-payments", action: "delete" },
   "/api/v1/purchase/supplier-bills": { feature: "/purchase/supplier-payments" },
   // Approving bills releases them for payment.
+  "/api/v1/purchase/supplier-bills/*/approve": { feature: "/purchase/supplier-payments", action: "approve" },
   "/api/v1/purchase/supplier-bills/approve-pending": { feature: "/purchase/supplier-payments", action: "approve" },
+  "/api/v1/purchase/supplier-bills/*/cancel": { feature: "/purchase/supplier-payments", action: "delete" },
 
   // ── RTM (/api/rtm/<page>/… maps to its page automatically) ──
   "/api/rtm/lookups": { read: { anyViewIn: ["rtm"] } },
@@ -176,6 +233,22 @@ export const API_RULES: Record<string, ApiRule> = {
   // Issuing moves stock that was already approved: the Issue page edits the transfer.
   "/api/rtm/distributor-stock-transfer-issue/*/issue": { feature: "/rtm/distributor-stock-transfer-issue", action: "edit" },
   "/api/rtm/retail-order/*/cancel": { feature: "/rtm/retail-order", action: "edit" },
+  "/api/rtm/territory": { read: { anyViewIn: ["rtm"] } },
+  // Excel of the list on screen: reading the page's data, behind its Export permission.
+  "/api/rtm/retail-order/export": { feature: "/rtm/retail-order", action: "export" },
+  "/api/rtm/delivery/export": { feature: "/rtm/delivery", action: "export" },
+  "/api/rtm/collection/export": { feature: "/rtm/collection", action: "export" },
+  "/api/rtm/sales-return/export": { feature: "/rtm/sales-return", action: "export" },
+  "/api/rtm/direct-delivery/export": { feature: "/rtm/direct-delivery", action: "export" },
+  "/api/rtm/outlet-setup/export": { feature: "/rtm/outlet-setup", action: "export" },
+  "/api/rtm/outlet-setup/bulk": { feature: "/rtm/outlet-setup", action: "import" },
+  "/api/rtm/outlet-setup/bulk/template": { feature: "/rtm/outlet-setup", action: "import" },
+  "/api/rtm/outlet-setup/*/status": { feature: "/rtm/outlet-setup", action: "edit" },
+  "/api/rtm/outlet-setup/*/resubmit": { feature: "/rtm/outlet-setup", action: "edit" },
+  // Rolling back reverses posted stock, like cancelling a document.
+  "/api/rtm/distributor-stock-adjustment/*/rollback": { feature: "/rtm/distributor-stock-adjustment", action: "delete" },
+  "/api/rtm/distributor-stock-adjustment/bulk": { feature: "/rtm/distributor-stock-adjustment", action: "import" },
+  "/api/rtm/distributor-stock-adjustment/bulk/template": { feature: "/rtm/distributor-stock-adjustment", action: "import" },
 
   // ── Inventory (/api/inventory/<page>/… maps to its page automatically) ──
   "/api/inventory/stock": { read: { anyViewIn: ["inventory"] } },
@@ -239,6 +312,8 @@ export interface AccessCheck {
 export function checkApiAccess(grants: AccessGrants | undefined, method: string, pathname: string): AccessCheck {
   const rule = ruleForRequest(pathname);
   if (!rule || rule.masterOnly) return { allowed: false, required: { action: "manage" } };
+  // Read-only API tokens never act as an employee.
+  if (rule.self) return { allowed: !!grants && !grants.readOnly, required: { action: "view" } };
   const action = rule.action ?? actionForRequest(method, pathname);
   const isRead = READ_METHODS.has(method.toUpperCase()) || (rule.postIsRead && method.toUpperCase() === "POST");
   if (isRead && rule.read && !rule.action) {
@@ -247,5 +322,6 @@ export function checkApiAccess(grants: AccessGrants | undefined, method: string,
     return { allowed, required: { feature: rule.feature, action: "view" } };
   }
   if (!rule.feature) return { allowed: false, required: { action } };
-  return { allowed: grantsAllow(grants, rule.feature, action), required: { feature: rule.feature, action } };
+  const pages = [rule.feature, ...(rule.alsoFeatures ?? [])];
+  return { allowed: pages.some((page) => grantsAllow(grants, page, action)), required: { feature: rule.feature, action } };
 }

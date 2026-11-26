@@ -20,10 +20,11 @@ import {
   type Client,
 } from "./common";
 import { bestOffer, getSettings } from "./masters.service";
+import { salesForceScope } from "./territory.service";
 
-const optUuid = z.preprocess((v) => (v === "" ? undefined : v), z.uuid().optional());
+const optUuid = z.preprocess((v) => (v === "" ? undefined : v), z.guid().optional());
 const text = (max: number) => z.string().trim().max(max).optional().transform((v) => v || undefined);
-const line = z.object({ itemId: z.uuid(), qty: z.coerce.number().finite().positive("Quantities must be greater than 0."), rate: z.coerce.number().finite().min(0).optional() });
+const line = z.object({ itemId: z.guid(), qty: z.coerce.number().finite().positive("Quantities must be greater than 0."), rate: z.coerce.number().finite().min(0).optional() });
 
 export interface ListFilters {
   from?: string;
@@ -31,6 +32,16 @@ export interface ListFilters {
   distributorId?: string;
   outletId?: string;
   status?: string;
+  /** Base point, route or market (Sales Territory node): the sales force covering it. */
+  nodeId?: string;
+  /** Sales force (employee). */
+  srId?: string;
+}
+
+/** `srId` condition for a list limited to a sales force (see salesForceScope). */
+async function srWhere(actor: Actor, f: ListFilters) {
+  const ids = await salesForceScope(actor, f);
+  return ids ? { srId: { in: ids } } : {};
 }
 
 const linesDto = (lines: { itemId: string; qty: unknown; rate: unknown; amount: unknown; item: { code: string; name: string; uom: string } }[]) =>
@@ -67,16 +78,16 @@ async function assertCredit(client: Client, outletId: string, businessUnitId: st
 
 const orderSchema = z.object({
   orderDate: z.string().regex(DATE),
-  outletId: z.uuid("Select the outlet."),
+  outletId: z.guid("Select the outlet."),
   srId: optUuid,
   remarks: text(500),
   lines: z.array(line).min(1, "Add at least one item.").max(200),
 });
 
 const orderInclude = {
-  outlet: { select: { name: true, code: true } },
+  outlet: { select: { name: true, code: true, phone: true } },
   distributor: { select: { name: true } },
-  sr: { select: { name: true } },
+  sr: { select: { name: true, employeeCode: true } },
   offer: { select: { name: true } },
   lines: { orderBy: { lineNo: "asc" as const }, include: itemSelect },
   deliveries: { select: { number: true } },
@@ -91,6 +102,7 @@ export async function listOrders(actor: Actor, f: ListFilters = {}) {
       ...(f.distributorId ? { distributorId: f.distributorId } : {}),
       ...(f.outletId ? { outletId: f.outletId } : {}),
       ...(f.status ? { status: f.status as never } : {}),
+      ...(await srWhere(actor, f)),
     },
     include: orderInclude,
     orderBy: [{ orderDate: "desc" }, { createdAt: "desc" }],
@@ -105,9 +117,14 @@ export async function listOrders(actor: Actor, f: ListFilters = {}) {
       orderDate: fromDbDate(o.orderDate),
       outletId: o.outletId,
       outlet: `${o.outlet.code} · ${o.outlet.name}`,
+      outletCode: o.outlet.code,
+      outletName: o.outlet.name,
+      outletPhone: o.outlet.phone,
       distributorId: o.distributorId,
       distributor: o.distributor.name,
+      srId: o.srId,
       sr: o.sr?.name ?? null,
+      srCode: o.sr?.employeeCode ?? null,
       status: o.status,
       subtotal: num(o.subtotal),
       discount: num(o.discount),
@@ -127,6 +144,7 @@ export async function createOrder(actor: Actor, raw: unknown) {
   const input = orderSchema.parse(raw);
   const outlet = await requireOutlet(actor, input.outletId);
   if (!outlet.isActive) throw badRequest("The outlet is inactive.");
+  if (outlet.approvalStatus !== "APPROVED") throw badRequest(`${outlet.name} is not approved yet (Outlet Setup).`);
   if (input.srId) await requireEmployee(actor, input.srId);
   await db().$transaction(async (tx) => {
     await requireItems(tx, outlet.businessUnitId, input.lines.map((l) => l.itemId));
@@ -170,9 +188,9 @@ export async function cancelOrder(actor: Actor, id: string) {
 // ── Deliveries ───────────────────────────────────────────────────────────────
 
 const deliveryInclude = {
-  outlet: { select: { name: true, code: true } },
+  outlet: { select: { name: true, code: true, phone: true } },
   distributor: { select: { name: true } },
-  sr: { select: { name: true } },
+  sr: { select: { name: true, employeeCode: true } },
   order: { select: { number: true } },
   lines: { orderBy: { lineNo: "asc" as const }, include: itemSelect },
 };
@@ -186,6 +204,7 @@ export async function listDeliveries(actor: Actor, f: ListFilters & { direct?: b
       ...(f.from || f.to ? { deliveryDate: dateRange(f.from, f.to) } : {}),
       ...(f.distributorId ? { distributorId: f.distributorId } : {}),
       ...(f.outletId ? { outletId: f.outletId } : {}),
+      ...(await srWhere(actor, f)),
     },
     include: deliveryInclude,
     orderBy: [{ deliveryDate: "desc" }, { createdAt: "desc" }],
@@ -198,9 +217,14 @@ export async function listDeliveries(actor: Actor, f: ListFilters & { direct?: b
     order: d.order?.number ?? null,
     outletId: d.outletId,
     outlet: `${d.outlet.code} · ${d.outlet.name}`,
+    outletCode: d.outlet.code,
+    outletName: d.outlet.name,
+    outletPhone: d.outlet.phone,
     distributorId: d.distributorId,
     distributor: d.distributor.name,
+    srId: d.srId,
     sr: d.sr?.name ?? null,
+    srCode: d.sr?.employeeCode ?? null,
     isDirect: d.isDirect,
     status: d.status,
     subtotal: num(d.subtotal),
@@ -213,10 +237,10 @@ export async function listDeliveries(actor: Actor, f: ListFilters & { direct?: b
 }
 
 const deliverSchema = z.object({
-  orderId: z.uuid("Select the order."),
+  orderId: z.guid("Select the order."),
   deliveryDate: z.string().regex(DATE),
   remarks: text(500),
-  lines: z.array(z.object({ lineId: z.uuid(), qty: z.coerce.number().finite().min(0) })).min(1),
+  lines: z.array(z.object({ lineId: z.guid(), qty: z.coerce.number().finite().min(0) })).min(1),
 });
 
 /** Delivers (part of) a retail order: stock leaves the distributor, the outlet owes the amount. */
@@ -271,7 +295,7 @@ export async function deliverOrder(actor: Actor, raw: unknown) {
 
 const directSchema = z.object({
   deliveryDate: z.string().regex(DATE),
-  outletId: z.uuid("Select the outlet."),
+  outletId: z.guid("Select the outlet."),
   srId: optUuid,
   discount: z.preprocess((v) => (v === "" ? undefined : v), z.coerce.number().finite().min(0).default(0)),
   remarks: text(500),
@@ -282,6 +306,7 @@ const directSchema = z.object({
 export async function directDelivery(actor: Actor, raw: unknown) {
   const input = directSchema.parse(raw);
   const outlet = await requireOutlet(actor, input.outletId);
+  if (outlet.approvalStatus !== "APPROVED") throw badRequest(`${outlet.name} is not approved yet (Outlet Setup).`);
   if ((await getSettings(outlet.businessUnitId)).allowDirectDelivery !== "true") throw badRequest("Direct deliveries are turned off in RTM Configuration.");
   if (input.srId) await requireEmployee(actor, input.srId);
   await db().$transaction(async (tx) => {
@@ -327,7 +352,7 @@ export async function directDelivery(actor: Actor, raw: unknown) {
 
 const collectionSchema = z.object({
   collectionDate: z.string().regex(DATE),
-  outletId: z.uuid("Select the outlet."),
+  outletId: z.guid("Select the outlet."),
   srId: optUuid,
   amount: z.coerce.number().finite().positive("Enter the amount collected."),
   method: z.enum(["CASH", "BANK", "MFS", "CHEQUE"]).default("CASH"),
@@ -343,6 +368,7 @@ export async function listCollections(actor: Actor, f: ListFilters = {}) {
       ...(f.from || f.to ? { collectionDate: dateRange(f.from, f.to) } : {}),
       ...(f.distributorId ? { distributorId: f.distributorId } : {}),
       ...(f.outletId ? { outletId: f.outletId } : {}),
+      ...(await srWhere(actor, f)),
     },
     include: { outlet: { select: { code: true, name: true } }, distributor: { select: { name: true } }, sr: { select: { name: true } } },
     orderBy: [{ collectionDate: "desc" }, { createdAt: "desc" }],
@@ -363,6 +389,72 @@ export async function listCollections(actor: Actor, f: ListFilters = {}) {
     status: c.status,
     updatedAt: c.createdAt.toISOString(),
   }));
+}
+
+/**
+ * One row per outlet with deliveries or collections on `date`: what was
+ * delivered and collected that day, and what is left to collect (never more
+ * than the outlet owes overall, e.g. after a return).
+ */
+export async function collectionSummary(actor: Actor, f: ListFilters & { date?: string } = {}) {
+  const date = f.date && DATE.test(f.date) ? f.date : undefined;
+  if (!date) throw badRequest("Choose a date.");
+  const units = await unitIds(actor);
+  const where = {
+    businessUnitId: { in: units },
+    status: { not: "CANCELLED" as const },
+    ...(f.outletId ? { outletId: f.outletId } : {}),
+    ...(await srWhere(actor, f)),
+  };
+  const day = toDbDate(date);
+  const [deliveries, collections] = await Promise.all([
+    db().rtmDelivery.findMany({ where: { ...where, deliveryDate: day }, select: { outletId: true, total: true, srId: true, sr: { select: { name: true } } }, orderBy: { createdAt: "asc" } }),
+    db().rtmCollection.findMany({ where: { ...where, collectionDate: day }, select: { outletId: true, amount: true, srId: true, sr: { select: { name: true } } }, orderBy: { createdAt: "asc" } }),
+  ]);
+  const rows = new Map<string, { delivered: number; collected: number; srId: string | null; sr: string | null }>();
+  const row = (id: string) => rows.get(id) ?? rows.set(id, { delivered: 0, collected: 0, srId: null, sr: null }).get(id)!;
+  for (const d of deliveries) {
+    const r = row(d.outletId);
+    r.delivered += num(d.total);
+    if (d.srId) {
+      r.srId = d.srId;
+      r.sr = d.sr?.name ?? null;
+    }
+  }
+  for (const c of collections) {
+    const r = row(c.outletId);
+    r.collected += num(c.amount);
+    if (c.srId && !r.srId) {
+      r.srId = c.srId;
+      r.sr = c.sr?.name ?? null;
+    }
+  }
+  const ids = [...rows.keys()];
+  if (!ids.length) return [];
+  const [outlets, due] = await Promise.all([
+    db().rtmOutlet.findMany({ where: { id: { in: ids } }, select: { id: true, code: true, name: true, phone: true, distributor: { select: { name: true } } } }),
+    outletBalances(db(), ids),
+  ]);
+  return outlets
+    .map((o) => {
+      const r = rows.get(o.id)!;
+      const owed = Math.max(0, due.get(o.id) ?? 0);
+      return {
+        outletId: o.id,
+        outletCode: o.code,
+        outletName: o.name,
+        outletPhone: o.phone,
+        distributor: o.distributor.name,
+        date,
+        srId: r.srId,
+        sr: r.sr,
+        delivered: r2(r.delivered),
+        collected: r2(r.collected),
+        rest: r2(Math.min(owed, Math.max(0, r.delivered - r.collected))),
+        due: r2(owed),
+      };
+    })
+    .sort((a, b) => a.outletName.localeCompare(b.outletName));
 }
 
 export async function createCollection(actor: Actor, raw: unknown) {
@@ -395,22 +487,37 @@ export async function createCollection(actor: Actor, raw: unknown) {
 
 const returnSchema = z.object({
   returnDate: z.string().regex(DATE),
-  outletId: z.uuid("Select the outlet."),
+  outletId: z.guid("Select the outlet."),
   deliveryId: optUuid,
   reason: text(300),
   lines: z.array(line).min(1, "Add at least one item.").max(200),
 });
 
-export async function listReturns(actor: Actor, f: ListFilters = {}) {
+/**
+ * Returns (?from&to&distributorId&outletId&nodeId&srId&deliveryType). A return has
+ * no sales force of its own: the sales force and delivery type are those of the
+ * delivery it was made against (deliveryType NONE: returns without a delivery).
+ */
+export async function listReturns(actor: Actor, f: ListFilters & { deliveryType?: string } = {}) {
   const units = await unitIds(actor);
+  const sr = await srWhere(actor, f);
+  const type = f.deliveryType === "ORDER" ? { isDirect: false } : f.deliveryType === "DIRECT" ? { isDirect: true } : {};
+  const viaDelivery = { ...type, ...sr };
   const rows = await db().rtmReturn.findMany({
     where: {
       businessUnitId: { in: units },
       ...(f.from || f.to ? { returnDate: dateRange(f.from, f.to) } : {}),
       ...(f.distributorId ? { distributorId: f.distributorId } : {}),
       ...(f.outletId ? { outletId: f.outletId } : {}),
+      ...(f.deliveryType === "NONE" ? { deliveryId: null } : {}),
+      ...(Object.keys(viaDelivery).length ? { delivery: { is: viaDelivery } } : {}),
     },
-    include: { outlet: { select: { code: true, name: true } }, distributor: { select: { name: true } }, delivery: { select: { number: true } }, lines: { orderBy: { lineNo: "asc" }, include: itemSelect } },
+    include: {
+      outlet: { select: { code: true, name: true, phone: true } },
+      distributor: { select: { name: true } },
+      delivery: { select: { number: true, isDirect: true, srId: true, sr: { select: { name: true, employeeCode: true } } } },
+      lines: { orderBy: { lineNo: "asc" }, include: itemSelect },
+    },
     orderBy: [{ returnDate: "desc" }, { createdAt: "desc" }],
     take: 2000,
   });
@@ -420,8 +527,15 @@ export async function listReturns(actor: Actor, f: ListFilters = {}) {
     returnDate: fromDbDate(r.returnDate),
     outletId: r.outletId,
     outlet: `${r.outlet.code} · ${r.outlet.name}`,
+    outletCode: r.outlet.code,
+    outletName: r.outlet.name,
+    outletPhone: r.outlet.phone,
     distributor: r.distributor.name,
     delivery: r.delivery?.number ?? null,
+    deliveryType: r.delivery ? (r.delivery.isDirect ? "DIRECT" : "ORDER") : null,
+    srId: r.delivery?.srId ?? null,
+    sr: r.delivery?.sr?.name ?? null,
+    srCode: r.delivery?.sr?.employeeCode ?? null,
     reason: r.reason,
     total: num(r.total),
     status: r.status,

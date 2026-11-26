@@ -7,6 +7,7 @@ import { db } from "@/lib/prisma/client";
 import { loadUnit } from "../../standard-price/server/standard-price.service";
 import type { ReturnPriceFilter, ReturnPriceImportResult, ReturnPriceRow, ReturnPriceRowInput } from "../schemas/return-price.schema";
 import { allReturnPrices, saveReturnPrices } from "./return-price.service";
+import { loadWorkbook } from "@/lib/excel/load-workbook";
 
 /**
  * Excel download / bulk upload and PDF print for Sales Return Price Setup. The
@@ -52,12 +53,7 @@ const amount = (value: string) => value.replace(/,/g, "").trim();
 
 export async function importReturnPrices(actor: Actor, businessUnitId: string, bytes: Uint8Array): Promise<ReturnPriceImportResult> {
   await loadUnit(actor, businessUnitId);
-  const workbook = new ExcelJS.Workbook();
-  try {
-    await workbook.xlsx.load(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer);
-  } catch {
-    throw new AppError(400, "VALIDATION_ERROR", "The file is not a valid Excel (.xlsx) workbook.");
-  }
+  const workbook = await loadWorkbook(bytes);
   const sheet = workbook.worksheets[0];
   if (!sheet) throw new AppError(400, "VALIDATION_ERROR", "The workbook has no sheets.");
   const index = new Map<string, number>();
