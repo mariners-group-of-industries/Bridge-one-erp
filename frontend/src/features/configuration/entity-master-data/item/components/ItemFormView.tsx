@@ -5,16 +5,15 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState, type ReactNode } from "react";
 import { PageContainer, PageHead } from "@/components/layout/page";
-import { Button, buttonClasses } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
 import { ErrorState, LoadingState } from "@/components/ui/section";
 import { Tabs } from "@/components/ui/tabs";
 import { useToast } from "@/components/ui/toast";
 import { useResource } from "@/hooks/use-resource";
 import { ApiClientError, errorMessage } from "@/lib/api/client";
 import { cn } from "@/lib/cn";
-import { entityMasterDataBreadcrumbs } from "../../breadcrumbs";
 import { AddableSelect } from "../../components/AddableSelect";
-import { Checkbox, Field, FormGrid, Input, Notice, Panel, PanelSection, SaveState, Select } from "../../employee/components/kit";
+import { Checkbox, Field, Input, Notice, Panel, SaveState, Select } from "../../employee/components/kit";
 import { entityMasterDataPaths } from "../../paths";
 import {
   ITEM_FLAGS,
@@ -168,6 +167,9 @@ const ADDITIONAL_FIELDS = new Set([
   "tagSupplier",
 ]);
 
+/** Basic Information grid: six fields per row on wide screens, as in Managerium. */
+const GRID6 = "grid grid-cols-1 items-start gap-x-4 gap-y-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6";
+
 const TABS = [
   { id: "basic", label: "Basic Information" },
   { id: "additional", label: "Additional Information" },
@@ -186,11 +188,7 @@ export interface EmbeddedItemForm {
 export function ItemFormView({ itemId, embedded }: { itemId?: string; embedded?: EmbeddedItemForm }) {
   const options = useResource("item-form-options", itemApi.formOptions);
   const item = useResource(itemId ? `item:${itemId}` : null, () => itemApi.get(itemId!));
-  const title = itemId ? "Edit Item" : "Add Item";
-  const breadcrumbs = [
-    ...entityMasterDataBreadcrumbs(entityMasterDataPaths.itemProfile),
-    { label: itemId ? (item.data?.name ?? "Item") : "Add Item", href: itemId ? entityMasterDataPaths.itemEdit(itemId) : entityMasterDataPaths.itemCreate },
-  ];
+  const title = itemId ? "Edit Item" : "Create Item";
   const initial = useMemo(() => {
     if (item.data) {
       const { id: _id, isActive: _active, ...rest } = item.data as ItemDto;
@@ -211,7 +209,7 @@ export function ItemFormView({ itemId, embedded }: { itemId?: string; embedded?:
     <Shell>
       {error || !ready ? (
         <>
-          {!embedded && <PageHead title={title} breadcrumbs={breadcrumbs} />}
+          {!embedded && <PageHead title={title} />}
           <section className="rounded border border-line bg-surface">
             {error ? (
               <ErrorState
@@ -231,7 +229,6 @@ export function ItemFormView({ itemId, embedded }: { itemId?: string; embedded?:
           key={`${item.data?.id ?? "new"}-${round}`}
           itemId={itemId}
           title={title}
-          breadcrumbs={breadcrumbs}
           initial={initial}
           options={options.data!}
           onOptionsChange={(update) => options.mutate((current) => update(current!))}
@@ -251,7 +248,6 @@ const EmbeddedShell = ({ children }: { children: ReactNode }) => <div className=
 interface EditorProps {
   itemId?: string;
   title: string;
-  breadcrumbs: { label: string; href: string }[];
   initial: FormState;
   options: ItemFormOptions;
   onOptionsChange: (update: (current: ItemFormOptions) => ItemFormOptions) => void;
@@ -259,7 +255,7 @@ interface EditorProps {
   embedded?: EmbeddedItemForm;
 }
 
-function ItemEditor({ itemId, title, breadcrumbs, initial, options, onOptionsChange, onSavedNew, embedded }: EditorProps) {
+function ItemEditor({ itemId, title, initial, options, onOptionsChange, onSavedNew, embedded }: EditorProps) {
   const router = useRouter();
   const toast = useToast();
   const [tab, setTab] = useState<(typeof TABS)[number]["id"]>("basic");
@@ -371,16 +367,33 @@ function ItemEditor({ itemId, title, breadcrumbs, initial, options, onOptionsCha
   return (
     <>
       {!embedded && (
-      <PageHead
-        title={title}
-        subtitle={itemId ? `Item code ${initial.code}` : "Basic and additional information. Items are shared with Sales and Purchase."}
-        breadcrumbs={breadcrumbs}
-        actions={
-          <Link href={entityMasterDataPaths.itemProfile} className={buttonClasses("secondary", "md")}>
-            <ArrowLeft /> All Items
-          </Link>
-        }
-      />
+        // Managerium header: back arrow, title, and the save buttons on the right.
+        <PageHead
+          title={
+            <span className="flex items-center gap-2.5">
+              <Link
+                href={entityMasterDataPaths.itemProfile}
+                aria-label="Back to Item Profile"
+                title="Back to Item Profile"
+                className="inline-flex size-8 shrink-0 items-center justify-center rounded border border-line text-ink-muted transition hover:bg-canvas hover:text-ink focus-visible:ring-2 focus-visible:ring-blue-500/20 focus-visible:outline-none"
+              >
+                <ArrowLeft className="size-4" aria-hidden="true" />
+              </Link>
+              <span className="truncate text-base">{title}</span>
+            </span>
+          }
+          indicator={dirty ? <span className="text-xs font-medium text-warning">Unsaved changes</span> : undefined}
+          actions={
+            <>
+              <Button variant="accent-soft" loading={saving === "new"} disabled={saving !== null} onClick={() => save("new")}>
+                {saving !== "new" && <SaveAll />} Save &amp; New
+              </Button>
+              <Button variant="accent" loading={saving === "save"} disabled={saving !== null} onClick={() => save("save")}>
+                {saving !== "save" && <Save />} Save
+              </Button>
+            </>
+          }
+        />
       )}
 
       <form
@@ -395,48 +408,19 @@ function ItemEditor({ itemId, title, breadcrumbs, initial, options, onOptionsCha
 
         <Panel flush>
           <Tabs tabs={tabsWithBadges} value={tab} onChange={setTab} label="Item sections">
-            <div className={cn("px-5 py-4", tab !== "basic" && "hidden")}>
-              <PanelSection title="Checklist">
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
-                  {ITEM_FLAGS.map((flag) => (
-                    <Checkbox
-                      key={flag.key}
-                      label={flag.label}
-                      checked={form[flag.key as ItemFlag]}
-                      onChange={(e) => patch({ [flag.key]: e.target.checked } as Partial<FormState>)}
-                    />
-                  ))}
-                </div>
-              </PanelSection>
-
-              <PanelSection title="Item">
-                <FormGrid cols={4}>
-                  {options.businessUnits.length > 1 && (
-                    <Field label="Business Unit" required error={err("businessUnitId")}>
-                      {(id) => (
-                        <Select
-                          id={id}
-                          value={form.businessUnitId}
-                          disabled={!!itemId}
-                          options={toOptions(options.businessUnits)}
-                          aria-invalid={invalid("businessUnitId")}
-                          onChange={(e) =>
-                            patch({ businessUnitId: e.target.value, divisionId: "", categoryId: "", subCategoryId: "", minorCategoryId: "" })
-                          }
-                        />
-                      )}
-                    </Field>
-                  )}
+            {/* Managerium layout: one compact 6-column grid, then the tick boxes in a row. */}
+            <div className={cn("flex flex-col gap-4 px-5 py-4", tab !== "basic" && "hidden")}>
+                <div className={GRID6}>
                   <Field label="Master Item Code" required error={err("code")}>
                     {(id) => <Input id={id} value={form.code} maxLength={30} aria-invalid={invalid("code")} onChange={text("code")} />}
                   </Field>
-                  <Field label="Printed Item Code" required error={err("printedCode")}>
+                  <Field label="Printed / Customer Item Code" required error={err("printedCode")}>
                     {(id) => <Input id={id} value={form.printedCode} maxLength={30} aria-invalid={invalid("printedCode")} onChange={text("printedCode")} />}
                   </Field>
                   <Field label="Master Item Name" required error={err("name")}>
                     {(id) => <Input id={id} value={form.name} maxLength={200} aria-invalid={invalid("name")} onChange={text("name")} />}
                   </Field>
-                  <Field label="Printed / Customer Name" required error={err("printedName")}>
+                  <Field label="Printed / Customer Item Name" required error={err("printedName")}>
                     {(id) => <Input id={id} value={form.printedName} maxLength={200} aria-invalid={invalid("printedName")} onChange={text("printedName")} />}
                   </Field>
                   <Field label="Item Type" required error={err("itemType")}>
@@ -461,11 +445,6 @@ function ItemEditor({ itemId, title, breadcrumbs, initial, options, onOptionsCha
                     disabledReason={unitMissing}
                     error={err("divisionId")}
                   />
-                </FormGrid>
-              </PanelSection>
-
-              <PanelSection title="Category">
-                <FormGrid cols={3}>
                   <AddableSelect
                     label="Category"
                     value={form.categoryId}
@@ -493,24 +472,19 @@ function ItemEditor({ itemId, title, breadcrumbs, initial, options, onOptionsCha
                     disabledReason={unitMissing ?? (form.subCategoryId ? undefined : "Select a sub category first.")}
                     error={err("minorCategoryId")}
                   />
-                </FormGrid>
-              </PanelSection>
-
-              <PanelSection title="Units & Weight">
-                <FormGrid cols={4}>
                   <Field label="Alt. UOM" error={err("altUom")}>
                     {(id) => <Select id={id} value={form.altUom} disabled={!unit} options={withCurrent(uomOptions, form.altUom)} onChange={text("altUom")} />}
                   </Field>
                   <Field label="Alt. Unit" error={err("altUnit")} hint="Base units in one alt. UOM (e.g. 12 Pcs per Box).">
                     {(id) => <Input id={id} inputMode="decimal" value={form.altUnit} aria-invalid={invalid("altUnit")} onChange={decimal("altUnit", QTY)} />}
                   </Field>
-                  <Field label="Net Weight" error={err("netWeight")}>
-                    {(id) => <Input id={id} inputMode="decimal" value={form.netWeight} aria-invalid={invalid("netWeight")} onChange={decimal("netWeight", QTY)} />}
-                  </Field>
-                  <Field label="Net Weight Unit" error={err("netWeightUnit")}>
+                  <Field label="Net Weight UOM" error={err("netWeightUnit")}>
                     {(id) => (
                       <Select id={id} value={form.netWeightUnit} disabled={!unit} options={withCurrent(uomOptions, form.netWeightUnit)} onChange={text("netWeightUnit")} />
                     )}
+                  </Field>
+                  <Field label="Net Weight" error={err("netWeight")}>
+                    {(id) => <Input id={id} inputMode="decimal" value={form.netWeight} aria-invalid={invalid("netWeight")} onChange={decimal("netWeight", QTY)} />}
                   </Field>
                   <Field label="Restricted Ages" error={err("restrictedAge")}>
                     {(id) => <Select id={id} value={form.restrictedAge} options={RESTRICTED_AGES} onChange={text("restrictedAge")} />}
@@ -533,8 +507,36 @@ function ItemEditor({ itemId, title, breadcrumbs, initial, options, onOptionsCha
                       ))}
                     </div>
                   </fieldset>
-                </FormGrid>
-              </PanelSection>
+                  {/* Only when the user has several business units; the lists above follow it. */}
+                  {options.businessUnits.length > 1 && (
+                    <Field label="Business Unit" required error={err("businessUnitId")}>
+                      {(id) => (
+                        <Select
+                          id={id}
+                          value={form.businessUnitId}
+                          disabled={!!itemId}
+                          options={toOptions(options.businessUnits)}
+                          aria-invalid={invalid("businessUnitId")}
+                          onChange={(e) =>
+                            patch({ businessUnitId: e.target.value, divisionId: "", categoryId: "", subCategoryId: "", minorCategoryId: "" })
+                          }
+                        />
+                      )}
+                    </Field>
+                  )}
+                </div>
+
+                <div className="flex flex-wrap items-center gap-x-6 gap-y-2 border-t border-line pt-3">
+                  {ITEM_FLAGS.map((flag) => (
+                    <Checkbox
+                      key={flag.key}
+                      label={flag.label}
+                      checked={form[flag.key as ItemFlag]}
+                      onChange={(e) => patch({ [flag.key]: e.target.checked } as Partial<FormState>)}
+                      className="min-h-6"
+                    />
+                  ))}
+                </div>
             </div>
 
             <div className={cn("flex flex-col gap-5 px-5 py-4", tab !== "additional" && "hidden")}>
@@ -834,26 +836,18 @@ function ItemEditor({ itemId, title, breadcrumbs, initial, options, onOptionsCha
           </Tabs>
         </Panel>
 
-        <div className="sticky bottom-0 z-10 flex flex-wrap items-center justify-end gap-2 rounded border border-line bg-surface/95 px-4 py-2.5 shadow-xs backdrop-blur">
-          <SaveState dirty={dirty} />
-          {embedded ? (
+        {/* In a dialog there is no page header, so the buttons stay at the bottom. */}
+        {embedded && (
+          <div className="sticky bottom-0 z-10 flex flex-wrap items-center justify-end gap-2 rounded border border-line bg-surface/95 px-4 py-2.5 shadow-xs backdrop-blur">
+            <SaveState dirty={dirty} />
             <Button variant="ghost" className="text-danger" onClick={embedded.onCancel} disabled={saving !== null}>
               CLOSE
             </Button>
-          ) : (
-            <>
-              <Link href={entityMasterDataPaths.itemProfile} className={buttonClasses("secondary", "md")}>
-                Cancel
-              </Link>
-              <Button variant="accent-soft" loading={saving === "new"} disabled={saving !== null} onClick={() => save("new")}>
-                {saving !== "new" && <SaveAll />} Save &amp; New
-              </Button>
-            </>
-          )}
-          <Button type="submit" variant="accent" loading={saving === "save"} disabled={saving !== null}>
-            {saving !== "save" && <Save />} Save
-          </Button>
-        </div>
+            <Button type="submit" variant="accent" loading={saving === "save"} disabled={saving !== null}>
+              {saving !== "save" && <Save />} Save
+            </Button>
+          </div>
+        )}
       </form>
     </>
   );
