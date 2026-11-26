@@ -1,7 +1,7 @@
 import type { Prisma } from "@/generated/prisma/client";
 import { AppError, badRequest, conflict, notFound } from "@/lib/api/errors";
 import { assertCompanyAccess, canOn, type Actor } from "@/lib/auth/actor";
-import { approvalNote, recordApproval, recordRejection } from "@/lib/approval/engine";
+import { approvalNote, hasApprovalPipeline, recordApproval, recordRejection } from "@/lib/approval/engine";
 import { db } from "@/lib/prisma/client";
 import { money } from "../../dashboard/lib/aggregate";
 import { fromDbDate, toDbDate } from "../../lib/dates";
@@ -602,6 +602,11 @@ export async function changeOrderStatus(actor: Actor, id: string, raw: unknown):
       if (hold) {
         await guarded(["DRAFT"], "submitted", { status: "PENDING_APPROVAL", holdReason: hold.reason, submittedAt: now }, [
           { action: "SUBMITTED_FOR_APPROVAL", to: "PENDING_APPROVAL", remarks: note(hold.message) },
+        ]);
+      } else if (await hasApprovalPipeline(db(), "Sales Order", { businessUnitId: order.businessUnitId, amount: order.salesTotal.toNumber() })) {
+        // A Sales Order pipeline (Configuration › Approval Setup) applies to every order, not only to held ones.
+        await guarded(["DRAFT"], "submitted", { status: "PENDING_APPROVAL", holdReason: "APPROVAL_PIPELINE", submittedAt: now }, [
+          { action: "SUBMITTED_FOR_APPROVAL", to: "PENDING_APPROVAL", remarks: note("Waiting for the Sales Order approval pipeline.") },
         ]);
       } else {
         const reason = order.paymentMethod === "CASH" ? "Cash order: approved automatically." : "Within credit limit: approved automatically.";

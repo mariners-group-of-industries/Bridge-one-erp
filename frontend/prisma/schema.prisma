@@ -2374,6 +2374,8 @@ enum PaymentMethod {
 enum OrderHoldReason {
   CREDIT_LIMIT_EXCEEDED
   OVERDUE_BALANCE
+  /// Waiting for the Sales Order approval pipeline (Configuration › Approval Setup).
+  APPROVAL_PIPELINE
 }
 
 model SalesOrder {

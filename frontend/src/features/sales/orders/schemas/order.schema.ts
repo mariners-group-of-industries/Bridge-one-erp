@@ -49,11 +49,12 @@ export const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
   MOBILE_BANKING: "Mobile Banking",
 };
 
-export const HOLD_REASONS = ["CREDIT_LIMIT_EXCEEDED", "OVERDUE_BALANCE"] as const;
+export const HOLD_REASONS = ["CREDIT_LIMIT_EXCEEDED", "OVERDUE_BALANCE", "APPROVAL_PIPELINE"] as const;
 export type HoldReason = (typeof HOLD_REASONS)[number];
 export const HOLD_REASON_LABELS: Record<HoldReason, string> = {
   CREDIT_LIMIT_EXCEEDED: "Credit limit exceeded",
   OVERDUE_BALANCE: "Overdue balance",
+  APPROVAL_PIPELINE: "Approval pipeline",
 };
 
 export const ORDER_ACTIONS = ["submit", "approve", "reject", "cancel", "complete"] as const;

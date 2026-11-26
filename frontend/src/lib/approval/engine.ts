@@ -97,8 +97,14 @@ export function featureAliases(feature: string): string[] {
   return [f];
 }
 
-/** True when a feature has at least one configured approval pipeline with stages. */
-export async function hasApprovalPipeline(tx: Tx, feature: string): Promise<boolean> {
+/**
+ * True when a feature has at least one configured approval pipeline with stages.
+ * Given the document (amount, business unit), true only when a stage applies to
+ * it: a document below every stage threshold has no one to approve it, so it
+ * must not wait for approval.
+ */
+export async function hasApprovalPipeline(tx: Tx, feature: string, document?: Pick<ApprovalTarget, "amount" | "businessUnitId">): Promise<boolean> {
+  if (document) return (await stagesFromPipeline(tx, { feature, documentId: "", ...document })).length > 0;
   const aliases = featureAliases(feature);
   const pipeline = await tx.approvalPipeline.findFirst({
     where: { feature: { in: aliases }, stages: { some: {} } },

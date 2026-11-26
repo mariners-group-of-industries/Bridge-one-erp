@@ -1,7 +1,7 @@
 import { Prisma } from "@/generated/prisma/client";
 import { AppError, badRequest, conflict, notFound } from "@/lib/api/errors";
 import { canOn, assertCompanyAccess, type Actor } from "@/lib/auth/actor";
-import { recordApproval } from "@/lib/approval/engine";
+import { recordApproval, resetApproval } from "@/lib/approval/engine";
 import { db } from "@/lib/prisma/client";
 import { money } from "../../dashboard/lib/aggregate";
 import { assertStockAvailable, lockWarehouse, requireWarehouse } from "../../deliveries/services/stock.service";
@@ -718,6 +718,8 @@ export async function updateReturn(actor: Actor, id: string, raw: unknown): Prom
     await assertReturnable(tx, p, id);
     await tx.salesReturnLine.deleteMany({ where: { returnId: id } });
     await tx.salesReturn.update({ where: { id }, data: { ...p.header, updatedBy: actor.id, lines: { create: p.lines } } });
+    // Stage approvals given before the edit no longer stand: approval starts over.
+    await resetApproval(tx, "Sales Return", id);
   });
   return getReturn(actor, id);
 }

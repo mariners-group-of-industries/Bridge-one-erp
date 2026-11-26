@@ -2,6 +2,7 @@ import { Prisma } from "@/generated/prisma/client";
 import { AppError, badRequest, conflict, notFound } from "@/lib/api/errors";
 import { canOn, type Actor } from "@/lib/auth/actor";
 import { db } from "@/lib/prisma/client";
+import { absorbInflowCost } from "@/lib/inventory/moving-cost";
 import { assertStockAvailable, lockWarehouse, stockLevels } from "@/features/sales/deliveries/services/stock.service";
 import { fromDbDate, toDbDate } from "@/features/sales/lib/dates";
 import { scopedBusinessUnitIds } from "@/features/sales/lib/scope";
@@ -389,6 +390,15 @@ export async function createEntry(actor: Actor, raw: unknown): Promise<EntryDeta
       },
       select: { id: true, number: true },
     });
+
+    // The output comes into stock at the cost of the materials used (their current item cost,
+    // the same value the GL posts for the entry), so its sale costs what it took to make.
+    if (netQty > 0) {
+      const materialCost = await tx.item.findMany({ where: { id: { in: materials.map((line) => line.itemId) } }, select: { id: true, purchasePrice: true } });
+      const costOf = new Map(materialCost.map((item) => [item.id, item.purchasePrice === null ? null : num(item.purchasePrice)]));
+      const used = materials.reduce((sum, line) => sum + line.actualQty * (costOf.get(line.itemId) ?? line.rate), 0);
+      await absorbInflowCost(tx, businessUnitId, [{ itemId: order.itemId, qty: netQty, unitCost: used / netQty }]);
+    }
 
     const postingDate = toDbDate(input.entryDate);
     await tx.stockEntry.createMany({
