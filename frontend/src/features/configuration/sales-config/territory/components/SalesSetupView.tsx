@@ -515,7 +515,8 @@ function TreeView({
   search: string;
   actions: Actions;
 }) {
-  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  // Starts closed: only the top layer (National) shows; clicking an entry opens the next layer.
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const visible = useVisibleIds(tree, search);
   const childrenOf = useMemo(() => {
     const map = new Map<string, NodeDto[]>();
@@ -528,7 +529,7 @@ function TreeView({
   }, [tree.nodes]);
 
   const toggle = (id: string) =>
-    setCollapsed((current) => {
+    setExpanded((current) => {
       const next = new Set(current);
       if (next.has(id)) next.delete(id);
       else next.add(id);
@@ -550,7 +551,7 @@ function TreeView({
       >
         {nodes.map((node) => {
           const hasChildren = (childrenOf.get(node.id) ?? []).length > 0;
-          const open = !!visible || !collapsed.has(node.id);
+          const open = !!visible || expanded.has(node.id);
           const layer = tree.layers.find((l) => l.level === node.level);
           const Box = open ? SquareMinus : SquarePlus;
           return (
@@ -573,19 +574,32 @@ function TreeView({
                     type="button"
                     aria-label={`${open ? "Collapse" : "Expand"} ${node.name}`}
                     onClick={() => toggle(node.id)}
-                    className="flex size-4 shrink-0 items-center justify-center text-ink-muted hover:text-accent-strong"
+                    className="flex size-6 shrink-0 items-center justify-center rounded text-ink-muted hover:text-accent-strong focus-visible:ring-2 focus-visible:ring-blue-500/20 focus-visible:outline-none"
                   >
                     <Box className="size-3.5" aria-hidden="true" />
                   </button>
                 ) : (
-                  <span className="size-4 shrink-0" />
+                  <span className="size-6 shrink-0" />
                 )}
-                <span
-                  className="text-sm text-ink"
-                  title={`${layer?.name ?? ""} · ${node.code}`}
-                >
-                  {node.name}
-                </span>
+                {hasChildren ? (
+                  // Clicking the name opens / closes the entry too.
+                  <button
+                    type="button"
+                    tabIndex={-1}
+                    onClick={() => toggle(node.id)}
+                    className="cursor-pointer text-left text-sm text-ink hover:text-accent-strong"
+                    title={`${layer?.name ?? ""} · ${node.code}`}
+                  >
+                    {node.name}
+                  </button>
+                ) : (
+                  <span
+                    className="text-sm text-ink"
+                    title={`${layer?.name ?? ""} · ${node.code}`}
+                  >
+                    {node.name}
+                  </span>
+                )}
                 {node.customerCount !== null && (
                   <span className="text-xs text-ink-faint">
                     ({node.customerCount} customers)
