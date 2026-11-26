@@ -1,7 +1,8 @@
 // TEMPORARY rehearsal: copies the real database (read-only) into an in-process PostgreSQL
 // and uses every Production feature there through the real API route handlers.
+import { existsSync } from "node:fs";
 import pg from "pg";
-import { afterAll, beforeAll, it, vi } from "vitest";
+import { afterAll, beforeAll, describe, it, vi } from "vitest";
 import type { PrismaClient } from "@/generated/prisma/client";
 import { startTestDb, stopTestDb, testPg } from "./helpers/test-db";
 
@@ -61,6 +62,8 @@ const note = (text: string) => out.push(`NOTE | ${text}`);
 const eq = (name: string, actual: unknown, expected: unknown) => out.push(`${JSON.stringify(actual) === JSON.stringify(expected) ? "PASS" : "FAIL"} | ${name} | got ${JSON.stringify(actual)} expected ${JSON.stringify(expected)}`);
 const r3 = (value: number) => Math.round(value * 1000) / 1000;
 
+// Needs the real database's address from .env; CI has no .env, so it is skipped there.
+describe.skipIf(!existsSync(".env"))("production rehearsal (real database copy)", () => {
 beforeAll(async () => {
   prisma = await startTestDb();
   process.loadEnvFile(".env");
@@ -92,6 +95,7 @@ it("production rehearsal", async () => {
     out.push("CRASH | " + (error as Error).stack?.slice(0, 900));
   }
 }, 900_000);
+});
 
 async function body() {
   const today = "2026-11-16";
