@@ -672,7 +672,8 @@ function BomForm({ lookups: loaded, source, copy }: { lookups: BomLookups; sourc
           <div className="grid items-start gap-x-4 gap-y-3 sm:grid-cols-2 lg:grid-cols-5">
             <ItemPicker
               lookups={lookups}
-              items={items}
+              // Only items ticked "Can be Produced" in the Item Profile can be a production item.
+              items={items.filter((item) => item.canBeProduced)}
               value={outputPicker}
               onChange={setOutputPicker}
               itemLabelText="FG/SFG Item"

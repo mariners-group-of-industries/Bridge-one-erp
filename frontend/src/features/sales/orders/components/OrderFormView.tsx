@@ -1091,7 +1091,7 @@ function ChargeRow({ label, value, error, onChange }: { label: string; value: st
 
 /** Item picker bar (category filters, search, qty, rate …). Shows stock when a warehouse is given. */
 export function ItemEntry({
-  items,
+  items: allItems,
   setup,
   priceListId,
   disabled,
@@ -1109,6 +1109,8 @@ export function ItemEntry({
   filterExtra?: ReactNode;
 }) {
   const listId = useId();
+  // Only items ticked "Can be Sold" in the Item Profile can be picked; lines already on the order stay.
+  const items = useMemo(() => allItems.filter((candidate) => candidate.canBeSold), [allItems]);
   const [category, setCategory] = useState<[string, string, string]>(["", "", ""]);
   const [itemType, setItemType] = useState("");
   const itemTypes = useMemo(() => itemTypeList(items), [items]);

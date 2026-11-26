@@ -7,6 +7,7 @@ import type { PurchaseOrder, Supplier } from "@bridgeone/contracts";
 import { fetchApi } from "@/lib/api";
 import { formatDate } from "@/lib/format";
 import { downloadCsv } from "@/features/purchase/lib/client";
+import { BatchMark, useBatchItemIds } from "./BatchMark";
 
 type Order = PurchaseOrder & { isClosed?: boolean; notes?: string };
 
@@ -85,6 +86,7 @@ export function PurchaseOrderDetails({
   const approved = [...history].reverse().find((h) => h.action === "APPROVED");
   const modified = [...history].reverse().find((h) => /UPDATED|EDITED|MODIFIED/.test(h.action));
   const review = [...history].reverse().find((h) => h.comments)?.comments;
+  const batchItems = useBatchItemIds();
 
   const { data: advances = [], isLoading: advancesLoading } = useQuery<AdvanceRow[]>({
     queryKey: ["supplierAdvances", "details", "order", po.poNumber],
@@ -191,7 +193,10 @@ export function PurchaseOrderDetails({
                 <tr key={it.id ?? i} className="border-b border-grid-line">
                   <td className="px-2.5 py-1.5 border-r border-grid-line">{i + 1}</td>
                   <td className="px-2.5 py-1.5 border-r border-grid-line font-mono">{it.itemCode}</td>
-                  <td className="px-2.5 py-1.5 border-r border-grid-line">{it.itemName}</td>
+                  <td className="px-2.5 py-1.5 border-r border-grid-line">
+                    {batchItems.has(it.itemId) && <BatchMark />}
+                    {it.itemName}
+                  </td>
                   <td className="px-2.5 py-1.5 border-r border-grid-line text-right font-mono">
                     {fmt(it.orderedQuantity)} ({it.uom})
                   </td>

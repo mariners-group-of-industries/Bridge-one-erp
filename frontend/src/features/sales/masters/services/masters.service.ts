@@ -380,6 +380,7 @@ const itemSelect = {
   categoryId: true,
   itemType: true,
   brand: true,
+  canBeSold: true,
   purchasePrice: true,
   mrp: true,
   vatPercent: true,

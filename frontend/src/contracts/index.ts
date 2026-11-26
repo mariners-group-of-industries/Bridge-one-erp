@@ -123,6 +123,10 @@ export const ItemSchema = z.object({
   averageCost: z.number().optional(),
   totalStock: z.number().optional(),
   description: z.string().optional(),
+  /** Item Profile "Can be Purchased": only these are offered on purchase orders. Missing = allowed. */
+  canBePurchased: z.boolean().optional(),
+  /** Item Profile Tracking: "BATCH" items are batch tracked and marked with a batch icon. */
+  tracking: z.string().optional(),
 });
 export type Item = z.infer<typeof ItemSchema>;
 

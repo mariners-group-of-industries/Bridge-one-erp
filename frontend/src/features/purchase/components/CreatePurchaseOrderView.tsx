@@ -306,6 +306,8 @@ function CreatePurchaseOrderForm({
 
   const filteredItems = useMemo(() => {
     return itemsCatalog.filter((it) => {
+      // Only items ticked "Can be Purchased" in the Item Profile can be ordered.
+      if (it.canBePurchased === false) return false;
       if (categoryFilter && it.category !== categoryFilter) return false;
       if (subCategoryFilter && it.subCategory !== subCategoryFilter) return false;
       if (minorCategoryFilter && it.minorCategory !== minorCategoryFilter) return false;
