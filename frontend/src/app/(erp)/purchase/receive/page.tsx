@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import React, { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Ban, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Download, Eye, PackageCheck, Plus, Printer, RotateCcw, Search, Truck, Upload, X } from "lucide-react";
+import { Ban, ChevronDown, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, ChevronUp, Download, Eye, PackageCheck, Paperclip, Plus, PlusCircle, Printer, RotateCcw, Search, Truck, Upload, X } from "lucide-react";
 import { ModalDialog } from "@/components/purchase/ModalDialog";
 import {
   PrintablePurchaseDoc,
@@ -22,7 +22,7 @@ import { BulkUploadDialog } from "@/features/configuration/entity-master-data/co
 import { GoodsReceiptDetails } from "@/features/purchase/components/GoodsReceiptDetails";
 import { ClosePurchaseOrderDialog } from "@/features/purchase/components/ClosePurchaseOrderDialog";
 import { usePurchasePermissions } from "@/features/purchase/lib/usePurchasePermissions";
-import type { GoodsReceipt, Item, Office, PurchaseOrder, Supplier, SupplierInvoiceItem } from "@bridgeone/contracts";
+import type { GoodsReceipt, Item, Office, PurchaseOrder, Supplier, SupplierInvoiceItem, Warehouse } from "@bridgeone/contracts";
 import { NativeDateInput } from "@/components/ui/date-input";
 import { formatDate } from "@/lib/format";
 
@@ -64,6 +64,12 @@ interface ReceiveLine {
   received: number;
   rejected: number;
   rate: number;
+  taxPercentage: number;
+  brand: string;
+  specification: string;
+  toleranceQty: number;
+  freeQty: number;
+  showFreeInput?: boolean;
 }
 
 interface ReceiveForm {
@@ -76,6 +82,18 @@ interface ReceiveForm {
   vatChallanNumber: string;
   supplierInvoiceNumber: string;
   remarks: string;
+  officeId: string;
+  warehouseId: string;
+  discountPct: string;
+  discountTk: string;
+  labourCharge: string;
+  deliveryCharge: string;
+  otherCharges: string;
+  payAll: boolean;
+  payAmount: string;
+  adjustPay: boolean;
+  headerCollapsed: boolean;
+  attachmentNames: string[];
   lines: ReceiveLine[];
 }
 
@@ -275,6 +293,7 @@ export default function PurchaseReceivePage() {
 
   // Data
   const { data: offices = [] } = useQuery<Office[]>({ queryKey: ["offices"], queryFn: () => fetchApi("/master/offices") });
+  const { data: warehouses = [] } = useQuery<Warehouse[]>({ queryKey: ["warehouses"], queryFn: () => fetchApi("/master/warehouses") });
   const { data: suppliers = [] } = useQuery<Supplier[]>({ queryKey: ["suppliers"], queryFn: () => fetchApi("/master/suppliers") });
   const { data: items = [] } = useQuery<Item[]>({ queryKey: ["items"], queryFn: () => fetchApi("/master/items") });
   const { data: context } = useQuery<PrintHeaderContext>({ queryKey: ["context"], queryFn: () => fetchApi("/master/context") });
@@ -352,6 +371,18 @@ export default function PurchaseReceivePage() {
       vatChallanNumber: docs.vatChallanNumber,
       supplierInvoiceNumber: docs.supplierInvoiceNumber,
       remarks: "",
+      officeId: po.officeId,
+      warehouseId: po.warehouseId,
+      discountPct: "",
+      discountTk: "",
+      labourCharge: "",
+      deliveryCharge: "",
+      otherCharges: "",
+      payAll: false,
+      payAmount: "",
+      adjustPay: true,
+      headerCollapsed: false,
+      attachmentNames: [],
       lines: po.items
         .filter((it) => it.outstandingQuantity > 0)
         .map((it) => ({
@@ -366,6 +397,12 @@ export default function PurchaseReceivePage() {
           received: it.outstandingQuantity,
           rejected: 0,
           rate: effectiveUnitCost(it.lineTotal, it.orderedQuantity),
+          taxPercentage: it.taxPercentage ?? 0,
+          brand: "",
+          specification: it.remarks || "",
+          toleranceQty: 0,
+          freeQty: 0,
+          showFreeInput: false,
         })),
     });
   };
@@ -988,10 +1025,26 @@ export default function PurchaseReceivePage() {
             const supplier = suppliers.find((s) => s.id === po.supplierId);
             const shipTo = parsePoTag(po.notes, "Ship To:") || po.deliveryTerms;
             const set = (patch: Partial<ReceiveForm>) => setReceiveForm({ ...receiveForm, ...patch });
+            const fmtNum = (n: number) => Number(n || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
             const totalQty = receiveForm.lines.reduce((s, l) => s + Math.max(0, l.received - l.rejected), 0);
-            // Nothing is paid at receive time, so the whole receipt value is pending.
-            const pendingAmount = receiveTotal;
+            const itemTotal = receiveForm.lines.reduce((s, l) => {
+              const accepted = Math.max(0, l.received - l.rejected);
+              const baseRate = l.taxPercentage > 0 ? l.rate / (1 + l.taxPercentage / 100) : l.rate;
+              return s + accepted * baseRate;
+            }, 0);
+            const itemTotalWithVat = receiveTotal;
+            const totalVat = Math.max(0, itemTotalWithVat - itemTotal);
+            const discTk = Number(receiveForm.discountTk) || 0;
+            const extraCharges =
+              (Number(receiveForm.labourCharge) || 0) +
+              (Number(receiveForm.deliveryCharge) || 0) +
+              (Number(receiveForm.otherCharges) || 0);
+            const purchaseTotal = Math.max(0, itemTotalWithVat - discTk + extraCharges);
+            const paidVal = receiveForm.payAll ? purchaseTotal : Math.min(purchaseTotal, Math.max(0, Number(receiveForm.payAmount) || 0));
+            const pendingAmount = Math.max(0, purchaseTotal - paidVal);
             const allCleared = receiveForm.lines.every((l) => l.received === 0);
+            const officeWarehouses = warehouses.filter((w) => !receiveForm.officeId || w.officeId === receiveForm.officeId);
+
             const info = (label: string, value: React.ReactNode, tone = "text-ink") => (
               <div className="grid grid-cols-[120px_12px_1fr] py-[1px]">
                 <span className="font-semibold text-ink">{label}</span>
@@ -1009,7 +1062,7 @@ export default function PurchaseReceivePage() {
               </label>
             );
             return (
-              <form onSubmit={submitReceive} className="space-y-4 text-xs">
+              <form onSubmit={submitReceive} className="space-y-3 text-xs">
                 <div className="flex justify-end gap-2">
                   <button type="button" onClick={() => setReceiveForm(null)} disabled={receiveMutation.isPending} className="h-8 px-4 bg-rose-600 hover:bg-rose-700 disabled:opacity-60 text-white rounded font-semibold">
                     Close &amp; Back
@@ -1019,27 +1072,43 @@ export default function PurchaseReceivePage() {
                   </button>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-x-6 border border-line rounded p-3">
-                  <div>
-                    {info("Order No", po.poNumber, "font-semibold text-blue-600 dark:text-blue-400")}
-                    {info("Supplier", po.supplierName)}
-                    {info("Status", po.status === "PARTIALLY_RECEIVED" ? "Partially Received" : "Approved", "font-semibold text-emerald-600 dark:text-emerald-400")}
-                    {info("Remarks", parsePoTag(po.notes, "Remarks:") || "")}
-                  </div>
-                  <div>
-                    {info("Office Name", po.officeName)}
-                    {info("Supplier Address", supplier?.address)}
-                    {info("Shipping Address", shipTo)}
-                  </div>
-                  <div>
-                    {info("PO Date", formatDate(po.orderDate))}
-                    {info("Purchase Type", "Local")}
-                    {info("Requisition No", po.requisitionNumber)}
-                  </div>
+                <div className="relative border border-line rounded p-3">
+                  <button
+                    type="button"
+                    onClick={() => set({ headerCollapsed: !receiveForm.headerCollapsed })}
+                    className="absolute right-2.5 top-2 p-1 text-ink-muted hover:text-ink rounded"
+                    title={receiveForm.headerCollapsed ? "Expand" : "Collapse"}
+                  >
+                    {receiveForm.headerCollapsed ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
+                  </button>
+                  {!receiveForm.headerCollapsed ? (
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-x-6 pr-6">
+                      <div>
+                        {info("Order No", po.poNumber, "font-semibold text-blue-600 dark:text-blue-400")}
+                        {info("Supplier", po.supplierName)}
+                        {info("Status", po.status === "PARTIALLY_RECEIVED" ? "Partially Received" : "Approved", "font-semibold text-emerald-600 dark:text-emerald-400")}
+                        {info("Remarks", parsePoTag(po.notes, "Remarks:") || "")}
+                      </div>
+                      <div>
+                        {info("Office Name", po.officeName)}
+                        {info("Supplier Address", supplier?.address)}
+                        {info("Shipping Address", shipTo)}
+                      </div>
+                      <div>
+                        {info("PO Date", formatDate(po.orderDate))}
+                        {info("Purchase Type", "Local")}
+                        {info("Sales Order No.", po.requisitionNumber || "N/A")}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="text-ink-muted font-medium pr-6">
+                      Order No: <span className="font-semibold text-blue-600 dark:text-blue-400">{po.poNumber}</span> — {po.supplierName}
+                    </div>
+                  )}
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-6 gap-3 border border-line rounded p-3">
-                  {field("Receive Date", <NativeDateInput type="date" required min={po.orderDate} value={receiveForm.receiptDate} onChange={(e) => set({ receiptDate: e.target.value })} className={inputCls} />, true)}
+                  {field("Receive Date", <NativeDateInput type="date" required min={po.orderDate} value={receiveForm.receiptDate} onChange={(e) => set({ receiptDate: e.target.value })} className={inputCls} />)}
                   {field("Challan No", <input type="text" maxLength={100} placeholder="Challan No" value={receiveForm.challanNumber} onChange={(e) => set({ challanNumber: e.target.value })} className={inputCls} />)}
                   {field("Shipment Document Number", <input type="text" maxLength={100} placeholder="Shipment Document Number" value={receiveForm.shipmentDocumentNumber} onChange={(e) => set({ shipmentDocumentNumber: e.target.value })} className={inputCls} />)}
                   {field("Sales Invoice Number", <input type="text" maxLength={100} placeholder="Sales Invoice Number" value={receiveForm.supplierInvoiceNumber} onChange={(e) => set({ supplierInvoiceNumber: e.target.value })} className={inputCls} />)}
@@ -1047,102 +1116,295 @@ export default function PurchaseReceivePage() {
                   {field("Challan Date", <NativeDateInput type="date" value={receiveForm.challanDate} onChange={(e) => set({ challanDate: e.target.value })} className={inputCls} />)}
                   {field("Delivery Number", <input type="text" maxLength={100} placeholder="Delivery Number" value={receiveForm.gatePassNumber} onChange={(e) => set({ gatePassNumber: e.target.value })} className={inputCls} />)}
                   {field("Remarks", <input type="text" maxLength={500} placeholder="Remarks" value={receiveForm.remarks} onChange={(e) => set({ remarks: e.target.value })} className={inputCls} />)}
-                  {field("Office", <input type="text" readOnly value={po.officeName} className={`${inputCls} bg-canvas`} />, true)}
-                  {field("Warehouse (Location)", <input type="text" readOnly value={po.warehouseName} className={`${inputCls} bg-canvas`} />, true)}
+                  {field(
+                    "Office",
+                    <select
+                      value={receiveForm.officeId}
+                      onChange={(e) => {
+                        const nextOfficeId = e.target.value;
+                        const nextWh = warehouses.find((w) => w.officeId === nextOfficeId)?.id || "";
+                        set({ officeId: nextOfficeId, warehouseId: nextWh });
+                      }}
+                      className={inputCls}
+                    >
+                      {offices.map((o) => (
+                        <option key={o.id} value={o.id}>
+                          {o.name}
+                        </option>
+                      ))}
+                    </select>,
+                    true
+                  )}
+                  {field(
+                    "Warehouse (Location)",
+                    <select
+                      value={receiveForm.warehouseId}
+                      onChange={(e) => set({ warehouseId: e.target.value })}
+                      className={inputCls}
+                    >
+                      <option value="">Warehouse</option>
+                      {officeWarehouses.map((w) => (
+                        <option key={w.id} value={w.id}>
+                          {w.name}
+                        </option>
+                      ))}
+                    </select>,
+                    true
+                  )}
+                  <div className="block">
+                    <span className="block text-ink font-medium mb-1">Attachment</span>
+                    <label className="inline-flex h-8 items-center gap-1.5 cursor-pointer text-ink-muted hover:text-ink">
+                      <Paperclip className="w-4 h-4" />
+                      <input
+                        type="file"
+                        multiple
+                        className="hidden"
+                        onChange={(e) => {
+                          const files = Array.from(e.target.files ?? []).map((f) => f.name);
+                          if (files.length) set({ attachmentNames: files });
+                        }}
+                      />
+                      {receiveForm.attachmentNames.length > 0 && (
+                        <span className="text-[11px] truncate max-w-[110px]">{receiveForm.attachmentNames.length} file(s)</span>
+                      )}
+                    </label>
+                  </div>
                 </div>
 
                 <div className="border border-grid-line rounded overflow-x-auto">
-                  <table className="w-full min-w-[980px] border-collapse text-left text-xs">
+                  <table className="erp-table erp-table-compact w-full min-w-[1060px] text-left border-collapse">
                     <thead>
-                      <tr className="bg-grid-head text-grid-head-ink font-semibold border-b border-grid-head-line">
-                        <th className="px-2 py-2 border-r border-grid-head-line w-10">SL</th>
-                        <th className="px-2 py-2 border-r border-grid-head-line">Item Code</th>
-                        <th className="px-2 py-2 border-r border-grid-head-line">Name</th>
-                        <th className="px-2 py-2 border-r border-grid-head-line text-right">Billed QTY</th>
-                        <th className="px-2 py-2 border-r border-grid-head-line text-right">Order QTY</th>
-                        <th className="px-2 py-2 border-r border-grid-head-line text-right">Rcvd. QTY</th>
-                        <th className="px-2 py-2 border-r border-grid-head-line text-right">Rem. QTY</th>
-                        <th className="px-2 py-2 border-r border-grid-head-line">Specification</th>
-                        <th className="px-2 py-2 border-r border-grid-head-line text-right">Rate</th>
-                        <th className="px-2 py-2 border-r border-grid-head-line w-40 whitespace-nowrap">
+                      <tr>
+                        <th className="w-8 text-center">SL</th>
+                        <th className="whitespace-nowrap">Item Code</th>
+                        <th className="min-w-[140px]">Name</th>
+                        <th className="text-right whitespace-nowrap">Billed QTY</th>
+                        <th className="text-right whitespace-nowrap">ALT. QTY</th>
+                        <th className="text-right whitespace-nowrap">Order QTY</th>
+                        <th className="text-right whitespace-nowrap">Rcvd. QTY</th>
+                        <th className="text-right whitespace-nowrap">Rem. QTY</th>
+                        <th className="min-w-[80px]">Brand</th>
+                        <th className="min-w-[110px]">Specification</th>
+                        <th className="text-right whitespace-nowrap">Tolerance QTY</th>
+                        <th className="w-40 whitespace-nowrap">
                           <span className="inline-flex items-center gap-1.5">
-                            Rec. Qty
-                            <label className="inline-flex items-center gap-1 font-normal cursor-pointer">
-                              <input
-                                type="checkbox"
-                                className="size-4"
-                                checked={allCleared}
-                                onChange={(e) => set({ lines: receiveForm.lines.map((l) => ({ ...l, received: e.target.checked ? 0 : l.outstanding, rejected: e.target.checked ? 0 : l.rejected })) })}
-                              />
-                              (clear all)
-                            </label>
+                            <span>Rec. Qty</span>
+                            <input
+                              type="checkbox"
+                              className="size-3.5 cursor-pointer accent-primary"
+                              checked={allCleared}
+                              onChange={(e) => set({ lines: receiveForm.lines.map((l) => ({ ...l, received: e.target.checked ? 0 : l.outstanding, rejected: e.target.checked ? 0 : l.rejected })) })}
+                            />
+                            <span className="font-normal">(clear all)</span>
                           </span>
                         </th>
-                        <th className="px-2 py-2 w-24">Rejected</th>
+                        <th className="w-20 text-center whitespace-nowrap">Free Item</th>
                       </tr>
                     </thead>
                     <tbody>
                       {receiveForm.lines.map((l, idx) => {
                         const err = lineError(l);
-                        const spec = po.items.find((it) => it.id === l.poItemId)?.remarks;
                         return (
-                          <tr key={l.poItemId || idx} className={`border-b border-grid-line ${err ? "bg-rose-50 dark:bg-rose-500/10" : ""}`}>
-                            <td className="px-2 py-1.5 border-r border-grid-line">{idx + 1}</td>
-                            <td className="px-2 py-1.5 border-r border-grid-line font-mono">{l.itemCode}</td>
-                            <td className="px-2 py-1.5 border-r border-grid-line">
+                          <tr key={l.poItemId || idx} className={err ? "bg-rose-50 dark:bg-rose-500/10" : ""}>
+                            <td className="text-center font-mono text-ink-faint">{idx + 1}</td>
+                            <td className="font-mono whitespace-nowrap">{l.itemCode}</td>
+                            <td>
                               {l.itemName}
                               {err && <div className="text-[10px] text-rose-600 dark:text-rose-400 font-semibold">{err}</div>}
                             </td>
-                            <td className="px-2 py-1.5 border-r border-grid-line text-right font-mono">{qtyFmt(l.orderedQuantity)}</td>
-                            <td className="px-2 py-1.5 border-r border-grid-line text-right font-mono">
-                              {qtyFmt(l.orderedQuantity)} {l.uom}
+                            <td className="text-right font-mono">{fmtNum(l.orderedQuantity)}</td>
+                            <td className="text-right font-mono text-ink-faint">-</td>
+                            <td className="text-right font-mono whitespace-nowrap">
+                              {fmtNum(l.orderedQuantity)} {l.uom}
                             </td>
-                            <td className="px-2 py-1.5 border-r border-grid-line text-right font-mono">{qtyFmt(l.previouslyReceivedQuantity)}</td>
-                            <td className="px-2 py-1.5 border-r border-grid-line text-right font-mono">{qtyFmt(l.outstanding)}</td>
-                            <td className="px-2 py-1.5 border-r border-grid-line text-ink-muted">{spec}</td>
-                            <td className="px-2 py-1.5 border-r border-grid-line text-right font-mono">{formatCurrency(l.rate)}</td>
-                            <td className="px-2 py-1.5 border-r border-grid-line">
-                              <input type="number" min="0" step="any" aria-label={`Receive quantity for ${l.itemName}`} value={l.received} onChange={(e) => patchReceiveLine(idx, { received: Number(e.target.value) })} className={`${inputCls} text-right font-mono`} />
+                            <td className="text-right font-mono">{fmtNum(l.previouslyReceivedQuantity)}</td>
+                            <td className="text-right font-mono">{fmtNum(l.outstanding)}</td>
+                            <td className="text-ink-muted">{l.brand}</td>
+                            <td className="text-ink-muted">{l.specification}</td>
+                            <td className="text-right font-mono">{fmtNum(l.toleranceQty)}</td>
+                            <td>
+                              <input
+                                type="number"
+                                min="0"
+                                step="any"
+                                aria-label={`Receive quantity for ${l.itemName}`}
+                                value={l.received}
+                                onChange={(e) => patchReceiveLine(idx, { received: Number(e.target.value) })}
+                                className="h-7 w-full rounded border border-line-strong bg-surface px-1.5 text-right font-mono text-[11px] text-ink focus:border-blue-500 focus:outline-none"
+                              />
                             </td>
-                            <td className="px-2 py-1.5">
-                              <input type="number" min="0" step="any" aria-label={`Rejected quantity for ${l.itemName}`} value={l.rejected} onChange={(e) => patchReceiveLine(idx, { rejected: Number(e.target.value) })} className={`${inputCls} text-right font-mono`} />
+                            <td className="text-center">
+                              {l.showFreeInput ? (
+                                <input
+                                  type="number"
+                                  min="0"
+                                  step="any"
+                                  value={l.freeQty}
+                                  onChange={(e) => patchReceiveLine(idx, { freeQty: Number(e.target.value) || 0 })}
+                                  className="h-7 w-16 rounded border border-line-strong bg-surface px-1 text-right font-mono text-[11px] text-ink focus:border-blue-500 focus:outline-none"
+                                />
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => patchReceiveLine(idx, { showFreeInput: true })}
+                                  className="inline-flex size-6 items-center justify-center rounded text-ink-muted hover:bg-control hover:text-ink"
+                                  title="Add Free Item Quantity"
+                                >
+                                  <PlusCircle className="w-3.5 h-3.5" />
+                                </button>
+                              )}
                             </td>
                           </tr>
                         );
                       })}
-                      <tr className="font-semibold">
-                        <td className="px-2 py-1.5 border-r border-grid-line" colSpan={3}>
+                      <tr className="font-semibold bg-canvas">
+                        <td colSpan={3} className="text-right">
                           Total
                         </td>
-                        <td className="px-2 py-1.5 border-r border-grid-line text-right font-mono">{qtyFmt(receiveForm.lines.reduce((s, l) => s + l.orderedQuantity, 0))}</td>
-                        <td className="px-2 py-1.5 border-r border-grid-line text-right font-mono">{qtyFmt(receiveForm.lines.reduce((s, l) => s + l.orderedQuantity, 0))}</td>
-                        <td className="px-2 py-1.5 border-r border-grid-line text-right font-mono">{qtyFmt(receiveForm.lines.reduce((s, l) => s + l.previouslyReceivedQuantity, 0))}</td>
-                        <td className="px-2 py-1.5 border-r border-grid-line text-right font-mono">{qtyFmt(receiveForm.lines.reduce((s, l) => s + l.outstanding, 0))}</td>
-                        <td colSpan={4} />
+                        <td className="text-right font-mono">{fmtNum(receiveForm.lines.reduce((s, l) => s + l.orderedQuantity, 0))}</td>
+                        <td className="text-right font-mono">0.00</td>
+                        <td className="text-right font-mono">{fmtNum(receiveForm.lines.reduce((s, l) => s + l.orderedQuantity, 0))}</td>
+                        <td className="text-right font-mono">{fmtNum(receiveForm.lines.reduce((s, l) => s + l.previouslyReceivedQuantity, 0))}</td>
+                        <td className="text-right font-mono">{fmtNum(receiveForm.lines.reduce((s, l) => s + l.outstanding, 0))}</td>
+                        <td colSpan={5} />
                       </tr>
                     </tbody>
                   </table>
                 </div>
 
                 <div className="flex justify-end">
-                  <div className="w-full sm:w-96 border border-line rounded p-3 space-y-1.5 text-sm">
+                  <div className="w-full sm:w-96 border border-line rounded p-3.5 space-y-2 text-xs bg-surface">
                     <div className="flex justify-between font-semibold">
-                      <span>Total Qty :</span>
-                      <span className="font-mono">{qtyFmt(totalQty)}</span>
+                      <span className="text-ink-muted">Total Qty :</span>
+                      <span className="font-mono font-bold text-ink">{qtyFmt(totalQty)}</span>
                     </div>
                     <div className="flex justify-between">
-                      <span>Item Total (with VAT) :</span>
-                      <span className="font-mono">{formatCurrency(receiveTotal)}</span>
+                      <span className="text-ink-muted">Item Total :</span>
+                      <span className="font-mono text-ink">{fmtNum(itemTotal)}</span>
                     </div>
                     <div className="flex justify-between">
-                      <span>Pending Amount:</span>
-                      <span className="font-mono">{formatCurrency(pendingAmount)}</span>
+                      <span className="text-ink-muted">Total VAT :</span>
+                      <span className="font-mono text-ink">{fmtNum(totalVat)}</span>
                     </div>
-                    <div className="flex justify-between font-semibold pt-1 border-t border-line">
+                    <div className="flex justify-between">
+                      <span className="text-ink-muted">Item Total(with VAT) :</span>
+                      <span className="font-mono text-ink">{fmtNum(itemTotalWithVat)}</span>
+                    </div>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-ink-muted">Discount:</span>
+                      <div className="flex items-center gap-1.5">
+                        <input
+                          type="number"
+                          min="0"
+                          max="100"
+                          step="0.01"
+                          value={receiveForm.discountPct}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            const pct = Number(v) || 0;
+                            set({
+                              discountPct: v,
+                              discountTk: pct > 0 ? String(Math.round(((itemTotalWithVat * pct) / 100) * 100) / 100) : "",
+                            });
+                          }}
+                          placeholder="0"
+                          className="h-7 w-16 rounded border border-line-strong bg-surface px-1.5 text-right font-mono text-xs text-ink focus:border-blue-500 focus:outline-none"
+                        />
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={receiveForm.discountTk}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            const tk = Number(v) || 0;
+                            set({
+                              discountTk: v,
+                              discountPct: itemTotalWithVat > 0 && tk > 0 ? String(Math.round(((tk / itemTotalWithVat) * 100) * 100) / 100) : "",
+                            });
+                          }}
+                          placeholder="0"
+                          className="h-7 w-24 rounded border border-line-strong bg-surface px-1.5 text-right font-mono text-xs text-ink focus:border-blue-500 focus:outline-none"
+                        />
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-ink-muted">Labour Charge :</span>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={receiveForm.labourCharge}
+                        onChange={(e) => set({ labourCharge: e.target.value })}
+                        placeholder="0"
+                        className="h-7 w-28 rounded border border-line-strong bg-surface px-1.5 text-right font-mono text-xs text-ink focus:border-blue-500 focus:outline-none"
+                      />
+                    </div>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-ink-muted">Delivery Charge :</span>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={receiveForm.deliveryCharge}
+                        onChange={(e) => set({ deliveryCharge: e.target.value })}
+                        placeholder="0"
+                        className="h-7 w-28 rounded border border-line-strong bg-surface px-1.5 text-right font-mono text-xs text-ink focus:border-blue-500 focus:outline-none"
+                      />
+                    </div>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-ink-muted">Other Charges :</span>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={receiveForm.otherCharges}
+                        onChange={(e) => set({ otherCharges: e.target.value })}
+                        placeholder="0"
+                        className="h-7 w-28 rounded border border-line-strong bg-surface px-1.5 text-right font-mono text-xs text-ink focus:border-blue-500 focus:outline-none"
+                      />
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-ink-muted">Pending Amount:</span>
+                      <span className="font-mono text-ink">{fmtNum(pendingAmount)}</span>
+                    </div>
+                    <div className="flex justify-between font-bold pt-1 border-t border-line text-ink">
                       <span>Purchase Total:</span>
-                      <span className="font-mono">{formatCurrency(receiveTotal)}</span>
+                      <span className="font-mono">{fmtNum(purchaseTotal)}</span>
                     </div>
-                    <p className="text-[11px] text-ink-faint pt-1">Only accepted quantity (received − rejected) goes into stock and is owed to the supplier.</p>
+                    <div className="flex items-center justify-between gap-2 pt-1">
+                      <span className="text-ink-muted">Pay Amount:</span>
+                      <div className="flex items-center gap-1.5">
+                        <label className="inline-flex items-center gap-1 cursor-pointer text-ink">
+                          <input
+                            type="checkbox"
+                            checked={receiveForm.payAll}
+                            onChange={(e) => set({ payAll: e.target.checked, payAmount: e.target.checked ? String(purchaseTotal) : "" })}
+                            className="size-3.5 cursor-pointer accent-primary"
+                          />
+                          <span>Pay All?</span>
+                        </label>
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          disabled={receiveForm.payAll}
+                          value={receiveForm.payAll ? String(purchaseTotal) : receiveForm.payAmount}
+                          onChange={(e) => set({ payAmount: e.target.value })}
+                          placeholder="0"
+                          className="h-7 w-20 rounded border border-line-strong bg-surface px-1.5 text-right font-mono text-xs text-ink focus:border-blue-500 focus:outline-none disabled:opacity-60"
+                        />
+                        <label className="inline-flex items-center gap-1 cursor-pointer text-ink">
+                          <input
+                            type="checkbox"
+                            checked={receiveForm.adjustPay}
+                            onChange={(e) => set({ adjustPay: e.target.checked })}
+                            className="size-3.5 cursor-pointer accent-primary"
+                          />
+                          <span>adjust</span>
+                        </label>
+                      </div>
+                    </div>
                   </div>
                 </div>
               </form>
