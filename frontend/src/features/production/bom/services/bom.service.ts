@@ -443,7 +443,7 @@ export async function bomLookups(actor: Actor): Promise<BomLookups> {
     db().itemCategory.findMany({ where: inUnits, select: { id: true, name: true, parentId: true, level: true, businessUnitId: true }, orderBy: { name: "asc" } }),
     db().item.findMany({
       where: { ...inUnits, isActive: true },
-      select: { id: true, businessUnitId: true, code: true, name: true, uom: true, altUom: true, altUomFactor: true, itemType: true, netWeight: true, categoryId: true, purchasePrice: true },
+      select: { id: true, businessUnitId: true, code: true, name: true, uom: true, altUom: true, altUomFactor: true, itemType: true, netWeight: true, categoryId: true, purchasePrice: true, canBeProduced: true },
       orderBy: { code: "asc" },
     }),
     db().stockEntry.groupBy({ by: ["itemId"], where: inUnits, _sum: { qty: true } }),
@@ -482,6 +482,7 @@ export async function bomLookups(actor: Actor): Promise<BomLookups> {
         ...ancestors(item.categoryId),
         avgRate: rates.get(item.id) ?? num(item.purchasePrice),
         stock: Math.round((stockById.get(item.id) ?? 0) * 1000) / 1000,
+        canBeProduced: item.canBeProduced,
       }),
     ),
   };

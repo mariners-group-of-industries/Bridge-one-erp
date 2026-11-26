@@ -167,6 +167,8 @@ export interface BomItemOption {
   avgRate: number;
   /** Stock on hand in all warehouses. */
   stock: number;
+  /** Item Profile "Can be Produced": only these can be a BOM's production (FG/SFG) item. */
+  canBeProduced: boolean;
 }
 
 export interface BomLookups {

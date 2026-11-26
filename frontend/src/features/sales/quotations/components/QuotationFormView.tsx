@@ -327,6 +327,8 @@ function QuotationForm({ today, lookups, source, copy }: { today: string; lookup
   const matchingItems = items.filter((item) => {
     const place = item.categoryId ? ancestry.get(item.categoryId) : undefined;
     return (
+      // Only items ticked "Can be Sold" in the Item Profile can be quoted.
+      item.canBeSold &&
       (!entry.itemType || item.itemType === entry.itemType) &&
       (!entry.categoryId || place?.category === entry.categoryId) &&
       (!entry.subCategoryId || place?.subCategory === entry.subCategoryId)

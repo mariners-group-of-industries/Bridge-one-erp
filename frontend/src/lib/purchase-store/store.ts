@@ -478,6 +478,8 @@ class PurchaseDataStore {
         averageCost: baseCost,
         totalStock: stockMap.get(i.id) ?? 0,
         description: i.name,
+        canBePurchased: i.canBePurchased,
+        tracking: i.tracking,
       };
     });
   }
