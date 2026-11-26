@@ -76,7 +76,7 @@ export function OrderListView() {
   if (!today) {
     return (
       <PageContainer className="max-w-none">
-        <PageHead title="Order Management" />
+        <PageHead title="Order Management" className="mb-0 pb-0" />
         <LoadingState />
       </PageContainer>
     );
@@ -233,6 +233,8 @@ function OrderList({ today }: { today: string }) {
     <PageContainer className="max-w-none">
       <PageHead
         title="Order Management"
+        // Joined to the card below so the header, tabs, filters and table read as one card.
+        className="mb-0 pb-0 [&>div]:rounded-b-none [&>div]:border-b-0 [&>div]:shadow-none"
         actions={
           <>
             <label className="relative w-56">
@@ -251,7 +253,7 @@ function OrderList({ today }: { today: string }) {
           </>
         }
       />
-      <Card>
+      <Card className="rounded-t-none border-t-0">
         <Tabs<OrderType>
           label="Order types"
           tabs={ORDER_TYPES.map((type) => ({ id: type, label: ORDER_TYPE_LABELS[type] }))}
