@@ -78,7 +78,7 @@ function PrintDocument({ order }: { order: OrderDetail }) {
           <Row label="Billing Address" value={order.billingAddress} />
           <Row label="Shipping Address" value={order.shippingAddress} />
           <Row label="Contact To" value={order.contactPerson} />
-          <Row label="Territory" value={order.territory} />
+          <Row label="Base" value={order.territory} />
           <Row label="Sales Force" value={order.salesPersonName} />
         </dl>
         <dl className="flex flex-col gap-0.5">

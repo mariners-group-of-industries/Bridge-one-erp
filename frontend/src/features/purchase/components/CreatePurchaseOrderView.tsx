@@ -3,7 +3,7 @@
 import React, { useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, ChevronDown, ChevronUp, Info, Paperclip, Plus, Trash2 } from "lucide-react";
+import { ArrowLeft, ChevronDown, ChevronUp, CreditCard, Info, Paperclip, Pencil, Plus, RotateCcw, Trash2 } from "lucide-react";
 import { Spinner } from "@/components/ui/spinner";
 import { toast } from "@/components/purchase/Toast";
 import { fetchApi } from "@/lib/api";
@@ -20,14 +20,19 @@ import {
   type PurchaseFormOptions,
 } from "@/features/purchase/components/PurchaseFormShared";
 import type { Item, Office, PurchaseOrder, PurchaseRequisition, Supplier, Warehouse } from "@bridgeone/contracts";
+import { NativeDateInput } from "@/components/ui/date-input";
+import { formatDate } from "@/lib/format";
 
 interface OrderDraftLine {
   key: string;
+  selected?: boolean;
   itemId: string;
   itemCode: string;
   itemName: string;
   uom: string;
   quantity: number;
+  restQty?: number;
+  issueQty?: number;
   unitPrice: number;
   taxPercentage: number;
   vatAmount: number;
@@ -36,9 +41,13 @@ interface OrderDraftLine {
   specification: string;
 }
 
+const fmtNum = (n: number) =>
+  Number(n || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
 export function CreatePurchaseOrderView() {
   const searchParams = useSearchParams();
   const requisitionIdParam = searchParams.get("requisitionId") || "";
+  const itemsParam = searchParams.get("items") || "";
   const editIdParam = searchParams.get("editId") || "";
 
   const { data: initialReq, isLoading: loadingReq } = useQuery<PurchaseRequisition | null>({
@@ -66,8 +75,9 @@ export function CreatePurchaseOrderView() {
 
   return (
     <CreatePurchaseOrderForm
-      key={`${editOrder?.id ?? ""}_${initialReq?.id ?? "new"}`}
+      key={`${editOrder?.id ?? ""}_${initialReq?.id ?? "new"}_${itemsParam}`}
       initialReq={initialReq ?? null}
+      selectedItemIdsParam={itemsParam}
       editOrder={editOrder ?? null}
     />
   );
@@ -75,9 +85,11 @@ export function CreatePurchaseOrderView() {
 
 function CreatePurchaseOrderForm({
   initialReq,
+  selectedItemIdsParam,
   editOrder,
 }: {
   initialReq: PurchaseRequisition | null;
+  selectedItemIdsParam?: string;
   editOrder: PurchaseOrder | null;
 }) {
   const router = useRouter();
@@ -116,6 +128,10 @@ function CreatePurchaseOrderForm({
   const { data: formOptions } = useQuery<PurchaseFormOptions>({
     queryKey: ["purchase-form-options"],
     queryFn: () => fetchApi("/master/purchase-form-options"),
+  });
+  const { data: stockOnHandRows = [] } = useQuery<{ warehouseId: string; itemId: string; qty: number }[]>({
+    queryKey: ["inventory-stock-on-hand"],
+    queryFn: () => fetchApi("/inventory/stock"),
   });
 
   // Top Checkboxes
@@ -175,16 +191,30 @@ function CreatePurchaseOrderForm({
   const [lineSpecification, setLineSpecification] = useState("");
   const [addAllFlag, setAddAllFlag] = useState(false);
 
+  // Table-level distribution VAT & bottom summary charges/discount
+  const [distVatEnabled, setDistVatEnabled] = useState(false);
+  const [distVatPct, setDistVatPct] = useState("");
+  const [discountPct, setDiscountPct] = useState("");
+  const [discountTk, setDiscountTk] = useState("");
+  const [labourCharge, setLabourCharge] = useState("");
+  const [deliveryCharge, setDeliveryCharge] = useState("");
+  const [otherCharges, setOtherCharges] = useState("");
+  const [infoPopover, setInfoPopover] = useState<{ key: string; top: number; left: number } | null>(null);
+  const [editingDescKey, setEditingDescKey] = useState<string | null>(null);
+
   // Draft Order Lines
   const [addedLines, setAddedLines] = useState<OrderDraftLine[]>(() => {
     if (editOrder) {
       return editOrder.items.map((it, i) => ({
         key: `edit_${i}_${it.itemId}`,
+        selected: true,
         itemId: it.itemId,
         itemCode: it.itemCode,
         itemName: it.itemName,
         uom: it.uom,
         quantity: it.orderedQuantity,
+        restQty: it.orderedQuantity,
+        issueQty: 0,
         unitPrice: it.unitPrice,
         taxPercentage: it.taxPercentage ?? 0,
         vatAmount: it.taxAmount ?? round2((it.orderedQuantity * it.unitPrice * (it.taxPercentage ?? 0)) / 100),
@@ -194,13 +224,22 @@ function CreatePurchaseOrderForm({
       }));
     }
     if (initialReq) {
-      return initialReq.items.map((it, i) => ({
+      const filterIds = selectedItemIdsParam
+        ? new Set(selectedItemIdsParam.split(",").map((s) => s.trim()).filter(Boolean))
+        : null;
+      const sourceItems = filterIds && filterIds.size > 0
+        ? initialReq.items.filter((it) => filterIds.has(it.itemId))
+        : initialReq.items;
+      return sourceItems.map((it, i) => ({
         key: `req_${i}_${it.itemId}`,
+        selected: true,
         itemId: it.itemId,
         itemCode: it.itemCode,
         itemName: it.itemName,
         uom: it.uom,
         quantity: it.quantity,
+        restQty: it.quantity,
+        issueQty: 0,
         unitPrice: it.estimatedUnitPrice,
         taxPercentage: 0,
         vatAmount: 0,
@@ -231,7 +270,7 @@ function CreatePurchaseOrderForm({
   const etaPreview = useMemo(() => {
     const dt = new Date((expectedReceiveDate || orderDate) + "T00:00:00");
     if (Number.isNaN(dt.getTime())) return "00.00h";
-    return `00.00h (${dt.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })})`;
+    return `00.00h (${dt.toLocaleDateString("en-GB", { weekday: "short" })}, ${formatDate(dt)})`;
   }, [expectedReceiveDate, orderDate]);
 
   // 3-Level Category Options
@@ -267,6 +306,8 @@ function CreatePurchaseOrderForm({
 
   const filteredItems = useMemo(() => {
     return itemsCatalog.filter((it) => {
+      // Only items ticked "Can be Purchased" in the Item Profile can be ordered.
+      if (it.canBePurchased === false) return false;
       if (categoryFilter && it.category !== categoryFilter) return false;
       if (subCategoryFilter && it.subCategory !== subCategoryFilter) return false;
       if (minorCategoryFilter && it.minorCategory !== minorCategoryFilter) return false;
@@ -321,11 +362,14 @@ function CreatePurchaseOrderForm({
         });
         return {
           key: `all_${it.id}_${Date.now()}`,
+          selected: true,
           itemId: it.id,
           itemCode: it.code,
           itemName: it.name,
           uom: it.uom,
           quantity: 1,
+          restQty: 1,
+          issueQty: 0,
           unitPrice: calc.baseUnitPrice,
           taxPercentage: calc.effectiveVatPercent,
           vatAmount: calc.vatAmount,
@@ -350,11 +394,14 @@ function CreatePurchaseOrderForm({
       ...prev,
       {
         key: `line_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        selected: true,
         itemId: item.id,
         itemCode: item.code,
         itemName: item.name,
         uom: item.uom || "Pcs",
         quantity: qty,
+        restQty: qty,
+        issueQty: 0,
         unitPrice: livePricing.baseUnitPrice,
         taxPercentage: livePricing.effectiveVatPercent,
         vatAmount: livePricing.vatAmount,
@@ -441,12 +488,59 @@ function CreatePurchaseOrderForm({
     toast.success(`Loaded items from Requisition ${req.requisitionNumber}.`);
   };
 
+  const updateLine = (
+    key: string,
+    patch: Partial<Pick<OrderDraftLine, "selected" | "quantity" | "unitPrice" | "taxPercentage" | "brand" | "specification">>
+  ) => {
+    setAddedLines((prev) =>
+      prev.map((line) => {
+        if (line.key !== key) return line;
+        const next = { ...line, ...patch };
+        const q = Math.max(0, Number(next.quantity) || 0);
+        const r = Math.max(0, Number(next.unitPrice) || 0);
+        const vatP = Math.max(0, Number(next.taxPercentage) || 0);
+        const itemTotal = round2(q * r);
+        const vatAmt = round2((itemTotal * vatP) / 100);
+        return {
+          ...next,
+          quantity: q,
+          unitPrice: r,
+          taxPercentage: vatP,
+          vatAmount: vatAmt,
+          lineTotal: round2(itemTotal + vatAmt),
+        };
+      })
+    );
+  };
+
+  const applyDistributionVat = (pctValue: number) => {
+    const vatP = Math.max(0, pctValue);
+    setAddedLines((prev) =>
+      prev.map((line) => {
+        const itemTotal = round2(line.quantity * line.unitPrice);
+        const vatAmt = round2((itemTotal * vatP) / 100);
+        return {
+          ...line,
+          taxPercentage: vatP,
+          vatAmount: vatAmt,
+          lineTotal: round2(itemTotal + vatAmt),
+        };
+      })
+    );
+  };
+
   const saveMutation = useMutation({
     mutationFn: async (saveAndNew: boolean) => {
       if (!selectedOfficeId) throw new Error("Office is required.");
       if (!selectedWarehouseId) throw new Error("Warehouse is required.");
       if (!supplierId) throw new Error("Select a supplier.");
-      if (addedLines.length === 0) throw new Error("Add at least one item to the Purchase Order.");
+      const activeLines = addedLines.filter((l) => l.selected !== false);
+      if (activeLines.length === 0) throw new Error("Select or add at least one item to the Purchase Order.");
+
+      const extraShipping = round2(
+        (Number(labourCharge) || 0) + (Number(deliveryCharge) || 0) + (Number(otherCharges) || 0)
+      );
+      const discVal = round2(Number(discountTk) || 0);
 
       const noteSegments = [
         remarks.trim(),
@@ -456,6 +550,7 @@ function CreatePurchaseOrderForm({
         salesInvoiceNumber.trim() ? `Sales Inv: ${salesInvoiceNumber.trim()}` : "",
         vatChallanNumber.trim() ? `VAT Challan: ${vatChallanNumber.trim()}${challanDate ? ` (${challanDate})` : ""}` : "",
         deliveryNumber.trim() ? `Delivery No: ${deliveryNumber.trim()}` : "",
+        discVal > 0 ? `Discount: ${discVal} BDT` : "",
         termsText.trim() ? `Terms: ${termsText.trim()}` : "",
         attachedFiles.length ? `Attachments: ${attachedFiles.map((f) => f.name).join(", ")}` : "",
       ].filter(Boolean);
@@ -476,19 +571,19 @@ function CreatePurchaseOrderForm({
         referenceNumber: referenceNumber.trim() || deliveryNumber.trim() || undefined,
         paymentTerms: paymentTermsLabel,
         deliveryTerms: shippingAddress.trim() || selectedOfficeObj?.address || "FOB Warehouse",
-        shippingFee: 0,
+        shippingFee: extraShipping,
         notes: noteSegments.join(" | ") || undefined,
-        items: addedLines.map((l) => ({
+        items: activeLines.map((l) => ({
           itemId: l.itemId,
           itemCode: l.itemCode,
           itemName: l.itemName,
           uom: l.uom,
           orderedQuantity: l.quantity,
           unitPrice: l.unitPrice,
-          discountPercentage: 0,
+          discountPercentage: Number(discountPct) || 0,
           taxPercentage: l.taxPercentage,
           lineTotal: l.lineTotal,
-          remarks: l.specification || undefined,
+          remarks: [l.brand ? `Brand: ${l.brand}` : "", l.specification].filter(Boolean).join(" | ") || undefined,
         })),
       };
 
@@ -522,11 +617,16 @@ function CreatePurchaseOrderForm({
   });
 
   const totals = useMemo(() => {
-    const qty = addedLines.reduce((s, l) => s + l.quantity, 0);
-    const vat = round2(addedLines.reduce((s, l) => s + l.vatAmount, 0));
-    const net = round2(addedLines.reduce((s, l) => s + l.lineTotal, 0));
-    return { qty, vat, net, sub: round2(net - vat) };
-  }, [addedLines]);
+    const active = addedLines.filter((l) => l.selected !== false);
+    const qty = round2(active.reduce((s, l) => s + l.quantity, 0));
+    const itemTotal = round2(active.reduce((s, l) => s + round2(l.quantity * l.unitPrice), 0));
+    const vat = round2(active.reduce((s, l) => s + l.vatAmount, 0));
+    const net = round2(active.reduce((s, l) => s + l.lineTotal, 0));
+    const disc = round2(Number(discountTk) || 0);
+    const charges = round2((Number(labourCharge) || 0) + (Number(deliveryCharge) || 0) + (Number(otherCharges) || 0));
+    const grandTotal = Math.max(0, round2(net - disc + charges));
+    return { qty, vat, net, sub: itemTotal, grandTotal };
+  }, [addedLines, discountTk, labourCharge, deliveryCharge, otherCharges]);
 
   const inputCls =
     "h-8 w-full rounded border border-line-strong bg-surface px-2.5 text-xs text-ink placeholder:text-ink-faint focus:border-blue-500 focus:outline-none";
@@ -709,7 +809,7 @@ function CreatePurchaseOrderForm({
                 <label className="mb-1 block text-xs font-semibold text-ink-muted">
                   <span className="text-red-500 font-bold mr-0.5">*</span>Create Date
                 </label>
-                <input type="date" value={orderDate} onChange={(e) => setOrderDate(e.target.value)} className={inputCls} />
+                <NativeDateInput type="date" value={orderDate} onChange={(e) => setOrderDate(e.target.value)} className={inputCls} />
               </div>
 
               <div>
@@ -809,7 +909,7 @@ function CreatePurchaseOrderForm({
 
             <div>
               <label className="mb-1 block text-[11px] font-semibold text-ink-muted">Expected Receive Date</label>
-              <input
+              <NativeDateInput
                 type="date"
                 value={expectedReceiveDate}
                 onChange={(e) => setExpectedReceiveDate(e.target.value)}
@@ -866,7 +966,7 @@ function CreatePurchaseOrderForm({
 
                 <div>
                   <label className="mb-1 block text-[11px] font-semibold text-ink-muted">Challan Date</label>
-                  <input type="date" value={challanDate} onChange={(e) => setChallanDate(e.target.value)} className={inputCls} />
+                  <NativeDateInput type="date" value={challanDate} onChange={(e) => setChallanDate(e.target.value)} className={inputCls} />
                 </div>
 
                 <div>
@@ -914,7 +1014,7 @@ function CreatePurchaseOrderForm({
 
                 <div>
                   <label className="mb-1 block text-[11px] font-semibold text-ink-muted">Reference Date</label>
-                  <input
+                  <NativeDateInput
                     type="date"
                     value={referenceDate}
                     onChange={(e) => setReferenceDate(e.target.value)}
@@ -1200,83 +1300,407 @@ function CreatePurchaseOrderForm({
             </button>
           </div>
 
-          {/* Added Lines Table */}
-          <div className="overflow-hidden rounded border border-line bg-surface">
+          {/* Added Lines Table (inline editable matching ERP layout) */}
+          <div className="space-y-3 mt-3">
+            <div className="overflow-hidden rounded border border-grid-line bg-surface">
               <div className="overflow-x-auto">
-                <table className="w-full border-collapse text-left text-xs">
+                <table className="erp-table erp-table-compact w-full text-left border-collapse">
                   <thead>
-                    <tr className="border-b border-line bg-grid-head text-[11px] font-semibold text-ink">
-                  <th className="px-3 py-2">SL</th>
-                  <th className="px-3 py-2">Item Code</th>
-                  <th className="px-3 py-2">Item Name</th>
-                  <th className="px-3 py-2">UoM</th>
-                  <th className="px-3 py-2">Brand / Spec</th>
-                  <th className="px-3 py-2 text-right">Quantity</th>
-                  <th className="px-3 py-2 text-right">Rate (BDT)</th>
-                  <th className="px-3 py-2 text-right">VAT %</th>
-                  <th className="px-3 py-2 text-right">VAT Amt</th>
-                  <th className="px-3 py-2 text-right">Total Amount</th>
-                  <th className="px-3 py-2 text-center">Action</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-line">
-                {addedLines.length === 0 ? (
-                  <tr>
-                    <td colSpan={11} className="py-8 text-center text-xs text-ink-faint">
-                      No items added yet. Select an item above and click Add.
-                    </td>
-                  </tr>
-                ) : (
-                  addedLines.map((row, idx) => (
-                    <tr key={row.key} className="hover:bg-canvas">
-                      <td className="px-3 py-2 text-ink-faint">{idx + 1}</td>
-                      <td className="px-3 py-2 font-mono text-sky-700 dark:text-sky-300">{row.itemCode}</td>
-                      <td className="px-3 py-2 font-medium text-ink">{row.itemName}</td>
-                      <td className="px-3 py-2 text-ink-muted">{row.uom}</td>
-                      <td className="px-3 py-2 text-ink-faint">{row.specification || row.brand || "-"}</td>
-                      <td className="px-3 py-2 text-right font-mono">{row.quantity}</td>
-                      <td className="px-3 py-2 text-right font-mono">{formatCurrency(row.unitPrice)}</td>
-                      <td className="px-3 py-2 text-right font-mono">{row.taxPercentage}%</td>
-                      <td className="px-3 py-2 text-right font-mono">{formatCurrency(row.vatAmount)}</td>
-                      <td className="px-3 py-2 text-right font-mono font-semibold text-ink">
-                        {formatCurrency(row.lineTotal)}
-                      </td>
-                      <td className="px-3 py-2 text-center">
-                        <button
-                          type="button"
-                          onClick={() => setAddedLines((prev) => prev.filter((l) => l.key !== row.key))}
-                          className="rounded p-1 text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10"
-                          title="Remove item"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
-                      </td>
+                    <tr>
+                      <th className="w-8 text-center">
+                        <input
+                          type="checkbox"
+                          className="size-3.5 cursor-pointer accent-primary"
+                          aria-label="Select all items"
+                          checked={addedLines.length > 0 && addedLines.every((l) => l.selected !== false)}
+                          onChange={(e) => {
+                            const checked = e.target.checked;
+                            setAddedLines((prev) => prev.map((l) => ({ ...l, selected: checked })));
+                          }}
+                        />
+                      </th>
+                      <th className="w-8 text-center">SL</th>
+                      <th className="whitespace-nowrap">Item Code</th>
+                      <th className="min-w-[160px]">Item Name</th>
+                      <th className="text-right whitespace-nowrap">Current Stock</th>
+                      <th className="whitespace-nowrap">UoM</th>
+                      <th className="text-right whitespace-nowrap min-w-[95px]">Quantity</th>
+                      <th className="text-right whitespace-nowrap">Rest Qty</th>
+                      <th className="text-right whitespace-nowrap">Issue Qty</th>
+                      <th className="text-right whitespace-nowrap min-w-[95px]">Rate (BDT)</th>
+                      <th className="min-w-[140px]">
+                        <div className="flex flex-col gap-1 py-0.5">
+                          <div className="flex items-center gap-1.5">
+                            <span>VAT (%)</span>
+                            <input
+                              type="checkbox"
+                              checked={distVatEnabled}
+                              onChange={(e) => {
+                                setDistVatEnabled(e.target.checked);
+                                if (e.target.checked && distVatPct !== "") {
+                                  applyDistributionVat(Number(distVatPct) || 0);
+                                }
+                              }}
+                              className="size-3.5 cursor-pointer accent-primary"
+                              title="Enable Distribution VAT"
+                            />
+                          </div>
+                          <div className="flex items-center gap-1">
+                            <input
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              max="100"
+                              value={distVatPct}
+                              onChange={(e) => setDistVatPct(e.target.value)}
+                              placeholder="Distribution VAT"
+                              className="h-6 w-24 rounded border border-line-strong bg-surface px-1.5 text-[11px] font-normal text-ink placeholder:text-ink-faint focus:border-blue-500 focus:outline-none"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => applyDistributionVat(Number(distVatPct) || 0)}
+                              className="inline-flex size-6 items-center justify-center rounded border border-line-strong bg-surface text-ink-muted hover:bg-control hover:text-ink"
+                              title="Apply VAT % to all items"
+                            >
+                              <RotateCcw className="h-3 w-3" />
+                            </button>
+                          </div>
+                        </div>
+                      </th>
+                      <th className="min-w-[90px]">Brand</th>
+                      <th className="min-w-[110px]">Specification</th>
+                      <th className="text-right whitespace-nowrap">Item Total</th>
+                      <th className="text-right whitespace-nowrap">Purchase Total</th>
+                      <th className="w-8 text-center"></th>
                     </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-          {addedLines.length > 0 && (
-            <div className="flex flex-wrap items-center justify-end gap-6 border-t border-line bg-canvas px-4 py-2.5 text-xs">
-              <span className="text-ink-muted">
-                Total Qty: <strong className="font-mono text-ink">{totals.qty}</strong>
-              </span>
-              <span className="text-ink-muted">
-                Subtotal: <strong className="font-mono text-ink">{formatCurrency(totals.sub)}</strong>
-              </span>
-              <span className="text-ink-muted">
-                Total VAT: <strong className="font-mono text-ink">{formatCurrency(totals.vat)}</strong>
-              </span>
-              <span className="text-ink-muted">
-                Net Total: <strong className="font-mono text-sm text-blue-700 dark:text-blue-300">{formatCurrency(totals.net)}</strong>
-              </span>
+                  </thead>
+                  <tbody>
+                    {addedLines.length === 0 ? (
+                      <tr>
+                        <td colSpan={16} className="py-8 text-center text-xs text-ink-faint">
+                          No items added yet. Select an item above and click Add.
+                        </td>
+                      </tr>
+                    ) : (
+                      addedLines.map((row, idx) => {
+                        const stockQty = stockOnHandRows
+                          .filter((s) => s.itemId === row.itemId)
+                          .reduce((sum, s) => sum + Number(s.qty || 0), 0);
+                        const itemTotal = round2(row.quantity * row.unitPrice);
+                        return (
+                          <tr key={row.key} className="hover:bg-grid-hover">
+                            <td className="text-center">
+                              <input
+                                type="checkbox"
+                                className="size-3.5 cursor-pointer accent-primary"
+                                aria-label={`Select ${row.itemCode}`}
+                                checked={row.selected !== false}
+                                onChange={(e) => updateLine(row.key, { selected: e.target.checked })}
+                              />
+                            </td>
+                            <td className="text-center font-mono text-ink-faint">{idx + 1}</td>
+                            <td className="font-mono text-ink-muted whitespace-nowrap">{row.itemCode}</td>
+                            <td className="font-medium text-ink">
+                              <span className="inline-flex items-center gap-1">
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    if (infoPopover?.key === row.key) {
+                                      setInfoPopover(null);
+                                      setEditingDescKey(null);
+                                      return;
+                                    }
+                                    const rect = e.currentTarget.getBoundingClientRect();
+                                    setEditingDescKey(null);
+                                    setInfoPopover({
+                                      key: row.key,
+                                      top: Math.min(window.innerHeight - 240, rect.bottom + 6),
+                                      left: Math.min(window.innerWidth - 280, rect.left),
+                                    });
+                                  }}
+                                  className="inline-flex items-center justify-center rounded text-ink-faint hover:text-primary transition-colors"
+                                  title="View / Edit Item Details"
+                                  aria-label={`Item details for ${row.itemCode}`}
+                                >
+                                  <Info className="h-3.5 w-3.5 shrink-0" />
+                                </button>
+                                {(itemsCatalog.find((i) => i.id === row.itemId) as { tracking?: string } | undefined)?.tracking === "BATCH" && (
+                                  <span
+                                    title="Batch Item"
+                                    aria-label="Batch Item"
+                                    className="inline-flex items-center justify-center rounded bg-amber-100 dark:bg-amber-500/20 px-0.5 text-amber-600 dark:text-amber-400"
+                                  >
+                                    <CreditCard className="h-3 w-3 shrink-0" />
+                                  </span>
+                                )}
+                                <span>{row.itemName}</span>
+                              </span>
+                            </td>
+                            <td className="text-right font-mono text-ink">{fmtNum(stockQty)}</td>
+                            <td className="text-ink-muted whitespace-nowrap">{row.uom}</td>
+                            <td className="text-right">
+                              <input
+                                type="number"
+                                step="any"
+                                min="0"
+                                value={row.quantity}
+                                onChange={(e) => updateLine(row.key, { quantity: Number(e.target.value) || 0 })}
+                                className="h-7 w-24 rounded border border-line-strong bg-surface px-1.5 text-right font-mono text-[11px] text-ink focus:border-blue-500 focus:outline-none"
+                              />
+                            </td>
+                            <td className="text-right font-mono text-ink-muted">{fmtNum(row.restQty ?? row.quantity)}</td>
+                            <td className="text-right font-mono text-ink-muted">{fmtNum(row.issueQty ?? 0)}</td>
+                            <td className="text-right">
+                              <input
+                                type="number"
+                                step="any"
+                                min="0"
+                                value={row.unitPrice}
+                                onChange={(e) => updateLine(row.key, { unitPrice: Number(e.target.value) || 0 })}
+                                className="h-7 w-24 rounded border border-line-strong bg-surface px-1.5 text-right font-mono text-[11px] text-ink focus:border-blue-500 focus:outline-none"
+                              />
+                            </td>
+                            <td className="whitespace-nowrap">
+                              <div className="inline-flex items-center gap-1">
+                                <input
+                                  type="number"
+                                  step="0.01"
+                                  min="0"
+                                  max="100"
+                                  value={row.taxPercentage}
+                                  onChange={(e) => updateLine(row.key, { taxPercentage: Number(e.target.value) || 0 })}
+                                  className="h-7 w-16 rounded border border-line-strong bg-surface px-1.5 text-right font-mono text-[11px] text-ink focus:border-blue-500 focus:outline-none"
+                                />
+                                <span className="text-[11px] text-ink-muted">(%)</span>
+                              </div>
+                            </td>
+                            <td>
+                              <input
+                                type="text"
+                                value={row.brand}
+                                onChange={(e) => updateLine(row.key, { brand: e.target.value })}
+                                placeholder="Brand"
+                                className="h-7 w-24 rounded border border-line bg-surface px-1.5 text-[11px] text-ink focus:border-blue-500 focus:outline-none"
+                              />
+                            </td>
+                            <td>
+                              <input
+                                type="text"
+                                value={row.specification}
+                                onChange={(e) => updateLine(row.key, { specification: e.target.value })}
+                                placeholder="Spec"
+                                className="h-7 w-28 rounded border border-line bg-surface px-1.5 text-[11px] text-ink focus:border-blue-500 focus:outline-none"
+                              />
+                            </td>
+                            <td className="text-right font-mono text-ink whitespace-nowrap">{fmtNum(itemTotal)}</td>
+                            <td className="text-right font-mono font-semibold text-ink whitespace-nowrap">
+                              {fmtNum(row.lineTotal)}
+                            </td>
+                            <td className="text-center">
+                              <button
+                                type="button"
+                                onClick={() => setAddedLines((prev) => prev.filter((l) => l.key !== row.key))}
+                                className="inline-flex size-6 items-center justify-center rounded text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-500/10"
+                                title="Remove item"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                  {addedLines.length > 0 && (
+                    <tfoot>
+                      <tr className="bg-canvas font-semibold">
+                        <td colSpan={6} className="text-right text-ink">
+                          Total
+                        </td>
+                        <td className="text-right font-mono text-ink">{fmtNum(totals.qty)}</td>
+                        <td colSpan={9} />
+                      </tr>
+                    </tfoot>
+                  )}
+                </table>
+              </div>
             </div>
-          )}
-        </div>
+
+            {addedLines.length > 0 && (
+              <div className="flex justify-end">
+                <div className="w-full max-w-sm rounded border border-line bg-surface p-3.5 text-xs space-y-2 shadow-2xs">
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold text-ink-muted">Total Qty :</span>
+                    <span className="font-mono font-bold text-ink">{fmtNum(totals.qty)}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold text-ink-muted">Item Total :</span>
+                    <span className="font-mono font-bold text-ink">{fmtNum(totals.sub)}</span>
+                  </div>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-semibold text-ink-muted">Discount :</span>
+                    <div className="flex items-center gap-1.5">
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        max="100"
+                        value={discountPct}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setDiscountPct(val);
+                          const pct = Number(val) || 0;
+                          setDiscountTk(pct > 0 ? String(round2((totals.sub * pct) / 100)) : "");
+                        }}
+                        placeholder="%"
+                        className="h-7 w-20 rounded border border-line-strong bg-surface px-2 text-right font-mono text-xs text-ink focus:border-blue-500 focus:outline-none"
+                      />
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={discountTk}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setDiscountTk(val);
+                          const tk = Number(val) || 0;
+                          setDiscountPct(totals.sub > 0 && tk > 0 ? String(round2((tk / totals.sub) * 100)) : "");
+                        }}
+                        placeholder="Tk"
+                        className="h-7 w-24 rounded border border-line-strong bg-surface px-2 text-right font-mono text-xs text-ink focus:border-blue-500 focus:outline-none"
+                      />
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-semibold text-ink-muted">Labour Charge :</span>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={labourCharge}
+                      onChange={(e) => setLabourCharge(e.target.value)}
+                      placeholder="Labour Charge"
+                      className="h-7 w-36 rounded border border-line-strong bg-surface px-2 text-right font-mono text-xs text-ink focus:border-blue-500 focus:outline-none"
+                    />
+                  </div>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-semibold text-ink-muted">Delivery Charge :</span>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={deliveryCharge}
+                      onChange={(e) => setDeliveryCharge(e.target.value)}
+                      placeholder="Delivery Charge"
+                      className="h-7 w-36 rounded border border-line-strong bg-surface px-2 text-right font-mono text-xs text-ink focus:border-blue-500 focus:outline-none"
+                    />
+                  </div>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-semibold text-ink-muted">Other Charges :</span>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={otherCharges}
+                      onChange={(e) => setOtherCharges(e.target.value)}
+                      placeholder="Other Charges"
+                      className="h-7 w-36 rounded border border-line-strong bg-surface px-2 text-right font-mono text-xs text-ink focus:border-blue-500 focus:outline-none"
+                    />
+                  </div>
+                  <div className="flex items-center justify-between border-t border-line pt-2">
+                    <span className="font-bold text-ink">Purchase Total :</span>
+                    <span className="font-mono text-sm font-bold text-ink">{fmtNum(totals.grandTotal)}</span>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
       </div>
     </div>
   </div>
+
+      {infoPopover && (() => {
+        const popRow = addedLines.find((l) => l.key === infoPopover.key);
+        if (!popRow) return null;
+        return (
+          <>
+            <div
+              className="fixed inset-0 z-40"
+              onClick={() => {
+                setInfoPopover(null);
+                setEditingDescKey(null);
+              }}
+            />
+            <div
+              style={{ top: infoPopover.top, left: infoPopover.left }}
+              className="fixed z-50 w-64 rounded-md border border-line bg-surface p-3.5 shadow-xl text-xs space-y-2.5"
+            >
+              <div className="space-y-1">
+                <div className="flex items-center gap-1.5 text-ink-muted font-medium">
+                  <span>Description:</span>
+                  <button
+                    type="button"
+                    onClick={() => setEditingDescKey(editingDescKey === popRow.key ? null : popRow.key)}
+                    className="inline-flex size-5 items-center justify-center rounded hover:bg-control text-ink-muted hover:text-ink"
+                    title="Edit description"
+                  >
+                    <Pencil className="h-3 w-3" />
+                  </button>
+                </div>
+                {editingDescKey === popRow.key ? (
+                  <textarea
+                    rows={2}
+                    value={popRow.specification}
+                    onChange={(e) => updateLine(popRow.key, { specification: e.target.value })}
+                    placeholder="Enter description..."
+                    className="w-full rounded border border-line-strong bg-surface px-2 py-1 text-xs text-ink focus:border-blue-500 focus:outline-none"
+                    autoFocus
+                  />
+                ) : (
+                  <p className="text-ink min-h-[16px] break-words">{popRow.specification || ""}</p>
+                )}
+              </div>
+
+              <div className="grid grid-cols-[80px_1fr] items-center gap-2">
+                <span className="text-ink-muted font-medium">Quantity</span>
+                <input
+                  type="number"
+                  step="any"
+                  min="0"
+                  value={popRow.quantity}
+                  onChange={(e) => updateLine(popRow.key, { quantity: Number(e.target.value) || 0 })}
+                  className="h-7 w-full rounded border border-line-strong bg-surface px-2 font-mono text-xs text-ink focus:border-blue-500 focus:outline-none"
+                />
+              </div>
+
+              <div className="grid grid-cols-[80px_1fr] items-center gap-2">
+                <span className="text-ink-muted font-medium">Rate (BDT)</span>
+                <input
+                  type="number"
+                  step="any"
+                  min="0"
+                  value={popRow.unitPrice}
+                  onChange={(e) => updateLine(popRow.key, { unitPrice: Number(e.target.value) || 0 })}
+                  className="h-7 w-full rounded border border-line-strong bg-surface px-2 font-mono text-xs text-ink focus:border-blue-500 focus:outline-none"
+                />
+              </div>
+
+              <div className="grid grid-cols-[80px_1fr] items-center gap-2">
+                <span className="text-ink-muted font-medium">VAT (%)</span>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  max="100"
+                  value={popRow.taxPercentage}
+                  onChange={(e) => updateLine(popRow.key, { taxPercentage: Number(e.target.value) || 0 })}
+                  className="h-7 w-full rounded border border-line-strong bg-surface px-2 font-mono text-xs text-ink focus:border-blue-500 focus:outline-none"
+                />
+              </div>
+            </div>
+          </>
+        );
+      })()}
 
       <QuickAddSupplierModal
         isOpen={isAddSupplierOpen}

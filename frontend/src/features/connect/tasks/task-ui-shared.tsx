@@ -40,6 +40,8 @@ import type {
   TaskPriority,
   TaskStatus,
 } from "@/lib/connect/tasks-db";
+import { NativeDateInput } from "@/components/ui/date-input";
+import { formatDateTime as formatDateTimeDmy } from "@/lib/format";
 
 export type ActiveUserRole =
   | "Managing Director"
@@ -47,7 +49,7 @@ export type ActiveUserRole =
   | "Central Monitoring Officer"
   | "Employee / Staff";
 
-export const COMPANIES = ["All Companies", "Mariners", "MOHS", "Marinozz"] as const;
+export const COMPANIES = ["All Companies", "Mariners", "Marinozz"] as const;
 export const DEPARTMENTS = [
   "All Departments",
   "Legal",
@@ -66,12 +68,6 @@ export const PROJECTS_BY_COMPANY: Record<string, string[]> = {
     "Group Corporate Legal & Compliance",
     "Group Treasury Operations",
   ],
-  MOHS: [
-    "MOHS Venice City Township",
-    "Sector-B Commercial Plots",
-    "Block-C Handover & Mutation",
-    "MOHS Infrastructure Procurement",
-  ],
   Marinozz: [
     "Marinozz Retail Expansion",
     "Flagship Showroom Operations",
@@ -80,13 +76,13 @@ export const PROJECTS_BY_COMPANY: Record<string, string[]> = {
 };
 
 export const STAFF_DIRECTORY = [
-  { id: "emp-legal-01", name: "Adv. Rafiqul Islam", department: "Legal", designation: "Senior Legal Counsel", company: "MOHS", supervisor: "Barrister Kamal Hossain (Head of Legal)" },
+  { id: "emp-legal-01", name: "Adv. Rafiqul Islam", department: "Legal", designation: "Senior Legal Counsel", company: "Mariners", supervisor: "Barrister Kamal Hossain (Head of Legal)" },
   { id: "emp-acc-01", name: "Nusrat Jahan", department: "Accounts", designation: "Senior Manager, Accounts", company: "Mariners", supervisor: "Shafiqur Rahman (CFO)" },
   { id: "emp-acc-02", name: "Sajid Hasan", department: "Accounts", designation: "Accounts Executive", company: "Marinozz", supervisor: "Shafiqur Rahman (CFO)" },
-  { id: "emp-sales-01", name: "Tanvir Ahmed", department: "Sales", designation: "AGM, Corporate Sales", company: "MOHS", supervisor: "Mahmudul Hasan (Director Sales)" },
+  { id: "emp-sales-01", name: "Tanvir Ahmed", department: "Sales", designation: "AGM, Corporate Sales", company: "Mariners", supervisor: "Mahmudul Hasan (Director Sales)" },
   { id: "emp-sales-02", name: "Farhana Yeasmin", department: "Sales", designation: "Retail Operations Executive", company: "Marinozz", supervisor: "Mahmudul Hasan (Director Sales)" },
   { id: "emp-ops-01", name: "Capt. Tareq Mahmud", department: "Operations", designation: "Head of Marine Operations", company: "Mariners", supervisor: "Managing Director" },
-  { id: "emp-proc-01", name: "Engr. Ashraful Alam", department: "Procurement", designation: "Procurement Manager", company: "MOHS", supervisor: "Managing Director" },
+  { id: "emp-proc-01", name: "Engr. Ashraful Alam", department: "Procurement", designation: "Procurement Manager", company: "Mariners", supervisor: "Managing Director" },
   { id: "emp-hr-01", name: "Sabrina Karim", department: "HR", designation: "HR & Admin Manager", company: "Marinozz", supervisor: "Managing Director" },
   { id: "emp-it-01", name: "Mehedi Hasan", department: "IT", designation: "Lead Systems Engineer", company: "Mariners", supervisor: "Central Monitoring Officer" },
 ];
@@ -110,13 +106,7 @@ export function formatDateTime(iso?: string | null): string {
   if (!iso) return "—";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleString("en-US", {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-    hour12: true,
-  });
+  return formatDateTimeDmy(d);
 }
 
 export function StatusBadge({ status }: { status: TaskStatus }) {
@@ -931,7 +921,7 @@ export function InteractiveEmployeeTaskCard({
               <label htmlFor={`${formId}-ext-date`} className="block text-[11px] font-semibold text-ink mb-1">
                 Proposed New Deadline
               </label>
-              <input
+              <NativeDateInput
                 id={`${formId}-ext-date`}
                 type="datetime-local"
                 value={extDate}

@@ -12,6 +12,7 @@ import { round2 } from "@/lib/purchase-store/rules";
 import { usePurchasePermissions } from "@/features/purchase/lib/usePurchasePermissions";
 import { SearchableCombobox, type PurchaseFormOptions } from "@/features/purchase/components/PurchaseFormShared";
 import type { Item, Office, PurchaseReturn, Supplier, Warehouse } from "@bridgeone/contracts";
+import { NativeDateInput } from "@/components/ui/date-input";
 
 interface ReturnDraftLine {
   key: string;
@@ -180,7 +181,8 @@ export function CreateReturnWithoutRefView() {
       queryClient.invalidateQueries({ queryKey: ["purchase-returns"] });
       queryClient.invalidateQueries({ queryKey: ["supplier-payments"] });
       queryClient.invalidateQueries({ queryKey: ["purchase-form-options"] });
-      toast.success(`Purchase Return ${created.returnNumber} saved; warehouse stock and supplier balance updated.`);
+      if (created.status === "PENDING_APPROVAL") toast.success(`Purchase Return ${created.returnNumber} saved; the goods leave stock once its approval is complete.`);
+      else toast.success(`Purchase Return ${created.returnNumber} saved; warehouse stock and supplier balance updated.`);
       router.push("/purchase/returns");
     },
     onError: (err: Error) => toast.error(err.message, { title: "Purchase Return Error" }),
@@ -255,7 +257,7 @@ export function CreateReturnWithoutRefView() {
                   <label className="mb-1 block text-xs font-semibold text-ink-muted">
                     <span className="text-red-500 font-bold mr-0.5">*</span>Create Date
                   </label>
-                  <input type="date" value={returnDate} onChange={(e) => setReturnDate(e.target.value)} className={inputCls} />
+                  <NativeDateInput type="date" value={returnDate} onChange={(e) => setReturnDate(e.target.value)} className={inputCls} />
                 </div>
 
                 <div>

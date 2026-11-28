@@ -44,7 +44,7 @@ export function ScrollMore({ sentinel, hasMore, shown, total, noun }: { sentinel
 
 export interface NodeDialogState {
   mode: "add" | "edit";
-  /** "Region", "Territory" … */
+  /** "Division", "Territory" … */
   layerName: string;
   businessUnitId: string;
   parentId: string;

@@ -18,10 +18,11 @@ import { hrmPaths } from "../../paths";
 import { formatDate, monthLabel } from "../../shared/hr-ui";
 import type { LineSort, PayrollBatchDetail, PayrollLine, PayrollLineDetail, PayrollLinePage } from "../batch-types";
 import { ActionDialog, Callout, PayrollStatusBadge, PayrollSummary, SalaryDetailDialog, SalaryTable, bdt } from "./payroll-ui";
+import { formatDateTime } from "@/lib/format";
 
 type Action = "recalculate" | "submit" | "approve" | "reject" | "cancel" | "publish";
 const PAGE_SIZES = [25, 50, 100] as const;
-const dateTime = (iso: string) => new Date(iso).toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
+const dateTime = (iso: string) => formatDateTime(iso);
 
 const ACTIONS: Record<Action, { title: string; confirm: string; done: string; remarks?: "required" | "optional"; remarksLabel?: string; danger?: boolean }> = {
   recalculate: { title: "Recalculate payroll", confirm: "Recalculate", done: "Payroll recalculated." },

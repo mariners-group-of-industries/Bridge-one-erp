@@ -4,6 +4,7 @@ import { useState } from "react";
 import { ChevronUp, ChevronDown } from "lucide-react";
 import type { FilterState, EmployeeRosterItem } from "../types";
 import type { CalendarAssignMeta } from "../services/calendar-assign.service";
+import { NativeDateInput } from "@/components/ui/date-input";
 
 interface CalendarFilterSectionProps {
   filter: FilterState;
@@ -156,7 +157,7 @@ export function CalendarFilterSection({
                 <span className="text-danger font-bold">*</span> From Date
               </label>
               <div className="relative">
-                <input
+                <NativeDateInput
                   type="date"
                   value={filter.fromDate}
                   onChange={(e) => onChange({ fromDate: e.target.value })}
@@ -175,7 +176,7 @@ export function CalendarFilterSection({
                 <span className="text-danger font-bold">*</span> To Date
               </label>
               <div className="relative">
-                <input
+                <NativeDateInput
                   type="date"
                   value={filter.toDate}
                   onChange={(e) => onChange({ toDate: e.target.value })}

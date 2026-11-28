@@ -8,7 +8,7 @@ import {
   Info,
   RefreshCw,
 } from "lucide-react";
-import type { EmployeeRosterItem, RosterGridData } from "../types";
+import type { CalendarDefinition, EmployeeRosterItem, RosterGridData } from "../types";
 import { useCalendars } from "../use-calendars";
 import { CalendarQuickDetails } from "./CalendarQuickDetails";
 
@@ -24,7 +24,7 @@ interface DynamicCalendarGridProps {
   dates: DateInfo[];
   gridData: RosterGridData;
   onCellChange: (employeeId: string, dateStr: string, newShiftCode: string) => void;
-  onColumnBulkAssign: (dateStr: string, shiftCode: string) => void;
+  onColumnBulkAssign: (dateStr: string, calendar: CalendarDefinition) => void;
   /** Row-wise assign: one shift on every date of one employee (optionally skipping weekends). */
   onRowBulkAssign: (employeeId: string, shiftCode: string, skipWeekends: boolean) => void;
   selectedEmployeeIds: Set<string>;
@@ -55,6 +55,9 @@ export function DynamicCalendarGrid({
   readOnly = false,
 }: DynamicCalendarGridProps) {
   const { calendars, byCode, forOffice } = useCalendars();
+  // Column assign offers only the calendars the offices in view may use.
+  const officesInView = new Set(employees.map((e) => e.officeName));
+  const columnCalendars = calendars.filter((c) => c.office === "All" || officesInView.has(c.office));
   // Active cell popover state
   const [activeCell, setActiveCell] = useState<{
     employeeId: string;
@@ -243,22 +246,26 @@ export function DynamicCalendarGrid({
                         Assign {date.dateStr} to all:
                       </div>
                       <div className="max-h-48 overflow-y-auto space-y-0.5">
-                        {calendars.map((c) => (
+                        {columnCalendars.map((c) => (
                           <button
                             key={c.id}
                             type="button"
                             onClick={() => {
-                              onColumnBulkAssign(date.dateStr, c.shortCode);
+                              onColumnBulkAssign(date.dateStr, c);
                               setActiveColMenu(null);
                             }}
                             className="flex w-full items-center gap-2 rounded px-2 py-1 text-xs text-ink hover:bg-hover"
+                            title={c.office === "All" ? c.calendarName : `${c.calendarName} (${c.office} only)`}
                           >
                             <span
-                              className={`size-4 rounded text-[9px] font-bold flex items-center justify-center border ${c.badgeBg} ${c.badgeText} ${c.badgeBorder}`}
+                              className={`h-4 min-w-4 shrink-0 px-0.5 rounded text-[9px] font-bold flex items-center justify-center border ${c.badgeBg} ${c.badgeText} ${c.badgeBorder}`}
                             >
                               {c.shortCode}
                             </span>
-                            <span className="truncate">{c.calendarName}</span>
+                            <span className="min-w-0 truncate">
+                              {c.calendarName}
+                              {c.office !== "All" && <span className="text-ink-faint"> · {c.office}</span>}
+                            </span>
                           </button>
                         ))}
                       </div>

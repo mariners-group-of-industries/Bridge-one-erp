@@ -31,6 +31,7 @@ import {
 import { deliverySettlements } from "../../collections/services/collection.service";
 import { approveReturn, createReturn, lockDeliveryReturns, returnNumber } from "../../returns/services/return.service";
 import { assertStockAvailable, lockWarehouse, requireWarehouse, stockLevels } from "./stock.service";
+import { packingOf } from "../../orders/lib/packing";
 import { requireDriver } from "./vehicle.service";
 
 /** Rows a list returns; totals cover every match. */
@@ -752,13 +753,14 @@ async function plan(actor: Actor, input: ParsedInput): Promise<Plan> {
     lines = input.lines.map((line, index) => {
       const item = itemById.get(line.itemId)!;
       const amounts = orderLineAmounts(line, priceIncludesVat);
+      const pack = packingOf(item);
       return {
         lineNo: index + 1,
         itemId: line.itemId,
         orderLineId: null,
         uom: item.uom,
-        altUom: item.altUom,
-        altUomFactor: item.altUomFactor,
+        altUom: pack.altUom,
+        altUomFactor: pack.altUomFactor === null ? null : new Prisma.Decimal(pack.altUomFactor),
         qty: line.qty,
         rate: line.unitPrice,
         discountPercent: line.discountPercent,

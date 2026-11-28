@@ -1,7 +1,7 @@
 import type { Prisma } from "@/generated/prisma/client";
 import { AppError, badRequest, conflict, notFound } from "@/lib/api/errors";
 import { assertCompanyAccess, canOn, type Actor } from "@/lib/auth/actor";
-import { approvalNote, recordApproval, recordRejection } from "@/lib/approval/engine";
+import { approvalNote, hasApprovalPipeline, recordApproval, recordRejection } from "@/lib/approval/engine";
 import { db } from "@/lib/prisma/client";
 import { money } from "../../dashboard/lib/aggregate";
 import { fromDbDate, toDbDate } from "../../lib/dates";
@@ -13,6 +13,7 @@ import { userNames } from "../../lib/users";
 import { openOrderValue } from "../../masters/services/masters.service";
 import { assertMinPrices, salesPricing } from "../../pricing/services/pricing.service";
 import { orderTotals } from "../lib/order-totals";
+import { packingOf } from "../lib/packing";
 import {
   orderActionSchema,
   orderInputSchema,
@@ -320,7 +321,7 @@ async function prepare(actor: Actor, input: ParsedInput, currentOrderId?: string
       : null,
     db().item.findMany({
       where: { id: { in: itemIds }, businessUnitId },
-      select: { id: true, uom: true, altUom: true, altUomFactor: true, mrp: true, isActive: true },
+      select: { id: true, name: true, uom: true, altUom: true, altUomFactor: true, mrp: true, isActive: true },
     }),
   ]);
 
@@ -360,7 +361,7 @@ async function prepare(actor: Actor, input: ParsedInput, currentOrderId?: string
   if (freeIds.length) {
     const extra = await db().item.findMany({
       where: { id: { in: freeIds }, businessUnitId },
-      select: { id: true, uom: true, altUom: true, altUomFactor: true, mrp: true, isActive: true },
+      select: { id: true, name: true, uom: true, altUom: true, altUomFactor: true, mrp: true, isActive: true },
     });
     for (const item of extra) itemById.set(item.id, item);
   }
@@ -418,8 +419,7 @@ async function prepare(actor: Actor, input: ParsedInput, currentOrderId?: string
         lineNo: index + 1,
         itemId: line.itemId,
         uom: item.uom,
-        altUom: item.altUom,
-        altUomFactor: item.altUomFactor,
+        ...packingOf(item),
         mrp: item.mrp,
         qty: line.qty,
         unitPrice: line.unitPrice,
@@ -602,6 +602,11 @@ export async function changeOrderStatus(actor: Actor, id: string, raw: unknown):
       if (hold) {
         await guarded(["DRAFT"], "submitted", { status: "PENDING_APPROVAL", holdReason: hold.reason, submittedAt: now }, [
           { action: "SUBMITTED_FOR_APPROVAL", to: "PENDING_APPROVAL", remarks: note(hold.message) },
+        ]);
+      } else if (await hasApprovalPipeline(db(), "Sales Order", { businessUnitId: order.businessUnitId, amount: order.salesTotal.toNumber() })) {
+        // A Sales Order pipeline (Configuration › Approval Setup) applies to every order, not only to held ones.
+        await guarded(["DRAFT"], "submitted", { status: "PENDING_APPROVAL", holdReason: "APPROVAL_PIPELINE", submittedAt: now }, [
+          { action: "SUBMITTED_FOR_APPROVAL", to: "PENDING_APPROVAL", remarks: note("Waiting for the Sales Order approval pipeline.") },
         ]);
       } else {
         const reason = order.paymentMethod === "CASH" ? "Cash order: approved automatically." : "Within credit limit: approved automatically.";

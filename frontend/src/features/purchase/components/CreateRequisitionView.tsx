@@ -21,6 +21,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { usePurchasePermissions } from "@/features/purchase/lib/usePurchasePermissions";
 import { categoryNamesAt, type PurchaseFormOptions } from "@/features/purchase/components/PurchaseFormShared";
 import type { Office, Warehouse, Item, Supplier, PurchaseRequisition } from "@bridgeone/contracts";
+import { NativeDateInput } from "@/components/ui/date-input";
 
 interface DirectoryEmployee {
   id: string;
@@ -45,9 +46,14 @@ interface AddedItem {
   remarks: string;
 }
 
-export function CreateRequisitionView() {
+/**
+ * Create Requisition page. With `editId` it is the Edit Requisition page: the
+ * requisition is loaded into the same form and saved back with PUT.
+ * `?fromId=` (New PR action) pre-fills a new requisition from an existing one.
+ */
+export function CreateRequisitionView({ editId }: { editId?: string } = {}) {
   const searchParams = useSearchParams();
-  const fromId = searchParams.get("fromId") || "";
+  const fromId = editId || searchParams.get("fromId") || "";
 
   const { data: templateReq, isLoading: isTemplateLoading } = useQuery<PurchaseRequisition | null>({
     queryKey: ["requisition-template", fromId],
@@ -66,17 +72,25 @@ export function CreateRequisitionView() {
     );
   }
 
-  return <CreateRequisitionForm key={templateReq?.id ?? "new"} templateReq={templateReq ?? null} />;
+  if (editId && !templateReq) {
+    return <div className="p-6 text-sm text-ink-muted">Requisition not found, or you do not have access to it.</div>;
+  }
+
+  return <CreateRequisitionForm key={templateReq?.id ?? "new"} templateReq={templateReq ?? null} editReq={editId ? templateReq ?? null : null} />;
 }
 
-function CreateRequisitionForm({ templateReq }: { templateReq: PurchaseRequisition | null }) {
+function CreateRequisitionForm({ templateReq, editReq }: { templateReq: PurchaseRequisition | null; editReq: PurchaseRequisition | null }) {
+  const isEdit = Boolean(editReq);
   const router = useRouter();
   const queryClient = useQueryClient();
   const perms = usePurchasePermissions();
   const [isFormCollapsed, setIsFormCollapsed] = useState(false);
 
   // 1. Target Selector State
-  const [targetType, setTargetType] = useState<"Employee" | "Department" | "Project">("Employee");
+  // An edited requisition raised for a department has the department as its requester.
+  const [targetType, setTargetType] = useState<"Employee" | "Department" | "Project">(
+    editReq && editReq.department && editReq.requesterName === editReq.department ? "Department" : "Employee",
+  );
   const [createFromSalesOrder, setCreateFromSalesOrder] = useState(false);
   const [selectedSalesOrderIds, setSelectedSalesOrderIds] = useState<string[]>([]);
   const [isSoDropdownOpen, setIsSoDropdownOpen] = useState(false);
@@ -104,7 +118,7 @@ function CreateRequisitionForm({ templateReq }: { templateReq: PurchaseRequisiti
     return d.toISOString().split("T")[0];
   }, []);
 
-  const [createDate, setCreateDate] = useState(todayStr);
+  const [createDate, setCreateDate] = useState(editReq?.requestDate || todayStr);
   const [expectedDate, setExpectedDate] = useState(templateReq?.requiredDeliveryDate || defaultDeliveryStr);
   const [pickedOfficeId, setSelectedOfficeId] = useState<string | null>(templateReq?.officeId ?? null);
   const [pickedWarehouseId, setSelectedWarehouseId] = useState<string>(templateReq?.warehouseId || "");
@@ -119,7 +133,7 @@ function CreateRequisitionForm({ templateReq }: { templateReq: PurchaseRequisiti
   // 3. Secondary Fields (Row 2)
   const [buyerName, setBuyerName] = useState("");
   const [buyerOfficeId, setBuyerOfficeId] = useState("");
-  const [remarks, setRemarks] = useState(templateReq ? `Cloned from ${templateReq.requisitionNumber}` : "");
+  const [remarks, setRemarks] = useState(editReq ? editReq.remarks || "" : templateReq ? `Cloned from ${templateReq.requisitionNumber}` : "");
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -630,18 +644,27 @@ function CreateRequisitionForm({ templateReq }: { templateReq: PurchaseRequisiti
         items: itemsToSubmit,
       };
 
-      const result = await fetchApi<{ requisitionNumber: string }>("/purchase/requisitions", {
-        method: "POST",
-        body: JSON.stringify(payload),
-      });
+      const result = editReq
+        ? await fetchApi<{ requisitionNumber: string }>(`/purchase/requisitions/${editReq.id}`, {
+            method: "PUT",
+            body: JSON.stringify(payload),
+          })
+        : await fetchApi<{ requisitionNumber: string }>("/purchase/requisitions", {
+            method: "POST",
+            body: JSON.stringify(payload),
+          });
 
       return { result, isSaveAndNew };
     },
     onSuccess: ({ result, isSaveAndNew }) => {
       queryClient.invalidateQueries({ queryKey: ["requisitions"] });
+      queryClient.invalidateQueries({ queryKey: ["requisition-template"] });
       queryClient.invalidateQueries({ queryKey: ["dashboard"] });
 
-      if (isSaveAndNew) {
+      if (editReq) {
+        toast.success(`Requisition ${result.requisitionNumber || editReq.requisitionNumber} updated.`, { title: "Changes Saved" });
+        router.push("/purchase/requisitions");
+      } else if (isSaveAndNew) {
         toast.success(`Requisition ${result.requisitionNumber} created! Ready for new entry.`, {
           title: "Created Successfully",
         });
@@ -682,25 +705,30 @@ function CreateRequisitionForm({ templateReq }: { templateReq: PurchaseRequisiti
             >
               <ArrowLeft className="w-4 h-4" />
             </button>
-            <h1 className="text-base font-bold text-ink dark:text-white tracking-tight">Create Requisition</h1>
+            <h1 className="text-base font-bold text-ink dark:text-white tracking-tight">
+              {isEdit ? "Edit Requisition" : "Create Requisition"}
+              {isEdit && <span className="ml-2 font-mono text-sm font-semibold text-sky-700 dark:text-sky-300">{editReq?.requisitionNumber}</span>}
+            </h1>
           </div>
 
           <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => createMutation.mutate(true)}
-              disabled={createMutation.isPending || !perms.requisitions.create}
-              title={!perms.requisitions.create ? "Requires Create permission in Configuration" : undefined}
-              className="h-8 px-4 border border-[#2563eb] text-primary hover:bg-blue-50 dark:hover:bg-blue-950 font-semibold text-xs rounded transition flex items-center gap-1.5 disabled:opacity-50"
-            >
-              {createMutation.isPending && <Spinner className="size-3.5" />}
-              Save & New
-            </button>
+            {!isEdit && (
+              <button
+                type="button"
+                onClick={() => createMutation.mutate(true)}
+                disabled={createMutation.isPending || !perms.requisitions.create}
+                title={!perms.requisitions.create ? "Requires Create permission in Configuration" : undefined}
+                className="h-8 px-4 border border-[#2563eb] text-primary hover:bg-blue-50 dark:hover:bg-blue-950 font-semibold text-xs rounded transition flex items-center gap-1.5 disabled:opacity-50"
+              >
+                {createMutation.isPending && <Spinner className="size-3.5" />}
+                Save & New
+              </button>
+            )}
             <button
               type="button"
               onClick={() => createMutation.mutate(false)}
-              disabled={createMutation.isPending || !perms.requisitions.create}
-              title={!perms.requisitions.create ? "Requires Create permission in Configuration" : undefined}
+              disabled={createMutation.isPending || !(isEdit ? perms.requisitions.edit : perms.requisitions.create)}
+              title={!(isEdit ? perms.requisitions.edit : perms.requisitions.create) ? `Requires ${isEdit ? "Edit" : "Create"} permission in Configuration` : undefined}
               className="h-8 px-5 bg-[#2563eb] hover:bg-blue-700 text-white font-semibold text-xs rounded transition flex items-center gap-1.5 shadow-2xs disabled:opacity-50"
             >
               {createMutation.isPending && <Spinner className="size-3.5" />}
@@ -743,6 +771,7 @@ function CreateRequisitionForm({ templateReq }: { templateReq: PurchaseRequisiti
                   name="targetType"
                   checked={targetType === "Employee"}
                   onChange={() => setTargetType("Employee")}
+                  disabled={isEdit}
                   className="w-4 h-4 text-blue-600 dark:text-blue-400 focus:ring-blue-500 border-line-strong"
                 />
                 <span>Employee</span>
@@ -754,6 +783,7 @@ function CreateRequisitionForm({ templateReq }: { templateReq: PurchaseRequisiti
                   name="targetType"
                   checked={targetType === "Department"}
                   onChange={() => setTargetType("Department")}
+                  disabled={isEdit}
                   className="w-4 h-4 text-blue-600 dark:text-blue-400 focus:ring-blue-500 border-line-strong"
                 />
                 <span>Department</span>
@@ -765,6 +795,7 @@ function CreateRequisitionForm({ templateReq }: { templateReq: PurchaseRequisiti
                   name="targetType"
                   checked={targetType === "Project"}
                   onChange={() => setTargetType("Project")}
+                  disabled={isEdit}
                   className="w-4 h-4 text-blue-600 dark:text-blue-400 focus:ring-blue-500 border-line-strong"
                 />
                 <span>Project</span>
@@ -774,6 +805,7 @@ function CreateRequisitionForm({ templateReq }: { templateReq: PurchaseRequisiti
                 <input
                   type="checkbox"
                   checked={createFromSalesOrder}
+                  disabled={isEdit}
                   onChange={(e) => {
                     setCreateFromSalesOrder(e.target.checked);
                     if (!e.target.checked) {
@@ -795,9 +827,10 @@ function CreateRequisitionForm({ templateReq }: { templateReq: PurchaseRequisiti
                   <span className="text-red-500 font-bold mr-0.5">*</span>Create Date
                 </label>
                 <div className="relative">
-                  <input
+                  <NativeDateInput
                     type="date"
                     value={createDate}
+                    disabled={isEdit}
                     onChange={(e) => setCreateDate(e.target.value)}
                     className="w-full h-8 text-xs border border-line-strong dark:border-slate-700 rounded px-2.5 py-1 bg-surface dark:bg-slate-800 text-ink dark:text-slate-100 focus:outline-hidden focus:ring-1 focus:ring-blue-500"
                   />
@@ -975,7 +1008,7 @@ function CreateRequisitionForm({ templateReq }: { templateReq: PurchaseRequisiti
                 <label className="block text-xs font-semibold text-ink-muted dark:text-slate-300 mb-1">
                   <span className="text-red-500 font-bold mr-0.5">*</span>Expected Date
                 </label>
-                <input
+                <NativeDateInput
                   type="date"
                   value={expectedDate}
                   onChange={(e) => setExpectedDate(e.target.value)}

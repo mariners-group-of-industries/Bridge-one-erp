@@ -24,10 +24,10 @@ export const callsLink: NavLink = {
 };
 
 export const tasksLink: NavLink = {
-  label: "Tasks",
+  label: "Task Allocation",
   href: connectPaths.tasks,
-  description: "Daily task center: My Tasks, Team Tasks, Approvals, and Progress Updates.",
-  keywords: ["tasks", "my tasks", "todo", "progress", "work", "approvals"],
+  description: "Select team members, allocate tasks, and track live completion progress.",
+  keywords: ["tasks", "task allocation", "assign", "todo", "progress", "kanban", "board"],
 };
 
 export const assignTaskLink: NavLink = {
@@ -61,6 +61,7 @@ export const connectSidebarLinks: readonly NavLink[] = [
   chatLink,
   directoryLink,
   callsLink,
+  tasksLink,
 ];
 
 export const connectWorkspace: Workspace = {
@@ -68,14 +69,14 @@ export const connectWorkspace: Workspace = {
   label: "BRG Connect",
   icon: MessageSquareText,
   href: connectPaths.chat,
-  description: "Integrated enterprise team messaging, channels, ERP workflow cards, and WebRTC audio/video calling.",
+  description: "Integrated enterprise team messaging, channels, task allocation, and WebRTC audio/video calling.",
   status: "active",
-  shortcuts: [chatLink, directoryLink, callsLink],
-  sidebarLinks: [chatLink, directoryLink, callsLink],
+  shortcuts: [chatLink, directoryLink, callsLink, tasksLink],
+  sidebarLinks: [chatLink, directoryLink, callsLink, tasksLink],
   cards: [
     {
       label: "",
-      links: [chatLink, directoryLink, callsLink],
+      links: [chatLink, directoryLink, callsLink, tasksLink],
     },
   ],
 };

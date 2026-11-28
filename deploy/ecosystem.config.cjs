@@ -8,6 +8,9 @@
  * Secrets live only on the server in shared/.env (loaded with Node's --env-file).
  */
 const APP_DIR = process.env.APP_DIR || "/var/www/bridgeone";
+// release.sh passes the port from shared/port (written by setup-vps.sh), so
+// BridgeOne can share a server with other apps.
+const APP_PORT = process.env.APP_PORT || "3100";
 
 module.exports = {
   apps: [
@@ -18,8 +21,8 @@ module.exports = {
       node_args: `--env-file=${APP_DIR}/shared/.env`,
       env: {
         NODE_ENV: "production",
-        PORT: "3000",
-        // Only nginx talks to Node; never expose port 3000 publicly.
+        PORT: APP_PORT,
+        // Only nginx talks to Node; never expose this port publicly.
         HOSTNAME: "127.0.0.1",
       },
       instances: 1,

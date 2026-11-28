@@ -5,6 +5,8 @@ import {
   fiscalYearOf,
   isBalanced,
   payrollLines,
+  productionIssueLines,
+  productionLines,
   receiptLines,
   reverse,
   saleLines,
@@ -56,6 +58,20 @@ describe("automatic GL posting rules", () => {
   it("posts stock gains and losses at cost", () => {
     expect(byKey(stockValueLines(40))).toEqual({ INVENTORY: 40, STOCK_ADJUSTMENT: -40 });
     expect(byKey(stockValueLines(-40))).toEqual({ STOCK_ADJUSTMENT: 40, INVENTORY: -40 });
+  });
+
+  it("moves materials issued to production into work in progress", () => {
+    expect(byKey(productionIssueLines(300))).toEqual({ WORK_IN_PROGRESS: 300, INVENTORY: -300 });
+  });
+
+  it("posts production output at the cost of the materials, clearing WIP for issued materials", () => {
+    const lines = productionLines({ fromWip: 300, direct: 120 });
+    expect(isBalanced(lines)).toBe(true);
+    const net = (key: string) => Math.round(lines.filter((l) => l.key === key).reduce((t, l) => t + l.debit - l.credit, 0) * 100) / 100;
+    expect(net("WORK_IN_PROGRESS")).toBe(-300);
+    // Finished goods in (+420) less materials taken straight from stock (−120).
+    expect(net("INVENTORY")).toBe(300);
+    expect(byKey(productionLines({ fromWip: 200, direct: 0 }))).toEqual({ INVENTORY: 200, WORK_IN_PROGRESS: -200 });
   });
 
   it("posts payroll and skips zero amounts", () => {

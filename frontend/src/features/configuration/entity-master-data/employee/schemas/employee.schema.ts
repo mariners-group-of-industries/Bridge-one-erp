@@ -6,7 +6,7 @@ import { UUID_PATTERN } from "@/lib/validation/fields";
 
 export const EMPLOYEE_PAGE_SIZES = [10, 25, 50, 100] as const;
 export const EMPLOYEE_EXPORT_PAGE_SIZE = 100_000;
-export const DEFAULT_EMPLOYEE_PAGE_SIZE = 10;
+export const DEFAULT_EMPLOYEE_PAGE_SIZE = 100;
 
 export const EMPLOYEE_STATUSES = ["active", "inactive"] as const;
 export type EmployeeStatus = (typeof EMPLOYEE_STATUSES)[number];

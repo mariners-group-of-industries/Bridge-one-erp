@@ -7,6 +7,9 @@ const nextConfig: NextConfig = {
   cacheComponents: true,
   partialPrefetching: true,
   serverExternalPackages: ["argon2"],
+  experimental: {
+    agentUpgrade: "security",
+  },
   // Some ZKTeco firmwares push to /iclock/cdata.aspx etc. (ADMS); same handlers.
   async rewrites() {
     return ["cdata", "getrequest", "devicecmd"].map((name) => ({ source: `/iclock/${name}.aspx`, destination: `/iclock/${name}` }));

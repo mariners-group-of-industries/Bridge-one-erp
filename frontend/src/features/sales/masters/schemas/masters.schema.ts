@@ -254,6 +254,8 @@ export interface ItemOption {
   categoryId: string | null;
   itemType: string | null;
   brand: string | null;
+  /** Item Profile "Can be Sold": only these are offered when picking items to sell. */
+  canBeSold: boolean;
   /** Purchase (cost) price from the item profile. */
   costPrice: number | null;
   mrp: number | null;

@@ -130,6 +130,8 @@ export function DeliveryWorkspaceView() {
     <PageContainer className="max-w-none">
       <PageHead
         title="Sales Delivery"
+        // Joined to the card below so the header, tabs, filters and table read as one card.
+        className="mb-0 pb-0 [&>div]:rounded-b-none [&>div]:border-b-0 [&>div]:shadow-none"
         actions={
           <>
             <label className="relative w-56">
@@ -145,7 +147,7 @@ export function DeliveryWorkspaceView() {
           </>
         }
       />
-      <Card>
+      <Card className="rounded-t-none border-t-0">
         <Tabs<Tab> label="Delivery lists" tabs={TABS} value={tab} onChange={(next) => router.replace(`${pathname}?tab=${next}`)}>
           {!today ? (
             <LoadingState />
@@ -342,7 +344,7 @@ function ApprovedOrdersTab({ today, search, onQuery }: { today: string; search: 
     { id: "section", header: "Section", cell: (row) => text(row.section), hideBelow: "lg" },
     { id: "po", header: "Customer PO/Ref", cell: (row) => text(row.refCustomerPo), hideBelow: "lg" },
     { id: "by", header: "Order By", cell: (row) => text(row.salesPersonName), hideBelow: "md" },
-    { id: "territory", header: "Territory", cell: (row) => text(row.territory), hideBelow: "md" },
+    { id: "territory", header: "Base", cell: (row) => text(row.territory), hideBelow: "md" },
     { id: "type", header: "Type", cell: (row) => ORDER_TYPE_LABELS[row.orderType], hideBelow: "lg" },
     {
       id: "reason",
@@ -390,7 +392,7 @@ function ApprovedOrdersTab({ today, search, onQuery }: { today: string; search: 
       >
         <SelectField label="Office" options={filterLists.offices} {...field("officeId")} />
         <SelectField label="Customer Group" options={filterLists.groups} {...field("customerGroupId")} />
-        <SelectField label="Territory" options={filterLists.areaOptions("TERRITORY")} {...field("territoryId")} />
+        <SelectField label="Base" options={filterLists.areaOptions("TERRITORY")} {...field("territoryId")} />
         <SelectField label="Status" options={options(APPROVED_ORDER_STATUSES, APPROVED_ORDER_STATUS_LABELS)} {...field("status")} />
         <SelectField label="Zone" options={filterLists.areaOptions("ZONE")} {...field("zoneId")} />
         <SelectField label="Route" options={filterLists.areaOptions("ROUTE")} {...field("routeId")} />
@@ -703,7 +705,7 @@ function DeliveriesTab({ tab, today, search, onQuery }: { tab: Exclude<Tab, "app
             onPick={(id) => setFilters((current) => ({ ...current, customerId: id ?? "" }))}
           />
         )}
-        {!challans && <SelectField label="Territory" options={filterLists.areaOptions("TERRITORY")} {...field("territoryId")} />}
+        {!challans && <SelectField label="Base" options={filterLists.areaOptions("TERRITORY")} {...field("territoryId")} />}
         {tab === "deliveries" && <SelectField label="Zone" options={filterLists.areaOptions("ZONE")} {...field("zoneId")} />}
         {tab === "deliveries" && <SelectField label="Route" options={filterLists.areaOptions("ROUTE")} {...field("routeId")} />}
         {tab === "deliveries" && <SelectField label="Section" options={filterLists.areaOptions("SECTION")} {...field("sectionId")} />}

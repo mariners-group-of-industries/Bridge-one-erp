@@ -5,7 +5,7 @@ import { z } from "zod";
 /** Default layers created for a business unit the first time the page is used. */
 export const DEFAULT_LAYERS = [
   { code: "NAT", name: "National" },
-  { code: "REG", name: "Region" },
+  { code: "DIV", name: "Division" },
   { code: "TER", name: "Territory", isTerritory: true },
   { code: "BP", name: "Base Point" },
   { code: "RTE", name: "Route" },

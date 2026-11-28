@@ -31,7 +31,7 @@ export function useTerritory() {
 }
 
 /** Base Point › Route › Market › Sales Force: each list narrows to the one before it. */
-export function TerritoryFields({ value, onChange, territory }: { value: TerritoryValue; onChange: (v: TerritoryValue) => void; territory: TerritoryFilters | undefined }) {
+export function TerritoryFields({ value, onChange, territory, withSr = true }: { value: TerritoryValue; onChange: (v: TerritoryValue) => void; territory: TerritoryFilters | undefined; withSr?: boolean }) {
   const routes = (territory?.routes ?? []).filter((r) => !value.basePointId || r.parentId === value.basePointId);
   const markets = (territory?.markets ?? []).filter((m) => (value.routeId ? m.parentId === value.routeId : !value.basePointId || routes.some((r) => r.id === m.parentId)));
   const node = nodeOf(value);
@@ -64,13 +64,13 @@ export function TerritoryFields({ value, onChange, territory }: { value: Territo
         onChange={(e) => onChange(keepSr({ basePointId: value.basePointId, routeId: value.routeId, marketId: e.target.value }))}
         options={options(markets, (n) => n.name, (n) => n.id, "All markets")}
       />
-      <SelectField
+      {withSr && <SelectField
         label="Sales Force"
         className="w-56"
         value={value.srId}
         onChange={(e) => onChange({ ...value, srId: e.target.value })}
         options={options(salesForce, (s) => `${s.code} · ${s.name}`, (s) => s.id, "All sales force")}
-      />
+      />}
     </>
   );
 }
@@ -190,7 +190,7 @@ export function RowAction({ label, icon, onClick, disabled, loading, tone }: { l
 }
 
 /**
- * One select per territory layer (National › Region › … › Market, as configured),
+ * One select per territory layer (National › Division › … › Market, as configured),
  * plus Sales Rep. `value` maps layer id → node id; picking a node clears the
  * layers below it, and each list shows only nodes under the picks above.
  */

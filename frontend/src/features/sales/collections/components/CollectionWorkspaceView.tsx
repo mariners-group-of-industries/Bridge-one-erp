@@ -206,7 +206,7 @@ function DueTab({ today, onExport }: { today: string; onExport: (table: TableExp
       ? {
           name: "due-list",
           title: `Due List as of ${formatDay(today)}`,
-          headers: ["SL", "Customer Code", "Customer", "Customer Group", "Territory", "Sales Force", "Invoices", "Due", "Overdue", "Advance", "Ledger"],
+          headers: ["SL", "Customer Code", "Customer", "Customer Group", "Base", "Sales Force", "Invoices", "Due", "Overdue", "Advance", "Ledger"],
           rows: rows.map((row, index) => [index + 1, row.customerCode, row.customerName, row.customerGroup, row.territory, row.salesPersonName, row.invoices, row.due.toFixed(2), row.overdue.toFixed(2), row.advance.toFixed(2), row.ledger.toFixed(2)]),
         }
       : null,
@@ -218,7 +218,7 @@ function DueTab({ today, onExport }: { today: string; onExport: (table: TableExp
     { id: "code", header: "Customer Code", cell: (row) => row.customerCode, hideBelow: "md" },
     { id: "customer", header: "Customer Name", cell: (row) => row.customerName, sortValue: (row) => row.customerName },
     { id: "group", header: "Customer Group", cell: (row) => text(row.customerGroup), hideBelow: "lg" },
-    { id: "territory", header: "Territory", cell: (row) => text(row.territory), hideBelow: "lg" },
+    { id: "territory", header: "Base", cell: (row) => text(row.territory), hideBelow: "lg" },
     { id: "by", header: "Sales Force", cell: (row) => text(row.salesPersonName), hideBelow: "lg" },
     { id: "invoices", header: "Invoices", cell: (row) => row.invoices, className: "text-right tabular-nums" },
     { id: "due", header: "Due", cell: (row) => amountCell(row.due), sortValue: (row) => row.due, className: "text-right" },

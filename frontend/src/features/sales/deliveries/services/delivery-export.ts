@@ -55,7 +55,7 @@ export async function deliveryTabExcel(actor: Actor, tab: DeliveryExportTab, raw
         ["Section", 14],
         ["Customer PO/Ref", 16],
         ["Order By", 20],
-        ["Territory", 16],
+        ["Base", 16],
         ["Type", 9],
         ["Delivered %", 11],
         ["Pending Reason", 24],

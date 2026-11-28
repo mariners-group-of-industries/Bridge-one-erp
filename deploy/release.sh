@@ -17,14 +17,16 @@ set -euo pipefail
 
 APP_DIR="${APP_DIR:-/var/www/bridgeone}"
 KEEP_RELEASES="${KEEP_RELEASES:-5}"
-HEALTH_URL="${HEALTH_URL:-http://127.0.0.1:3000/api/health}"
+# The app's local port: shared/port (written by setup-vps.sh), else 3100.
+APP_PORT="${APP_PORT:-$(cat "$APP_DIR/shared/port" 2>/dev/null || echo 3100)}"
+HEALTH_URL="${HEALTH_URL:-http://127.0.0.1:$APP_PORT/api/health}"
 ECOSYSTEM="$APP_DIR/shared/ecosystem.config.cjs"
 
 log() { echo "[release] $*"; }
 
 restart_app() {
   # startOrRestart re-reads the ecosystem file, so it also works on the very first deploy.
-  APP_DIR="$APP_DIR" pm2 startOrRestart "$ECOSYSTEM" --update-env >/dev/null
+  APP_DIR="$APP_DIR" APP_PORT="$APP_PORT" pm2 startOrRestart "$ECOSYSTEM" --update-env >/dev/null
   pm2 save >/dev/null
 }
 

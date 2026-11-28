@@ -2,6 +2,7 @@ import { Prisma } from "@/generated/prisma/client";
 import { AppError, badRequest, conflict, notFound } from "@/lib/api/errors";
 import { canOn, type Actor } from "@/lib/auth/actor";
 import { db } from "@/lib/prisma/client";
+import { absorbInflowCost } from "@/lib/inventory/moving-cost";
 import { assertStockAvailable, lockWarehouse, stockLevels } from "@/features/sales/deliveries/services/stock.service";
 import { fromDbDate, toDbDate } from "@/features/sales/lib/dates";
 import { scopedBusinessUnitIds } from "@/features/sales/lib/scope";
@@ -336,13 +337,29 @@ export async function createEntry(actor: Actor, raw: unknown): Promise<EntryDeta
   const id = await db().$transaction(async (tx) => {
     await lockOrder(tx, order.id);
     await lockWarehouses(tx, [order.warehouseId, outputWarehouse.id]);
-    const current = await tx.productionOrder.findUniqueOrThrow({ where: { id: order.id }, select: { status: true, orderQty: true, producedQty: true } });
+    const current = await tx.productionOrder.findUniqueOrThrow({
+      where: { id: order.id },
+      select: {
+        status: true,
+        orderQty: true,
+        producedQty: true,
+        materials: { select: { id: true, itemId: true, issueQty: true, usedQty: true } },
+      },
+    });
     if (!(OPEN_STATUSES as readonly string[]).includes(current.status)) throw conflict(`Production order ${order.number} was closed meanwhile.`);
     const remaining = Math.max(round4(num(current.orderQty) - num(current.producedQty)), 0);
     const producedAfter = round4(num(current.producedQty) + netQty);
 
-    const needs = new Map(materials.filter((line) => line.actualQty > 0).map((line) => [line.itemId, line.actualQty]));
-    await assertStockAvailable(tx, order.warehouseId, needs, new Map(order.materials.map((line) => [line.itemId, `${line.item.code} - ${line.item.name}`])));
+    const freshOrderLine = new Map(current.materials.map((line) => [line.itemId, line]));
+    const directConsumeByItem = new Map<string, number>();
+    for (const line of materials) {
+      const fresh = freshOrderLine.get(line.itemId);
+      const unconsumedIssued = fresh ? Math.max(0, round3(num(fresh.issueQty) - num(fresh.usedQty))) : 0;
+      const directConsumeQty = Math.max(0, round3(line.actualQty - unconsumedIssued));
+      if (directConsumeQty > 0) directConsumeByItem.set(line.itemId, directConsumeQty);
+    }
+
+    await assertStockAvailable(tx, order.warehouseId, directConsumeByItem, new Map(order.materials.map((line) => [line.itemId, `${line.item.code} - ${line.item.name}`])));
 
     const entry = await tx.productionEntry.create({
       data: {
@@ -374,16 +391,25 @@ export async function createEntry(actor: Actor, raw: unknown): Promise<EntryDeta
       select: { id: true, number: true },
     });
 
+    // The output comes into stock at the cost of the materials used (their current item cost,
+    // the same value the GL posts for the entry), so its sale costs what it took to make.
+    if (netQty > 0) {
+      const materialCost = await tx.item.findMany({ where: { id: { in: materials.map((line) => line.itemId) } }, select: { id: true, purchasePrice: true } });
+      const costOf = new Map(materialCost.map((item) => [item.id, item.purchasePrice === null ? null : num(item.purchasePrice)]));
+      const used = materials.reduce((sum, line) => sum + line.actualQty * (costOf.get(line.itemId) ?? line.rate), 0);
+      await absorbInflowCost(tx, businessUnitId, [{ itemId: order.itemId, qty: netQty, unitCost: used / netQty }]);
+    }
+
     const postingDate = toDbDate(input.entryDate);
     await tx.stockEntry.createMany({
       data: [
         ...materials
-          .filter((line) => line.actualQty > 0)
+          .filter((line) => (directConsumeByItem.get(line.itemId) ?? 0) > 0)
           .map((line) => ({
             businessUnitId,
             warehouseId: order.warehouseId,
             itemId: line.itemId,
-            qty: -line.actualQty,
+            qty: -(directConsumeByItem.get(line.itemId) ?? 0),
             source: "PRODUCTION_CONSUMPTION" as const,
             sourceId: entry.id,
             postingDate,
@@ -413,9 +439,13 @@ export async function createEntry(actor: Actor, raw: unknown): Promise<EntryDeta
       data: { producedQty: producedAfter, status: producedAfter >= num(current.orderQty) ? "CLOSED" : "IN_PROGRESS" },
     });
     for (const line of materials) {
+      const directConsumeQty = directConsumeByItem.get(line.itemId) ?? 0;
       await tx.productionOrderMaterial.update({
         where: { id: orderLine.get(line.itemId)!.id },
-        data: { issueQty: { increment: line.actualQty }, usedQty: { increment: line.actualQty } },
+        data: {
+          ...(directConsumeQty > 0 ? { issueQty: { increment: directConsumeQty } } : {}),
+          usedQty: { increment: line.actualQty },
+        },
       });
     }
     return entry.id;
@@ -449,23 +479,31 @@ export async function cancelEntry(actor: Actor, id: string, raw: unknown): Promi
     });
     if (count === 0) throw conflict(STALE);
 
+    const consumedDirectly = await tx.stockEntry.findMany({
+      where: { source: "PRODUCTION_CONSUMPTION", sourceId: entry.id },
+      select: { itemId: true, qty: true },
+    });
+    const directConsumeByItem = new Map<string, number>();
+    for (const row of consumedDirectly) {
+      const reversed = round3(-num(row.qty));
+      if (reversed > 0) directConsumeByItem.set(row.itemId, round3((directConsumeByItem.get(row.itemId) ?? 0) + reversed));
+    }
+
     const postingDate = new Date(`${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`);
     const remarks = `Cancelled production entry ${entry.number}`;
     await tx.stockEntry.createMany({
       data: [
-        ...entry.materials
-          .filter((line) => num(line.actualQty) > 0)
-          .map((line) => ({
-            businessUnitId: entry.businessUnitId,
-            warehouseId: entry.sourceWarehouseId,
-            itemId: line.itemId,
-            qty: num(line.actualQty),
-            source: "PRODUCTION_CONSUMPTION" as const,
-            sourceId: entry.id,
-            postingDate,
-            remarks,
-            createdBy: actor.id,
-          })),
+        ...[...directConsumeByItem.entries()].map(([itemId, qty]) => ({
+          businessUnitId: entry.businessUnitId,
+          warehouseId: entry.sourceWarehouseId,
+          itemId,
+          qty,
+          source: "PRODUCTION_CONSUMPTION" as const,
+          sourceId: entry.id,
+          postingDate,
+          remarks,
+          createdBy: actor.id,
+        })),
         ...(netQty > 0
           ? [
               {
@@ -494,9 +532,13 @@ export async function cancelEntry(actor: Actor, id: string, raw: unknown): Promi
     for (const line of entry.materials) {
       const lineId = orderLine.get(line.itemId);
       if (!lineId) continue;
+      const directQty = directConsumeByItem.get(line.itemId) ?? 0;
       await tx.productionOrderMaterial.update({
         where: { id: lineId },
-        data: { issueQty: { decrement: num(line.actualQty) }, usedQty: { decrement: num(line.actualQty) } },
+        data: {
+          ...(directQty > 0 ? { issueQty: { decrement: directQty } } : {}),
+          usedQty: { decrement: num(line.actualQty) },
+        },
       });
     }
   });

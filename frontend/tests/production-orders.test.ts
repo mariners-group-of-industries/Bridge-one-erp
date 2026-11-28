@@ -3,6 +3,9 @@ import type { PrismaClient } from "@/generated/prisma/client";
 import type { Actor, Permission } from "@/lib/auth/actor";
 import { createBom } from "@/features/production/bom/services/bom.service";
 import { createMaster } from "@/features/production/work-centers/services/work-center.service";
+import { createEntry } from "@/features/production/entries/services/entry.service";
+import { createDocument } from "@/features/inventory/server/inventory.service";
+import { stockLevels } from "@/features/sales/deliveries/services/stock.service";
 import { orderPdf } from "@/features/production/orders/services/order-pdf";
 import {
   actOnOrder,
@@ -251,5 +254,77 @@ describe("production orders", () => {
     order = await actOnOrder(as(director), order.id, { version: order.updatedAt, action: "approve", comment: "N/A" });
     expect(order.status).toBe("APPROVED");
     expect(order.approvals[1]).toMatchObject({ status: "APPROVED", approvedNames: ["MD. Tofajjol Hossin"] });
+  });
+
+  it("creates an approved Store Requisition on approval, syncs Store Issue to order materials, and avoids double stock deduction", async () => {
+    await prisma.stockEntry.create({
+      data: { businessUnitId: ids.businessUnitId, warehouseId: ids.warehouseId, itemId: ids.potato, qty: 200, source: "OPENING", postingDate: new Date("2026-10-01"), createdBy: "test" },
+    });
+    await prisma.stockEntry.create({
+      data: { businessUnitId: ids.businessUnitId, warehouseId: ids.warehouseId, itemId: ids.oil, qty: 50, source: "OPENING", postingDate: new Date("2026-10-01"), createdBy: "test" },
+    });
+
+    const order = await createOrder(planner, input({ quantity: 100 }));
+    const approved = await actOnOrder(manager, order.id, { version: order.updatedAt, action: "approve" });
+    expect(approved.status).toBe("APPROVED");
+
+    const req = await prisma.inventoryDocument.findFirst({
+      where: { businessUnitId: ids.businessUnitId, type: "STORE_REQUISITION", reference: order.number },
+      include: { lines: { orderBy: { lineNo: "asc" } } },
+    });
+    expect(req).not.toBeNull();
+    expect(req!.status).toBe("APPROVED");
+    expect(req!.warehouseId).toBe(ids.warehouseId);
+    expect(req!.lines.map((l) => [l.itemId, Number(l.qty)])).toEqual([
+      [ids.potato, 100],
+      [ids.oil, 10],
+    ]);
+
+    // Fulfil via Inventory > Store Issue
+    const issue = await createDocument(adminActor, "STORE_ISSUE", {
+      docDate: "2026-10-22",
+      warehouseId: ids.warehouseId,
+      requestId: req!.id,
+      subtype: "Department",
+      partyName: "Production",
+      lines: [
+        { itemId: ids.potato, qty: 100 },
+        { itemId: ids.oil, qty: 10 },
+      ],
+    });
+    expect(issue.status).toBe("COMPLETED");
+    expect(issue.reference).toBe(order.number);
+
+    const reqAfter = await prisma.inventoryDocument.findUniqueOrThrow({ where: { id: req!.id } });
+    expect(reqAfter.status).toBe("COMPLETED");
+
+    const afterIssue = await getOrder(manager, order.id);
+    expect(afterIssue.materials.map((m) => [m.itemId, m.issueQty])).toEqual([
+      [ids.potato, 100],
+      [ids.oil, 10],
+    ]);
+
+    // Stock was deducted once by STORE_ISSUE: potato 250 - 100 = 150, oil 50 - 10 = 40
+    const levelsAfterIssue = await stockLevels(ids.warehouseId, [ids.potato, ids.oil]);
+    expect(levelsAfterIssue.get(ids.potato)).toBe(150);
+    expect(levelsAfterIssue.get(ids.oil)).toBe(40);
+
+    // Booking Production Entry for the issued materials does NOT double-deduct warehouse stock
+    await createEntry(manager, {
+      orderId: order.id,
+      entryDate: "2026-10-22",
+      shift: "Morning",
+      outputWarehouseId: ids.otherWarehouseId,
+      totalQty: 100,
+      rejectQty: 0,
+      hours: 4,
+      materials: [
+        { itemId: ids.potato, actualQty: 100, wastageQty: 0, scrapQty: 0 },
+        { itemId: ids.oil, actualQty: 10, wastageQty: 0, scrapQty: 0 },
+      ],
+    });
+    const levelsAfterEntry = await stockLevels(ids.warehouseId, [ids.potato, ids.oil]);
+    expect(levelsAfterEntry.get(ids.potato)).toBe(150);
+    expect(levelsAfterEntry.get(ids.oil)).toBe(40);
   });
 });

@@ -137,9 +137,8 @@ describe("Multilayer Approval page: deciding in place", () => {
   const statusOf = async (id: string) => (await prisma.purchaseRequisition.findUniqueOrThrow({ where: { id } })).status;
 
   it("has an approve action for every category the page shows", async () => {
-    // Purchase returns post on creation and their module has no approve endpoint yet,
-    // so the page lists them read-only. Anything else without an action is a gap.
-    const MODULE_PAGE_ONLY = new Set(["purchase-return"]);
+    // Every category can be decided here; a category without an action is a gap.
+    const MODULE_PAGE_ONLY = new Set<string>();
     const summary: ApprovalSummary = await getApprovalSummary({ ...adminActor, isMaster: true } as Actor);
     expect(summary.categories.length).toBeGreaterThan(20);
     for (const c of summary.categories) expect(canDecideHere(c.id, "approve"), c.id).toBe(!MODULE_PAGE_ONLY.has(c.id));

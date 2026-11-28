@@ -296,8 +296,10 @@ export async function handleNewAttendancePunches(
 
 export async function processPendingAttendanceNotifications(limit = 20): Promise<number> {
   const now = new Date();
+  const today = dayKey.format(now);
   const rows = await db().attendanceNotificationOutbox.findMany({
     where: {
+      attendanceDate: today,
       OR: [
         { status: "PENDING" },
         { status: "FAILED", attempts: { lt: MAX_ATTEMPTS }, nextRetryAt: { lte: now } },
