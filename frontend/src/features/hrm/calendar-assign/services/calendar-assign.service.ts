@@ -279,7 +279,7 @@ export async function saveCalendarDays(actor: Actor, input: SaveCalendarDaysInpu
   if (!ids.length) return { saved: 0, cleared: 0 };
 
   const [employees, calendars] = await Promise.all([
-    db().employee.findMany({ where: { ...employeeScope(actor), id: { in: ids } }, select: { id: true, officeId: true, employeeCode: true } }),
+    db().employee.findMany({ where: { ...employeeScope(actor), id: { in: ids } }, select: { id: true, officeId: true, employeeCode: true, office: { select: { name: true } } } }),
     workCalendars(),
   ]);
   if (employees.length !== ids.length) throw badRequest("Some employees were not found.");
@@ -297,13 +297,16 @@ export async function saveCalendarDays(actor: Actor, input: SaveCalendarDaysInpu
         continue;
       }
       const calendar = calendarForCode(calendars, e.officeId, code);
-      if (!calendar) unknown.add(`${e.employeeCode}: ${code}`);
+      if (!calendar) {
+        const own = [...new Set(calendars.filter((c) => c.officeId === e.officeId || c.officeId === null).map((c) => `"${c.shortCode}"`))];
+        unknown.add(`${e.employeeCode} (${e.office.name}) has no "${code}"${own.length ? `, use ${own.join(" / ")}` : ""}`);
+      }
       else rows.push({ employeeId: e.id, date: new Date(`${date}T00:00:00Z`), code: calendar.shortCode, calendarId: calendar.id, updatedByName: by });
     }
   }
   if (unknown.size) {
     const list = [...unknown];
-    throw badRequest(`Not set up for the employee's office in HR Governance › Calendar Setup: ${list.slice(0, 8).join(", ")}${list.length > 8 ? ` and ${list.length - 8} more` : ""}.`);
+    throw badRequest(`Calendar not set up for the employee's office in HR Governance › Calendar Setup: ${list.slice(0, 8).join("; ")}${list.length > 8 ? ` and ${list.length - 8} more` : ""}.`);
   }
 
   const window = { gte: new Date(`${from}T00:00:00Z`), lte: new Date(`${to}T00:00:00Z`) };

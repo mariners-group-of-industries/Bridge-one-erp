@@ -283,10 +283,18 @@ export function DynamicCalendarView({
   };
 
   // Column Bulk Assign (single date to all filtered employees)
-  const handleColumnBulkAssign = (dateStr: string, shiftCode: string) => {
+  // Like Quick Assign, an office's own calendar goes to that office's employees only.
+  const handleColumnBulkAssign = (dateStr: string, calendar: CalendarDefinition) => {
+    const shiftCode = calendar.shortCode;
+    const targetEmployees = calendar.office === "All" ? filteredEmployees : filteredEmployees.filter((e) => e.officeName === calendar.office);
+    const skipped = filteredEmployees.length - targetEmployees.length;
+    if (targetEmployees.length === 0) {
+      toast.error(filteredEmployees.length ? `None of these employees belong to ${calendar.office}.` : "No employees to assign.");
+      return;
+    }
     setGridData((prev) => {
       const next = { ...prev };
-      filteredEmployees.forEach((emp) => {
+      targetEmployees.forEach((emp) => {
         next[emp.id] = {
           ...(next[emp.id] || {}),
           [dateStr]: shiftCode,
@@ -295,7 +303,10 @@ export function DynamicCalendarView({
       return next;
     });
     setUnsavedChanges((c) => c + 1);
-    toast.success(`Assigned shift [${shiftCode}] for ${dateStr} across ${filteredEmployees.length} employees.`);
+    toast.success(
+      `Assigned shift [${shiftCode}] for ${dateStr} across ${targetEmployees.length} employees.` +
+        (skipped ? ` ${skipped} employee(s) outside ${calendar.office} were skipped.` : ""),
+    );
   };
 
   // Row Bulk Assign (one employee, every date in the range)
