@@ -190,7 +190,7 @@ export function RowAction({ label, icon, onClick, disabled, loading, tone }: { l
 }
 
 /**
- * One select per territory layer (National › Region › … › Market, as configured),
+ * One select per territory layer (National › Division › … › Market, as configured),
  * plus Sales Rep. `value` maps layer id → node id; picking a node clears the
  * layers below it, and each list shows only nodes under the picks above.
  */

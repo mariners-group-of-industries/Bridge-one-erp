@@ -17,9 +17,10 @@ import { formatDateTime } from "@/lib/format";
 import { useFeaturePermissions } from "@/lib/permissions/useFeaturePermissions";
 import { rtmPaths } from "../paths";
 import { employeeTracking, outletTracking, salesLayerTransfer, srCalendarSetup, tourPlanSetup } from "../navigation";
-import { money, monthStart, qty, rtmApi, today, type Lookups } from "../services/rtm.api";
+import { monthStart, qty, rtmApi, today, type Lookups } from "../services/rtm.api";
 import { DateRange, FilterBar, RtmPage, SimpleTable, StatusBadge, options, useAction, useLookups } from "../components/kit";
 import { LayerFields, deepestNode, useTerritory } from "../components/sales-filters";
+import { RouteMap, STATUS_COLORS, STATUS_LABELS, formatClock, type MapOutlet, type OutletDayStatus, type RoutePoint } from "../components/route-map";
 
 // ── SR Calendar Setup ────────────────────────────────────────────────────────
 
@@ -974,87 +975,189 @@ function DayTrail({ employee, date: initial, onClose }: { employee: EmployeeActi
 
 // ── Outlet Tracking ──────────────────────────────────────────────────────────
 
-interface OutletCoverageRow {
-  id: string;
-  outlet: string;
-  distributor: string;
-  route: string | null;
-  latitude: number | null;
-  longitude: number | null;
-  visits: number;
-  lastVisit: string | null;
-  orders: number;
-  orderValue: number;
-  lastOrder: string | null;
+interface OutletTrackingData {
+  sr: { id: string; name: string };
+  date: string;
+  start: { at: string; latitude: number; longitude: number; label: string } | null;
+  totalKm: number | null;
+  counts: { visited: number; order: number; noOrder: number; pending: number; total: number };
+  activity: { id: string; kind: string; at: string; outlet: string | null; status: OutletDayStatus | null; latitude: number | null; longitude: number | null; remarks: string | null }[];
+  path: RoutePoint[];
+  outlets: (MapOutlet & { orderValue: number })[];
+}
+
+/** A small coloured dot for the legend and lists. */
+function Dot({ color }: { color: string }) {
+  return <span aria-hidden="true" className="inline-block size-2.5 shrink-0 rounded-full" style={{ backgroundColor: color }} />;
+}
+
+function CountChip({ label, value, color }: { label: string; value: number; color: string }) {
+  return (
+    <span className="inline-flex items-center gap-1 rounded border px-2 py-0.5 text-[11px] font-semibold tracking-wide tabular-nums" style={{ borderColor: color, color }}>
+      {label}: {value}
+    </span>
+  );
 }
 
 export function OutletTrackingView() {
-  const [from, setFrom] = useState(monthStart());
-  const [to, setTo] = useState(today());
-  const data = useResource(`rtm-outlet-tracking-${from}-${to}`, () =>
-    rtmApi.get<OutletCoverageRow[]>("outlet-tracking", { from, to }),
-  );
+  const territory = useTerritory();
+  const [date, setDate] = useState(today());
+  const [layers, setLayers] = useState<Record<string, string>>({});
+  const [srId, setSrId] = useState("");
+  const [applied, setApplied] = useState<{ date: string; srId: string; nodeId: string } | null>(null);
+  const [srError, setSrError] = useState<string | undefined>();
+  const key = applied ? `rtm-outlet-tracking-${applied.date}-${applied.srId}-${applied.nodeId}` : null;
+  const data = useResource(key, () => rtmApi.get<OutletTrackingData>("outlet-tracking", applied ?? {}));
 
-  const columns: Column<OutletCoverageRow>[] = [
-    { id: "outlet", header: "Outlet", cell: (r) => r.outlet, sortValue: (r) => r.outlet },
-    { id: "distributor", header: "Distributor", cell: (r) => r.distributor, hideBelow: "md" },
-    { id: "route", header: "Route", cell: (r) => r.route ?? "—", hideBelow: "lg" },
-    { id: "visits", header: "Visits", cell: (r) => r.visits.toLocaleString(), sortValue: (r) => r.visits, className: "text-right" },
-    { id: "lastVisit", header: "Last visit", cell: (r) => r.lastVisit ?? <span className="text-ink-faint">—</span>, sortValue: (r) => r.lastVisit ?? "", hideBelow: "md" },
-    { id: "orders", header: "Orders", cell: (r) => r.orders.toLocaleString(), sortValue: (r) => r.orders, className: "text-right" },
-    { id: "orderValue", header: "Order value", cell: (r) => money(r.orderValue), sortValue: (r) => r.orderValue, className: "text-right" },
-    { id: "lastOrder", header: "Last order", cell: (r) => r.lastOrder ?? <span className="text-ink-faint">—</span>, sortValue: (r) => r.lastOrder ?? "", hideBelow: "lg" },
-    {
-      id: "covered",
-      header: "Covered",
-      cell: (r) => (
-        <Badge variant={r.visits > 0 ? "success" : "neutral"}>
-          {r.visits > 0 ? "Visited" : "Not visited"}
-        </Badge>
-      ),
-    },
-  ];
+  const track = () => {
+    if (!srId) {
+      setSrError("Select a sales representative.");
+      return;
+    }
+    setSrError(undefined);
+    const next = { date, srId, nodeId: deepestNode(territory.data, layers) };
+    if (applied && next.date === applied.date && next.srId === applied.srId && next.nodeId === applied.nodeId) data.reload();
+    else setApplied(next);
+  };
 
-  const covered = data.data?.filter((r) => r.visits > 0).length ?? 0;
-  const total = data.data?.length ?? 0;
+  const day = data.data;
+  const counts = day?.counts ?? { visited: 0, order: 0, noOrder: 0, pending: 0, total: 0 };
+  const pending = (day?.outlets ?? []).filter((o) => o.status === "PENDING");
+  const isToday = applied?.date === today();
 
   return (
     <RtmPage page={outletTracking}>
       <FilterBar>
-        <DateRange from={from} to={to} onChange={(f, t) => { setFrom(f); setTo(t); }} />
+        <TextField label="Select Schedule Date" type="date" value={date} max={today()} onChange={(e) => setDate(e.target.value)} className="w-44" />
+        <LayerFields
+          value={layers}
+          srId={srId}
+          territory={territory.data}
+          withSr={false}
+          onChange={(l, sr) => {
+            setLayers(l);
+            setSrId(sr);
+          }}
+        />
+        <SelectField
+          label="Sales Representative"
+          required
+          className="w-64"
+          value={srId}
+          error={srError}
+          onChange={(e) => {
+            setSrId(e.target.value);
+            if (e.target.value) setSrError(undefined);
+          }}
+          options={options(
+            (territory.data?.salesForce ?? []).filter((s) => {
+              const node = deepestNode(territory.data, layers);
+              return !node || s.nodeIds.includes(node);
+            }),
+            (s) => `${s.name} (${s.code})`,
+            (s) => s.id,
+            "Select…",
+          )}
+        />
+        <Button variant="primary" loading={data.loading} onClick={track} className="mb-px">
+          {!data.loading && <Search />} Track
+        </Button>
       </FilterBar>
 
-      {data.error ? (
-        <ErrorState message={data.error.message} onRetry={data.reload} />
-      ) : !data.data ? (
-        <LoadingState />
-      ) : (
-        <>
-          {total > 0 && (
-            <div className="flex items-center gap-2 rounded border border-line bg-surface px-4 py-2 text-sm">
-              <span className="font-semibold text-ink">{covered}</span>
-              <span className="text-ink-muted">of</span>
-              <span className="font-semibold text-ink">{total}</span>
-              <span className="text-ink-muted">active outlets visited</span>
-              <Badge variant={covered / total >= 0.8 ? "success" : covered / total >= 0.5 ? "warning" : "danger"}>
-                {total > 0 ? Math.round((covered / total) * 100) : 0}% coverage
-              </Badge>
-            </div>
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+        {isToday && <Badge variant="danger">Live tracking</Badge>}
+        <h2 className="text-sm font-semibold tracking-wide text-ink uppercase">Actual travel route (GPS tracked path)</h2>
+        <div className="flex flex-wrap gap-1.5">
+          <CountChip label="Visited" value={counts.visited} color="#475569" />
+          <CountChip label="Order" value={counts.order} color={STATUS_COLORS.ORDER} />
+          <CountChip label="No Order" value={counts.noOrder} color={STATUS_COLORS.NO_ORDER} />
+          <CountChip label="Pending" value={counts.pending} color={STATUS_COLORS.PENDING} />
+          <CountChip label="Total Outlet" value={counts.total} color="#475569" />
+        </div>
+        <ul className="ml-auto flex flex-wrap gap-x-4 gap-y-1 text-xs font-medium text-ink-muted" aria-label="Map legend">
+          <li className="flex items-center gap-1.5"><Dot color={STATUS_COLORS.START} /> Start Point</li>
+          <li className="flex items-center gap-1.5"><Dot color={STATUS_COLORS.ORDER} /> Order</li>
+          <li className="flex items-center gap-1.5"><Dot color={STATUS_COLORS.NO_ORDER} /> No Order</li>
+          <li className="flex items-center gap-1.5"><Dot color={STATUS_COLORS.PENDING} /> Pending Visit</li>
+        </ul>
+      </div>
+
+      {data.error && <ErrorState message={data.error.message} onRetry={data.reload} />}
+
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_340px]">
+        <div className="relative">
+          <RouteMap path={day?.path ?? EMPTY_PATH} outlets={day?.outlets ?? EMPTY_OUTLETS} />
+          {!applied && (
+            <p className="pointer-events-none absolute inset-x-0 top-4 mx-auto w-fit rounded border border-line bg-surface/95 px-3 py-1.5 text-xs font-medium text-ink-muted shadow-xs">
+              Pick a sales representative and press Track.
+            </p>
           )}
-          <Card>
-            <DataTable
-              rows={data.data}
-              columns={columns}
-              getRowId={(r) => r.id}
-              getRowLabel={(r) => r.outlet}
-              search={{
-                placeholder: "Search outlet, distributor, route…",
-                match: (r, q) => `${r.outlet} ${r.distributor} ${r.route ?? ""}`.toLowerCase().includes(q),
-              }}
-            />
+        </div>
+
+        <aside className="flex flex-col gap-4">
+          <Card className="grid grid-cols-[1fr_auto] divide-x divide-line bg-blue-500/5">
+            <div className="px-4 py-3">
+              <p className="text-[11px] font-semibold tracking-wide text-ink-muted uppercase">Starting point</p>
+              <p className="mt-1 text-sm font-semibold text-ink">{day?.start?.label ?? "N/A"}</p>
+              <p className="mt-1 text-xs text-blue-700 tabular-nums">Time: {day?.start ? formatClock(new Date(day.start.at).getTime()) : "N/A"}</p>
+            </div>
+            <div className="px-4 py-3 text-right">
+              <p className="text-[11px] font-semibold tracking-wide text-ink-muted uppercase">Total kilometer</p>
+              <p className="mt-1 text-sm font-semibold text-ink tabular-nums">{day?.totalKm != null ? `${day.totalKm.toLocaleString("en-US", { maximumFractionDigits: 2 })} km` : "-"}</p>
+            </div>
           </Card>
-        </>
-      )}
+
+          <section aria-labelledby="ot-activity">
+            <h3 id="ot-activity" className="mb-2 text-xs font-semibold tracking-wide text-ink-muted uppercase">Activity</h3>
+            {data.loading && !day ? (
+              <LoadingState />
+            ) : !day?.activity.length ? (
+              <p className="text-[13px] text-ink-muted">No activity recorded yet.</p>
+            ) : (
+              <ol className="flex max-h-72 flex-col gap-1.5 overflow-y-auto pr-1">
+                {day.activity.map((a) => (
+                  <li key={a.id} className="flex items-start gap-2 rounded border border-line bg-surface px-3 py-2 text-[13px]">
+                    <Dot color={a.status ? STATUS_COLORS[a.status] : STATUS_COLORS.START} />
+                    <span className="flex min-w-0 flex-1 flex-col">
+                      <span className="truncate font-semibold text-ink">{a.outlet ?? KIND_LABELS[a.kind] ?? a.kind}</span>
+                      <span className="text-[11px] text-ink-faint">
+                        {KIND_LABELS[a.kind] ?? a.kind}
+                        {a.status ? ` · ${STATUS_LABELS[a.status]}` : ""}
+                        {a.latitude === null ? " · no location" : ""}
+                      </span>
+                    </span>
+                    <span className="shrink-0 text-xs text-ink-muted tabular-nums">{formatClock(new Date(a.at).getTime())}</span>
+                  </li>
+                ))}
+              </ol>
+            )}
+          </section>
+
+          <section aria-labelledby="ot-pending">
+            <h3 id="ot-pending" className="mb-2 text-xs font-semibold tracking-wide text-ink-muted uppercase">
+              Pending outlets {pending.length > 0 && <span className="tabular-nums">({pending.length})</span>}
+            </h3>
+            {!pending.length ? (
+              <p className="text-[13px] text-ink-muted">No pending outlets for this day.</p>
+            ) : (
+              <ul className="flex max-h-72 flex-col gap-1.5 overflow-y-auto pr-1">
+                {pending.map((o) => (
+                  <li key={o.id} className="flex items-start gap-2 rounded border border-line bg-surface px-3 py-2 text-[13px]">
+                    <Dot color={STATUS_COLORS.PENDING} />
+                    <span className="flex min-w-0 flex-col">
+                      <span className="truncate font-semibold text-ink">{o.code} · {o.name}</span>
+                      {o.address && <span className="truncate text-[11px] text-ink-faint">{o.address}</span>}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        </aside>
+      </div>
     </RtmPage>
   );
 }
+
+const EMPTY_PATH: RoutePoint[] = [];
+const EMPTY_OUTLETS: MapOutlet[] = [];

@@ -1,5 +1,5 @@
 import { outletTracking } from "@/features/rtm/server/field.service";
 import { get } from "@/features/rtm/server/routes";
 
-/** ?from&to: visits and orders per outlet. */
-export const GET = get((actor, q) => outletTracking(actor, q.from ?? "", q.to ?? ""));
+/** ?date&srId&nodeId: one sales rep's field day — route, outlet statuses and totals. */
+export const GET = get((actor, q) => outletTracking(actor, { date: q.date, srId: q.srId, nodeId: q.nodeId }));

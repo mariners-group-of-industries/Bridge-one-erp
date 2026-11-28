@@ -491,31 +491,109 @@ export async function employeeTracking(actor: Actor, date: string, employeeId?: 
   };
 }
 
-/** Each outlet in a period: visits, orders, last visit / order (coverage). */
-export async function outletTracking(actor: Actor, from: string, to: string) {
-  if (!DATE.test(from) || !DATE.test(to) || from > to) throw badRequest("Choose a valid date range.");
+/** Bangladesh has no daylight saving, so a calendar day is a fixed +06:00 window. */
+const localDayBounds = (date: string) => {
+  const start = new Date(`${date}T00:00:00.000+06:00`);
+  return { gte: start, lt: new Date(start.getTime() + 86_400_000) };
+};
+
+/** Great-circle distance in km. */
+const haversineKm = (a: { latitude: number; longitude: number }, b: { latitude: number; longitude: number }) => {
+  const rad = (d: number) => (d * Math.PI) / 180;
+  const dLat = rad(b.latitude - a.latitude);
+  const dLng = rad(b.longitude - a.longitude);
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(rad(a.latitude)) * Math.cos(rad(b.latitude)) * Math.sin(dLng / 2) ** 2;
+  return 6371 * 2 * Math.asin(Math.min(1, Math.sqrt(h)));
+};
+
+export type OutletDayStatus = "ORDER" | "NO_ORDER" | "PENDING";
+
+/**
+ * Outlet Tracking: one sales rep's field day. The travel route (located
+ * check-in, visits and check-out in time order), every outlet in the picked
+ * area (or the rep's own area) marked Order / No Order / Pending, and totals.
+ */
+export async function outletTracking(actor: Actor, q: { date?: string; srId?: string; nodeId?: string }) {
+  const date = q.date ?? "";
+  if (!DATE.test(date)) throw badRequest("Choose a schedule date.");
+  if (!q.srId) throw badRequest("Select a sales representative.");
+  const sr = await requireEmployee(actor, q.srId);
   const units = await unitIds(actor);
-  const range = { gte: new Date(`${from}T00:00:00.000Z`), lt: new Date(new Date(`${to}T00:00:00.000Z`).getTime() + 86_400_000) };
-  const [outlets, visits, orders] = await Promise.all([
-    db().rtmOutlet.findMany({ where: { businessUnitId: { in: units }, isActive: true }, include: { distributor: { select: { name: true } }, route: { select: { name: true } } }, orderBy: { code: "asc" } }),
-    db().rtmVisit.groupBy({ by: ["outletId"], where: { businessUnitId: { in: units }, kind: "VISIT", visitedAt: range, outletId: { not: null } }, _count: { _all: true }, _max: { visitedAt: true } }),
-    db().rtmOrder.groupBy({ by: ["outletId"], where: { businessUnitId: { in: units }, status: { not: "CANCELLED" }, orderDate: dateRange(from, to) }, _count: { _all: true }, _sum: { total: true }, _max: { orderDate: true } }),
+  const { layers, salesForce } = await territoryFilters(actor);
+  const allNodes = layers.flatMap((l) => l.nodes);
+  if (q.nodeId && !allNodes.some((n) => n.id === q.nodeId)) throw badRequest("Unknown area.");
+
+  // Area: the picked node, else the rep's deepest assigned nodes.
+  const covered = salesForce.find((s) => s.id === sr.id)?.nodeIds ?? [];
+  const pathOf = new Map(allNodes.map((n) => [n.id, n.path]));
+  const roots = q.nodeId ? [q.nodeId] : covered.filter((id) => !covered.some((other) => other !== id && pathOf.get(other)?.includes(id)));
+  const areaNodes = allNodes.filter((n) => roots.some((r) => n.path.includes(r))).map((n) => n.id);
+
+  const [events, orders, areaOutlets] = await Promise.all([
+    db().rtmVisit.findMany({
+      where: { businessUnitId: { in: units }, employeeId: sr.id, visitedAt: localDayBounds(date) },
+      select: { id: true, kind: true, visitedAt: true, latitude: true, longitude: true, remarks: true, outletId: true, outlet: { select: { code: true, name: true } } },
+      orderBy: { visitedAt: "asc" },
+    }),
+    db().rtmOrder.findMany({
+      where: { businessUnitId: { in: units }, srId: sr.id, status: { not: "CANCELLED" }, orderDate: toDbDate(date) },
+      select: { outletId: true, total: true },
+    }),
+    areaNodes.length
+      ? db().rtmOutlet.findMany({ where: { businessUnitId: { in: units }, isActive: true, areas: { some: { nodeId: { in: areaNodes } } } }, select: { id: true } })
+      : Promise.resolve([]),
   ]);
-  const v = new Map(visits.map((x) => [x.outletId!, x]));
-  const o = new Map(orders.map((x) => [x.outletId, x]));
-  return outlets.map((outlet) => ({
-    id: outlet.id,
-    outlet: `${outlet.code} · ${outlet.name}`,
-    distributor: outlet.distributor.name,
-    route: outlet.route?.name ?? null,
-    latitude: outlet.latitude === null ? null : num(outlet.latitude),
-    longitude: outlet.longitude === null ? null : num(outlet.longitude),
-    visits: v.get(outlet.id)?._count._all ?? 0,
-    lastVisit: v.get(outlet.id)?._max.visitedAt?.toISOString().slice(0, 16).replace("T", " ") ?? null,
-    orders: o.get(outlet.id)?._count._all ?? 0,
-    orderValue: num(o.get(outlet.id)?._sum.total),
-    lastOrder: o.get(outlet.id)?._max.orderDate ? fromDbDate(o.get(outlet.id)!._max.orderDate!) : null,
+
+  const orderValue = new Map<string, number>();
+  for (const o of orders) orderValue.set(o.outletId, (orderValue.get(o.outletId) ?? 0) + num(o.total));
+  const visited = new Set(events.filter((e) => e.kind === "VISIT" && e.outletId).map((e) => e.outletId!));
+  const ids = [...new Set([...areaOutlets.map((o) => o.id), ...visited, ...orderValue.keys()])];
+  const outletRows = ids.length
+    ? await db().rtmOutlet.findMany({ where: { id: { in: ids } }, select: { id: true, code: true, name: true, address: true, latitude: true, longitude: true }, orderBy: { code: "asc" } })
+    : [];
+  const statusOf = (id: string): OutletDayStatus => (orderValue.has(id) ? "ORDER" : visited.has(id) ? "NO_ORDER" : "PENDING");
+  const outlets = outletRows.map((o) => ({
+    id: o.id,
+    code: o.code,
+    name: o.name,
+    address: o.address,
+    latitude: o.latitude === null ? null : num(o.latitude),
+    longitude: o.longitude === null ? null : num(o.longitude),
+    status: statusOf(o.id),
+    orderValue: orderValue.get(o.id) ?? 0,
   }));
+
+  const activity = events.map((e) => ({
+    id: e.id,
+    kind: e.kind,
+    at: e.visitedAt.toISOString(),
+    outlet: e.outlet ? `${e.outlet.code} · ${e.outlet.name}` : null,
+    status: e.kind === "VISIT" && e.outletId ? statusOf(e.outletId) : null,
+    latitude: e.latitude === null ? null : num(e.latitude),
+    longitude: e.longitude === null ? null : num(e.longitude),
+    remarks: e.remarks,
+  }));
+  const path = activity.filter((a): a is typeof a & { latitude: number; longitude: number } => a.latitude !== null && a.longitude !== null);
+  let km = 0;
+  for (let i = 1; i < path.length; i++) km += haversineKm(path[i - 1], path[i]);
+  const start = path[0];
+
+  return {
+    sr: { id: sr.id, name: sr.name },
+    date,
+    start: start ? { at: start.at, latitude: start.latitude, longitude: start.longitude, label: start.outlet ?? (start.kind === "CHECK_IN" ? "Check-in" : "First activity") } : null,
+    totalKm: path.length > 1 ? Math.round(km * 100) / 100 : null,
+    counts: {
+      visited: visited.size,
+      order: outlets.filter((o) => o.status === "ORDER").length,
+      noOrder: outlets.filter((o) => o.status === "NO_ORDER").length,
+      pending: outlets.filter((o) => o.status === "PENDING").length,
+      total: outlets.length,
+    },
+    activity,
+    path,
+    outlets,
+  };
 }
 
 /**

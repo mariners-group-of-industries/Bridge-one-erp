@@ -43,7 +43,7 @@ beforeEach(async () => {
   officeId = (await createOffice(adminActor, unitId, officeInput)).id;
 });
 
-/** National → Region → Territory chain; returns the node ids. */
+/** National → Division → Territory chain; returns the node ids. */
 async function chain() {
   const national = await createNode(adminActor, { businessUnitId: unitId, parentId: "", code: "BD", name: "Bangladesh" });
   const region = await createNode(adminActor, { businessUnitId: unitId, parentId: national.id, code: "R-DHK", name: "Dhaka Region" });
@@ -61,7 +61,7 @@ async function workbook(rows: (string | number)[][]) {
 describe("sales territory", () => {
   it("seeds the default layers and builds a tree one level at a time", async () => {
     const empty = await getTree(adminActor);
-    expect(empty.layers.map((l) => l.name)).toEqual(["National", "Region", "Territory", "Base Point", "Route", "Market"]);
+    expect(empty.layers.map((l) => l.name)).toEqual(["National", "Division", "Territory", "Base Point", "Route", "Market"]);
     const ids = await chain();
     const tree = await getTree(adminActor, unitId);
     expect(tree.nodes.map((n) => [n.code, n.level])).toEqual(expect.arrayContaining([["BD", 1], ["R-DHK", 2], ["T-SAV", 3]]));
@@ -121,9 +121,9 @@ describe("sales territory", () => {
     const ids = await chain();
     const first = await createNode(adminActor, { businessUnitId: unitId, parentId: ids.national, name: "Khulna Region" });
     const second = await createNode(adminActor, { businessUnitId: unitId, parentId: ids.national, code: "", name: "Rajshahi Region" });
-    // "R-DHK" already sits on the Region layer, so numbering starts at 2.
-    expect([first.code, second.code]).toEqual(["REG-002", "REG-003"]);
-    expect(await updateNode(adminActor, first.id, { code: "", name: "Khulna" })).toMatchObject({ code: "REG-002", name: "Khulna" });
+    // "R-DHK" already sits on the Division layer, so numbering starts at 2.
+    expect([first.code, second.code]).toEqual(["DIV-002", "DIV-003"]);
+    expect(await updateNode(adminActor, first.id, { code: "", name: "Khulna" })).toMatchObject({ code: "DIV-002", name: "Khulna" });
   });
 
   it("lists territory-wise customers including everything below, page by page", async () => {
@@ -180,7 +180,7 @@ describe("sales territory", () => {
       adminActor,
       unitId,
       await workbook([
-        ["National Code", "National Name", "Region Code", "Region Name", "Territory Code", "Territory Name"],
+        ["National Code", "National Name", "Division Code", "Division Name", "Territory Code", "Territory Name"],
         ["BD", "Bangladesh", "R-CTG", "Chattogram Region", "T-PAT", "Patiya"],
         ["BD", "Bangladesh", "R-CTG", "Chattogram Region", "T-BOA", "Boalkhali"],
       ]),
