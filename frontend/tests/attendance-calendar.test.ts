@@ -54,7 +54,7 @@ describe("calendar assign → attendance", () => {
     expect(await loadCalendarDays([rahimId], "2026-10-01", "2026-10-31")).toEqual({ [rahimId]: days });
 
     // A code that is not in Calendar Setup for the office: nothing is saved.
-    await expect(saveCalendarDays(adminActor, { from: "2026-10-27", to: "2026-10-27", assignments: { [rahimId]: { "2026-10-27": "ZZ" } } })).rejects.toThrow(/E-1: ZZ/);
+    await expect(saveCalendarDays(adminActor, { from: "2026-10-27", to: "2026-10-27", assignments: { [rahimId]: { "2026-10-27": "ZZ" } } })).rejects.toThrow(/E-1 (.+) has no "ZZ"/);
     expect((await loadCalendarDays([rahimId], "2026-10-27", "2026-10-27"))[rahimId]["2026-10-27"]).toBe("G");
 
     // Codes are case-sensitive: "g" is not "G".
