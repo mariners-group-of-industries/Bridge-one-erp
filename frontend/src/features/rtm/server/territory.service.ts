@@ -43,7 +43,7 @@ export interface SalesForceOption {
   nodeIds: string[];
 }
 
-/** Every layer of the tree in level order (National › Region › … › Market), for dynamic filters. */
+/** Every layer of the tree in level order (National › Division › … › Market), for dynamic filters. */
 export interface TerritoryLayerOption {
   id: string;
   name: string;
